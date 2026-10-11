@@ -60,9 +60,9 @@ public class HkEngine {
     }
 
     /**
-     * 搜索（单页内置搜索用）。
+     * 搜索（单页内置搜索用）。8.83 同款：返回独立 SearchResult。
      */
-    public List<HkItem> search(String keyword, int page) {
+    public List<SearchResult> search(String keyword, int page) {
         try {
             rule.validate();
             if (!rule.hasSearch()) return new ArrayList<>();

@@ -65,6 +65,7 @@ import com.fongmi.android.tv.api.hk.HkLoading;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
+import com.fongmi.android.tv.api.hk.SearchResult;
 import com.fongmi.android.tv.databinding.ActivityHkBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -81,6 +82,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -190,7 +192,10 @@ public class HkPageActivity extends BaseActivity {
     private final Map<String, Integer> scrollMem = new HashMap<>();
 
     private VideoAdapter searchAdapter;
-    private final List<HkItem> searchResults = new ArrayList<>();
+    private final List<SearchResult> searchResults = new ArrayList<>();
+    /** 跨小程序搜索的结果来源标注（SearchResult 保持 8.83 原版纯净，来源放外部映射）。 */
+    private final Map<SearchResult, String> searchSrcRules =
+            Collections.synchronizedMap(new IdentityHashMap<>());
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
@@ -2813,6 +2818,7 @@ public class HkPageActivity extends BaseActivity {
         searchPage = 1;
         searchNoMore = false;
         searchResults.clear();
+        searchSrcRules.clear();
         searchAdapter.notifyDataSetChanged();
         binding.etKeyword.setText(kw);
         binding.etKeyword.setHint(searchHint());
@@ -3278,6 +3284,7 @@ public class HkPageActivity extends BaseActivity {
         searchPage = 1;
         searchNoMore = false;
         searchResults.clear();
+        searchSrcRules.clear();
         searchAdapter.notifyDataSetChanged();
         binding.etKeyword.setText("");
         // 小程序内搜索：hint 带上规则名，明确作用域（之前通用 hint 像全局搜索）
@@ -3379,6 +3386,7 @@ public class HkPageActivity extends BaseActivity {
         binding.rvSearchResults.setVisibility(View.GONE);
         binding.tvSearchEmpty.setVisibility(View.VISIBLE);
         searchResults.clear();
+        searchSrcRules.clear();
         searchAdapter.notifyDataSetChanged();
         if (kw.isEmpty()) {
             binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
@@ -3403,7 +3411,7 @@ public class HkPageActivity extends BaseActivity {
             ThreadPoolExecutor pool = new ThreadPoolExecutor(poolSize, poolSize, 10L,
                     TimeUnit.SECONDS, new LinkedBlockingQueue<>(256));
             CountDownLatch latch = new CountDownLatch(rules.size());
-            List<HkItem> aggregated = Collections.synchronizedList(new ArrayList<>());
+            List<SearchResult> aggregated = Collections.synchronizedList(new ArrayList<>());
             for (com.fongmi.android.tv.api.hk.HkRule rule : rules) {
                 final com.fongmi.android.tv.api.hk.HkRule r = rule;
                 pool.execute(() -> {
@@ -3411,13 +3419,13 @@ public class HkPageActivity extends BaseActivity {
                         // 每个规则独立 router，避免与当前页面的 router 互相干扰
                         com.fongmi.android.tv.api.hk.HkRouter router =
                                 new com.fongmi.android.tv.api.hk.HkRouter(r);
-                        List<HkItem> list = router.search(keywordFinal, 1);
+                        List<SearchResult> list = router.search(keywordFinal, 1);
                         if (list != null) {
-                            for (HkItem it : list) {
-                                if (it == null) continue;
-                                // 标注来源小程序，供展示分组与点击切换
-                                it.getExtra().put("_srcRule", r.getTitle());
-                                aggregated.add(it);
+                            for (SearchResult sr : list) {
+                                if (sr == null) continue;
+                                // 标注来源小程序，供展示分组与点击切换（SearchResult 保持 8.83 原版纯净，来源放外部映射）
+                                if (gen == crossSearchGen.get()) searchSrcRules.put(sr, r.getTitle());
+                                aggregated.add(sr);
                             }
                         }
                     } catch (Throwable ignored) {
@@ -3436,10 +3444,12 @@ public class HkPageActivity extends BaseActivity {
                 if (!pool.isShutdown()) pool.shutdownNow();
             } catch (Throwable ignored) {
             }
-            final List<HkItem> result = new ArrayList<>(aggregated);
+            final List<SearchResult> result = new ArrayList<>(aggregated);
             App.post(() -> {
                 if (gen != crossSearchGen.get()) return; // 已被新搜索取代
                 searchResults.clear();
+                // 注意：不要在这里清 searchSrcRules——worker 线程刚把来源标注写进去，
+                // 清掉会导致"【来源】"后缀和点击切换丢失。搜索开始时已清过。
                 searchResults.addAll(result);
                 searchAdapter.notifyDataSetChanged();
                 if (result.isEmpty()) {
@@ -3460,6 +3470,7 @@ public class HkPageActivity extends BaseActivity {
         searchPage = 1;
         searchNoMore = false;
         searchResults.clear();
+        searchSrcRules.clear();
         searchAdapter.notifyDataSetChanged();
         binding.tvSearchEmpty.setVisibility(View.GONE);
         // 空态文案带上作用域，避免"无相关结果"被误读为全局无结果
@@ -3476,7 +3487,7 @@ public class HkPageActivity extends BaseActivity {
         final int p = searchPage;
         final String kw = keyword;
         new Thread(() -> {
-            List<HkItem> list;
+            List<SearchResult> list;
             try {
                 list = getRouter().search(kw, p);
                 // 记录搜索实际抓取 URL：搜索结果图 Referer 用
@@ -3492,7 +3503,7 @@ public class HkPageActivity extends BaseActivity {
             } catch (Throwable e) {
                 list = new ArrayList<>();
             }
-            final List<HkItem> result = list;
+            final List<SearchResult> result = list;
             App.post(() -> {
                 searchLoading = false;
                 if (result.isEmpty()) {
@@ -4070,11 +4081,11 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.Holder> {
-        private final List<HkItem> items;
+        private final List<SearchResult> items;
         private final boolean fromContent;
         private final int imgHeight;
 
-        VideoAdapter(List<HkItem> items, boolean fromContent) {
+        VideoAdapter(List<SearchResult> items, boolean fromContent) {
             this.items = items;
             this.fromContent = fromContent;
             // 8.83 item_movie_tools：封面容器固定 150dp
@@ -4112,23 +4123,24 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
-            HkItem item = items.get(position);
-            h.title.setText(item.getTitle());
+            SearchResult sr = items.get(position);
+            h.title.setText(sr.getTitle());
             // 跨小程序搜索结果：在 desc 前缀标注来源小程序
-            String srcRule = item.getExtra("_srcRule");
-            String desc = item.getDesc() == null ? "" : item.getDesc();
+            String srcRule = searchSrcRules.get(sr);
+            String desc = sr.getDesc() == null ? "" : sr.getDesc();
             if (!TextUtils.isEmpty(srcRule)) {
                 desc = ("".equals(desc) ? "" : desc + "  ") + "【" + srcRule + "】";
             }
             h.desc.setText(desc);
             h.desc.setVisibility(TextUtils.isEmpty(desc) ? View.GONE : View.VISIBLE);
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
+            ImgUtil.load(sr.getTitle(), sr.getImg(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;
-                HkItem it = items.get(pos);
+                SearchResult s = items.get(pos);
+                HkItem it = HkItem.fromSearchResult(s);
                 // 跨搜索结果：先切到来源小程序，再走正常详情流程
-                String itSrc = it.getExtra("_srcRule");
+                String itSrc = searchSrcRules.get(s);
                 if (!TextUtils.isEmpty(itSrc)
                         && (currentRule == null || !itSrc.equals(currentRule.getTitle()))) {
                     com.fongmi.android.tv.api.hk.HkRule target =

@@ -77,22 +77,24 @@ public class HkSelector {
     /**
      * 解析搜索列表：searchFind 6 段 = 列表;标题;链接;描述;详情;图片。
      * 第 5 段"详情"无处可放，内容并入 desc（M1 约定）。
+     * 8.83 同款：返回独立 SearchResult，type 硬编码 "video"。
      */
-    public List<HkItem> parseSearch(String html, String searchFind, String baseUrl) {
-        List<HkItem> result = new ArrayList<>();
+    public List<SearchResult> parseSearch(String html, String searchFind, String baseUrl) {
+        List<SearchResult> result = new ArrayList<>();
         if (html == null || searchFind == null || isJsRule(searchFind)) return result;
         String[] seg = splitSegments(searchFind, 6);
         List<String> items = evalList(html, seg[0]);
         for (String itemHtml : items) {
-            HkItem it = new HkItem();
-            it.setTitle(evalField(itemHtml, seg[1], baseUrl));
-            it.setUrl(evalField(itemHtml, seg[2], baseUrl));
+            SearchResult sr = new SearchResult();
+            sr.setTitle(evalField(itemHtml, seg[1], baseUrl));
+            sr.setUrl(evalField(itemHtml, seg[2], baseUrl));
             String desc = evalField(itemHtml, seg[3], baseUrl);
             String detail = evalField(itemHtml, seg[4], baseUrl);
             if (!detail.isEmpty()) desc = desc.isEmpty() ? detail : desc + " " + detail;
-            it.setDesc(desc);
-            it.setPic(evalField(itemHtml, seg[5], baseUrl));
-            if (!it.getTitle().isEmpty() || !it.getUrl().isEmpty()) result.add(it);
+            sr.setDesc(desc);
+            sr.setImg(evalField(itemHtml, seg[5], baseUrl));
+            sr.setType("video");
+            if (!sr.getTitle().isEmpty() || !sr.getUrl().isEmpty()) result.add(sr);
         }
         return result;
     }

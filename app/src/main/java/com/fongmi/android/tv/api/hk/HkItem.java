@@ -107,4 +107,18 @@ public class HkItem {
     public String toString() {
         return "HkItem{title='" + title + "', url='" + url + "', pic='" + pic + "', desc='" + desc + "'}";
     }
+
+    /**
+     * 搜索结果点击进详情/播放时转回通用条目（SearchResult 保持 8.83 原版纯净，转换放这边）。
+     */
+    public static HkItem fromSearchResult(SearchResult sr) {
+        HkItem it = new HkItem();
+        if (sr == null) return it;
+        it.setTitle(sr.getTitle());
+        it.setUrl(sr.getUrl());
+        it.setPic(sr.getImg());
+        it.setDesc(sr.getDesc());
+        it.setContent(sr.getContent());
+        return it;
+    }
 }

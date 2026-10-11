@@ -53,8 +53,8 @@ public class HkRouter {
         return engine.home(page, cls, area, year, sort);
     }
 
-    /** 单页内置搜索。 */
-    public List<HkItem> search(String keyword, int page) {
+    /** 单页内置搜索。8.83 同款：返回独立 SearchResult。 */
+    public List<SearchResult> search(String keyword, int page) {
         return engine.search(keyword, page);
     }
 

@@ -2581,14 +2581,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     /**
      * 执行搜索的 js: 规则，返回条目列表。
      */
-    public List<HkItem> parseSearch(String jsCode, String myUrl, String keyword) throws Exception {
+    public List<SearchResult> parseSearch(String jsCode, String myUrl, String keyword) throws Exception {
         return parseSearch(jsCode, myUrl, keyword, 1);
     }
 
     /**
-     * 执行搜索的 js: 规则，返回条目列表（带页码，注入 MY_PAGE）。
+     * 执行搜索的 js: 规则，返回搜索结果（带页码，注入 MY_PAGE）。
+     * 8.83 JSEngine.callbackSearchResult 同款：JS 结果按 title/url/desc/descMore/
+     * content/img/extra/type 映射为独立 SearchResult（type 硬编码 "video"）。
      */
-    public List<HkItem> parseSearch(String jsCode, String myUrl, String keyword, int page) throws Exception {
+    public List<SearchResult> parseSearch(String jsCode, String myUrl, String keyword, int page) throws Exception {
         return submit(() -> {
             results.clear();
             error = null;
@@ -2602,7 +2604,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 error = jsErrorMsg(e);
                 throw e;
             }
-            return drainResults();
+            return drainSearchResults();
         }).get();
     }
 
@@ -3196,6 +3198,38 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         List<HkItem> out = new ArrayList<>(results);
         results.clear();
         return out;
+    }
+
+    /**
+     * 搜索专用 drain：把收集到的 HkItem 按 8.83 callbackSearchResult 映射为
+     * 独立 SearchResult（title/url/desc/img/content/extra，type 硬编码 "video"）。
+     * 8.83 extra 语义：String 原样 / null 置 null / 其他 JSON.toJSONString。
+     */
+    private List<SearchResult> drainSearchResults() {
+        List<SearchResult> out = new ArrayList<>(results.size());
+        for (HkItem it : results) {
+            if (it == null) continue;
+            SearchResult sr = new SearchResult();
+            sr.setTitle(nz(it.getTitle()));
+            sr.setUrl(nz(it.getUrl()));
+            sr.setDesc(nz(it.getDesc()));
+            sr.setImg(nz(it.getPic()));
+            sr.setContent(nz(it.getContent()));
+            sr.setType("video");
+            if (it.getExtra() != null && !it.getExtra().isEmpty()) {
+                try {
+                    sr.setExtra(GSON.toJson(it.getExtra()));
+                } catch (Throwable ignored) {
+                }
+            }
+            out.add(sr);
+        }
+        results.clear();
+        return out;
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 
     /**

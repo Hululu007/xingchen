@@ -7,7 +7,6 @@ import android.util.Base64;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.quickjs.bean.Req;
-import com.fongmi.quickjs.utils.Connect;
 import com.fongmi.quickjs.utils.Crypto;
 import com.fongmi.quickjs.utils.Parser;
 import com.github.catvod.utils.Json;
@@ -1053,7 +1052,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                     f = new File(f, name);
                 }
                 if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                try (okhttp3.Response res = com.fongmi.quickjs.utils.Connect.to(url,
+                try (okhttp3.Response res = HkHttp.to(url,
                         com.fongmi.quickjs.bean.Req.objectFrom("{}")).execute()) {
                     if (res.isSuccessful() && res.body() != null) {
                         java.nio.file.Files.write(f.toPath(), res.body().bytes());
@@ -2344,7 +2343,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 }
             } catch (Throwable ignored) {
             }
-            try (okhttp3.Response res = com.fongmi.quickjs.utils.Connect.to(url,
+            try (okhttp3.Response res = HkHttp.to(url,
                     com.fongmi.quickjs.bean.Req.objectFrom(opt)).execute()) {
                 if (res.isSuccessful() && res.body() != null) {
                     java.nio.file.Files.write(f.toPath(), res.body().bytes());
@@ -3058,7 +3057,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             boolean withStatusCode = opt.contains("\"withStatusCode\":true") || opt.contains("\"withStatusCode\":1");
             boolean toHex = opt.contains("\"toHex\":true") || opt.contains("\"toHex\":1");
             boolean onlyHeaders = opt.contains("\"onlyHeaders\":true") || opt.contains("\"onlyHeaders\":1");
-            try (Response res = Connect.to(url, req).execute()) {
+            try (Response res = HkHttp.to(url, req).execute()) {
                 resCode = res.code();
                 lastUrl = url;
                 Map<String, String> headers = new HashMap<>();

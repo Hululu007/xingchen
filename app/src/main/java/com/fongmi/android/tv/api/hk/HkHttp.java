@@ -4,12 +4,16 @@ import android.content.Context;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.XingChenDoh;
+import com.fongmi.quickjs.bean.Req;
 import com.github.catvod.bean.Doh;
+import com.github.catvod.utils.Json;
+import com.google.common.net.HttpHeaders;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,8 +21,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import okhttp3.Call;
 import okhttp3.Dns;
+import okhttp3.FormBody;
+import okhttp3.Headers;
 import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -130,7 +139,9 @@ public class HkHttp {
      * - CookieJar 持久化
      * - 统一超时
      */
-    private static OkHttpClient client() {
+    // 8.83 HttpHelper.buildOkHttpClient 移植：公开供 HkJsRuntime 等调用方使用，
+    // 使海阔 JS 请求与 HkHttp 同走 DoH / CookieJar / 内容类型拦截器配置。
+    public static OkHttpClient client() {
         if (client == null) {
             synchronized (HkHttp.class) {
                 if (client == null) {
@@ -161,6 +172,51 @@ public class HkHttp {
             }
         }
         return client;
+    }
+
+    /**
+     * 构造带 Req 参数的请求 Call：请求头/请求体构建逻辑与 Connect.to 同构，
+     * 只是客户端换成 8.83 配置的 HkHttp.client()（DoH / CookieJar / 拦截器都生效）。
+     */
+    public static Call to(String url, Req req) {
+        return client().newCall(getRequest(url, req, Headers.of(req.getHeader())));
+    }
+
+    private static Request getRequest(String url, Req req, Headers headers) {
+        if (req.getMethod().equalsIgnoreCase("post")) {
+            return new Request.Builder().url(url).headers(headers).post(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
+        } else if (req.getMethod().equalsIgnoreCase("header")) {
+            return new Request.Builder().url(url).headers(headers).head().build();
+        } else {
+            return new Request.Builder().url(url).headers(headers).get().build();
+        }
+    }
+
+    private static RequestBody getPostBody(Req req, String contentType) {
+        if (req.getData() != null && "json".equals(req.getPostType())) return getJsonBody(req);
+        if (req.getData() != null && "form".equals(req.getPostType())) return getFormBody(req);
+        if (req.getData() != null && "form-data".equals(req.getPostType())) return getFormDataBody(req);
+        if (req.getBody() != null && contentType != null) return RequestBody.create(req.getBody(), MediaType.get(contentType));
+        return RequestBody.create(new byte[0]);
+    }
+
+    private static RequestBody getJsonBody(Req req) {
+        return RequestBody.create(req.getData().toString(), MediaType.get("application/json; charset=utf-8"));
+    }
+
+    private static RequestBody getFormBody(Req req) {
+        FormBody.Builder builder = new FormBody.Builder();
+        Map<String, String> params = Json.toMap(req.getData());
+        for (String key : params.keySet()) builder.add(key, params.get(key));
+        return builder.build();
+    }
+
+    private static RequestBody getFormDataBody(Req req) {
+        String boundary = "--dio-boundary-" + new SecureRandom().nextInt(42949) + new SecureRandom().nextInt(67296);
+        MultipartBody.Builder builder = new MultipartBody.Builder(boundary).setType(MultipartBody.FORM);
+        Map<String, String> params = Json.toMap(req.getData());
+        for (String key : params.keySet()) builder.addFormDataPart(key, params.get(key));
+        return builder.build();
     }
 
     /**

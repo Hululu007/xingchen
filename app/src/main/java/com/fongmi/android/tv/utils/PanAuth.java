@@ -19,6 +19,7 @@ public class PanAuth {
     private static final String KEY_115_VIP = "pan115_vip";
     private static final String KEY_QUARK_COOKIE = "panquark_cookie";
     private static final String KEY_QUARK_VIP = "panquark_vip";
+    private static final String KEY_PIKPAK_VIP = "panpikpak_vip";
 
     private static SharedPreferences prefs() {
         Context ctx = App.get();
@@ -140,6 +141,7 @@ public class PanAuth {
         int n = 0;
         if (is115LoggedIn()) n++;
         if (isQuarkLoggedIn()) n++;
+        if (isPikPakLoggedIn()) n++;
         if (n == 0) return "未登录";
         StringBuilder sb = new StringBuilder();
         if (is115LoggedIn()) sb.append("115");
@@ -147,8 +149,46 @@ public class PanAuth {
             if (sb.length() > 0) sb.append("、");
             sb.append("夸克");
         }
+        if (isPikPakLoggedIn()) {
+            if (sb.length() > 0) sb.append("、");
+            sb.append("PikPak");
+        }
         sb.append("已登录");
         return sb.toString();
+    }
+
+    // ---------- PikPak（会话由 DrivePikPak 经 CloudAccountStore 加密存储） ----------
+
+    public static boolean isPikPakLoggedIn() {
+        try {
+            return new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).isLogin();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static String getPikPakUserName() {
+        try {
+            return new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).getUserName();
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    public static void clearPikPak() {
+        try {
+            new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).logout();
+        } catch (Throwable ignored) {
+        }
+        prefs().edit().remove(KEY_PIKPAK_VIP).apply();
+    }
+
+    public static String getPikPakVip() {
+        return prefs().getString(KEY_PIKPAK_VIP, "");
+    }
+
+    public static void putPikPakVip(String vip) {
+        prefs().edit().putString(KEY_PIKPAK_VIP, vip == null ? "" : vip).apply();
     }
 
     private static String readAll(File f) throws Exception {

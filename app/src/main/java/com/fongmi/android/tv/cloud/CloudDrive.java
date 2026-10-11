@@ -43,4 +43,28 @@ public interface CloudDrive {
 
     /** 取播放地址（原画直链或 m3u8） */
     String getPlayUrl(CloudFile file) throws Exception;
+
+    /**
+     * 转存分享链接到自己网盘
+     * @param shareUrl 分享链接
+     * @param password 提取码（可空）
+     * @param toCid 目标目录 cid（"0"=根目录）
+     * @return 是否成功
+     */
+    default boolean saveShare(String shareUrl, String password, String toCid) throws Exception {
+        throw new Exception("当前网盘暂不支持分享转存");
+    }
+
+    /** 新建文件夹，返回新建的文件夹对象 */
+    default CloudFile createFolder(String parentId, String name) throws Exception {
+        throw new Exception("当前网盘暂不支持新建文件夹");
+    }
+
+    /**
+     * 存储容量摘要（如 "已用 12GB / 共 100GB"），供 UI 顶部显示
+     * 默认空字符串（未实现时 UI 只显示会员状态）
+     */
+    default String storageSummary() throws Exception {
+        return "";
+    }
 }

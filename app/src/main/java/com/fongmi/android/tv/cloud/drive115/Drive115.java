@@ -60,6 +60,12 @@ public class Drive115 implements CloudDrive {
                 .readTimeout(15, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
                 .build();
+        // 从加密存储恢复登录态（供文件浏览器等 UI 直接 new 即用）
+        try {
+            String c = com.fongmi.android.tv.utils.PanAuth.get115Cookie();
+            if (c != null && !c.isEmpty()) setCookie(c);
+        } catch (Throwable ignored) {
+        }
     }
 
     public void setCookie(String cookie) {
@@ -363,6 +369,48 @@ public class Drive115 implements CloudDrive {
             // 降级到 m3u8
             return m3u8Url(file.getPickCode());
         }
+    }
+
+    /**
+     * 转存分享链接（best-effort：端点来自 115driver 开源常量 + 115 web 常规流程，未经真机全验证）
+     * 分享链接形如 https://115.com/s/{share_code} 或带 #receive_code
+     */
+    @Override
+    public boolean saveShare(String shareUrl, String password, String toCid) throws Exception {
+        String url = shareUrl == null ? "" : shareUrl.trim();
+        if (url.isEmpty()) throw new Exception("分享链接是空的");
+        // 提取 share_code：取 /s/ 之后、?/# 之前的部分
+        String code = url;
+        int si = code.indexOf("/s/");
+        if (si >= 0) code = code.substring(si + 3);
+        int qi = code.indexOf('?');
+        if (qi >= 0) code = code.substring(0, qi);
+        int hi = code.indexOf('#');
+        String receiveCode = password == null ? "" : password.trim();
+        if (hi >= 0) {
+            if (receiveCode.isEmpty()) receiveCode = code.substring(hi + 1);
+            code = code.substring(0, hi);
+        }
+        code = code.trim();
+        if (code.isEmpty()) throw new Exception("解析不出分享码");
+        // 1) snap 取分享信息
+        Map<String, String> p = new HashMap<>();
+        p.put("share_code", code);
+        p.put("receive_code", receiveCode);
+        JSONObject snap = reqJson("https://webapi.115.com/share/snap", p, null, null, null);
+        if (!snap.optBoolean("state", false)) {
+            throw new Exception("获取分享信息失败：" + snap.optString("error", snap.optString("msg", "")));
+        }
+        // 2) receive 转存到 toCid
+        Map<String, String> form = new HashMap<>();
+        form.put("share_code", code);
+        form.put("receive_code", receiveCode);
+        form.put("cid", toCid == null ? "0" : toCid);
+        JSONObject d = reqJson("https://webapi.115.com/share/receive", null, form, null, null);
+        if (!d.optBoolean("state", false)) {
+            throw new Exception("转存失败：" + d.optString("error", d.optString("msg", "")));
+        }
+        return true;
     }
 
     // ---------- 二维码登录（对照 PY QrLogin） ----------

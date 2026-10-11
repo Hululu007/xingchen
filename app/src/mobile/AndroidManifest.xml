@@ -159,6 +159,11 @@
             android:screenOrientation="fullUser" />
 
         <activity
+            android:name=".ui.activity.CloudDriveActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
+        <activity
             android:name=".ui.activity.UiSettingsActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />

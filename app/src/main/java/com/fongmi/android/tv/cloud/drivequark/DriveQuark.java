@@ -1,0 +1,483 @@
+package com.fongmi.android.tv.cloud.drivequark;
+
+import android.text.TextUtils;
+
+import com.fongmi.android.tv.cloud.CloudDrive;
+import com.fongmi.android.tv.cloud.CloudFile;
+import com.fongmi.android.tv.cloud.CloudTask;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
+/**
+ * 夸克网盘原生客户端
+ * 来源：h1d3rone/quarkmanager（已验证）
+ */
+public class DriveQuark implements CloudDrive {
+
+    public static final String ID = "quark";
+
+    // 来源：h1d3rone/quarkmanager（已验证）
+    private static final String UA = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Core/1.94.225.400 QQBrowser/12.2.5544.400";
+    private static final String ORIGIN = "https://pan.quark.cn";
+    private static final String REFERER = "https://pan.quark.cn/";
+
+    private static final String BASE = "https://drive-pc.quark.cn/1/clouddrive";
+    private static final String API_SORT = BASE + "/file/sort";
+    private static final String API_DELETE = BASE + "/file/delete";
+    private static final String API_DOWNLOAD = BASE + "/file/download";
+    private static final String API_MEMBER = BASE + "/member";
+
+    // 二维码登录（来源：h1d3rone/quarkmanager，已验证）
+    private static final String API_QR_TOKEN = "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin";
+    private static final String API_QR_TICKET = "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken";
+    private static final String API_ACCOUNT_INFO = "https://pan.quark.cn/account/info";
+
+    private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+
+    private final OkHttpClient client;
+    private final Map<String, String> jar = new LinkedHashMap<>();
+    private String userName = "";
+
+    public DriveQuark() {
+        client = new OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .build();
+        // 从加密存储恢复登录态（供文件浏览器等 UI 直接 new 即用）
+        try {
+            String c = com.fongmi.android.tv.utils.PanAuth.getQuarkCookie();
+            if (c != null && !c.isEmpty()) setCookie(c);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 设置 Cookie（参考 Drive115 的 setCookie/getCookie 模式） */
+    public void setCookie(String cookie) {
+        jar.clear();
+        if (cookie != null) {
+            for (String c : cookie.split(";")) {
+                String kv = c.trim();
+                int eq = kv.indexOf('=');
+                if (eq > 0) jar.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim());
+            }
+        }
+    }
+
+    public String getCookie() {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : jar.entrySet()) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(e.getKey()).append("=").append(e.getValue());
+        }
+        return sb.toString();
+    }
+
+    // ---------- 底层请求 ----------
+
+    /** 默认 query 参数：每个 clouddrive 请求都带（来源：h1d3rone/quarkmanager） */
+    private static Map<String, String> defaultParams() {
+        Map<String, String> p = new HashMap<>();
+        p.put("pr", "ucpro");
+        p.put("fr", "pc");
+        p.put("uc_param_str", "");
+        return p;
+    }
+
+    private void absorbCookies(List<String> setCookies) {
+        if (setCookies == null) return;
+        for (String h : setCookies) {
+            String kv = h.split(";", 2)[0].trim();
+            int eq = kv.indexOf('=');
+            if (eq > 0) jar.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim());
+        }
+    }
+
+    /** 只吸收 quark.cn 域的 cookie（扫码登录 account/info 用） */
+    private void absorbQuarkCookies(Response resp) {
+        for (String h : resp.headers("Set-Cookie")) {
+            Matcher m = Pattern.compile("domain=([^;\\s]+)", Pattern.CASE_INSENSITIVE).matcher(h);
+            if (m.find() && !m.group(1).toLowerCase().contains("quark.cn")) continue;
+            String kv = h.split(";", 2)[0].trim();
+            int eq = kv.indexOf('=');
+            if (eq > 0) jar.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim());
+        }
+    }
+
+    private void addHeaders(Request.Builder rb) {
+        rb.header("User-Agent", UA);
+        rb.header("Origin", ORIGIN);
+        rb.header("Referer", REFERER);
+        rb.header("Accept", "application/json, text/plain, */*");
+        String ck = getCookie();
+        if (!TextUtils.isEmpty(ck)) rb.header("Cookie", ck);
+    }
+
+    /** clouddrive 接口 GET（带默认 params） */
+    private JSONObject reqJsonGet(String url, Map<String, String> params) throws Exception {
+        HttpUrl.Builder ub = HttpUrl.parse(url).newBuilder();
+        if (params != null) {
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                ub.addQueryParameter(e.getKey(), e.getValue());
+            }
+        }
+        Request.Builder rb = new Request.Builder().url(ub.build());
+        addHeaders(rb);
+        rb.get();
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            absorbCookies(resp.headers("Set-Cookie"));
+            String txt = resp.body() != null ? resp.body().string() : "";
+            return new JSONObject(txt.trim());
+        }
+    }
+
+    /** clouddrive 接口 JSON POST（带默认 params） */
+    private JSONObject reqJsonPost(String url, JSONObject body) throws Exception {
+        HttpUrl.Builder ub = HttpUrl.parse(url).newBuilder();
+        for (Map.Entry<String, String> e : defaultParams().entrySet()) {
+            ub.addQueryParameter(e.getKey(), e.getValue());
+        }
+        Request.Builder rb = new Request.Builder().url(ub.build());
+        addHeaders(rb);
+        rb.post(RequestBody.create(body.toString(), JSON_MEDIA));
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            absorbCookies(resp.headers("Set-Cookie"));
+            String txt = resp.body() != null ? resp.body().string() : "";
+            return new JSONObject(txt.trim());
+        }
+    }
+
+    /** 裸 GET（uop.quark.cn 二维码接口用，不带 clouddrive 默认 params） */
+    private JSONObject reqRawJson(String url) throws Exception {
+        Request.Builder rb = new Request.Builder().url(url);
+        rb.header("User-Agent", UA);
+        rb.header("Referer", REFERER);
+        rb.header("Accept", "application/json, text/plain, */*");
+        String ck = getCookie();
+        if (!TextUtils.isEmpty(ck)) rb.header("Cookie", ck);
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            absorbCookies(resp.headers("Set-Cookie"));
+            String txt = resp.body() != null ? resp.body().string() : "";
+            return new JSONObject(txt.trim());
+        }
+    }
+
+    private static String q(String s) {
+        try {
+            return URLEncoder.encode(s == null ? "" : s, "UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    // ---------- CloudDrive 接口 ----------
+
+    @Override
+    public String getId() {
+        return ID;
+    }
+
+    @Override
+    public String getName() {
+        return "夸克网盘";
+    }
+
+    @Override
+    public boolean isLogin() {
+        return !TextUtils.isEmpty(getCookie());
+    }
+
+    @Override
+    public String getUserName() {
+        return userName;
+    }
+
+    @Override
+    public void logout() {
+        jar.clear();
+        userName = "";
+    }
+
+    /** 登录态校验（来源：h1d3rone/quarkmanager） */
+    public boolean check() {
+        try {
+            return storageInfo().optInt("status", -1) == 200;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 存储容量信息（来源：h1d3rone/quarkmanager），UI 用来显示容量 */
+    public JSONObject storageInfo() throws Exception {
+        return reqJsonGet(API_MEMBER, defaultParams());
+    }
+
+    /** 容量摘要（防御性解析 /member 响应，字段形态未知时返回空） */
+    @Override
+    public String storageSummary() throws Exception {
+        try {
+            JSONObject d = storageInfo().optJSONObject("data");
+            if (d == null) return "";
+            long used = pickLong(d, "used_capacity", "used", "use_cap");
+            long total = pickLong(d, "total_capacity", "total", "total_cap");
+            if (total <= 0) return "";
+            return "已用 " + formatSize(used) + " / 共 " + formatSize(total);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static long pickLong(JSONObject o, String... keys) {
+        for (String k : keys) {
+            long v = o.optLong(k, -1);
+            if (v >= 0) return v;
+        }
+        return 0;
+    }
+
+    private static String formatSize(long size) {
+        if (size < 1024) return size + "B";
+        int z = (63 - Long.numberOfLeadingZeros(size)) / 10;
+        return String.format(java.util.Locale.US, "%.1f%sB", (double) size / (1L << (z * 10)), " KMGTPE".charAt(z));
+    }
+
+    /**
+     * 文件列表（来源：h1d3rone/quarkmanager，已验证）
+     * GET file/sort，响应 {status:200, data:{list:[...]}, metadata:{...}}
+     * 文件字段：fid, file_name, dir(bool), size, file_type(0=文件夹)；cid="0" 为根目录
+     */
+    @Override
+    public List<CloudFile> listDir(String cid, int offset, int limit) throws Exception {
+        if (limit <= 0) limit = 50;
+        int page = offset / limit + 1;
+        Map<String, String> p = defaultParams();
+        p.put("pdir_fid", TextUtils.isEmpty(cid) ? "0" : cid);
+        p.put("_page", String.valueOf(page));
+        p.put("_size", String.valueOf(limit));
+        p.put("_sort", "file_type:asc,updated_at:desc");
+        JSONObject d = reqJsonGet(API_SORT, p);
+        if (d.optInt("status", -1) != 200) {
+            throw new Exception("取文件列表失败：" + d.optString("message", d.optString("msg", "status=" + d.optInt("status", -1))));
+        }
+        List<CloudFile> files = new ArrayList<>();
+        JSONObject data = d.optJSONObject("data");
+        JSONArray arr = data != null ? data.optJSONArray("list") : null;
+        if (arr == null) return files;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            CloudFile f = new CloudFile();
+            // dir 为 bool；file_type=0 也是文件夹，兜底
+            f.setDir(o.optBoolean("dir", o.optInt("file_type", 1) == 0));
+            f.setId(o.optString("fid"));
+            f.setName(o.optString("file_name"));
+            f.setSize(o.optLong("size", 0));
+            f.setParentCid(TextUtils.isEmpty(cid) ? "0" : cid);
+            files.add(f);
+        }
+        return files;
+    }
+
+    /** 文件总数：从 file/sort 的 metadata 读（来源：h1d3rone/quarkmanager） */
+    @Override
+    public int getTotal(String cid) throws Exception {
+        Map<String, String> p = defaultParams();
+        p.put("pdir_fid", TextUtils.isEmpty(cid) ? "0" : cid);
+        p.put("_page", "1");
+        p.put("_size", "1");
+        p.put("_sort", "file_type:asc,updated_at:desc");
+        JSONObject d = reqJsonGet(API_SORT, p);
+        JSONObject meta = d.optJSONObject("metadata");
+        if (meta == null) {
+            JSONObject data = d.optJSONObject("data");
+            meta = data != null ? data.optJSONObject("metadata") : null;
+        }
+        if (meta != null) {
+            if (meta.has("_total")) return meta.optInt("_total", -1);
+            if (meta.has("total")) return meta.optInt("total", -1);
+            if (meta.has("count")) return meta.optInt("count", -1);
+        }
+        return -1;
+    }
+
+    /** 删除（来源：h1d3rone/quarkmanager）：POST file/delete，body {action_type:2, filelist:[ids], exclude_fids:[]} */
+    @Override
+    public boolean delete(List<String> ids, boolean isDir) throws Exception {
+        if (ids == null || ids.isEmpty()) throw new Exception("没有要删除的文件");
+        JSONObject body = new JSONObject();
+        body.put("action_type", 2);
+        body.put("filelist", new JSONArray(ids));
+        body.put("exclude_fids", new JSONArray());
+        JSONObject d = reqJsonPost(API_DELETE, body);
+        return d.optInt("status", -1) == 200;
+    }
+
+    /** 夸克磁力离线接口未验证，暂不支持 */
+    @Override
+    public boolean offlineDownload(String url, String cid) throws Exception {
+        throw new Exception("夸克暂不支持磁力离线，请用115/PikPak");
+    }
+
+    /** 夸克无离线任务管理，返回空列表 */
+    @Override
+    public List<CloudTask> taskList(int page) throws Exception {
+        return new ArrayList<>();
+    }
+
+    /** 夸克无离线任务管理 */
+    @Override
+    public boolean taskDelete(List<String> hashes) throws Exception {
+        throw new Exception("夸克暂不支持离线任务管理");
+    }
+
+    /**
+     * 取播放直链（来源：h1d3rone/quarkmanager，已验证）
+     * POST file/download，body {fids:[fid]}，从 data 取 download_url
+     */
+    @Override
+    public String getPlayUrl(CloudFile file) throws Exception {
+        if (file == null || TextUtils.isEmpty(file.getId())) {
+            throw new Exception("文件 id 为空");
+        }
+        JSONObject body = new JSONObject();
+        JSONArray fids = new JSONArray();
+        fids.put(file.getId());
+        body.put("fids", fids);
+        JSONObject d = reqJsonPost(API_DOWNLOAD, body);
+        if (d.optInt("status", -1) != 200) {
+            throw new Exception("取下载地址失败：" + d.optString("message", d.optString("msg", "")));
+        }
+        String url = parseDownloadUrl(d);
+        if (TextUtils.isEmpty(url)) throw new Exception("取下载地址失败：响应里没有 download_url");
+        return url;
+    }
+
+    /** 防御性解析 download_url：data[0].download_url / data.list[0].download_url / data.download_url */
+    private static String parseDownloadUrl(JSONObject d) {
+        JSONObject data = d.optJSONObject("data");
+        if (data != null) {
+            JSONArray list = data.optJSONArray("list");
+            if (list != null && list.length() > 0) {
+                String u = list.optJSONObject(0).optString("download_url");
+                if (!TextUtils.isEmpty(u)) return u;
+            }
+            String u = data.optString("download_url");
+            if (!TextUtils.isEmpty(u)) return u;
+        }
+        JSONArray arr = d.optJSONArray("data");
+        if (arr != null && arr.length() > 0) {
+            String u = arr.optJSONObject(0).optString("download_url");
+            if (!TextUtils.isEmpty(u)) return u;
+        }
+        return "";
+    }
+
+    /**
+     * 分享转存（基础版本，未完全验证）
+     * 只解析分享链接提取 pwd_id（pan.quark.cn/s/{pwd_id}）；转存流程（stoken 换取 + file/save）尚未打通
+     */
+    public boolean saveShare(String shareUrl, String password, String toCid) throws Exception {
+        String pwdId = null;
+        if (!TextUtils.isEmpty(shareUrl)) {
+            Matcher m = Pattern.compile("pan\\.quark\\.cn/s/([A-Za-z0-9]+)").matcher(shareUrl);
+            if (m.find()) pwdId = m.group(1);
+        }
+        if (TextUtils.isEmpty(pwdId)) throw new Exception("解析分享链接失败：拿不到 pwd_id");
+        // 未完全验证：暂不支持
+        throw new Exception("夸克分享转存未完全验证，暂不支持");
+    }
+
+    // ---------- 二维码登录（来源：h1d3rone/quarkmanager，已验证；参考 Drive115 的 QrSession 模式） ----------
+
+    public static class QrSession {
+        public String token;
+        public String qrUrl;
+        public String ticket;
+        public long deadline;
+    }
+
+    /** 开始二维码登录：拿 token，拼出二维码 URL */
+    public QrSession qrStart() throws Exception {
+        String url = API_QR_TOKEN + "?client_id=532&v=1.2&request_id=" + UUID.randomUUID().toString();
+        JSONObject d = reqRawJson(url);
+        JSONObject data = d.optJSONObject("data");
+        JSONObject members = data != null ? data.optJSONObject("members") : null;
+        String token = members != null ? members.optString("token") : "";
+        if (TextUtils.isEmpty(token)) {
+            throw new Exception("拿二维码失败：" + d.optString("message", d.optString("msg", "未知错误")));
+        }
+        QrSession s = new QrSession();
+        s.token = token;
+        s.qrUrl = "https://su.quark.cn/4_eMHBJ?token=" + q(token)
+                + "&client_id=532&ssb=weblogin&uc_param_str="
+                + "&uc_biz_str=S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0";
+        s.deadline = System.currentTimeMillis() + 300000;
+        return s;
+    }
+
+    /**
+     * 轮询扫码状态
+     * @return 2=扫码成功（拿到 service_ticket） 0=等待中 -1=失败/过期
+     */
+    public int qrPoll(QrSession s) throws Exception {
+        String url = API_QR_TICKET + "?client_id=532&v=1.2&token=" + q(s.token)
+                + "&request_id=" + UUID.randomUUID().toString();
+        JSONObject d = reqRawJson(url);
+        int status = d.optInt("status", -1);
+        if (status == 2000000) {
+            JSONObject data = d.optJSONObject("data");
+            JSONObject members = data != null ? data.optJSONObject("members") : null;
+            String ticket = members != null ? members.optString("service_ticket") : "";
+            if (!TextUtils.isEmpty(ticket)) {
+                s.ticket = ticket;
+                return 2;
+            }
+            return 0;
+        }
+        if (status == 50004002 || status == 50004003 || status == 50004004) return -1;
+        return 0;
+    }
+
+    /** 扫码确认后换取 cookie：GET pan.quark.cn/account/info?st={ticket}&lw=scan */
+    public boolean qrLogin(QrSession s) throws Exception {
+        if (TextUtils.isEmpty(s.ticket)) {
+            if (qrPoll(s) != 2) return false;
+        }
+        String url = API_ACCOUNT_INFO + "?st=" + q(s.ticket) + "&lw=scan";
+        Request.Builder rb = new Request.Builder().url(url);
+        rb.header("User-Agent", UA);
+        rb.header("Referer", REFERER);
+        rb.header("Accept", "application/json, text/plain, */*");
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            absorbQuarkCookies(resp);
+            String body = resp.body() != null ? resp.body().string() : "";
+            try {
+                JSONObject d = new JSONObject(body.trim());
+                JSONObject data = d.optJSONObject("data");
+                if (data != null) userName = data.optString("nickname", data.optString("name", userName));
+            } catch (Exception ignored) {
+            }
+        }
+        return !TextUtils.isEmpty(getCookie());
+    }
+}

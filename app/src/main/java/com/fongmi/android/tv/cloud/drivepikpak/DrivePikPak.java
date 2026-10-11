@@ -146,6 +146,8 @@ public class DrivePikPak implements CloudDrive {
         rb.header("X-Device-ID", deviceId);
         rb.header("X-Client-Version", CLIENT_VERSION);
         rb.header("X-Package-Name", PACKAGE_NAME);
+        // 分享读写接口要求该头（来源：pikpak-kotlin ShareEndpoint，官方 web 客户端每个请求都带）
+        rb.header("X-Client-Id", CLIENT_ID);
         if (auth) {
             ensureToken();
             rb.header("Authorization", "Bearer " + accessToken);
@@ -360,6 +362,8 @@ public class DrivePikPak implements CloudDrive {
             f.setSize(o.optLong("size", 0));
             f.setSha1(o.optString("hash"));
             f.setParentCid(o.optString("parent_id", cid));
+            // 缩略图（来源：pikpak-kotlin Models.kt FileStat.thumbnail_link）
+            f.setThumbUrl(o.optString("thumbnail_link", ""));
             // pickCode 字段复用存 mime_type（播放时用 file_id 取直链）
             f.setPickCode(o.optString("mime_type"));
             files.add(f);
@@ -557,5 +561,66 @@ public class DrivePikPak implements CloudDrive {
             if (ref != null) fid = ref.optString("id");
         }
         return fid;
+    }
+
+    /**
+     * 转存 PikPak 分享链接（来源：pikpak-kotlin ShareEndpoint.kt，MIT，2026-09-24 经 piko 实测验证）
+     * 流程：解析 shareId → GET /drive/v1/share 拿 pass_code_token → POST /drive/v1/share/restore → 轮询任务
+     */
+    @Override
+    public boolean saveShare(String shareUrl, String password, String toCid) throws Exception {
+        String url = shareUrl == null ? "" : shareUrl.trim();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^https?://(?:www\\.)?mypikpak\\.com/s/([A-Za-z0-9_-]+)")
+                .matcher(url);
+        if (!m.find()) throw new Exception("不是有效的 PikPak 分享链接（应为 mypikpak.com/s/…）");
+        String shareId = m.group(1);
+        String passCode = password == null ? "" : password.trim();
+        // 1) 打开分享，拿 pass_code_token（分享读写接口需 X-Client-Id 头，已在 api() 统一加）
+        JSONObject q = new JSONObject()
+                .put("share_id", shareId)
+                .put("limit", "100")
+                .put("thumbnail_size", "SIZE_SMALL");
+        if (!passCode.isEmpty()) q.put("pass_code", passCode);
+        JSONObject info = api("GET", "/drive/v1/share", q, null, true);
+        String status = info.optString("share_status");
+        if (!"OK".equals(status)) {
+            if ("PASS_CODE_EMPTY".equals(status)) throw new Exception("该分享需要提取码");
+            if ("PASS_CODE_ERROR".equals(status)) throw new Exception("提取码错误");
+            throw new Exception("分享不可用：" + status + " " + info.optString("share_status_text"));
+        }
+        String token = info.optString("pass_code_token");
+        JSONArray files = info.optJSONArray("files");
+        List<String> fileIds = new ArrayList<>();
+        if (files != null) {
+            for (int i = 0; i < files.length(); i++) {
+                JSONObject f = files.optJSONObject(i);
+                if (f != null && !TextUtils.isEmpty(f.optString("id"))) fileIds.add(f.optString("id"));
+            }
+        }
+        if (fileIds.isEmpty()) throw new Exception("分享为空或已失效");
+        // 2) restore 转存到 toCid（空=根目录）
+        JSONObject body = new JSONObject()
+                .put("share_id", shareId)
+                .put("pass_code_token", token)
+                .put("file_ids", new JSONArray(fileIds))
+                .put("ancestor_ids", new JSONArray())
+                .put("parent_id", toCid == null ? "" : toCid)
+                .put("specify_parent_id", true);
+        JSONObject r = api("POST", "/drive/v1/share/restore", null, body, true);
+        String rs = r.optString("share_status");
+        if (!rs.isEmpty() && !"OK".equals(rs)) {
+            throw new Exception("转存失败：" + r.optString("share_status_text", rs));
+        }
+        String taskId = r.optString("restore_task_id");
+        if (TextUtils.isEmpty(taskId)) return true;
+        // 3) 轮询任务（restore 任务秒级完成）
+        for (int i = 0; i < 30; i++) {
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            CloudTask t = getOfflineTask(taskId);
+            if (t.getStatus() == 2) return true;
+            if (t.getStatus() == 3) throw new Exception("转存失败：" + t.getStatusText());
+        }
+        throw new Exception("转存超时，请稍后在网盘中查看");
     }
 }

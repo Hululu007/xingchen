@@ -13,6 +13,7 @@ public class CloudFile {
     private String pickCode;    // pc
     private String sha1;        // sha
     private String parentCid;
+    private String thumbUrl;    // 缩略图直链（PikPak/夸克返回，115 可为空）
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -34,6 +35,9 @@ public class CloudFile {
 
     public String getParentCid() { return parentCid; }
     public void setParentCid(String parentCid) { this.parentCid = parentCid; }
+
+    public String getThumbUrl() { return thumbUrl; }
+    public void setThumbUrl(String thumbUrl) { this.thumbUrl = thumbUrl; }
 
     public boolean isVideo() {
         if (name == null) return false;

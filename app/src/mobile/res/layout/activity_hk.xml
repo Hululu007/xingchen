@@ -48,7 +48,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 -->
+                    <!-- 小程序列表顶栏：小程序 …… 右侧 搜索 | 排序 | 编辑 -->
                     <LinearLayout
                         android:id="@+id/top_bar_rules"
                         android:layout_width="match_parent"
@@ -66,11 +66,15 @@
                             android:textSize="20sp"
                             android:textStyle="bold" />
 
+                        <Space
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1" />
+
                         <ImageView
                             android:id="@+id/btn_search_rule"
                             android:layout_width="32dp"
                             android:layout_height="32dp"
-                            android:layout_marginStart="4dp"
                             android:contentDescription="搜索小程序"
                             android:padding="4dp"
                             android:src="@drawable/ic_action_search" />
@@ -79,6 +83,7 @@
                             android:id="@+id/btn_sort_rule"
                             android:layout_width="32dp"
                             android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
                             android:contentDescription="排序"
                             android:padding="4dp"
                             android:src="@drawable/ic_fab_filter"
@@ -89,7 +94,7 @@
                             android:id="@+id/btn_group_manage"
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
-                            android:layout_marginStart="4dp"
+                            android:layout_marginStart="8dp"
                             android:background="@drawable/hk_btn_glass"
                             android:gravity="center"
                             android:minWidth="64dp"
@@ -100,15 +105,11 @@
                             android:textSize="14sp"
                             android:visibility="gone" />
 
-                        <Space
-                            android:layout_width="0dp"
-                            android:layout_height="1dp"
-                            android:layout_weight="1" />
-
                         <TextView
                             android:id="@+id/btn_edit_rule"
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
                             android:background="@drawable/hk_btn_glass"
                             android:gravity="center"
                             android:minWidth="64dp"
@@ -474,6 +475,20 @@
                     android:contentDescription="清除"
                     android:src="@drawable/ic_hk_close"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btn_search_go"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/hk_gold_button"
+                    android:gravity="center"
+                    android:paddingLeft="18dp"
+                    android:paddingRight="18dp"
+                    android:text="搜索"
+                    android:textColor="#101216"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
             <!-- 小程序内搜索的作用域标识：显示当前在哪个小程序内搜索，避免被误认为全局搜索 -->

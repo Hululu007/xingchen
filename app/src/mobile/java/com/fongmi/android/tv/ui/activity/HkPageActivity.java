@@ -3255,6 +3255,11 @@ public class HkPageActivity extends BaseActivity {
             }
             return false;
         });
+        binding.btnSearchGo.setOnClickListener(v -> {
+            String kw = binding.etKeyword.getText().toString().trim();
+            if (searchDualMode) doCrossSearch(kw);
+            else doSearch(kw);
+        });
         binding.rvSearchResults.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {

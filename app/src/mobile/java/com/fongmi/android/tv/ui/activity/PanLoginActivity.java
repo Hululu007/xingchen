@@ -172,10 +172,10 @@ public class PanLoginActivity extends BaseActivity {
         new Thread(() -> {
             try {
                 Drive115.QrSession session = drive.qrStart();
-                Bitmap bmp = QRCode.getBitmap(session.qrcodeUrl, 220, 1);
+                Bitmap bmp = QRCode.getBitmap(session.content, 220, 1);
                 runOnUiThread(() -> {
                     if (bmp != null) qrView.setImageBitmap(bmp);
-                    tvStatus.setText("请用 115 App 扫码");
+                    tvStatus.setText("请用 115 App 内扫一扫（不要用系统相机/微信扫）");
                 });
                 Runnable poll = new Runnable() {
                     @Override
@@ -295,7 +295,7 @@ public class PanLoginActivity extends BaseActivity {
                 Bitmap bmp = QRCode.getBitmap(session.qrUrl, 220, 1);
                 runOnUiThread(() -> {
                     if (bmp != null) qrView.setImageBitmap(bmp);
-                    tvStatus.setText("请用夸克 App 扫码");
+                    tvStatus.setText("请用夸克 App 内扫一扫（不要用系统相机/微信扫）");
                 });
                 Runnable poll = new Runnable() {
                     @Override

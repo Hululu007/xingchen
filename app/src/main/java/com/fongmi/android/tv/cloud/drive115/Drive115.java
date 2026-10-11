@@ -417,11 +417,14 @@ public class Drive115 implements CloudDrive {
 
     public static class QrSession {
         public String uid;
-        public String qrcodeUrl;
+        public long time;
+        public String sign;
+        /** 扫码内容：token 接口的 qrcode 字段（https://115.com/scan/dg-{uid}），用 115 App 内扫一扫 */
+        public String content;
         public long deadline;
     }
 
-    /** 开始二维码登录，返回会话（含二维码图 URL） */
+    /** 开始二维码登录，返回会话（含扫码内容） */
     public QrSession qrStart() throws Exception {
         JSONObject d = reqJson(API_QR_TOKEN, null, null, UA_115, null);
         JSONObject data = d.optJSONObject("data");
@@ -430,7 +433,12 @@ public class Drive115 implements CloudDrive {
         }
         QrSession s = new QrSession();
         s.uid = data.optString("uid");
-        s.qrcodeUrl = "https://qrcodeapi.115.com/api/1.0/android/1.0/qrcode?uid=" + q(s.uid);
+        s.time = data.optLong("time");
+        s.sign = data.optString("sign");
+        // 关键：二维码必须编码 qrcode 字段（扫码内容），而不是二维码图片的 URL。
+        // 图片 URL 用系统浏览器打开会 302 到 115 官网下载页（即用户报的"扫出来是下载页"）。
+        s.content = data.optString("qrcode");
+        if (TextUtils.isEmpty(s.content)) s.content = "https://115.com/scan/dg-" + s.uid;
         s.deadline = System.currentTimeMillis() + 240000;
         return s;
     }
@@ -442,6 +450,8 @@ public class Drive115 implements CloudDrive {
     public int qrPoll(QrSession session) throws Exception {
         Map<String, String> p = new HashMap<>();
         p.put("uid", session.uid);
+        p.put("time", String.valueOf(session.time));
+        p.put("sign", session.sign == null ? "" : session.sign);
         p.put("_", nowMs());
         JSONObject d = reqJson(API_QR_STATUS, p, null, null, null);
         JSONObject data = d.optJSONObject("data");

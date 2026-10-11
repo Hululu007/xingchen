@@ -48,6 +48,7 @@ public class DriveQuark implements CloudDrive {
     private static final String API_MEMBER = BASE + "/member";
 
     // 二维码登录（来源：h1d3rone/quarkmanager，已验证）
+    // 注意：旧的 getQrcodeToken 是空接口（返回空 200），正确接口是 getTokenForQrcodeLogin
     private static final String API_QR_TOKEN = "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin";
     private static final String API_QR_TICKET = "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken";
     private static final String API_ACCOUNT_INFO = "https://pan.quark.cn/account/info";

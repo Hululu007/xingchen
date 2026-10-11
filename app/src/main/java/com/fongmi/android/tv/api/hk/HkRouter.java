@@ -163,12 +163,14 @@ public class HkRouter {
             // ③ @rule=js: 条目：pageUrl 为 MY_URL，js 部分求值出详情
             int ar = u.indexOf("@rule=");
             if (ar >= 0) {
-                String pageUrl = cleanDetailUrl(u.substring(0, ar).trim());
+                // 8.83 原版：传完整 URL 给 JS（含 # 后真实地址），clean 只给非 JS 分支用
+                String rawPageUrl = u.substring(0, ar).trim();
+                String pageUrl = cleanDetailUrl(rawPageUrl);
                 String entryRule = u.substring(ar + 6).trim();
                 if (entryRule.startsWith("js:")) {
                     if (item != null) engine.getJsRuntime().setDetailParams(item.getExtra());
                     // 8.83 原版：详情条目直接进通用列表渲染，不做线路/选集分类
-                    detail.setRawItems(fromJsDetail(entryRule, pageUrl));
+                    detail.setRawItems(fromJsDetail(entryRule, rawPageUrl));
                     return detail;
                 }
                 u = pageUrl;
@@ -182,12 +184,14 @@ public class HkRouter {
                 if (looksLikeMediaUrl(cu)) detail.setDirectPlayUrl(cu);
                 return detail;
             }
+            // 8.83 原版：JS 分支拿完整 URL（含 #），clean 只给选择器分支用
+            String rawUrl = u;
             String url = cleanDetailUrl(u);
             List<HkDetailItem> items;
             if (HkSelector.isJsRule(ruleText)) {
                 // 官方 dealRule：点击条目的 extra 作为新规则的 params（MY_PARAMS）
                 if (item != null) engine.getJsRuntime().setDetailParams(item.getExtra());
-                items = fromJsDetail(ruleText, url);
+                items = fromJsDetail(ruleText, rawUrl);
             } else {
                 String html = HkHttp.get(url, rule.resolvedUa());
                 items = engine.getSelector().parseDetail(html, ruleText, url);

@@ -1717,6 +1717,7 @@ public class HkPageActivity extends BaseActivity {
     private class RuleAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         private static final int TYPE_RULE = 1;
+        private static final int TYPE_RULE_COMPACT = 2;
         private final List<Object> items = new ArrayList<>();
 
         /** 平铺规则：分组筛选（实际分组=自定义覆盖优先） + 关键字过滤 + 名称排序开关（编辑模式下按拖拽顺序，不做名称排序）。 */
@@ -1829,9 +1830,9 @@ public class HkPageActivity extends BaseActivity {
             h.icon.setAlpha(alpha);
             // 禁用态：图标半透示意，文字保持可读（0.75f），深色字必须看得清
             h.name.setAlpha(rule.isEnabled() ? 1f : 0.75f);
-            // 管理模式：显示启用开关 + 分组标签代替 ⋮；普通模式：显示 ⋮
+            // 管理模式：显示启用开关 + 分组标签；⋮ 按钮已去掉（长按卡片出菜单）
             h.sw.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
-            h.more.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+            h.more.setVisibility(View.GONE);
             h.tag.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
             if (ruleManageMode) {
                 String g = effectiveGroup(rule);
@@ -1857,12 +1858,16 @@ public class HkPageActivity extends BaseActivity {
                 HkRuleManager.get().setEnabled(r.getTitle(), checked);
                 notifyItemChanged(pos);
             });
-            h.more.setOnClickListener(v -> showRuleCardMenu(rule));
-            // 编辑模式：点卡片分配分组（长按拖拽排序）；普通模式：点卡片打开小程序
+            // 编辑模式：点卡片分配分组（长按拖拽排序）；普通模式：点卡片打开小程序，长按弹出菜单（编辑/分享/删除）
             if (ruleManageMode) {
                 h.itemView.setOnClickListener(v -> showGroupPicker(rule));
+                h.itemView.setOnLongClickListener(null);
             } else {
                 h.itemView.setOnClickListener(v -> openRule(rule));
+                h.itemView.setOnLongClickListener(v -> {
+                    showRuleCardMenu(rule);
+                    return true;
+                });
             }
         }
 

@@ -28,6 +28,7 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -147,12 +148,8 @@ public class HkPageActivity extends BaseActivity {
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
-    /** 搜索页双模式（小程序列表入口）：搜小程序 / 搜内容（跨小程序） */
-    private static final int SEARCH_MODE_RULES = 0;
-    private static final int SEARCH_MODE_CONTENT = 1;
+    /** 搜索页：true = 小程序列表入口的整页内容搜索；false = 内容页内单规则搜索 */
     private boolean searchDualMode = false;
-    private int searchMode = SEARCH_MODE_RULES;
-    private RuleAdapter searchRuleAdapter;
 
     private HkItem detailItem;
     private boolean detailFromSearch;
@@ -190,6 +187,12 @@ public class HkPageActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
+        // inline 搜索条展开时按返回：先收起搜索条，不退出页面
+        if (stack.size() == 1 && stack.peek() == V_RULES
+                && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            closeInlineSearch();
+            return;
+        }
         // 编辑模式中按返回：先退出编辑模式（已即时保存），不退出页面
         if (stack.size() == 1 && stack.peek() == V_RULES && ruleManageMode) {
             toggleRuleManageMode();
@@ -312,7 +315,12 @@ public class HkPageActivity extends BaseActivity {
         ruleAdapter = new RuleAdapter();
         binding.rvRules.setAdapter(ruleAdapter);
         binding.tvTitleRule.setOnClickListener(v -> showColumnSwitchPopup());
-        binding.btnSearchRule.setOnClickListener(v -> openRuleSearch());
+        // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：整页内容搜索（搜全部小程序的内容）
+        binding.btnSearchRule.setOnClickListener(v -> toggleInlineSearch());
+        binding.btnSearchRule.setOnLongClickListener(v -> {
+            openContentSearch();
+            return true;
+        });
         binding.btnSortRule.setOnClickListener(v -> {
             ruleSortByName = !ruleSortByName;
             ruleAdapter.rebuildSections();
@@ -324,6 +332,32 @@ public class HkPageActivity extends BaseActivity {
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         // 悬浮磨砂顶栏：真 blur 只作用于独立背景层，内容层不被模糊
         FrostedGlass.blurBackground(binding.headerBg);
+        // 首页 inline 搜索条：磨砂风格，输入实时过滤小程序卡片
+        FrostedGlass.blurBackground(binding.inlineSearchBar);
+        binding.etInlineSearch.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                ruleKeyword = s.toString().trim();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+        binding.etInlineSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                hideKeyboard();
+                return true;
+            }
+            return false;
+        });
+        binding.btnInlineClose.setOnClickListener(v -> closeInlineSearch());
         updateRulesTopPadding();
         loadCustomRuleData();
         // 编辑模式拖拽排序：长按卡片拖动（仅编辑模式启用）
@@ -414,12 +448,11 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /** 悬浮磨砂顶栏高度变化时，同步列表顶部内边距（内容滚动时从顶栏下穿过）。 */
+    /** 悬浮顶栏总高度 = 顶栏56 + 间距8 + 分组行(48) + inline搜索条(56)，列表 paddingTop 跟随，避免被遮挡。 */
     private void updateRulesTopPadding() {
-        updateRulesTopPadding(binding.rvRuleGroup.getVisibility() == View.VISIBLE);
-    }
-
-    private void updateRulesTopPadding(boolean groupsVisible) {
-        int top = dp(56) + dp(8) + (groupsVisible ? dp(48) : 0);
+        boolean groups = binding.rvRuleGroup.getVisibility() == View.VISIBLE;
+        boolean search = binding.inlineSearchBar.getVisibility() == View.VISIBLE;
+        int top = dp(56) + dp(8) + (groups ? dp(48) : 0) + (search ? dp(56) : 0);
         binding.rvRules.setPadding(0, top, 0, dp(8));
     }
 
@@ -430,6 +463,13 @@ public class HkPageActivity extends BaseActivity {
         binding.btnGroupManage.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
         binding.btnSearchRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         binding.btnSortRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        // 编辑模式下收起 inline 搜索（搜索图标已隐藏）
+        if (ruleManageMode && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            binding.inlineSearchBar.setVisibility(View.GONE);
+            binding.etInlineSearch.setText("");
+            ruleKeyword = "";
+            updateRulesTopPadding();
+        }
         if (ruleManageMode && customOrder == null) {
             customOrder = new ArrayList<>();
             for (HkRule r : rules) customOrder.add(r.getTitle());
@@ -651,7 +691,7 @@ public class HkPageActivity extends BaseActivity {
         groups.addAll(fileGroups);
         boolean show = !groups.isEmpty();
         binding.rvRuleGroup.setVisibility(show ? View.VISIBLE : View.GONE);
-        updateRulesTopPadding(show);
+        updateRulesTopPadding();
         if (!show) return;
         List<String[]> pairs = new ArrayList<>();
         pairs.add(new String[]{"全部", ""});
@@ -2036,8 +2076,6 @@ public class HkPageActivity extends BaseActivity {
     /** 内容页内嵌搜索栏：带关键词直接打开搜索页并执行搜索。 */
     private void openSearchWithKeyword(String kw) {
         searchDualMode = false;
-        binding.searchModeRow.setVisibility(View.GONE);
-        binding.rvSearchRules.setVisibility(View.GONE);
         keyword = "";
         searchPage = 1;
         searchNoMore = false;
@@ -2297,16 +2335,8 @@ public class HkPageActivity extends BaseActivity {
         searchAdapter = new VideoAdapter(searchResults, false);
         binding.rvSearchResults.setAdapter(searchAdapter);
         binding.rvHistory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 搜小程序模式：3 列小程序卡片网格（复用 RuleAdapter，点卡片进小程序）
-        binding.rvSearchRules.setLayoutManager(new GridLayoutManager(this, 3));
-        binding.rvSearchRules.addItemDecoration(new GridSpace());
-        searchRuleAdapter = new RuleAdapter();
-        binding.rvSearchRules.setAdapter(searchRuleAdapter);
-        // 搜索页磨砂风格：搜索条 + 模式分段真 blur（API 31+，低版本半透明兜底）
+        // 搜索页磨砂风格：搜索条真 blur（API 31+，低版本半透明兜底）
         FrostedGlass.blurBackground(binding.searchBar);
-        FrostedGlass.blurBackground(binding.searchModeRow);
-        binding.tvModeRules.setOnClickListener(v -> setSearchMode(SEARCH_MODE_RULES));
-        binding.tvModeContent.setOnClickListener(v -> setSearchMode(SEARCH_MODE_CONTENT));
         binding.btnBackSearch.setOnClickListener(v -> onBackInvoked());
         binding.btnClear.setOnClickListener(v -> binding.etKeyword.setText(""));
         binding.btnClearHistory.setOnClickListener(v -> {
@@ -2321,10 +2351,6 @@ public class HkPageActivity extends BaseActivity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 binding.btnClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
-                // 搜小程序模式：输入实时过滤
-                if (searchDualMode && searchMode == SEARCH_MODE_RULES) {
-                    filterSearchRules(s.toString().trim());
-                }
             }
 
             @Override
@@ -2334,12 +2360,9 @@ public class HkPageActivity extends BaseActivity {
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 String kw = v.getText().toString().trim();
-                if (searchDualMode) {
-                    // 搜内容模式：跨小程序内容搜索；搜小程序模式已实时过滤，回车不做事
-                    if (searchMode == SEARCH_MODE_CONTENT) doCrossSearch(kw);
-                } else {
-                    doSearch(kw);
-                }
+                // 小程序列表入口 = 跨小程序内容搜索；内容页内 = 单规则搜索
+                if (searchDualMode) doCrossSearch(kw);
+                else doSearch(kw);
                 return true;
             }
             return false;
@@ -2358,8 +2381,6 @@ public class HkPageActivity extends BaseActivity {
 
     private void openSearch() {
         searchDualMode = false;
-        binding.searchModeRow.setVisibility(View.GONE);
-        binding.rvSearchRules.setVisibility(View.GONE);
         keyword = "";
         searchPage = 1;
         searchNoMore = false;
@@ -2376,59 +2397,51 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
-     * 小程序列表入口：双模式搜索页。
-     * [搜小程序] 已安装小程序按名称实时过滤，点卡片进入；
-     * [搜内容] 跨小程序内容搜索（走 be()/batchExecute，引擎未就绪时显示"引擎升级中"）。
+     * 点 🔍：顶栏下方展开 inline 磨砂搜索条，输入实时过滤首页小程序卡片，不跳页；再点收起。
      */
-    private void openRuleSearch() {
+    private void toggleInlineSearch() {
+        if (binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            closeInlineSearch();
+        } else {
+            binding.inlineSearchBar.setVisibility(View.VISIBLE);
+            updateRulesTopPadding();
+            binding.etInlineSearch.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(binding.etInlineSearch, InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    /** 关闭 inline 搜索：清空关键词、恢复全部卡片、收起键盘。 */
+    private void closeInlineSearch() {
+        binding.inlineSearchBar.setVisibility(View.GONE);
+        binding.etInlineSearch.setText("");
+        ruleKeyword = "";
+        ruleAdapter.rebuildSections();
+        ruleAdapter.notifyDataSetChanged();
+        updateRulesTopPadding();
+        hideKeyboard();
+    }
+
+    private void hideKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(binding.etInlineSearch.getWindowToken(), 0);
+        binding.etInlineSearch.clearFocus();
+    }
+
+    /**
+     * 长按 🔍：整页内容搜索（只留"搜内容"模式，分段已去掉）。
+     * 正式逻辑走 HkJsRuntime.be()/batchExecute 并发扇出到各小程序；引擎未就绪前显示"引擎升级中"。
+     */
+    private void openContentSearch() {
         searchDualMode = true;
         binding.etKeyword.setText("");
-        binding.etKeyword.setHint("搜索小程序 / 内容关键词");
+        binding.etKeyword.setHint("搜索全部小程序的内容");
         binding.historySection.setVisibility(View.GONE);
-        binding.tvSearchEmpty.setVisibility(View.GONE);
-        binding.searchModeRow.setVisibility(View.VISIBLE);
+        binding.tvSearchEmpty.setVisibility(View.VISIBLE);
+        binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
+        binding.rvSearchResults.setVisibility(View.GONE);
         pushView(V_SEARCH);
-        setSearchMode(SEARCH_MODE_RULES);
         binding.etKeyword.requestFocus();
-    }
-
-    /** 切换搜索模式：搜小程序 / 搜内容。 */
-    private void setSearchMode(int mode) {
-        searchMode = mode;
-        boolean isRules = mode == SEARCH_MODE_RULES;
-        binding.tvModeRules.setBackgroundResource(isRules ? R.drawable.hk_seg_on : R.drawable.hk_seg_off);
-        binding.tvModeRules.setTextColor(isRules ? 0xFF101216 : 0xFF3A3F45);
-        binding.tvModeRules.setTypeface(null, isRules ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        binding.tvModeContent.setBackgroundResource(isRules ? R.drawable.hk_seg_off : R.drawable.hk_seg_on);
-        binding.tvModeContent.setTextColor(isRules ? 0xFF3A3F45 : 0xFF101216);
-        binding.tvModeContent.setTypeface(null, isRules ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
-        binding.tvSearchEmpty.setVisibility(View.GONE);
-        if (isRules) {
-            binding.rvSearchResults.setVisibility(View.GONE);
-            binding.rvSearchRules.setVisibility(View.VISIBLE);
-            filterSearchRules(binding.etKeyword.getText().toString().trim());
-        } else {
-            binding.rvSearchRules.setVisibility(View.GONE);
-            binding.rvSearchResults.setVisibility(View.GONE);
-            binding.tvSearchEmpty.setVisibility(View.VISIBLE);
-            binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
-        }
-    }
-
-    /** 搜小程序：在已安装小程序里按名称过滤。 */
-    private void filterSearchRules(String kw) {
-        List<HkRule> out = new ArrayList<>();
-        String k = kw.toLowerCase(Locale.getDefault());
-        for (HkRule r : rules) {
-            String t = r.getTitle() == null ? "" : r.getTitle();
-            if (k.isEmpty() || t.toLowerCase(Locale.getDefault()).contains(k)) out.add(r);
-        }
-        searchRuleAdapter.setItems(out);
-        searchRuleAdapter.notifyDataSetChanged();
-        boolean empty = out.isEmpty();
-        binding.tvSearchEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
-        if (empty) binding.tvSearchEmpty.setText("没有匹配的小程序");
-        binding.rvSearchRules.setVisibility(empty ? View.GONE : View.VISIBLE);
     }
 
     /**

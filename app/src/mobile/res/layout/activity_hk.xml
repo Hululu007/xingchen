@@ -126,6 +126,44 @@
                         android:layout_marginTop="8dp"
                         android:clipToPadding="false"
                         android:visibility="gone" />
+
+                    <!-- 首页 inline 搜索条：点 🔍 展开，输入实时过滤小程序卡片，不跳页 -->
+                    <LinearLayout
+                        android:id="@+id/inline_search_bar"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginLeft="16dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginRight="16dp"
+                        android:background="@drawable/hk_searchbar_glass"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="4dp"
+                        android:visibility="gone">
+
+                        <EditText
+                            android:id="@+id/et_inline_search"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:hint="搜索小程序"
+                            android:imeOptions="actionSearch"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:textColor="#101216"
+                            android:textColorHint="#8A8F98"
+                            android:textSize="15sp" />
+
+                        <ImageButton
+                            android:id="@+id/btn_inline_close"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="关闭搜索"
+                            android:src="@drawable/ic_hk_close" />
+                    </LinearLayout>
                 </LinearLayout>
             </FrameLayout>
 

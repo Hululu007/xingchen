@@ -2069,7 +2069,13 @@ public class HkPageActivity extends BaseActivity {
         buildCategoryRow();
         buildFilterRows();
         buildContentSearchBar();
-        pushView(V_CONTENT);
+        // 内容页内切换小程序（顶部 tabs / 全部弹窗）时栈顶已是 V_CONTENT：只做替换不再重复 push，
+        // 否则返回键第一次 pop 后仍停留在 V_CONTENT，视觉上毫无变化，看起来"没反应"（时好时坏的根因）
+        if (stack.isEmpty() || stack.peek() != V_CONTENT) {
+            pushView(V_CONTENT);
+        } else {
+            showView(V_CONTENT);
+        }
         loadContent(true);
         Integer pos = scrollMem.get(rule.getTitle());
         if (pos != null && pos > 0) contentGrid.scrollToPosition(pos);

@@ -29,6 +29,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -99,6 +100,7 @@ public class HkPageActivity extends BaseActivity {
     private final List<HkItem> videos = new ArrayList<>();
     private GridLayoutManager contentGrid;
     private HkRule currentRule;
+    private final List<HkRule> miniappRules = new ArrayList<>();
     private HkRouter router;
     private String cls = "", area = "", year = "", sort = "";
     private int page = 1;
@@ -916,6 +918,7 @@ public class HkPageActivity extends BaseActivity {
         binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
         binding.btnBackContent.setOnClickListener(v -> onBackInvoked());
         binding.btnSearchContent.setOnClickListener(v -> openSearch());
+        binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
         binding.tvContentTitle.setSelected(true);
         binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
         binding.rvVideos.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -963,8 +966,10 @@ public class HkPageActivity extends BaseActivity {
             for (HkRule r : rules) {
                 if (r.isEnabled()) enabled.add(r);
             }
+            miniappRules.clear();
+            miniappRules.addAll(enabled);
             if (enabled.size() <= 1) {
-                binding.rvMiniappTabs.setVisibility(View.GONE);
+                binding.miniappTabsRow.setVisibility(View.GONE);
                 return;
             }
             List<String[]> pairs = new ArrayList<>();
@@ -989,9 +994,132 @@ public class HkPageActivity extends BaseActivity {
             });
             binding.rvMiniappTabs.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
             binding.rvMiniappTabs.setAdapter(adapter);
-            binding.rvMiniappTabs.setVisibility(View.VISIBLE);
+            binding.miniappTabsRow.setVisibility(View.VISIBLE);
         } catch (Throwable t) {
-            binding.rvMiniappTabs.setVisibility(View.GONE);
+            binding.miniappTabsRow.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 小程序切换：顶部 tabs 栏最右「全部」按钮弹窗。
+     * 星辰风格：毛玻璃底 + 独立选项卡片。8.83 内容页无此功能。
+     */
+    private void showMiniappSwitchDialog() {
+        if (miniappRules == null || miniappRules.size() <= 1) return;
+        final String curTitle = currentRule == null ? null : currentRule.getTitle();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.xc_dialog_light);
+        int pad = dp(16);
+        card.setPadding(pad, pad, pad, pad);
+
+        TextView title = new TextView(this);
+        title.setText("选择小程序");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        card.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        RecyclerView rv = new RecyclerView(this);
+        rv.setLayoutManager(new GridLayoutManager(this, 2));
+        rv.setClipToPadding(false);
+        int rows = (miniappRules.size() + 1) / 2;
+        int gridH = Math.min(rows * dp(66), dp(360));
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, gridH);
+        rlp.topMargin = dp(12);
+        card.addView(rv, rlp);
+
+        final AlertDialog[] holder = new AlertDialog[1];
+        rv.setAdapter(new MiniappSwitchAdapter(miniappRules, curTitle, target -> {
+            if (holder[0] != null) holder[0].dismiss();
+            if (target != null && currentRule != null && !target.getTitle().equals(currentRule.getTitle())) {
+                openRule(target);
+            }
+        }));
+
+        FrameLayout outer = new FrameLayout(this);
+        int m = dp(24);
+        outer.setPadding(m, 0, m, 0);
+        outer.addView(card, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+
+        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_Translucent_NoTitleBar)
+                .setView(outer).create();
+        holder[0] = dialog;
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+        android.view.Window w = dialog.getWindow();
+        if (w != null) {
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        }
+    }
+
+    /** 「全部」弹窗的 2 列选项卡片适配器：独立卡片框、有间距，当前选中高亮。 */
+    private static class MiniappSwitchAdapter extends RecyclerView.Adapter<MiniappSwitchAdapter.Holder> {
+        interface OnPick {
+            void onPick(HkRule rule);
+        }
+
+        private final List<HkRule> rules;
+        private final String curTitle;
+        private final OnPick listener;
+
+        MiniappSwitchAdapter(List<HkRule> rules, String curTitle, OnPick listener) {
+            this.rules = rules;
+            this.curTitle = curTitle;
+            this.listener = listener;
+        }
+
+        static class Holder extends RecyclerView.ViewHolder {
+            TextView name;
+
+            Holder(View v) {
+                super(v);
+                name = (TextView) v;
+            }
+        }
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            Context ctx = parent.getContext();
+            float d = ctx.getResources().getDisplayMetrics().density;
+            TextView tv = new TextView(ctx);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setGravity(Gravity.CENTER);
+            tv.setMaxLines(1);
+            tv.setEllipsize(TextUtils.TruncateAt.END);
+            tv.setTextSize(15);
+            int p = (int) (14 * d + 0.5f);
+            tv.setPadding(p, p, p, p);
+            GridLayoutManager.LayoutParams lp = new GridLayoutManager.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            int mg = (int) (6 * d + 0.5f);
+            lp.setMargins(mg, mg, mg, mg);
+            tv.setLayoutParams(lp);
+            return new Holder(tv);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            HkRule r = rules.get(position);
+            h.name.setText(r.getTitle());
+            boolean sel = curTitle != null && curTitle.equals(r.getTitle());
+            h.name.setTextColor(sel ? 0xFFD4A017 : 0xFF1A1D24);
+            h.name.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            h.name.setOnClickListener(v -> {
+                if (listener != null) listener.onPick(r);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return rules.size();
         }
     }
 

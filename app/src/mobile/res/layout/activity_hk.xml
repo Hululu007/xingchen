@@ -18,17 +18,15 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
+            <!-- 8.83 同款：标题栏与内容连为一体，无悬浮胶囊 -->
             <LinearLayout
                 android:id="@+id/top_bar_rules"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="56dp"
                 android:layout_alignParentTop="true"
-                android:layout_marginTop="16dp"
-                android:background="@drawable/hk_capsule_light"
-                android:elevation="8dp"
                 android:gravity="center_vertical"
-                android:paddingLeft="20dp"
-                android:paddingRight="20dp">
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -112,12 +110,10 @@
             android:orientation="vertical"
             android:visibility="gone">
 
+            <!-- 8.83 同款：标题栏与内容连为一体，无悬浮胶囊 -->
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="16dp"
-                android:background="@drawable/hk_capsule_light"
-                android:elevation="8dp"
+                android:layout_height="56dp"
                 android:gravity="center_vertical"
                 android:paddingLeft="4dp"
                 android:paddingRight="4dp">
@@ -152,13 +148,36 @@
                     android:src="@drawable/ic_hk_search" />
             </LinearLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_miniapp_tabs"
+            <LinearLayout
+                android:id="@+id/miniapp_tabs_row"
                 android:layout_width="match_parent"
                 android:layout_height="36dp"
                 android:layout_marginTop="12dp"
-                android:clipToPadding="false"
-                android:visibility="gone" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_miniapp_tabs"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clipToPadding="false" />
+
+                <TextView
+                    android:id="@+id/btn_miniapp_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/dialog_option_card_light"
+                    android:gravity="center"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="全部 ▾"
+                    android:textColor="#FF1A1D24"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_category"

@@ -883,7 +883,7 @@ public class HkRuleManager {
         zos.closeEntry();
     }
 
-    /** 列出所有已导入规则（损坏的文件跳过，不影响整体）。 */
+    /** 列出所有已导入规则（损坏的文件跳过，不影响整体；异常写入文件日志方便定位）。 */
     public List<HkRule> getRules() {
         List<HkRule> list = new ArrayList<>();
         File dir = getDir();
@@ -899,9 +899,24 @@ public class HkRuleManager {
                 list.add(rule);
             } catch (Exception e) {
                 e.printStackTrace();
+                logRuleError(f.getName(), e);
             }
         }
         return list;
+    }
+
+    /** 规则解析失败写入文件日志（/files/hk_rule_error.log），真机可查看定位。 */
+    private void logRuleError(String fileName, Exception e) {
+        try {
+            Context ctx = appContext();
+            if (ctx == null) return;
+            File log = new File(ctx.getFilesDir(), "hk_rule_error.log");
+            String msg = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date())
+                    + " parse failed: " + fileName + " | " + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n";
+            java.nio.file.Files.write(log.toPath(), msg.getBytes(StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 按标题取规则（标题即文件名）。 */

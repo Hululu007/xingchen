@@ -19,7 +19,7 @@ public class HkRule {
     @SerializedName("author")
     private String author;
     @SerializedName("version")
-    private int version;
+    private String version;
     @SerializedName("type")
     private String type;
     @SerializedName("group")
@@ -156,10 +156,24 @@ public class HkRule {
     }
 
     public int getVersion() {
-        return version;
+        if (version == null) return 0;
+        try {
+            return Integer.parseInt(version.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     public void setVersion(int version) {
+        this.version = String.valueOf(version);
+    }
+
+    /** 原始版本号字符串（Gson 直接映射，兼容数字/字符串两种写法）。 */
+    public String getVersionRaw() {
+        return version == null ? "" : version;
+    }
+
+    public void setVersionRaw(String version) {
         this.version = version;
     }
 

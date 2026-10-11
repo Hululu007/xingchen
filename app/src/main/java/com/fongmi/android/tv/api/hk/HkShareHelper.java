@@ -20,8 +20,18 @@ import java.util.List;
  *
  * 支持的导出格式：
  * - 明文口令：生成 ￥home_rule￥ 文本并复制到剪贴板（海阔官方可识别）
+ * - 云剪贴板 1-7：上传到第三方服务，返回分享 URL（取件码）
  *
- * 云剪贴板（Num1/2/5/6/7/9/10）、提交云仓库依赖海阔官方服务端，未实现。
+ * 云剪贴板映射（对照 8.83 RuleImporterManager）：
+ * 云1 Num1 → PastebinImporter  (pastebin.com)
+ * 云2 Num2 → NetCutImporter     (netcut.cn)
+ * 云3 Num3 → CmdImporter        (cmd.im)
+ * 云4 Num4 → BailanImporter     (pasteme.tyrantg.com)
+ * 云5 Num5 → NotesImporter      (note.ms)
+ * 云6 Num6 → TxtPadImporter     (txtpad.cn)
+ * 云7 Num7 → HastebinImporter   (hastebin.com)
+ * 云9/云10 在 8.83 中无实现（getImporter 返回 null），不支持。
+ * 提交云仓库依赖海阔官方服务端，未实现。
  */
 public class HkShareHelper {
 
@@ -70,17 +80,36 @@ public class HkShareHelper {
         } else if (name.endsWith(".zip")) {
             result.addAll(mgr.importZip(file));
         } else {
-            // .json / .txt / .hiker / 无扩展名：按文本解析（内部自动 unwrap ￥home_rule￥）
             byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
             String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             String json = HkRuleManager.unwrapHomeRuleCommand(text);
             if (json != null) {
                 result.add(mgr.importJson(json));
             } else {
-                // 尝试规则数组
                 result.addAll(mgr.importJsonList(text));
             }
         }
         return result;
+    }
+
+    /** 上传到云剪贴板（1-7），返回分享 URL（取件码）。需在后台线程调用。 */
+    public static String shareToCloudClip(String ruleJson, int clipNum) throws Exception {
+        if (!HkCloudClip.supported(clipNum)) {
+            throw new IllegalArgumentException("不支持的云剪贴板编号: " + clipNum);
+        }
+        return HkCloudClip.upload(ruleJson, clipNum);
+    }
+
+    /** 用取件码从云剪贴板下载，返回规则 JSON。需在后台线程调用。 */
+    public static String downloadFromCloudClip(String code, int clipNum) throws Exception {
+        if (!HkCloudClip.supported(clipNum)) {
+            throw new IllegalArgumentException("不支持的云剪贴板编号: " + clipNum);
+        }
+        return HkCloudClip.download(code, clipNum);
+    }
+
+    /** 云剪贴板显示名（1-7）。 */
+    public static String cloudClipName(int clipNum) {
+        return HkCloudClip.name(clipNum);
     }
 }

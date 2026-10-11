@@ -38,10 +38,14 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -401,15 +405,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             Logger.t(TAG).d("setPreResult: %d items staged", results.size());
             return null;
         });
+        // ------------------------------------------------------------------
+        // 8.83: setError(Object o, Object callbackKey, Object ruleKey, Object evalKey)V
+        // [JSEngine.smali] alias "error". D2: 完整实现。
+        // o: String | JavaScriptException | RhinoException | ScriptableObject({fileName,lineNumber,lineSource})
+        // 构造 "\n来源：\n代码：\n行数：\n详情：" 明细；超 2000 字截断；查 callbackMap：
+        // 有回调 -> callback.showErr(msg)；无 -> 宿主 Toast。
+        // ------------------------------------------------------------------
         putFunction("setError", args -> {
-            error = args != null && args.length > 0 ? argStr(args[0]) : "";
-            Logger.t(TAG).d("setError: %s", error);
+            setErrorImpl(args);
             return null;
         });
         // 官方别名：error 即 setError
         putFunction("error", args -> {
-            error = args != null && args.length > 0 ? argStr(args[0]) : "";
-            Logger.t(TAG).d("error: %s", error);
+            setErrorImpl(args);
             return null;
         });
 
@@ -1007,13 +1016,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 return "[]";
             }
         });
+        // ------------------------------------------------------------------
+        // 8.83: batchExecute(Object tasks, Object listener0, Object success, Object ruleKey)V
+        // [JSEngine.smali 11276-11680]  alias "be". D2: 真实实现（替代 no-op）。
+        // 语义：tasks 为 [{id, func, param}]，并发在独立 Rhino Context 里执行各
+        // func(param)；每完成一个，若 listener0.func 存在且完成数 <= success，
+        // 则回调 listener0.func(listener0.param, id, false, result)；返回 "break"
+        // 则停止后续回调。等待 (n/16*30+30)s 后取消并关闭线程池。
+        // 跨小程序内容搜索（"我的主页"规则）依赖此实现。
+        // ------------------------------------------------------------------
         putFunction("be", args -> {
-            Logger.t(TAG).d("be(batchExecute): no-op in host");
+            batchExecuteImpl(args);
             return null;
         });
-        // 官方全名：batchExecute 即 be（预加载，宿主 no-op）
+        // 官方全名：batchExecute 即 be
         putFunction("batchExecute", args -> {
-            Logger.t(TAG).d("batchExecute: no-op in host");
+            batchExecuteImpl(args);
             return null;
         });
         putFunction("bcm", args -> {
@@ -1107,7 +1125,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("readFile", args -> {
             if (args == null || args.length == 0) return "";
-            return readFileContent(resolveHikerPath(argStr(args[0])));
+            String charset = args.length > 1 ? argStr(args[1]) : null;
+            return readFileContent(resolveHikerPath(argStr(args[0])), charset);
         });
         putFunction("fileExist", args -> {
             if (args == null || args.length == 0) return "false";
@@ -2214,10 +2233,30 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     }
 
     private String readFileContent(String absPath) {
+        return readFileContent(absPath, null);
+    }
+
+    /**
+     * 读文件为字符串（8.83 FileUtil.fileToString 等价：平台默认字符集，Android 上即 UTF-8）。
+     * 8.83 本身不做字符集探测；此处在等价基础上做两处兼容增强：
+     * 1) 显式 charset 参数（规则可传 "GBK" 等）；
+     * 2) 剥离 UTF-8 BOM（\uFEFF），否则 JSON 解析可能失败。
+     */
+    private String readFileContent(String absPath, String charset) {
         try {
             File f = new File(absPath);
             if (!f.exists() || !f.isFile()) return "";
-            return new String(java.nio.file.Files.readAllBytes(f.toPath()), Charset.forName("UTF-8"));
+            byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+            Charset cs = Charset.forName("UTF-8");
+            if (charset != null && !charset.trim().isEmpty()) {
+                try {
+                    cs = Charset.forName(charset.trim());
+                } catch (Throwable ignored) {
+                }
+            }
+            String s = new String(bytes, cs);
+            if (!s.isEmpty() && s.charAt(0) == '\uFEFF') s = s.substring(1);
+            return s;
         } catch (Throwable e) {
             return "";
         }
@@ -3392,10 +3431,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         Logger.t(TAG).d(String.valueOf(msg));
     }
 
-    /** 8.83 4-arg setError (smali 24004, 530 lines) is D3; D1 records into error field like the JS bridge. */
+    /** 8.83 4-arg setError (smali 24004, 530 lines). D2: 完整实现，委托 setErrorImpl。 */
     private void setError(Object o, Object callbackKey, Object ruleKey, Object extra) {
-        error = o == null ? "" : String.valueOf(o);
-        Logger.t(TAG).d("setError: %s key=%s", error, String.valueOf(callbackKey));
+        setErrorImpl(new Object[]{o, callbackKey, ruleKey, extra});
     }
 
     private static InputStream hkFileToInputStream(String path) throws java.io.IOException {
@@ -4347,11 +4385,21 @@ private Object fetchByHiker(String url, Object options, boolean toHex, boolean i
         java.io.File f = new java.io.File(path);
         if (!f.exists()) return "";
         if (inputStream) {
-            return hkFileToInputStream(path);
+            try {
+                return hkFileToInputStream(path);
+            } catch (java.io.IOException e) {
+                Logger.t(TAG).e(e, "fetchByHiker file inputStream");
+                return "";
+            }
         }
         if (toHex) {
-            byte[] bytes = hkFileToBytes(path);
-            return hkBytesToHexString(bytes);
+            try {
+                byte[] bytes = hkFileToBytes(path);
+                return hkBytesToHexString(bytes);
+            } catch (java.io.IOException e) {
+                Logger.t(TAG).e(e, "fetchByHiker file toHex");
+                return "";
+            }
         }
         return fileToString(f, null, true);
     }
@@ -4863,6 +4911,242 @@ public static String getFilePath(String path) {
 }
 
 // ---------------------------------------------------------------------------
+// 8.83: batchExecute(Object tasks, Object listener0, Object success, Object ruleKey)V
+// [JSEngine.smali 11276-11680]  D2 真实实现。
+// tasks: [{id, func(BaseFunction), param}]；listener0: {func, param} 或 null/undefined；
+// success: 触发回调的完成数阈值（默认 tasks.size()）。
+// 每个任务在独立线程 + 独立 Rhino Context 里执行 func(param)；
+// 完成后若 listener 存在且计数 <= success，回调 listener.func(param, id, false, result)。
+// ---------------------------------------------------------------------------
+@SuppressWarnings("unchecked")
+private void batchExecuteImpl(Object[] args) {
+    try {
+        Object tasksArg = args != null && args.length > 0 ? argsNativeObjectAdjust(args[0], true) : null;
+        if (!(tasksArg instanceof List)) {
+            Logger.t(TAG).d("be: tasks not a list");
+            return;
+        }
+        List<Object> tasks = (List<Object>) tasksArg;
+        // listener0: {func, param}
+        BaseFunction listenerFunc = null;
+        Object listenerParam = null;
+        if (args.length > 1 && !isUndefined(args[1])) {
+            Object lo = argsNativeObjectAdjust(args[1], true);
+            if (lo instanceof Map) {
+                Map<String, Object> lm = (Map<String, Object>) lo;
+                Object f = lm.get("func");
+                if (f instanceof BaseFunction) {
+                    listenerFunc = (BaseFunction) f;
+                    listenerParam = lm.get("param");
+                }
+            }
+        }
+        // success 阈值
+        int success = tasks.size();
+        if (args.length > 2 && !isUndefined(args[2])) {
+            Object s = argsNativeObjectAdjust(args[2]);
+            if (s instanceof Number) success = ((Number) s).intValue();
+        }
+        if (success <= 0 || success > tasks.size()) success = tasks.size();
+        final int successLimit = success;
+        final BaseFunction finalListenerFunc = listenerFunc;
+        final Object finalListenerParam = listenerParam;
+
+        int poolSize = Math.min(tasks.size(), 16);
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(poolSize, poolSize, 1L,
+                TimeUnit.SECONDS, new LinkedBlockingDeque<>(4096));
+        CountDownLatch latch = new CountDownLatch(tasks.size());
+        AtomicInteger counter = new AtomicInteger(0);
+
+        for (Object t : tasks) {
+            if (!(t instanceof Map)) {
+                latch.countDown();
+                continue;
+            }
+            final Map<String, Object> task = (Map<String, Object>) t;
+            final Object funcObj = task.get("func");
+            if (!(funcObj instanceof BaseFunction)) {
+                latch.countDown();
+                continue;
+            }
+            final BaseFunction taskFunc = (BaseFunction) funcObj;
+            final Object taskParam = task.get("param");
+            final String taskId = task.get("id") == null ? "" : String.valueOf(task.get("id"));
+            pool.execute(() -> {
+                // 8.83: latch.getCount()>0 且 counter < successLimit 才执行，否则直接 countDown
+                if (latch.getCount() <= 0 || counter.get() >= successLimit) {
+                    latch.countDown();
+                    return;
+                }
+                Context cx = Context.enter();
+                try {
+                    cx.setOptimizationLevel(-1);
+                    Object result = null;
+                    try {
+                        Scriptable taskScope = taskFunc.getParentScope();
+                        result = taskFunc.call(cx, taskScope, taskScope, new Object[]{taskParam});
+                    } catch (Throwable e) {
+                        Logger.t(TAG).e(e, "be task failed: %s", taskId);
+                    }
+                    counter.incrementAndGet();
+                    // 8.83: synchronized(latch) 回调 listener
+                    if (finalListenerFunc != null) {
+                        synchronized (latch) {
+                            if (counter.get() <= successLimit && latch.getCount() > 0) {
+                                try {
+                                    Scriptable ls = finalListenerFunc.getParentScope();
+                                    Object r = finalListenerFunc.call(cx, ls, ls,
+                                            new Object[]{finalListenerParam, taskId, false, result});
+                                    Object adjusted = argsNativeObjectAdjust(r);
+                                    if ("break".equals(adjusted)) {
+                                        counter.getAndSet(successLimit);
+                                    }
+                                } catch (Throwable e) {
+                                    Logger.t(TAG).e(e, "be listener failed");
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    try {
+                        if (latch.getCount() > 0) latch.countDown();
+                    } catch (Throwable ignored) {
+                    }
+                    Context.exit();
+                }
+            });
+        }
+        // 8.83: await(size/16*30+30)s
+        long timeoutSec = tasks.size() / 16 * 30L + 30L;
+        try {
+            latch.await(timeoutSec, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        try {
+            if (!pool.isShutdown()) pool.shutdownNow();
+        } catch (Throwable e) {
+            Logger.t(TAG).e(e, "be pool shutdown failed");
+        }
+        BATCH_EXECUTE_READY = true;
+        Logger.t(TAG).d("be: done, %d tasks", tasks.size());
+    } catch (Throwable e) {
+        Logger.t(TAG).e(e, "batchExecute failed");
+    }
+}
+
+/**
+ * 8.83: realLineNumber(int preLine, int lineNumber, Object sourceName)I [smali].
+ * sourceName 含 "eval" -> 直接返回 lineNumber；否则 preLine>0 时 lineNumber-preLine。
+ */
+private int realLineNumber(int preLine, int lineNumber, Object sourceName) {
+    String sn = sourceName == null ? "" : String.valueOf(sourceName);
+    if (sn.contains("eval")) return lineNumber;
+    if (preLine > 0) {
+        int r = lineNumber - preLine;
+        return r > 0 ? r : lineNumber;
+    }
+    return lineNumber;
+}
+
+/**
+ * 8.83: setError(Object o, Object callbackKey, Object ruleKey, Object evalKey)V 完整实现。
+ * 明细格式："\n来源：{source}\n代码：{lineSource}\n行数：{n}\n详情：{msg}"；
+ * 超 2000 字截断并追加 "...文本过长被截断"；最终消息 = ("解析失败！" | title+"解析失败！") + 明细。
+ * 有 callbackKey 对应回调 -> callback.showErr(msg)；否则宿主 Toast。
+ */
+private void setErrorImpl(Object[] args) {
+    try {
+        Object o = args != null && args.length > 0 ? argsNativeObjectAdjust(args[0]) : null;
+        Object callbackKey = args != null && args.length > 1 ? args[1] : null;
+        Object ruleKey = args != null && args.length > 2 ? args[2] : null;
+        Object evalKey = args != null && args.length > 3 ? args[3] : null;
+
+        // evalKey 为 Scriptable 时取父 scope 的 MY_PRE_LINE
+        int preLine = 0;
+        if (evalKey instanceof Scriptable) {
+            Scriptable parent = ((Scriptable) evalKey).getParentScope();
+            if (parent != null) {
+                Object v = parent.get("MY_PRE_LINE", parent);
+                if (v != null && !isUndefined(v)) {
+                    try {
+                        int n = Integer.parseInt(String.valueOf(argsNativeObjectAdjust(v)));
+                        if (n > 0) preLine = n + 1;
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+
+        String detail;
+        if (o instanceof String) {
+            detail = (String) o;
+        } else if (o instanceof org.mozilla.javascript.JavaScriptException) {
+            org.mozilla.javascript.JavaScriptException je = (org.mozilla.javascript.JavaScriptException) o;
+            int ln = realLineNumber(preLine, je.lineNumber(), je.sourceName());
+            detail = "\n来源：" + je.sourceName() + "\n代码：" + je.lineSource()
+                    + "\n行数：" + ln + "\n详情：" + o.toString();
+        } else if (o instanceof org.mozilla.javascript.RhinoException) {
+            org.mozilla.javascript.RhinoException re = (org.mozilla.javascript.RhinoException) o;
+            int ln = realLineNumber(preLine, re.lineNumber(), re.sourceName());
+            detail = "\n来源：" + re.sourceName() + "\n代码：" + re.lineSource()
+                    + "\n行数：" + ln + "\n详情：" + o.toString();
+        } else if (o instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) o;
+            Object fileName = so.get("fileName");
+            Object lineNumber = so.get("lineNumber");
+            Object lineSource = so.get("lineSource");
+            int ln = 0;
+            try {
+                ln = Integer.parseInt(String.valueOf(argsNativeObjectAdjust(lineNumber)));
+            } catch (Throwable ignored) {
+            }
+            ln = realLineNumber(preLine, ln, fileName);
+            detail = "\n来源：" + fileName + "\n代码：" + lineSource
+                    + "\n行数：" + ln + "\n详情：" + o.toString();
+        } else {
+            detail = o == null ? "" : String.valueOf(argsNativeObjectAdjust(o));
+        }
+
+        if (detail != null && detail.length() > 2000) {
+            detail = detail.substring(0, 2000) + "...文本过长被截断";
+        }
+        error = detail == null ? "" : detail;
+        Logger.t(TAG).d("setError: %s", error);
+
+        Object rk = argsNativeObjectAdjust(ruleKey);
+        String ck = String.valueOf(argsNativeObjectAdjust(callbackKey));
+        JSEngineCallback<?> callback = callbackMap.get(ck);
+
+        // ruleKey 为 Map 且有非空 title -> title + "解析失败！"
+        String prefix = "解析失败！";
+        if (rk instanceof Map) {
+            Object title = ((Map<?, ?>) rk).get("title");
+            if (title != null && !String.valueOf(title).isEmpty()) {
+                prefix = title + "解析失败！";
+            }
+        }
+        final String msg = prefix + error;
+        if (callback == null) {
+            try {
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                        android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_LONG).show());
+            } catch (Throwable ignored) {
+            }
+        } else {
+            callbackMap.remove(ck);
+            try {
+                callback.showErr(msg);
+            } catch (Throwable e) {
+                Logger.t(TAG).e(e, "setError callback.showErr failed");
+            }
+        }
+    } catch (Throwable e) {
+        Logger.t(TAG).e(e, "setError failed");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 8.83: JSEngine.fileToString(File, String, boolean)String
 // [JSEngine.smali 2382-2554]  private.
 // NOTE: exact signature is (File, String, boolean), not (String).
@@ -4880,17 +5164,67 @@ private String fileToString(File file, String charset, boolean encrypted) {
     }
     if (path.contains(File.separator + "backup" + File.separator)) return "";
     if (!TextUtils.isEmpty(charset)) {
-        if (!encrypted) return readFileContent(path); // MISSING: 8.83 JSEngine private method
-        String key = kv.get("i--"); // MISSING: 8.83 JSEngine private method
+        // D2: 8.83 语义补全。charset 非空：
+        //   encrypted=false -> 字符集探测读取；
+        //   encrypted=true  -> 取 "i--" 项为 AES key 解密文件内容。
+        if (!encrypted) return getContentByCharsetDetect(path);
+        String key = kv != null ? kv.get("i--") : null;
         if (!TextUtils.isEmpty(key)) {
-            // MISSING: 8.83 JSEngine.aesDecode(Object, Object)
-            // MISSING: 8.83 com.example.hikerview.utils.FileUtil.fileToString(String)
             return aesDecode(key, readFileContent(path));
         }
     } else {
-        if (path.contains(getFilesDir())) return ""; // MISSING: 8.83 getFilesDir()
+        if (path.contains(getFilesDir())) return "";
     }
-    return readFileContent(path); // MISSING (same as above)
+    return getContentByCharsetDetect(path);
+}
+
+/**
+ * 8.83: JSEngine.getContentByCharsetDetect(String) [smali 2669-2674] +
+ * FileUtil.getContentByCharsetDetect [FileUtil.smali]。
+ * .js/.json 直接按平台默认字符集读；其余用 juniversalchardet 探测编码
+ * （org.mozilla.universalchardet，与 8.83 的 EncodeUtilKt.getEncode 同款库），
+ * UTF-8（含探测失败回退）走默认读取，否则按探测到的编码解码。
+ */
+private String getContentByCharsetDetect(String path) {
+    if (path.endsWith(".js") || path.endsWith(".json")) {
+        return readFileContent(path);
+    }
+    String encode = detectCharset(path);
+    if (encode == null || encode.equalsIgnoreCase("UTF-8")) {
+        return readFileContent(path);
+    }
+    try {
+        byte[] bytes = java.nio.file.Files.readAllBytes(new File(path).toPath());
+        if (bytes == null) return "";
+        return new String(bytes, encode);
+    } catch (Throwable e) {
+        Logger.t(TAG).e(e, "getContentByCharsetDetect failed: %s", path);
+        return readFileContent(path);
+    }
+}
+
+/** juniversalchardet 探测文件编码（8.83 EncodeUtilKt.getEncode 等价）。 */
+private String detectCharset(String path) {
+    org.mozilla.universalchardet.UniversalDetector detector = null;
+    java.io.InputStream in = null;
+    try {
+        detector = new org.mozilla.universalchardet.UniversalDetector(null);
+        in = new java.io.BufferedInputStream(new java.io.FileInputStream(path));
+        byte[] buf = new byte[4096];
+        int n;
+        while ((n = in.read(buf)) > 0 && !detector.isDone()) {
+            detector.handleData(buf, 0, n);
+        }
+        detector.dataEnd();
+        return detector.getDetectedCharset();
+    } catch (Throwable e) {
+        return null;
+    } finally {
+        try {
+            if (in != null) in.close();
+        } catch (Throwable ignored) {
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4923,7 +5257,7 @@ private static void updateDescription(String path, String url, int version) {
         RequireDescription desc = new RequireDescription(url, version);
         // 8.83 FileUtil.stringToFile -> plain write; fastjson JSON.toJSONString -> GSON.toJson.
         writeFileContentStatic(path, GSON.toJson(desc));
-    } catch (IOException e) {
+    } catch (Exception e) {
         Logger.t(TAG).e(e, "updateDescription failed");
     }
 }

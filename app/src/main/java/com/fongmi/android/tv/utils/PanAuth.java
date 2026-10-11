@@ -138,18 +138,17 @@ public class PanAuth {
     }
 
     public static String loginSummary() {
-        int n = 0;
-        if (is115LoggedIn()) n++;
-        if (isQuarkLoggedIn()) n++;
-        if (isPikPakLoggedIn()) n++;
-        if (n == 0) return "未登录";
+        boolean l115 = is115LoggedIn();
+        boolean lQuark = isQuarkLoggedIn();
+        boolean lPikPak = isPikPakLoggedIn();
+        if (!l115 && !lQuark && !lPikPak) return "未登录";
         StringBuilder sb = new StringBuilder();
-        if (is115LoggedIn()) sb.append("115");
-        if (isQuarkLoggedIn()) {
+        if (l115) sb.append("115");
+        if (lQuark) {
             if (sb.length() > 0) sb.append("、");
             sb.append("夸克");
         }
-        if (isPikPakLoggedIn()) {
+        if (lPikPak) {
             if (sb.length() > 0) sb.append("、");
             sb.append("PikPak");
         }
@@ -159,20 +158,41 @@ public class PanAuth {
 
     // ---------- PikPak（会话由 DrivePikPak 经 CloudAccountStore 加密存储） ----------
 
+    /**
+     * PikPak 登录态缓存：原来每次 isPikPakLoggedIn() 都 new DrivePikPak，
+     * 构造器做 OkHttpClient + 7 次加密存储读写，在主线程卡 UI。
+     * 登录态只在登录/退出时变化，缓存后主线程只读内存。
+     */
+    private static volatile Boolean sPikPakLoggedIn;
+    private static volatile String sPikPakUserName;
+
     public static boolean isPikPakLoggedIn() {
+        Boolean cached = sPikPakLoggedIn;
+        if (cached != null) return cached;
+        boolean login = false;
+        String name = "";
         try {
-            return new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).isLogin();
+            com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak d =
+                    new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get());
+            login = d.isLogin();
+            if (login) name = d.getUserName();
         } catch (Throwable ignored) {
-            return false;
         }
+        sPikPakLoggedIn = login;
+        sPikPakUserName = name;
+        return login;
     }
 
     public static String getPikPakUserName() {
-        try {
-            return new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).getUserName();
-        } catch (Throwable ignored) {
-            return "";
-        }
+        if (!isPikPakLoggedIn()) return "";
+        String n = sPikPakUserName;
+        return n == null ? "" : n;
+    }
+
+    /** 登录成功 / 退出登录后调用，刷新缓存 */
+    public static void invalidatePikPakCache() {
+        sPikPakLoggedIn = null;
+        sPikPakUserName = null;
     }
 
     public static void clearPikPak() {
@@ -181,6 +201,7 @@ public class PanAuth {
         } catch (Throwable ignored) {
         }
         prefs().edit().remove(KEY_PIKPAK_VIP).apply();
+        invalidatePikPakCache();
     }
 
     public static String getPikPakVip() {

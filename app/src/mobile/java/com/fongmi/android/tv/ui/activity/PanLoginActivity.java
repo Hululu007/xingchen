@@ -391,6 +391,7 @@ public class PanLoginActivity extends BaseActivity {
                         try {
                             new DrivePikPak(this).login(u, p);
                             runOnUiThread(() -> {
+                                PanAuth.invalidatePikPakCache();
                                 refreshSub();
                                 Notify.show("PikPak 登录成功");
                             });

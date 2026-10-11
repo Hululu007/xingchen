@@ -13,18 +13,36 @@ public class CloudAccountStore {
 
     private static final String PREF = "cloud_account";
 
+    /**
+     * EncryptedSharedPreferences 单例：原来每次读写都 new MasterKey（走 Android Keystore）
+     * 再 create 一次 EncryptedSharedPreferences，DrivePikPak 构造一次就触发约 7 次，
+     * 在主线程直接卡死 UI。缓存后只做一次。
+     */
+    private static volatile SharedPreferences sPrefs;
+
     private static SharedPreferences prefs(Context context) {
-        try {
-            MasterKey masterKey = new MasterKey.Builder(context)
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build();
-            return EncryptedSharedPreferences.create(
-                    context, PREF, masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
-        } catch (Exception e) {
-            return context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        SharedPreferences p = sPrefs;
+        if (p == null) {
+            synchronized (CloudAccountStore.class) {
+                p = sPrefs;
+                if (p == null) {
+                    Context app = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+                    try {
+                        MasterKey masterKey = new MasterKey.Builder(app)
+                                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                                .build();
+                        p = EncryptedSharedPreferences.create(
+                                app, PREF, masterKey,
+                                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+                    } catch (Exception e) {
+                        p = app.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                    }
+                    sPrefs = p;
+                }
+            }
         }
+        return p;
     }
 
     public static void saveCookie(Context context, String driveId, String cookie) {

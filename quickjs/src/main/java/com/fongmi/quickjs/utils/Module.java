@@ -5,6 +5,7 @@ import android.util.LruCache;
 
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Asset;
+import com.github.catvod.utils.Util;
 
 public class Module {
 
@@ -22,10 +23,25 @@ public class Module {
     public String fetch(String name) {
         String content = cache.get(name);
         if (!TextUtils.isEmpty(content)) return content;
-        if (name.startsWith("http")) cache.put(name, content = OkHttp.string(name));
-        else if (name.startsWith("assets")) cache.put(name, content = Asset.read(name));
-        else if (name.startsWith("lib/")) cache.put(name, content = Asset.read("js/" + name));
-        else if (name.startsWith("/")) cache.put(name, content = readLocalFile(name));
+        String url = name;
+        String md5 = "";
+        if (name.contains(";md5;")) {
+            String[] texts = name.split(";md5;");
+            url = texts[0];
+            md5 = texts.length > 1 ? texts[1].trim() : "";
+            if (md5.startsWith("http")) md5 = OkHttp.string(md5).trim();
+        }
+        if (url.startsWith("http")) cache.put(name, content = OkHttp.string(url));
+        else if (url.startsWith("assets")) cache.put(name, content = Asset.read(url));
+        else if (url.startsWith("lib/")) cache.put(name, content = Asset.read("js/" + url));
+        else if (url.startsWith("/")) cache.put(name, content = readLocalFile(url));
+        if (!md5.isEmpty() && !TextUtils.isEmpty(content)) {
+            String actual = Util.md5(content);
+            if (!actual.equalsIgnoreCase(md5)) {
+                cache.remove(name);
+                throw new RuntimeException("js md5 mismatch: " + url);
+            }
+        }
         return content;
     }
 

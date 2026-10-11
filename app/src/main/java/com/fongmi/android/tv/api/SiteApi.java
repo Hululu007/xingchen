@@ -208,7 +208,8 @@ public class SiteApi {
             Result result = Result.fromJson(detailContent);
             Vod vod = result.getVod();
             if (vod == null || vod.getPlayFrom().isEmpty() || vod.getPlayUrl().isEmpty()) {
-                BaseLoader.get().removePySpider(key);
+                if (site.getApi() != null && site.getApi().contains(".js")) BaseLoader.get().removeJsSpider(key);
+                else BaseLoader.get().removePySpider(key);
             } else {
                 detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             }

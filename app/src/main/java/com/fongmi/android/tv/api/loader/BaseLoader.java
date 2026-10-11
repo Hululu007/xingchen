@@ -59,8 +59,16 @@ public class BaseLoader {
         pyLoader.remove(key);
     }
 
+    public void removeJsSpider(String key) {
+        jsLoader.remove(key);
+    }
+
     public void watchPyPlugins(java.io.File dir) {
         pyLoader.watchPlugins(dir);
+    }
+
+    public void watchJsPlugins(java.io.File dir) {
+        jsLoader.watchPlugins(dir);
     }
 
     public Spider getSpider(String key, String api, String ext, String jar) {

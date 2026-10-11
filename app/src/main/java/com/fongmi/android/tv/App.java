@@ -116,6 +116,8 @@ public class App extends Application implements Application.ActivityLifecycleCal
         try {
             com.fongmi.android.tv.api.loader.BaseLoader.get()
                     .watchPyPlugins(new java.io.File(getFilesDir(), "plugins/py"));
+            com.fongmi.android.tv.api.loader.BaseLoader.get()
+                    .watchJsPlugins(new java.io.File(getFilesDir(), "plugins/js"));
         } catch (Throwable ignored) {}
         post(this::startBackgroundServices, 1200);
     }

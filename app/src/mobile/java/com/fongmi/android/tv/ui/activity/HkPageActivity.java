@@ -1252,25 +1252,68 @@ public class HkPageActivity extends BaseActivity {
 
     /**
      * 把选中的解析结果落盘导入（各 .hkzip 的附带资源按所属包分别落盘）。
+     * <p>
+     * D4 规则更新检查：先做版本号比对——
+     * <ul>
+     * <li>导入版本 &gt; 已安装版本：直接更新（成功提示带 v旧→v新）；</li>
+     * <li>导入版本 &le; 已安装版本：弹确认框问是否覆盖，避免静默降级。</li>
+     * </ul>
      *
-     * @param picked 选中的勾选项
+     * @param picked 选中的勾选项（UI 线程调用）
      */
     private void importPickedRules(List<PickEntry> picked) {
         if (picked.isEmpty()) {
             Notify.show("未选中任何规则");
             return;
         }
+        final List<PickEntry> downgrade = new ArrayList<>();
+        final StringBuilder sb = new StringBuilder();
+        for (PickEntry e : picked) {
+            HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
+            if (installed != null && e.parsed.rule.getVersion() <= installed.getVersion()) {
+                downgrade.add(e);
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(e.parsed.rule.getTitle())
+                        .append("（已安装 v").append(installed.getVersion())
+                        .append("，导入 v").append(e.parsed.rule.getVersion()).append("）");
+            }
+        }
+        if (!downgrade.isEmpty()) {
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("版本未更新，是否覆盖？")
+                    .setMessage("以下小程序的导入版本不高于已安装版本：\n" + sb + "\n\n覆盖可能导致降级。")
+                    .setPositiveButton("全部覆盖", (d, w) -> doImportPickedRules(picked))
+                    .setNegativeButton("跳过这些", (d, w) -> {
+                        List<PickEntry> rest = new ArrayList<>(picked);
+                        rest.removeAll(downgrade);
+                        if (rest.isEmpty()) {
+                            Notify.show("已跳过，无需导入");
+                            return;
+                        }
+                        doImportPickedRules(rest);
+                    })
+                    .setNeutralButton("取消", null)
+                    .show();
+            return;
+        }
+        doImportPickedRules(picked);
+    }
+
+    /** importPickedRules 的落盘实现（后台线程）。 */
+    private void doImportPickedRules(List<PickEntry> picked) {
         new Thread(() -> {
             try {
                 List<HkRule> rules = new ArrayList<>();
-                List<HkRule> updated = new ArrayList<>();
+                List<String> updatedVer = new ArrayList<>();
                 Map<HkRuleManager.HkZipData, List<HkRule>> assets = new HashMap<>();
                 for (PickEntry e : picked) {
                     HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
                     boolean isUpdate = installed != null && e.parsed.rule.getVersion() > installed.getVersion();
                     HkRuleManager.get().saveRule(e.parsed.rule, e.parsed.json);
                     rules.add(e.parsed.rule);
-                    if (isUpdate) updated.add(e.parsed.rule);
+                    if (isUpdate) {
+                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersion() + "→v" + e.parsed.rule.getVersion());
+                    }
                     if (e.hkZipData != null) {
                         List<HkRule> g = assets.get(e.hkZipData);
                         if (g == null) {
@@ -1283,9 +1326,9 @@ public class HkPageActivity extends BaseActivity {
                 for (Map.Entry<HkRuleManager.HkZipData, List<HkRule>> en : assets.entrySet()) {
                     HkRuleManager.get().saveHkZipAssets(en.getKey(), en.getValue());
                 }
-                boolean wasUpdate = !updated.isEmpty();
+                boolean wasUpdate = !updatedVer.isEmpty();
                 String msg = rules.size() == 1
-                        ? (wasUpdate ? "更新成功：" : "导入成功：") + rules.get(0).getTitle()
+                        ? (wasUpdate ? "更新成功：" + updatedVer.get(0) : "导入成功：" + rules.get(0).getTitle())
                         : (wasUpdate ? "更新成功 " : "导入成功 ") + rules.size() + " 个小程序";
                 App.post(() -> {
                     Notify.show(msg);
@@ -3233,6 +3276,12 @@ public class HkPageActivity extends BaseActivity {
             case "movie_1_left_pic":
                 // 官方 movie_1_left_pic span=60 整宽左图右文（同 movie_1）
                 return ContentAdapter.T_MOVIE_LEFT_PIC;
+            case "movie_1_vertical_pic":
+                // 官方 movie_1_vertical_pic span=60 全宽左竖海报右文（D3）
+                return ContentAdapter.T_MOVIE_VERTICAL;
+            case "movie_1_vertical_pic_blur":
+                // 官方 movie_1_vertical_pic_blur span=60 毛玻璃背景 + 竖海报（D3）
+                return ContentAdapter.T_MOVIE_VERTICAL_BLUR;
             case "movie_3_marquee":
                 // 官方 movie_3_marquee span=20 三列，标题跑马灯（bindVideo 里按 col_type 开 marquee）
                 return ContentAdapter.T_VIDEO;
@@ -3740,6 +3789,8 @@ public class HkPageActivity extends BaseActivity {
         static final int T_ICON_3_SMALL = 22;   // icon_small_3：图标左文字右同行
         static final int T_ICON_1_SEARCH = 23;  // icon_1_search：搜索条
         static final int T_ICON_1_LEFT_PIC = 24; // icon_1_left_pic：左 60dp 图右文全宽行
+        static final int T_MOVIE_VERTICAL = 25; // movie_1_vertical_pic：全宽左竖海报右文（8.83 item_movie_one_col_vertical_pic）
+        static final int T_MOVIE_VERTICAL_BLUR = 26; // movie_1_vertical_pic_blur：毛玻璃背景 + 竖海报
 
         private final List<HkItem> source;
         /** 分组后的展示列表（groupButtons 快照；videos 变更后必须调 refreshGroups() 重算）。 */
@@ -3859,6 +3910,9 @@ public class HkPageActivity extends BaseActivity {
                     return 60; // card_pic_1 全宽
                 case T_MOVIE_LEFT_PIC:
                     return 60; // movie_1 左图右文全宽
+                case T_MOVIE_VERTICAL:
+                case T_MOVIE_VERTICAL_BLUR:
+                    return 60; // movie_1_vertical_pic(_blur) 全宽（D3）
                 case T_PIC:
                     if (ct.startsWith("pic_2") || "card_pic_2".equals(ct)
                             || "card_pic_2_2".equals(ct) || "card_pic_2_2_left".equals(ct)) return 30;
@@ -3943,6 +3997,16 @@ public class HkPageActivity extends BaseActivity {
                         overlay = v.findViewById(R.id.tv_overlay);
                         break;
                     case T_MOVIE_LEFT_PIC:
+                        cover = v.findViewById(R.id.iv_cover);
+                        title = v.findViewById(R.id.tv_title);
+                        desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_MOVIE_VERTICAL:
+                        cover = v.findViewById(R.id.iv_cover);
+                        title = v.findViewById(R.id.tv_title);
+                        desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_MOVIE_VERTICAL_BLUR:
                         cover = v.findViewById(R.id.iv_cover);
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
@@ -4040,6 +4104,12 @@ public class HkPageActivity extends BaseActivity {
                 case T_MOVIE_LEFT_PIC:
                     layout = R.layout.item_hk_movie_left_pic;
                     break;
+                case T_MOVIE_VERTICAL:
+                    layout = R.layout.item_hk_movie_vertical;
+                    break;
+                case T_MOVIE_VERTICAL_BLUR:
+                    layout = R.layout.item_hk_movie_vertical_blur;
+                    break;
                 case T_PIC:
                     layout = R.layout.item_hk_pic;
                     break;
@@ -4110,6 +4180,12 @@ public class HkPageActivity extends BaseActivity {
                     break;
                 case T_MOVIE_LEFT_PIC:
                     bindMovie(h, item);
+                    break;
+                case T_MOVIE_VERTICAL:
+                    bindMovieVertical(h, item, false);
+                    break;
+                case T_MOVIE_VERTICAL_BLUR:
+                    bindMovieVertical(h, item, true);
                     break;
                 case T_PIC:
                     bindPic(h, item);
@@ -4382,6 +4458,30 @@ public class HkPageActivity extends BaseActivity {
             h.desc.setText(d);
             h.desc.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
             ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
+            setContentClick(h, item);
+        }
+
+        /**
+         * 竖海报行（D3）：对照 8.83 item_movie_one_col_vertical_pic(_blur)。
+         * 全宽左 95x130dp 竖海报右文；blur=true 时背景加毛玻璃（8.83 的 blur 头图）。
+         */
+        private void bindMovieVertical(Holder h, HkItem item, boolean blur) {
+            if (h.title == null || h.desc == null || h.cover == null) return;
+            h.title.setText(titleSpan(item.getTitle()));
+            String d = stripHtml(item.getDesc());
+            h.desc.setText(d);
+            h.desc.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
+            if (blur) {
+                View bg = h.itemView.findViewById(R.id.iv_blur_bg);
+                if (bg instanceof android.widget.ImageView) {
+                    ImgUtil.load(item.getTitle(), item.getPic(), (android.widget.ImageView) bg, hkRuleUrl());
+                    try {
+                        com.xingchen.tv.theme.FrostedGlass.blurBackground(bg);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
             setContentClick(h, item);
         }
 

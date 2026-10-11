@@ -76,6 +76,25 @@ public class HkCookieJar implements CookieJar {
         return valid;
     }
 
+    /** 清空全部 Cookie（内存 + 持久化），供壳子"清除海阔 Cookie"入口调用。 */
+    public synchronized void clear() {
+        memory.clear();
+        try {
+            prefs.edit().clear().apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 清空指定 host 的 Cookie。 */
+    public synchronized void clearHost(String host) {
+        if (host == null || host.isEmpty()) return;
+        memory.remove(host);
+        try {
+            prefs.edit().remove(host).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void persist(String host, List<Cookie> list) {
         try {
             StringBuilder sb = new StringBuilder();

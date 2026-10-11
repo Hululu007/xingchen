@@ -93,10 +93,48 @@ public class HkHttpHelper {
     private static final ThreadLocal<Map<String, Object>> threadMap = new ThreadLocal<>();
 
     /** 8.83 HttpHelper.getTagFromThread 原样移植（smali:3085-3114）。 */
-    private static Object getTagFromThread() {
+    public static Object getTagFromThread() {
         Map<String, Object> map = threadMap.get();
         if (map == null) return null;
         return map.get("_tag");
+    }
+
+    /** 8.83 HttpHelper.addTagForThread 原样移植（smali:449-…）：给当前线程打 tag，后续请求自动带上。 */
+    public static void addTagForThread(Object tag) {
+        Map<String, Object> map = threadMap.get();
+        if (map == null) {
+            map = new HashMap<>();
+            threadMap.set(map);
+        }
+        map.put("_tag", tag);
+    }
+
+    /**
+     * 8.83 HttpHelper.cancelByTag 原样移植（smali:524-…）。
+     * 8.83 版取消 OkGo 上同 tag 的请求；okhttp3 直写版改为取消 Dispatcher 上同 tag 的排队/执行中请求。
+     * HkHttp.client() 的派生 client 共用同一 Dispatcher，一并覆盖；imageClient 单独处理。
+     */
+    public static void cancelByTag(Object tag) {
+        if (tag == null) return;
+        try {
+            cancelTagged(HkHttp.client(), tag);
+        } catch (Throwable ignored) {
+        }
+        try {
+            cancelTagged(HkHttp.imageClient(), tag);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void cancelTagged(OkHttpClient client, Object tag) {
+        if (client == null) return;
+        okhttp3.Dispatcher dispatcher = client.dispatcher();
+        for (Call call : dispatcher.queuedCalls()) {
+            if (tag.equals(call.request().tag(Object.class)) || tag.equals(call.request().tag())) call.cancel();
+        }
+        for (Call call : dispatcher.runningCalls()) {
+            if (tag.equals(call.request().tag(Object.class)) || tag.equals(call.request().tag())) call.cancel();
+        }
     }
 
     /** 8.83 HttpHelper.isEmpty(CharSequence) 原样移植（smali:3114-3141）。 */

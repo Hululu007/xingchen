@@ -207,12 +207,23 @@ public class HkHttp {
     }
 
     private static Request getRequest(String url, Req req, Headers headers) {
+        Request.Builder rb = new Request.Builder().url(url).headers(headers);
+        applyThreadTag(rb);
         if (req.getMethod().equalsIgnoreCase("post")) {
-            return new Request.Builder().url(url).headers(headers).post(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
+            return rb.post(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
         } else if (req.getMethod().equalsIgnoreCase("header")) {
-            return new Request.Builder().url(url).headers(headers).head().build();
+            return rb.head().build();
         } else {
-            return new Request.Builder().url(url).headers(headers).get().build();
+            return rb.get().build();
+        }
+    }
+
+    /** 8.83 addTagForThread 语义：当前线程有 tag 时给请求打上，供 cancelByTag 取消。 */
+    private static void applyThreadTag(Request.Builder rb) {
+        try {
+            Object tag = HkHttpHelper.getTagFromThread();
+            if (tag != null) rb.tag(Object.class, tag);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -409,6 +420,7 @@ public class HkHttp {
                 }
             }
         }
+        applyThreadTag(rb);
         try (Response resp = client().newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
@@ -422,11 +434,12 @@ public class HkHttp {
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new IllegalArgumentException("不支持的链接协议（需 M2 JS 运行时）：" + url);
         }
-        Request req = new Request.Builder().url(url)
+        Request.Builder plainRb = new Request.Builder().url(url)
                 .header("User-Agent", ua == null || ua.isEmpty() ? DEFAULT_UA : ua)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "zh-CN,zh;q=0.9")
-                .build();
+                .header("Accept-Language", "zh-CN,zh;q=0.9");
+        applyThreadTag(plainRb);
+        Request req = plainRb.build();
         try (Response resp = client().newCall(req).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
@@ -454,6 +467,7 @@ public class HkHttp {
         if ("POST".equals(e.method)) {
             rb.post(RequestBody.create(new byte[0], null));
         }
+        applyThreadTag(rb);
         try (Response resp = client().newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();

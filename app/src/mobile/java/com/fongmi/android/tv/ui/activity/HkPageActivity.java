@@ -3664,9 +3664,8 @@ public class HkPageActivity extends BaseActivity {
         VideoAdapter(List<HkItem> items, boolean fromContent) {
             this.items = items;
             this.fromContent = fromContent;
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int itemW = (dm.widthPixels - dp(16) * 2 - dp(12) * 2) / 3;
-            imgHeight = itemW * 3 / 2;
+            // 8.83 item_movie_tools：封面容器固定 150dp
+            imgHeight = dp(150);
         }
 
         class Holder extends RecyclerView.ViewHolder {
@@ -4370,15 +4369,11 @@ public class HkPageActivity extends BaseActivity {
         }
 
         /**
-         * 视频卡片图高：固定 3 列，列宽 = (屏宽-左右边距16dp*2)/3，图高 = 列宽*3/2。
+         * 视频卡片图高：对齐 8.83 item_movie_tools，封面容器固定 150dp。
+         * （之前用列宽*3/2≈180dp，比 8.83 高 20%，centerCrop 过度放大导致封面显"歪"。）
          */
         void updateVideoImgH() {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int cols = 3;
-            int itemW = (dm.widthPixels - dp(16) * 2) / cols;
-            // 减去列间距均摊（GridSpace：12dp*(cols-1)/cols）
-            itemW -= dp(12) * (cols - 1) / cols;
-            videoImgH = itemW * 3 / 2;
+            videoImgH = dp(150);
         }
 
         /**

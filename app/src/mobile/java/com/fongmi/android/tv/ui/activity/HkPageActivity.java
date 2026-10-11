@@ -4241,11 +4241,11 @@ public class HkPageActivity extends BaseActivity {
                 return ContentAdapter.T_AVATAR;
             case "input":
                 return ContentAdapter.T_INPUT;
-            case "search":
-                return ContentAdapter.T_SEARCH;
             case "x5_webview_single":
                 return ContentAdapter.T_WEB;
-            case "button_group":
+            case "scroll_button":
+            case "flex_button":
+                // 8.83 原版：连续同类型条目由 updatePolyList 自动合并，首个渲染整组
                 return ContentAdapter.T_BUTTONS;
             case "card_pic_1":
             case "card_pic_2":
@@ -4845,7 +4845,6 @@ public class HkPageActivity extends BaseActivity {
         static final int T_PIC = 6;
         static final int T_MOVIE = 7;
         static final int T_INPUT = 8;
-        static final int T_SEARCH = 9;
         static final int T_WEB = 10;
         static final int T_BUTTONS = 11;
         static final int T_ICON_FILL = 12;
@@ -4864,18 +4863,22 @@ public class HkPageActivity extends BaseActivity {
         static final int T_ICON_1_LEFT_PIC = 24; // icon_1_left_pic：左 60dp 图右文全宽行
         static final int T_MOVIE_VERTICAL = 25; // movie_1_vertical_pic：全宽左竖海报右文（8.83 item_movie_one_col_vertical_pic）
         static final int T_MOVIE_VERTICAL_BLUR = 26; // movie_1_vertical_pic_blur：毛玻璃背景 + 竖海报
+        static final int T_EMPTY = 27; // 8.83 原版：poly 分组内非首个条目占位的空行（getItemViewType 返回 -1）
 
         private final List<HkItem> source;
-        /** 分组后的展示列表（groupButtons 快照；videos 变更后必须调 refreshGroups() 重算）。 */
+        /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
         private List<HkItem> items;
-        /** 按钮组：合成条目 → 子条目列表（连续 scroll_button/flex_button 的横向胶囊行）。 */
-        private final java.util.Map<HkItem, List<HkItem>> buttonGroups = new java.util.HashMap<>();
+        /** 8.83 updatePolyList：连续相同 col_type 条目的分组。 */
+        private final java.util.List<java.util.List<HkItem>> polyList = new java.util.ArrayList<>();
+        /** 8.83 polyPositionMap：条目下标 → 所属分组下标。 */
+        private final java.util.Map<Integer, Integer> polyPositionMap = new java.util.HashMap<>();
         private int videoImgH;
         private final int picH;
 
         ContentAdapter(List<HkItem> items) {
             this.source = items;
-            this.items = groupButtons(items);
+            this.items = items;
+            updatePolyList();
             DisplayMetrics dm = getResources().getDisplayMetrics();
             picH = (dm.widthPixels - dp(16) * 2) * 9 / 16;
             updateVideoImgH();
@@ -4890,43 +4893,37 @@ public class HkPageActivity extends BaseActivity {
         }
 
         /**
-         * videos 增删后重算按钮分组。groupButtons 返回的是快照，不调此方法
-         * 适配器将恒显示首次构造时的空列表（V2"分类页没数据"的根因）。
+         * videos 增删后重算 poly 分组（对照 8.83 updatePolyList 调用点）。
          */
         void refreshGroups() {
-            buttonGroups.clear();
-            this.items = groupButtons(source);
+            updatePolyList();
         }
 
         /**
-         * 把连续的 scroll_button/flex_button 条目合并为一个横向胶囊行
-         * （正常应已被 loadContent 拆为顶部 tab；这里是兜底）。
+         * 对照 8.83 ArticleListAdapter.updatePolyList()（反编译第 190-213 行）：
+         * 连续相同 col_type 的条目自动合并为一组，polyPositionMap 记录条目下标→分组下标。
+         * 不造假 col_type，不合成条目。
          */
-        private List<HkItem> groupButtons(List<HkItem> src) {
-            List<HkItem> out = new ArrayList<>();
-            List<HkItem> buf = new ArrayList<>();
-            for (HkItem it : src) {
-                String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
-                if ("scroll_button".equals(ct) || "flex_button".equals(ct)) {
-                    buf.add(it);
+        private void updatePolyList() {
+            polyList.clear();
+            polyPositionMap.clear();
+            if (source == null || source.isEmpty()) return;
+            for (int i = 0; i < source.size(); i++) {
+                if (polyList.isEmpty()) polyList.add(new ArrayList<>());
+                List<HkItem> last = polyList.get(polyList.size() - 1);
+                if (last.isEmpty()) {
+                    last.add(source.get(i));
+                    polyPositionMap.put(i, 0);
+                } else if (colTypeOf(last.get(0)).equals(colTypeOf(source.get(i)))) {
+                    last.add(source.get(i));
+                    polyPositionMap.put(i, polyList.size() - 1);
                 } else {
-                    if (!buf.isEmpty()) {
-                        out.add(makeButtonGroup(buf));
-                        buf = new ArrayList<>();
-                    }
-                    out.add(it);
+                    List<HkItem> g = new ArrayList<>();
+                    g.add(source.get(i));
+                    polyList.add(g);
+                    polyPositionMap.put(i, polyList.size() - 1);
                 }
             }
-            if (!buf.isEmpty()) out.add(makeButtonGroup(buf));
-            return out;
-        }
-
-        private HkItem makeButtonGroup(List<HkItem> subs) {
-            HkItem g = new HkItem();
-            g.setColType("button_group");
-            g.setTitle("");
-            buttonGroups.put(g, new ArrayList<>(subs));
-            return g;
         }
 
         /**
@@ -5094,9 +5091,6 @@ public class HkPageActivity extends BaseActivity {
                     case T_INPUT:
                         input = v.findViewById(R.id.et_input);
                         break;
-                    case T_SEARCH:
-                        title = v.findViewById(R.id.tv_title);
-                        break;
                     case T_WEB:
                         web = v.findViewById(R.id.wv_page);
                         web.getSettings().setJavaScriptEnabled(true);
@@ -5110,12 +5104,31 @@ public class HkPageActivity extends BaseActivity {
         @Override
         public int getItemViewType(int position) {
             if (position < 0 || position >= items.size()) return T_VIDEO;
-            return contentTypeOf(items.get(position));
+            int t = contentTypeOf(items.get(position));
+            // 对照 8.83 getItemViewType（反编译第 309-321 行）：
+            // scroll_button/flex_button 连续组内非首个条目 → 空行（8.83 返回 -1）
+            if (t == T_BUTTONS) {
+                Integer gi = polyPositionMap.get(position);
+                if (gi != null && gi >= 0 && gi < polyList.size()) {
+                    List<HkItem> g = polyList.get(gi);
+                    if (g != null && !g.isEmpty() && g.get(0) != items.get(position)) {
+                        return T_EMPTY;
+                    }
+                }
+            }
+            return t;
         }
 
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            // 8.83 原版：poly 分组内非首个条目返回 -1，对应空行占位
+            if (viewType == T_EMPTY) {
+                android.widget.Space v = new android.widget.Space(parent.getContext());
+                v.setLayoutParams(new RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0));
+                return new Holder(v, viewType);
+            }
             int layout;
             switch (viewType) {
                 case T_TEXT:
@@ -5188,9 +5201,6 @@ public class HkPageActivity extends BaseActivity {
                 case T_INPUT:
                     layout = R.layout.item_hk_input;
                     break;
-                case T_SEARCH:
-                    layout = R.layout.item_hk_search;
-                    break;
                 case T_WEB:
                     layout = R.layout.item_hk_web;
                     break;
@@ -5223,7 +5233,7 @@ public class HkPageActivity extends BaseActivity {
                     bindCols(h, item);
                     break;
                 case T_BUTTONS:
-                    bindButtons(h, item);
+                    bindButtons(h, position);
                     break;
                 case T_AVATAR:
                     bindAvatar(h, item);
@@ -5265,8 +5275,8 @@ public class HkPageActivity extends BaseActivity {
                 case T_INPUT:
                     bindInput(h, item);
                     break;
-                case T_SEARCH:
-                    bindSearch(h, item);
+                case T_EMPTY:
+                    // poly 分组内非首个条目的空行占位，无需绑定
                     break;
                 case T_WEB:
                     bindWeb(h, item);
@@ -5396,10 +5406,14 @@ public class HkPageActivity extends BaseActivity {
             setContentClick(h, item);
         }
 
-        /** 流式胶囊按钮组：连续 scroll_button/flex_button 聚合为自动换行的流式布局（官方 flex_button）。 */
-        private void bindButtons(Holder h, HkItem item) {
+        /**
+         * 流式胶囊按钮组：对照 8.83 bindForScrollButtonHolder，
+         * 从 polyList 取整组渲染（position 为组内首个条目）。
+         */
+        private void bindButtons(Holder h, int position) {
             h.cols.removeAllViews();
-            List<HkItem> subs = buttonGroups.get(item);
+            Integer gi = polyPositionMap.get(position);
+            List<HkItem> subs = (gi == null || gi < 0 || gi >= polyList.size()) ? null : polyList.get(gi);
             if (subs == null || subs.isEmpty()) return;
             Context ctx = h.itemView.getContext();
             int parentW = h.cols.getWidth();
@@ -5574,13 +5588,6 @@ public class HkPageActivity extends BaseActivity {
                 }
                 return false;
             });
-        }
-
-        /** 搜索框行：假输入框样式，点击进 V3 搜索。 */
-        private void bindSearch(Holder h, HkItem item) {
-            String t = stripHtml(item.getTitle());
-            h.title.setText(TextUtils.isEmpty(t) ? "搜索…" : t);
-            h.itemView.setOnClickListener(v -> openSearch());
         }
 
         /** P2：x5_webview_single 内嵌网页（JRKAN直播这类网页版小程序），点击整行用外部 WebView 打开。 */

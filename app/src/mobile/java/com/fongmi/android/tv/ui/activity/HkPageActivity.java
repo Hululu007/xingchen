@@ -3627,11 +3627,11 @@ public class HkPageActivity extends BaseActivity {
     /**
      * 8.83 同款：内容页内嵌搜索栏。
      * 规则有搜索能力时显示，输入关键词点搜索跳搜索页。
+     * 规则内容自带 input 搜索框时隐藏，避免两个搜索框重复。
      */
     private void buildContentSearchBar() {
         try {
             if (currentRule != null && currentRule.hasSearch()) {
-                binding.searchBarContent.setVisibility(View.VISIBLE);
                 binding.etSearchContent.setHint("搜索" + currentRule.getTitle() + " / 演员");
                 binding.etSearchContent.setOnEditorActionListener((v, actionId, event) -> {
                     if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
@@ -3641,9 +3641,29 @@ public class HkPageActivity extends BaseActivity {
                     return false;
                 });
                 binding.btnSearchContentGo.setOnClickListener(v -> doContentSearch());
-            } else {
-                binding.searchBarContent.setVisibility(View.GONE);
             }
+        } catch (Throwable ignored) {
+        }
+        updateContentSearchBarVisibility();
+    }
+
+    /** 规则内容里是否自带 input 搜索框（col_type="input"）。 */
+    private boolean hasRuleInputBox() {
+        try {
+            for (HkItem it : videos) {
+                String ct = it.getColType();
+                if (ct != null && "input".equals(ct.trim().toLowerCase())) return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /** 内嵌搜索条显隐：规则有搜索能力且内容里没有自带 input 框时才显示。 */
+    private void updateContentSearchBarVisibility() {
+        try {
+            boolean show = currentRule != null && currentRule.hasSearch() && !hasRuleInputBox();
+            binding.searchBarContent.setVisibility(show ? View.VISIBLE : View.GONE);
         } catch (Throwable t) {
             binding.searchBarContent.setVisibility(View.GONE);
         }
@@ -4184,7 +4204,8 @@ public class HkPageActivity extends BaseActivity {
                     String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
                     if ("scroll_button".equals(ct) || "flex_button".equals(ct)) tabs.add(it);
                     else if ("blank_block".equals(ct) || "big_blank_block".equals(ct)
-                            || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)) continue;
+                            || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)
+                            || "header".equals(ct)) continue;
                     else contents.add(it);
                 }
                 if (p == 1) buildDynamicTabs(tabs);
@@ -4210,6 +4231,8 @@ public class HkPageActivity extends BaseActivity {
                     binding.rvVideos.setVisibility(View.VISIBLE);
                     contentAdapter.refreshGroups();
                     contentAdapter.notifyDataSetChanged();
+                    // 内容里自带 input 搜索框时，隐藏星辰内嵌搜索条，避免两个搜索框重复
+                    updateContentSearchBarVisibility();
                 }
                 updateFooter();
             });
@@ -6086,6 +6109,7 @@ public class HkPageActivity extends BaseActivity {
         buildFilterRows();
         contentAdapter.refreshGroups();
         contentAdapter.notifyDataSetChanged();
+        updateContentSearchBarVisibility();
         binding.tvContentEmpty.setVisibility(View.GONE);
         binding.rvVideos.setVisibility(videos.isEmpty() ? View.GONE : View.VISIBLE);
         if (contentGrid != null && st.scrollPos > 0) contentGrid.scrollToPosition(st.scrollPos);
@@ -7753,9 +7777,6 @@ public class HkPageActivity extends BaseActivity {
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_chip, parent, false);
-            RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) v.getLayoutParams();
-            lp.rightMargin = (int) (8 * parent.getContext().getResources().getDisplayMetrics().density + 0.5f);
-            v.setLayoutParams(lp);
             return new Holder(v);
         }
 
@@ -7778,10 +7799,8 @@ public class HkPageActivity extends BaseActivity {
             } else if (drop) {
                 // 拖拽投放目标：金色加粗 + 选中底，提示松手即进该分组
                 if (h.card != null) {
-                    h.card.setCardBackgroundColor(0xC2FFFFFF);
-                    float d2 = h.itemView.getContext().getResources().getDisplayMetrics().density;
-                    h.card.setStrokeWidth((int) (1 * d2 + 0.5f));
-                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
+                    h.card.setCardBackgroundColor(0xFFFFFFFF);
+                    h.card.setStrokeWidth(0);
                 }
                 h.chip.setTextColor(0xFFB8890F);
                 h.chip.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -7789,14 +7808,11 @@ public class HkPageActivity extends BaseActivity {
             } else {
                 // 恢复卡片默认样式（防止从 goldMode 复用过来的 view 残留透明底）
                 if (h.card != null) {
-                    h.card.setCardBackgroundColor(0xC2FFFFFF);
-                    float d = h.itemView.getContext().getResources().getDisplayMetrics().density;
-                    h.card.setStrokeWidth((int) (1 * d + 0.5f));
-                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
+                    h.card.setCardBackgroundColor(0xFFFFFFFF);
+                    h.card.setStrokeWidth(0);
                 }
                 h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
-                // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
-                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
+                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF666666);
                 h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
             }
             h.chip.setOnClickListener(v -> {

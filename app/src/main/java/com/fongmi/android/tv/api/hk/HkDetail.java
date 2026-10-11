@@ -110,6 +110,21 @@ public class HkDetail {
         if (textResult != null) this.textResult = textResult;
     }
 
+    /**
+     * 动作 URL：@lazyRule= 求值返回 toast://、copy:// 等动作 URL 时设置。
+     * 调用方见到非空应走 handleActionUrl 处理，不进 V4/播放。
+     * （8.83 StringUtil 动作 URL 表同款；星辰旧逻辑误判为直接播放地址导致进播放器）
+     */
+    private String actionUrl = "";
+
+    public String getActionUrl() {
+        return actionUrl;
+    }
+
+    public void setActionUrl(String actionUrl) {
+        if (actionUrl != null) this.actionUrl = actionUrl;
+    }
+
     public String getTitle() {
         return title;
     }

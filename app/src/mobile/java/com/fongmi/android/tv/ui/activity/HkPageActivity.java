@@ -3477,6 +3477,7 @@ public class HkPageActivity extends BaseActivity {
         binding.tvDetailContent.setVisibility(hasContent ? View.VISIBLE : View.GONE);
         if (hasContent) binding.tvDetailContent.setText(content);
         renderCopyButtons(detail.getCopyItems());
+        renderDownloadButtons(detail.getDownloadItems());
         List<HkDetail.Line> lines = detail.getLines();
         boolean hasLines = !lines.isEmpty();
         // 无线路时隐藏线路/选集区，只展示标题/封面/简介（有基本信息才走到这里）
@@ -3542,6 +3543,48 @@ public class HkPageActivity extends BaseActivity {
                 if (cm != null) {
                     cm.setPrimaryClip(ClipData.newPlainText("hk_copy", ci.getText()));
                     Notify.show("已复制");
+                }
+            });
+        }
+    }
+
+    /**
+     * V4 下载按钮：download:// 条目，点击用系统下载。
+     */
+    private void renderDownloadButtons(List<HkDetail.Episode> items) {
+        if (items == null || items.isEmpty()) return;
+        binding.copyScroll.setVisibility(View.VISIBLE);
+        for (HkDetail.Episode ep : items) {
+            TextView btn = new TextView(this);
+            btn.setText("↓ " + ep.getName());
+            btn.setTextColor(0xFF1A1D24);
+            btn.setTextSize(13);
+            btn.setGravity(Gravity.CENTER);
+            btn.setMaxLines(1);
+            btn.setEllipsize(TextUtils.TruncateAt.END);
+            int padH = dp(16), padV = dp(9);
+            btn.setPadding(padH, padV, padH, padV);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xFFFFFFFF);
+            bg.setStroke(dp(1), 0xFFE0E4EA);
+            bg.setCornerRadius(dp(10));
+            btn.setBackground(bg);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = dp(10);
+            binding.copyRow.addView(btn, lp);
+            final String durl = ep.getUrl();
+            btn.setOnClickListener(v -> {
+                try {
+                    String realUrl = durl.startsWith("download://") ? durl.substring(11) : durl;
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                    android.app.DownloadManager.Request req = new android.app.DownloadManager.Request(android.net.Uri.parse(realUrl));
+                    req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    req.setTitle(ep.getName());
+                    dm.enqueue(req);
+                    Notify.show("开始下载");
+                } catch (Throwable e) {
+                    Notify.show("下载失败：" + e.getMessage());
                 }
             });
         }
@@ -3941,6 +3984,33 @@ public class HkPageActivity extends BaseActivity {
             }
             String findRule = nextRule + s1.toString();
             if (findRule.trim().isEmpty()) return false;
+            // goTo 预检：@rule=js: 可能是导航动作（如 xhotview 点封面调 goTo('hiker://page/detail...') 跳 V4），
+            // 不是子列表。先在后台求值，若规则调了 goTo，按目标 URL 导航，不建子列表。
+            String frTrim = findRule.trim();
+            if (frTrim.startsWith("js:")) {
+                final String jsCode = frTrim;
+                final HkItem item = it;
+                new Thread(() -> {
+                    String target = "";
+                    try {
+                        HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
+                        rt.evalLazy(jsCode, pageUrl);
+                        target = rt.consumeGoToRequest();
+                    } catch (Throwable ignored) {
+                    }
+                    final String t = target == null ? "" : target.trim();
+                    App.post(() -> {
+                        if (!t.isEmpty()) {
+                            handleGoToUrl(t, item);
+                        } else {
+                            // 无 goTo：按原子列表流程继续（在 UI 线程重入 openSubList 的剩余部分）
+                            // 为简单起见，此处退化为打开详情页
+                            openDetail(item, true, false);
+                        }
+                    });
+                }).start();
+                return true;
+            }
             // 压栈保存父列表状态
             SubListState st = new SubListState();
             st.rule = currentRule;
@@ -3983,6 +4053,65 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /** 子列表返回：恢复父列表状态；若从非列表视图进入则回到原视图。 */
+    /**
+     * 处理 goTo(url) 导航请求（规则在 @rule=js: 回调里调 goTo 跳转）。
+     * hiker://page/detail?rule=X&u=BASE64 → 解析出详情 URL，打开 V4 详情页；
+     * 其他 URL 按普通条目点击处理。
+     */
+    private void handleGoToUrl(String url, HkItem srcItem) {
+        if (url == null) return;
+        String u = url.trim();
+        if (u.isEmpty()) return;
+        try {
+            if (u.startsWith("hiker://page/detail")) {
+                // 解析 u= 参数（base64 编码的详情页 URL）
+                String detailUrl = "";
+                int qi = u.indexOf('?');
+                if (qi >= 0) {
+                    String query = u.substring(qi + 1);
+                    for (String kv : query.split("&")) {
+                        int eq = kv.indexOf('=');
+                        if (eq > 0 && "u".equals(kv.substring(0, eq).trim())) {
+                            String b64 = kv.substring(eq + 1).trim();
+                            try {
+                                // URL 安全 base64 → 标准 base64
+                                b64 = b64.replace('-', '+').replace('_', '/');
+                                while (b64.length() % 4 != 0) b64 += "=";
+                                detailUrl = new String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT), "UTF-8").trim();
+                            } catch (Throwable ignored) {
+                            }
+                            break;
+                        }
+                    }
+                }
+                if (!detailUrl.isEmpty()) {
+                    // 用详情 URL 构造条目，走 V4 详情页
+                    HkItem di = new HkItem();
+                    di.setTitle(srcItem != null ? srcItem.getTitle() : "");
+                    di.setPic(srcItem != null ? srcItem.getPic() : "");
+                    di.setUrl(detailUrl);
+                    openDetail(di, false);
+                } else if (srcItem != null) {
+                    // 解析失败时退化为直接打开源条目详情
+                    openDetail(srcItem, true);
+                }
+                return;
+            }
+            // hiker://page/ 其他子页面
+            if (u.startsWith("hiker://page/") && srcItem != null && openPage(srcItem, u)) return;
+            // 其他：按 URL 分流
+            if (srcItem != null) {
+                HkItem di = new HkItem();
+                di.setTitle(srcItem.getTitle());
+                di.setPic(srcItem.getPic());
+                di.setUrl(u);
+                if (!handleActionUrl(u, di)) openDetail(di, false);
+            }
+        } catch (Throwable e) {
+            android.util.Log.d("HkPage", "handleGoToUrl failed: " + e.getMessage());
+        }
+    }
+
     private boolean backSubList() {
         if (subStack.isEmpty()) return false;
         SubListState st = subStack.pop();

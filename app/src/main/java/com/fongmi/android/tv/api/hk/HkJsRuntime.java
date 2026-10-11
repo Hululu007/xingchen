@@ -101,6 +101,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     /** refreshPage 请求标记（JS 线程写，宿主线程读后清零）。 */
     private volatile boolean refreshRequested;
     private volatile boolean refreshToTop;
+    /** goTo(url) 导航请求（JS 线程写，宿主线程读后清零）。规则如 xhotvideo 用 goTo('hiker://page/detail?...') 跳 V4。 */
+    private volatile String goToUrl;
     /** setPageTitle/getPageTitle 的页标题状态。 */
     private String pageTitle = "";
     /** setPagePicUrl：官方 SetPagePicEvent 语义，宿主存字段供上层取用。 */
@@ -1449,6 +1451,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             refreshRequested = true;
             refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
             Logger.t(TAG).d("refreshPage(%s) requested", refreshToTop);
+            return null;
+        });
+
+        // ---- goTo(url)：页面导航。规则（如 xhotvideo）在 @rule=js: 回调里调
+        // goTo('hiker://page/detail?rule=X&u=Y') 跳 V4 详情页。宿主实现为"导航请求"
+        // 标记：调用方在 JS 求值后用 consumeGoToRequest() 取走并处理。
+        putFunction("goTo", args -> {
+            goToUrl = args != null && args.length > 0 ? argStr(args[0]) : "";
+            Logger.t(TAG).d("goTo(%s) requested", goToUrl);
             return null;
         });
 
@@ -2845,6 +2856,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     public boolean consumeRefreshRequest() {
         boolean r = refreshRequested;
         refreshRequested = false;
+        return r;
+    }
+
+    /**
+     * 取走 goTo 导航请求（读后清零）。供 @rule=js: 等动作 JS 求值后检查：
+     * 若规则调了 goTo(url)，上层应导航到该 URL（如 hiker://page/detail 打开 V4）。
+     * @return 目标 URL，无请求时返回 ""。
+     */
+    public String consumeGoToRequest() {
+        String r = goToUrl == null ? "" : goToUrl;
+        goToUrl = null;
         return r;
     }
 

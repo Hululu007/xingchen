@@ -603,20 +603,48 @@ public class HkRouter {
         for (HkDetailItem it : items) {
             String col = it.getColType() == null ? "" : it.getColType().toLowerCase();
             String url = it.getUrl() == null ? "" : it.getUrl().trim();
-            // copy:// → 复制按钮
-            if (url.startsWith("copy://")) {
+            String lower = url.toLowerCase();
+            // 1. copy:// → 复制按钮
+            if (lower.startsWith("copy://")) {
                 detail.addCopyItem(it.getTitle(), url.substring(7));
                 continue;
             }
-            // 有可播 url → 一律进选集（按 line 分组），不管 col_type
-            // 8.83 里 text_3 是官方默认详情条目样式，有 url 的就是选集按钮
-            if (isPlayableUrl(url)) {
+            // 2. video:// → 直接播放，不进选集
+            if (lower.startsWith("video://")) {
+                detail.setDirectPlayUrl(url);
+                continue;
+            }
+            // 3. download:// → 下载按钮，不进选集
+            if (lower.startsWith("download://")) {
+                detail.addDownloadItem(it.getTitle(), url);
+                continue;
+            }
+            // 4. toast:// → toast/分节头，不进选集
+            if (lower.startsWith("toast://")) {
+                String t = it.getTitle() == null ? "" : it.getTitle().trim();
+                if (!t.isEmpty()) detail.appendContent("\n" + t + "\n");
+                continue;
+            }
+            // 5. movie_1_vertical_pic → 详情头（海报+标题+描述），不进选集
+            if (col.contains("movie_1_vertical_pic")) {
+                if (!it.getPic().isEmpty()) detail.setPic(it.getPic());
+                if (!it.getTitle().isEmpty() && detail.getTitle().isEmpty()) detail.setTitle(it.getTitle());
+                if (!it.getDesc().isEmpty()) detail.setContent(it.getDesc());
+                continue;
+            }
+            // 6. 相关推荐卡片：movie_* + http 详情 URL → 推荐区，不进选集
+            if (col.startsWith("movie_") && isHttpUrl(lower)) {
+                detail.addRecommendation(it);
+                continue;
+            }
+            // 7. 真选集：text_* + http 可播 URL（按 line 分组）
+            // 8.83 里 text_3 是官方默认详情条目样式，有 http url 的就是选集按钮
+            if (isTextCol(col) && isHttpPlayableUrl(lower)) {
                 detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), url);
                 continue;
             }
-            // 无 url + 文本类 col_type → 简介内容区，不进选集
-            if (col.contains("long_text") || col.startsWith("text_") || col.contains("text_center")
-                    || col.contains("rich_text")) {
+            // 8. 无 url + 文本类 col_type → 简介内容区，不进选集
+            if (url.isEmpty() && isTextCol(col)) {
                 String c = (it.getTitle() + it.getDesc()).trim();
                 if (!c.isEmpty()) detail.appendContent(c);
                 if (!it.getPic().isEmpty() && detail.getPic().isEmpty()) detail.setPic(it.getPic());
@@ -628,18 +656,29 @@ public class HkRouter {
                 if (!it.getDesc().isEmpty() && detail.getContent().isEmpty()) detail.setContent(it.getDesc());
                 continue;
             }
-            detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), it.getUrl());
+            // 9. 兜底：有 http url 的非文本条目也进选集（兼容未知 col_type）
+            if (isHttpPlayableUrl(lower)) {
+                detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), url);
+            }
         }
     }
 
-    /** 可播 url：非空、非 javascript:;、非 hiker://empty */
-    private boolean isPlayableUrl(String url) {
-        if (url == null) return false;
-        String u = url.trim();
-        if (u.isEmpty()) return false;
-        String lower = u.toLowerCase();
-        if (lower.equals("javascript:;") || lower.startsWith("javascript:")) return false;
-        if (lower.equals("hiker://empty")) return false;
+    /** 文本类 col_type：text_1~4/text_center/long_text/rich_text（8.83 选集按钮常用 text_3）。 */
+    private boolean isTextCol(String col) {
+        return col.contains("long_text") || col.startsWith("text_")
+                || col.contains("text_center") || col.contains("rich_text");
+    }
+
+    /** http(s) URL。 */
+    private boolean isHttpUrl(String lower) {
+        return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    /** http(s) 可播 URL：非空、非 javascript:。 */
+    private boolean isHttpPlayableUrl(String lower) {
+        if (lower == null || lower.isEmpty()) return false;
+        if (!isHttpUrl(lower)) return false;
+        if (lower.startsWith("javascript:")) return false;
         return true;
     }
 }

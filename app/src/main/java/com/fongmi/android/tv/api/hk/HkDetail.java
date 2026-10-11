@@ -89,6 +89,29 @@ public class HkDetail {
         return copyItems;
     }
 
+    /** download:// 条目：下载按钮（name 为按钮文案，url 为下载链接）。 */
+    private final List<Episode> downloadItems = new ArrayList<>();
+
+    public void addDownloadItem(String name, String url) {
+        if (url == null || url.isEmpty()) return;
+        downloadItems.add(new Episode(name, url));
+    }
+
+    public List<Episode> getDownloadItems() {
+        return downloadItems;
+    }
+
+    /** 相关推荐卡片（movie_* + 详情 URL），不进选集，单独渲染。 */
+    private final List<HkDetailItem> recommendations = new ArrayList<>();
+
+    public void addRecommendation(HkDetailItem item) {
+        if (item != null) recommendations.add(item);
+    }
+
+    public List<HkDetailItem> getRecommendations() {
+        return recommendations;
+    }
+
     public String getDirectPlayUrl() {
         return directPlayUrl;
     }

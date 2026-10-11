@@ -1822,11 +1822,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
      * hiker://page/&lt;path&gt; 内部协议：从规则 pages（JSON 数组）里按 path 找页面规则，
      * 返回 {@code {"rule": "..."}} JSON 字符串。官方 JSEngine.fetchByHiker 同款语义。
      */
+    /**
+     * 处理 hiker://page/ 请求，移植自 8.83 PageParser.parsePageRule：
+     * (decompiled/smali/com/example/hikerview/service/parser/PageParser.smali:544)
+     *
+     * 8.83 返回完整的 ArticleListPageRule 对象（path/name/rule/col_type/params/parent），
+     * 而非仅 {"rule":"..."}。params 来自 URL query（MY_PARAMS 的来源），
+     * parent 为规则标题。找不到页面时 8.83 抛 ParseException，上层返回 ""。
+     */
     private String handlePageRequest(String url) {
         try {
             String path = url.substring("hiker://page/".length());
             // D1：解析 query 中的 rule= 参数（官方 PageParser.parsePageRule：?rule=标题 按标题换规则查库）
             String ruleTitle = null;
+            // 8.83 HttpParser.getParamsByUrl：解析 URL query 为 Map（MY_PARAMS 来源）
+            Map<String, String> params = parseUrlParams(url);
             int q = path.indexOf('?');
             if (q >= 0) {
                 String query = path.substring(q + 1);
@@ -1846,23 +1856,32 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             }
             int h = path.indexOf('#');
             if (h >= 0) path = path.substring(0, h);
+            // 8.83：按 ; 分隔取第一段（UrlDetector.clearTag 前）
+            int sc = path.indexOf(';');
+            if (sc >= 0) path = path.substring(0, sc);
             path = path.trim();
             // 若指定了 rule= 标题，从目标规则的 pages 里找；找不到标题则回退当前规则
             HkRule targetRule = rule;
+            String parentTitle = rule != null ? rule.getTitle() : "";
             if (ruleTitle != null && !ruleTitle.isEmpty()) {
                 HkRule found = HkRuleManager.get().getInstalledRule(ruleTitle);
-                if (found != null) targetRule = found;
-                else Logger.t(TAG).d("handlePageRequest: rule title not found: %s, fallback to current", ruleTitle);
+                if (found != null) {
+                    targetRule = found;
+                    parentTitle = found.getTitle();
+                } else {
+                    Logger.t(TAG).d("handlePageRequest: rule title not found: %s, fallback to current", ruleTitle);
+                }
             }
-            String pagesJson = targetRule.getPages();
+            String pagesJson = targetRule != null ? targetRule.getPages() : "";
             if (!TextUtils.isEmpty(pagesJson)) {
                 List<Map<String, Object>> pages = GSON.fromJson(pagesJson, MAP_LIST_TYPE);
                 if (pages != null) {
                     for (Map<String, Object> p : pages) {
                         if (path.equals(String.valueOf(p.get("path")))) {
-                            Map<String, String> out = new HashMap<>();
-                            Object r = p.get("rule");
-                            out.put("rule", r == null ? "" : String.valueOf(r));
+                            // 8.83：返回完整 page 对象，补 params 和 parent
+                            Map<String, Object> out = new HashMap<>(p);
+                            out.put("params", params);
+                            out.put("parent", parentTitle);
                             return GSON.toJson(out);
                         }
                     }
@@ -1872,7 +1891,32 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         } catch (Throwable e) {
             Logger.t(TAG).d("handlePageRequest failed: %s", e.getMessage());
         }
-        return "{}";
+        // 8.83 找不到时抛 ParseException，上层返回 ""（非 "{}"，避免 JSON.parse("{}").rule 为 undefined）
+        return "";
+    }
+
+    /** 8.83 HttpParser.getParamsByUrl 等价：解析 URL query 为 Map */
+    private static Map<String, String> parseUrlParams(String url) {
+        Map<String, String> map = new HashMap<>();
+        try {
+            int q = url.indexOf('?');
+            if (q < 0) return map;
+            String query = url.substring(q + 1);
+            int hh = query.indexOf('#');
+            if (hh >= 0) query = query.substring(0, hh);
+            for (String pair : query.split("&")) {
+                int eq = pair.indexOf('=');
+                if (eq > 0) {
+                    String k = java.net.URLDecoder.decode(pair.substring(0, eq), "UTF-8");
+                    String v = java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8");
+                    map.put(k, v);
+                } else if (!pair.isEmpty()) {
+                    map.put(java.net.URLDecoder.decode(pair, "UTF-8"), "");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return map;
     }
 
     /**

@@ -123,6 +123,10 @@ public class PanLoginDialog extends BaseAlertDialog {
     public void onStart() {
         super.onStart();
         configureWindow();
+        // 输入法修复：弹窗显示后确保 WebView 持有焦点，点击页面 input 框可调起输入法
+        if (binding != null && binding.webview != null && binding.webview.getVisibility() == View.VISIBLE) {
+            binding.webview.requestFocus(View.FOCUS_DOWN);
+        }
     }
 
     private void configureWindow() {
@@ -137,6 +141,8 @@ public class PanLoginDialog extends BaseAlertDialog {
             params.height = Math.round(ResUtil.getScreenHeight(requireContext()) * 0.85f);
         }
         params.gravity = Gravity.CENTER;
+        // 输入法修复：弹窗内 WebView 需要可调起输入法
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         window.getDecorView().setPadding(0, 0, 0, 0);
         window.setAttributes(params);
@@ -204,6 +210,10 @@ public class PanLoginDialog extends BaseAlertDialog {
         WebViewUtil.configureBase(webView, "panlogin");
         WebSettingsHolder.apply(webView);
         webView.getSettings().setUserAgentString(userAgent);
+        // 输入法修复：WebView 必须可在触摸模式下获取焦点，否则点击页面内 input 框时输入法弹不出
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.requestFocus(View.FOCUS_DOWN);
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

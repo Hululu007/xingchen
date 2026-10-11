@@ -65,11 +65,15 @@ public class DrivePikPak implements CloudDrive {
     /** 验证码异常：登录可能触发 captcha，需用户手动过（来源：pikpak-sdk auth.go ManualVerificationError） */
     public static class CaptchaRequiredException extends Exception {
         private final String verifyUrl;
-        public CaptchaRequiredException(String verifyUrl) {
+        private final String captchaToken;
+        public CaptchaRequiredException(String verifyUrl, String captchaToken) {
             super("需要人机验证");
             this.verifyUrl = verifyUrl;
+            this.captchaToken = captchaToken == null ? "" : captchaToken;
         }
         public String getVerifyUrl() { return verifyUrl; }
+        /** 服务端下发的 captcha_token（会话标识）：用户在验证页完成后，带着它重试登录 */
+        public String getCaptchaToken() { return captchaToken; }
     }
 
     public DrivePikPak(Context context) {
@@ -202,7 +206,7 @@ public class DrivePikPak implements CloudDrive {
             if (d.has("captcha_token") || d.optString("error_code", "").contains("captcha")
                     || d.optString("error", "").contains("captcha")) {
                 String url = d.optString("url", d.optString("verification_url", ""));
-                throw new CaptchaRequiredException(url);
+                throw new CaptchaRequiredException(url, d.optString("captcha_token", ""));
             }
             if (!resp.isSuccessful()) {
                 throw new Exception("登录失败：" + d.optString("error_description", d.optString("error", txt)));

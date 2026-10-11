@@ -11,6 +11,9 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -386,24 +389,83 @@ public class PanLoginActivity extends BaseActivity {
                         Notify.show("用户名和密码不能为空");
                         return;
                     }
-                    Notify.show("正在登录…");
-                    new Thread(() -> {
-                        try {
-                            new DrivePikPak(this).login(u, p);
-                            runOnUiThread(() -> {
-                                PanAuth.invalidatePikPakCache();
-                                refreshSub();
-                                Notify.show("PikPak 登录成功");
-                            });
-                        } catch (DrivePikPak.CaptchaRequiredException ce) {
-                            runOnUiThread(() -> Notify.show("需要人机验证，请用官方 App 登录一次后再试"));
-                        } catch (Exception e) {
-                            runOnUiThread(() -> Notify.show("登录失败：" + e.getMessage()));
-                        }
-                    }).start();
+                    doPikPakLogin(u, p, "");
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** PikPak 账号密码登录（后台线程；captchaToken 为空表示首次尝试） */
+    private void doPikPakLogin(String u, String p, String captchaToken) {
+        doPikPakLogin(u, p, captchaToken, 0);
+    }
+
+    private void doPikPakLogin(String u, String p, String captchaToken, int attempt) {
+        Notify.show("正在登录…");
+        new Thread(() -> {
+            try {
+                new DrivePikPak(this).login(u, p, captchaToken);
+                runOnUiThread(() -> {
+                    PanAuth.invalidatePikPakCache();
+                    refreshSub();
+                    Notify.show("PikPak 登录成功");
+                });
+            } catch (DrivePikPak.CaptchaRequiredException ce) {
+                if (attempt >= 2) {
+                    runOnUiThread(() -> Notify.show("人机验证失败，请稍后重试"));
+                } else {
+                    runOnUiThread(() -> showPikPakCaptcha(u, p, ce, attempt));
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show("登录失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /**
+     * PikPak 人机验证：在内置 WebView 打开服务端下发的验证页，
+     * 用户完成后点「已完成验证」，带 captchaToken 重试登录。
+     */
+    private void showPikPakCaptcha(String u, String p, DrivePikPak.CaptchaRequiredException ce, int attempt) {
+        String url = ce.getVerifyUrl();
+        String token = ce.getCaptchaToken();
+        if (TextUtils.isEmpty(url)) {
+            // 服务端没给验证页：直接带 token 重试一次
+            doPikPakLogin(u, p, token, attempt + 1);
+            return;
+        }
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = ResUtil.dp2px(16);
+        layout.setPadding(pad, pad, pad, 0);
+        TextView tvTip = new TextView(this);
+        tvTip.setText("请在下方页面完成人机验证，然后点「已完成验证」继续登录");
+        tvTip.setTextSize(13);
+        layout.addView(tvTip);
+        WebView web = new WebView(this);
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, ResUtil.dp2px(420));
+        wlp.topMargin = ResUtil.dp2px(12);
+        web.setLayoutParams(wlp);
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        web.setWebViewClient(new WebViewClient());
+        web.loadUrl(url);
+        layout.addView(web);
+
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("PikPak 人机验证")
+                .setView(layout)
+                .setPositiveButton("已完成验证，继续登录", null)
+                .setNegativeButton("取消", null)
+                .create();
+        dlg.setOnDismissListener(d -> web.destroy());
+        dlg.show();
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            dlg.dismiss();
+            doPikPakLogin(u, p, token, attempt + 1);
+        });
     }
 
     // ================= 通用 =================

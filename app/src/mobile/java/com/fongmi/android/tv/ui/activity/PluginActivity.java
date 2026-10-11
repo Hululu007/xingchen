@@ -115,6 +115,7 @@ public class PluginActivity extends BaseActivity {
     private void copyPluginFile(android.net.Uri uri) throws Exception {
         String fileName = getFileName(uri);
         if (fileName == null) return;
+        fileName = fileName.trim();
         if (!fileName.endsWith(".py") && !fileName.endsWith(".js")) return;
         java.io.File dir = new java.io.File(getFilesDir(), isPy ? "plugins/py" : "plugins/js");
         if (!dir.exists()) dir.mkdirs();

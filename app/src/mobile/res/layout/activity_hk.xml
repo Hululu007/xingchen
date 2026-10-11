@@ -30,18 +30,13 @@
                 android:paddingTop="64dp"
                 android:paddingBottom="8dp" />
 
-            <!-- 悬浮磨砂顶栏：独立背景层（真 blur）+ 内容层，列表滚动时从下方穿过 -->
+            <!-- 悬浮磨砂顶栏：背景直接设在 FrameLayout 上，避免内部 match_parent 的 header_bg 测量异常撑满盖住列表 -->
             <FrameLayout
                 android:id="@+id/header_cluster"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_alignParentTop="true">
-
-                <View
-                    android:id="@+id/header_bg"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="@drawable/hk_header_glass" />
+                android:layout_alignParentTop="true"
+                android:background="@drawable/hk_header_glass">
 
                 <LinearLayout
                     android:layout_width="match_parent"

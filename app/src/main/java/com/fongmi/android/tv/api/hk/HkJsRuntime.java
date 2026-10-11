@@ -3337,9 +3337,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         if (TextUtils.isEmpty(url)) return "";
         // hiker://empty 等非 http 协议直接返回空（由上层按形态分流）
         if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
-        // 8.83 generateRequestOptions 同款：没传 User-Agent 时自动补移动端 UA。
-        // 之前缺这步，规则 fetch(url) 不带 UA 就以 okhttp/4.x.x 发出，被站点拦截 → 规则报"站点没响应"。
-        optionsJson = mergeMobileUa(optionsJson);
+        // 8.83 原版：fetch 不走 generateRequestOptions，不自动补 UA（smali 实证）。
+        // 之前 mergeMobileUa 是偏离 8.83 的行为，已移除。
         try {
             Req req = TextUtils.isEmpty(optionsJson) ? Req.objectFrom("{}") : Req.objectFrom(optionsJson);
             String opt = optionsJson == null ? "" : optionsJson;

@@ -70,6 +70,8 @@ import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
 public class HkJsRuntime implements HkSelector.JsEvaluator {
 
     private static final String TAG = "HkJsRuntime";
+    /** be()/batchExecute 真实实现后置 true，跨小程序内容搜索据此判断引擎是否就绪。 */
+    public static volatile boolean BATCH_EXECUTE_READY = false;
     private static final Gson GSON = new Gson();
     private static final Type MAP_LIST_TYPE = new TypeToken<List<Map<String, Object>>>() {}.getType();
 

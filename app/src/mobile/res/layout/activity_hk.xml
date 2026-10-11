@@ -393,10 +393,11 @@
             android:visibility="gone">
 
             <LinearLayout
+                android:id="@+id/search_bar"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="16dp"
-                android:background="@drawable/hk_capsule_light"
+                android:background="@drawable/hk_searchbar_glass"
                 android:elevation="8dp"
                 android:gravity="center_vertical"
                 android:paddingLeft="4dp"
@@ -432,6 +433,45 @@
                     android:contentDescription="清除"
                     android:src="@drawable/ic_hk_close"
                     android:visibility="gone" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/search_mode_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/hk_mode_seg_glass"
+                android:orientation="horizontal"
+                android:padding="4dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_mode_rules"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/hk_seg_on"
+                    android:gravity="center"
+                    android:minWidth="96dp"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="16dp"
+                    android:text="搜小程序"
+                    android:textColor="#101216"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_mode_content"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/hk_seg_off"
+                    android:gravity="center"
+                    android:minWidth="96dp"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="16dp"
+                    android:text="搜内容"
+                    android:textColor="#3A3F45"
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -472,6 +512,16 @@
                     android:layout_marginTop="8dp"
                     android:clipToPadding="false" />
             </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_search_rules"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="8dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingBottom="8dp"
+                android:visibility="gone" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_search_results"

@@ -5292,8 +5292,9 @@ public class HkPageActivity extends BaseActivity {
                 h.title.setMarqueeRepeatLimit(3);
                 h.title.setSelected(true);
             } else {
+                // 8.83 原版：标题单行截断（item_movie_tools reult_tools_title maxLines=1）
                 h.title.setEllipsize(TextUtils.TruncateAt.END);
-                h.title.setSingleLine(false);
+                h.title.setSingleLine(true);
                 h.title.setSelected(false);
             }
             // desc 压在封面上（原版样式），不再放标题下面

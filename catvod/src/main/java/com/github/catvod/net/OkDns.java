@@ -59,16 +59,7 @@ public class OkDns implements Dns {
     public List<InetAddress> lookup(@NonNull String hostname) throws UnknownHostException {
         Supplier<Doh> supplier = this.supplier;
         if (supplier != null) initDoh(supplier);
-        String target = get(hostname);
-        if (doh != null) {
-            try {
-                return doh.lookup(target);
-            } catch (UnknownHostException e) {
-                // DoH 失败（超时/被墙/污染）时回退系统 DNS，不要抛异常
-                return Dns.SYSTEM.lookup(target);
-            }
-        }
-        return Dns.SYSTEM.lookup(target);
+        return (doh != null ? doh : Dns.SYSTEM).lookup(get(hostname));
     }
 
     private synchronized void initDoh(Supplier<Doh> supplier) {

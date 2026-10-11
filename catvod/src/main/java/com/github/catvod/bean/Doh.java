@@ -60,11 +60,6 @@ public class Doh {
         return this;
     }
 
-    public Doh ips(List<String> ips) {
-        this.ips = ips;
-        return this;
-    }
-
     public String getName() {
         return TextUtils.isEmpty(name) ? "" : name;
     }

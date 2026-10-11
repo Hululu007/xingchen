@@ -66,15 +66,7 @@ public class HkHttp {
         @Override
         public List<InetAddress> lookup(String hostname) throws UnknownHostException {
             DnsOverHttps doh = hkDoh;
-            if (doh != null) {
-                try {
-                    return doh.lookup(hostname);
-                } catch (UnknownHostException e) {
-                    // DoH 失败（超时/被墙/污染）时回退系统 DNS，不要抛异常
-                    return Dns.SYSTEM.lookup(hostname);
-                }
-            }
-            return Dns.SYSTEM.lookup(hostname);
+            return (doh != null ? doh : Dns.SYSTEM).lookup(hostname);
         }
     };
     private static volatile DnsOverHttps hkDoh;

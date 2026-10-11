@@ -352,7 +352,8 @@ public class QrLoginDialog extends DialogFragment {
             return false;
         }
         postStatus("登录成功", true);
-        Notify.show("115 登录成功");
+        // confirm() 跑在 Qr115Login 后台线程，Toast 必须回主线程弹，否则 NPE 崩溃
+        App.post(() -> Notify.show("115 登录成功"));
         App.post(() -> fireSuccess(cookie));
         sleep(800);
         App.post(this::dismissAllowingStateLoss);

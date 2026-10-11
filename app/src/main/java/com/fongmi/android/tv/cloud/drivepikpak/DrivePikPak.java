@@ -326,6 +326,9 @@ public class DrivePikPak implements CloudDrive {
             try {
                 captchaToken = fetchCaptchaToken("POST:/v1/auth/signin");
             } catch (Exception e) {
+                // 取 token 失败则按空继续，服务端仍要求验证时会走 CaptchaRequiredException 兜底；
+                // 打日志方便定位（salt 轮换 / 网络被墙都会走到这里）
+                android.util.Log.w("DrivePikPak", "auto captcha_token fetch failed, continue without token", e);
                 captchaToken = "";
             }
         }

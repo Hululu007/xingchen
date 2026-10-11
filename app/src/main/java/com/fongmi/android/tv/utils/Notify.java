@@ -52,7 +52,13 @@ public class Notify {
     }
 
     public static void show(String text) {
-        if (!TextUtils.isEmpty(text)) get().makeText(text);
+        if (TextUtils.isEmpty(text)) return;
+        // Toast 必须在主线程创建/显示，后台线程直接调会 NPE（Can't toast on a thread that has not called Looper.prepare()）
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            get().makeText(text);
+        } else {
+            App.post(() -> get().makeText(text));
+        }
     }
 
     public static void progress(Context context) {

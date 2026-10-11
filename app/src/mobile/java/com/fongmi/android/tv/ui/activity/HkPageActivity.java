@@ -1788,8 +1788,45 @@ public class HkPageActivity extends BaseActivity {
             final int which = i;
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
-                if (which == 0) exportAsCloudCode(rule);
+                if (which == 0) showCloudChannelPicker(rule);
                 else exportAsFile(rule);
+            });
+            root.addView(tv, lp);
+        }
+        dialog.show();
+    }
+
+    /** 云口令分享：先选择云通道（云2 textdb / 云5 cmd.im 短口令），再走对应上传流程。 */
+    private void showCloudChannelPicker(HkRule rule) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText("选择云口令通道");
+        title.setTextColor(0xFF6B7280);
+        title.setTextSize(13);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, dp(10));
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        String[] labels = {"云2 · textdb（官方通用）", "云5 · cmd.im（短口令）"};
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            tv.setTextColor(0xFF1A1D24);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            final int which = i;
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) exportAsCloudCode(rule);
+                else exportAsShortCloudCode(rule);
             });
             root.addView(tv, lp);
         }

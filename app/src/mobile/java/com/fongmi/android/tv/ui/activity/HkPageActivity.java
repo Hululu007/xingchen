@@ -4292,6 +4292,9 @@ public class HkPageActivity extends BaseActivity {
                 return ContentAdapter.T_TEXT_CENTER_1;
             case "long_text":
                 return ContentAdapter.T_LONG_TEXT;
+            case "detail_header":
+                // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右
+                return ContentAdapter.T_DETAIL_HEADER;
             case "header":
                 return ContentAdapter.T_HEADER;
             case "footer":
@@ -4973,6 +4976,7 @@ public class HkPageActivity extends BaseActivity {
         static final int T_PIC_2_CARD = 48;
         static final int T_PIC_3 = 49;
         static final int T_PIC_3_SQUARE = 50;
+        static final int T_DETAIL_HEADER = 51; // 8.83 原版详情页头部：movie_one_col（标题左+封面右）
 
         private final List<HkItem> source;
         /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
@@ -5120,6 +5124,8 @@ public class HkPageActivity extends BaseActivity {
                 case T_PIC_3:
                 case T_PIC_3_SQUARE:
                     return 20; // pic_3 系列 3/行
+                case T_DETAIL_HEADER:
+                    return 60; // 详情页头部全宽
                 default:
                     return 60;
             }
@@ -5256,6 +5262,12 @@ public class HkPageActivity extends BaseActivity {
                         web.getSettings().setDomStorageEnabled(true);
                         web.setWebViewClient(new android.webkit.WebViewClient());
                         break;
+                    case T_DETAIL_HEADER:
+                        // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右
+                        cover = v.findViewById(R.id.dh_cover);
+                        title = v.findViewById(R.id.dh_title);
+                        desc = v.findViewById(R.id.dh_desc);
+                        break;
                 }
             }
         }
@@ -5386,6 +5398,9 @@ public class HkPageActivity extends BaseActivity {
                 case T_WEB:
                     layout = R.layout.item_hk_web;
                     break;
+                case T_DETAIL_HEADER:
+                    layout = R.layout.item_hk_detail_header;
+                    break;
                 default:
                     layout = R.layout.item_hk_video;
                     break;
@@ -5485,6 +5500,9 @@ public class HkPageActivity extends BaseActivity {
                     break;
                 case T_WEB:
                     bindWeb(h, item);
+                    break;
+                case T_DETAIL_HEADER:
+                    bindDetailHeader(h, item);
                     break;
             }
         }

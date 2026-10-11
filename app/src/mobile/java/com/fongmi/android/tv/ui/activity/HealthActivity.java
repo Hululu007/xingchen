@@ -64,7 +64,8 @@ public class HealthActivity extends BaseActivity {
             binding.rvSites.setVisibility(View.GONE);
             binding.tvSummary.setText("暂无 PY / JS 源");
         } else {
-            startTest();
+            // 不自动重测：先显示上次缓存结果，用户点按钮才测
+            restoreLastResult();
         }
     }
 
@@ -122,6 +123,37 @@ public class HealthActivity extends BaseActivity {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 恢复上次检测结果（只读缓存，不自动重测）
+     */
+    private void restoreLastResult() {
+        int restored = 0;
+        try {
+            String json = getSharedPreferences("xingchen", MODE_PRIVATE).getString("health_results", null);
+            if (json != null && !json.isEmpty()) {
+                org.json.JSONObject obj = new org.json.JSONObject(json);
+                for (SiteItem item : items) {
+                    if (obj.has(item.key)) {
+                        int status = obj.optInt(item.key, SiteItem.STATUS_UNKNOWN);
+                        if (status >= SiteItem.STATUS_OK && status <= SiteItem.STATUS_UNSUPPORTED) {
+                            item.status = status;
+                            restored++;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        adapter.notifyDataSetChanged();
+        if (restored > 0) {
+            binding.btnRetest.setText("重新检测");
+        } else {
+            for (SiteItem item : items) item.status = SiteItem.STATUS_UNKNOWN;
+            adapter.notifyDataSetChanged();
+            binding.btnRetest.setText("开始检测");
+        }
+        updateSummary();
     }
 
     private void startTest() {
@@ -185,33 +217,48 @@ public class HealthActivity extends BaseActivity {
     }
 
     private void updateSummary() {
-        int ok = 0, fail = 0, unsupported = 0, testingCount = 0;
+        int ok = 0, fail = 0, unsupported = 0, testingCount = 0, unknown = 0;
         for (SiteItem item : items) {
             if (item.status == SiteItem.STATUS_OK) ok++;
             else if (item.status == SiteItem.STATUS_FAIL) fail++;
             else if (item.status == SiteItem.STATUS_UNSUPPORTED) unsupported++;
+            else if (item.status == SiteItem.STATUS_UNKNOWN) unknown++;
             else testingCount++;
         }
         if (testingCount > 0) {
             binding.tvSummary.setText("检测中… " + ok + " 正常");
+        } else if (unknown == items.size()) {
+            binding.tvSummary.setText("尚未检测，点击开始检测");
         } else {
-            binding.tvSummary.setText(ok + " 正常 · " + fail + " 异常" + (unsupported > 0 ? " · " + unsupported + " 未支持" : ""));
+            long time = getSharedPreferences("xingchen", MODE_PRIVATE).getLong("health_time", 0);
+            String base = ok + " 正常 · " + fail + " 异常" + (unsupported > 0 ? " · " + unsupported + " 未支持" : "");
+            if (time > 0) {
+                java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault());
+                base += " · 上次 " + fmt.format(new java.util.Date(time));
+            }
+            binding.tvSummary.setText(base);
         }
     }
 
     private void saveHealthResult() {
         try {
             int ok = 0, fail = 0, unsupported = 0;
+            org.json.JSONObject results = new org.json.JSONObject();
             for (SiteItem item : items) {
                 if (item.status == SiteItem.STATUS_OK) ok++;
                 else if (item.status == SiteItem.STATUS_FAIL) fail++;
                 else if (item.status == SiteItem.STATUS_UNSUPPORTED) unsupported++;
+                // 逐站点缓存，供下次进入直接显示
+                if (item.status >= SiteItem.STATUS_OK && item.status <= SiteItem.STATUS_UNSUPPORTED) {
+                    results.put(item.key, item.status);
+                }
             }
             getSharedPreferences("xingchen", MODE_PRIVATE).edit()
                     .putInt("health_ok", ok)
                     .putInt("health_fail", fail)
                     .putInt("health_unsupported", unsupported)
                     .putLong("health_time", System.currentTimeMillis())
+                    .putString("health_results", results.toString())
                     .apply();
         } catch (Exception e) { e.printStackTrace(); }
     }
@@ -221,10 +268,11 @@ public class HealthActivity extends BaseActivity {
         static final int STATUS_OK = 1;
         static final int STATUS_FAIL = 2;
         static final int STATUS_UNSUPPORTED = 3;
+        static final int STATUS_UNKNOWN = 4;
         final String key;
         final String name;
         final String type;
-        int status = STATUS_TESTING;
+        int status = STATUS_UNKNOWN;
 
         SiteItem(String key, String name, String type) {
             this.key = key;
@@ -256,6 +304,9 @@ public class HealthActivity extends BaseActivity {
             } else if (item.status == SiteItem.STATUS_UNSUPPORTED) {
                 holder.tvStatus.setText("未支持");
                 holder.tvStatus.setTextColor(0xFF101216);
+            } else if (item.status == SiteItem.STATUS_UNKNOWN) {
+                holder.tvStatus.setText("未检测");
+                holder.tvStatus.setTextColor(0xFF9AA0A6);
             } else {
                 holder.tvStatus.setText("检测中…");
                 holder.tvStatus.setTextColor(0xFF101216);

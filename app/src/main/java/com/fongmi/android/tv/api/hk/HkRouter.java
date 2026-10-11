@@ -167,7 +167,8 @@ public class HkRouter {
                 String entryRule = u.substring(ar + 6).trim();
                 if (entryRule.startsWith("js:")) {
                     if (item != null) engine.getJsRuntime().setDetailParams(item.getExtra());
-                    buildDetail(detail, fromJsDetail(entryRule, pageUrl));
+                    // 8.83 原版：详情条目直接进通用列表渲染，不做线路/选集分类
+                    detail.setRawItems(fromJsDetail(entryRule, pageUrl));
                     return detail;
                 }
                 u = pageUrl;
@@ -200,7 +201,8 @@ public class HkRouter {
                     }
                 }
             }
-            buildDetail(detail, items);
+            // 8.83 原版：详情条目直接进通用列表渲染，不做线路/选集分类
+            detail.setRawItems(items);
         } catch (Throwable e) {
             Logger.t(TAG).d("detail failed: %s", e.getMessage());
         }
@@ -590,101 +592,4 @@ public class HkRouter {
         return v == null ? "" : v;
     }
 
-    /**
-     * 组装 HkDetail：
-     * - {@code copy://} → 复制按钮；
-     * - col_type 含 long_text / text_* / rich_text / text_center → 简介内容区（换行拼接）；
-     * - 纯展示项（无可播链接）→ 标题/封面回退；
-     * - 其余（含 pic_1 播放按钮、带 lazyRule 地址的条目）按 line 分组为线路/选集；
-     * - 选集名为空时 Line.addEpisode 自动回退为"第N集"；line 为空的并入"默认"线路。
-     */
-    private void buildDetail(HkDetail detail, List<HkDetailItem> items) {
-        if (items == null) return;
-        for (HkDetailItem it : items) {
-            String col = it.getColType() == null ? "" : it.getColType().toLowerCase();
-            String url = it.getUrl() == null ? "" : it.getUrl().trim();
-            String lower = url.toLowerCase();
-            // 1. copy:// → 复制按钮
-            if (lower.startsWith("copy://")) {
-                detail.addCopyItem(it.getTitle(), url.substring(7));
-                continue;
-            }
-            // 2. video:// → 直接播放，不进选集
-            if (lower.startsWith("video://")) {
-                detail.setDirectPlayUrl(url);
-                continue;
-            }
-            // 3. download:// → 下载按钮，不进选集
-            if (lower.startsWith("download://")) {
-                detail.addDownloadItem(it.getTitle(), url);
-                continue;
-            }
-            // 4. toast:// → toast/分节头，不进选集
-            if (lower.startsWith("toast://")) {
-                String t = it.getTitle() == null ? "" : it.getTitle().trim();
-                if (!t.isEmpty()) detail.appendContent("\n" + t + "\n");
-                continue;
-            }
-            // 5. movie_1_vertical_pic → 详情头（海报+标题+描述），不进选集
-            if (col.contains("movie_1_vertical_pic")) {
-                if (!it.getPic().isEmpty()) detail.setPic(it.getPic());
-                if (!it.getTitle().isEmpty() && detail.getTitle().isEmpty()) detail.setTitle(it.getTitle());
-                if (!it.getDesc().isEmpty()) detail.setContent(it.getDesc());
-                continue;
-            }
-            // 6. 真选集：text_* + http 可播 URL（按 line 分组）
-            // 8.83 里 text_3 是官方默认详情条目样式，有 http url 的就是选集按钮
-            if (isTextCol(col) && isHttpPlayableUrl(lower)) {
-                detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), url);
-                continue;
-            }
-            // 7. 无 url + 文本类 col_type → 简介内容区，不进选集
-            if (url.isEmpty() && isTextCol(col)) {
-                String c = (it.getTitle() + it.getDesc()).trim();
-                if (!c.isEmpty()) detail.appendContent(c);
-                if (!it.getPic().isEmpty() && detail.getPic().isEmpty()) detail.setPic(it.getPic());
-                continue;
-            }
-            if (it.isDisplayOnly()) {
-                if (!it.getPic().isEmpty()) detail.setPic(it.getPic());
-                if (!it.getTitle().isEmpty() && detail.getTitle().isEmpty()) detail.setTitle(it.getTitle());
-                if (!it.getDesc().isEmpty() && detail.getContent().isEmpty()) detail.setContent(it.getDesc());
-                continue;
-            }
-            // 8. 兜底：有可播 url 一律进选集（非空、非 javascript:、非 hiker://empty），不管 col_type
-            if (isPlayableUrl(url)) {
-                detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), url);
-            }
-        }
-    }
-
-    /** 文本类 col_type：text_1~4/text_center/long_text/rich_text（8.83 选集按钮常用 text_3）。 */
-    private boolean isTextCol(String col) {
-        return col.contains("long_text") || col.startsWith("text_")
-                || col.contains("text_center") || col.contains("rich_text");
-    }
-
-    /** http(s) URL。 */
-    private boolean isHttpUrl(String lower) {
-        return lower.startsWith("http://") || lower.startsWith("https://");
-    }
-
-    /** http(s) 可播 URL：非空、非 javascript:。 */
-    private boolean isHttpPlayableUrl(String lower) {
-        if (lower == null || lower.isEmpty()) return false;
-        if (!isHttpUrl(lower)) return false;
-        if (lower.startsWith("javascript:")) return false;
-        return true;
-    }
-
-    /** 可播 url：非空、非 javascript:、非 hiker://empty（b847adae 之前的语义）。 */
-    private boolean isPlayableUrl(String url) {
-        if (url == null) return false;
-        String u = url.trim();
-        if (u.isEmpty()) return false;
-        String l = u.toLowerCase();
-        if (l.equals("javascript:;") || l.startsWith("javascript:")) return false;
-        if (l.equals("hiker://empty")) return false;
-        return true;
-    }
 }

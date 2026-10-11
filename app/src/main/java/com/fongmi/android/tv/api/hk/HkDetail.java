@@ -112,6 +112,20 @@ public class HkDetail {
         return recommendations;
     }
 
+    /**
+     * 8.83 原版：详情页直接渲染规则返回的原始条目，不做线路/选集分类。
+     * 明细条目由调用方丢进通用 ContentAdapter 按 col_type 渲染。
+     */
+    private List<HkDetailItem> rawItems = new ArrayList<>();
+
+    public List<HkDetailItem> getRawItems() {
+        return rawItems;
+    }
+
+    public void setRawItems(List<HkDetailItem> rawItems) {
+        this.rawItems = rawItems == null ? new ArrayList<>() : rawItems;
+    }
+
     public String getDirectPlayUrl() {
         return directPlayUrl;
     }

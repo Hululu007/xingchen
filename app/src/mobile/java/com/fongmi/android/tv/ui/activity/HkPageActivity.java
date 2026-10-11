@@ -942,12 +942,108 @@ public class HkPageActivity extends BaseActivity {
         contentGen++; // 旧回调过期
         videos.clear();
         binding.tvContentTitle.setText(rule.getTitle());
+        buildMiniappTabs();
         buildCategoryRow();
         buildFilterRows();
+        buildContentSearchBar();
         pushView(V_CONTENT);
         loadContent(true);
         Integer pos = scrollMem.get(rule.getTitle());
         if (pos != null && pos > 0) contentGrid.scrollToPosition(pos);
+    }
+
+    /**
+     * 8.83 同款：内容页顶部小程序切换 tabs。
+     * 横向显示已安装的小程序，点击切换规则。
+     */
+    private void buildMiniappTabs() {
+        try {
+            List<HkRule> rules = com.fongmi.android.tv.api.hk.HkRuleManager.get().getRules();
+            List<HkRule> enabled = new ArrayList<>();
+            for (HkRule r : rules) {
+                if (r.isEnabled()) enabled.add(r);
+            }
+            if (enabled.size() <= 1) {
+                binding.rvMiniappTabs.setVisibility(View.GONE);
+                return;
+            }
+            List<String[]> pairs = new ArrayList<>();
+            int sel = 0;
+            for (int i = 0; i < enabled.size(); i++) {
+                HkRule r = enabled.get(i);
+                pairs.add(new String[]{r.getTitle(), String.valueOf(i)});
+                if (r.getTitle() != null && r.getTitle().equals(currentRule.getTitle())) sel = i;
+            }
+            final List<HkRule> finalEnabled = enabled;
+            ChipAdapter adapter = new ChipAdapter(pairs, sel, idx -> {
+                try {
+                    int i = Integer.parseInt(idx);
+                    if (i >= 0 && i < finalEnabled.size()) {
+                        HkRule target = finalEnabled.get(i);
+                        if (!target.getTitle().equals(currentRule.getTitle())) {
+                            openRule(target);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+            binding.rvMiniappTabs.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+            binding.rvMiniappTabs.setAdapter(adapter);
+            binding.rvMiniappTabs.setVisibility(View.VISIBLE);
+        } catch (Throwable t) {
+            binding.rvMiniappTabs.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 8.83 同款：内容页内嵌搜索栏。
+     * 规则有搜索能力时显示，输入关键词点搜索跳搜索页。
+     */
+    private void buildContentSearchBar() {
+        try {
+            if (currentRule != null && currentRule.hasSearch()) {
+                binding.searchBarContent.setVisibility(View.VISIBLE);
+                binding.etSearchContent.setHint("搜索" + currentRule.getTitle() + " / 演员");
+                binding.etSearchContent.setOnEditorActionListener((v, actionId, event) -> {
+                    if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                        doContentSearch();
+                        return true;
+                    }
+                    return false;
+                });
+                binding.btnSearchContentGo.setOnClickListener(v -> doContentSearch());
+            } else {
+                binding.searchBarContent.setVisibility(View.GONE);
+            }
+        } catch (Throwable t) {
+            binding.searchBarContent.setVisibility(View.GONE);
+        }
+    }
+
+    private void doContentSearch() {
+        try {
+            String kw = binding.etSearchContent.getText().toString().trim();
+            if (!kw.isEmpty() && currentRule != null) {
+                // 复用现有搜索页逻辑
+                openSearchWithKeyword(kw);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 内容页内嵌搜索栏：带关键词直接打开搜索页并执行搜索。 */
+    private void openSearchWithKeyword(String kw) {
+        keyword = "";
+        searchPage = 1;
+        searchNoMore = false;
+        searchResults.clear();
+        searchAdapter.notifyDataSetChanged();
+        binding.etKeyword.setText(kw);
+        binding.tvSearchEmpty.setVisibility(View.GONE);
+        binding.rvSearchResults.setVisibility(View.VISIBLE);
+        binding.historySection.setVisibility(View.GONE);
+        pushView(V_SEARCH);
+        doSearch(kw);
     }
 
     private void buildCategoryRow() {
@@ -1011,25 +1107,78 @@ public class HkPageActivity extends BaseActivity {
 
     private void addFilterRow(String label, List<String[]> pairs, ChipAdapter.OnPick pick) {
         if (pairs == null || pairs.isEmpty()) return;
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        // 8.83 同款：筛选行带 ">" 展开/收起，默认收起只显示一行
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(4), dp(8), dp(4), dp(8));
+        
         TextView tv = new TextView(this);
         tv.setText(label);
         tv.setTextColor(0xFF101216);
-        tv.setTextSize(12);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.WRAP_CONTENT);
-        row.addView(tv, labelLp);
+        tv.setTextSize(13);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.WRAP_CONTENT);
+        header.addView(tv, labelLp);
+        
+        // 已选项显示
+        TextView tvSelected = new TextView(this);
+        tvSelected.setText("全部");
+        tvSelected.setTextColor(0xFF8A8F98);
+        tvSelected.setTextSize(12);
+        LinearLayout.LayoutParams selLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        header.addView(tvSelected, selLp);
+        
+        // ">" 展开指示器
+        TextView tvArrow = new TextView(this);
+        tvArrow.setText(">");
+        tvArrow.setTextColor(0xFF8A8F98);
+        tvArrow.setTextSize(14);
+        tvArrow.setPadding(dp(8), 0, dp(8), 0);
+        header.addView(tvArrow);
+        
+        container.addView(header);
+        
+        // 选项行（默认收起）
         RecyclerView rv = new RecyclerView(this);
         rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         List<String[]> all = new ArrayList<>();
         all.add(new String[]{"全部", ""});
         all.addAll(pairs);
-        rv.setAdapter(new ChipAdapter(all, 0, pick));
-        row.addView(rv, new LinearLayout.LayoutParams(0, dp(36), 1));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowLp.topMargin = dp(8);
-        binding.filterContainer.addView(row, rowLp);
+        final boolean[] expanded = {false};
+        rv.setVisibility(View.GONE);
+        
+        ChipAdapter adapter = new ChipAdapter(all, 0, value -> {
+            // 更新已选项显示
+            for (String[] p : all) {
+                if (p[1].equals(value)) {
+                    tvSelected.setText(p[0]);
+                    break;
+                }
+            }
+            pick.onPick(value);
+        });
+        rv.setAdapter(adapter);
+        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        rvLp.topMargin = dp(4);
+        rvLp.bottomMargin = dp(4);
+        container.addView(rv, rvLp);
+        
+        // 点击头部展开/收起
+        header.setOnClickListener(v -> {
+            expanded[0] = !expanded[0];
+            rv.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
+            tvArrow.setText(expanded[0] ? "v" : ">");
+            tvArrow.setRotation(expanded[0] ? 90 : 0);
+        });
+        
+        LinearLayout.LayoutParams containerLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        binding.filterContainer.addView(container, containerLp);
     }
 
     private HkRouter getRouter() throws Exception {

@@ -153,11 +153,60 @@
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_category"
+                android:id="@+id/rv_miniapp_tabs"
                 android:layout_width="match_parent"
                 android:layout_height="36dp"
                 android:layout_marginTop="12dp"
+                android:clipToPadding="false"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_category"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="8dp"
                 android:clipToPadding="false" />
+
+            <!-- 8.83 同款：内容页内嵌搜索栏（搜索短剧/演员 + 搜索按钮） -->
+            <LinearLayout
+                android:id="@+id/search_bar_content"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/hk_capsule_light"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="16dp"
+                android:paddingRight="8dp"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/et_search_content"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="搜索短剧 / 演员"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:textColor="#101216"
+                    android:textColorHint="#8A8F98"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/btn_search_content_go"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/hk_gold_button"
+                    android:gravity="center"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="16dp"
+                    android:text="搜索"
+                    android:textColor="#101216"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/filter_container"

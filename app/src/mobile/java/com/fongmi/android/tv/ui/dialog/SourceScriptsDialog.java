@@ -50,20 +50,22 @@ public class SourceScriptsDialog extends Dialog {
         setContentView(R.layout.dialog_source_scripts);
         if (getWindow() != null) {
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-            // 跟其他毛玻璃弹窗一致：窗口背景透明，内容居中，高度自适应
-            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
-            float d = getContext().getResources().getDisplayMetrics().density;
-            int screenW = getContext().getResources().getDisplayMetrics().widthPixels;
-            int width = Math.min(Math.round(screenW * 0.94f), (int)(700 * d));
-            lp.width = Math.max(width, (int)(340 * d));
-            lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
-            lp.gravity = android.view.Gravity.CENTER;
-            lp.softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
-            getWindow().setAttributes(lp);
-            getWindow().getDecorView().setPadding(0, 0, 0, 0);
-            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
         }
+        try {
+            if (getWindow() != null) {
+                getWindow().setGravity(android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+                android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
+                lp.height = android.view.WindowManager.LayoutParams.MATCH_PARENT;
+                lp.softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
+                getWindow().setAttributes(lp);
+                android.view.View content = findViewById(android.R.id.content);
+                if (content != null) {
+                    float d = getContext().getResources().getDisplayMetrics().density;
+                    content.setPadding((int)(24*d), (int)(60*d), (int)(12*d), 0);
+                }
+            }
+        } catch (Exception e) { e.printStackTrace(); }
 
         RecyclerView rvPy = findViewById(R.id.rv_py);
         RecyclerView rvJs = findViewById(R.id.rv_js);

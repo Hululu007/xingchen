@@ -69,6 +69,11 @@ public class PyLoader {
             File f = new File(App.get().getFilesDir(), api);
             if (f.exists()) return f.getAbsolutePath();
         }
+        // 容错：api 若夹带多余空白（如 "/py/ 51暗网.py"）而真实文件没有，尝试 trim 后路径
+        String trimmed = api == null ? null : api.trim();
+        if (trimmed != null && !trimmed.equals(api) && new File(trimmed).exists()) {
+            return new File(trimmed).getAbsolutePath();
+        }
         return api;
     }
 

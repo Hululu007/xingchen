@@ -60,7 +60,8 @@ public class Loader {
             }
         } else {
             try {
-                java.io.File f = new java.io.File(api);
+                String path = resolveLocalPath(api);
+                java.io.File f = new java.io.File(path);
                 if (f.exists() && f.isFile()) {
                     byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
                     return new String(bytes, StandardCharsets.UTF_8);
@@ -73,6 +74,22 @@ public class Loader {
                 throw new IllegalStateException("Unable to read python script: " + api, e);
             }
         }
+    }
+
+    /**
+     * 本地路径容错：api 中若夹带多余空白（如 "/py/ 51暗网.py"），
+     * 而磁盘上的真实文件没有空白时，File.exists() 会返回 false 导致加载失败。
+     * 此时尝试 trim 后的路径；若 trim 后存在则用 trim 后的路径。
+     */
+    private String resolveLocalPath(String api) {
+        if (api == null) return api;
+        java.io.File f = new java.io.File(api);
+        if (f.exists()) return api;
+        String trimmed = api.trim();
+        if (!trimmed.equals(api) && new java.io.File(trimmed).exists()) {
+            return trimmed;
+        }
+        return api;
     }
 
     private String scriptName(String api) {

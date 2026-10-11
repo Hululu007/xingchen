@@ -1484,8 +1484,9 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void showExportCodeDialog(String title, String code) {
+        String full = code + "\n\n小程序：" + title;
         TextView tv = new TextView(this);
-        tv.setText(code);
+        tv.setText(full);
         tv.setTextIsSelectable(true);
         tv.setTextColor(0xFF1A1D24);
         tv.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -1496,7 +1497,7 @@ public class HkPageActivity extends BaseActivity {
                 .setPositiveButton("复制", (d, w) -> {
                     ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
-                        cm.setPrimaryClip(ClipData.newPlainText("hk_cloud_code", code));
+                        cm.setPrimaryClip(ClipData.newPlainText("hk_cloud_code", full));
                         Notify.show("口令已复制");
                     }
                 })

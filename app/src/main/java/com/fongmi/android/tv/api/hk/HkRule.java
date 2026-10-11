@@ -75,6 +75,28 @@ public class HkRule {
     private String lastChapterRule;
     @SerializedName("icon")
     private String icon;
+    // ---- 8.83 ArticleListRule / MovieRule 对齐（rule.json 原生字段） ----
+    @SerializedName("chapter_find")
+    private String chapterFind;
+    @SerializedName("movie_find")
+    private String movieFind;
+    @SerializedName("firstHeader")
+    private String firstHeader;
+    @SerializedName("params")
+    private String params;
+    @SerializedName("pinYin")
+    private String pinYin;
+    @SerializedName("proxy")
+    private String proxy;
+    @SerializedName("titleColor")
+    private String titleColor;
+    @SerializedName("storage")
+    private String storage;
+    @SerializedName("displayName")
+    private String displayName;
+    /** 8.83 MovieRule.weight（排序权重，整数）。 */
+    @SerializedName("weight")
+    private int weight;
 
     /** 运行时启用开关，不序列化进 rule.json，由 HkRuleManager 持久化。 */
     private transient boolean enabled = true;
@@ -84,6 +106,13 @@ public class HkRule {
      * 页面 rule 里通过 MY_PARAMS 取用。不序列化，运行时设置。
      */
     private transient String pageParams = "";
+
+    /**
+     * 8.83 MovieRule.baseUrl / chapterUrl（CommonParser.getUrl* 相对路径拼接用）。
+     * 不序列化，运行时设置。
+     */
+    private transient String baseUrl;
+    private transient String chapterUrl;
 
     /** 导入校验：title/find_rule 非空；js: 规则允许 url 为空（自包含）。type 不限制（video/music/cartoon 等均可导入）。 */
     public void validate() {
@@ -147,7 +176,11 @@ public class HkRule {
     }
 
     public String getTitle() {
-        return title == null ? "" : title;
+        if (title == null) return "";
+        String t = title.trim();
+        // 脏数据：JS undefined/null 被字符串化后存入 title，直接显示会出 "undefined" tab
+        if (t.isEmpty() || "undefined".equalsIgnoreCase(t) || "null".equalsIgnoreCase(t)) return "";
+        return title;
     }
 
     public void setTitle(String title) {
@@ -316,6 +349,16 @@ public class HkRule {
         r.pages = this.pages;
         r.lastChapterRule = this.lastChapterRule;
         r.icon = this.icon;
+        r.chapterFind = this.chapterFind;
+        r.movieFind = this.movieFind;
+        r.firstHeader = this.firstHeader;
+        r.params = this.params;
+        r.pinYin = this.pinYin;
+        r.proxy = this.proxy;
+        r.titleColor = this.titleColor;
+        r.storage = this.storage;
+        r.displayName = this.displayName;
+        r.weight = this.weight;
         r.enabled = this.enabled;
         r.pageParams = this.pageParams;
         return r;
@@ -349,12 +392,116 @@ public class HkRule {
         return preRule == null ? "" : preRule;
     }
 
+    public void setPreRule(String preRule) {
+        this.preRule = preRule;
+    }
+
+    public String getLastChapterRule() {
+        return lastChapterRule == null ? "" : lastChapterRule;
+    }
+
+    public void setLastChapterRule(String lastChapterRule) {
+        this.lastChapterRule = lastChapterRule;
+    }
+
     public String getPages() {
         return pages == null ? "" : pages;
     }
 
+    public void setPages(String pages) {
+        this.pages = pages;
+    }
+
     public String getIcon() {
         return icon == null ? "" : icon;
+    }
+
+    // ---- 8.83 ArticleListRule / MovieRule 字段（rule.json 原生） ----
+
+    /** 小说/漫画类规则的章节解析规则。 */
+    public String getChapterFind() {
+        return chapterFind == null ? "" : chapterFind;
+    }
+
+    public void setChapterFind(String chapterFind) {
+        this.chapterFind = chapterFind;
+    }
+
+    /** 影视类规则的影片解析规则。 */
+    public String getMovieFind() {
+        return movieFind == null ? "" : movieFind;
+    }
+
+    public void setMovieFind(String movieFind) {
+        this.movieFind = movieFind;
+    }
+
+    public String getFirstHeader() {
+        return firstHeader == null ? "" : firstHeader;
+    }
+
+    public void setFirstHeader(String firstHeader) {
+        this.firstHeader = firstHeader;
+    }
+
+    /** 规则级 params（8.83 序列化字段；hiker://page/ 运行时参数另见 pageParams）。 */
+    public String getParams() {
+        return params == null ? "" : params;
+    }
+
+    public void setParams(String params) {
+        this.params = params;
+    }
+
+    /** 标题拼音（排序/搜索用）。 */
+    public String getPinYin() {
+        return pinYin == null ? "" : pinYin;
+    }
+
+    public void setPinYin(String pinYin) {
+        this.pinYin = pinYin;
+    }
+
+    /** 代理配置。 */
+    public String getProxy() {
+        return proxy == null ? "" : proxy;
+    }
+
+    public void setProxy(String proxy) {
+        this.proxy = proxy;
+    }
+
+    public String getTitleColor() {
+        return titleColor == null ? "" : titleColor;
+    }
+
+    public void setTitleColor(String titleColor) {
+        this.titleColor = titleColor;
+    }
+
+    public String getStorage() {
+        return storage == null ? "" : storage;
+    }
+
+    public void setStorage(String storage) {
+        this.storage = storage;
+    }
+
+    public String getDisplayName() {
+        return displayName == null ? "" : displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    /** 8.83 MovieRule.weight：排序权重。 */
+    public int getWeight() {
+        return weight;
+    }
+
+    public void setWeight(int weight) {
+        this.weight = weight;
     }
 
     public String getPageParams() {
@@ -363,6 +510,22 @@ public class HkRule {
 
     public void setPageParams(String pageParams) {
         this.pageParams = pageParams == null ? "" : pageParams;
+    }
+
+    public String getBaseUrl() {
+        return baseUrl;
+    }
+
+    public void setBaseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
+    }
+
+    public String getChapterUrl() {
+        return chapterUrl;
+    }
+
+    public void setChapterUrl(String chapterUrl) {
+        this.chapterUrl = chapterUrl;
     }
 
     public boolean isEnabled() {

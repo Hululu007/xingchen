@@ -21,6 +21,16 @@ public class HkItem {
     private String content = "";
     /** 明细线路名（官方 line，详情页按 line 分组用；列表里一般为空）。 */
     private String line = "";
+    /** 8.83 DetailPage.findRule：条目级 find_rule（覆盖规则级）。 */
+    private String findRule = "";
+    /** 8.83 DetailPage.group：条目分组。 */
+    private String group = "";
+    /** 8.83 DetailPage.pages：条目分页标记。 */
+    private String pages = "";
+    /** 8.83 DetailPage.preRule：条目级 preRule。 */
+    private String preRule = "";
+    /** 8.83 DetailPage.rule：条目携带的规则串。 */
+    private String rule = "";
 
     public HkItem() {
     }
@@ -101,6 +111,60 @@ public class HkItem {
 
     public void setLine(String line) {
         this.line = line;
+    }
+
+    /** 8.83 DetailPage.findRule 对应。 */
+    public String getFindRule() {
+        return findRule == null ? "" : findRule;
+    }
+
+    public void setFindRule(String findRule) {
+        this.findRule = findRule;
+    }
+
+    /** 8.83 DetailPage.group 对应。 */
+    public String getGroup() {
+        return group == null ? "" : group;
+    }
+
+    public void setGroup(String group) {
+        this.group = group;
+    }
+
+    /** 8.83 DetailPage.pages 对应。 */
+    public String getPages() {
+        return pages == null ? "" : pages;
+    }
+
+    public void setPages(String pages) {
+        this.pages = pages;
+    }
+
+    /** 8.83 DetailPage.preRule 对应。 */
+    public String getPreRule() {
+        return preRule == null ? "" : preRule;
+    }
+
+    public void setPreRule(String preRule) {
+        this.preRule = preRule;
+    }
+
+    /** 8.83 DetailPage.rule 对应。 */
+    public String getRule() {
+        return rule == null ? "" : rule;
+    }
+
+    public void setRule(String rule) {
+        this.rule = rule;
+    }
+
+    /**
+     * 8.83 DetailPage.getImageUrl() 同款语义：pic_url → pic → picUrl 取首个非空。
+     * 本类 pic 字段已是多 key 合并结果（pic_url/img/pic/…），此处直接返回 getPic()，
+     * 保留与 8.83 一致的方法名供调用方按原版写法使用。
+     */
+    public String getImageUrl() {
+        return getPic();
     }
 
     @Override

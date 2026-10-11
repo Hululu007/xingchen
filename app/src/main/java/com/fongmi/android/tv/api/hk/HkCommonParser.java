@@ -1,0 +1,384 @@
+package com.fongmi.android.tv.api.hk;
+
+import android.text.TextUtils;
+import android.util.Log;
+
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 直接移植自海阔 8.83 {@code com.example.hikerview.service.parser.CommonParser}（do not rewrite）。
+ * <p>
+ * 仅移植 HkSearchParser / HkLazyRuleParser 用到的选择器方法。
+ * 适配：MovieRule → {@link HkRule}；JSEngine → {@link JsEval}（宿主注入）；
+ * Timber → Log；StringUtil → {@link HkParserKit}。
+ */
+public class HkCommonParser {
+    private static final String TAG = "HkCommonParser";
+
+    private static final String[] NORMAL_ATTRS = {"href", "src", "class", "title", "alt"};
+
+    /** JS 求值钩子（对应 8.83 JSEngine.getInstance().evalJS）。 */
+    public interface JsEval {
+        String evalJs(String js, String input);
+    }
+
+    private static volatile JsEval jsEval;
+
+    public static void setJsEval(JsEval eval) {
+        jsEval = eval;
+    }
+
+    private static void prettyPrint(Element element, boolean pretty) {
+        if (element == null || element.ownerDocument() == null) {
+            return;
+        }
+        element.ownerDocument().outputSettings().prettyPrint(pretty);
+    }
+
+    public static Element getTrueElement(String rule, Element element) {
+        Element result;
+        if (rule.startsWith("Text") || rule.startsWith("Attr")) {
+            return element;
+        }
+        for (String attr : NORMAL_ATTRS) {
+            if (attr.equals(rule)) {
+                return element;
+            }
+        }
+        String[] minusSplit = rule.split("--");
+        if (minusSplit.length > 1) {
+            prettyPrint(element, false);
+            Document doc = getTrueElement(minusSplit[0], element);
+            String html = doc.outerHtml();
+            for (int i = 1; i < minusSplit.length; i++) {
+                html = html.replace(getTrueElement(minusSplit[i], doc).outerHtml(), "");
+                doc = Jsoup.parse(html);
+                prettyPrint(doc, false);
+            }
+            prettyPrint(element, true);
+            prettyPrint(doc, true);
+            return doc;
+        }
+        String[] orSplit = rule.split("\\|\\|");
+        if (orSplit.length > 1) {
+            for (String r : orSplit) {
+                try {
+                    result = getTrueElement(r, element);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    result = null;
+                }
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        String[] commaSplit = rule.split(",");
+        if (commaSplit.length > 1) {
+            int index = Integer.parseInt(commaSplit[1]);
+            Elements selected = element.select(HkParserKit.decodeConflictStr(commaSplit[0]));
+            if (index < 0) {
+                return selected.get(selected.size() + index);
+            }
+            return element.select(HkParserKit.decodeConflictStr(commaSplit[0])).get(index);
+        }
+        return element.select(HkParserKit.decodeConflictStr(rule)).first();
+    }
+
+    public static Elements selectElements(Element element, String rule) {
+        String[] orSplit = rule.split("\\|\\|");
+        Elements elements = new Elements();
+        for (String r : orSplit) {
+            try {
+                elements.addAll(selectElementsWithoutOr(element, r));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return elements;
+    }
+
+    /**
+     * 8.83 原文（CommonParser.smali，jadx 未能反编译，按 smali 逐分支移植）：
+     * 规则形如 {@code selector} 或 {@code selector,start:end}，end 可为负（从末尾计数）。
+     */
+    private static Elements selectElementsWithoutOr(Element element, String rule) {
+        String[] commaSplit = rule.split(",");
+        if (commaSplit.length > 1) {
+            String[] range = commaSplit[1].split(":", -1);
+            int start = 0;
+            int end = 0;
+            if (!TextUtils.isEmpty(range[0])) {
+                try {
+                    start = Integer.parseInt(range[0]);
+                } catch (NumberFormatException e) {
+                    Log.e(TAG, "selectElementsWithoutOr", e);
+                }
+            }
+            if (range.length > 1 && !TextUtils.isEmpty(range[1])) {
+                try {
+                    end = Integer.parseInt(range[1]);
+                } catch (NumberFormatException e) {
+                    Log.e(TAG, "selectElementsWithoutOr", e);
+                }
+            }
+            Elements selected = element.select(HkParserKit.decodeConflictStr(commaSplit[0]));
+            if (end > selected.size()) {
+                end = selected.size();
+            }
+            if (end <= 0) {
+                end = end + selected.size();
+            }
+            Elements result = new Elements();
+            for (int i = start; i < end && i < selected.size(); i++) {
+                result.add(selected.get(i));
+            }
+            return result;
+        }
+        return element.select(HkParserKit.decodeConflictStr(rule));
+    }
+
+    public static String getUrlByRule(String baseUrl, HkRule rule, Element element, String ruleStr) {
+        if ("*".equals(ruleStr)) {
+            return baseUrl;
+        }
+        String[] chain = ruleStr.split("&&");
+        if (chain.length != 1) {
+            element = getTrueElement(chain[0], element);
+        }
+        for (int i = 1; i < chain.length - 1; i++) {
+            element = getTrueElement(chain[i], element);
+        }
+        return getUrl(element, chain[chain.length - 1], rule, rule.getChapterUrl());
+    }
+
+    public static String getTextByRule(Element element, String rule) {
+        if (HkParserKit.isEmpty(rule) || "*".equals(rule)) {
+            return "";
+        }
+        if (rule.contains(".js:")) {
+            return getAndTextByRule(element, rule, "＋");
+        }
+        if (rule.contains("＋")) {
+            return getAndTextByRule(element, rule, "＋");
+        }
+        return getAndTextByRule(element, rule, "\\+");
+    }
+
+    private static String getAndTextByRule(Element element, String rule, String sep) {
+        String[] parts = rule.split(sep);
+        List<String> out = new ArrayList<>();
+        for (String part : parts) {
+            String trim = part.trim();
+            if ((trim.startsWith("'") && trim.endsWith("'")) || (trim.startsWith("\"") && trim.endsWith("\""))) {
+                out.add(trim.substring(1, trim.length() - 1).replace("\\n", "\n"));
+            } else {
+                out.add(getContentWithoutAnd(element, trim));
+            }
+        }
+        return HkParserKit.listToString(out, "");
+    }
+
+    private static String getContentWithoutAnd(Element element, String rule) {
+        String[] chain = rule.split("&&");
+        if (chain.length != 1) {
+            element = getTrueElement(chain[0], element);
+        }
+        for (int i = 1; i < chain.length - 1; i++) {
+            element = getTrueElement(chain[i], element);
+        }
+        return getText(element, chain[chain.length - 1]);
+    }
+
+    public static String getText(Element element, String rule) {
+        if ("*".equals(rule)) {
+            return "null";
+        }
+        String[] orSplit = rule.split("\\|\\|");
+        if (orSplit.length > 1) {
+            for (String r : orSplit) {
+                String text = null;
+                try {
+                    text = getTextWithoutOr(element, r);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                if (!TextUtils.isEmpty(text)) {
+                    return text;
+                }
+            }
+        }
+        return getTextWithoutOr(element, rule);
+    }
+
+    private static String getTextWithoutOr(Element element, String rule) {
+        String js;
+        String[] jsSplit = rule.split("\\.js:");
+        if (jsSplit.length > 1) {
+            rule = jsSplit[0];
+            js = HkParserKit.arrayToString(jsSplit, 1, jsSplit.length, ".js:");
+        } else {
+            js = "";
+        }
+        String attr;
+        String[] bangSplit = rule.split("!");
+        if (bangSplit.length > 1) {
+            if ("Text".equals(bangSplit[0])) {
+                attr = element.text();
+            } else if ("Html".equals(bangSplit[0])) {
+                attr = element.html();
+            } else if (bangSplit[0].contains("Attr")) {
+                attr = element.attr(bangSplit[0].replace("Attr", ""));
+            } else {
+                attr = element.attr(HkParserKit.decodeConflictStr(bangSplit[0]));
+            }
+            if (!"Html".equals(rule)) {
+                attr = attr.replaceAll("\\n", " ");
+            }
+            for (int i = 1; i < bangSplit.length; i++) {
+                attr = attr.replace(bangSplit[i], "");
+            }
+        } else {
+            if ("Text".equals(rule)) {
+                attr = element.text();
+            } else if ("Html".equals(rule)) {
+                attr = element.html();
+            } else if (rule.contains("Attr")) {
+                attr = element.attr(rule.replace("Attr", ""));
+            } else {
+                attr = element.attr(HkParserKit.decodeConflictStr(rule));
+            }
+            if (!"Html".equals(rule)) {
+                attr = attr.replaceAll("\\n", " ");
+            }
+        }
+        if (!HkParserKit.isNotEmpty(js)) {
+            return attr;
+        }
+        try {
+            JsEval eval = jsEval;
+            return eval != null ? eval.evalJs(js, attr) : attr;
+        } catch (Exception unused) {
+            return attr;
+        }
+    }
+
+    public static String getUrl(Element element, String rule, HkRule hkRule, String baseUrl) {
+        if ("*".equals(rule)) {
+            return "null";
+        }
+        String[] orSplit = rule.split("\\|\\|");
+        if (orSplit.length > 1) {
+            for (String r : orSplit) {
+                String url = null;
+                try {
+                    url = getUrlWithoutOr(element, r, hkRule, baseUrl);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                if (!TextUtils.isEmpty(url)) {
+                    return url;
+                }
+            }
+        }
+        return getUrlWithoutOr(element, rule, hkRule, baseUrl);
+    }
+
+    private static String getUrlWithoutOr(Element element, String rule, HkRule hkRule, String baseUrl) {
+        String js;
+        String[] jsSplit = rule.split("\\.js:");
+        if (jsSplit.length > 1) {
+            rule = jsSplit[0];
+            js = HkParserKit.arrayToString(jsSplit, 1, jsSplit.length, ".js:");
+        } else {
+            js = "";
+        }
+        if (element == null) {
+            return "";
+        }
+        String attr;
+        if (rule.startsWith("Text")) {
+            attr = element.text();
+        } else if ("Html".equals(rule)) {
+            attr = element.html();
+        } else {
+            if (rule.startsWith("AttrNo")) {
+                String base = hkRule != null && hkRule.getBaseUrl() != null ? hkRule.getBaseUrl() : "";
+                return base + element.attr(rule.replaceFirst("AttrNo", ""));
+            }
+            if (rule.startsWith("AttrYes")) {
+                attr = element.attr(rule.replaceFirst("AttrYes", ""));
+            } else if (rule.startsWith("Attr")) {
+                attr = element.attr(rule.replaceFirst("Attr", ""));
+            } else {
+                attr = element.attr(HkParserKit.decodeConflictStr(rule));
+            }
+        }
+        if (TextUtils.isEmpty(js)) {
+            if (!"Html".equals(rule)) {
+                attr = HkParserKit.trimBlanks(attr);
+            }
+        } else {
+            try {
+                JsEval eval = jsEval;
+                if (eval != null) {
+                    attr = eval.evalJs(js, attr);
+                }
+                if (attr.toLowerCase().trim().startsWith("http") || attr.toLowerCase().trim().startsWith("x5://")) {
+                    return attr.trim();
+                }
+            } catch (Exception e) {
+                if (!"Html".equals(rule)) {
+                    attr = HkParserKit.trimBlanks(attr);
+                }
+                Log.e(TAG, "getUrlWithoutOr", e);
+            }
+        }
+        if (HkParserKit.isEmpty(attr)) {
+            return "";
+        }
+        if ("Html".equals(rule) || attr.startsWith("http") || attr.startsWith("hiker")) {
+            return attr;
+        }
+        if (attr.startsWith("//")) {
+            return joinUrl(baseUrl, attr);
+        }
+        if (attr.startsWith("magnet") || attr.startsWith("thunder") || attr.startsWith("ftp") || attr.startsWith("ed2k")) {
+            return attr;
+        }
+        if (attr.startsWith("/") || attr.startsWith("./") || attr.startsWith("../") || attr.startsWith("?")) {
+            return joinUrl(baseUrl, attr);
+        }
+        String[] dollarSplit = attr.split("\\$");
+        if (dollarSplit.length > 1 && dollarSplit[1].startsWith("http")) {
+            return dollarSplit[1];
+        }
+        if (attr.contains("url(")) {
+            String[] urlSplit = attr.split("url\\(");
+            if (urlSplit.length > 1 && urlSplit[1].startsWith("http")) {
+                return urlSplit[1].split("\\)")[0];
+            }
+        }
+        return joinUrl(baseUrl, attr);
+    }
+
+    public static String joinUrl(String baseUrl, String relative) {
+        if (HkParserKit.isEmpty(baseUrl)) {
+            return relative;
+        }
+        try {
+            return new URL(new URL(baseUrl), relative).toExternalForm();
+        } catch (MalformedURLException e) {
+            Log.e(TAG, "joinUrl", e);
+            return baseUrl;
+        }
+    }
+}

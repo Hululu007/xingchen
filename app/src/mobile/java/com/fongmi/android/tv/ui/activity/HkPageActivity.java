@@ -2720,7 +2720,8 @@ public class HkPageActivity extends BaseActivity {
             List<HkRule> enabled = new ArrayList<>();
             for (HkRule r : rules) {
                 // 顶部 tabs 不需要"我的主页"（HikerHome 未实现，打开必报错）
-                if (r.isEnabled() && !isHomePageRule(r)) enabled.add(r);
+                // 标题为空（脏数据已在 getTitle 清洗）的规则不展示，避免空白 tab
+                if (r.isEnabled() && !isHomePageRule(r) && !r.getTitle().isEmpty()) enabled.add(r);
             }
             // 当前规则若不在 tabs 列表里（未启用或刚导入），追加进去并选中，保证 tabs 跟随当前页面
             String curTitle = currentRule == null ? null : currentRule.getTitle();
@@ -2905,7 +2906,6 @@ public class HkPageActivity extends BaseActivity {
     private void buildContentSearchBar() {
         try {
             if (currentRule != null && currentRule.hasSearch()) {
-                binding.searchBarContent.setVisibility(View.VISIBLE);
                 binding.etSearchContent.setHint("搜索" + currentRule.getTitle() + " / 演员");
                 binding.etSearchContent.setOnEditorActionListener((v, actionId, event) -> {
                     if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
@@ -2918,6 +2918,29 @@ public class HkPageActivity extends BaseActivity {
             } else {
                 binding.searchBarContent.setVisibility(View.GONE);
             }
+        } catch (Throwable t) {
+            binding.searchBarContent.setVisibility(View.GONE);
+        }
+        updateContentSearchBarVisibility();
+    }
+
+    /** 规则内容里是否自带 input 搜索框（col_type="input"）。 */
+    private boolean hasRuleInputBox() {
+        try {
+            for (HkItem it : videos) {
+                String ct = it.getColType();
+                if (ct != null && "input".equals(ct.trim().toLowerCase())) return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /** 内嵌搜索条显隐：规则有搜索能力且内容里没有自带 input 框时才显示。 */
+    private void updateContentSearchBarVisibility() {
+        try {
+            boolean show = currentRule != null && currentRule.hasSearch() && !hasRuleInputBox();
+            binding.searchBarContent.setVisibility(show ? View.VISIBLE : View.GONE);
         } catch (Throwable t) {
             binding.searchBarContent.setVisibility(View.GONE);
         }
@@ -3415,8 +3438,27 @@ public class HkPageActivity extends BaseActivity {
 
     private int contentGen = 0;
 
+    /**
+     * 8.83 对齐（ArticleListFragment.lambda$initView$3）：滚动自动翻页仅当规则支持分页。
+     * url 含 fypage（或 #autoPage#/#autoReader#）→ 支持；js: 规则靠 MY_PAGE 分页
+     *（url 常为 hiker://empty## 不带 fypage 标记，如 find_rule 为 js:$.require("engine").home()）。
+     * 不支持时直接标到底，不发无效请求（8.83 finishLoadMore 同款，避免把第 1 页重复追加）。
+     */
+    private boolean canAutoPage() {
+        if (currentRule == null) return false;
+        String u = currentRule.getUrl();
+        if (u != null && (u.contains("fypage") || u.contains("#autoPage#") || u.contains("#autoReader#"))) return true;
+        String fr = currentRule.getFindRule();
+        return fr != null && fr.trim().startsWith("js:");
+    }
+
     private void loadContent(boolean reset) {
         if (loading || currentRule == null) return;
+        if (!reset && !canAutoPage()) {
+            noMore = true;
+            updateFooter();
+            return;
+        }
         loading = true;
         final int gen = ++contentGen;
         if (reset) {
@@ -3443,8 +3485,10 @@ public class HkPageActivity extends BaseActivity {
             }
             final List<HkItem> result = list;
             App.post(() -> {
-                if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
+                // 先释放 loading：过期回调也不能把标记卡死，否则滚动翻页/下拉刷新永久失效
+                //（翻页请求在途时用户点了别的导致 contentGen 自增，就会走到这里）。
                 loading = false;
+                if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
                 binding.swipeContent.setRefreshing(false);
                 binding.loadingContent.setVisibility(View.GONE);
                 // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
@@ -4179,18 +4223,28 @@ public class HkPageActivity extends BaseActivity {
                 }
             } catch (Throwable ignored) {
             }
-            // 选集：当前详情所有可播条目（保持顺序），当前点中的为选中项
+            // 8.83 getChapters：按被点条目的 BaseExtra.cls 分组只收同组；跳过 header 型、
+            // 空 URL、URL 含 @rule=/ignoreVideo/ignoreMusic 的条目；播放器内切集不出组
+            String clickedCls = it.getExtra("cls");
             org.json.JSONArray arr = new org.json.JSONArray();
             int selIdx = 0;
             int idx = 0;
             for (HkItem di : detailItems) {
                 String du = di.getUrl() == null ? "" : di.getUrl().trim();
-                if (du.isEmpty()) continue;
                 String dl = du.toLowerCase();
-                if (dl.startsWith("javascript:") || dl.equals("hiker://empty")) continue;
-                // 只收可播条目：http 链接或含 @lazyRule=/@rule=/js: 的解析型地址
-                boolean playable = dl.startsWith("http")
-                        || du.contains("@lazyRule=") || du.contains("@rule=") || du.startsWith("js:");
+                boolean isClicked = (di == it);
+                if (!isClicked) {
+                    if (du.isEmpty()) continue;
+                    if (dl.startsWith("javascript:") || dl.equals("hiker://empty")) continue;
+                    String dct = di.getColType() == null ? "" : di.getColType().toLowerCase();
+                    if (dct.contains("header")) continue;
+                    if (du.contains("@rule=")) continue;
+                    if (dl.contains("ignorevideo") || dl.contains("ignoremusic")) continue;
+                    if (!clickedCls.isEmpty() && !clickedCls.equals(di.getExtra("cls"))) continue;
+                }
+                // 只收可播条目：http 链接或含 @lazyRule=/js: 的解析型地址（@rule= 已在上排除）
+                boolean playable = isClicked || dl.startsWith("http")
+                        || du.contains("@lazyRule=") || du.startsWith("js:");
                 if (!playable) continue;
                 try {
                     org.json.JSONObject o = new org.json.JSONObject();
@@ -4437,7 +4491,8 @@ public class HkPageActivity extends BaseActivity {
                 // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右
                 return ContentAdapter.T_DETAIL_HEADER;
             case "header":
-                return ContentAdapter.T_HEADER;
+                // 8.83 bindForHeaderHolder：规则自带 header 渲染成横向可点 tab（M2）
+                return ContentAdapter.T_HEADER_TABS;
             case "footer":
                 return ContentAdapter.T_FOOTER;
             case "text_icon":
@@ -4457,6 +4512,10 @@ public class HkPageActivity extends BaseActivity {
             case "input":
                 return ContentAdapter.T_INPUT;
             case "x5_webview_single":
+                return ContentAdapter.T_WEB;
+            case "video":
+                // 8.83 onCreateViewHolder：video → 行内嵌 WebView（X5WebViewHolder）；
+                // 星辰无 X5，用系统 WebView 的 T_WEB 复用 bindWeb
                 return ContentAdapter.T_WEB;
             case "scroll_button":
             case "flex_button":
@@ -4478,10 +4537,10 @@ public class HkPageActivity extends BaseActivity {
             case "movie_3":
                 return ContentAdapter.T_VIDEO;
             case "movie_1":
-                // 官方 movie_1 span=60 整宽左图右文
-                return ContentAdapter.T_MOVIE_LEFT_PIC;
+                // 8.83 item_movie_one_col：文字左 + 封面右（130×90dp），T_MOVIE 专用
+                return ContentAdapter.T_MOVIE;
             case "movie_1_left_pic":
-                // 官方 movie_1_left_pic span=60 整宽左图右文（同 movie_1）
+                // 8.83 item_movie_one_col_left_pic：封面左 + 文字右
                 return ContentAdapter.T_MOVIE_LEFT_PIC;
             case "movie_1_vertical_pic":
                 // 官方 movie_1_vertical_pic span=60 全宽左竖海报右文（D3）
@@ -4633,16 +4692,36 @@ public class HkPageActivity extends BaseActivity {
                 final HkItem item = it;
                 new Thread(() -> {
                     String target = "";
+                    boolean needRefresh = false;
+                    int before = 0;
+                    List<HkItem> after = null;
                     try {
                         HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
+                        before = rt.actionResultCount();
                         rt.evalLazy(jsCode, pageUrl);
                         target = rt.consumeGoToRequest();
+                        // 动作回调（如同意按钮 putMyVar+refreshPage）：无 goTo 但请求了刷新，
+                        // 必须取走 refreshPage 标记直接重刷当前列表，不进子列表流程
+                        //（否则 flag 被丢弃、router 被销毁、myVars 丢失，表现为"点了没反应"）。
+                        needRefresh = rt.consumeRefreshRequest();
+                        after = rt.snapshotActionResults();
                     } catch (Throwable ignored) {
                     }
                     final String t = target == null ? "" : target.trim();
+                    final boolean refresh = needRefresh;
+                    final List<HkItem> act = after;
+                    final int n0 = before;
                     App.post(() -> {
                         if (!t.isEmpty()) {
                             handleGoToUrl(t, item);
+                        } else if (refresh) {
+                            // 有 refresh 无 goTo：动作回调，直接刷新当前列表
+                            //（对齐 8.83 refreshPage EventBus 机制，跟走哪条点击链路无关）
+                            loadContent(true);
+                        } else if (act != null && act.size() > n0) {
+                            // 规则自绘"加载更多"按钮：JS 用 addItemBefore 就地追加了条目，
+                            // 8.83 同款就地更新当前列表，不进详情/子列表。
+                            mergeActionItems(item, act);
                         } else {
                             // 无 goTo：按原子列表流程继续（在 UI 线程重入 openSubList 的剩余部分）
                             // 为简单起见，此处退化为打开详情页
@@ -4652,6 +4731,40 @@ public class HkPageActivity extends BaseActivity {
                 }).start();
                 return true;
             }
+
+    /**
+     * 规则自绘"加载更多"按钮的就地更新（8.83 addItemBefore/deleteItemByCls 同款语义）：
+     * 把 JS 追加的新条目（按 url+title 去重）插到被点按钮之前，按钮保留以便继续翻页。
+     */
+    private void mergeActionItems(HkItem button, List<HkItem> after) {
+        if (after == null || after.isEmpty() || contentAdapter == null) return;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (HkItem v : videos) seen.add(itemKey(v));
+        List<HkItem> delta = new ArrayList<>();
+        for (HkItem it : after) {
+            if (seen.add(itemKey(it))) delta.add(it);
+        }
+        if (delta.isEmpty()) return;
+        int at = -1;
+        if (button != null) {
+            String bk = itemKey(button);
+            for (int i = 0; i < videos.size(); i++) {
+                if (bk.equals(itemKey(videos.get(i)))) { at = i; break; }
+            }
+        }
+        if (at < 0) videos.addAll(delta);
+        else videos.addAll(at, delta);
+        contentAdapter.refreshGroups();
+        contentAdapter.notifyDataSetChanged();
+        updateFooter();
+    }
+
+    private static String itemKey(HkItem it) {
+        if (it == null) return "";
+        String u = it.getUrl() == null ? "" : it.getUrl();
+        String t = it.getTitle() == null ? "" : it.getTitle();
+        return u + "‖" + t;
+    }
             // 压栈保存父列表状态
             SubListState st = new SubListState();
             st.rule = currentRule;
@@ -4785,6 +4898,7 @@ public class HkPageActivity extends BaseActivity {
         buildFilterRows();
         contentAdapter.refreshGroups();
         contentAdapter.notifyDataSetChanged();
+        updateContentSearchBarVisibility();
         binding.tvContentEmpty.setVisibility(View.GONE);
         binding.rvVideos.setVisibility(videos.isEmpty() ? View.GONE : View.VISIBLE);
         if (contentGrid != null && st.scrollPos > 0) contentGrid.scrollToPosition(st.scrollPos);
@@ -5180,6 +5294,7 @@ public class HkPageActivity extends BaseActivity {
         static final int T_PIC_3 = 49;
         static final int T_PIC_3_SQUARE = 50;
         static final int T_DETAIL_HEADER = 51; // 8.83 原版详情页头部：movie_one_col（标题左+封面右）
+        static final int T_HEADER_TABS = 52; // 8.83 bindForHeaderHolder：规则 header 条目横向分类 tab（title/url 按 & 切分）
 
         private final List<HkItem> source;
         /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
@@ -5376,6 +5491,7 @@ public class HkPageActivity extends BaseActivity {
                     case T_TEXT_4:
                     case T_TEXT_5:
                     case T_BUTTONS:
+                    case T_HEADER_TABS:
                         cols = v.findViewById(R.id.cols_container);
                         break;
                     case T_AVATAR:
@@ -5524,6 +5640,9 @@ public class HkPageActivity extends BaseActivity {
                 case T_BUTTONS:
                     layout = R.layout.item_hk_cols;
                     break;
+                case T_HEADER_TABS:
+                    layout = R.layout.item_hk_cols;
+                    break;
                 case T_AVATAR:
                     layout = R.layout.item_hk_avatar;
                     break;
@@ -5643,6 +5762,9 @@ public class HkPageActivity extends BaseActivity {
                     break;
                 case T_BUTTONS:
                     bindButtons(h, position);
+                    break;
+                case T_HEADER_TABS:
+                    bindHeaderTabs(h, item);
                     break;
                 case T_AVATAR:
                     bindAvatar(h, item);
@@ -5908,6 +6030,91 @@ public class HkPageActivity extends BaseActivity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             return row;
+        }
+
+        /**
+         * 规则 header 横向分类 tab：对照 8.83 bindForHeaderHolder。
+         * title 按 "&" 切分 tab 名，url 按 "&" 切分对应链接；点 tab → evalTab 求值后重刷；
+         * ">" 按钮弹"请选择分类"弹窗。选中态：rule.url 含 tabUrl 且 firstHeader == desc。
+         */
+        private void bindHeaderTabs(Holder h, HkItem item) {
+            h.cols.removeAllViews();
+            Context ctx = h.itemView.getContext();
+            String title = item.getTitle() == null ? "" : item.getTitle();
+            String url = item.getUrl() == null ? "" : item.getUrl();
+            String[] names = title.split("&");
+            String[] urls = url.split("&");
+            if (names.length == 0) return;
+            final String desc = item.getDesc() == null ? "" : item.getDesc();
+            final String ruleUrl = currentRule == null || currentRule.getUrl() == null ? "" : currentRule.getUrl();
+            final String firstHeader = currentRule == null ? "" : currentRule.getFirstHeader();
+            final List<String[]> pairs = new ArrayList<>();
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            for (int i = 0; i < names.length; i++) {
+                final String name = stripHtml(names[i]).trim();
+                final String tabUrl = i < urls.length ? urls[i].trim() : "";
+                if (name.isEmpty()) continue;
+                pairs.add(new String[]{name, tabUrl});
+                TextView tv = new TextView(ctx);
+                tv.setText(name);
+                tv.setTextSize(14);
+                tv.setGravity(Gravity.CENTER);
+                tv.setSingleLine(true);
+                tv.setEllipsize(TextUtils.TruncateAt.END);
+                // 8.83 选中态：rule.url 含 tabUrl 且 firstHeader == desc → tab_item_selected
+                boolean selected = !tabUrl.isEmpty() && ruleUrl.contains(tabUrl) && firstHeader.equals(desc);
+                if (isTabSelected(names[i])) selected = true;
+                tv.setTextColor(selected ? 0xFFE8590C : 0xFF1A1D24);
+                try {
+                    tv.setBackgroundResource(selected ? R.drawable.tab_item_selected : R.drawable.tab_item_default);
+                } catch (Throwable ignored) {}
+                int padH = dp(12), padV = dp(8);
+                tv.setPadding(padH, padV, padH, padV);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = dp(6);
+                final int idx = pairs.size() - 1;
+                tv.setOnClickListener(v -> onHeaderTabClick(pairs.get(idx)[1]));
+                row.addView(tv, lp);
+            }
+            h.cols.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            // 8.83 ">" → "请选择分类"弹窗
+            if (names.length > 1) {
+                TextView btnExpand = new TextView(ctx);
+                btnExpand.setText(">");
+                btnExpand.setTextSize(16);
+                btnExpand.setTextColor(0xFF666666);
+                btnExpand.setGravity(Gravity.CENTER);
+                try {
+                    btnExpand.setBackgroundResource(R.drawable.tab_item_default);
+                } catch (Throwable ignored) {}
+                btnExpand.setPadding(dp(10), dp(4), dp(10), dp(4));
+                LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                btnLp.leftMargin = dp(3);
+                final List<String[]> finalPairs = pairs;
+                btnExpand.setOnClickListener(v -> showCategoryPopup(finalPairs, -1, value -> onHeaderTabClick(value)));
+                h.cols.addView(btnExpand, btnLp);
+            }
+            // header 条目本身不可点（8.83 点不动），只响应 tab 点击
+            h.itemView.setOnClickListener(null);
+            h.itemView.setClickable(false);
+            h.itemView.setFocusable(false);
+        }
+
+        /** header tab 点击：8.83 onClassClick 等价 → evalTab 求值分类变量后重刷列表。 */
+        private void onHeaderTabClick(String tabUrl) {
+            if (tabUrl == null || tabUrl.isEmpty() || currentRule == null) return;
+            new Thread(() -> {
+                try {
+                    getRouter().evalTab(tabUrl);
+                } catch (Throwable ignored) {
+                }
+                App.post(() -> loadContent(true));
+            }).start();
         }
 
         /** 头像行：圆形图 + 标题横向。 */

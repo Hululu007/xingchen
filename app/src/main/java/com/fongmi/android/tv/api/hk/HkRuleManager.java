@@ -983,6 +983,12 @@ public class HkRuleManager {
                 byte[] bytes = Files.readAllBytes(f.toPath());
                 HkRule rule = gson.fromJson(new String(bytes, StandardCharsets.UTF_8), HkRule.class);
                 if (rule == null) continue;
+                // 标题脏数据（空/"undefined"/"null"）时用文件名回退，保证 tab 有名可显示
+                if (rule.getTitle().isEmpty()) {
+                    String fn = f.getName();
+                    if (fn.endsWith(".json")) fn = fn.substring(0, fn.length() - 5);
+                    if (!fn.isEmpty() && !"unnamed".equals(fn)) rule.setTitle(fn);
+                }
                 rule.setEnabled(isEnabled(rule.getTitle()));
                 list.add(rule);
             } catch (Exception e) {

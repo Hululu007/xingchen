@@ -181,6 +181,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private final Map<Integer, ScheduledFuture<?>> jsTimers = new HashMap<>();
     private final ScheduledExecutorService timerScheduler = Executors.newScheduledThreadPool(1);
     private final AtomicInteger timerIdSeq = new AtomicInteger(1);
+    /** 8.83 registerTask 定时任务：taskId(String) → ScheduledFuture；JS 字符串延迟单次执行。 */
+    private final Map<String, ScheduledFuture<?>> jsTasks = new HashMap<>();
 
     /** QuickJS 风格的函数签名（Object[] args -> Object），供 putFunction 注册。 */
     private interface JsFunc {
@@ -319,6 +321,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable ignored) {
             }
         }
+        // 8.83 registerTask 任务一并清理
+        Map<String, ScheduledFuture<?>> copy2;
+        synchronized (jsTasks) {
+            copy2 = new HashMap<>(jsTasks);
+            jsTasks.clear();
+        }
+        for (ScheduledFuture<?> f : copy2.values()) {
+            try {
+                f.cancel(false);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** JSON 解析（替代 ctx.parse，即 JSON.parse 语义）：非法 JSON 返回带原型的空对象，不抛异常。
@@ -423,6 +437,31 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (s != null) return s;
         if (o instanceof Number || o instanceof Boolean) return String.valueOf(o);
         return "";
+    }
+
+    /**
+     * JS 对象转 Map（用于 proxyClearM3u8 的 headers 参数解析）。
+     * 支持 Rhino NativeObject 和 Java Map。
+     */
+    @SuppressWarnings("unchecked")
+    private java.util.Map<?, ?> toStringMap(Object o) {
+        if (o == null) return null;
+        Object adjusted = argsNativeObjectAdjust(o);
+        if (adjusted instanceof java.util.Map) return (java.util.Map<?, ?>) adjusted;
+        return null;
+    }
+
+    /** MD5（用于 proxyClearM3u8 缓存文件名，对应 8.83 StringUtil.md5）。 */
+    private String md5(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] bytes = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Throwable e) {
+            return String.valueOf(s.hashCode());
+        }
     }
 
     /** List<String> -> JS 数组（替代 JSUtil.toArray）。
@@ -1347,7 +1386,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             return fetchSync(url, mergeMethod(options, "post"));
         });
-        // fcbw/ewr：WebView 取码与 Web 规则执行，宿主不支持，走空
+        // fcbw/ewr：WebView 取码与 Web 规则执行
+        // 8.83 原文：
+        //   fetchCodeByWebView(url, options) (JSEngine.smali:15513，别名 fcbw)：
+        //     用 WebkitFetcher（WebView）在后台加载 url，取 JS 渲染后的页面源码；
+        //     options.timeout（1000-30000ms，默认 30000ms）；同步等待 CountDownLatch；返回源码字符串。
+        //   executeWebRule(url, rule, options) (JSEngine.smali:15132，别名 ewr)：
+        //     用 WebkitExecutor 在 WebView 里执行另一条 web 规则；同上超时机制；返回执行结果字符串。
+        // 依赖：8.83 的 WebkitFetcher/WebkitExecutor/WebkitRunner（WebView 基础设施，约2000+行）。
+        // 星辰暂无 WebView 后台抓取基础设施。完整移植需先搬运 Webkit* 类（Phase 2）。
         stub("fcbw", "");
         stub("ewr", "");
         // 官方全名 stub
@@ -1471,7 +1518,56 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Logger.t(TAG).d("cacheM3u8: passthrough %s", url);
             return url;
         });
-        putFunction("proxyClearM3u8", args -> "");
+        // proxyClearM3u8：移植自 8.83 JSEngine.proxyClearM3u8 (JSEngine.smali:21401)。
+        // 语义：proxyClearM3u8(u, h, r) 去 m3u8 广告片段。
+        //   u: m3u8 URL；h: headers Map（可选，取 "headers"/"header" 子键）；r: 广告规则 JSONArray（可选）。
+        //   返回：清理后的内容存为 hiker://files/_cache/<md5>.m3u8，返回 "file://<path>##<原URL>"；
+        //   若清理结果为空则返回原 URL。
+        // 依赖：8.83 的 M3u8ClearUtil.getProxyContent（2193 行，smali_classes2）。
+        //   完整移植见 HkM3u8ClearUtil.java（待搬运）。
+        putFunction("proxyClearM3u8", args -> {
+            try {
+                if (args == null || args.length == 0 || args[0] == null) return "";
+                String url = argStr(args[0]);
+                if (url == null || url.isEmpty() || "undefined".equals(url)) return "";
+                // h 参数：headers Map（8.83 从 "headers" 或 "header" 子键取）
+                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                if (args.length > 1 && args[1] != null) {
+                    Object h = args[1];
+                    // Rhino NativeObject -> Map 转换（复用现有 argMap 逻辑）
+                    java.util.Map<?, ?> hm = toStringMap(h);
+                    if (hm != null) {
+                        Object sub = hm.get("headers");
+                        if (sub == null) sub = hm.get("header");
+                        java.util.Map<?, ?> sm = toStringMap(sub);
+                        if (sm != null) {
+                            for (java.util.Map.Entry<?, ?> e : sm.entrySet()) {
+                                if (e.getKey() != null && e.getValue() != null) {
+                                    headers.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+                                }
+                            }
+                        }
+                    }
+                }
+                // r 参数：广告规则（暂存，待 HkM3u8ClearUtil 完整移植后使用）
+                String cleaned = HkM3u8ClearUtil.getProxyContent(url, headers);
+                if (cleaned == null || cleaned.isEmpty()) {
+                    return url; // 8.83：清理结果为空返回原 URL
+                }
+                // 存缓存文件，返回 file://## 格式（8.83 JSEngine.smali:21580-21620）
+                String name = md5(url) + ".m3u8";
+                java.io.File cacheDir = new java.io.File(App.get().getFilesDir(), "hk_m3u8_cache");
+                if (!cacheDir.exists()) cacheDir.mkdirs();
+                java.io.File out = new java.io.File(cacheDir, name);
+                try (java.io.FileWriter fw = new java.io.FileWriter(out)) {
+                    fw.write(cleaned);
+                }
+                return "file://" + out.getAbsolutePath() + "##" + url;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("proxyClearM3u8 failed: %s", e.getMessage());
+                return args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
+            }
+        });
 
         // ---- 页面信息 ----
         putFunction("setPageTitle", args -> {
@@ -1727,7 +1823,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 导航/UI 类
         stub("back", null);
         stub("backToHome", null);
-        stub("closeMe", null);
+        // closeMe：移植自 8.83 JSEngine.closeMe (JSEngine.smali:12407)。
+        // 关闭 fetch({inputStream:true}) 返回的流，规则用完必须调。
+        putFunction("closeMe", args -> {
+            try {
+                if (args != null && args.length > 0 && args[0] instanceof java.io.InputStream) {
+                    ((java.io.InputStream) args[0]).close();
+                }
+            } catch (Throwable e) {
+                Logger.t(TAG).d("closeMe failed: %s", e.getMessage());
+            }
+            return null;
+        });
         // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine.smali:22071），之前被 stub 为空函数
         putFunction("refresh", args -> {
             refreshRequested = true;
@@ -1826,6 +1933,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("shareDirectory", null);
         stub("writeHexFile", null);
         // 代理/服务类
+        // startProxyServer：8.83 JSEngine.startProxyServer (JSEngine.smali:25880)。
+        //   语义：startProxyServer(js) 设置代理 JS，启动 AndServer 本地服务（30秒超时等待），
+        //   返回 serverUrl + "/proxy"。
+        //   依赖：8.83 的 RemoteServerManager + AndServer 库（com.yanzhenjie.andserver）。
+        //   星辰无 AndServer 依赖。完整移植需先引入 AndServer 并搬运 RemoteServerManager。
         stub("startProxyServer", "");
         stub("registerDNS", null);
         stub("addWebProxyRule", null);
@@ -1916,9 +2028,75 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         stub("isVideoOrMusic", false);
         stub("isShorthand", false);
-        // 任务调度
-        stub("registerTask", null);
-        stub("unRegisterTask", null);
+        // 任务调度：移植自 8.83 JSEngine.registerTask/unRegisterTask
+        // (JSEngine.smali:22645/26271)。8.83 没有 setTimeout/setInterval，规则定时全靠它。
+        // 语义：registerTask(id, time, js) 延迟 time 毫秒后单次执行 JS 字符串；id 为空则生成 UUID；
+        // time 默认 10000ms，最小 500ms；unRegisterTask(id) 取消。
+        putFunction("registerTask", args -> {
+            try {
+                String id = args != null && args.length > 0 ? argStr(args[0]) : null;
+                if (id == null || id.isEmpty() || "undefined".equals(id) || "null".equals(id)) {
+                    id = java.util.UUID.randomUUID().toString();
+                }
+                long delay = 10000; // 8.83 defaultInt = 0x2710
+                if (args != null && args.length > 1 && args[1] != null) {
+                    Object t = args[1];
+                    if (t instanceof Integer) delay = ((Integer) t).intValue();
+                    else if (t instanceof Double) delay = ((Double) t).intValue();
+                    else if (t instanceof Long) delay = (Long) t;
+                    else if (t instanceof Number) delay = ((Number) t).intValue();
+                }
+                if (delay < 500) delay = 500; // 8.83 最小 0x1f4
+                String js = args != null && args.length > 2 && args[2] != null ? argStr(args[2]) : "";
+                final String taskId = id;
+                final String taskJs = js;
+                Runnable fire = () -> {
+                    try {
+                        submit(() -> {
+                            try {
+                                if (destroyed) return null;
+                                synchronized (jsTasks) {
+                                    if (!jsTasks.containsKey(taskId)) return null;
+                                    jsTasks.remove(taskId); // 单次执行
+                                }
+                                if (taskJs != null && !taskJs.isEmpty()) {
+                                    evalJs(taskJs);
+                                }
+                            } catch (Throwable th) {
+                                Logger.t(TAG).d("registerTask fire failed: " + th.getMessage());
+                            }
+                            return null;
+                        });
+                    } catch (Throwable ignored) {
+                    }
+                };
+                ScheduledFuture<?> f = timerScheduler.schedule(fire, delay, TimeUnit.MILLISECONDS);
+                synchronized (jsTasks) {
+                    // 同 id 覆盖：先取消旧的（8.83 SchedulePool.add 同 key 覆盖语义）
+                    ScheduledFuture<?> old = jsTasks.put(taskId, f);
+                    if (old != null) old.cancel(false);
+                }
+                Logger.t(TAG).d("registerTask(%s, %dms)", taskId, delay);
+            } catch (Throwable e) {
+                Logger.t(TAG).d("registerTask failed: %s", e.getMessage());
+            }
+            return null;
+        });
+        putFunction("unRegisterTask", args -> {
+            try {
+                String id = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : null;
+                if (id != null) {
+                    synchronized (jsTasks) {
+                        ScheduledFuture<?> f = jsTasks.remove(id);
+                        if (f != null) f.cancel(false);
+                    }
+                    Logger.t(TAG).d("unRegisterTask(%s)", id);
+                }
+            } catch (Throwable e) {
+                Logger.t(TAG).d("unRegisterTask failed: %s", e.getMessage());
+            }
+            return null;
+        });
         // Java 互操作（宿主不开放）
         stub("getCurrentActivity", null);
         stub("findJavaClass", null);
@@ -1958,7 +2136,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("getMyInput", "");
         stub("getMyJs", "");
         stub("syncExecute", null);
-        // 首页子模块
+        // 首页子模块：8.83 JSEngine.getHomeSub/hasHomeSub (JSEngine.smali:17037/18002)
+        // 依赖 8.83 的 HomeRulesSubService.getSubRecords()（首页订阅服务），星辰无此服务。
+        // 8.83 语义：getHomeSub() 返回订阅记录 JSON 数组；hasHomeSub(url) 返回 "true"/"false" 字符串。
+        // 宿主无订阅服务，保持安全默认值。完整移植需先搬运 HomeRulesSubService。
         stub("hasHomeSub", false);
         stub("getHomeSub", "[]");
         // 应用信息（真实现）
@@ -2396,6 +2577,19 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (!TextUtils.isEmpty(d)) item.setDesc(d);
         String c = str(m, "col_type");
         if (!TextUtils.isEmpty(c)) item.setColType(c);
+        // 8.83 DetailPage 字段（updateItem/addItem 用）
+        String fr = str(m, "findRule");
+        if (TextUtils.isEmpty(fr)) fr = str(m, "find_rule");
+        if (!TextUtils.isEmpty(fr)) item.setFindRule(fr);
+        String g = str(m, "group");
+        if (!TextUtils.isEmpty(g)) item.setGroup(g);
+        String pg = str(m, "pages");
+        if (!TextUtils.isEmpty(pg)) item.setPages(pg);
+        String pr = str(m, "preRule");
+        if (TextUtils.isEmpty(pr)) pr = str(m, "pre_rule");
+        if (!TextUtils.isEmpty(pr)) item.setPreRule(pr);
+        String r = str(m, "rule");
+        if (!TextUtils.isEmpty(r)) item.setRule(r);
     }
 
     /** addItemAfter/addItemBefore(id, obj)：在匹配 url 的条目之后/之前插入。 */
@@ -3227,6 +3421,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
+     * 当前 results 数量快照。供 @rule=js: 点击动作在 evalLazy 前后成对调用，
+     * 判断规则是否就地改了列表（如自绘"加载更多"按钮调 addItemBefore/deleteItemByCls 追加条目）。
+     * 必须在 evalLazy 同一后台线程调用（evalLazy 内部 submit().get() 已同步 JS 线程）。
+     */
+    public int actionResultCount() {
+        return results.size();
+    }
+
+    /**
+     * 当前 results 拷贝。供 @rule=js: 点击动作取回规则就地追加的条目，
+     * 上层按 url+title 去重后并入当前列表（8.83 addItemBefore 就地更新同款）。
+     */
+    public List<HkItem> snapshotActionResults() {
+        return new ArrayList<>(results);
+    }
+
+    /**
      * 取走 goTo 导航请求（读后清零）。供 @rule=js: 等动作 JS 求值后检查：
      * 若规则调了 goTo(url)，上层应导航到该 URL（如 hiker://page/detail 打开 V4）。
      * @return 目标 URL，无请求时返回 ""。
@@ -3482,6 +3693,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 // P1：补全官方条目字段 extra/content/line（updateItem/deleteItem/findItemsByCls 用）
                 item.setContent(str(m, "content"));
                 item.setLine(str(m, "line"));
+                // 8.83 DetailPage 字段：findRule/group/pages/preRule/rule（Gson 直映，键名与原版一致）
+                String findRule = str(m, "findRule");
+                if (TextUtils.isEmpty(findRule)) findRule = str(m, "find_rule");
+                item.setFindRule(findRule);
+                item.setGroup(str(m, "group"));
+                item.setPages(str(m, "pages"));
+                String preRule = str(m, "preRule");
+                if (TextUtils.isEmpty(preRule)) preRule = str(m, "pre_rule");
+                item.setPreRule(preRule);
+                item.setRule(str(m, "rule"));
                 Object extraObj = m.get("extra");
                 if (extraObj instanceof Map) {
                     Map<String, String> extra = new HashMap<>();
@@ -4021,6 +4242,7 @@ public InputStream evalJS(String p1, InputStream p2) {
         initRequire(v1cx, v2); // MISSING
         ScriptableObject.putProperty(v2, "input", Context.javaToJS(p2, v2));
         ScriptableObject.putProperty(v2, "_globalMap", Context.javaToJS(globalMap, v2)); // field MISSING
+        ScriptableObject.putProperty(v2, "globalMap0", Context.javaToJS(globalMap, v2)); // 8.83 _globalMap 别名（skill 文档名）
         ScriptableObject.putProperty(v2, "rc4", Context.javaToJS(rc4, v2)); // field MISSING
         ScriptableObject.putProperty(v2, "_base64", Context.javaToJS(myBase64, v2)); // field MISSING
         ScriptableObject.putProperty(v2, "javaContext", Context.javaToJS(this, v2));
@@ -4111,6 +4333,7 @@ public String evalJS(String p1, String p2, boolean p3) {
         org.mozilla.javascript.ImporterTopLevel.init(v6, v7, false);
         initRequire(v6, v7); // MISSING
         ScriptableObject.putProperty(v7, "_globalMap", Context.javaToJS(globalMap, v7)); // field MISSING
+        ScriptableObject.putProperty(v7, "globalMap0", Context.javaToJS(globalMap, v7)); // 8.83 _globalMap 别名
         ScriptableObject.putProperty(v7, "rc4", Context.javaToJS(rc4, v7)); // field MISSING
         ScriptableObject.putProperty(v7, "_base64", Context.javaToJS(myBase64, v7)); // field MISSING
         ScriptableObject.putProperty(v7, "javaContext", Context.javaToJS(this, v7));
@@ -4177,6 +4400,7 @@ public Object evalJSForObj(String p1, Object p2) {
         initRequire(v3, v4); // MISSING
         ScriptableObject.putProperty(v4, "input", Context.javaToJS(p2, v4));
         ScriptableObject.putProperty(v4, "_globalMap", Context.javaToJS(globalMap, v4)); // field MISSING
+        ScriptableObject.putProperty(v4, "globalMap0", Context.javaToJS(globalMap, v4)); // 8.83 _globalMap 别名
         ScriptableObject.putProperty(v4, "rc4", Context.javaToJS(rc4, v4)); // field MISSING
         ScriptableObject.putProperty(v4, "_base64", Context.javaToJS(myBase64, v4)); // field MISSING
         ScriptableObject.putProperty(v4, "javaContext", Context.javaToJS(this, v4));
@@ -4438,6 +4662,8 @@ private void runScript(String script, String key, boolean throwOnError) {
         initRequire(cx, scope);
         ScriptableObject.putProperty(scope, "_globalMap",
                 Context.javaToJS(globalMap, scope));
+        ScriptableObject.putProperty(scope, "globalMap0",
+                Context.javaToJS(globalMap, scope)); // 8.83 _globalMap 别名（skill 文档名）
         ScriptableObject.putProperty(scope, "rc4",
                 Context.javaToJS(rc4, scope));
         ScriptableObject.putProperty(scope, "_base64",

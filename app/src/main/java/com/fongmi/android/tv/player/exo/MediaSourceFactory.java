@@ -82,8 +82,12 @@ public class MediaSourceFactory implements MediaSource.Factory {
     }
 
     static DataSource.Factory createUpstreamDataSourceFactory(Map<String, String> headers) {
+        return createUpstreamDataSourceFactory(headers, "");
+    }
+
+    static DataSource.Factory createUpstreamDataSourceFactory(Map<String, String> headers, String url) {
         OkHttpDataSource.Factory factory = new OkHttpDataSource.Factory(OkHttp.player());
-        applyHeaders(factory, headers);
+        applyHeaders(factory, headers, url);
         DataSource.Factory upstream = new DefaultDataSource.Factory(App.get(), factory);
         DataSource.Factory recovered = new HttpEofRecoveryDataSource.Factory(upstream);
         return new PriorityTaskDataSource.Factory(recovered, PLAYBACK_PRIORITY_MANAGER, C.PRIORITY_PLAYBACK_PRELOAD, true);
@@ -207,8 +211,8 @@ public class MediaSourceFactory implements MediaSource.Factory {
     @NonNull
     @Override
     public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
-        applyHeaders(getHttpDataSourceFactory(), ExoUtil.extractHeaders(mediaItem));
         String url = mediaItem.requestMetadata.mediaUri != null ? mediaItem.requestMetadata.mediaUri.toString() : "";
+        applyHeaders(getHttpDataSourceFactory(), ExoUtil.extractHeaders(mediaItem), url);
         AssFontSet fonts = assSession == null ? null : assSession.beginMediaFonts();
         if (isConcatenatingUrl(url)) return createConcatenatingMediaSource(mediaItem, url);
         if (fonts != null || mediaItem.localConfiguration != null && mediaItem.localConfiguration.tag instanceof com.fongmi.android.tv.player.PlaybackDiagnosticCollector.Context) {
@@ -290,13 +294,17 @@ public class MediaSourceFactory implements MediaSource.Factory {
         return httpDataSourceFactory;
     }
 
-    private static void applyHeaders(OkHttpDataSource.Factory factory, Map<String, String> headers) {
-        Map<String, String> sanitized = sanitizeHeaders(headers);
+    private static void applyHeaders(OkHttpDataSource.Factory factory, Map<String, String> headers, String url) {
+        Map<String, String> sanitized = sanitizeHeaders(headers, url);
         String userAgent = removeUserAgentHeader(sanitized);
         factory.setUserAgent(userAgent).setDefaultRequestProperties(sanitized);
     }
 
     static Map<String, String> sanitizeHeaders(Map<String, String> headers) {
+        return sanitizeHeaders(headers, "");
+    }
+
+    static Map<String, String> sanitizeHeaders(Map<String, String> headers, String url) {
         Map<String, String> sanitized = new LinkedHashMap<>();
         if (headers == null || headers.isEmpty()) return sanitized;
         for (Map.Entry<String, String> entry : headers.entrySet()) {
@@ -305,7 +313,30 @@ public class MediaSourceFactory implements MediaSource.Factory {
             if (key.isEmpty()) continue;
             sanitized.put(key, entry.getValue().trim());
         }
+        // 仅 115 CDN（*.115cdn.net）特殊处理：其直链对 Accept-Encoding 敏感，
+        // OkHttp 默认的 gzip 会被拒流（"网络读取失败"），必须发 identity。
+        // 其他域名保持与默影视一致（OkHttp 默认行为），不注入。
+        if (is115Cdn(url)) {
+            boolean hasAcceptEncoding = false;
+            for (String key : sanitized.keySet()) {
+                if ("Accept-Encoding".equalsIgnoreCase(key)) {
+                    hasAcceptEncoding = true;
+                    break;
+                }
+            }
+            if (!hasAcceptEncoding) sanitized.put("Accept-Encoding", "identity");
+        }
         return sanitized;
+    }
+
+    private static boolean is115Cdn(String url) {
+        if (url == null || url.isEmpty()) return false;
+        try {
+            String host = Uri.parse(url).getHost();
+            return host != null && host.toLowerCase().endsWith("115cdn.net");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static String removeUserAgentHeader(Map<String, String> headers) {

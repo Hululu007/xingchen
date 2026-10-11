@@ -697,7 +697,8 @@ public class PreCache implements Player.Listener {
     }
 
     private PreCacheHelper createHelper(MediaItem mediaItem) {
-        DataSource.Factory upstreamFactory = MediaSourceFactory.createUpstreamDataSourceFactory(ExoUtil.extractHeaders(mediaItem));
+        String url = mediaItem.requestMetadata.mediaUri != null ? mediaItem.requestMetadata.mediaUri.toString() : "";
+        DataSource.Factory upstreamFactory = MediaSourceFactory.createUpstreamDataSourceFactory(ExoUtil.extractHeaders(mediaItem), url);
         return new PreCacheHelper.Factory(MediaSourceFactory.getCache(), upstreamFactory, ExoUtil.buildRenderersFactory(), getWorker().getLooper())
                 .setDownloadExecutor(getExecutor())
                 .setListener(preCacheListener)

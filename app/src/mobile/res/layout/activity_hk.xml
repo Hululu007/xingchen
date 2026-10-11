@@ -82,8 +82,8 @@
                             android:layout_marginStart="4dp"
                             android:contentDescription="排序"
                             android:padding="4dp"
-                            android:src="@drawable/ic_action_search" />
-                            <!-- placeholder, fixed below -->
+                            android:src="@drawable/ic_fab_filter"
+                            android:tint="#101216" />
 
                         <!-- 编辑模式才显示：分组管理入口 -->
                         <TextView
@@ -100,6 +100,11 @@
                             android:textColor="#101216"
                             android:textSize="14sp"
                             android:visibility="gone" />
+
+                        <Space
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1" />
 
                         <TextView
                             android:id="@+id/btn_edit_rule"

@@ -2465,37 +2465,50 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
-     * 8.83 LoadingEvent 弹窗等价实现：深色圆角 + 菊花 + 白字（用户 8.83 截图同款：
-     * "正在获取域名，请稍候"）。规则 preRule 里调 showLoading(text) 时弹出，hideLoading() 时关闭。
+     * 8.83 LoadingEvent 弹窗等价实现（XPopup asLoading 同款）：
+     * 小居中盒（#212121 实底 + 16dp 圆角 + 22dp 内边距 + 28dp 菊花 + 14sp #EEEEEE 单行字）
+     * + 全屏 50% 黑阴影（XPopup 默认 shadowBgColor #7F000000）。
+     * 之前把深色底设在了全屏 root 上，导致整屏近黑——这就是"满屏"bug 的根因。
+     * 规则 preRule 里调 showLoading(text) 时弹出，hideLoading() 时关闭。
      */
     private void showHkLoading(String text) {
         try {
             if (hkLoadingDialog == null) {
+                // 外层：透明全屏，只做居中
                 LinearLayout root = new LinearLayout(this);
                 root.setOrientation(LinearLayout.VERTICAL);
                 root.setGravity(Gravity.CENTER);
-                int pad = dp(28);
-                root.setPadding(pad, dp(24), pad, dp(24));
+                // 内层小盒：wrap_content，深色底只画在这个小盒上
+                LinearLayout box = new LinearLayout(this);
+                box.setOrientation(LinearLayout.VERTICAL);
+                box.setGravity(Gravity.CENTER);
+                int pad = dp(22);
+                box.setPadding(pad, pad, pad, pad);
                 GradientDrawable bg = new GradientDrawable();
                 bg.setShape(GradientDrawable.RECTANGLE);
-                bg.setColor(0xE6191D24);
+                bg.setColor(0xFF212121);
                 bg.setCornerRadius(dp(16));
-                root.setBackground(bg);
+                box.setBackground(bg);
 
                 ProgressBar bar = new ProgressBar(this);
-                LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(36), dp(36));
+                LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(28), dp(28));
                 barLp.gravity = Gravity.CENTER_HORIZONTAL;
-                root.addView(bar, barLp);
+                box.addView(bar, barLp);
 
                 hkLoadingText = new TextView(this);
-                hkLoadingText.setTextColor(Color.WHITE);
+                hkLoadingText.setTextColor(0xFFEEEEEE);
                 hkLoadingText.setTextSize(14);
                 hkLoadingText.setGravity(Gravity.CENTER);
+                hkLoadingText.setMaxLines(1);
+                hkLoadingText.setEllipsize(TextUtils.TruncateAt.END);
                 LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 tvLp.gravity = Gravity.CENTER_HORIZONTAL;
-                tvLp.topMargin = dp(12);
-                root.addView(hkLoadingText, tvLp);
+                tvLp.topMargin = dp(8);
+                box.addView(hkLoadingText, tvLp);
+
+                root.addView(box, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
                 hkLoadingDialog = new android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar);
                 hkLoadingDialog.setContentView(root);
@@ -2503,7 +2516,7 @@ public class HkPageActivity extends BaseActivity {
                 hkLoadingDialog.setCanceledOnTouchOutside(false);
                 if (hkLoadingDialog.getWindow() != null) {
                     hkLoadingDialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-                    hkLoadingDialog.getWindow().setDimAmount(0.25f);
+                    hkLoadingDialog.getWindow().setDimAmount(0.5f);
                 }
             }
             String t = TextUtils.isEmpty(text) ? "正在加载，请稍候" : text;

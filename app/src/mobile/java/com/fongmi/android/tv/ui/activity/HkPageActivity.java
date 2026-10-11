@@ -966,6 +966,20 @@ public class HkPageActivity extends BaseActivity {
             for (HkRule r : rules) {
                 if (r.isEnabled()) enabled.add(r);
             }
+            // 当前规则若不在 tabs 列表里（未启用或刚导入），追加进去并选中，保证 tabs 跟随当前页面
+            String curTitle = currentRule == null ? null : currentRule.getTitle();
+            boolean hasCur = false;
+            if (curTitle != null) {
+                for (HkRule r : enabled) {
+                    if (curTitle.equals(r.getTitle())) {
+                        hasCur = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasCur && currentRule != null) {
+                enabled.add(currentRule);
+            }
             miniappRules.clear();
             miniappRules.addAll(enabled);
             if (enabled.size() <= 1) {
@@ -977,7 +991,7 @@ public class HkPageActivity extends BaseActivity {
             for (int i = 0; i < enabled.size(); i++) {
                 HkRule r = enabled.get(i);
                 pairs.add(new String[]{r.getTitle(), String.valueOf(i)});
-                if (r.getTitle() != null && r.getTitle().equals(currentRule.getTitle())) sel = i;
+                if (curTitle != null && curTitle.equals(r.getTitle())) sel = i;
             }
             final List<HkRule> finalEnabled = enabled;
             ChipAdapter adapter = new ChipAdapter(pairs, sel, idx -> {
@@ -985,7 +999,7 @@ public class HkPageActivity extends BaseActivity {
                     int i = Integer.parseInt(idx);
                     if (i >= 0 && i < finalEnabled.size()) {
                         HkRule target = finalEnabled.get(i);
-                        if (!target.getTitle().equals(currentRule.getTitle())) {
+                        if (currentRule == null || !target.getTitle().equals(currentRule.getTitle())) {
                             openRule(target);
                         }
                     }
@@ -994,6 +1008,15 @@ public class HkPageActivity extends BaseActivity {
             });
             binding.rvMiniappTabs.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
             binding.rvMiniappTabs.setAdapter(adapter);
+            // 滚动到选中项，保证当前小程序的 tab 可见
+            final int finalSel = sel;
+            binding.rvMiniappTabs.post(() -> {
+                try {
+                    ((LinearLayoutManager) binding.rvMiniappTabs.getLayoutManager())
+                            .scrollToPositionWithOffset(finalSel, 0);
+                } catch (Throwable ignored) {
+                }
+            });
             binding.miniappTabsRow.setVisibility(View.VISIBLE);
         } catch (Throwable t) {
             binding.miniappTabsRow.setVisibility(View.GONE);

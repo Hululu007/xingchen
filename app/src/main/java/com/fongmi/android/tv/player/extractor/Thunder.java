@@ -36,7 +36,29 @@ public class Thunder implements Source.Extractor {
 
     @Override
     public String fetch(String url) throws Exception {
+        if (isRawMagnet(url)) return fetchParsedMagnet(url);
         return url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
+    }
+
+    /**
+     * 兜底：裸 magnet（如 magnet:?xt=urn:btih:…）没有经过 Parser，
+     * 直接走 addTorrentTask 会 NPE（opaque URI 取不到 path/index）。
+     * 先同步解析一遍，拿到标准播放地址再继续。
+     */
+    private boolean isRawMagnet(String url) {
+        if (url == null || !url.startsWith("magnet:")) return false;
+        try {
+            return Uri.parse(url).getQueryParameter("index") == null;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private String fetchParsedMagnet(String url) throws Exception {
+        List<Episode> episodes = Parser.get(url).call();
+        if (episodes.isEmpty()) throw new ExtractException("磁力解析失败，请重试");
+        String parsed = episodes.get(0).getUrl();
+        return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed)) : parsed;
     }
 
     private String addTorrentTask(Uri uri) throws Exception {
@@ -123,12 +145,17 @@ public class Thunder implements Source.Extractor {
         }
 
         @Override
-        public List<Episode> call() {
+        public List<Episode> call() throws Exception {
             boolean torrent = isTorrent(url);
             if (url.startsWith("ed2k:")) {
                 return Arrays.asList(Episode.create(parseEd2kName(url), url));
             }
-            GetTaskId taskId = XLTaskHelper.get().parse(url, Path.thunder(Util.md5(url)));
+            GetTaskId taskId;
+            try {
+                taskId = XLTaskHelper.get().parse(url, Path.thunder(Util.md5(url)));
+            } catch (Exception e) {
+                throw new ExtractException("磁力解析超时，请检查网络后重试");
+            }
             if (!torrent && !taskId.getRealUrl().startsWith("magnet")) return Arrays.asList(create(taskId));
             if (torrent && url.startsWith("http")) Download.create(url, taskId.getSaveFile()).get();
             if (!torrent) waitDone(taskId);

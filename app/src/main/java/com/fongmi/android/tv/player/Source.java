@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -84,14 +85,25 @@ public class Source {
                 List<Callable<List<Episode>>> items = new ArrayList<>();
                 Iterator<Episode> iterator = flag.getEpisodes().iterator();
                 while (iterator.hasNext()) addCallable(iterator, items);
-                for (Future<List<Episode>> future : executor.invokeAll(items, 30, TimeUnit.SECONDS)) {
+                // 磁力走 DHT 拉种子元数据，国内网络经常超过 30 秒，单独放宽到 60 秒
+                long timeout = hasThunderParser(items) ? 60 : 30;
+                for (Future<List<Episode>> future : executor.invokeAll(items, timeout, TimeUnit.SECONDS)) {
                     try {
                         flag.getEpisodes().addAll(future.get());
-                    } catch (CancellationException ignored) {
+                    } catch (CancellationException e) {
+                        SpiderDebug.log("source-parse", "解析超时（>%ds），该选集保持原地址", timeout);
+                    } catch (ExecutionException e) {
+                        Throwable cause = e.getCause() != null ? e.getCause() : e;
+                        SpiderDebug.log("source-parse", "解析失败：" + cause.getMessage());
                     }
                 }
             }
         }
+    }
+
+    private boolean hasThunderParser(List<Callable<List<Episode>>> items) {
+        for (Callable<List<Episode>> item : items) if (item instanceof Thunder.Parser) return true;
+        return false;
     }
 
     public String fetch(Result result) throws Exception {

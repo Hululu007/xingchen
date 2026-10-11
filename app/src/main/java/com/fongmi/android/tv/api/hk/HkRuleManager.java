@@ -59,6 +59,12 @@ public class HkRuleManager {
     //   云7/9/10              → note.ms / txtpad.cn / hastebin（未验证，暂不支持）
     private static final Pattern CLOUD_CODE_PATTERN =
             Pattern.compile("^云([1-9]|10)oooole(/.*)$");
+    /**
+     * 云口令提取（8.83 只取第一行；我们兼容"小程序：xxx"后缀/多行/前后缀文本）。
+     * 用 find() 而非 matches()，从任意文本中提取口令子串。
+     */
+    private static final Pattern CLOUD_CODE_FIND =
+            Pattern.compile("云([1-9]|10)oooole/\\S+");
     private static final String TEXTDB_API_UPDATE = "https://api.textdb.online/update/";
     private static final String TEXTDB_GET = "https://textdb.online/";
     private static final String PASTEME_API = "https://pasteme.tyrantg.com/api/getContent/";
@@ -505,10 +511,10 @@ public class HkRuleManager {
         return p.rule;
     }
 
-    /** 是否为云口令格式（云1~云10 开头）。 */
+    /** 是否为云口令格式（云1~云10 开头；兼容前后缀/多行文本）。 */
     public static boolean isCloudCode(String text) {
         if (text == null) return false;
-        return CLOUD_CODE_PATTERN.matcher(text.trim()).matches();
+        return CLOUD_CODE_FIND.matcher(text).find();
     }
 
     /**
@@ -519,7 +525,10 @@ public class HkRuleManager {
      */
     public HkRule importByCloudCode(String code) throws Exception {
         if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("口令为空");
-        String raw = code.trim();
+        // 先从文本中提取口令子串（兼容"云6oooole/xxxxxx/xxx 小程序：yyy"这类带后缀的输入）
+        Matcher f = CLOUD_CODE_FIND.matcher(code);
+        if (!f.find()) throw new IllegalArgumentException("不是有效的云口令（需云1~云10开头）");
+        String raw = f.group();
         Matcher m = CLOUD_CODE_PATTERN.matcher(raw);
         if (!m.matches()) throw new IllegalArgumentException("不是有效的云口令（需云1~云10开头）");
         String version = m.group(1);
@@ -531,10 +540,9 @@ public class HkRuleManager {
 
     /** 按口令 path 从云端拉取 rule.json 文本（通道按官方 App 逆向结果路由）。 */
     private String fetchCloudJson(String path, String version) throws Exception {
-        OkHttpClient client = new OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .build();
+        // 8.83 BailanImporter 用 DohProvidersKt.buildAutoClient(url)：走 App 的 DoH 客户端。
+        // 裸 OkHttpClient 在用户 DoH 环境下请求不可靠，改走 HkHttp.client()（DoH/CookieJar/拦截器）。
+        OkHttpClient client = HkHttp.client();
         // 1) /apidb/{key} → textdb.online（官方云2分享通道，已验证可用）
         if (path.startsWith("/apidb/")) {
             String key = path.substring("/apidb/".length()).split("[\\s/]")[0];

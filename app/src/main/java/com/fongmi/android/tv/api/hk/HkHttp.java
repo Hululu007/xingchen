@@ -177,9 +177,33 @@ public class HkHttp {
     /**
      * 构造带 Req 参数的请求 Call：请求头/请求体构建逻辑与 Connect.to 同构，
      * 只是客户端换成 8.83 配置的 HkHttp.client()（DoH / CookieJar / 拦截器都生效）。
+     *
+     * <p>8.83 HttpHelper.buildOkHttpClient(int timeout, boolean redirect) 语义：
+     * 规则可通过 Req 指定 redirect（是否跟随跳转）和 timeout（毫秒）；
+     * 例如 fetch(url, {redirect: 0}) 用于取 302 的 Location 头。默认跟随跳转。</p>
      */
     public static Call to(String url, Req req) {
-        return client().newCall(getRequest(url, req, Headers.of(req.getHeader())));
+        boolean redirect = req.isRedirect();
+        // Req.getTimeout() 默认 10000ms；8.83 用传入的 timeout 设 read/write/connect
+        int timeout = 10000;
+        try {
+            Integer t = req.getTimeout();
+            if (t != null) timeout = t;
+        } catch (Throwable ignored) {
+        }
+        OkHttpClient c = client();
+        if (!redirect || timeout != 10000) {
+            OkHttpClient.Builder b = c.newBuilder()
+                    .followRedirects(redirect)
+                    .followSslRedirects(redirect);
+            if (timeout != 10000) {
+                b.connectTimeout(timeout, TimeUnit.MILLISECONDS)
+                 .readTimeout(timeout, TimeUnit.MILLISECONDS)
+                 .writeTimeout(timeout, TimeUnit.MILLISECONDS);
+            }
+            c = b.build();
+        }
+        return c.newCall(getRequest(url, req, Headers.of(req.getHeader())));
     }
 
     private static Request getRequest(String url, Req req, Headers headers) {

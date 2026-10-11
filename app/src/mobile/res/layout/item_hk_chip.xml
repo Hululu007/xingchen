@@ -9,7 +9,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="2dp"
-        app:cardBackgroundColor="#FFF5F5F5"
+        app:cardBackgroundColor="#FFFFFFFF"
         app:cardCornerRadius="8dp"
         app:cardElevation="0dp">
 
@@ -24,7 +24,7 @@
             android:minHeight="32dp"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
-            android:textColor="#101216"
+            android:textColor="#FF222222"
             android:textSize="14sp" />
     </com.google.android.material.card.MaterialCardView>
 </RelativeLayout>

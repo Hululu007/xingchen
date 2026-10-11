@@ -2517,8 +2517,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return submit(() -> {
                 ScriptableObject.putProperty(scope, "input", input == null ? "" : input);
                 Object r = evalJs(js);
-                String s = getString(r);
-                return s == null ? "" : s;
+                // 8.83 语义：数字/布尔返回值转字符串（如 .js: 取 input.id 为数字时），
+                // 用 argStr() 而非裸 getString()（后者对 Number 返回 null → ""）。
+                return argStr(r);
             }).get();
         } catch (Exception e) {
             String msg = e.getCause() != null && e.getCause().getMessage() != null
@@ -2697,8 +2698,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             nextInputOverride = null;
             ScriptableObject.putProperty(scope, "input", inputVal);
             Object r = evalJs(stripJsPrefix(jsCode));
-            String s = getString(r);
-            if (s == null) s = "";
+            // 同 eval()：用 argStr() 处理数字/布尔返回值
+            String s = argStr(r);
             s = s.trim();
             if (s.isEmpty() || "undefined".equals(s) || "null".equals(s)) {
                 List<HkItem> items = drainResults();

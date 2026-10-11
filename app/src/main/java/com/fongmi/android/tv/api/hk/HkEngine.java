@@ -26,6 +26,9 @@ public class HkEngine {
         this.rule = rule;
         this.jsRuntime = new HkJsRuntime(rule);
         this.jsRuntime.init();
+        // 图片 @js= 求值依赖当前规则的 JS 运行时；HkPageActivity.getRouter() 也会设置，
+        // 这里兜底保证引擎创建时即登记（8.83 JSEngine.getInstance() 单例语义）。
+        HkImage.setCurrentRuntime(this.jsRuntime);
         this.selector = jsRuntime.newSelector();
     }
 

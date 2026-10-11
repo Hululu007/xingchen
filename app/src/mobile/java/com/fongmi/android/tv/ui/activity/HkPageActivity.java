@@ -3182,7 +3182,7 @@ public class HkPageActivity extends BaseActivity {
             h.chip.setText(pair[0]);
             boolean sel = position == selected;
             h.chip.setSelected(sel);
-            h.chip.setTextColor(sel ? 0xFF1A1D24 : 0xFF3A3F4B);
+            h.chip.setTextColor(sel ? 0xFF1A1D24 : 0xFF222222);
             h.chip.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;

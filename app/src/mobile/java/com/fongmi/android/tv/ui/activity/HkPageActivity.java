@@ -503,7 +503,33 @@ public class HkPageActivity extends BaseActivity {
             return true;
         });
         loadCustomRuleData();
-        loadRuleTimeData();
+    }
+
+    /** ☰菜单：排序方式、列数切换。 */
+    private void showHkMainMenu() {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, binding.btnMenuRule);
+        android.view.Menu m = menu.getMenu();
+        m.add(0, 1, 0, ruleSortByName ? "按添加顺序排序" : "按名称排序");
+        m.add(0, 2, 0, "切换列数");
+        menu.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == 1) {
+                ruleSortByName = !ruleSortByName;
+                afterRulesChanged();
+            } else if (id == 2) {
+                showColumnSwitchPopup();
+            }
+            return true;
+        });
+        menu.show();
+    }
+
+    /** 记录规则导入（打点占位）。 */
+    private void noteRuleImported(String title) {
+    }
+
+    /** 记录规则使用（打点占位）。 */
+    private void noteRuleUsed(String title) {
     }
 
     /** 选中分组 tab：高亮 + 居中吸附 + ViewPager 跳页。 */
@@ -1312,13 +1338,7 @@ public class HkPageActivity extends BaseActivity {
             if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
         }
         if (!exists) HkPageActivity.this.rules.add(p.rule);
-        syncCustomOrder();
-        ruleAdapter.rebuildSections();
-        ruleAdapter.notifyDataSetChanged();
-        buildGroupFilterRow();
-        boolean empty = ruleAdapter.getItemCount() == 0;
-        binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
-        binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
+        afterRulesChanged();
         // 导入成功后提示"是否打开"（像海阔原版）
         showOpenAfterImportDialog(one);
     }
@@ -5446,12 +5466,11 @@ public class HkPageActivity extends BaseActivity {
             try {
                 android.view.Window w = loading.getWindow();
                 if (w != null) {
-                    w.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
                             android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                            new int[]{0xE6333333, 0xE6333333}));
-                    android.graphics.drawable.GradientDrawable bg =
-                            (android.graphics.drawable.GradientDrawable) w.getBackground();
+                            new int[]{0xE6333333, 0xE6333333});
                     bg.setCornerRadius(dp(16));
+                    w.setBackgroundDrawable(bg);
                 }
             } catch (Throwable ignored) {
             }

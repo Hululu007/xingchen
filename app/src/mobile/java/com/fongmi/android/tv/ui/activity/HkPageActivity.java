@@ -2735,42 +2735,155 @@ public class HkPageActivity extends BaseActivity {
         pairs.addAll(currentRule.getClassPairs());
         // 默认选中规则的第一个分类（原版无"全部"，不自动添加）
         if (!pairs.isEmpty()) cls = pairs.get(0)[1];
+        final List<String[]> finalPairs = pairs;
         ChipAdapter adapter = new ChipAdapter(pairs, 0, value -> {
             cls = value;
             loadContent(true);
         });
         binding.rvCategory.setAdapter(adapter);
-        binding.rvCategory.setVisibility(pairs.size() > 0 ? View.VISIBLE : View.GONE);
+        // 8.83 同款：整行（含 > 按钮）按是否有分类显示/隐藏
+        binding.categoryRow.setVisibility(pairs.size() > 0 ? View.VISIBLE : View.GONE);
+        // 8.83 同款：">" 点开"请选择分类"弹窗
+        binding.btnCategoryExpand.setOnClickListener(v ->
+                showCategoryPopup(finalPairs, 0, value -> {
+                    cls = value;
+                    loadContent(true);
+                }));
     }
 
     /**
      * V2 动态分类 tab：规则 find_rule 返回的 scroll_button/flex_button 条目。
-     * 标题去 HTML 标签；含 #ff1493 高亮色的为当前选中。点击 tab 求值其 lazyRule
-     * （putMyVar 设分类变量），再刷新列表。
+     * 8.83 原文行为（ArticleListAdapter.bindForHeaderHolder）：
+     * 每条目独立成一行，title/url 按 "&" 切分为行内 tabs，每行右侧带 ">" 按钮，
+     * 点击 ">" 弹出"请选择分类"（3 列竖向网格）。
+     * 标题去 HTML 标签；含高亮色（#ff1493/#FF5D50 等）的为当前选中。
+     * 点击 tab 求值其 lazyRule（putMyVar 设分类变量），再刷新列表。
      */
     private void buildDynamicTabs(List<HkItem> tabs) {
-        List<String[]> pairs = new ArrayList<>();
-        int sel = 0;
-        for (int i = 0; i < tabs.size(); i++) {
-            HkItem it = tabs.get(i);
-            String raw = it.getTitle() == null ? "" : it.getTitle();
-            if (raw.toLowerCase().contains("#ff1493")) sel = i;
-            String name = stripHtml(raw);
-            if (name.isEmpty()) name = "分类" + (i + 1);
-            pairs.add(new String[]{name, it.getUrl() == null ? "" : it.getUrl()});
+        binding.llTabRows.removeAllViews();
+        if (tabs == null || tabs.isEmpty()) {
+            binding.llTabRows.setVisibility(View.GONE);
+            return;
         }
-        ChipAdapter adapter = new ChipAdapter(pairs, sel, url -> {
-            if (url == null || url.isEmpty()) return;
-            new Thread(() -> {
-                try {
-                    getRouter().evalTab(url);
-                } catch (Throwable ignored) {
-                }
-                App.post(() -> loadContent(true));
-            }).start();
-        });
-        binding.rvCategory.setAdapter(adapter);
-        binding.rvCategory.setVisibility(View.VISIBLE);
+        binding.llTabRows.setVisibility(View.VISIBLE);
+        for (HkItem it : tabs) {
+            String rawTitle = it.getTitle() == null ? "" : it.getTitle();
+            String rawUrl = it.getUrl() == null ? "" : it.getUrl();
+            // 8.83：title/url 按 "&" 切分（bindForHeaderHolder 第 1140 行）
+            String[] names = rawTitle.split("&", -1);
+            String[] urls = rawUrl.split("&", -1);
+            List<String[]> pairs = new ArrayList<>();
+            int sel = 0;
+            for (int i = 0; i < names.length; i++) {
+                String raw = names[i];
+                if (isTabSelected(raw)) sel = i;
+                String name = stripHtml(raw);
+                if (name.isEmpty()) name = "分类" + (i + 1);
+                String u = i < urls.length ? urls[i] : "";
+                pairs.add(new String[]{name, u, raw});
+            }
+            if (pairs.isEmpty()) continue;
+            // 行容器：横向 RecyclerView + 右侧 ">" 展开按钮（8.83 view_article_list_header.xml 同款）
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            rowLp.topMargin = dp(8);
+            binding.llTabRows.addView(row, rowLp);
+
+            RecyclerView rv = new RecyclerView(this);
+            rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+            rv.setClipToPadding(false);
+            LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            row.addView(rv, rvLp);
+
+            final List<String[]> finalPairs = pairs;
+            final int finalSel = sel;
+            ChipAdapter adapter = new ChipAdapter(pairs, sel, url -> {
+                if (url == null || url.isEmpty()) return;
+                new Thread(() -> {
+                    try {
+                        getRouter().evalTab(url);
+                    } catch (Throwable ignored) {
+                    }
+                    App.post(() -> loadContent(true));
+                }).start();
+            });
+            rv.setAdapter(adapter);
+
+            TextView btnExpand = new TextView(this);
+            btnExpand.setText(">");
+            btnExpand.setTextSize(16);
+            btnExpand.setTextColor(0xFF666666);
+            btnExpand.setGravity(android.view.Gravity.CENTER);
+            btnExpand.setBackgroundResource(R.drawable.tab_item_default);
+            btnExpand.setPadding(dp(10), dp(4), dp(10), dp(4));
+            btnExpand.setContentDescription("展开");
+            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            btnLp.leftMargin = dp(3);
+            btnLp.rightMargin = dp(5);
+            row.addView(btnExpand, btnLp);
+            btnExpand.setOnClickListener(v -> showCategoryPopup(finalPairs, finalSel, url -> {
+                if (url == null || url.isEmpty()) return;
+                new Thread(() -> {
+                    try {
+                        getRouter().evalTab(url);
+                    } catch (Throwable ignored) {
+                    }
+                    App.post(() -> loadContent(true));
+                }).start();
+            }));
+        }
+    }
+
+    /** tab 是否为选中态：标题含高亮色标记（8.83 规则常用 #ff1493/#FF5D50/#ff0000 等）。 */
+    private boolean isTabSelected(String rawTitle) {
+        if (rawTitle == null) return false;
+        String l = rawTitle.toLowerCase();
+        return l.contains("#ff1493") || l.contains("#ff5d50") || l.contains("#ff0000")
+                || l.contains("color=\"red\"") || l.contains("color='red'");
+    }
+
+    /**
+     * 8.83 同款"请选择分类"弹窗：居中，3 列竖向网格。
+     * （ArticleListAdapter.lambda$bindForHeaderHolder$11，CustomCenterRecyclerViewPopup）
+     */
+    private void showCategoryPopup(List<String[]> pairs, int selected, ChipAdapter.OnPick listener) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(20));
+
+        TextView title = new TextView(this);
+        title.setText("请选择分类");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(android.view.Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        RecyclerView rv = new RecyclerView(this);
+        rv.setLayoutManager(new GridLayoutManager(this, 3));
+        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rvLp.topMargin = dp(12);
+        root.addView(rv, rvLp);
+
+        // 选项卡片风格弹窗（与现有选项弹窗统一：独立卡片+间距）
+        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setView(root)
+                .create();
+        // 点选项后关闭弹窗
+        rv.setAdapter(new ChipAdapter(pairs, selected, url -> {
+            dialog.dismiss();
+            listener.onPick(url);
+        }));
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_option_card_light);
+        }
+        dialog.show();
     }
 
     private void buildFilterRows() {
@@ -2923,7 +3036,7 @@ public class HkPageActivity extends BaseActivity {
                             || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)) continue;
                     else contents.add(it);
                 }
-                if (p == 1 && !tabs.isEmpty()) buildDynamicTabs(tabs);
+                if (p == 1) buildDynamicTabs(tabs);
                 if (contents.isEmpty()) {
                     if (p == 1 && videos.isEmpty()) {
                         // 空态：若引擎记录了 JS 失败原因则展示，否则保持原文案。

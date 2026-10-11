@@ -302,12 +302,48 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_category"
+            <!-- 8.83 同款原生分类行：横向滚动 + 右侧 ">"（点开"请选择分类"弹窗） -->
+            <LinearLayout
+                android:id="@+id/category_row"
                 android:layout_width="match_parent"
                 android:layout_height="36dp"
                 android:layout_marginTop="8dp"
-                android:clipToPadding="false" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_category"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clipToPadding="false" />
+
+                <TextView
+                    android:id="@+id/btn_category_expand"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="3dp"
+                    android:layout_marginEnd="5dp"
+                    android:background="@drawable/tab_item_default"
+                    android:contentDescription="展开"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:minHeight="30dp"
+                    android:paddingStart="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="4dp"
+                    android:text=">"
+                    android:textColor="#666666"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <!-- 8.83 同款：JS scroll_button/flex_button 动态 tab 行容器（每条目一行，各带 > 展开按钮） -->
+            <LinearLayout
+                android:id="@+id/ll_tab_rows"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
             <!-- 8.83 同款：内容页内嵌搜索栏（搜索短剧/演员 + 搜索按钮） -->
             <LinearLayout

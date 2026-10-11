@@ -5,20 +5,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/shape_dialog_glass_white_sheet"
     android:orientation="vertical"
-    android:paddingTop="18dp">
-
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:maxLines="1"
-        android:paddingHorizontal="24dp"
-        android:text="@string/detail_content"
-        android:textColor="#B3000000"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+    android:paddingTop="12dp">
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/scroll"

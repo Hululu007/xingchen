@@ -3274,13 +3274,27 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         @Override
         public GeneratedClassLoader createClassLoader(ClassLoader parent, Object securityDomain) {
             return new GeneratedClassLoader() {
+                private final HkDefiningLoader loader = new HkDefiningLoader(parent);
                 @Override public Class<?> defineClass(String name, byte[] data) {
-                    return super.defineClass(name, data, 0, data.length);
+                    return loader.define(name, data);
                 }
-                @Override public void linkClass(Class<?> cl) {}
+                @Override public void linkClass(Class<?> cl) {
+                    loader.link(cl);
+                }
             };
         }
         @Override public Object getDynamicSecurityDomain(Object securityDomain) { return null; }
+    }
+
+    /**
+     * ClassLoader 桥：Rhino 的 GeneratedClassLoader 是 interface，没有可 super
+     * 调用的 defineClass(String, byte[], int, int)，故用具名 ClassLoader 子类
+     * 承载真正的 defineClass/resolveClass。
+     */
+    private static class HkDefiningLoader extends ClassLoader {
+        HkDefiningLoader(ClassLoader parent) { super(parent); }
+        Class<?> define(String name, byte[] data) { return super.defineClass(name, data, 0, data.length); }
+        void link(Class<?> cl) { super.resolveClass(cl); }
     }
 
     /** 8.83 JSEngine$MyRequire: Rhino Require with function name "requirejs". */
@@ -4497,7 +4511,7 @@ public String getMyUrl(String url) {
         url = "";
     }
     url = escapeJsString(url);
-    return "var MY_URL = '" + url + "';\nvar MY_HOME = '" + StringUtil.getHome(url) + "';\n";
+    return "var MY_URL = '" + url + "';\nvar MY_HOME = '" + getHomeUrl(url) + "';\n";
 }
 
 // ---- 8. appendLineVar (smali 555-703) -----------------------------------------------

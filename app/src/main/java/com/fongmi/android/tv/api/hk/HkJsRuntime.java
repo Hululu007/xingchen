@@ -44,6 +44,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -175,6 +177,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 而不是默认的 pageUrl。set 后仅下一次 evalLazy 生效，读后清零。
      */
     private volatile String nextInputOverride;
+    /** JS 定时器（setTimeout/setInterval）：id → ScheduledFuture；回调统一提交回 JS 单线程执行。 */
+    private final Map<Integer, ScheduledFuture<?>> jsTimers = new HashMap<>();
+    private final ScheduledExecutorService timerScheduler = Executors.newScheduledThreadPool(1);
+    private final AtomicInteger timerIdSeq = new AtomicInteger(1);
 
     /** QuickJS 风格的函数签名（Object[] args -> Object），供 putFunction 注册。 */
     private interface JsFunc {
@@ -208,6 +214,111 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** 求值（替代 ctx.evaluate）。 */
     private Object evalJs(String js) {
         return rhinoCx.evaluateString(scope, js, "hk", 1, null);
+    }
+
+    /**
+     * JS 定时器实现（setTimeout/setInterval）。
+     * 调度走独立 ScheduledExecutorService，到期后把回调提交回 JS 单线程 executor 执行
+     *（Rhino Context 与 JS 线程绑定，跨线程直接求值会崩）。返回数字 timerId。
+     */
+    private int jsSetTimer(Object[] args, boolean repeat) {
+        if (destroyed) return 0;
+        if (args == null || args.length == 0) return 0;
+        final Object cb = args[0];
+        long delay = 0;
+        if (args.length > 1 && args[1] instanceof Number) delay = Math.max(0, ((Number) args[1]).longValue());
+        final Object[] cbArgs;
+        if (args.length > 2) {
+            cbArgs = new Object[args.length - 2];
+            System.arraycopy(args, 2, cbArgs, 0, cbArgs.length);
+        } else {
+            cbArgs = new Object[0];
+        }
+        final int id = timerIdSeq.getAndIncrement();
+        final long period = Math.max(1, delay);
+        Runnable fire = () -> {
+            try {
+                submit(() -> {
+                    try {
+                        if (destroyed) return null;
+                        synchronized (jsTimers) {
+                            if (!jsTimers.containsKey(id)) return null;
+                            if (!repeat) jsTimers.remove(id);
+                        }
+                        fireTimerCallback(cb, cbArgs);
+                    } catch (Throwable t) {
+                        Logger.t(TAG).d("timer fire failed: " + t.getMessage());
+                    }
+                    return null;
+                });
+            } catch (Throwable ignored) {
+            }
+        };
+        try {
+            ScheduledFuture<?> f = repeat
+                    ? timerScheduler.scheduleAtFixedRate(fire, delay, period, TimeUnit.MILLISECONDS)
+                    : timerScheduler.schedule(fire, delay, TimeUnit.MILLISECONDS);
+            synchronized (jsTimers) {
+                jsTimers.put(id, f);
+            }
+            return id;
+        } catch (Throwable t) {
+            Logger.t(TAG).d("setTimer failed: " + t.getMessage());
+            return 0;
+        }
+    }
+
+    /** 取消 JS 定时器（clearTimeout/clearInterval 共用）。 */
+    private void jsClearTimer(Object[] args) {
+        if (args == null || args.length == 0) return;
+        int id = 0;
+        try {
+            if (args[0] instanceof Number) id = ((Number) args[0]).intValue();
+            else id = Integer.parseInt(String.valueOf(args[0]));
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (id <= 0) return;
+        ScheduledFuture<?> f;
+        synchronized (jsTimers) {
+            f = jsTimers.remove(id);
+        }
+        if (f != null) {
+            try {
+                f.cancel(false);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 在 JS 线程上执行定时器回调：Function 直接调用，字符串则求值。 */
+    private void fireTimerCallback(Object cb, Object[] cbArgs) {
+        try {
+            if (cb instanceof Function) {
+                ((Function) cb).call(rhinoCx, scope, scope, cbArgs);
+            } else {
+                String code = argStr(cb);
+                if (!TextUtils.isEmpty(code)) evalJs(code);
+            }
+        } catch (Throwable t) {
+            error = t.getMessage();
+            Logger.t(TAG).d("timer callback failed: " + t.getMessage());
+        }
+    }
+
+    /** 清理全部 JS 定时器（页面销毁/规则切换时调用，避免泄漏）。 */
+    private void clearAllTimers() {
+        Map<Integer, ScheduledFuture<?>> copy;
+        synchronized (jsTimers) {
+            copy = new HashMap<>(jsTimers);
+            jsTimers.clear();
+        }
+        for (ScheduledFuture<?> f : copy.values()) {
+            try {
+                f.cancel(false);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** JSON 解析（替代 ctx.parse，即 JSON.parse 语义）：非法 JSON 返回带原型的空对象，不抛异常。
@@ -754,6 +865,19 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable e) {
                 Logger.t(TAG).d("require failed: %s", e.getMessage());
             }
+            return null;
+        });
+
+        // ---- JS 定时器（setTimeout/setInterval/clearTimeout/clearInterval） ----
+        // 规则"20秒后继续"倒计时等场景依赖；回调统一提交回 JS 单线程执行（Rhino Context 线程绑定）。
+        putFunction("setTimeout", args -> jsSetTimer(args, false));
+        putFunction("setInterval", args -> jsSetTimer(args, true));
+        putFunction("clearTimeout", args -> {
+            jsClearTimer(args);
+            return null;
+        });
+        putFunction("clearInterval", args -> {
+            jsClearTimer(args);
             return null;
         });
 
@@ -3132,6 +3256,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     public void destroy() {
         destroyed = true;
+        clearAllTimers();
         try {
             submit(() -> {
                 try {
@@ -3146,6 +3271,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } catch (Throwable ignored) {
         } finally {
             executor.shutdownNow();
+            try {
+                timerScheduler.shutdownNow();
+            } catch (Throwable ignored) {
+            }
         }
     }
 

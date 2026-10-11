@@ -56,7 +56,7 @@ public class HkHttp {
     private static final Pattern FYPAGE_EX = Pattern.compile("fypage@((?:[-+*/]\\d+@)+)");
     private static final Pattern FYPAGE_OP = Pattern.compile("([-+*/])(\\d+)@");
 
-    private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 15; 2407FRK8EC Build/AP3A.240617.008; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36";
 
     private static volatile OkHttpClient client;
     /** 海阔图片专用 client（8.83 OkHttpUrlLoader.Factory 内建 client 配置） */

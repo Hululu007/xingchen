@@ -621,12 +621,16 @@ public class HkRuleManager {
     }
 
     /**
-     * 还原分享包装：内容可能是 ￥…￥base64://@标题@BASE64 包装（cmd.im 常见），
+     * 还原分享包装：内容可能是 ￥home_rule￥{json} 明文口令（海阔官方格式），
+     * 也可能是 ￥…￥base64://@标题@BASE64 包装（cmd.im 常见），
      * 也可能是裸 rule.json / 规则数组 / js: 文本。
      */
     private String unwrapShareText(String text) {
         if (text == null) return null;
         String t = text.trim();
+        // 海阔明文口令：…￥home_rule￥{json} / ￥home_rule_v2￥{json}
+        String unwrapped = unwrapHomeRuleCommand(t);
+        if (unwrapped != null) return unwrapped;
         int idx = t.indexOf("base64://");
         if (idx >= 0) {
             // base64://@标题@BASE64 → 取 @ 分隔的第 3 段解码（官方 importRuleByRuleText 同款）
@@ -638,6 +642,48 @@ public class HkRuleManager {
             return null;
         }
         return t;
+    }
+
+    /**
+     * 解析海阔明文口令：…￥home_rule￥{json} / ￥home_rule_v2￥{json}。
+     * 兼容裸 JSON（以 { 开头且含 col_type 和 find_rule，直接视为规则）。
+     * 成功返回规则 JSON，失败返回 null。
+     */
+    public static String unwrapHomeRuleCommand(String text) {
+        if (text == null) return null;
+        String t = text.trim();
+        // 裸 JSON：海阔 realCheckAutoText 同款判断
+        if (t.startsWith("{") && t.endsWith("}") && t.contains("col_type") && t.contains("find_rule")) {
+            return t;
+        }
+        // ￥type￥json 格式：按 ￥ 切分，至少 3 段，取第 3 段及之后拼回（json 内可能含 ￥）
+        if (!t.contains("\uFFE5")) return null;
+        String[] parts = t.split("\uFFE5", -1);
+        if (parts.length < 3) return null;
+        String type = parts[1].trim();
+        if (!"home_rule".equals(type) && !"home_rule_v2".equals(type)) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 2; i < parts.length; i++) {
+            if (i > 2) sb.append("\uFFE5");
+            sb.append(parts[i]);
+        }
+        String json = sb.toString().trim();
+        if (json.startsWith("{") && json.contains("col_type")) return json;
+        return null;
+    }
+
+    /** 是否为海阔分享口令文本（明文口令或裸规则 JSON）。 */
+    public static boolean isShareCommandText(String text) {
+        return unwrapHomeRuleCommand(text) != null;
+    }
+
+    /**
+     * 生成海阔明文口令：海阔视界规则分享，当前分享的是：小程序￥home_rule￥{json}。
+     * 与 8.83 AutoImportHelper.getCommand("home_rule") 格式一致，可被海阔官方识别导入。
+     */
+    public static String buildShareCommand(String ruleJson) {
+        if (ruleJson == null) return null;
+        return "\u6D77\u9614\u89C6\u754C\u89C4\u5219\u5206\u4EAB\uFF0C\u5F53\u524D\u5206\u4EAB\u7684\u662F\uFF1A\u5C0F\u7A0B\u5E8F\uFFE5home_rule\uFFE5" + ruleJson.trim();
     }
 
     /** 兼容标准 / URL 安全两种 base64 的解码，失败返回 null。 */

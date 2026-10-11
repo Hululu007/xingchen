@@ -397,9 +397,17 @@ public class HkHttp {
      * @throws IllegalArgumentException 非 http(s) 链接（hiker://、js: 等需 M2 的 JS 运行时处理）
      */
     public static String get(String url, String ua) throws IOException {
+        return get(url, ua, 0);
+    }
+
+    /**
+     * 带超时的 GET（点击预检等交互链路用，避免长时间无响应导致"点了没反应"）。
+     * timeoutMs<=0 时走默认超时（connect 15s / read-write 30s）。
+     */
+    public static String get(String url, String ua, int timeoutMs) throws IOException {
         Enhancement e = parseEnhancement(url);
-        if (e.isPlain()) return getPlain(e.url, ua);
-        return getEnhanced(e, ua);
+        if (e.isPlain()) return getPlain(e.url, ua, timeoutMs);
+        return getEnhanced(e, ua, timeoutMs);
     }
 
     /**
@@ -429,8 +437,8 @@ public class HkHttp {
         }
     }
 
-    /** 无增强的原逻辑（行为与之前完全一致）。 */
-    private static String getPlain(String url, String ua) throws IOException {
+    /** 无增强的原逻辑（行为与之前完全一致）。timeoutMs>0 时覆盖默认超时。 */
+    private static String getPlain(String url, String ua, int timeoutMs) throws IOException {
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new IllegalArgumentException("不支持的链接协议（需 M2 JS 运行时）：" + url);
         }
@@ -440,7 +448,14 @@ public class HkHttp {
                 .header("Accept-Language", "zh-CN,zh;q=0.9");
         applyThreadTag(plainRb);
         Request req = plainRb.build();
-        try (Response resp = client().newCall(req).execute()) {
+        OkHttpClient c = timeoutMs > 0
+                ? client().newBuilder()
+                        .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .build()
+                : client();
+        try (Response resp = c.newCall(req).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
             if (body == null) throw new IOException("空响应 " + url);
@@ -448,8 +463,8 @@ public class HkHttp {
         }
     }
 
-    /** 带 method/encoding/headers 的增强请求。 */
-    private static String getEnhanced(Enhancement e, String ua) throws IOException {
+    /** 带 method/encoding/headers 的增强请求。timeoutMs>0 时覆盖默认超时。 */
+    private static String getEnhanced(Enhancement e, String ua, int timeoutMs) throws IOException {
         String url = e.url;
         if (!(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new IllegalArgumentException("不支持的链接协议（需 M2 JS 运行时）：" + url);
@@ -468,7 +483,14 @@ public class HkHttp {
             rb.post(RequestBody.create(new byte[0], null));
         }
         applyThreadTag(rb);
-        try (Response resp = client().newCall(rb.build()).execute()) {
+        OkHttpClient ce = timeoutMs > 0
+                ? client().newBuilder()
+                        .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .build()
+                : client();
+        try (Response resp = ce.newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
             if (body == null) throw new IOException("空响应 " + url);

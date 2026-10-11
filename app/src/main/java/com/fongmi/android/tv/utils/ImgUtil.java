@@ -28,7 +28,6 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.impl.CustomTarget;
-import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.utils.Json;
 import com.google.common.net.HttpHeaders;
@@ -37,18 +36,13 @@ import com.orhanobut.logger.Logger;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import jahirfiquitiva.libs.textdrawable.TextDrawable;
 
 public class ImgUtil {
 
     private static final String TAG = "ImgUtil";
-    // 壳子行为对标默影视：失败黑名单（默影视同款，失败一次本会话不再重试）
-    private static final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
 
     public static void logo(ImageView view) {
         try {
@@ -115,7 +109,7 @@ public class ImgUtil {
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
-        if (TextUtils.isEmpty(url) || failed.contains(url)) view.setImageDrawable(getTextDrawable(text, vod));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, vod));
         else try {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
@@ -136,11 +130,51 @@ public class ImgUtil {
     /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer。 */
     public static void loadCircle(String text, String url, ImageView view, String ruleUrl) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url) || failed.contains(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
         else try {
             Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).circleCrop().into(view);
         } catch (Throwable e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * 小程序列表图标：URL 图标加载。对照 8.83
+     * ArticleListRuleAdapter.smali:194（icon_mini_program_icon）：失败时用默认图标占位，
+     * 不永久拉黑，重新绑定即可重试。
+     */
+    public static void loadRuleIcon(String title, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        view.setContentDescription(title);
+        if (TextUtils.isEmpty(url)) {
+            view.setImageDrawable(defaultMiniIcon(view));
+            return;
+        }
+        try {
+            Glide.with(view).load(getUrl(url)).listener(new RequestListener<Drawable>() {
+                @Override
+                public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
+                    view.setImageDrawable(defaultMiniIcon(view));
+                    return true;
+                }
+
+                @Override
+                public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                    return false;
+                }
+            }).centerCrop().into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+            view.setImageDrawable(defaultMiniIcon(view));
+        }
+    }
+
+    /** 8.83 icon_mini_program_icon 同款默认图标。 */
+    private static Drawable defaultMiniIcon(ImageView view) {
+        try {
+            return androidx.appcompat.content.res.AppCompatResources.getDrawable(view.getContext(), R.drawable.icon_mini_program_icon);
+        } catch (Throwable e) {
+            return new ColorDrawable(Color.TRANSPARENT);
         }
     }
 
@@ -285,9 +319,10 @@ public class ImgUtil {
                 builder.addHeader(HttpHeaders.COOKIE, cParts[1]);
             }
             // @Referer= / @User-Agent= 组合（8.83 line 146-171）
+            // C6：split 用 -1 保留尾空串，显式 @Referer=（空值）清掉自动 Referer
             String referer;
             String finalUa;
-            String[] rParts = url.split("@Referer=");
+            String[] rParts = url.split("@Referer=", -1);
             if (rParts.length > 1) {
                 url = rParts[0];
                 if (url.contains("@User-Agent=")) {
@@ -329,11 +364,11 @@ public class ImgUtil {
         }
     }
 
-    /** 8.83 默认 UA（SettingConfig.getGlideUA 同款语义：用户 UA 优先，否则播放器默认 UA）。 */
+    /** 8.83 默认 UA（SettingConfig.getGlideUA 同款语义：默认为 null，不发 UA 头）。 */
     private static String defaultUa() {
         try {
             String ua = Setting.getUa();
-            return TextUtils.isEmpty(ua) ? PlayerHelper.getDefaultUa() : ua;
+            return ua == null ? "" : ua;
         } catch (Throwable t) {
             return "";
         }
@@ -395,7 +430,6 @@ public class ImgUtil {
             @Override
             public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
                 view.setImageDrawable(getTextDrawable(text, vod));
-                failed.add(url);
                 return true;
             }
 

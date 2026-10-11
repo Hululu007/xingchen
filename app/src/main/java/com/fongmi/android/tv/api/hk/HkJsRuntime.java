@@ -73,7 +73,7 @@ import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
  *
  * 注意：lazyRule 回调按"独立作用域"铁律设计——HikerApi 只注入全局函数与形参，不依赖 JS 闭包。
  */
-public class HkJsRuntime implements HkSelector.JsEvaluator {
+public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     private static final String TAG = "HkJsRuntime";
     /** be()/batchExecute 真实实现后置 true，跨小程序内容搜索据此判断引擎是否就绪。 */
@@ -84,6 +84,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     private final ExecutorService executor;
     private final HkRule rule;
     private final Parser parser;
+    /** JS 单线程 executor 的 worker 线程（.js: 回调时判断是否已在 JS 线程，避免死锁） */
+    private volatile Thread jsThread;
     private final Map<String, String> vars;
     private final List<HkItem> results;
     /** 明细原始条目收集（parseDetailRaw 用，保留 line/col_type 等扩展字段）。 */
@@ -91,6 +93,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     private volatile boolean collectRaw;
     /** 规则内会话变量（getMyVar/putMyVar，官方 key 形态为 ruleTitle@key；单规则单实例，等价）。 */
     private final Map<String, String> myVars = new HashMap<>();
+
+    /**
+     * E8: myVar key 加 ruleTitle@ 前缀做规则间隔离（8.83 JSEngine.smali:21694）。
+     * 若 key 已带 @ 则直接用（兼容旧数据）。
+     */
+    private String myVarKey(String key) {
+        if (key == null) return "";
+        if (key.contains("@")) return key;
+        String title = "";
+        try {
+            title = rule != null && rule.getTitle() != null ? rule.getTitle() : "";
+        } catch (Throwable ignored) {}
+        return title + "@" + key;
+    }
     /** 跨规则公共持久化（setPublicItem/getPublicItem）。 */
     private final Map<String, String> publicKv = new HashMap<>();
     /** addListener 注册的事件回调（事件名 → 回调描述）。 */
@@ -148,6 +164,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     /** preRule 执行失败的根因（动态域名类规则排障用）；parseList 会清 error，本字段独立保留。 */
     private String preRuleError;
     private int resCode;
+    /** @rule= js: 预检时设置的响应正文（HkHttp.get 取回），供 getResCode() 返回；用后清零。 */
+    private String evalResCodeBody;
     private String lastUrl;
     private volatile boolean destroyed;
     private volatile boolean preRuleDone;
@@ -320,6 +338,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         this.rule = rule;
         this.executor = Executors.newSingleThreadExecutor();
         this.parser = new Parser();
+        this.parser.setJsEvaluator(this);
         this.vars = new HashMap<>();
         this.results = new ArrayList<>();
         this.kv = new HashMap<>();
@@ -335,6 +354,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
      */
     public void init() throws Exception {
         submit(() -> {
+            jsThread = Thread.currentThread();
             // Rhino：每个规则独立 Context + Scope（变量隔离），跑在单线程 executor 上；
             // setOptimizationLevel(-1) 禁用优化器（Android 无字节码生成，必须关）
             rhinoCx = Context.enter();
@@ -456,6 +476,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             options = mergeMethod(options, "post");
+            // N1: 8.83 的 post 默认补移动端 UA（JSEngine.smali:21353），裸 fetch 才不补
+            options = injectMobileUa(options);
             return fetchSync(url, options);
         });
         putFunction("request", args -> {
@@ -471,11 +493,54 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 return r instanceof String ? (String) r : "";
             }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : null;
+            // N1: 8.83 的 request 默认补移动端 UA（JSEngine.smali:22856），裸 fetch 才不补
+            options = injectMobileUa(options);
             return fetchSync(url, options);
         });
-        putFunction("getResCode", args -> resCode);
-        // 官方别名：getCode 即 getResCode
-        putFunction("getCode", args -> resCode);
+        putFunction("getResCode", args -> {
+            // 8.83 (JSEngine.smali:17733): getResCode(callbackKey) 返回 resCodeMap 中的响应正文 (String)，
+            // 不是 int 状态码。规则常写 getResCode() || ''，返回 0 会导致空内容。
+            // 1. JS 显式传了 callbackKey 参数时用它查表
+            if (args != null && args.length > 0 && args[0] != null) {
+                try {
+                    String key = String.valueOf(argsNativeObjectAdjust(args[0]));
+                    String v = resCodeMap.get(key);
+                    if (v != null) return v;
+                } catch (Throwable ignored) {}
+            }
+            // 2. 从当前 scope 取 CALLBACK_KEY 查表（parseHome/parseStr 等流程注入）
+            try {
+                Object ck = scope.get("CALLBACK_KEY", scope);
+                if (ck != null && ck != Scriptable.NOT_FOUND) {
+                    String key = String.valueOf(argsNativeObjectAdjust(ck));
+                    String v = resCodeMap.get(key);
+                    if (v != null) return v;
+                }
+            } catch (Throwable ignored) {}
+            // 3. fallback: @rule= js: 预检时设置的正文
+            if (evalResCodeBody != null) return evalResCodeBody;
+            return "";
+        });
+        // 官方别名：getCode 即 getResCode（8.83 smali alias="getCode"）
+        putFunction("getCode", args -> {
+            if (args != null && args.length > 0 && args[0] != null) {
+                try {
+                    String key = String.valueOf(argsNativeObjectAdjust(args[0]));
+                    String v = resCodeMap.get(key);
+                    if (v != null) return v;
+                } catch (Throwable ignored) {}
+            }
+            try {
+                Object ck = scope.get("CALLBACK_KEY", scope);
+                if (ck != null && ck != Scriptable.NOT_FOUND) {
+                    String key = String.valueOf(argsNativeObjectAdjust(ck));
+                    String v = resCodeMap.get(key);
+                    if (v != null) return v;
+                }
+            } catch (Throwable ignored) {}
+            if (evalResCodeBody != null) return evalResCodeBody;
+            return "";
+        });
         putFunction("getUrl", args -> lastUrl == null ? "" : lastUrl);
 
         // ---- DOM 解析（复用 Parser，即海阔 parseHikerToJq 路径） ----
@@ -678,6 +743,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return null;
         });
 
+        // ---- __hkShowUpdateLog：更新日志底部弹窗（星辰原生重实现） ----
+        // 规则的 hikerPop.updateRecordsBottom 依赖 8.83 内部类（MyStatusBarUtil 等），
+        // 在星辰包名下跑不起来。此处原生实现 8.83 UpdateRecordsBottom 样式：
+        // 从底部滑出，标题"更新日志"，列表展示各版本 records，右下"知道啦"关闭。
+        putFunction("__hkShowUpdateLog", args -> {
+            if (args == null || args.length == 0) return null;
+            final String json = argStr(args[0]);
+            com.fongmi.android.tv.App.post(() -> {
+                try {
+                    com.fongmi.android.tv.api.hk.HkUpdateLogPopup.show(json);
+                } catch (Throwable t) {
+                    android.util.Log.d("HkJs", "__hkShowUpdateLog failed: " + t.getMessage());
+                }
+            });
+            return null;
+        });
+
         // ---- __hkRequirePage：$.require(path) 的 Java 实现 ----
         // hiker://page/<path>：从规则 pages 按 path 找页面代码，IIFE 包裹求值（防顶层 const 重声明），
         // 页面代码以 $.exports = xxx 导出，JS 层 $.require 直接返回 $.exports（官方同款语义）。
@@ -742,19 +824,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
 
         // ---- 规则内会话变量（getMyVar/putMyVar/clearMyVar/listMyVarKeys） ----
+        // E8: key 加 ruleTitle@ 前缀做规则间隔离（8.83 JSEngine.smali:21694）
         putFunction("putMyVar", args -> {
-            if (args != null && args.length > 1) myVars.put(argStr(args[0]), argStr(args[1]));
+            // E8: 8.83 putMyVar 对象值 JSON 序列化存（JSEngine.smali:21861），key 加 ruleTitle@ 前缀隔离
+            if (args != null && args.length > 1) myVars.put(myVarKey(argStr(args[0])), stringifyArg(args[1]));
             return null;
         });
         putFunction("getMyVar", args -> {
             if (args == null || args.length == 0) return "";
-            String v = myVars.get(argStr(args[0]));
+            String v = myVars.get(myVarKey(argStr(args[0])));
             if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });
         putFunction("clearMyVar", args -> {
-            if (args != null && args.length > 0) myVars.remove(argStr(args[0]));
-            else myVars.clear();
+            // E8: 8.83 无"无参清空全表"行为（JSEngine.smali:12188），无参时不做任何事，避免误删其他规则的变量
+            if (args != null && args.length > 0) myVars.remove(myVarKey(argStr(args[0])));
             return null;
         });
         putFunction("listMyVarKeys", args -> GSON.toJson(new ArrayList<>(myVars.keySet())));
@@ -1506,7 +1590,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         stub("back", null);
         stub("backToHome", null);
         stub("closeMe", null);
-        stub("refresh", null);
+        // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine.smali:22071），之前被 stub 为空函数
+        putFunction("refresh", args -> {
+            refreshRequested = true;
+            refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
+            Logger.t(TAG).d("refresh(%s) requested (alias of refreshPage)", refreshToTop);
+            return null;
+        });
         stub("setPageParams", null);
         // 官方 setPagePicUrl(title)：发 SetPagePicEvent 更新页面配图；宿主存字段供上层取用
         putFunction("setPagePicUrl", args -> {
@@ -1807,11 +1897,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 "  };\n" +
                 "}\n" +
                 "$.toString = function(fn) {\n" +
+                "  if (arguments.length === 0) return \"$\";\n" +
                 "  var args = [];\n" +
                 "  for (var i = 1; i < arguments.length; i++) {\n" +
-                "    try { args.push(JSON.stringify(arguments[i])); } catch (e) { args.push('null'); }\n" +
+                "    try { args.push((typeof $.stringify === 'function' ? $.stringify : JSON.stringify)(arguments[i])); } catch (e) { args.push('null'); }\n" +
                 "  }\n" +
-                "  return 'js:(' + fn.toString() + ')(' + args.join(',') + ');';\n" +
+                "  if (typeof fn !== 'function') return '';\n" +
+                "  var _fnStr;\n" +
+                "  try { _fnStr = fn.__toString__(); } catch (_e) { try { _fnStr = fn.toString(); } catch (_e2) { return ''; } }\n" +
+                "  return '(' + _fnStr + ')(' + args.join(',') + ')';\n" +
                 "};\n" +
                                 "var $require = (function() {\n" +
                 "    var RequireUtils = com.example.hikerview.ui.rules.service.require.RequireUtils;\n" +
@@ -2027,6 +2121,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             int sc = path.indexOf(';');
             if (sc >= 0) path = path.substring(0, sc);
             path = path.trim();
+            // hikerPop.js：星辰原生重实现（规则自带的依赖 8.83 内部类，跑不起来）。
+            // 返回合成页面，rule 里 $.exports.updateRecordsBottom 调原生 __hkShowUpdateLog 弹底部弹窗。
+            if ("hikerPop.js".equals(path)) {
+                Map<String, Object> out = new HashMap<>();
+                out.put("path", path);
+                out.put("rule", "js:$.exports.updateRecordsBottom = function(data){ __hkShowUpdateLog(JSON.stringify(data)); };");
+                out.put("params", params);
+                out.put("parent", rule != null ? rule.getTitle() : "");
+                return GSON.toJson(out);
+            }
             // 若指定了 rule= 标题，从目标规则的 pages 里找；找不到标题则回退当前规则
             HkRule targetRule = rule;
             String parentTitle = rule != null ? rule.getTitle() : "";
@@ -2595,6 +2699,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             results.clear();
             error = null;
             preResultActive = false;
+            // R6: 求值前清掉 refreshPage 标记，避免上次残留被误判为本次的新请求
+            refreshRequested = false;
+            refreshToTop = false;
             this.page = Math.max(1, page);
             setContext(myUrl);
             try {
@@ -2626,6 +2733,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             results.clear();
             error = null;
             preResultActive = false;
+            // R6: 求值前清掉 refreshPage 标记，避免上次残留被误判
+            refreshRequested = false;
+            refreshToTop = false;
             this.page = Math.max(1, page);
             setContext(myUrl);
             ScriptableObject.putProperty(scope, "MY_KEYWORD", keyword == null ? "" : keyword);
@@ -2655,13 +2765,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     }
 
     /**
-     * HkSelector.JsEvaluator 实现：选择器 .js: 值加工。
+     * HkSelector.JsEvaluator / Parser.JsEvaluator 实现：选择器 .js: 值加工。
      * 把取值结果作为全局 input，执行 JS 片段并返回结果字符串。
+     * 已在 JS 线程时（如 pdfh/pdfa 的 .js: 回调）直接求值，避免单线程池死锁。
      */
     @Override
     public String eval(String js, String input) {
         error = null;
         try {
+            if (Thread.currentThread() == jsThread) {
+                ScriptableObject.putProperty(scope, "input", input == null ? "" : input);
+                return argStr(evalJs(js));
+            }
             return submit(() -> {
                 ScriptableObject.putProperty(scope, "input", input == null ? "" : input);
                 Object r = evalJs(js);
@@ -2690,25 +2805,73 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     public InputStream evalImageJs(String jsCode, InputStream input, Map<String, List<String>> headers, String urlString) {
         try {
             return submit(() -> {
-                boolean had = ScriptableObject.hasProperty(scope, "input");
-                Object old = had ? ScriptableObject.getProperty(scope, "input") : null;
+                // C5: 8.83 每次图片 JS 用全新 scope 并重求值 Hikerurl.js（JSEngine.smali:13914，
+                // OkHttpStreamFetcher.smali:289/451），$ / $.require 必可用。
+                // 星辰之前复用规则 scope，$ 缺失时只靠 ensureDollarShim 兜底 crypto-java.js，
+                // 其他 require 路径抛错被吞 → 返回加密原字节 → 解码失败。
+                Scriptable imageScope = rhinoCx.newObject(scope);
+                imageScope.setPrototype(scope);
+                imageScope.setParentScope(null);
                 try {
-                    ScriptableObject.putProperty(scope, "input", Context.javaToJS(input, scope));
-                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + wrapImageJs(jsCode);
-                    Object r = evalJs(code);
+                    // 重求值 Hikerurl.js，确保 $ 完整可用
+                    try {
+                        String hikerUrlJs = loadAsset("Hikerurl.js");
+                        if (!TextUtils.isEmpty(hikerUrlJs)) {
+                            rhinoCx.evaluateString(imageScope, hikerUrlJs, "Hikerurl.js", 1, null);
+                        }
+                    } catch (Throwable t) {
+                        Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
+                    }
+                    ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
+                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + ensureDollarShim() + wrapImageJs(jsCode);
+                    Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
                     return coerceImageStream(r, input);
                 } catch (Throwable t) {
                     return input;
-                } finally {
-                    try {
-                        if (had) ScriptableObject.putProperty(scope, "input", old);
-                        else scope.delete("input");
-                    } catch (Throwable ignored) {
-                    }
                 }
             }).get();
         } catch (Throwable t) {
             return input;
+        }
+    }
+
+    /**
+     * 图片 @js= 求值时的 $ 兜底。
+     *
+     * <p>8.83 的图片 JS 求值上下文（OkHttpStreamFetcher.evalJS）与规则共用 JSEngine 单例，
+     * $（Hikerurl.js）必然可用。但星辰是多规则 HkJsRuntime，图片求值复用的 scope
+     * 可能因 Hikerurl.js 注入失败而没有 $，导致解密 JS 的 $.require("hiker://assets/crypto-java.js")
+     * 抛 ReferenceError，被 wrapImageJs 的 try/catch 吞掉后返回加密原字节，Glide 解码失败。</p>
+     *
+     * <p>此处注入最小 $ shim：仅当 $ 或 $.require 不可用时生效，提供能加载
+     * hiker://assets/crypto-java.js 的 require（从宿主 assets 读取，复用 $.exports 导出约定）。</p>
+     */
+    private String ensureDollarShim() {
+        try {
+            String cryptoJs = loadAsset("crypto-java.js");
+            if (cryptoJs == null) return "";
+            // 转义为 JS 字符串字面量
+            String esc = escapeJsString(cryptoJs);
+            return "if (typeof $ === 'undefined' || typeof $.require !== 'function') {\n" +
+                    "  var $ = (typeof $ !== 'undefined') ? $ : {};\n" +
+                    "  $.exports = $.exports || {};\n" +
+                    "  $.require = (function() {\n" +
+                    "    var __cryptoCache = null;\n" +
+                    "    var __cryptoCode = '" + esc + "';\n" +
+                    "    return function(path) {\n" +
+                    "      if (path === 'hiker://assets/crypto-java.js') {\n" +
+                    "        if (__cryptoCache) return __cryptoCache;\n" +
+                    "        eval(__cryptoCode);\n" +
+                    "        __cryptoCache = $.exports;\n" +
+                    "        $.exports = {};\n" +
+                    "        return __cryptoCache;\n" +
+                    "      }\n" +
+                    "      throw new Error('Module not found in image context: ' + path);\n" +
+                    "    };\n" +
+                    "  })();\n" +
+                    "}\n";
+        } catch (Throwable t) {
+            return "";
         }
     }
 
@@ -2885,6 +3048,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
      */
     public String getLastUrl() {
         return lastUrl;
+    }
+
+    /**
+     * 设置 @rule= js: 预检时的响应正文（调用方先 HkHttp.get(baseUrl) 取回）。
+     * getResCode()/getCode() 在无 CALLBACK_KEY 时会返回此值；传 null 清除。
+     */
+    public void setEvalResCodeBody(String body) {
+        evalResCodeBody = body;
     }
 
     /**
@@ -3319,12 +3490,60 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         return v;
     }
 
+    /**
+     * N1: 8.83 的 request/post 默认补移动端 UA（JSEngine.smali:22856/21353），裸 fetch 不补。
+     * 若 options 的 headers 里已有 User-Agent（不区分大小写）则不覆盖。
+     */
+    private static String injectMobileUa(String optionsJson) {
+        try {
+            com.google.gson.JsonObject obj;
+            if (TextUtils.isEmpty(optionsJson)) {
+                obj = new com.google.gson.JsonObject();
+            } else {
+                try {
+                    obj = com.google.gson.JsonParser.parseString(optionsJson).getAsJsonObject();
+                } catch (Throwable t) {
+                    return optionsJson;
+                }
+            }
+            com.google.gson.JsonObject headers = null;
+            if (obj.has("headers") && obj.get("headers").isJsonObject()) {
+                headers = obj.getAsJsonObject("headers");
+            }
+            boolean hasUa = false;
+            if (headers != null) {
+                for (String k : headers.keySet()) {
+                    if ("User-Agent".equalsIgnoreCase(k)) {
+                        hasUa = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasUa) {
+                if (headers == null) {
+                    headers = new com.google.gson.JsonObject();
+                    obj.add("headers", headers);
+                }
+                headers.addProperty("User-Agent", UA_MOBILE);
+            }
+            return GSON.toJson(obj);
+        } catch (Throwable e) {
+            return optionsJson;
+        }
+    }
+
     private static String mergeMethod(String optionsJson, String method) {
         try {
-            Map<String, String> map = Json.toMap(optionsJson);
-            if (map == null) map = new HashMap<>();
-            map.put("method", method);
-            return GSON.toJson(map);
+            // N2: 8.83 用 Map<String,Object>（HttpHelper.smali:2790），保留嵌套的 body/headers 对象。
+            // 之前用 Map<String,String> 中转，嵌套对象被 safeString 置空，导致 POST 发空 body（摸鱼日报根因）。
+            com.google.gson.JsonObject obj;
+            try {
+                obj = com.google.gson.JsonParser.parseString(optionsJson).getAsJsonObject();
+            } catch (Throwable t) {
+                obj = new com.google.gson.JsonObject();
+            }
+            obj.addProperty("method", method);
+            return GSON.toJson(obj);
         } catch (Throwable e) {
             return "{\"method\":\"" + method + "\"}";
         }
@@ -3366,11 +3585,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                     StringBuilder sb = new StringBuilder(bytes.length * 2);
                     for (byte b : bytes) sb.append(String.format("%02x", b & 0xff));
                     content = sb.toString();
-                } else if (req.isRejectCoding()) {
-                    // 8.83 原版：rejectCoding=true 时拒绝按 charset 解码，字节 1:1 映射为 ISO-8859-1，
-                    // 不破坏二进制密文，供规则 JS 自行 Decrypt（一个APP v11 的 fetch(...,{rejectCoding:true}) 依赖此行为）
-                    content = new String(bytes, StandardCharsets.ISO_8859_1);
                 } else {
+                    // N4: 8.83 的 rejectCoding 是请求侧标志（POST 时 body 原样发送，跳过编码处理，
+                    // 见 HkHttpHelper.buildPostBody），不是响应侧。响应侧一律按 charset 解码，
+                    // 8.83 没有 ISO-8859-1 字节映射行为。
                     content = new String(bytes, req.getCharset());
                 }
                 if (withStatusCode) {

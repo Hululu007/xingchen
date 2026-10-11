@@ -180,6 +180,9 @@ dependencies {
     implementation libs.splashscreen
     implementation libs.security.crypto
     implementation libs.swiperefreshlayout
+    implementation libs.smartrefresh.kernel
+    implementation libs.smartrefresh.header.classics
+    implementation libs.smartrefresh.footer.classics
     implementation libs.viewpager2
     implementation libs.webkit
     implementation libs.android.gif.drawable

@@ -5,4 +5,7 @@
     <color name="gray_rice_deep">#fff2f2f2</color>
     <color name="gray_rice_light">#fff7f7f7</color>
     <color name="grey_black">#ffdfdfdf</color>
+    <color name="simple_exo_style_Accent">#ffff4081</color>
+    <color name="hk_green">#ff14c47c</color>
+    <color name="hk_gray_text">#ff848484</color>
 </resources>

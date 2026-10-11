@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 对照 8.83 avd_progress_indeterminate_horizontal：横向不定进度条动画 -->
+<animated-vector android:drawable="@drawable/hk_vector_progress_indeterminate"
+  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt">
+    <target android:name="rect1_grp" android:animation="@anim/hk_anim_apih_rect1_grp" />
+    <target android:name="rect2_grp" android:animation="@anim/hk_anim_apih_rect2_grp" />
+</animated-vector>

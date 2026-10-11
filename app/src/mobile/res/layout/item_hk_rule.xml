@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔小程序：3列网格卡片（磨砂玻璃：独立背景层半透明+真blur+描边，内容层透明不被模糊） -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 海阔小程序列表卡片：白底 CardView 圆角 8dp 无阴影，标题 16sp 单行省略（对齐 8.83 item_shortcut_col_2） -->
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="64dp">
+    android:layout_marginTop="10dp"
+    android:layout_marginStart="5dp"
+    android:layout_marginEnd="5dp"
+    app:cardBackgroundColor="#FFFFFF"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="0dp">
 
-    <!-- 独立背景层：磨砂 -->
-    <View
-        android:id="@+id/card_bg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/hk_card_glass" />
-
-    <!-- 内容层：透明，永远不被模糊 -->
-    <LinearLayout
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:minHeight="64dp"
-        android:orientation="horizontal"
-        android:padding="10dp">
+        android:minHeight="56dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
 
         <FrameLayout
+            android:id="@+id/icon_box"
             android:layout_width="40dp"
-            android:layout_height="40dp">
+            android:layout_height="40dp"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="12dp">
 
             <ImageView
                 android:id="@+id/iv_icon"
@@ -44,54 +44,62 @@
                 android:textStyle="bold" />
         </FrameLayout>
 
-        <LinearLayout
-            android:layout_width="0dp"
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_centerVertical="true"
+            android:layout_marginStart="5dp"
+            android:layout_marginEnd="7dp"
+            android:layout_toStartOf="@id/sw_enable"
+            android:layout_toEndOf="@id/icon_box"
+            android:ellipsize="end"
+            android:gravity="center_vertical"
+            android:maxLines="1"
+            android:minHeight="32dp"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp"
+            android:textColor="#101216"
+            android:textSize="16sp" />
 
-            <TextView
-                android:id="@+id/tv_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="#000000"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <!-- 编辑模式才显示：实际分组标签，点卡片可改 -->
-            <TextView
-                android:id="@+id/tv_group_tag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:background="@drawable/hk_group_tag"
-                android:maxLines="1"
-                android:paddingLeft="7dp"
-                android:paddingTop="2dp"
-                android:paddingRight="7dp"
-                android:paddingBottom="2dp"
-                android:textColor="#1B5E20"
-                android:textSize="10sp"
-                android:visibility="gone" />
-        </LinearLayout>
+        <!-- 编辑模式才显示：实际分组标签，点卡片可改 -->
+        <TextView
+            android:id="@+id/tv_group_tag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/tv_name"
+            android:layout_marginStart="17dp"
+            android:layout_marginTop="2dp"
+            android:layout_toEndOf="@id/icon_box"
+            android:background="@drawable/hk_group_tag"
+            android:maxLines="1"
+            android:paddingLeft="7dp"
+            android:paddingTop="2dp"
+            android:paddingRight="7dp"
+            android:paddingBottom="2dp"
+            android:textColor="#1B5E20"
+            android:textSize="10sp"
+            android:visibility="gone" />
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/sw_enable"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="8dp"
             android:visibility="gone" />
 
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="更多操作"
             android:src="@drawable/ic_action_more_vert"
             android:tint="#8A8F98"
             android:visibility="gone" />
-    </LinearLayout>
-</FrameLayout>
+    </RelativeLayout>
+</androidx.cardview.widget.CardView>

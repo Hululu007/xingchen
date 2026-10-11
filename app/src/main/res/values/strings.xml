@@ -1145,6 +1145,8 @@
     <string name="error_play_parse">Unable to parse url</string>
     <string name="error_play_drm">This device does not support the required DRM scheme</string>
     <string name="error_play_url">Unable to load url</string>
+    <string name="player_loading_hint">Loading, please wait</string>
+    <string name="exo_play_error_hint">Playback error or network unavailable, tap to retry</string>
     <string name="error_play_mpv_hls_unsupported">MPV failed to play this HLS stream. Switch player manually or choose another line.</string>
     <string name="error_play_mpv_load_failed">MPV failed to load media. Check the network or choose another line.</string>
     <string name="error_play_mpv_network_failed">MPV network loading failed. Check the network, headers, or choose another line.</string>

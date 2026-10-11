@@ -178,8 +178,11 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
+import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
+
+import com.fongmi.android.tv.event.PlaySourceUpdateEvent;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -193,6 +196,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener {
+
+    /**
+     * 播放器是否存活（对齐海阔 8.83 PlayerChooser.hasPlayer）。
+     * 为 true 时点播放走 EventBus 原地换源，不 startActivity，避免多跳转一个页面。
+     */
+    public static volatile boolean hasPlayer = false;
 
     private static final String SIZE_TAG = "MPV_SIZE";
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
@@ -449,6 +458,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         intent.putExtra("hk_direct_play", true);
         intent.putExtra("hk_episodes", episodesJson == null ? "" : episodesJson);
         intent.putExtra("hk_episode_idx", selIdx);
+        // 对齐海阔 8.83：播放器已在就走 EventBus 原地换源，不 startActivity，避免多跳转一个页面
+        if (hasPlayer) {
+            EventBus.getDefault().post(new PlaySourceUpdateEvent(activity, intent));
+            return;
+        }
         activity.startActivity(intent);
     }
 
@@ -688,6 +702,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
+        hasPlayer = true;
         mRestoringConfigurationPlayback = savedInstanceState != null;
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
@@ -868,6 +883,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.setting.setOnClickListener(view -> onSetting());
         mBinding.control.title.setOnLongClickListener(view -> onChange());
+        mBinding.widget.error.setOnClickListener(view -> onRefresh());
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.fullscreen.setOnClickListener(view -> onFullscreen());
@@ -1573,7 +1589,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
-        mBinding.control.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
+        mBinding.control.title.setText(episode.getName());
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         String playFlag = getEpisodePlayFlag(flag, episode);
@@ -4366,13 +4382,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
-        mBinding.widget.error.setText(text);
         hideProgress();
     }
 
     private void hideError() {
         mBinding.widget.error.setVisibility(View.GONE);
-        mBinding.widget.error.setText("");
     }
 
     private void showDanmaku() {
@@ -4456,6 +4470,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setTraffic() {
         Traffic.setSpeed(mBinding.progress.traffic);
+        try {
+            int percent = player().getBufferedPercentage();
+            mBinding.progress.loading.setText(getString(R.string.player_loading_hint) + (percent > 0 && percent < 100 ? " " + percent + "%" : ""));
+        } catch (Throwable ignored) {
+        }
         App.post(mR2, 1000);
     }
 
@@ -6173,6 +6192,19 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mParseAdapter.reload();
     }
 
+    /**
+     * 播放器已存在时原地换源（对齐海阔 8.83 VideoPlayerActivity.onPlaySourceUpdated）。
+     * 8.83 逻辑：player 为空或特殊模式（PiP/音乐/迅雷）时回退 startActivity，
+     * 否则 setIntent + 更新标题 + updateUrl，不启动新页面。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onPlaySourceUpdated(PlaySourceUpdateEvent event) {
+        Intent intent = event.getIntent();
+        if (intent == null) return;
+        // 复用 onNewIntent 的换源逻辑：保存历史、合并 extras、重新 checkId 拉起播放
+        onNewIntent(intent);
+    }
+
     private void setPosition() {
         if (mHistory == null || hasDiscMenu()) return;
         if (mHistory.isNearEnding()) {
@@ -6818,6 +6850,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onDestroy() {
+        hasPlayer = false;
         if (mCustomButtonPlayer != null) {
             mCustomButtonPlayer.removeCustomButtonStateListener(mCustomButtonStateListener);
             mCustomButtonPlayer = null;

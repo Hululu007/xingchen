@@ -118,6 +118,13 @@ public class HkRouter {
                     }
                     return detail;
                 }
+                // 动作 URL（如 toast://）：绝不能被当成直接播放地址。
+                // 8.83 无 isEmptyDetailRule 兜底；星辰旧逻辑把 toast:// 误判为可播地址导致进播放器
+                // （如星集Media"查看更新日志"按钮返回 toast://更新日志加载失败）。
+                if (isActionUrl(vt)) {
+                    detail.setActionUrl(vt);
+                    return detail;
+                }
                 // 未知种类：回退旧逻辑（无详情规则则直接播放，否则继续 V4 流程）
                 if (vt.contains("#isVideo=true#") || isEmptyDetailRule() || looksLikeMediaUrl(vt)) {
                     detail.setDirectPlayUrl(vt);
@@ -539,6 +546,20 @@ public class HkRouter {
     }
 
     /**
+     * 是否为动作 URL（8.83 StringUtil 动作 URL 表同款：toast://、copy://、input://、
+     * confirm://、select://、download:// 并列）。
+     * 这类 URL 只应走 handleActionUrl，绝不能被当成直接播放地址或进 V4。
+     */
+    public static boolean isActionUrl(String url) {
+        if (url == null) return false;
+        String l = url.trim().toLowerCase();
+        return l.startsWith("toast://") || l.startsWith("copy://")
+                || l.startsWith("input://") || l.startsWith("confirm://")
+                || l.startsWith("select://") || l.startsWith("download://")
+                || l.startsWith("hiker://empty");
+    }
+
+    /**
      * dealWithUrl 分流（官方 ArticleListFragment.dealWithUrl 顺序）：
      * video=直接播放 / pics=漫画 / x5=webview规则 / web=网页 / image=图片 / magnet=分享 / ""=未知。
      */
@@ -565,30 +586,43 @@ public class HkRouter {
     }
 
     private List<HkDetailItem> fromJsDetail(String jsCode, String url) throws Exception {
-        List<Map<String, String>> raw = engine.getJsRuntime().parseDetailRaw(jsCode, url);
-        List<HkDetailItem> items = new ArrayList<>();
-        String defaultColType = rule.getDetailColType();
-        for (Map<String, String> m : raw) {
-            HkDetailItem it = new HkDetailItem();
-            it.setTitle(str(m, "title"));
-            it.setUrl(str(m, "url"));
-            String pic = str(m, "pic_url");
-            if (pic.isEmpty()) pic = str(m, "pic");
-            if (pic.isEmpty()) pic = str(m, "img");
-            if (pic.isEmpty()) pic = str(m, "image");
-            if (pic.isEmpty()) pic = str(m, "cover");
-            if (pic.isEmpty()) pic = str(m, "thumbnail");
-            it.setPic(pic);
-            it.setDesc(str(m, "desc"));
-            it.setLine(str(m, "line"));
-            String col = str(m, "col_type");
-            if (col.isEmpty()) col = str(m, "colType");
-            // 官方 dealRule：detail_col_type 作为整页默认样式，无 col_type 的条目回退到它
-            if (col.isEmpty()) col = defaultColType;
-            it.setColType(col);
-            items.add(it);
+        // R2：8.83 详情 JS 求值前先抓详情 HTML，getResCode()/getCode() 可取正文
+        String fetchUrl = cleanDetailUrl(url);
+        if (!fetchUrl.isEmpty() && (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://"))) {
+            try {
+                String body = HkHttp.get(fetchUrl, rule.resolvedUa());
+                if (body != null && !body.isEmpty()) engine.getJsRuntime().setEvalResCodeBody(body);
+            } catch (Throwable ignored) {
+            }
         }
-        return items;
+        try {
+            List<Map<String, String>> raw = engine.getJsRuntime().parseDetailRaw(jsCode, url);
+            List<HkDetailItem> items = new ArrayList<>();
+            String defaultColType = rule.getDetailColType();
+            for (Map<String, String> m : raw) {
+                HkDetailItem it = new HkDetailItem();
+                it.setTitle(str(m, "title"));
+                it.setUrl(str(m, "url"));
+                String pic = str(m, "pic_url");
+                if (pic.isEmpty()) pic = str(m, "pic");
+                if (pic.isEmpty()) pic = str(m, "img");
+                if (pic.isEmpty()) pic = str(m, "image");
+                if (pic.isEmpty()) pic = str(m, "cover");
+                if (pic.isEmpty()) pic = str(m, "thumbnail");
+                it.setPic(pic);
+                it.setDesc(str(m, "desc"));
+                it.setLine(str(m, "line"));
+                String col = str(m, "col_type");
+                if (col.isEmpty()) col = str(m, "colType");
+                // 官方 dealRule：detail_col_type 作为整页默认样式，无 col_type 的条目回退到它
+                if (col.isEmpty()) col = defaultColType;
+                it.setColType(col);
+                items.add(it);
+            }
+            return items;
+        } finally {
+            engine.getJsRuntime().setEvalResCodeBody(null);
+        }
     }
 
     private static String str(Map<String, String> m, String key) {

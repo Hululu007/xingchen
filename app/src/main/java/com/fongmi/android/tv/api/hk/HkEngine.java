@@ -49,7 +49,23 @@ public class HkEngine {
                 // P1：注入 MY_TYPE/MY_CLASS_URL/MY_CLASS_NAME 等官方变量
                 // pageParams：hiker://page/ 子页面由点击条目的 extra 注入 MY_PARAMS
                 jsRuntime.setListContext("home", safe(cls), classNameOf(cls), rule.getPageParams(), safe(area), safe(year), safe(sort));
-                return jsRuntime.parseList(findRule, url, page);
+                // R1: 8.83 所有 js: 规则 Java 层先抓页（JSEngine.smali:20401），正文进 resCodeMap，
+                // getResCode()/getCode() 可取。星辰之前完全不预抓，依赖 getResCode() 的规则必空。
+                String fetchUrl = stripEmptyPrefix(url);
+                String preFetched = "";
+                if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://")) {
+                    try {
+                        preFetched = HkHttp.get(fetchUrl, rule.resolvedUa());
+                    } catch (Throwable t) {
+                        Logger.t(TAG).d("R1 pre-fetch failed: %s", t.getMessage());
+                    }
+                }
+                jsRuntime.setEvalResCodeBody(preFetched);
+                try {
+                    return jsRuntime.parseList(findRule, url, page);
+                } finally {
+                    jsRuntime.setEvalResCodeBody(null);
+                }
             }
             String html = HkHttp.get(url, rule.resolvedUa());
             return selector.parseList(html, findRule, url);
@@ -73,7 +89,22 @@ public class HkEngine {
                 // js: 搜索同理：MY_URL 传原始 url，保留 hiker://empty# 前缀。
                 String rawUrl = HkHttp.expandSearchUrl(rule.getSearchUrl(), keyword, page, false);
                 jsRuntime.setListContext("search", "", "", "", "", "", "");
-                return jsRuntime.parseSearch(searchFind, rawUrl, keyword, page);
+                // R1: 8.83 js: 搜索也先抓页，正文进 resCodeMap
+                String fetchUrl = stripEmptyPrefix(rawUrl);
+                String preFetched = "";
+                if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://")) {
+                    try {
+                        preFetched = HkHttp.get(fetchUrl, rule.resolvedUa());
+                    } catch (Throwable t) {
+                        Logger.t(TAG).d("R1 pre-fetch failed: %s", t.getMessage());
+                    }
+                }
+                jsRuntime.setEvalResCodeBody(preFetched);
+                try {
+                    return jsRuntime.parseSearch(searchFind, rawUrl, keyword, page);
+                } finally {
+                    jsRuntime.setEvalResCodeBody(null);
+                }
             }
             String html = HkHttp.get(url, rule.resolvedUa());
             return selector.parseSearch(html, searchFind, url);
@@ -98,6 +129,18 @@ public class HkEngine {
 
     public String getError() {
         return jsRuntime.getError();
+    }
+
+    /**
+     * R1: 剥离 hiker://empty# 前缀取真实 URL，用于预抓取。
+     */
+    private static String stripEmptyPrefix(String url) {
+        if (url == null) return "";
+        String p = "hiker://empty#";
+        if (url.startsWith(p)) return url.substring(p.length());
+        // 兼容双 # 写法 hiker://empty##
+        if (url.startsWith("hiker://empty##")) return url.substring("hiker://empty##".length());
+        return url;
     }
 
     public HkRule getRule() {

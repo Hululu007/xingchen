@@ -70,7 +70,7 @@
 
         <include
             android:id="@+id/progress"
-            layout="@layout/view_progress"
+            layout="@layout/view_progress_vod"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 

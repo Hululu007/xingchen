@@ -124,6 +124,8 @@ public class CustomRecyclerView extends RecyclerView {
                 float offsetX = Math.abs(x2 - x1);
                 float offsetY = Math.abs(y2 - y1);
                 if (offsetX > offsetY && offsetX > touchSlop) getParent().requestDisallowInterceptTouchEvent(false);
+                else if (offsetY > touchSlop && (y2 - y1) > 0 && !canScrollVertically(-1))
+                    getParent().requestDisallowInterceptTouchEvent(false);
                 break;
         }
         return super.dispatchTouchEvent(event);

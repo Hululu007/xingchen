@@ -533,12 +533,13 @@ public class HkRuleManager {
     }
 
     /**
-     * 从云口令导入规则：解析口令 → 从云端拉取 rule.json → 走 importJson 落盘。
+     * 从云口令解析规则（不落盘）：解析口令 → 从云端拉取 rule.json → 解析校验。
+     * 导入 UI 用它先解析、弹分组选择器，用户选完后再 saveRule 落盘。
      *
-     * @return 导入成功的规则
+     * @return 解析通过的规则（含原始 JSON）
      * @throws Exception 口令格式错误 / 网络失败 / 内容不是合法规则时抛出
      */
-    public HkRule importByCloudCode(String code) throws Exception {
+    public ParsedRule parseByCloudCode(String code) throws Exception {
         if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("口令为空");
         // 先从文本中提取口令子串（兼容"云6oooole/xxxxxx/xxx 小程序：yyy"这类带后缀的输入）
         Matcher f = CLOUD_CODE_FIND.matcher(code);
@@ -550,7 +551,20 @@ public class HkRuleManager {
         String path = m.group(2); // 如 /p/xxxx、/apidb/yyyy、/xxxxxx/pppp、/f7c6
         String json = fetchCloudJson(path, version);
         if (json == null || json.trim().isEmpty()) throw new IllegalArgumentException("云端返回内容为空");
-        return importJson(json.trim());
+        String t = json.trim();
+        return new ParsedRule(parseJson(t), t);
+    }
+
+    /**
+     * 从云口令导入规则：解析口令 → 从云端拉取 rule.json → 走 importJson 落盘。
+     *
+     * @return 导入成功的规则
+     * @throws Exception 口令格式错误 / 网络失败 / 内容不是合法规则时抛出
+     */
+    public HkRule importByCloudCode(String code) throws Exception {
+        ParsedRule p = parseByCloudCode(code);
+        saveRule(p.rule, p.json);
+        return p.rule;
     }
 
     /** 按口令 path 从云端拉取 rule.json 文本（通道按官方 App 逆向结果路由）。 */

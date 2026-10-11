@@ -102,6 +102,8 @@ public class HkPageActivity extends BaseActivity {
     private static final String KEY_CUSTOM_GROUPS = "hk_custom_groups";
     private static final String KEY_RULE_GROUPS = "hk_rule_group_map";
     private static final String KEY_RULE_ORDER = "hk_rule_order";
+    /** 导入时分组选择器的标准分组（8.83 默认分组名，去掉①②序号）。 */
+    private static final String[] STD_GROUPS = {"聚合", "视频", "资讯", "图集", "漫画", "其它", "工具", "音频"};
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HkPageActivity.class));
@@ -803,6 +805,95 @@ public class HkPageActivity extends BaseActivity {
         dialog.show();
     }
 
+    /** 导入时分组选择回调：group 为 "" 表示不分组（归"全部"）。 */
+    private interface OnImportGroupPicked {
+        void onPicked(String group);
+    }
+
+    /**
+     * 导入时弹分组选择器：解析完成后、落盘前让用户手动选分组。
+     * 选项：全部（默认选中）| 标准分组 | 用户自定义分组。忽略规则文件自带的野分组名。
+     * 用户点选项或取消/点外部，均视为选"全部"（""）。
+     * UI 线程调用。
+     */
+    private void showImportGroupPicker(String titleText, OnImportGroupPicked cb) {
+        List<String> values = new ArrayList<>();
+        values.add(""); // 全部（默认）
+        for (String g : STD_GROUPS) if (!values.contains(g)) values.add(g);
+        for (String g : customGroups) {
+            if (!TextUtils.isEmpty(g) && !values.contains(g)) values.add(g);
+        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView sub = new TextView(this);
+        sub.setText("选择分组（忽略规则自带的分组名）");
+        sub.setTextColor(0xFF8A8F98);
+        sub.setTextSize(13);
+        sub.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(4);
+        root.addView(sub, subLp);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout opts = new LinearLayout(this);
+        opts.setOrientation(LinearLayout.VERTICAL);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        dialog.setOnCancelListener(d -> cb.onPicked(""));
+        for (String g : values) {
+            TextView tv = new TextView(this);
+            tv.setText(TextUtils.isEmpty(g) ? "全部" : g);
+            boolean sel = TextUtils.isEmpty(g); // 默认选中"全部"
+            tv.setTextColor(sel ? 0xFFB8890F : 0xFF1A1D24);
+            tv.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                cb.onPicked(g);
+            });
+            opts.addView(tv, lp);
+        }
+        sv.addView(opts);
+        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        svLp.topMargin = dp(4);
+        if (values.size() > 6) svLp.height = dp(340);
+        root.addView(sv, svLp);
+        dialog.show();
+    }
+
+    /**
+     * 导入落盘后应用用户选择的分组：走 hk_rule_group_map prefs 覆盖，不改 rule.json 原文件。
+     * 只对新导入的规则生效（已安装的更新保持原有分组映射不动）。
+     * UI 线程调用。
+     */
+    private void applyImportGroup(List<HkRule> saved, List<Boolean> isNew, String group) {
+        if (saved == null || saved.isEmpty()) return;
+        String g = group == null ? "" : group;
+        for (int i = 0; i < saved.size(); i++) {
+            if (isNew != null && i < isNew.size() && !isNew.get(i)) continue;
+            HkRule r = saved.get(i);
+            String fileGroup = r.getGroup() == null ? "" : r.getGroup();
+            if (g.equals(fileGroup)) ruleGroupMap.remove(r.getTitle());
+            else ruleGroupMap.put(r.getTitle(), g);
+        }
+        saveRuleGroupMap();
+    }
+
     /** 分组管理：新建 / 改名 / 删除 / 排序自定义分组（只管自定义分组，不碰规则文件）。 */
     private void showGroupManageDialog() {
         LinearLayout root = new LinearLayout(this);
@@ -1047,6 +1138,7 @@ public class HkPageActivity extends BaseActivity {
                 .show();
     }
 
+    /** 云口令导入：云端解析 → 弹分组选择器 → 落盘（忽略规则自带的野分组名）。 */
     private void importByCloudCode(String code) {
         if (TextUtils.isEmpty(code)) {
             Notify.show("口令为空");
@@ -1055,10 +1147,27 @@ public class HkPageActivity extends BaseActivity {
         Notify.show("正在从云端获取规则…");
         new Thread(() -> {
             try {
-                HkRule rule = HkRuleManager.get().importByCloudCode(code);
+                HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code);
+                App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group)));
+            } catch (Exception e) {
+                App.post(() -> Notify.show("导入失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 云口令导入：分组选择后的落盘（后台线程）。 */
+    private void finishCloudImport(HkRuleManager.ParsedRule p, String group) {
+        new Thread(() -> {
+            try {
+                boolean isNew = HkRuleManager.get().getInstalledRule(p.rule.getTitle()) == null;
+                HkRuleManager.get().saveRule(p.rule, p.json);
+                List<HkRule> one = Collections.singletonList(p.rule);
                 App.post(() -> {
-                    Notify.show("导入成功：" + rule.getTitle());
+                    applyImportGroup(one, Collections.singletonList(isNew), group);
+                    Notify.show("导入成功：" + p.rule.getTitle());
                     refreshRules();
+                    // 导入成功后提示"是否打开"（像海阔原版）
+                    showOpenAfterImportDialog(one);
                 });
             } catch (Exception e) {
                 App.post(() -> Notify.show("导入失败：" + e.getMessage()));
@@ -1220,11 +1329,8 @@ public class HkPageActivity extends BaseActivity {
         new Thread(() -> {
             try {
                 if (HkRuleManager.isJsRuleText(text)) {
-                    HkRule rule = HkRuleManager.get().importJsRule(text, fileName);
-                    App.post(() -> {
-                        Notify.show("导入成功：" + rule.getTitle());
-                        refreshRules();
-                    });
+                    HkRuleManager.ParsedRule p = HkRuleManager.get().parseJsRule(text, fileName);
+                    App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishJsImport(p, group)));
                 } else {
                     // 一键导入：先全部解析，多个则弹窗让用户勾选要导入哪些（带全选）
                     List<HkRuleManager.ParsedRule> parsed = HkRuleManager.get().parseJsonList(text);
@@ -1237,6 +1343,25 @@ public class HkPageActivity extends BaseActivity {
                         }
                     });
                 }
+            } catch (Exception e) {
+                App.post(() -> Notify.show("导入失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** js: 规则导入：分组选择后的落盘（后台线程）。 */
+    private void finishJsImport(HkRuleManager.ParsedRule p, String group) {
+        new Thread(() -> {
+            try {
+                boolean isNew = HkRuleManager.get().getInstalledRule(p.rule.getTitle()) == null;
+                HkRuleManager.get().saveRule(p.rule, p.json);
+                List<HkRule> one = Collections.singletonList(p.rule);
+                App.post(() -> {
+                    applyImportGroup(one, Collections.singletonList(isNew), group);
+                    Notify.show("导入成功：" + p.rule.getTitle());
+                    refreshRules();
+                    showOpenAfterImportDialog(one);
+                });
             } catch (Exception e) {
                 App.post(() -> Notify.show("导入失败：" + e.getMessage()));
             }
@@ -1282,7 +1407,7 @@ public class HkPageActivity extends BaseActivity {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle("版本未更新，是否覆盖？")
                     .setMessage("以下小程序的导入版本不高于已安装版本：\n" + sb + "\n\n覆盖可能导致降级。")
-                    .setPositiveButton("全部覆盖", (d, w) -> doImportPickedRules(picked))
+                    .setPositiveButton("全部覆盖", (d, w) -> pickGroupThenImport(picked))
                     .setNegativeButton("跳过这些", (d, w) -> {
                         List<PickEntry> rest = new ArrayList<>(picked);
                         rest.removeAll(downgrade);
@@ -1290,25 +1415,38 @@ public class HkPageActivity extends BaseActivity {
                             Notify.show("已跳过，无需导入");
                             return;
                         }
-                        doImportPickedRules(rest);
+                        pickGroupThenImport(rest);
                     })
                     .setNeutralButton("取消", null)
                     .show();
             return;
         }
-        doImportPickedRules(picked);
+        pickGroupThenImport(picked);
+    }
+
+    /**
+     * 导入前选分组（忽略规则自带的野分组名），再落盘。UI 线程调用。
+     * 多个规则共用一次选择，统一应用。
+     */
+    private void pickGroupThenImport(List<PickEntry> picked) {
+        String title = picked.size() == 1
+                ? picked.get(0).parsed.rule.getTitle()
+                : "导入 " + picked.size() + " 个小程序";
+        showImportGroupPicker(title, group -> doImportPickedRules(picked, group));
     }
 
     /** importPickedRules 的落盘实现（后台线程）。 */
-    private void doImportPickedRules(List<PickEntry> picked) {
+    private void doImportPickedRules(List<PickEntry> picked, String group) {
         new Thread(() -> {
             try {
                 List<HkRule> rules = new ArrayList<>();
+                List<Boolean> isNewList = new ArrayList<>();
                 List<String> updatedVer = new ArrayList<>();
                 Map<HkRuleManager.HkZipData, List<HkRule>> assets = new HashMap<>();
                 for (PickEntry e : picked) {
                     HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
                     boolean isUpdate = installed != null && e.parsed.rule.getVersion() > installed.getVersion();
+                    isNewList.add(installed == null);
                     HkRuleManager.get().saveRule(e.parsed.rule, e.parsed.json);
                     rules.add(e.parsed.rule);
                     if (isUpdate) {
@@ -1330,7 +1468,10 @@ public class HkPageActivity extends BaseActivity {
                 String msg = rules.size() == 1
                         ? (wasUpdate ? "更新成功：" + updatedVer.get(0) : "导入成功：" + rules.get(0).getTitle())
                         : (wasUpdate ? "更新成功 " : "导入成功 ") + rules.size() + " 个小程序";
+                final String pickedGroup = group == null ? "" : group;
                 App.post(() -> {
+                    // 只对新导入的规则应用分组选择；已安装的更新保持原有分组映射不动
+                    applyImportGroup(rules, isNewList, pickedGroup);
                     Notify.show(msg);
                     refreshRules();
                     // 更新/添加成功后提示"是否打开"（像海阔原版）

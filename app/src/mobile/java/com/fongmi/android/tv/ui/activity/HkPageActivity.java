@@ -1512,6 +1512,9 @@ public class HkPageActivity extends BaseActivity {
      */
     private void showOpenAfterImportDialog(List<HkRule> rules) {
         if (rules == null || rules.isEmpty()) return;
+        // 在任何页面（列表/内容/详情/搜索）都要能弹出：用当前前台 Activity 的 context，
+        // Activity 正在销毁时不弹，避免 WindowManager$BadTokenException。
+        if (isFinishing() || isDestroyed()) return;
         if (rules.size() == 1) {
             HkRule rule = rules.get(0);
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)

@@ -11,7 +11,8 @@ import com.fongmi.android.tv.R;
 
 /**
  * 深色毛玻璃 Toast：替代系统浅色 Toast，解决浅色底看不清的问题。
- * API 31+ 叠加 RenderEffect 真模糊，低版本用深色半透明底。
+ * 背景与文字分层：RenderEffect 只作用于独立背景层（toast_bg），文字层永远不被模糊。
+ * API 31+ 背景层叠加 RenderEffect，低版本用深色半透明底。
  */
 public class ToastUtil {
 
@@ -27,10 +28,11 @@ public class ToastUtil {
             View view = LayoutInflater.from(ctx).inflate(R.layout.view_dark_toast, null);
             TextView tv = view.findViewById(R.id.toast_text);
             tv.setText(text);
-            // 真模糊（API 31+）：毛玻璃质感
+            // 真模糊（API 31+）：只作用于独立背景层，文字层不被模糊
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
-                    view.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(18f, 18f, android.graphics.Shader.TileMode.CLAMP));
+                    View bg = view.findViewById(R.id.toast_bg);
+                    bg.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(18f, 18f, android.graphics.Shader.TileMode.CLAMP));
                 } catch (Throwable ignored) {
                 }
             }

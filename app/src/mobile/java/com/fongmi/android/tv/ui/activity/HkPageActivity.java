@@ -209,9 +209,10 @@ public class HkPageActivity extends BaseActivity {
     private boolean detailFromSearch;
     private android.widget.Toast loadingHint;
     private HkDetail currentDetail;
-    private HkDetail.Line currentLine;
-    private EpisodeAdapter episodeAdapter;
-    private final List<HkDetail.Episode> episodes = new ArrayList<>();
+    // 8.83 原版：详情页走通用列表渲染器，不再用专用线路/选集模型
+    private final List<HkItem> detailItems = new ArrayList<>();
+    private ContentAdapter detailAdapter;
+    private GridLayoutManager detailGrid;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -3609,13 +3610,18 @@ public class HkPageActivity extends BaseActivity {
     private void initDetailView() {
         binding.btnBackDetail.setOnClickListener(v -> onBackInvoked());
         binding.tvDetailTitle.setSelected(true);
-        binding.rvDetailLines.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        GridLayoutManager epGrid = new GridLayoutManager(this, 4);
-        binding.rvDetailEpisodes.setLayoutManager(epGrid);
-        binding.rvDetailEpisodes.setNestedScrollingEnabled(false);
-        binding.rvDetailEpisodes.addItemDecoration(new EpSpace());
-        episodeAdapter = new EpisodeAdapter();
-        binding.rvDetailEpisodes.setAdapter(episodeAdapter);
+        // 8.83 原版：详情页走通用列表渲染器（60 列栅格 + ContentAdapter），不用专用布局
+        detailGrid = new GridLayoutManager(this, 60);
+        detailGrid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return detailAdapter == null ? 60 : detailAdapter.spanFor(position);
+            }
+        });
+        binding.rvDetailContent.setLayoutManager(detailGrid);
+        binding.rvDetailContent.addItemDecoration(new GridSpace());
+        detailAdapter = new ContentAdapter(detailItems);
+        binding.rvDetailContent.setAdapter(detailAdapter);
         binding.tvDetailEmpty.setOnClickListener(v -> {
             if (detailItem != null) openDetail(detailItem, detailFromSearch);
         });
@@ -3664,12 +3670,11 @@ public class HkPageActivity extends BaseActivity {
         detailItem = item;
         detailFromSearch = fromSearch;
         currentDetail = null;
-        currentLine = null;
-        episodes.clear();
-        if (episodeAdapter != null) episodeAdapter.notifyDataSetChanged();
+        detailItems.clear();
+        if (detailAdapter != null) detailAdapter.notifyDataSetChanged();
         if (!lazyPrecheck) {
             binding.tvDetailTitle.setText(item.getTitle());
-            binding.detailScroll.setVisibility(View.GONE);
+            binding.rvDetailContent.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.GONE);
             binding.tvDetailLoading.setVisibility(View.VISIBLE);
             pushView(V_DETAIL);
@@ -3742,7 +3747,7 @@ public class HkPageActivity extends BaseActivity {
                 if (lazyPrecheck) {
                     // 预检非直接播放：补推 V4 再展示（复用已算出的 result，不二次求值）
                     binding.tvDetailTitle.setText(item.getTitle());
-                    binding.detailScroll.setVisibility(View.GONE);
+                    binding.rvDetailContent.setVisibility(View.GONE);
                     binding.tvDetailEmpty.setVisibility(View.GONE);
                     binding.tvDetailLoading.setVisibility(View.GONE);
                     pushView(V_DETAIL);
@@ -3842,10 +3847,13 @@ public class HkPageActivity extends BaseActivity {
         showDetailResult(null);
     }
 
-    /** V4 结果展示：无线路但有标题/封面/简介时仍渲染，不直接"加载失败"。 */
+    /**
+     * V4 结果展示：8.83 原版走通用列表渲染器（FilmListActivity + ArticleListAdapter），
+     * 详情条目按 col_type 直接渲染，不做线路/选集分类。
+     */
     private void showDetailResult(HkDetail result) {
-        if (result == null || (result.isEmpty() && !result.hasBasicInfo())) {
-            binding.detailScroll.setVisibility(View.GONE);
+        if (result == null || (result.getRawItems().isEmpty() && !result.hasBasicInfo())) {
+            binding.rvDetailContent.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.VISIBLE);
             // 空态：8.83 式规则错误弹窗（HkErrorUtil），对等 DebugUtil.showErrorMsg。
             try {
@@ -3857,229 +3865,133 @@ public class HkPageActivity extends BaseActivity {
                 binding.tvDetailEmpty.setText("加载失败，点我重试");
             }
         } else {
-            bindDetail(result);
+            bindDetailItems(result);
         }
     }
 
-    private void bindDetail(HkDetail detail) {
+    /**
+     * 8.83 原版：详情原始条目直接丢进通用 ContentAdapter 按 col_type 渲染。
+     * - 头部：首条不是 header 型时，用点击条目的标题/封面合成 detail_header（标题左+封面右）
+     * - 简介：无文本条目但有 content 时，补 long_text
+     * - 播放按钮：原始条目原样渲染，点击在详情页内直接播放（不套娃进详情）
+     */
+    private void bindDetailItems(HkDetail detail) {
         currentDetail = detail;
         // V4 已展示：用户很可能马上点选集，提前预热播放路由，省掉播放时的初始化等待
         SiteApi.warmHkRouter(currentRule == null ? "" : currentRule.getTitle());
-        binding.detailScroll.setVisibility(View.VISIBLE);
+        List<HkItem> items = buildDetailHkItems(detail);
+        detailItems.clear();
+        detailItems.addAll(items);
+        detailAdapter.refreshGroups();
+        detailAdapter.notifyDataSetChanged();
+        binding.rvDetailContent.setVisibility(View.VISIBLE);
         binding.tvDetailEmpty.setVisibility(View.GONE);
         binding.tvDetailTitle.setText(detail.getTitle());
-        binding.tvDetailName.setText(detail.getTitle());
-        ImgUtil.load(detail.getTitle(), detail.getPic(), binding.ivDetailCover, hkRuleUrl());
-        int epCount = 0;
-        for (HkDetail.Line l : detail.getLines()) epCount += l.getEpisodes().size();
-        String meta;
-        if (detail.getLines().isEmpty()) {
-            // 无线路时若引擎记录了 JS 失败原因，展示真实错误（之前只显示"0条线路"，用户无法反馈根因）
-            String hkErr = null;
+        binding.rvDetailContent.scrollToPosition(0);
+    }
+
+    /** 详情原始条目 → 通用列表条目（8.83 原版：不做线路/选集分类，原样渲染）。 */
+    private List<HkItem> buildDetailHkItems(HkDetail detail) {
+        List<HkItem> out = new ArrayList<>();
+        List<HkDetailItem> raw = detail.getRawItems();
+        // 1. 头部：首条不是 header 型时合成
+        boolean hasHeader = !raw.isEmpty() && isHeaderColType(raw.get(0).getColType());
+        if (!hasHeader && (!TextUtils.isEmpty(detail.getTitle()) || !TextUtils.isEmpty(detail.getPic()))) {
+            HkItem header = new HkItem();
+            header.setColType("detail_header");
+            header.setTitle(detail.getTitle());
+            header.setPic(detail.getPic());
+            out.add(header);
+        }
+        // 2. 原始条目原样转换
+        boolean hasText = false;
+        for (HkDetailItem di : raw) {
+            HkItem hi = new HkItem();
+            hi.setTitle(di.getTitle());
+            hi.setUrl(di.getUrl());
+            hi.setPic(di.getPic());
+            hi.setDesc(di.getDesc());
+            hi.setColType(di.getColType());
+            hi.setLine(di.getLine());
+            out.add(hi);
+            String ct = di.getColType() == null ? "" : di.getColType().toLowerCase();
+            if (ct.contains("long_text") || ct.startsWith("text_") || ct.contains("rich_text")) hasText = true;
+        }
+        // 3. 简介回退：无文本条目但有 content 时补 long_text
+        if (!hasText && !TextUtils.isEmpty(detail.getContent())) {
+            HkItem syn = new HkItem();
+            syn.setColType("long_text");
+            syn.setDesc(detail.getContent());
+            out.add(out.isEmpty() ? 0 : 1, syn);
+        }
+        return out;
+    }
+
+    /** 详情头型 col_type：已有头部条目时不再合成。 */
+    private boolean isHeaderColType(String colType) {
+        if (colType == null) return false;
+        String c = colType.trim().toLowerCase();
+        return c.equals("detail_header") || c.contains("movie_1_vertical_pic")
+                || c.equals("movie_1") || c.equals("movie_1_left_pic");
+    }
+
+    /**
+     * 8.83 原版 dealWithUrl：详情页内点可播 URL 直接播放，不套娃进详情。
+     * 先过 HkRouter.play() 解析（处理 @lazyRule=/@rule=js: 等），再进播放器；
+     * 选集列表取当前详情所有可播条目，支持播放器内切集。
+     */
+    private void playDetailEpisode(HkItem it, String url) {
+        new Thread(() -> {
+            String playUrl = url;
             try {
-                hkErr = getRouter().getEngine().getError();
+                if (url.contains("@lazyRule=") || url.contains("@rule=") || url.startsWith("js:")) {
+                    HkPlay play = getRouter().play(url);
+                    if (!play.getUrl().isEmpty()) playUrl = play.getUrl();
+                }
             } catch (Throwable ignored) {
             }
-            if (!TextUtils.isEmpty(hkErr)) {
-                String e = hkErr.trim();
-                if (e.length() > 80) e = e.substring(0, 80);
-                meta = "加载失败：" + e + "，点我重试";
-            } else {
-                meta = (currentRule == null ? "" : currentRule.getTitle() + " · ")
-                        + "0条线路 · 共0集";
-            }
-        } else {
-            meta = (currentRule == null ? "" : currentRule.getTitle() + " · ")
-                    + detail.getLines().size() + "条线路 · 共" + epCount + "集";
-        }
-        binding.tvDetailMeta.setText(meta);
-        // 错误时点 meta 文字可重试（与列表页"点我重试"一致）
-        final boolean isDetailErr = detail.getLines().isEmpty() && meta.startsWith("加载失败");
-        binding.tvDetailMeta.setOnClickListener(isDetailErr && detailItem != null
-                ? v -> openDetail(detailItem, detailFromSearch) : null);
-        binding.tvDetailMeta.setClickable(isDetailErr);
-        String content = detail.getContent();
-        boolean hasContent = !TextUtils.isEmpty(content);
-        binding.tvDetailIntroLabel.setVisibility(hasContent ? View.VISIBLE : View.GONE);
-        binding.tvDetailContent.setVisibility(hasContent ? View.VISIBLE : View.GONE);
-        if (hasContent) binding.tvDetailContent.setText(content);
-        renderCopyButtons(detail.getCopyItems());
-        renderDownloadButtons(detail.getDownloadItems());
-        List<HkDetail.Line> lines = detail.getLines();
-        boolean hasLines = !lines.isEmpty();
-        // 无线路时隐藏线路/选集区，只展示标题/封面/简介（有基本信息才走到这里）
-        binding.tvDetailLineLabel.setVisibility(View.GONE);
-        binding.rvDetailLines.setVisibility(View.GONE);
-        if (hasLines) {
-            List<String[]> pairs = new ArrayList<>();
-            for (HkDetail.Line l : lines) pairs.add(new String[]{l.getName(), l.getName()});
-            binding.rvDetailLines.setAdapter(new ChipAdapter(pairs, 0, value -> {
-                if (currentDetail == null) return;
-                for (HkDetail.Line l : currentDetail.getLines()) {
-                    if (l.getName().equals(value)) {
-                        currentLine = l;
-                        refreshEpisodes();
-                        break;
-                    }
-                }
-            }));
-            boolean multiLine = lines.size() > 1;
-            binding.tvDetailLineLabel.setVisibility(multiLine ? View.VISIBLE : View.GONE);
-            binding.rvDetailLines.setVisibility(multiLine ? View.VISIBLE : View.GONE);
-            currentLine = lines.get(0);
-            refreshEpisodes();
-        } else {
-            currentLine = null;
-            if (episodeAdapter != null) episodeAdapter.notifyDataSetChanged();
-        }
-        binding.detailScroll.scrollTo(0, 0);
-    }
-
-    /**
-     * V4 复制按钮行：简介下方、选集上方横向排列，每 copy 条目一个白色描边按钮；
-     * 点击复制 getText() 到剪贴板并 Toast"已复制"。无条目时整行隐藏。
-     */
-    private void renderCopyButtons(List<HkDetail.CopyItem> items) {
-        binding.copyRow.removeAllViews();
-        if (items == null || items.isEmpty()) {
-            binding.copyScroll.setVisibility(View.GONE);
-            return;
-        }
-        binding.copyScroll.setVisibility(View.VISIBLE);
-        for (HkDetail.CopyItem ci : items) {
-            TextView btn = new TextView(this);
-            btn.setText(ci.getName());
-            btn.setTextColor(0xFF1A1D24);
-            btn.setTextSize(13);
-            btn.setGravity(Gravity.CENTER);
-            btn.setMaxLines(1);
-            btn.setEllipsize(TextUtils.TruncateAt.END);
-            int padH = dp(16), padV = dp(9);
-            btn.setPadding(padH, padV, padH, padV);
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xFFFFFFFF);
-            bg.setStroke(dp(1), 0xFFE0E4EA);
-            bg.setCornerRadius(dp(10));
-            btn.setBackground(bg);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = dp(10);
-            binding.copyRow.addView(btn, lp);
-            btn.setOnClickListener(v -> {
-                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                if (cm != null) {
-                    cm.setPrimaryClip(ClipData.newPlainText("hk_copy", ci.getText()));
-                    Notify.show("已复制");
-                }
-            });
-        }
-    }
-
-    /**
-     * V4 下载按钮：download:// 条目，点击用系统下载。
-     */
-    private void renderDownloadButtons(List<HkDetail.Episode> items) {
-        if (items == null || items.isEmpty()) return;
-        binding.copyScroll.setVisibility(View.VISIBLE);
-        for (HkDetail.Episode ep : items) {
-            TextView btn = new TextView(this);
-            btn.setText("↓ " + ep.getName());
-            btn.setTextColor(0xFF1A1D24);
-            btn.setTextSize(13);
-            btn.setGravity(Gravity.CENTER);
-            btn.setMaxLines(1);
-            btn.setEllipsize(TextUtils.TruncateAt.END);
-            int padH = dp(16), padV = dp(9);
-            btn.setPadding(padH, padV, padH, padV);
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xFFFFFFFF);
-            bg.setStroke(dp(1), 0xFFE0E4EA);
-            bg.setCornerRadius(dp(10));
-            btn.setBackground(bg);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = dp(10);
-            binding.copyRow.addView(btn, lp);
-            final String durl = ep.getUrl();
-            btn.setOnClickListener(v -> {
+            // 选集：当前详情所有可播条目（保持顺序），当前点中的为选中项
+            org.json.JSONArray arr = new org.json.JSONArray();
+            int selIdx = 0;
+            int idx = 0;
+            for (HkItem di : detailItems) {
+                String du = di.getUrl() == null ? "" : di.getUrl().trim();
+                if (du.isEmpty()) continue;
+                String dl = du.toLowerCase();
+                if (dl.startsWith("javascript:") || dl.equals("hiker://empty")) continue;
+                // 只收可播条目：http 链接或含 @lazyRule=/@rule=/js: 的解析型地址
+                boolean playable = dl.startsWith("http")
+                        || du.contains("@lazyRule=") || du.contains("@rule=") || du.startsWith("js:");
+                if (!playable) continue;
                 try {
-                    String realUrl = durl.startsWith("download://") ? durl.substring(11) : durl;
-                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                    android.app.DownloadManager.Request req = new android.app.DownloadManager.Request(android.net.Uri.parse(realUrl));
-                    req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    req.setTitle(ep.getName());
-                    dm.enqueue(req);
-                    Notify.show("开始下载");
-                } catch (Throwable e) {
-                    Notify.show("下载失败：" + e.getMessage());
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("name", stripHtml(di.getTitle()));
+                    o.put("url", du);
+                    o.put("pic", di.getPic() == null ? "" : di.getPic());
+                    arr.put(o);
+                    if (di == it) selIdx = idx;
+                    idx++;
+                } catch (Throwable ignored) {
                 }
-            });
-        }
-    }
-
-    private void refreshEpisodes() {
-        episodes.clear();
-        if (currentLine != null) episodes.addAll(currentLine.getEpisodes());
-        episodeAdapter.notifyDataSetChanged();
-        binding.tvDetailEpLabel.setText(episodes.isEmpty() ? "选集" : "选集（" + episodes.size() + "）");
-    }
-
-    private class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.Holder> {
-
-        class Holder extends RecyclerView.ViewHolder {
-            TextView tv;
-
-            Holder(View v) {
-                super(v);
-                tv = v.findViewById(R.id.tv_episode);
             }
-        }
-
-        @NonNull
-        @Override
-        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_episode, parent, false);
-            return new Holder(v);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull Holder h, int position) {
-            HkDetail.Episode ep = episodes.get(position);
-            h.tv.setText(ep.getName());
-            h.itemView.setOnClickListener(v -> {
-                int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION || currentRule == null || currentLine == null) return;
-                HkDetail.Episode e = episodes.get(pos);
+            final String pu = playUrl;
+            final String eps = arr.toString();
+            final int sel = selIdx;
+            App.post(() -> {
+                if (TextUtils.isEmpty(pu)) {
+                    android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 String title = detailItem != null && !TextUtils.isEmpty(detailItem.getTitle())
-                        ? detailItem.getTitle()
-                        : (currentDetail == null ? "" : currentDetail.getTitle());
-                String pic = detailItem != null ? detailItem.getPic()
-                        : (currentDetail == null ? "" : currentDetail.getPic());
+                        ? detailItem.getTitle() : "";
+                String pic = detailItem != null ? detailItem.getPic() : "";
+                String lineName = it.getLine() == null || it.getLine().isEmpty() ? "默认" : it.getLine();
                 VideoActivity.startHkPlay(HkPageActivity.this,
-                        currentRule.getTitle(), currentLine.getName(),
-                        e.getUrl(), e.getName(), title, pic);
+                        currentRule == null ? "" : currentRule.getTitle(), lineName,
+                        pu, it.getTitle(), title, pic, eps, sel);
             });
-        }
-
-        @Override
-        public int getItemCount() {
-            return episodes.size();
-        }
-    }
-
-    /** 选集 4 列网格间距。 */
-    private class EpSpace extends RecyclerView.ItemDecoration {
-        @Override
-        public void getItemOffsets(@NonNull Rect outRect, @NonNull View view, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
-            int pos = parent.getChildAdapterPosition(view);
-            if (pos < 0) return;
-            int col = pos % 4;
-            int h = dp(8);
-            int v = dp(8);
-            outRect.left = col == 0 ? 0 : h / 2;
-            outRect.right = col == 3 ? 0 : h / 2;
-            if (pos >= 4) outRect.top = v;
-        }
+        }).start();
     }
 
     // ================= 通用组件 =================
@@ -4404,6 +4316,18 @@ public class HkPageActivity extends BaseActivity {
         boolean hasLazy = preRule.contains("@lazyRule=");
         // 官方 clickItem：@rule= 条目进子列表页（dealRule 新建 ArticleListRule 打开 FilmListActivity），不进 V4
         if (ar >= 0 && !hasLazy && openSubList(it, url)) return;
+        // 8.83 原版 dealWithUrl：详情页内可播 URL 直接播放，不套娃进详情
+        if (!stack.isEmpty() && stack.peek() == V_DETAIL) {
+            String kind = HkRouter.dealKind(url);
+            if ("video".equals(kind)) {
+                playDetailEpisode(it, url);
+                return;
+            }
+            if (!kind.isEmpty()) {
+                handleDealUrl(kind, url, it);
+                return;
+            }
+        }
         openDetail(it, true, hasLazy);
     }
 
@@ -4730,6 +4654,20 @@ public class HkPageActivity extends BaseActivity {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 cm.setPrimaryClip(ClipData.newPlainText("hk", url.substring(7)));
                 android.widget.Toast.makeText(this, "已复制", android.widget.Toast.LENGTH_SHORT).show();
+                return true;
+            }
+            if (url.startsWith("download://")) {
+                try {
+                    String realUrl = url.substring(11).trim();
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                    android.app.DownloadManager.Request req = new android.app.DownloadManager.Request(android.net.Uri.parse(realUrl));
+                    req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    req.setTitle(it != null && !TextUtils.isEmpty(it.getTitle()) ? stripHtml(it.getTitle()) : "下载");
+                    dm.enqueue(req);
+                    android.widget.Toast.makeText(this, "开始下载", android.widget.Toast.LENGTH_SHORT).show();
+                } catch (Throwable t) {
+                    android.widget.Toast.makeText(this, "下载失败", android.widget.Toast.LENGTH_SHORT).show();
+                }
                 return true;
             }
             if (url.startsWith("confirm://")) {
@@ -5794,6 +5732,22 @@ public class HkPageActivity extends BaseActivity {
                     }
                 }
             }
+            setContentClick(h, item);
+        }
+
+        /**
+         * 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右（130×90dp，圆角 8dp）。
+         * 标题 16sp 最多 2 行省略，描述最多 2 行底部对齐。点击走通用条目点击。
+         */
+        private void bindDetailHeader(Holder h, HkItem item) {
+            if (h.title == null || h.cover == null) return;
+            h.title.setText(titleSpan(item.getTitle()));
+            String d = stripHtml(item.getDesc());
+            if (h.desc != null) {
+                h.desc.setText(d);
+                h.desc.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
+            }
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             setContentClick(h, item);
         }
 

@@ -1,18 +1,30 @@
 package com.fongmi.android.tv.api.hk;
 
+import android.content.Context;
+
+import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.utils.XingChenDoh;
+import com.github.catvod.bean.Doh;
+
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import okhttp3.Dns;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.dnsoverhttps.DnsOverHttps;
 
 /**
  * 海阔 URL 模板展开 + 简单 GET（设计文档 §4.2）。
@@ -38,16 +50,113 @@ public class HkHttp {
     private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
     private static volatile OkHttpClient client;
+    /** 海阔图片专用 client（8.83 OkHttpUrlLoader.Factory 内建 client 配置） */
+    private static volatile OkHttpClient imageClient;
+    /** 海阔专用的 DNS（含 DoH），移植自 8.83 MoreSettingOfficer.loadDns 逻辑 */
+    private static final Dns HK_DNS = new Dns() {
+        @Override
+        public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+            DnsOverHttps doh = hkDoh;
+            return (doh != null ? doh : Dns.SYSTEM).lookup(hostname);
+        }
+    };
+    private static volatile DnsOverHttps hkDoh;
 
+    /**
+     * 应用 DoH 设置到海阔客户端（对应 8.83 MoreSettingOfficer.loadDns）。
+     * 8.83 默认"智能"不设置 DNS（走系统）；星辰"系统"同理传空。
+     */
+    public static void applyDoh(Context context) {
+        try {
+            int idx = XingChenDoh.getIndex(context);
+            if (idx == 0) {
+                hkDoh = null;
+            } else {
+                Doh d = XingChenDoh.toDoh(context);
+                HttpUrl url = HttpUrl.parse(d.getUrl());
+                hkDoh = url == null ? null : new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).build();
+            }
+            // 重建 client 使新 DNS 生效
+            synchronized (HkHttp.class) {
+                client = null;
+                imageClient = null;
+            }
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
+
+    /**
+     * 海阔图片专用 OkHttpClient，移植自 8.83 OkHttpUrlLoader.Factory 内建 client：
+     * - BrotliInterceptor
+     * - 信任所有证书 SSL（UnSafeTrustManager + UnSafeHostnameVerifier）
+     * - loadDns（DoH）
+     * - 超时 + CookieJar
+     * 不含 ContentType 拦截器（8.83 图片 client 同样不加）。
+     */
+    public static OkHttpClient imageClient() {
+        if (imageClient == null) {
+            synchronized (HkHttp.class) {
+                if (imageClient == null) {
+                    OkHttpClient.Builder b = new OkHttpClient.Builder()
+                            .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
+                            .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
+                            .dns(HK_DNS)
+                            .connectTimeout(15, TimeUnit.SECONDS)
+                            .readTimeout(30, TimeUnit.SECONDS)
+                            .writeTimeout(30, TimeUnit.SECONDS);
+                    try {
+                        Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
+                        Object inst = c.getField("INSTANCE").get(null);
+                        b.addInterceptor((okhttp3.Interceptor) inst);
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        b.cookieJar(HkCookieJar.get(App.get()));
+                    } catch (Throwable ignored) {
+                    }
+                    imageClient = b.build();
+                }
+            }
+        }
+        return imageClient;
+    }
+
+    /**
+     * 构建 OkHttpClient，移植自 8.83 HttpHelper.buildOkHttpClient(int, boolean)：
+     * - 信任所有证书 SSL（HttpsUtils.getSslSocketFactory + UnSafeHostnameVerifier）
+     * - loadDns（DoH）
+     * - ContentTypePreInterceptor + ContentTypeAfterInterceptor（network）
+     * - CookieJar 持久化
+     * - 统一超时
+     */
     private static OkHttpClient client() {
         if (client == null) {
             synchronized (HkHttp.class) {
                 if (client == null) {
-                    client = new OkHttpClient.Builder()
+                    OkHttpClient.Builder b = new OkHttpClient.Builder()
+                            .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
+                            .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
+                            .dns(HK_DNS)
+                            .addInterceptor(HkContentTypePreInterceptor.INSTANCE)
+                            .addNetworkInterceptor(HkContentTypeAfterInterceptor.INSTANCE)
                             .connectTimeout(15, TimeUnit.SECONDS)
                             .readTimeout(30, TimeUnit.SECONDS)
+                            .writeTimeout(30, TimeUnit.SECONDS)
                             .followRedirects(true)
-                            .build();
+                            .followSslRedirects(true);
+                    // Brotli（8.83 标配）：反射加载，缺失则跳过
+                    try {
+                        Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
+                        Object inst = c.getField("INSTANCE").get(null);
+                        b.addInterceptor((okhttp3.Interceptor) inst);
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        b.cookieJar(HkCookieJar.get(App.get()));
+                    } catch (Throwable ignored) {
+                    }
+                    client = b.build();
                 }
             }
         }

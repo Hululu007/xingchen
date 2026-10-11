@@ -41,6 +41,12 @@ public class XingChenDoh {
         } catch (Throwable t) {
             t.printStackTrace();
         }
+        // 同步应用到海阔客户端（8.83 loadDns 逻辑）
+        try {
+            com.fongmi.android.tv.api.hk.HkHttp.applyDoh(context);
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
     }
 
     public static void setIndex(Context context, int index) {

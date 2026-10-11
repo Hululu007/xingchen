@@ -85,6 +85,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 海阔小程序单页（M3）：V1 规则列表 / V2 分类+列表 / V3 搜索结果 / V4 详情，三视图栈式切换。
@@ -183,6 +188,8 @@ public class HkPageActivity extends BaseActivity {
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
+    /** 跨小程序搜索代际：新搜索开始时自增，旧搜索的迟到结果直接丢弃。 */
+    private final AtomicInteger crossSearchGen = new AtomicInteger(0);
     /** 搜索页：true = 小程序列表入口的整页内容搜索；false = 内容页内单规则搜索 */
     private boolean searchDualMode = false;
 
@@ -272,6 +279,22 @@ public class HkPageActivity extends BaseActivity {
             } catch (Throwable ignored) {
             }
         }).start();
+    }
+
+    /**
+     * 跨小程序搜索结果点击：静默切换到来源小程序（只换 currentRule + 重建 router，
+     * 不切视图不 reload 内容页），供后续 openDetail 用来源规则的引擎解析详情。
+     */
+    private void switchRuleForDetail(com.fongmi.android.tv.api.hk.HkRule target) {
+        if (target == null) return;
+        if (currentRule != null && target.getTitle().equals(currentRule.getTitle())) return;
+        destroyRouterAsync();
+        currentRule = target;
+        // 预热新规则的 runtime（图片 @js= 求值等依赖当前 runtime 登记）
+        try {
+            getRouter();
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -2746,7 +2769,8 @@ public class HkPageActivity extends BaseActivity {
         searchResults.clear();
         searchAdapter.notifyDataSetChanged();
         binding.etKeyword.setText(kw);
-        binding.etKeyword.setHint("输入关键词搜索");
+        binding.etKeyword.setHint(searchHint());
+        updateSearchScopeLabel();
         binding.tvSearchEmpty.setVisibility(View.GONE);
         binding.rvSearchResults.setVisibility(View.VISIBLE);
         binding.historySection.setVisibility(View.GONE);
@@ -3114,12 +3138,11 @@ public class HkPageActivity extends BaseActivity {
         searchAdapter = new VideoAdapter(searchResults, false);
         binding.rvSearchResults.setAdapter(searchAdapter);
         binding.rvHistory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 搜索页磨砂风格：搜索条真 blur（API 31+，低版本半透明兜底）
-        FrostedGlass.blurBackground(binding.searchBar);
+        // 搜索页搜索条用实色白底（用户反馈透明看不清，已去磨砂）
         binding.btnBackSearch.setOnClickListener(v -> onBackInvoked());
         binding.btnClear.setOnClickListener(v -> binding.etKeyword.setText(""));
         binding.btnClearHistory.setOnClickListener(v -> {
-            getPrefs().edit().remove(KEY_HIST).apply();
+            getPrefs().edit().remove(histKey()).apply();
             refreshHistory();
         });
         binding.etKeyword.addTextChangedListener(new TextWatcher() {
@@ -3166,13 +3189,46 @@ public class HkPageActivity extends BaseActivity {
         searchResults.clear();
         searchAdapter.notifyDataSetChanged();
         binding.etKeyword.setText("");
-        binding.etKeyword.setHint("输入关键词搜索");
+        // 小程序内搜索：hint 带上规则名，明确作用域（之前通用 hint 像全局搜索）
+        binding.etKeyword.setHint(searchHint());
+        updateSearchScopeLabel();
         binding.tvSearchEmpty.setVisibility(View.GONE);
         binding.rvSearchResults.setVisibility(View.VISIBLE);
         refreshHistory();
         binding.historySection.setVisibility(View.VISIBLE);
         pushView(V_SEARCH);
         binding.etKeyword.requestFocus();
+    }
+
+    /** 小程序内搜索的输入框 hint：带上规则名，如"搜索一个APP"。 */
+    private String searchHint() {
+        if (!searchDualMode && currentRule != null && currentRule.getTitle() != null) {
+            return "搜索" + currentRule.getTitle();
+        }
+        return "输入关键词搜索";
+    }
+
+    /** V_SEARCH 作用域标识：单规则模式显示"在「X」内搜索"，跨搜模式隐藏。 */
+    private void updateSearchScopeLabel() {
+        try {
+            if (!searchDualMode && currentRule != null && currentRule.getTitle() != null
+                    && !currentRule.getTitle().isEmpty()) {
+                binding.tvSearchScope.setText("在「" + currentRule.getTitle() + "」内搜索");
+                binding.tvSearchScope.setVisibility(View.VISIBLE);
+            } else {
+                binding.tvSearchScope.setVisibility(View.GONE);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 搜索历史按作用域隔离：小程序内搜索用各规则独立的 key，跨搜用全局 key。 */
+    private String histKey() {
+        if (!searchDualMode && currentRule != null && currentRule.getTitle() != null
+                && !currentRule.getTitle().isEmpty()) {
+            return KEY_HIST + "_" + currentRule.getTitle();
+        }
+        return KEY_HIST;
     }
 
     /**
@@ -3208,13 +3264,13 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
-     * 长按 🔍：整页内容搜索（只留"搜内容"模式，分段已去掉）。
-     * 正式逻辑走 HkJsRuntime.be()/batchExecute 并发扇出到各小程序；引擎未就绪前显示"引擎升级中"。
+     * 长按 🔍：跨小程序内容搜索（只留"搜内容"模式）。
      */
     private void openContentSearch() {
         searchDualMode = true;
         binding.etKeyword.setText("");
         binding.etKeyword.setHint("搜索全部小程序的内容");
+        updateSearchScopeLabel();
         binding.historySection.setVisibility(View.GONE);
         binding.tvSearchEmpty.setVisibility(View.VISIBLE);
         binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
@@ -3224,21 +3280,87 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
-     * 搜内容：跨小程序内容搜索。
-     * 正式逻辑走 HkJsRuntime.be()/batchExecute 并发扇出到各小程序；引擎未就绪前显示"引擎升级中"。
+     * 搜内容：跨小程序内容搜索。对所有启用的小程序并发调用 search(keyword, 1)，
+     * 结果按小程序分组展示（来源标注在条目 desc 前缀），点击条目自动切到对应小程序再进详情。
      */
     private void doCrossSearch(String kw) {
+        final int gen = crossSearchGen.incrementAndGet();
         binding.rvSearchResults.setVisibility(View.GONE);
         binding.tvSearchEmpty.setVisibility(View.VISIBLE);
+        searchResults.clear();
+        searchAdapter.notifyDataSetChanged();
         if (kw.isEmpty()) {
             binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
             return;
         }
-        if (!com.fongmi.android.tv.api.hk.HkJsRuntime.BATCH_EXECUTE_READY) {
-            binding.tvSearchEmpty.setText("引擎升级中，跨小程序内容搜索稍后上线");
+        List<com.fongmi.android.tv.api.hk.HkRule> enabled;
+        try {
+            enabled = com.fongmi.android.tv.api.hk.HkRuleManager.get().getEnabledRules();
+        } catch (Throwable e) {
+            enabled = new ArrayList<>();
+        }
+        if (enabled.isEmpty()) {
+            binding.tvSearchEmpty.setText("没有启用的小程序");
             return;
         }
-        // TODO(D 阶段)：be()/batchExecute 就绪后，在此并发调用各规则 search 并聚合结果（标注来源小程序）。
+        binding.tvSearchEmpty.setText("正在搜索 " + enabled.size() + " 个小程序…");
+        saveHistory(kw);
+        final List<com.fongmi.android.tv.api.hk.HkRule> rules = enabled;
+        final String keywordFinal = kw;
+        new Thread(() -> {
+            int poolSize = Math.min(rules.size(), 8);
+            ThreadPoolExecutor pool = new ThreadPoolExecutor(poolSize, poolSize, 10L,
+                    TimeUnit.SECONDS, new LinkedBlockingQueue<>(256));
+            CountDownLatch latch = new CountDownLatch(rules.size());
+            List<HkItem> aggregated = Collections.synchronizedList(new ArrayList<>());
+            for (com.fongmi.android.tv.api.hk.HkRule rule : rules) {
+                final com.fongmi.android.tv.api.hk.HkRule r = rule;
+                pool.execute(() -> {
+                    try {
+                        // 每个规则独立 router，避免与当前页面的 router 互相干扰
+                        com.fongmi.android.tv.api.hk.HkRouter router =
+                                new com.fongmi.android.tv.api.hk.HkRouter(r);
+                        List<HkItem> list = router.search(keywordFinal, 1);
+                        if (list != null) {
+                            for (HkItem it : list) {
+                                if (it == null) continue;
+                                // 标注来源小程序，供展示分组与点击切换
+                                it.getExtra().put("_srcRule", r.getTitle());
+                                aggregated.add(it);
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            try {
+                // 整体超时 25 秒，避免某个规则卡死拖住全部
+                latch.await(25, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            try {
+                if (!pool.isShutdown()) pool.shutdownNow();
+            } catch (Throwable ignored) {
+            }
+            final List<HkItem> result = new ArrayList<>(aggregated);
+            App.post(() -> {
+                if (gen != crossSearchGen.get()) return; // 已被新搜索取代
+                searchResults.clear();
+                searchResults.addAll(result);
+                searchAdapter.notifyDataSetChanged();
+                if (result.isEmpty()) {
+                    binding.tvSearchEmpty.setVisibility(View.VISIBLE);
+                    binding.rvSearchResults.setVisibility(View.GONE);
+                    binding.tvSearchEmpty.setText("无相关结果");
+                } else {
+                    binding.tvSearchEmpty.setVisibility(View.GONE);
+                    binding.rvSearchResults.setVisibility(View.VISIBLE);
+                }
+            });
+        }).start();
     }
 
     private void doSearch(String kw) {
@@ -3249,6 +3371,8 @@ public class HkPageActivity extends BaseActivity {
         searchResults.clear();
         searchAdapter.notifyDataSetChanged();
         binding.tvSearchEmpty.setVisibility(View.GONE);
+        // 空态文案带上作用域，避免"无相关结果"被误读为全局无结果
+        binding.tvSearchEmpty.setText("在「" + currentRule.getTitle() + "」中无相关结果");
         binding.rvSearchResults.setVisibility(View.VISIBLE);
         binding.historySection.setVisibility(View.GONE);
         saveHistory(kw);
@@ -3292,7 +3416,7 @@ public class HkPageActivity extends BaseActivity {
 
     private List<String> loadHistory() {
         List<String> out = new ArrayList<>();
-        String s = getPrefs().getString(KEY_HIST, "");
+        String s = getPrefs().getString(histKey(), "");
         if (!s.isEmpty()) {
             for (String part : s.split("")) {
                 if (!part.isEmpty()) out.add(part);
@@ -3306,7 +3430,7 @@ public class HkPageActivity extends BaseActivity {
         hist.remove(kw);
         hist.add(0, kw);
         while (hist.size() > 20) hist.remove(hist.size() - 1);
-        getPrefs().edit().putString(KEY_HIST, TextUtils.join("", hist)).apply();
+        getPrefs().edit().putString(histKey(), TextUtils.join("", hist)).apply();
         refreshHistory();
     }
 
@@ -3881,13 +4005,32 @@ public class HkPageActivity extends BaseActivity {
         public void onBindViewHolder(@NonNull Holder h, int position) {
             HkItem item = items.get(position);
             h.title.setText(item.getTitle());
-            h.desc.setText(item.getDesc());
-            h.desc.setVisibility(TextUtils.isEmpty(item.getDesc()) ? View.GONE : View.VISIBLE);
+            // 跨小程序搜索结果：在 desc 前缀标注来源小程序
+            String srcRule = item.getExtra("_srcRule");
+            String desc = item.getDesc() == null ? "" : item.getDesc();
+            if (!TextUtils.isEmpty(srcRule)) {
+                desc = ("".equals(desc) ? "" : desc + "  ") + "【" + srcRule + "】";
+            }
+            h.desc.setText(desc);
+            h.desc.setVisibility(TextUtils.isEmpty(desc) ? View.GONE : View.VISIBLE);
             ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION || currentRule == null) return;
+                if (pos == RecyclerView.NO_POSITION) return;
                 HkItem it = items.get(pos);
+                // 跨搜索结果：先切到来源小程序，再走正常详情流程
+                String itSrc = it.getExtra("_srcRule");
+                if (!TextUtils.isEmpty(itSrc)
+                        && (currentRule == null || !itSrc.equals(currentRule.getTitle()))) {
+                    com.fongmi.android.tv.api.hk.HkRule target =
+                            com.fongmi.android.tv.api.hk.HkRuleManager.get().getRule(itSrc);
+                    if (target != null) {
+                        switchRuleForDetail(target);
+                    } else {
+                        return;
+                    }
+                }
+                if (currentRule == null) return;
                 String mu = it.getUrl() == null ? "" : it.getUrl();
                 // 动作协议优先：@inputRule= 口令弹窗、toast:// 等；之前缺这行导致口令点了没反应
                 if (handleActionUrl(mu.trim(), it)) return;

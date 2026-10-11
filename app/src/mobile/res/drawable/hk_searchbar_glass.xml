@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 搜索页：磨砂玻璃搜索条（真 blur 由 FrostedGlass 叠加） -->
+<!-- 搜索页：实色白底搜索条（用户反馈透明看不清，去掉磨砂） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#E6FFFFFF" />
+    <solid android:color="#FFFFFF" />
     <corners android:radius="26dp" />
     <stroke android:width="1dp" android:color="#E1E5EB" />
 </shape>

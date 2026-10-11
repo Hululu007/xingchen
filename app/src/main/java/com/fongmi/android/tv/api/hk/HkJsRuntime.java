@@ -16,12 +16,14 @@ import com.google.gson.reflect.TypeToken;
 import com.orhanobut.logger.Logger;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.ConsString;
 import org.mozilla.javascript.NativeArray;
 import org.mozilla.javascript.NativeJSON;
 import org.mozilla.javascript.NativeJavaObject;
 import org.mozilla.javascript.NativeObject;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
+import org.mozilla.javascript.Undefined;
 
 import java.io.File;
 import java.io.InputStream;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -196,6 +199,80 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         return String.valueOf(r);
     }
 
+    /**
+     * 8.83 JSEngine.isUndefined（smali 5714-5738）：字符串 "undefined" 或 Rhino Undefined。
+     */
+    private static boolean isUndefined(Object o) {
+        return "undefined".equals(o) || Undefined.isUndefined(o);
+    }
+
+    /**
+     * 8.83 JSEngine.argsNativeObjectAdjust(Object)（smali 704-716）：调双参版本，p2=false。
+     */
+    private Object argsNativeObjectAdjust(Object o) {
+        return argsNativeObjectAdjust(o, false);
+    }
+
+    /**
+     * 8.83 JSEngine.argsNativeObjectAdjust(Object, boolean)（smali 717-897）：
+     * 递归把 NativeObject 转为 Map、NativeArray 转为 List；p2=true 时跳过 "param" 键的递归；
+     * ConsString 取字符串；NativeJavaObject 解包；其余原样返回。
+     * 注：8.83 用 fastjson 的 JSONObject/JSONArray，本项目未引入 fastjson，
+     * 用 JDK 的 LinkedHashMap/ArrayList 等价替代（getString 只判断 instanceof String，行为一致）。
+     */
+    private Object argsNativeObjectAdjust(Object o, boolean skipParam) {
+        if (isUndefined(o)) return o;
+        if (o instanceof NativeObject) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            NativeObject no = (NativeObject) o;
+            for (Object key : no.keySet()) {
+                Object val = no.get(key);
+                if (!skipParam || !"param".equals(key)) {
+                    val = argsNativeObjectAdjust(val, skipParam);
+                }
+                try {
+                    map.put(key + "", val);
+                } catch (Throwable e) {
+                    Logger.t(TAG).e(e, "argsNativeObjectAdjust put failed");
+                }
+            }
+            return map;
+        }
+        if (o instanceof NativeArray) {
+            List<Object> list = new ArrayList<>();
+            NativeArray na = (NativeArray) o;
+            for (int i = 0; i < na.size(); i++) {
+                list.add(argsNativeObjectAdjust(na.get(i), skipParam));
+            }
+            return list;
+        }
+        if (o instanceof ConsString) return o.toString();
+        if (o instanceof NativeJavaObject) o = ((NativeJavaObject) o).unwrap();
+        return o;
+    }
+
+    /**
+     * 8.83 JSEngine.getString（smali 5320-5343）：永不对 JS 对象调 toString，
+     * 非 String 一律返回 null（91短视频 TypeError: 未找到对象默认值 根因修复）。
+     */
+    private String getString(Object o) {
+        Object adjusted = argsNativeObjectAdjust(o);
+        if (adjusted instanceof String) return (String) adjusted;
+        return null;
+    }
+
+    /**
+     * JS 参数转字符串（8.83 getString 语义 + 调用方判空惯例）：
+     * 先走 getString；Number/Boolean 保留 Java 字符串形式（sleep/parseBoolean 等数值参数兼容，
+     * 对应 8.83 getIntValue 对数值的保留）；其余（JS 对象/undefined/null）兜底 ""。
+     */
+    private String argStr(Object o) {
+        String s = getString(o);
+        if (s != null) return s;
+        if (o instanceof Number || o instanceof Boolean) return String.valueOf(o);
+        return "";
+    }
+
     /** List<String> -> JS 数组（替代 JSUtil.toArray）。 */
     private NativeArray toJsArray(List<String> items) {
         NativeArray arr = new NativeArray(items == null ? 0 : items.size());
@@ -305,13 +382,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return null;
         });
         putFunction("setError", args -> {
-            error = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            error = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("setError: %s", error);
             return null;
         });
         // 官方别名：error 即 setError
         putFunction("error", args -> {
-            error = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            error = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("error: %s", error);
             return null;
         });
@@ -319,7 +396,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 网络 ----
         putFunction("fetch", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             // D2：hiker://assets/ 走内置 asset（官方 HttpHelper.fetch 经 fetchByHiker 拦截同款）
             if (url.startsWith("hiker://assets/")) return loadAssetText(url);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : null;
@@ -327,14 +404,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("post", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             options = mergeMethod(options, "post");
             return fetchSync(url, options);
         });
         putFunction("request", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             // hiker://page/<path> 内部协议：从规则 pages 里按 path 取页面规则，返回 {"rule": "..."}
             if (url.startsWith("hiker://page/")) return handlePageRequest(url);
             // D2：hiker://assets/ 走内置 asset（官方 $.require 经 getScript→request() 取脚本同款）
@@ -350,42 +427,42 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- DOM 解析（复用 Parser，即海阔 parseHikerToJq 路径） ----
         putFunction("parseDom", args -> {
             if (args == null || args.length < 2) return "";
-            String urlKey = args.length > 2 && args[2] != null ? String.valueOf(args[2]) : (lastUrl == null ? "" : lastUrl);
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), urlKey);
+            String urlKey = args.length > 2 && args[2] != null ? argStr(args[2]) : (lastUrl == null ? "" : lastUrl);
+            return parser.pdfh(argStr(args[0]), sel(args[1]), urlKey);
         });
         putFunction("pd", args -> {
             if (args == null || args.length < 2) return "";
-            String urlKey = args.length > 2 && args[2] != null ? String.valueOf(args[2]) : (lastUrl == null ? "" : lastUrl);
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), urlKey);
+            String urlKey = args.length > 2 && args[2] != null ? argStr(args[2]) : (lastUrl == null ? "" : lastUrl);
+            return parser.pdfh(argStr(args[0]), sel(args[1]), urlKey);
         });
         putFunction("parseDomForHtml", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), "");
+            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
         });
         putFunction("pdfh", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), "");
+            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
         });
         putFunction("parseDomForArray", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            List<String> items = parser.pdfa(String.valueOf(args[0]), sel(args[1]));
+            List<String> items = parser.pdfa(argStr(args[0]), sel(args[1]));
             return toJsArray(items);
         });
         putFunction("pdfa", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            List<String> items = parser.pdfa(String.valueOf(args[0]), sel(args[1]));
+            List<String> items = parser.pdfa(argStr(args[0]), sel(args[1]));
             return toJsArray(items);
         });
 
         // ---- 存储 ----
         putFunction("putVar", args -> {
-            if (args != null && args.length > 1) vars.put(String.valueOf(args[0]), String.valueOf(args[1]));
+            if (args != null && args.length > 1) vars.put(argStr(args[0]), argStr(args[1]));
             return null;
         });
         // 官方 putVar2：值非字符串时 JSON 序列化后存入（与 putVar 区别仅在此）
         putFunction("putVar2", args -> {
             if (args == null || args.length < 2) return null;
-            String k = String.valueOf(args[0]);
+            String k = argStr(args[0]);
             if (TextUtils.isEmpty(k)) return null;
             Object v = args[1];
             String s;
@@ -399,28 +476,28 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("getVar", args -> {
             if (args == null || args.length == 0) return "";
-            String v = vars.get(String.valueOf(args[0]));
+            String v = vars.get(argStr(args[0]));
             // 8.83 官方 getVar：default 为 undefined/null 时返回 ""，不是 "null" 字符串
-            if (v == null && args.length > 1 && args[1] != null) v = String.valueOf(args[1]);
+            if (v == null && args.length > 1 && args[1] != null) v = argStr(args[1]);
             return v == null ? "" : v;
         });
         putFunction("setItem", args -> {
             if (args != null && args.length > 1) {
-                kv.put(String.valueOf(args[0]), String.valueOf(args[1]));
+                kv.put(argStr(args[0]), argStr(args[1]));
                 saveKv();
             }
             return null;
         });
         putFunction("getItem", args -> {
             if (args == null || args.length == 0) return "";
-            String v = kv.get(String.valueOf(args[0]));
-            if (v == null && args.length > 1) v = String.valueOf(args[1]);
+            String v = kv.get(argStr(args[0]));
+            if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });
 
         // ---- 调试 ----
         putFunction("toast", args -> {
-            final String msg = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            final String msg = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("toast: %s", msg);
             try {
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
@@ -430,7 +507,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return null;
         });
         putFunction("log", args -> {
-            Logger.t(TAG).d("%s", args != null && args.length > 0 ? String.valueOf(args[0]) : "");
+            Logger.t(TAG).d("%s", args != null && args.length > 0 ? argStr(args[0]) : "");
             return null;
         });
 
@@ -470,7 +547,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("getParam", args -> {
             // getParam('word')：从 MY_URL 的 query 里取值（$('...').rule(fn) 场景）
             if (args == null || args.length == 0) return "";
-            String key = String.valueOf(args[0]);
+            String key = argStr(args[0]);
             try {
                 String u = lastUrl == null ? "" : lastUrl;
                 int q = u.indexOf('?');
@@ -492,12 +569,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 编解码 ----
         putFunction("base64Encode", args -> {
             if (args == null || args.length == 0) return "";
-            return Util.base64(String.valueOf(args[0]).getBytes(Charset.forName("UTF-8")));
+            return Util.base64(argStr(args[0]).getBytes(Charset.forName("UTF-8")));
         });
         putFunction("base64Decode", args -> {
             if (args == null || args.length == 0) return "";
             try {
-                return new String(Base64.decode(String.valueOf(args[0]), Base64.DEFAULT), Charset.forName("UTF-8"));
+                return new String(Base64.decode(argStr(args[0]), Base64.DEFAULT), Charset.forName("UTF-8"));
             } catch (Throwable e) {
                 return "";
             }
@@ -505,8 +582,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("encodeStr", args -> {
             if (args == null || args.length == 0) return "";
             try {
-                String charset = args.length > 1 ? String.valueOf(args[1]) : "UTF-8";
-                return Util.base64(String.valueOf(args[0]).getBytes(Charset.forName(charset)));
+                String charset = args.length > 1 ? argStr(args[1]) : "UTF-8";
+                return Util.base64(argStr(args[0]).getBytes(Charset.forName(charset)));
             } catch (Throwable e) {
                 return "";
             }
@@ -514,30 +591,30 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("decodeStr", args -> {
             if (args == null || args.length == 0) return "";
             try {
-                String charset = args.length > 1 ? String.valueOf(args[1]) : "UTF-8";
-                return new String(Base64.decode(String.valueOf(args[0]), Base64.DEFAULT), Charset.forName(charset));
+                String charset = args.length > 1 ? argStr(args[1]) : "UTF-8";
+                return new String(Base64.decode(argStr(args[0]), Base64.DEFAULT), Charset.forName(charset));
             } catch (Throwable e) {
                 return "";
             }
         });
         putFunction("aesEncode", args -> {
             if (args == null || args.length < 2) return "";
-            String key = String.valueOf(args[1]);
-            String iv = args.length > 2 ? String.valueOf(args[2]) : "";
-            return Crypto.aes("AES/CBC/PKCS5Padding", true, String.valueOf(args[0]), false, key, iv, true);
+            String key = argStr(args[1]);
+            String iv = args.length > 2 ? argStr(args[2]) : "";
+            return Crypto.aes("AES/CBC/PKCS5Padding", true, argStr(args[0]), false, key, iv, true);
         });
         putFunction("aesDecode", args -> {
             if (args == null || args.length < 2) return "";
-            String key = String.valueOf(args[1]);
-            String iv = args.length > 2 ? String.valueOf(args[2]) : "";
-            return Crypto.aes("AES/CBC/PKCS5Padding", false, String.valueOf(args[0]), true, key, iv, false);
+            String key = argStr(args[1]);
+            String iv = args.length > 2 ? argStr(args[2]) : "";
+            return Crypto.aes("AES/CBC/PKCS5Padding", false, argStr(args[0]), true, key, iv, false);
         });
 
         // ---- require：远程库加载（preRule 常用）；本地 libs/<md5(url)>.js 优先（.hkzip 自带库） ----
         putFunction("require", args -> {
             if (args == null || args.length == 0) return null;
             try {
-                String libUrl = String.valueOf(args[0]);
+                String libUrl = argStr(args[0]);
                 String code = loadLibLocal(libUrl);
                 if (code == null) code = fetchSync(libUrl, null);
                 if (!TextUtils.isEmpty(code)) evalJs(code);
@@ -554,7 +631,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 找不到再走远程/本地库逻辑。其他路径：复用 require 的远程/本地库逻辑。
         putFunction("__hkRequirePage", args -> {
             if (args == null || args.length == 0) return null;
-            String path = String.valueOf(args[0]);
+            String path = argStr(args[0]);
             try {
                 String pageCode = null;
                 boolean isRulePage = false;
@@ -612,17 +689,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
 
         // ---- 规则内会话变量（getMyVar/putMyVar/clearMyVar/listMyVarKeys） ----
         putFunction("putMyVar", args -> {
-            if (args != null && args.length > 1) myVars.put(String.valueOf(args[0]), String.valueOf(args[1]));
+            if (args != null && args.length > 1) myVars.put(argStr(args[0]), argStr(args[1]));
             return null;
         });
         putFunction("getMyVar", args -> {
             if (args == null || args.length == 0) return "";
-            String v = myVars.get(String.valueOf(args[0]));
-            if (v == null && args.length > 1) v = String.valueOf(args[1]);
+            String v = myVars.get(argStr(args[0]));
+            if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });
         putFunction("clearMyVar", args -> {
-            if (args != null && args.length > 0) myVars.remove(String.valueOf(args[0]));
+            if (args != null && args.length > 0) myVars.remove(argStr(args[0]));
             else myVars.clear();
             return null;
         });
@@ -635,19 +712,19 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 跨规则公共持久化（setPublicItem/getPublicItem/clearPublicItem） ----
         putFunction("setPublicItem", args -> {
             if (args != null && args.length > 1) {
-                publicKv.put(String.valueOf(args[0]), String.valueOf(args[1]));
+                publicKv.put(argStr(args[0]), argStr(args[1]));
                 savePublicKv();
             }
             return null;
         });
         putFunction("getPublicItem", args -> {
             if (args == null || args.length == 0) return "";
-            String v = publicKv.get(String.valueOf(args[0]));
-            if (v == null && args.length > 1) v = String.valueOf(args[1]);
+            String v = publicKv.get(argStr(args[0]));
+            if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });
         putFunction("clearPublicItem", args -> {
-            if (args != null && args.length > 0) publicKv.remove(String.valueOf(args[0]));
+            if (args != null && args.length > 0) publicKv.remove(argStr(args[0]));
             else publicKv.clear();
             savePublicKv();
             return null;
@@ -657,18 +734,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
         NativeObject storage0 = new NativeObject();
         putFunction(storage0, "putVar", args -> {
-            if (args != null && args.length > 1) vars.put(String.valueOf(args[0]), stringifyArg(args[1]));
+            if (args != null && args.length > 1) vars.put(argStr(args[0]), stringifyArg(args[1]));
             return null;
         });
         putFunction(storage0, "getVar", args -> storage0Get(vars, args));
         putFunction(storage0, "putMyVar", args -> {
-            if (args != null && args.length > 1) myVars.put(String.valueOf(args[0]), stringifyArg(args[1]));
+            if (args != null && args.length > 1) myVars.put(argStr(args[0]), stringifyArg(args[1]));
             return null;
         });
         putFunction(storage0, "getMyVar", args -> storage0Get(myVars, args));
         putFunction(storage0, "setItem", args -> {
             if (args != null && args.length > 1) {
-                kv.put(String.valueOf(args[0]), stringifyArg(args[1]));
+                kv.put(argStr(args[0]), stringifyArg(args[1]));
                 saveKv();
             }
             return null;
@@ -676,7 +753,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction(storage0, "getItem", args -> storage0Get(kv, args));
         putFunction(storage0, "setPublicItem", args -> {
             if (args != null && args.length > 1) {
-                publicKv.put(String.valueOf(args[0]), stringifyArg(args[1]));
+                publicKv.put(argStr(args[0]), stringifyArg(args[1]));
                 savePublicKv();
             }
             return null;
@@ -691,7 +768,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 String id = null;
                 Object obj = null;
                 if (args != null && args.length >= 2) {
-                    id = String.valueOf(args[0]);
+                    id = argStr(args[0]);
                     obj = args[1];
                 } else if (args != null && args.length == 1) {
                     obj = args[0];
@@ -735,7 +812,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("deleteItem", args -> {
             if (args != null && args.length > 0) {
-                String id = String.valueOf(args[0]);
+                String id = argStr(args[0]);
                 int idx = findResultIndex(id);
                 if (idx >= 0) results.remove(idx);
                 if (collectRaw) rawResults.removeIf(r -> id.equals(r.get("url")));
@@ -745,7 +822,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("deleteItemByCls", args -> {
             if (args != null && args.length > 0) {
-                String cls = String.valueOf(args[0]);
+                String cls = argStr(args[0]);
                 results.removeIf(it -> cls.equals(it.getColType()));
                 if (collectRaw) rawResults.removeIf(r -> cls.equals(r.get("col_type")));
                 Logger.t(TAG).d("deleteItemByCls: %s", cls);
@@ -755,7 +832,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 官方 clearItem(key) 清的是规则持久化存储里的 key；本宿主 kv.json 即规则存储，对其删 key 等价。
         putFunction("clearItem", args -> {
             if (args != null && args.length > 0 && args[0] != null) {
-                kv.remove(String.valueOf(args[0]));
+                kv.remove(argStr(args[0]));
                 saveKv();
                 Logger.t(TAG).d("clearItem: %s", args[0]);
             }
@@ -766,7 +843,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("evalPrivateJS", args -> {
             if (args == null || args.length == 0) return null;
             try {
-                String plain = aesDecryptECB(String.valueOf(args[0]).trim(), AES_PRIVATE_KEY);
+                String plain = aesDecryptECB(argStr(args[0]).trim(), AES_PRIVATE_KEY);
                 if (TextUtils.isEmpty(plain)) return null;
                 return evalJs(plain);
             } catch (Throwable e) {
@@ -778,20 +855,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 带缓存的网络（fc=fetchCache，rc=requireCache，key=url，hours 小时过期） ----
         putFunction("fc", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             double hours = args.length > 1 ? toDouble(args[1]) : 0;
             return memCached("fc:" + url, hours, () -> fetchSync(url, null));
         });
         // 官方全名：fetchCache 即 fc
         putFunction("fetchCache", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             double hours = args.length > 1 ? toDouble(args[1]) : 0;
             return memCached("fc:" + url, hours, () -> fetchSync(url, null));
         });
         putFunction("rc", args -> {
             if (args == null || args.length == 0) return null;
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             double hours = args.length > 1 ? toDouble(args[1]) : 0;
             String code = memCached("rc:" + url, hours, () -> {
                 String c = loadLibLocal(url);
@@ -807,7 +884,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 官方全名：requireCache 即 rc
         putFunction("requireCache", args -> {
             if (args == null || args.length == 0) return null;
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             double hours = args.length > 1 ? toDouble(args[1]) : 0;
             String code = memCached("rc:" + url, hours, () -> {
                 String c = loadLibLocal(url);
@@ -824,7 +901,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("bf", args -> {
             if (args == null || args.length == 0) return "[]";
             try {
-                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : String.valueOf(args[0]);
+                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
                 List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
                         new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
                 if (list == null || list.isEmpty()) return "[]";
@@ -869,7 +946,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("batchFetch", args -> {
             if (args == null || args.length == 0) return "[]";
             try {
-                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : String.valueOf(args[0]);
+                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
                 List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
                         new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
                 if (list == null || list.isEmpty()) return "[]";
@@ -920,27 +997,27 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return null;
         });
         putFunction("bcm", args -> {
-            String url = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("bcm: passthrough %s", url);
             return url;
         });
         // 官方全名：batchCacheM3u8 即 bcm（返回原地址，宿主不做真实缓存）
         putFunction("batchCacheM3u8", args -> {
-            String url = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("batchCacheM3u8: passthrough %s", url);
             return url;
         });
         // ---- PC 模式请求（桌面 UA）与 postRequest（即 post） ----
         putFunction("fetchPC", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             return fetchSync(url, mergeDesktopUa(options));
         });
         // 官方 postPC：桌面 UA 的 POST
         putFunction("postPC", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             options = mergeMethod(options, "post");
             return fetchSync(url, mergeDesktopUa(options));
@@ -949,7 +1026,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("fetchCookie", args -> {
             if (args == null || args.length == 0) return "";
             try {
-                String url = String.valueOf(args[0]);
+                String url = argStr(args[0]);
                 String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
                 // 强制 withHeaders
                 if (!options.contains("withHeaders")) {
@@ -981,7 +1058,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("postRequest", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             return fetchSync(url, mergeMethod(options, "post"));
         });
@@ -995,7 +1072,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // setPageReverse：官方设置页面倒序标记；宿主存 kv 供规则自查
         putFunction("setPageReverse", args -> {
             try {
-                boolean rev = args != null && args.length > 0 && Boolean.parseBoolean(String.valueOf(args[0]));
+                boolean rev = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
                 kv.put("__pageReverse", rev ? "1" : "0");
                 saveKv();
             } catch (Throwable ignored) {
@@ -1005,46 +1082,46 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
 
         // ---- 文件（作用域限定 App 文件目录；hiker://files/ 映射到 filesDir） ----
         putFunction("writeFile", args -> {
-            if (args != null && args.length > 1) writeFileContent(resolveHikerPath(String.valueOf(args[0])), String.valueOf(args[1]));
+            if (args != null && args.length > 1) writeFileContent(resolveHikerPath(argStr(args[0])), argStr(args[1]));
             return null;
         });
         putFunction("readFile", args -> {
             if (args == null || args.length == 0) return "";
-            return readFileContent(resolveHikerPath(String.valueOf(args[0])));
+            return readFileContent(resolveHikerPath(argStr(args[0])));
         });
         putFunction("fileExist", args -> {
             if (args == null || args.length == 0) return "false";
             // 官方返回 STRING "true"/"false"
-            return new File(resolveHikerPath(String.valueOf(args[0]))).exists() ? "true" : "false";
+            return new File(resolveHikerPath(argStr(args[0]))).exists() ? "true" : "false";
         });
         // 官方别名：exist 即 fileExist
         putFunction("exist", args -> {
             if (args == null || args.length == 0) return "false";
-            return new File(resolveHikerPath(String.valueOf(args[0]))).exists() ? "true" : "false";
+            return new File(resolveHikerPath(argStr(args[0]))).exists() ? "true" : "false";
         });
         putFunction("getPath", args -> {
             if (args == null || args.length == 0) return "";
-            return resolveHikerPath(String.valueOf(args[0]));
+            return resolveHikerPath(argStr(args[0]));
         });
         putFunction("saveFile", args -> {
             // saveFile(name, content, mode)：存到规则数据目录
             if (args != null && args.length > 1) {
-                File f = new File(HkRuleManager.get().getDataDir(rule.getTitle()), String.valueOf(args[0]));
-                writeFileContent(f.getAbsolutePath(), String.valueOf(args[1]));
+                File f = new File(HkRuleManager.get().getDataDir(rule.getTitle()), argStr(args[0]));
+                writeFileContent(f.getAbsolutePath(), argStr(args[1]));
             }
             return null;
         });
         putFunction("deleteFile", args -> {
             try {
-                if (args != null && args.length > 0) new File(resolveHikerPath(String.valueOf(args[0]))).delete();
+                if (args != null && args.length > 0) new File(resolveHikerPath(argStr(args[0]))).delete();
             } catch (Throwable ignored) {}
             return null;
         });
         putFunction("downloadFile", args -> {
             if (args == null || args.length < 2) return null;
             try {
-                String url = String.valueOf(args[0]);
-                String dest = resolveHikerPath(String.valueOf(args[1]));
+                String url = argStr(args[0]);
+                String dest = resolveHikerPath(argStr(args[1]));
                 File f = new File(dest);
                 if (f.isDirectory() || dest.endsWith("/")) {
                     String name = url.replaceAll("[?#].*$", "").replaceAll("^.*/", "");
@@ -1070,7 +1147,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             try {
                 if (args != null && args.length > 0) {
                     ClipboardManager cm = (ClipboardManager) App.get().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("hk", String.valueOf(args[0])));
+                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("hk", argStr(args[0])));
                 }
             } catch (Throwable e) {
                 Logger.t(TAG).d("copy failed: %s", e.getMessage());
@@ -1080,7 +1157,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("parsePaste", args -> {
             // 解析分享文本：云口令则拉取规则 JSON 返回，否则原文返回
             if (args == null || args.length == 0) return "";
-            String t = String.valueOf(args[0]).trim();
+            String t = argStr(args[0]).trim();
             try {
                 if (HkRuleManager.isCloudCode(t)) {
                     HkRule r = HkRuleManager.get().importByCloudCode(t);
@@ -1100,11 +1177,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
 
         // ---- m3u8 ----
         putFunction("fixM3u8", args -> {
-            if (args == null || args.length < 2) return args != null && args.length > 0 ? String.valueOf(args[0]) : "";
-            return fixM3u8Content(String.valueOf(args[0]), String.valueOf(args[1]));
+            if (args == null || args.length < 2) return args != null && args.length > 0 ? argStr(args[0]) : "";
+            return fixM3u8Content(argStr(args[0]), argStr(args[1]));
         });
         putFunction("cacheM3u8", args -> {
-            String url = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
             Logger.t(TAG).d("cacheM3u8: passthrough %s", url);
             return url;
         });
@@ -1112,17 +1189,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
 
         // ---- 页面信息 ----
         putFunction("setPageTitle", args -> {
-            if (args != null && args.length > 0) pageTitle = String.valueOf(args[0]);
+            if (args != null && args.length > 0) pageTitle = argStr(args[0]);
             return null;
         });
         putFunction("getPageTitle", args -> pageTitle);
         putFunction("getHome", args -> {
             if (args == null || args.length == 0) return "";
-            return homeOf(String.valueOf(args[0]));
+            return homeOf(argStr(args[0]));
         });
         putFunction("buildUrl", args -> {
             if (args == null || args.length == 0) return "";
-            String url = String.valueOf(args[0]);
+            String url = argStr(args[0]);
             if (args.length < 2 || args[1] == null) return url;
             try {
                 String json = stringifyArg(args[1]);
@@ -1144,11 +1221,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             }
         });
         putFunction("joinUrl", args -> {
-            if (args == null || args.length < 2) return args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+            if (args == null || args.length < 2) return args != null && args.length > 0 ? argStr(args[0]) : "";
             try {
-                return new java.net.URI(String.valueOf(args[0])).resolve(String.valueOf(args[1])).toString();
+                return new java.net.URI(argStr(args[0])).resolve(argStr(args[1])).toString();
             } catch (Throwable e) {
-                return String.valueOf(args[1]);
+                return argStr(args[1]);
             }
         });
         putFunction("getColTypes", args -> GSON.toJson(COL_TYPES));
@@ -1156,7 +1233,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 编解码补充 ----
         putFunction("md5", args -> {
             if (args == null || args.length == 0) return "";
-            String v = Util.md5(String.valueOf(args[0]));
+            String v = Util.md5(argStr(args[0]));
             return v == null ? "" : v;
         });
         // 官方 _base64 全局：8.83 JSEngine 注入的 MyBase64 实例（DEFAULT/NO_WRAP 常量 + 编解码方法），
@@ -1164,8 +1241,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("__b64encodeToString", args -> {
             if (args == null || args.length == 0) return "";
             try {
-                byte[] data = args[0] instanceof byte[] ? (byte[]) args[0] : String.valueOf(args[0]).getBytes("UTF-8");
-                int flags = args.length > 1 ? (int) Double.parseDouble(String.valueOf(args[1])) : android.util.Base64.DEFAULT;
+                byte[] data = args[0] instanceof byte[] ? (byte[]) args[0] : argStr(args[0]).getBytes("UTF-8");
+                int flags = args.length > 1 ? (int) Double.parseDouble(argStr(args[1])) : android.util.Base64.DEFAULT;
                 return android.util.Base64.encodeToString(data, flags);
             } catch (Throwable e) {
                 return "";
@@ -1174,8 +1251,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("__b64decode", args -> {
             if (args == null || args.length == 0) return toJsArray(new byte[0]);
             try {
-                int flags = args.length > 1 ? (int) Double.parseDouble(String.valueOf(args[1])) : android.util.Base64.DEFAULT;
-                return toJsArray(android.util.Base64.decode(String.valueOf(args[0]), flags));
+                int flags = args.length > 1 ? (int) Double.parseDouble(argStr(args[1])) : android.util.Base64.DEFAULT;
+                return toJsArray(android.util.Base64.decode(argStr(args[0]), flags));
             } catch (Throwable e) {
                 return toJsArray(new byte[0]);
             }
@@ -1199,12 +1276,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         }
         putFunction("hexToBase64", args -> {
             if (args == null || args.length == 0) return "";
-            return hexToB64(String.valueOf(args[0]));
+            return hexToB64(argStr(args[0]));
         });
         putFunction("hexToBytes", args -> {
             if (args == null || args.length == 0) return toJsArray(new byte[0]);
             try {
-                String h = String.valueOf(args[0]).trim();
+                String h = argStr(args[0]).trim();
                 byte[] b = new byte[h.length() / 2];
                 for (int i = 0; i < b.length; i++) b[i] = (byte) Integer.parseInt(h.substring(i * 2, i * 2 + 2), 16);
                 return toJsArray(b);
@@ -1214,11 +1291,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("rsaEncrypt", args -> {
             if (args == null || args.length < 2) return "";
-            return rsaCrypto(true, String.valueOf(args[0]), String.valueOf(args[1]));
+            return rsaCrypto(true, argStr(args[0]), argStr(args[1]));
         });
         putFunction("rsaDecrypt", args -> {
             if (args == null || args.length < 2) return "";
-            return rsaCrypto(false, String.valueOf(args[0]), String.valueOf(args[1]));
+            return rsaCrypto(false, argStr(args[0]), argStr(args[1]));
         });
         putFunction("getCryptoJS", args -> {
             // 官方语义：返回内置 CryptoJS 库（aes.js）源码，规则 eval(getCryptoJS()) 后使用
@@ -1231,7 +1308,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("toCorrectJSONString", args -> {
             if (args == null || args.length == 0) return "";
-            String t = String.valueOf(args[0]).trim();
+            String t = argStr(args[0]).trim();
             try {
                 GSON.fromJson(t, Object.class);
                 return t;
@@ -1258,7 +1335,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("addListener", args -> {
             try {
                 if (args != null && args.length > 1) {
-                    listeners.put(String.valueOf(args[0]), String.valueOf(args[1]));
+                    listeners.put(argStr(args[0]), argStr(args[1]));
                     Logger.t(TAG).d("addListener: %s", args[0]);
                 }
             } catch (Throwable ignored) {}
@@ -1267,7 +1344,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 官方别名：listen 即 addListener
         putFunction("listen", args -> {
             try {
-                if (args != null && args.length > 1) listeners.put(String.valueOf(args[0]), String.valueOf(args[1]));
+                if (args != null && args.length > 1) listeners.put(argStr(args[0]), argStr(args[1]));
             } catch (Throwable ignored) {}
             return null;
         });
@@ -1281,25 +1358,25 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // ---- 下划线内部别名（兼容老规则写法） ----
         putFunction("_pd", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), "");
+            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
         });
         putFunction("_pdfh", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(String.valueOf(args[0]), sel(args[1]), "");
+            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
         });
         putFunction("_pdfa", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            return toJsArray(parser.pdfa(String.valueOf(args[0]), sel(args[1])));
+            return toJsArray(parser.pdfa(argStr(args[0]), sel(args[1])));
         });
         putFunction("_pdfl", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            return toJsArray(parser.pdfa(String.valueOf(args[0]), sel(args[1])));
+            return toJsArray(parser.pdfa(argStr(args[0]), sel(args[1])));
         });
         putFunction("_findItem", args -> "");
         // findItemsByCls/deleteItemByCls：按条目 extra.cls 匹配当前已收集结果
         putFunction("_findItemsByCls", args -> {
             try {
-                String cls = args != null && args.length > 0 ? String.valueOf(args[0]) : "";
+                String cls = args != null && args.length > 0 ? argStr(args[0]) : "";
                 List<Map<String, Object>> out = new ArrayList<>();
                 for (HkItem it : results) {
                     if (cls.equals(it.getExtra("cls"))) {
@@ -1329,7 +1406,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // HkRouter.evalTab 消费该标记后由上层 loadContent(true) 重刷，语义与官方一致。
         putFunction("refreshPage", args -> {
             refreshRequested = true;
-            refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(String.valueOf(args[0]));
+            refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
             Logger.t(TAG).d("refreshPage(%s) requested", refreshToTop);
             return null;
         });
@@ -1338,7 +1415,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("sleep", args -> {
             long ms = 0;
             try {
-                if (args != null && args.length > 0) ms = Long.parseLong(String.valueOf(args[0]));
+                if (args != null && args.length > 0) ms = Long.parseLong(argStr(args[0]));
             } catch (Throwable ignored) {
             }
             if (ms > 0) {
@@ -1361,7 +1438,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 官方 setPagePicUrl(title)：发 SetPagePicEvent 更新页面配图；宿主存字段供上层取用
         putFunction("setPagePicUrl", args -> {
             try {
-                pagePicUrl = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                pagePicUrl = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setPagePicUrl: %s", pagePicUrl);
             } catch (Throwable e) {
                 Logger.t(TAG).d("setPagePicUrl failed: %s", e.getMessage());
@@ -1385,8 +1462,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("requireDownload", args -> {
             if (args == null || args.length < 2) return null;
             try {
-                String url = String.valueOf(args[0]);
-                String dest = resolveHikerPath(String.valueOf(args[1]));
+                String url = argStr(args[0]);
+                String dest = resolveHikerPath(argStr(args[1]));
                 File f = new File(dest);
                 if (f.exists()) return null;
                 String headers = args.length > 2 && args[2] != null ? stringifyArg(args[2]) : "{}";
@@ -1400,8 +1477,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             // 官方 saveImage(url, path)：参数顺序注意是 (url, path)
             if (args == null || args.length < 2) return null;
             try {
-                String url = String.valueOf(args[0]);
-                String path = String.valueOf(args[1]);
+                String url = argStr(args[0]);
+                String path = argStr(args[1]);
                 if (TextUtils.isEmpty(url) || "undefined".equalsIgnoreCase(url)) return null;
                 if (TextUtils.isEmpty(path) || "undefined".equalsIgnoreCase(path)) return null;
                 downloadToFile(url, resolveHikerPath(path), "{}");
@@ -1413,7 +1490,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         stub("copyFiles", null);
         putFunction("deleteCache", args -> {
             try {
-                String c = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "-1";
+                String c = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "-1";
                 if ("-1".equals(c) || TextUtils.isEmpty(c)) {
                     memCache.clear();
                     Logger.t(TAG).d("deleteCache: cleared all memCache");
@@ -1445,7 +1522,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         // 宿主同步模型无 callbackMap，存 strResult 字段供上层取用（setLastChapterResult 官方即委托 setStrResult）
         putFunction("setStrResult", args -> {
             try {
-                strResult = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                strResult = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setStrResult: %d chars", strResult.length());
             } catch (Throwable e) {
                 Logger.t(TAG).d("setStrResult failed: %s", e.getMessage());
@@ -1454,7 +1531,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("setLastChapterResult", args -> {
             try {
-                strResult = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                strResult = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setLastChapterResult: %d chars", strResult.length());
             } catch (Throwable e) {
                 Logger.t(TAG).d("setLastChapterResult failed: %s", e.getMessage());
@@ -1463,7 +1540,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         });
         putFunction("setLastChapterRule", args -> {
             try {
-                lastChapterRule = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                lastChapterRule = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setLastChapterRule: %d chars", lastChapterRule.length());
             } catch (Throwable e) {
                 Logger.t(TAG).d("setLastChapterRule failed: %s", e.getMessage());
@@ -1532,7 +1609,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         putFunction("getPrivateJS", args -> {
             if (args == null || args.length == 0 || args[0] == null) return "";
             try {
-                return aesEncryptECB(String.valueOf(args[0]), "1234567890kkkk");
+                return aesEncryptECB(argStr(args[0]), "1234567890kkkk");
             } catch (Throwable e) {
                 Logger.t(TAG).d("getPrivateJS failed: %s", e.getMessage());
                 return "";
@@ -1992,7 +2069,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     private void addItemAt(Object[] args, boolean after) {
         try {
             if (args == null || args.length < 2) return;
-            String id = String.valueOf(args[0]);
+            String id = argStr(args[0]);
             Map<String, Object> m = toStrMap(args[1]);
             if (m == null) return;
             HkItem item = new HkItem();
@@ -2440,7 +2517,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             return submit(() -> {
                 ScriptableObject.putProperty(scope, "input", input == null ? "" : input);
                 Object r = evalJs(js);
-                return jsResultToString(r);
+                String s = getString(r);
+                return s == null ? "" : s;
             }).get();
         } catch (Exception e) {
             String msg = e.getCause() != null && e.getCause().getMessage() != null
@@ -2619,7 +2697,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             nextInputOverride = null;
             ScriptableObject.putProperty(scope, "input", inputVal);
             Object r = evalJs(stripJsPrefix(jsCode));
-            String s = jsResultToString(r).trim();
+            String s = getString(r);
+            if (s == null) s = "";
+            s = s.trim();
             if (s.isEmpty() || "undefined".equals(s) || "null".equals(s)) {
                 List<HkItem> items = drainResults();
                 if (!items.isEmpty() && !TextUtils.isEmpty(items.get(0).getUrl())) {
@@ -2855,7 +2935,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         try {
             String json = args[0] instanceof NativeArray
                     ? jsStringify(args[0])
-                    : String.valueOf(args[0]);
+                    : argStr(args[0]);
             if (json == null) return;
             String t = json.trim();
             // 官方 callbackHomeResult 兼容：setResult({data:[...]}) 的对象形式。
@@ -2945,7 +3025,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             }
             String json = args[0] instanceof NativeObject
                     ? jsStringify(args[0])
-                    : String.valueOf(args[0]).trim();
+                    : argStr(args[0]).trim();
             if (json.startsWith("{")) {
                 Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
                 Map<String, Object> map = GSON.fromJson(json, mapType);
@@ -3015,7 +3095,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
      */
     private Object storage0Get(java.util.Map<String, String> map, Object[] args) {
         if (args == null || args.length == 0) return "";
-        String v = map.get(String.valueOf(args[0]));
+        String v = map.get(argStr(args[0]));
         if (v == null) {
             if (args.length > 1 && args[1] != null) return args[1];
             return "";

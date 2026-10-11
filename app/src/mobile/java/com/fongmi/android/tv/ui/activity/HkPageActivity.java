@@ -159,6 +159,8 @@ public class HkPageActivity extends BaseActivity {
     private final List<HkItem> videos = new ArrayList<>();
     private GridLayoutManager contentGrid;
     private HkRule currentRule;
+    /** 内容页标题（顶栏已删除，用字段保存子列表栈恢复用）。 */
+    private String contentTitle = "";
     private final List<HkRule> miniappRules = new ArrayList<>();
     private HkRouter router;
     /** preRule loading 弹窗（8.83 showLoading/hideLoading 等价）：规则 JS 调 showLoading("正在获取域名，请稍候") 时弹出。 */
@@ -2394,10 +2396,7 @@ public class HkPageActivity extends BaseActivity {
         binding.rvCategory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.swipeContent.setColorSchemeColors(0xFFD4A017);
         binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
-        binding.btnBackContent.setOnClickListener(v -> onBackInvoked());
-        binding.btnSearchContent.setOnClickListener(v -> openSearch());
         binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
-        binding.tvContentTitle.setSelected(true);
         binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
         binding.rvVideos.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -2488,7 +2487,7 @@ public class HkPageActivity extends BaseActivity {
         loading = false; // 旧规则的在途加载作废，由新 loadContent 接管
         contentGen++; // 旧回调过期
         videos.clear();
-        binding.tvContentTitle.setText(rule.getTitle());
+        contentTitle = rule.getTitle();
         buildMiniappTabs();
         buildCategoryRow();
         buildFilterRows();
@@ -4294,7 +4293,7 @@ public class HkPageActivity extends BaseActivity {
             // 压栈保存父列表状态
             SubListState st = new SubListState();
             st.rule = currentRule;
-            st.title = binding.tvContentTitle.getText().toString();
+            st.title = contentTitle;
             st.page = page;
             st.cls = cls;
             st.area = area;
@@ -4319,7 +4318,7 @@ public class HkPageActivity extends BaseActivity {
             contentGen++;
             videos.clear();
             String itemTitle = stripHtml(it.getTitle());
-            binding.tvContentTitle.setText(itemTitle.isEmpty() ? st.title : itemTitle);
+            contentTitle = itemTitle.isEmpty() ? st.title : itemTitle;
             buildCategoryRow();
             buildFilterRows();
             // 已在列表页时直接替换内容，不重复压栈；从搜索等其他视图进入时才压栈
@@ -4407,7 +4406,7 @@ public class HkPageActivity extends BaseActivity {
         contentGen++;
         videos.clear();
         videos.addAll(st.videos);
-        binding.tvContentTitle.setText(st.title);
+        contentTitle = st.title;
         buildCategoryRow();
         buildFilterRows();
         contentAdapter.refreshGroups();
@@ -4462,7 +4461,7 @@ public class HkPageActivity extends BaseActivity {
             // 压栈保存父列表状态（复用子列表机制，返回时恢复）
             SubListState st = new SubListState();
             st.rule = currentRule;
-            st.title = binding.tvContentTitle.getText().toString();
+            st.title = contentTitle;
             st.page = page;
             st.cls = cls;
             st.area = area;
@@ -4505,7 +4504,7 @@ public class HkPageActivity extends BaseActivity {
             videos.clear();
             String pageTitle = pageObj.optString("name");
             String itemTitle = stripHtml(it.getTitle());
-            binding.tvContentTitle.setText(!pageTitle.isEmpty() ? pageTitle : (itemTitle.isEmpty() ? st.title : itemTitle));
+            contentTitle = !pageTitle.isEmpty() ? pageTitle : (itemTitle.isEmpty() ? st.title : itemTitle);
             buildCategoryRow();
             buildFilterRows();
             if (st.fromView != V_CONTENT) pushView(V_CONTENT);

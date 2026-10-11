@@ -70,9 +70,11 @@ public class Drive115 implements CloudDrive {
 
     public void setCookie(String cookie) {
         this.cookie = cookie == null ? "" : cookie;
-        // cookie 里自带 UID=xxx（PanAuth.is115LoggedIn 要求必须含 UID/CID/SEID），
-        // 从加密存储恢复时一并还原 userId，否则 isLogin() 恒为 false，
-        // 卡片显示"已登录"但点进文件却弹"请先登录"
+        // 9dd365a0 曾在这里解析 UID 还原 userId，但 115 返回的 UID 值可能带引号
+        // （如 UID="12345"，py 端 parse_cookie 专门 strip('"') 就是证据），
+        // parseLong 直接抛 NumberFormatException -> userId=0 -> isLogin() 恒 false，
+        // 而卡片用 contains("UID=") 判定为已登录，于是点卡片无限跳回登录页。
+        // parseUidFromCookie 已做去引号兼容；userId 仅供 check()/nav() 参考。
         this.userId = parseUidFromCookie(this.cookie);
     }
 
@@ -81,8 +83,13 @@ public class Drive115 implements CloudDrive {
         for (String pair : cookie.split(";")) {
             String p = pair.trim();
             if (p.regionMatches(true, 0, "UID=", 0, 4)) {
+                String v = p.substring(4).trim();
+                // 115 有时会返回带引号的值：UID="12345"，先去引号再解析
+                if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+                    v = v.substring(1, v.length() - 1).trim();
+                }
                 try {
-                    return Long.parseLong(p.substring(4).trim());
+                    return Long.parseLong(v);
                 } catch (NumberFormatException ignored) {
                     return 0;
                 }
@@ -146,6 +153,8 @@ public class Drive115 implements CloudDrive {
             String kv = parts[0].trim();
             if (kv.contains("=") && !cookie.contains(kv.split("=")[0] + "=")) {
                 cookie = cookie.isEmpty() ? kv : cookie + "; " + kv;
+                // cookie 变了，userId 重新推导，保持两者一致
+                userId = parseUidFromCookie(cookie);
             }
         }
     }
@@ -176,7 +185,12 @@ public class Drive115 implements CloudDrive {
 
     @Override
     public boolean isLogin() {
-        return !TextUtils.isEmpty(cookie) && userId > 0;
+        // 单一真相源：卡片显示和进文件判断必须用同一套依据。
+        // 之前这里用 (!isEmpty(cookie) && userId > 0)，userId 从 cookie 解析而来，
+        // 一旦 cookie 格式稍有偏差（引号/空值/非数字 UID），就与卡片的
+        // PanAuth.is115LoggedIn() 不一致，导致"显示已登录但点卡片无限返回"。
+        // userId 字段保留，供 check()/nav() 参考。
+        return com.fongmi.android.tv.utils.PanAuth.is115LoggedIn();
     }
 
     @Override

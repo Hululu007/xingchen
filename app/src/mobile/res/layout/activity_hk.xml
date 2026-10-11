@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 / 新增 -->
+            <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 -->
             <LinearLayout
                 android:id="@+id/top_bar_rules"
                 android:layout_width="match_parent"
@@ -71,20 +71,6 @@
                     android:text="编辑"
                     android:textColor="#101216"
                     android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/btn_add_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@drawable/dialog_option_card_light"
-                    android:gravity="center"
-                    android:minWidth="64dp"
-                    android:paddingLeft="14dp"
-                    android:paddingRight="14dp"
-                    android:text="新增"
-                    android:textColor="#101216"
-                    android:textSize="14sp" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
@@ -101,7 +87,7 @@
                 android:id="@+id/rv_rules"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_alignParentBottom="true"
+                android:layout_above="@id/btn_import"
                 android:layout_below="@id/rv_rule_group"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="12dp"
@@ -139,10 +125,27 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="点右上角「新增」导入你的第一条规则"
+                    android:text="点下方按钮导入你的第一条规则"
                     android:textColor="#101216"
                     android:textSize="12sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/btn_import"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:layout_alignParentBottom="true"
+                android:layout_centerHorizontal="true"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/hk_gold_button"
+                android:elevation="8dp"
+                android:gravity="center"
+                android:paddingLeft="28dp"
+                android:paddingRight="28dp"
+                android:text="＋ 导入规则"
+                android:textColor="#101216"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
         </RelativeLayout>
 

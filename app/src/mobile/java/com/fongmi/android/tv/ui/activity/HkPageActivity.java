@@ -278,7 +278,7 @@ public class HkPageActivity extends BaseActivity {
             ruleAdapter.notifyDataSetChanged();
         });
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
-        binding.btnAddRule.setOnClickListener(v -> showImportDialog());
+        binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
     }
 

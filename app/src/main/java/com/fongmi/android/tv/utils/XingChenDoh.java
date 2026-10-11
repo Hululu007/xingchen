@@ -6,11 +6,24 @@ import android.content.SharedPreferences;
 import com.github.catvod.bean.Doh;
 import com.github.catvod.net.OkHttp;
 
+import java.util.Arrays;
+
 public class XingChenDoh {
 
     public static final String KEY = "xingchen.doh_provider";
     public static final String[] NAMES = {"系统", "腾讯", "阿里", "360"};
     private static final String[] URLS = {"", "https://doh.pub/dns-query", "https://dns.alidns.com/dns-query", "https://doh.360.cn/dns-query"};
+    /**
+     * DoH 服务器直连 IP（bootstrap）：运营商劫持 DNS 时，DoH 连服务器域名都解析不出来，
+     * 用这些硬编码 IP 直连 443 端口做 DoH 查询，不走 DNS。
+     * IP 来源：2026-10-11 经 Google(8.8.8.8) 与 Cloudflare(1.1.1.1) DoH 双源交叉验证。
+     */
+    private static final String[][] BOOTSTRAP_IPS = {
+            {},
+            {"1.12.12.12", "120.53.53.53"},        // 腾讯 doh.pub
+            {"223.5.5.5", "223.6.6.6"},            // 阿里 dns.alidns.com
+            {"101.198.192.33", "101.198.193.29"},  // 360 doh.360.cn
+    };
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences("xingchen", Context.MODE_PRIVATE);
@@ -27,7 +40,7 @@ public class XingChenDoh {
 
     public static Doh toDoh(Context context) {
         int i = getIndex(context);
-        return new Doh().name(NAMES[i]).url(URLS[i]);
+        return new Doh().name(NAMES[i]).url(URLS[i]).ips(Arrays.asList(BOOTSTRAP_IPS[i]));
     }
 
     public static void apply(Context context) {

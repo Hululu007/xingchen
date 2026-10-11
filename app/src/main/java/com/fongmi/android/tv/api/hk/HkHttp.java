@@ -91,7 +91,7 @@ public class HkHttp {
             } else {
                 Doh d = XingChenDoh.toDoh(context);
                 HttpUrl url = HttpUrl.parse(d.getUrl());
-                hkDoh = url == null ? null : new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).build();
+                hkDoh = url == null ? null : new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).bootstrapDnsHosts(d.getHosts()).build();
             }
             // 重建 client 使新 DNS 生效
             synchronized (HkHttp.class) {

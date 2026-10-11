@@ -207,7 +207,7 @@ public class MediaSourceFactory implements MediaSource.Factory {
     @NonNull
     @Override
     public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
-        Map<String, String> headers = ExoUtil.extractHeaders(mediaItem);
+        applyHeaders(getHttpDataSourceFactory(), ExoUtil.extractHeaders(mediaItem));
         String url = mediaItem.requestMetadata.mediaUri != null ? mediaItem.requestMetadata.mediaUri.toString() : "";
         AssFontSet fonts = assSession == null ? null : assSession.beginMediaFonts();
         if (isConcatenatingUrl(url)) return createConcatenatingMediaSource(mediaItem, url);
@@ -218,20 +218,7 @@ public class MediaSourceFactory implements MediaSource.Factory {
                     .setLoadOnlySelectedTracks(PlaybackPerformanceSetting.isLoadOnlySelectedTracksEnabled())
                     .createMediaSource(mediaItem);
         }
-        if (headers != null && !headers.isEmpty()) {
-            return new DefaultMediaSourceFactory(buildDataSourceFactoryWithHeaders(headers), getExtractorsFactory())
-                    .setLoadOnlySelectedTracks(PlaybackPerformanceSetting.isLoadOnlySelectedTracksEnabled())
-                    .createMediaSource(mediaItem);
-        }
-        return defaultMediaSourceFactory.createMediaSource(mediaItem);
-    }
-
-    private DataSource.Factory buildDataSourceFactoryWithHeaders(Map<String, String> headers) {
-        OkHttpDataSource.Factory httpFactory = new OkHttpDataSource.Factory(OkHttp.player());
-        applyHeaders(httpFactory, headers);
-        DataSource.Factory cacheDataSource = getCacheDataSource(new DefaultDataSource.Factory(App.get(), httpFactory));
-        DataSource.Factory trackedDataSource = new PlaybackBytePositionDataSource.Factory(cacheDataSource);
-        return new PriorityTaskDataSource.Factory(trackedDataSource, PLAYBACK_PRIORITY_MANAGER, C.PRIORITY_PLAYBACK, false);
+        else return defaultMediaSourceFactory.createMediaSource(mediaItem);
     }
 
     private MediaSource createConcatenatingMediaSource(MediaItem mediaItem, String url) {

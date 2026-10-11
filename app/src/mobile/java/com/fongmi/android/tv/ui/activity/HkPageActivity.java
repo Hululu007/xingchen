@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -106,6 +107,19 @@ public class HkPageActivity extends BaseActivity {
     private static final String KEY_RULE_ORDER = "hk_rule_order";
     /** 导入时分组选择器的标准分组（8.83 默认分组名，去掉①②序号）。 */
     private static final String[] STD_GROUPS = {"聚合", "视频", "资讯", "图集", "漫画", "其它", "工具", "音频"};
+    /** 8.83 ArticleColTypeEnum 的全部 col_type（表单编辑显示样式选择器用）。 */
+    private static final String[] COL_TYPE_OPTIONS = {
+            "movie_3", "movie_2", "movie_1", "movie_1_left_pic", "movie_1_vertical_pic",
+            "movie_1_vertical_pic_blur", "movie_3_marquee",
+            "pic_3", "pic_2", "pic_1", "pic_1_full", "pic_1_center", "pic_3_square", "pic_1_card",
+            "card_pic_3", "card_pic_2", "card_pic_2_2", "card_pic_2_2_left", "card_pic_3_center", "card_pic_1",
+            "text_3", "text_2", "text_1", "text_4", "text_5", "text_center_1", "text_icon",
+            "icon_4", "icon_3_fill", "icon_3_round_fill", "icon_2", "icon_2_round", "icon_5",
+            "icon_4_card", "icon_5_no_crop", "icon_round_4", "icon_round_small_4",
+            "icon_small_3", "icon_small_4", "icon_1_left_pic", "icon_1_search",
+            "long_text", "rich_text", "line", "line_blank", "blank_block", "big_blank_block",
+            "big_big_blank_block", "header", "footer", "input", "scroll_button", "flex_button", "avatar"
+    };
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HkPageActivity.class));
@@ -1934,7 +1948,7 @@ public class HkPageActivity extends BaseActivity {
             final int which = i;
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
-                if (which == 0) showRuleJsonEditor(rule);
+                if (which == 0) showRuleFormEditor(rule);
                 else if (which == 1) showRuleShareOptions(rule);
                 else showDeleteRuleConfirm(rule);
             });
@@ -2009,38 +2023,308 @@ public class HkPageActivity extends BaseActivity {
         dialog.show();
     }
 
-    /** 编辑规则 JSON：文本编辑后保存（importJson 会校验，失败直接提示）。 */
-    private void showRuleJsonEditor(HkRule rule) {
+    /** 表单式编辑小程序（按 8.83 ArticleListRuleEditActivity）：四个可折叠分区，保存写回 rule.json。 */
+    private void showRuleFormEditor(HkRule rule) {
+        final JSONObject obj;
+        try {
+            String raw = HkRuleManager.get().loadRuleJson(rule.getTitle());
+            if (raw == null || raw.trim().isEmpty()) throw new IllegalArgumentException("规则文件不存在");
+            obj = new JSONObject(raw);
+        } catch (Exception e) {
+            com.fongmi.android.tv.utils.ToastUtil.show(this, "规则读取失败：" + e.getMessage());
+            return;
+        }
+        final String oldTitle = rule.getTitle();
+        final Map<String, EditText> fields = new HashMap<>();
+
+        final Dialog dialog = new Dialog(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(16));
-        EditText et = new EditText(this);
-        et.setBackgroundResource(R.drawable.xc_input_bg);
-        et.setPadding(dp(12), dp(12), dp(12), dp(12));
-        et.setTextSize(12);
-        et.setGravity(Gravity.START | Gravity.TOP);
-        try {
-            String json = HkRuleManager.get().loadRuleJson(rule.getTitle());
-            et.setText(json == null ? "" : json);
-        } catch (Exception e) {
-            et.setText("");
+        root.setBackgroundColor(0xFFF2F3F5);
+
+        // ---- 顶栏：取消 / 编辑小程序 / 保存 ----
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(0xFFFFFFFF);
+        bar.setPadding(dp(6), dp(8), dp(6), dp(8));
+        TextView btnCancel = new TextView(this);
+        btnCancel.setText("取消");
+        btnCancel.setTextColor(0xFF8A8F98);
+        btnCancel.setTextSize(16);
+        btnCancel.setPadding(dp(14), dp(10), dp(14), dp(10));
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("编辑小程序");
+        tvTitle.setTextColor(0xFF1A1D24);
+        tvTitle.setTextSize(17);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(Gravity.CENTER);
+        TextView btnSave = new TextView(this);
+        btnSave.setText("保存");
+        btnSave.setTextColor(0xFFB8890F);
+        btnSave.setTextSize(16);
+        btnSave.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnSave.setPadding(dp(14), dp(10), dp(14), dp(10));
+        bar.addView(btnCancel, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        bar.addView(tvTitle, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(btnSave, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(bar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFE3E6EB);
+        root.addView(divider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+
+        // ---- 滚动表单 ----
+        ScrollView sv = new ScrollView(this);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(4), dp(8), dp(4), dp(32));
+        sv.addView(form, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(sv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        int text = EditorInfo.TYPE_CLASS_TEXT;
+        int ml = EditorInfo.TYPE_CLASS_TEXT | EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE;
+
+        // 基础规则
+        LinearLayout secBasic = addFormSection(form, "基础规则");
+        addFormField(secBasic, fields, "title", "小程序名称", "小程序名称（title）", obj, null, false, text);
+        addFormPicker(secBasic, fields, "type", "小程序类别", "小程序类别（type）", obj, "其它",
+                new String[]{"视频", "音乐", "漫画", "小说", "图片", "工具", "其它"});
+        addFormField(secBasic, fields, "author", "小程序作者", "小程序作者（author）", obj, null, false, text);
+        addFormField(secBasic, fields, "version", "小程序版本", "小程序版本（version）", obj, "1", false, EditorInfo.TYPE_CLASS_NUMBER);
+        addFormField(secBasic, fields, "group", "小程序分组", "小程序分组（名称前加①、②等序号可排序）", obj, null, false, text);
+        addFormField(secBasic, fields, "icon", "小程序图标地址", "小程序图标地址（支持色值）", obj, null, false, text);
+        addFormField(secBasic, fields, "url", "小程序链接", "小程序链接（可不填，可只填搜索相关内容）", obj, null, false, text);
+        addFormPicker(secBasic, fields, "col_type", "显示样式", "显示样式（col_type）", obj, "movie_3", COL_TYPE_OPTIONS);
+
+        // 分类规则
+        LinearLayout secClass = addFormSection(form, "分类规则");
+        addFormField(secClass, fields, "class_name", "分类名称", "分类名称（class_name）", obj, null, false, text);
+        addFormField(secClass, fields, "class_url", "分类替换词", "分类替换词（class_url）", obj, null, false, text);
+        addFormField(secClass, fields, "area_name", "地区名称", "地区名称（area_name）", obj, null, false, text);
+        addFormField(secClass, fields, "area_url", "地区替换词", "地区替换词（area_url）", obj, null, false, text);
+        addFormField(secClass, fields, "year_name", "年代名称", "年代名称（year_name）", obj, null, false, text);
+        addFormField(secClass, fields, "year_url", "年代替换词", "年代替换词（year_url）", obj, null, false, text);
+        addFormField(secClass, fields, "sort_name", "排序名称", "排序名称（sort_name）", obj, null, false, text);
+        addFormField(secClass, fields, "sort_url", "排序替换词", "排序替换词（sort_url）", obj, null, false, text);
+
+        // 解析规则
+        LinearLayout secJiexi = addFormSection(form, "解析规则");
+        addFormField(secJiexi, fields, "find_rule", "解析规则", "解析规则（列表;标题;图片;描述;链接）", obj, null, true, ml);
+        addFormField(secJiexi, fields, "search_url", "搜索链接", "搜索链接（**作为占位符，支持/开头不写域名）", obj, null, false, text);
+        addFormField(secJiexi, fields, "searchFind", "搜索解析规则", "搜索解析规则（列表;标题;链接;描述;详情;图片）", obj, null, true, ml);
+        addFormPicker(secJiexi, fields, "detail_col_type", "二级列表显示样式", "二级列表显示样式（detail_col_type）", obj, "movie_1", COL_TYPE_OPTIONS);
+        addFormField(secJiexi, fields, "detail_find_rule", "二级列表解析规则", "二级列表解析规则（列表;标题;图片;描述;链接）", obj, null, true, ml);
+        addFormPicker(secJiexi, fields, "sdetail_col_type", "搜索二级显示样式", "搜索二级列表显示样式（sdetail_col_type）", obj, "movie_1", COL_TYPE_OPTIONS);
+        addFormField(secJiexi, fields, "sdetail_find_rule", "搜索二级解析规则", "搜索二级列表解析规则（列表;标题;图片;描述;链接）", obj, null, true, ml);
+        addFormField(secJiexi, fields, "last_chapter_rule", "最新章节解析规则", "最新章节解析规则", obj, null, true, ml);
+
+        // 其它规则
+        LinearLayout secOther = addFormSection(form, "其它规则");
+        addFormPicker(secOther, fields, "ua", "全局UA", "全局UA（以url里面的ua优先）", obj, "auto",
+                new String[]{"auto", "mobile", "pc"});
+        addFormField(secOther, fields, "preRule", "JS预处理", "JS预处理（在解析规则和搜索解析规则执行前执行）", obj, null, true, ml);
+        addFormField(secOther, fields, "proxy", "网络请求代理", "网络请求代理（一行一个，替换词=>代理）", obj, null, true, ml);
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnSave.setOnClickListener(v -> saveRuleForm(dialog, obj, fields, oldTitle));
+
+        dialog.setContentView(root);
+        android.view.Window w = dialog.getWindow();
+        if (w != null) {
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xFFF2F3F5));
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
-        root.addView(et, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(320)));
-        new AlertDialog.Builder(this)
-                .setTitle("编辑规则")
-                .setView(root)
-                .setPositiveButton("保存", (d, w) -> new Thread(() -> {
+        dialog.show();
+    }
+
+    /** 表单分区（8.83 风格）：灰色标题可折叠 + 白色圆角卡片。 */
+    private LinearLayout addFormSection(LinearLayout parent, String title) {
+        final TextView header = new TextView(this);
+        header.setTextColor(0xFF666666);
+        header.setTextSize(14);
+        header.setPadding(dp(16), dp(14), dp(16), dp(6));
+        parent.addView(header, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.dialog_option_card_light);
+        card.setPadding(dp(14), dp(4), dp(14), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(12);
+        lp.rightMargin = dp(12);
+        parent.addView(card, lp);
+        final boolean[] expanded = {true};
+        header.setText(title + "  ▲");
+        header.setOnClickListener(v -> {
+            expanded[0] = !expanded[0];
+            card.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
+            header.setText(title + (expanded[0] ? "  ▲" : "  ▼"));
+        });
+        return card;
+    }
+
+    /** 表单字段：小标签 + 输入框（值缺失时用 defVal）。 */
+    private EditText addFormField(LinearLayout parent, Map<String, EditText> fields, String key,
+                                  String label, String hint, JSONObject obj, String defVal,
+                                  boolean multiLine, int inputType) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(0xFF8A8F98);
+        tv.setTextSize(12);
+        tv.setPadding(0, dp(10), 0, dp(4));
+        parent.addView(tv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        EditText et = new EditText(this);
+        et.setBackgroundResource(R.drawable.bg_input_light);
+        et.setPadding(dp(12), dp(10), dp(12), dp(10));
+        et.setTextSize(14);
+        et.setTextColor(0xFF1A1D24);
+        et.setHint(hint);
+        et.setHintTextColor(0xFFB0B6BE);
+        et.setInputType(inputType);
+        if (multiLine) {
+            et.setSingleLine(false);
+            et.setMinLines(3);
+            et.setGravity(Gravity.START | Gravity.TOP);
+        }
+        String val = obj.has(key) ? obj.optString(key, "") : (defVal == null ? "" : defVal);
+        et.setText(val);
+        parent.addView(et, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        fields.put(key, et);
+        return et;
+    }
+
+    /** 表单选择器：不可编辑的输入框，点击弹出选项卡片（独立卡片+间距，当前选中金色加粗）。 */
+    private void addFormPicker(LinearLayout parent, Map<String, EditText> fields, String key,
+                               String label, String hint, JSONObject obj, String defVal, String[] options) {
+        final EditText et = addFormField(parent, fields, key, label, hint, obj, defVal,
+                false, EditorInfo.TYPE_CLASS_TEXT);
+        et.setFocusable(false);
+        et.setFocusableInTouchMode(false);
+        et.setClickable(true);
+        et.setOnClickListener(v -> {
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setPadding(dp(20), dp(16), dp(20), dp(16));
+            TextView tvTitle = new TextView(this);
+            tvTitle.setText(label);
+            tvTitle.setTextColor(0xFF1A1D24);
+            tvTitle.setTextSize(16);
+            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvTitle.setGravity(Gravity.CENTER);
+            root.addView(tvTitle, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            AlertDialog dlg = new AlertDialog.Builder(this).setView(root).create();
+            ScrollView sv = new ScrollView(this);
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            sv.addView(list, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(420));
+            svLp.topMargin = dp(10);
+            root.addView(sv, svLp);
+            String cur = et.getText().toString();
+            for (String op : options) {
+                TextView tv = new TextView(this);
+                tv.setText(op);
+                boolean sel = op.equals(cur);
+                tv.setTextColor(sel ? 0xFFB8890F : 0xFF1A1D24);
+                tv.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                tv.setTextSize(15);
+                tv.setGravity(Gravity.CENTER);
+                tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+                tv.setPadding(dp(16), dp(12), dp(16), dp(12));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dp(8);
+                tv.setOnClickListener(v2 -> {
+                    dlg.dismiss();
+                    et.setText(op);
+                });
+                list.addView(tv, lp);
+            }
+            dlg.show();
+        });
+    }
+
+    /** 表单保存：写回 JSON → importJson 校验落盘 → 改名则删旧文件并迁移分组/排序/开关 → 刷新列表。 */
+    private void saveRuleForm(Dialog dialog, JSONObject obj, Map<String, EditText> fields, String oldTitle) {
+        String newTitle = fields.get("title").getText().toString().trim();
+        if (newTitle.isEmpty()) {
+            com.fongmi.android.tv.utils.ToastUtil.show(this, "请完善规则，title不能为空");
+            return;
+        }
+        if (!newTitle.matches("[^/:*?\"<>|]+")) {
+            com.fongmi.android.tv.utils.ToastUtil.show(this, "规则名不能包含/:*?\"<>|等特殊字符");
+            return;
+        }
+        try {
+            for (Map.Entry<String, EditText> e : fields.entrySet()) {
+                String k = e.getKey();
+                String val = e.getValue().getText().toString();
+                if ("version".equals(k)) {
+                    int vv = obj.optInt("version", 1);
                     try {
-                        HkRuleManager.get().importJson(et.getText().toString());
-                        App.post(this::refreshRules);
-                    } catch (Exception e) {
-                        App.post(() -> com.fongmi.android.tv.utils.ToastUtil.show(
-                                HkPageActivity.this, "保存失败：" + e.getMessage()));
+                        vv = Integer.parseInt(val.trim());
+                    } catch (Exception ignored) {
                     }
-                }).start())
-                .setNegativeButton("取消", null)
-                .show();
+                    obj.put(k, vv);
+                } else {
+                    obj.put(k, val);
+                }
+            }
+        } catch (Exception e) {
+            com.fongmi.android.tv.utils.ToastUtil.show(this, "保存失败：" + e.getMessage());
+            return;
+        }
+        final String json = obj.toString();
+        final boolean wasEnabled = HkRuleManager.get().isEnabled(oldTitle);
+        new Thread(() -> {
+            try {
+                HkRuleManager.get().importJson(json);
+                if (!oldTitle.equals(newTitle)) {
+                    HkRuleManager.get().delete(oldTitle);
+                    HkRuleManager.get().setEnabled(newTitle, wasEnabled);
+                    App.post(() -> migrateRuleTitle(oldTitle, newTitle));
+                }
+                App.post(() -> {
+                    dialog.dismiss();
+                    refreshRules();
+                    com.fongmi.android.tv.utils.ToastUtil.show(HkPageActivity.this, "已保存");
+                });
+            } catch (Exception e) {
+                App.post(() -> com.fongmi.android.tv.utils.ToastUtil.show(
+                        HkPageActivity.this, "保存失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 表单编辑改名后：迁移分组映射与自定义排序。 */
+    private void migrateRuleTitle(String oldTitle, String newTitle) {
+        if (ruleGroupMap.containsKey(oldTitle)) {
+            ruleGroupMap.put(newTitle, ruleGroupMap.remove(oldTitle));
+            saveRuleGroupMap();
+        }
+        if (customOrder != null) {
+            int i = customOrder.indexOf(oldTitle);
+            if (i >= 0) {
+                customOrder.set(i, newTitle);
+                saveCustomOrder();
+            }
+        }
+        buildGroupFilterRow();
     }
 
     // ================= V2 分类+列表 =================

@@ -2830,6 +2830,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     }
 
     /**
+     * JS 引擎最后一次 fetch 的真实 URL（图片自动 Referer 用，对齐 8.83 GlideUtil.getGlideUrl 语义）。
+     * 注意：setContext 时会先被置为 MY_URL（含 hiker://empty## 前缀的模板 URL），
+     * 只有 fetch 成功后才是真实 http(s) URL；调用方需自行校验 scheme。
+     */
+    public String getLastUrl() {
+        return lastUrl;
+    }
+
+    /**
      * 取异常链上第一条非空 message（ExecutionException 包裝后的根因），
      * 供 parseList/parseSearch 在 JS 求值失败时记录，避免"加载失败"无从查起。
      */

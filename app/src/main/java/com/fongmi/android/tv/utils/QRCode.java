@@ -19,7 +19,16 @@ public class QRCode {
     private static final float MODULE_RADIUS_RATIO = 0.45f;
 
     public static Bitmap getBitmap(String content, int size, int margin) {
-        return getBitmap(content, size, margin, Color.WHITE, Color.BLACK);
+        Bitmap bmp = getBitmap(content, size, margin, Color.BLACK, Color.WHITE);
+        if (bmp == null) return null;
+        // 白底不透明：黑模块 + 白底标准二维码，白弹窗/深色弹窗上都可见可扫。
+        // （之前是白模块 + 透明底，白弹窗上只剩定位符黑环，形如"空白二维码"）
+        Bitmap out = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(out);
+        canvas.drawColor(Color.WHITE);
+        canvas.drawBitmap(bmp, 0, 0, null);
+        if (out != bmp) bmp.recycle();
+        return out;
     }
 
     public static Bitmap getLightBitmap(String content, int size, int margin) {

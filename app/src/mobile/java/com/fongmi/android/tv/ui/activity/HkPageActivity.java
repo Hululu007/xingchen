@@ -163,6 +163,10 @@ public class HkPageActivity extends BaseActivity {
     private String contentTitle = "";
     private final List<HkRule> miniappRules = new ArrayList<>();
     private HkRouter router;
+    /** 实际抓取的页面 URL（图片自动 Referer 用，对齐 8.83 GlideUtil.getGlideUrl 语义）。
+     * 规则静态 URL 常为 hiker://empty## 模板，与图片域名对不上会导致防盗链 403；
+     * loadContent/detail 后取引擎最后一次 fetch 的真实 URL。volatile：后台线程写、UI 线程读。 */
+    private volatile String hkPageUrl;
     /** preRule loading 弹窗（8.83 showLoading/hideLoading 等价）：规则 JS 调 showLoading("正在获取域名，请稍候") 时弹出。 */
     private android.app.Dialog hkLoadingDialog;
     private TextView hkLoadingText;
@@ -292,6 +296,7 @@ public class HkPageActivity extends BaseActivity {
         if (currentRule != null && target.getTitle().equals(currentRule.getTitle())) return;
         destroyRouterAsync();
         currentRule = target;
+        hkPageUrl = null; // 切规则：实际抓取页 URL 失效
         // 预热新规则的 runtime（图片 @js= 求值等依赖当前 runtime 登记）
         try {
             getRouter();
@@ -2474,6 +2479,7 @@ public class HkPageActivity extends BaseActivity {
         destroyRouterAsync();
         subStack.clear(); // 切规则时丢弃子列表栈
         currentRule = rule;
+        hkPageUrl = null; // 切规则：实际抓取页 URL 失效，下次 loadContent 重记
         // preRule loading 桥：先注册再 loadContent（引擎 init 里跑 preRule，规则调 showLoading 时弹窗）。
         // 切规则时旧弹窗先关，避免残留。
         hideHkLoading();
@@ -3032,9 +3038,30 @@ public class HkPageActivity extends BaseActivity {
         return router;
     }
 
-    /** 当前规则页 URL（8.83 GlideUtil.getGlideUrl 的 ruleUrl 参数：自动 Referer 用）。 */
+    /** 当前规则页 URL（8.83 GlideUtil.getGlideUrl 的 ruleUrl 参数：自动 Referer 用）。
+     * 优先返回 loadContent/detail 时实际抓取的页面 URL（与图片同域时自动带 Referer，防盗链不 403）；
+     * 拿不到时回退规则静态 URL。 */
     private String hkRuleUrl() {
+        if (!TextUtils.isEmpty(hkPageUrl)) return hkPageUrl;
         return currentRule == null ? null : currentRule.getUrl();
+    }
+
+    /** 记录实际抓取的页面 URL（图片 Referer 用）。JS 规则取引擎最后一次 fetch 的真实 URL；非 JS 规则用展开后的模板 URL。 */
+    private void recordHkPageUrl(int p, String c, String a, String y, String s) {
+        try {
+            String u = getRouter().getEngine().getJsRuntime().getLastUrl();
+            if (!TextUtils.isEmpty(u) && (u.startsWith("http://") || u.startsWith("https://"))) {
+                hkPageUrl = u;
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (currentRule != null) {
+                hkPageUrl = com.fongmi.android.tv.api.hk.HkHttp.expandUrl(currentRule.getUrl(), c, a, y, s, p);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private int contentGen = 0;
@@ -3060,6 +3087,8 @@ public class HkPageActivity extends BaseActivity {
             List<HkItem> list;
             try {
                 list = getRouter().home(p, c, a, y, s);
+                // 记录实际抓取页 URL：图片自动 Referer 用（8.83 GlideUtil.getGlideUrl 同款语义）
+                recordHkPageUrl(p, c, a, y, s);
             } catch (Throwable e) {
                 list = new ArrayList<>();
             }
@@ -3387,6 +3416,16 @@ public class HkPageActivity extends BaseActivity {
             List<HkItem> list;
             try {
                 list = getRouter().search(kw, p);
+                // 记录搜索实际抓取 URL：搜索结果图 Referer 用
+                try {
+                    String su = getRouter().getEngine().getJsRuntime().getLastUrl();
+                    if (!TextUtils.isEmpty(su) && (su.startsWith("http://") || su.startsWith("https://"))) {
+                        hkPageUrl = su;
+                    } else if (currentRule != null) {
+                        hkPageUrl = com.fongmi.android.tv.api.hk.HkHttp.expandSearchUrl(currentRule.getSearchUrl(), kw, p);
+                    }
+                } catch (Throwable ignored) {
+                }
             } catch (Throwable e) {
                 list = new ArrayList<>();
             }
@@ -3519,6 +3558,14 @@ public class HkPageActivity extends BaseActivity {
             HkDetail detail;
             try {
                 detail = getRouter().detail(item.getUrl(), item, fromSearch);
+                // 记录详情页实际抓取 URL：详情封面/推荐图 Referer 用
+                try {
+                    String du = getRouter().getEngine().getJsRuntime().getLastUrl();
+                    if (!TextUtils.isEmpty(du) && (du.startsWith("http://") || du.startsWith("https://"))) {
+                        hkPageUrl = du;
+                    }
+                } catch (Throwable ignored) {
+                }
             } catch (Throwable e) {
                 detail = null;
             }

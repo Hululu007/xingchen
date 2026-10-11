@@ -26,6 +26,7 @@ import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.net.NetworkInterface;
@@ -2222,6 +2223,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         }
     }
 
+    /** 8.83 JSEngine.aesDecode(Object, Object) 的 Java 等价：AES/CBC 解密文件内容。 */
+    private String aesDecode(String key, String content) {
+        try {
+            return Crypto.aes("AES/CBC/PKCS5Padding", false, content, true, key, "", false);
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
     private void writeFileContent(String absPath, String content) {
         try {
             File f = new File(absPath);
@@ -3428,8 +3438,7 @@ public InputStream evalJS(String p1, InputStream p2) {
             .append(p1)
             .toString();
     String v3 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
-    Context v1cx = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
-            App.get()).enterContext(); // 8.83 external
+    Context v1cx = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(v1cx); // MISSING
     try {
         ScriptableObject v2 = v1cx.initStandardObjects();
@@ -3452,7 +3461,7 @@ public InputStream evalJS(String p1, InputStream p2) {
                 try {
                     p2.close();
                 } catch (Exception e) {
-                    Logger.t(TAG).e(e); // 8.83 external; target uses Logger
+                    Logger.t(TAG).e(e.getMessage()); // 8.83 external; target uses Logger
                 }
             }
             InputStream result = (InputStream) p1res;
@@ -3465,7 +3474,7 @@ public InputStream evalJS(String p1, InputStream p2) {
                 try {
                     p2.close();
                 } catch (Exception e) {
-                    Logger.t(TAG).e(e); // 8.83 external; target uses Logger
+                    Logger.t(TAG).e(e.getMessage()); // 8.83 external; target uses Logger
                 }
             }
             if (p1res instanceof InputStream) {
@@ -3520,8 +3529,7 @@ public String evalJS(String p1, String p2, boolean p3) {
         v0 = v4b + p1;
     }
     String v8 = getReplaceJS(appendLineVar(v0)); // MISSING, MISSING
-    Context v6 = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
-            App.get()).enterContext(); // 8.83 external
+    Context v6 = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(v6); // MISSING
     try {
         ScriptableObject v7 = v6.initStandardObjects();
@@ -3586,8 +3594,7 @@ public Object evalJSForObj(String p1, Object p2) {
             .append(p1)
             .toString();
     String v5 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
-    Context v3 = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
-            App.get()).enterContext(); // 8.83 external
+    Context v3 = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(v3); // MISSING
     try {
         ScriptableObject v4 = v3.initStandardObjects();
@@ -3848,8 +3855,7 @@ private void runScript(String script, String key) {
  */
 private void runScript(String script, String key, boolean throwOnError) {
     String replaced = getReplaceJS(appendLineVar(script), throwOnError);
-    Context cx =
-            new RhinoAndroidHelper(Application.getContext()).enterContext();
+    Context cx = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(cx);
     try {
         ScriptableObject scope = cx.initStandardObjects();
@@ -3887,7 +3893,7 @@ private void runScript(String script, String key, boolean throwOnError) {
             callbackMap.remove(key);
         }
     } catch (Exception e) {
-        Logger.t(TAG).e(e);
+        Logger.t(TAG).e(e.getMessage());
     }
 }
 
@@ -4091,18 +4097,7 @@ private String wrapTryScript(String script) {
 
 
     // ---- D1-D: parse entries (smali 7945-8147, 20401-21179) ----
-    /** 8.83 OnFindCallBack<T> 的镜像（smali JSEngine$OnFindCallBack）：onSuccess/onUpdate/showErr。 */
-    private interface JSEngineCallback<T> {
-        void onSuccess(String key, T result);
-        void onUpdate(String key, String value);
-        void showErr(String err);
-    }
-
-    // ---- 8.83 实例状态（HkJsRuntime 暂无，见 notes 接线提案） ----
-    /** 8.83 JSEngine.callbackMap：uuid -> 回调，runScript 完成时按 uuid 取回分发。 */
-    private final Map<String, JSEngineCallback<?>> callbackMap = new HashMap<>();
-    /** 8.83 JSEngine.resCodeMap：uuid -> getResCode 用的 resCode 字符串。 */
-    private final Map<String, String> resCodeMap = new HashMap<>();
+    // JSEngineCallback / callbackMap / resCodeMap 已在上方 D1 fields 区定义（3256/3319-3320），此处不重复。
 
     // ================= 1. parseHome (smali 20401-20560) =================
     /**
@@ -4938,7 +4933,7 @@ private static void generateRequireMapSync(String dirName, String url, String pr
             items = GSON.fromJson(json, t);
             if (items == null) items = new ArrayList<>();
         } catch (Exception e) {
-            Logger.t(TAG).e(e);
+            Logger.t(TAG).e(e.getMessage());
             items = new ArrayList<>();
         }
     } else {

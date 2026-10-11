@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.Environment;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageView;
@@ -29,6 +30,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.setting.Setting;
+import com.github.catvod.utils.Json;
 import com.google.common.net.HttpHeaders;
 import com.orhanobut.logger.Logger;
 
@@ -37,6 +39,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import jahirfiquitiva.libs.textdrawable.TextDrawable;
@@ -44,6 +47,7 @@ import jahirfiquitiva.libs.textdrawable.TextDrawable;
 public class ImgUtil {
 
     private static final String TAG = "ImgUtil";
+    // 壳子行为对标默影视：失败黑名单（默影视同款，失败一次本会话不再重试）
     private static final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
 
     public static void logo(ImageView view) {
@@ -140,8 +144,26 @@ public class ImgUtil {
         }
     }
 
+    /**
+     * 壳子行为对标默影视（照抄）：解析 @Headers=/@Cookie=/@Referer=/@User-Agent= 后缀，
+     * 剥离后组装 GlideUrl。之前走 getUrl(url, null) 直接返回原串，@后缀留在 URL 里发给服务器导致 404。
+     */
     public static Object getUrl(String url) {
-        return getUrl(url, null);
+        String param = null;
+        url = UrlUtil.convert(url);
+        if (url.startsWith("data:")) return url;
+        LazyHeaders.Builder builder = new LazyHeaders.Builder();
+        if (url.contains("@Headers=")) addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
+        if (url.contains("@Cookie=")) builder.addHeader(HttpHeaders.COOKIE, param = url.split("@Cookie=")[1].split("@")[0]);
+        if (url.contains("@Referer=")) builder.addHeader(HttpHeaders.REFERER, param = url.split("@Referer=")[1].split("@")[0]);
+        if (url.contains("@User-Agent=")) builder.addHeader(HttpHeaders.USER_AGENT, param = url.split("@User-Agent=")[1].split("@")[0]);
+        url = param == null ? url : url.split("@")[0];
+        return TextUtils.isEmpty(url) ? null : new GlideUrl(url, builder.build());
+    }
+
+    private static void addHeader(LazyHeaders.Builder builder, String header) {
+        Map<String, String> map = Json.toMap(Json.parse(header));
+        for (Map.Entry<String, String> entry : map.entrySet()) builder.addHeader(UrlUtil.fixHeader(entry.getKey()), entry.getValue());
     }
 
     /**
@@ -156,6 +178,8 @@ public class ImgUtil {
      */
     public static Object getUrl(String picUrl, String ruleUrl) {
         if (picUrl == null) return null;
+        // 壳子路径（ruleUrl 为空）：走默影视逻辑（@后缀解析剥离），不走 8.83 的"原串返回"
+        if (TextUtils.isEmpty(ruleUrl)) return getUrl(picUrl);
         try {
             // 1. hiker://images/* → 8.83 查 ImageUrlMapEnum 得 drawable id；
             //    宿主无法还原 8.83 的 R 表映射，返回 null 走文字占位（不猜）。
@@ -171,11 +195,15 @@ public class ImgUtil {
             String url = UrlUtil.convert(picUrl);
             if (url.startsWith("data:")) return url;
             boolean http = url.startsWith("http");
-            // 3. 非 http 分支（8.83 line 80-89）：ruleUrl 为空也走这里
-            if (TextUtils.isEmpty(ruleUrl) || !http) {
+            // 3. 非 http 分支（8.83 line 80-89）
+            if (!http) {
                 if (!TextUtils.isEmpty(url) && url.startsWith("hiker://files/")) {
+                    // 8.83: "file://" + SettingConfig.rootDir(=getExternalFilesDir(DOCUMENTS)) + rest，
+                    // 与 HkJsRuntime.getFilePath / fetchByHiker 保持同一目录（之前误用内部 filesDir 导致找不到文件）
                     String rest = url.replace("hiker://files/", "");
-                    return "file://" + App.get().getFilesDir().getAbsolutePath() + File.separator + rest;
+                    File docs = App.get().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+                    String root = (docs != null) ? docs.getAbsolutePath() : App.get().getFilesDir().getAbsolutePath();
+                    return "file://" + root + File.separator + rest;
                 }
                 try {
                     if (!TextUtils.isEmpty(url)) url = url.replace("#originalSize#", "");
@@ -262,7 +290,8 @@ public class ImgUtil {
             if (TextUtils.equals(ruleUrl, url) && !url.contains("@Referer=")) referer = "";
             // Referer 非空但不是 http 开头 → 置空（8.83 line 176）
             String refererHeader = (!TextUtils.isEmpty(referer) && referer.startsWith("http")) ? referer : "";
-            builder.addHeader(HttpHeaders.USER_AGENT, finalUa);
+            // 8.83：glideUA 为空时不拼 User-Agent 头（之前无条件拼空 UA）
+            if (!TextUtils.isEmpty(finalUa)) builder.addHeader(HttpHeaders.USER_AGENT, finalUa);
             if (!TextUtils.isEmpty(refererHeader)) builder.addHeader(HttpHeaders.REFERER, refererHeader);
             return TextUtils.isEmpty(url) ? null : new GlideUrl(url, builder.build());
         } catch (Throwable t) {
@@ -281,11 +310,16 @@ public class ImgUtil {
         }
     }
 
-    /** 8.83 StringUtil.getDom 语义：取 host（含 getRealUrl 预处理）。 */
+    /** 8.83 StringUtil.getDom 语义：取 host（含 getRealUrl 预处理；特殊 scheme 直接返回原串）。 */
     private static String getDom(String url) {
         if (TextUtils.isEmpty(url)) return url;
         try {
             String u = getRealUrl(url);
+            // 8.83 getDom0：thunder/magnet/ftp/ed2k/file 直接返回原串，不取 host
+            if (u.startsWith("thunder://") || u.startsWith("magnet:") || u.startsWith("ftp://")
+                    || u.startsWith("ed2k:") || u.startsWith("file://")) {
+                return u;
+            }
             String[] parts = u.split("://");
             if (parts.length > 1) return parts[1].split("/")[0];
             parts = u.split("//");

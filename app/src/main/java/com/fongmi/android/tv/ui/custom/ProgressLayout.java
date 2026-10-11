@@ -123,7 +123,9 @@ public class ProgressLayout extends RelativeLayout {
                 ensureEmptyView();
                 mEmptyView.setVisibility(VISIBLE);
                 if (mProgressView != null) mProgressView.setVisibility(GONE);
-                setContentVisibility(false);
+                // 空态保持内容可见（空列表仍可接收下拉手势触发 SwipeRefreshLayout），
+                // 之前 GONE/INVISIBLE 导致无数据时下拉无反应。
+                setContentVisibility(true);
                 break;
         }
     }

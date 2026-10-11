@@ -909,7 +909,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         restoreExoOutputMode();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
-        if (isOwner() && !isAudioOnly() && PlayerSetting.isBackgroundOff() && mController != null) mController.pause();
+        if (isOwner() && !isAudioOnly() && PlayerSetting.isBackgroundOff()) {
+            // 后台播放关闭时切后台必须暂停：mController 可能尚未连接（null），此时直接停 player，
+            // 否则开关关了关 App 仍有声音。
+            try {
+                if (mController != null) mController.pause();
+                else if (mService != null) player().pause();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     @Override

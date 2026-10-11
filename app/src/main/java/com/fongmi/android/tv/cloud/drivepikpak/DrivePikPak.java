@@ -12,10 +12,13 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.Cookie;
+import okhttp3.CookieJar;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -82,8 +85,46 @@ public class DrivePikPak implements CloudDrive {
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
+                .cookieJar(new WebViewCookieJar())
                 .build();
         loadSession();
+    }
+
+    /**
+     * 与系统 WebView 共享 Cookie。
+     * 人机验证在 WebView 内完成时服务端可能下发会话 Cookie，
+     * 让后续 API 请求带上它们，否则验证状态传不到 OkHttp。
+     */
+    private static class WebViewCookieJar implements CookieJar {
+        @Override
+        public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+            try {
+                android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+                for (Cookie c : cookies) cm.setCookie(url.toString(), c.toString());
+                cm.flush();
+            } catch (Exception ignored) {}
+        }
+
+        @Override
+        public List<Cookie> loadForRequest(HttpUrl url) {
+            try {
+                android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+                String header = cm.getCookie(url.toString());
+                if (TextUtils.isEmpty(header)) return Collections.emptyList();
+                List<Cookie> out = new ArrayList<>();
+                for (String pair : header.split(";")) {
+                    int eq = pair.indexOf('=');
+                    if (eq <= 0) continue;
+                    String name = pair.substring(0, eq).trim();
+                    String value = pair.substring(eq + 1).trim();
+                    if (name.isEmpty()) continue;
+                    out.add(new Cookie.Builder().name(name).value(value).domain(url.host()).build());
+                }
+                return out;
+            } catch (Exception ignored) {
+                return Collections.emptyList();
+            }
+        }
     }
 
     // ---------- 会话持久化 ----------

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,6 +12,9 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -423,15 +427,20 @@ public class PanLoginActivity extends BaseActivity {
     }
 
     /**
-     * PikPak 人机验证：在内置 WebView 打开服务端下发的验证页，
-     * 用户完成后点「已完成验证」，带 captchaToken 重试登录。
+     * PikPak 人机验证：在内置 WebView 打开服务端下发的验证页。
+     *
+     * 关键点（对着 pikpak-sdk / Alist 文档核过）：
+     * 1. 滑块完成后服务端会下发一个「新的」captcha_token（跟登录接口返回的那个不一样），
+     *    它藏在验证页的网络请求响应里；必须用新 token 重试，复用旧 token 会一直失败。
+     * 2. WebView 默认 UA 带 "; wv" 标记，会被风控直接拦截，改成正常 Chrome UA。
+     * 3. WebView 的 Cookie 要和 OkHttp 共享（DrivePikPak 已加 WebViewCookieJar）。
      */
     private void showPikPakCaptcha(String u, String p, DrivePikPak.CaptchaRequiredException ce, int attempt) {
         String url = ce.getVerifyUrl();
         String token = ce.getCaptchaToken();
         if (TextUtils.isEmpty(url)) {
-            // 服务端没给验证页：直接带 token 重试一次
-            doPikPakLogin(u, p, token, attempt + 1);
+            // 服务端没给验证页：让用户手动填 token（对着桌面浏览器 F12 抓）
+            showPikPakManualToken(u, p, attempt);
             return;
         }
         LinearLayout layout = new LinearLayout(this);
@@ -439,18 +448,80 @@ public class PanLoginActivity extends BaseActivity {
         int pad = ResUtil.dp2px(16);
         layout.setPadding(pad, pad, pad, 0);
         TextView tvTip = new TextView(this);
-        tvTip.setText("请在下方页面完成人机验证，然后点「已完成验证」继续登录");
+        tvTip.setText("请在下方页面完成滑块验证，看到「已捕获验证凭证」后再点「已完成验证」");
         tvTip.setTextSize(13);
         layout.addView(tvTip);
+        TextView tvState = new TextView(this);
+        tvState.setText("等待验证…");
+        tvState.setTextSize(12);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = ResUtil.dp2px(8);
+        tvState.setLayoutParams(slp);
+        layout.addView(tvState);
+
+        // JS 回调抓到的新 captcha_token（跟 ce 里那个旧的不一样）
+        final String[] verifiedToken = new String[1];
+
         WebView web = new WebView(this);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, ResUtil.dp2px(420));
+                LinearLayout.LayoutParams.MATCH_PARENT, ResUtil.dp2px(440));
         wlp.topMargin = ResUtil.dp2px(12);
         web.setLayoutParams(wlp);
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
-        web.setWebViewClient(new WebViewClient());
+        ws.setDatabaseEnabled(true);
+        // 去掉 WebView 标记，用正常 Chrome 移动端 UA，否则风控不放行
+        ws.setUserAgentString("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cm.setAcceptThirdPartyCookies(web, true);
+        }
+        final String oldToken = token == null ? "" : token;
+        web.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void onCaptchaToken(final String t) {
+                if (TextUtils.isEmpty(t) || t.equals(oldToken)) return;
+                verifiedToken[0] = t;
+                runOnUiThread(() -> tvState.setText("已捕获验证凭证，可以点「已完成验证」"));
+            }
+        }, "XingChenCaptcha");
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                // 有些验证页完成时会跳到带新 token 的 URL
+                String t = extractCaptchaToken(request.getUrl().toString());
+                if (!TextUtils.isEmpty(t) && !t.equals(oldToken)) {
+                    verifiedToken[0] = t;
+                    runOnUiThread(() -> tvState.setText("已捕获验证凭证，可以点「已完成验证」"));
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String pageUrl) {
+                super.onPageFinished(view, pageUrl);
+                // 注入 XHR/fetch 钩子：验证完成时服务端下发的新 captcha_token 藏在接口响应里
+                String js = "(function(){"
+                        + "var ORIG='" + oldToken.replace("'", "") + "';"
+                        + "function pick(s){try{var m=String(s).match(/\"captcha_token\"\\s*:\\s*\"([^\"]+)\"/);"
+                        + "if(m&&m[1]&&m[1]!==ORIG&&window.XingChenCaptcha){window.XingChenCaptcha.onCaptchaToken(m[1]);}}catch(e){}}"
+                        + "try{var _s=XMLHttpRequest.prototype.send;"
+                        + "XMLHttpRequest.prototype.send=function(){"
+                        + "this.addEventListener('load',function(){try{pick(this.responseText);}catch(e){}});"
+                        + "return _s.apply(this,arguments);};}catch(e){}"
+                        + "try{if(window.fetch){var _f=window.fetch;"
+                        + "window.fetch=function(){return _f.apply(this,arguments).then(function(r){"
+                        + "try{r.clone().text().then(pick).catch(function(){})}catch(e){}return r;});};}}catch(e){}"
+                        + "try{var q=location.search.match(/[?&]captcha_token=([^&]+)/);"
+                        + "if(q&&q[1]&&decodeURIComponent(q[1])!==ORIG&&window.XingChenCaptcha)"
+                        + "{window.XingChenCaptcha.onCaptchaToken(decodeURIComponent(q[1]));}}catch(e){}"
+                        + "})();";
+                view.evaluateJavascript(js, null);
+            }
+        });
         web.loadUrl(url);
         layout.addView(web);
 
@@ -458,14 +529,75 @@ public class PanLoginActivity extends BaseActivity {
                 .setTitle("PikPak 人机验证")
                 .setView(layout)
                 .setPositiveButton("已完成验证，继续登录", null)
+                .setNeutralButton("手动填写 token", null)
                 .setNegativeButton("取消", null)
                 .create();
         dlg.setOnDismissListener(d -> web.destroy());
         dlg.show();
         dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            try { CookieManager.getInstance().flush(); } catch (Exception ignored) {}
             dlg.dismiss();
-            doPikPakLogin(u, p, token, attempt + 1);
+            String useToken = !TextUtils.isEmpty(verifiedToken[0]) ? verifiedToken[0] : oldToken;
+            if (TextUtils.isEmpty(verifiedToken[0])) {
+                Notify.show("没抓到新的验证凭证，用旧 token 重试一次");
+            }
+            doPikPakLogin(u, p, useToken, attempt + 1);
         });
+        dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            dlg.dismiss();
+            showPikPakManualToken(u, p, attempt);
+        });
+    }
+
+    /** 从 URL 里抠 captcha_token 参数 */
+    private static String extractCaptchaToken(String url) {
+        if (url == null) return "";
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("[?&]captcha_token=([^&]+)").matcher(url);
+        if (!m.find()) return "";
+        try {
+            return java.net.URLDecoder.decode(m.group(1), "UTF-8");
+        } catch (Exception e) {
+            return m.group(1);
+        }
+    }
+
+    /**
+     * 手动填写 captcha_token（兜底，跟 Alist 文档同一套流程）：
+     * 在电脑/手机浏览器打开验证页完成滑块，按 F12 在网络请求里找到 captcha_token，粘贴到这里。
+     */
+    private void showPikPakManualToken(String u, String p, int attempt) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = ResUtil.dp2px(24);
+        layout.setPadding(pad, pad, pad, pad);
+        TextView tvTip = new TextView(this);
+        tvTip.setText("在浏览器打开验证页完成滑块后，按 F12 在网络请求里找到 captcha_token，粘贴到下面");
+        tvTip.setTextSize(13);
+        layout.addView(tvTip);
+        EditText et = new EditText(this);
+        et.setHint("粘贴 captcha_token");
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        et.setMinLines(2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = ResUtil.dp2px(12);
+        et.setLayoutParams(lp);
+        layout.addView(et);
+
+        new AlertDialog.Builder(this)
+                .setTitle("手动填写验证凭证")
+                .setView(layout)
+                .setPositiveButton("用此 token 登录", (d, w) -> {
+                    String t = et.getText().toString().trim();
+                    if (TextUtils.isEmpty(t)) {
+                        Notify.show("token 是空的");
+                        return;
+                    }
+                    doPikPakLogin(u, p, t, attempt + 1);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     // ================= 通用 =================

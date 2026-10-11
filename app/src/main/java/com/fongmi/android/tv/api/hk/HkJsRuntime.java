@@ -31,6 +31,7 @@ import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.net.NetworkInterface;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -3365,6 +3366,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                     StringBuilder sb = new StringBuilder(bytes.length * 2);
                     for (byte b : bytes) sb.append(String.format("%02x", b & 0xff));
                     content = sb.toString();
+                } else if (req.isRejectCoding()) {
+                    // 8.83 原版：rejectCoding=true 时拒绝按 charset 解码，字节 1:1 映射为 ISO-8859-1，
+                    // 不破坏二进制密文，供规则 JS 自行 Decrypt（一个APP v11 的 fetch(...,{rejectCoding:true}) 依赖此行为）
+                    content = new String(bytes, StandardCharsets.ISO_8859_1);
                 } else {
                     content = new String(bytes, req.getCharset());
                 }

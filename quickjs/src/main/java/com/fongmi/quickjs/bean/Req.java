@@ -30,6 +30,8 @@ public class Req {
     private JsonElement data;
     @SerializedName("headers")
     private JsonElement headers;
+    @SerializedName("rejectCoding")
+    private Boolean rejectCoding;
 
     public static Req objectFrom(String json) {
         return new Gson().fromJson(json, Req.class);
@@ -69,6 +71,10 @@ public class Req {
 
     public boolean isRedirect() {
         return getRedirect() == 1;
+    }
+
+    public boolean isRejectCoding() {
+        return rejectCoding != null && rejectCoding;
     }
 
     public Map<String, String> getHeader() {

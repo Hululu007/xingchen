@@ -231,6 +231,21 @@ public class HkPageActivity extends BaseActivity {
         stack.push(V_RULES);
         showView(V_RULES);
         refreshRules();
+        handleOpenFileIntent(getIntent());
+    }
+
+    /**
+     * 从文件管理器"打开方式"进入：ACTION_VIEW 携带规则文件（.json/.hkzip/.zip）时走导入流程。
+     * 复用 importRuleFiles：按魔数识别 zip（.hkzip/.zip 同一套 parseHkZip 解析），单规则直接导入+弹"是否打开"。
+     */
+    private void handleOpenFileIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        Uri uri = intent.getData();
+        if (uri == null) return;
+        setIntent(new Intent()); // 消费掉，避免旋转重建时重复导入
+        List<Uri> uris = new ArrayList<>();
+        uris.add(uri);
+        importRuleFiles(uris);
     }
 
     @Override
@@ -1326,8 +1341,10 @@ public class HkPageActivity extends BaseActivity {
                     tmp = copyToTemp(uri);
                     if (isZipFile(tmp, displayName)) {
                         // 多规则包：先全部解析 → 弹窗让用户勾选 → 只导入选中的
-                        boolean hkzip = displayName != null && displayName.toLowerCase().endsWith(".hkzip");
-                        if (hkzip) {
+                        // .hkzip 与 .zip 走同一套解析（parseHkZip：多 rule.json + require.json/libs.zip 附带资源）
+                        String lowerName = displayName == null ? "" : displayName.toLowerCase();
+                        boolean pkg = lowerName.endsWith(".hkzip") || lowerName.endsWith(".zip");
+                        if (pkg) {
                             HkRuleManager.HkZipData zipData = HkRuleManager.get().parseHkZip(tmp);
                             for (HkRuleManager.ParsedRule p : zipData.rules) entries.add(new PickEntry(p, zipData));
                         } else {
@@ -1715,13 +1732,14 @@ public class HkPageActivity extends BaseActivity {
                 .show();
     }
 
-    /** 导出为文件：弹窗选择格式（.json / .hkzip），保存到 Download 目录并调起分享。 */
+    /** 导出为文件：弹窗选择格式（.json / .hkzip / .zip），保存到 Download 目录并调起分享。 */
     private void exportAsFile(HkRule rule) {
         new AlertDialog.Builder(this)
                 .setTitle("选择导出格式")
-                .setItems(new String[]{"导出为 .json 文件", "导出为 .hkzip 包"}, (d, which) -> {
+                .setItems(new String[]{"导出为 .json 文件", "导出为 .hkzip 包", "导出为 .zip 包"}, (d, which) -> {
                     if (which == 0) doExportAsJsonFile(rule);
-                    else doExportAsHkZip(rule);
+                    else if (which == 1) doExportAsHkZip(rule);
+                    else doExportAsZip(rule);
                 })
                 .show();
     }
@@ -1755,6 +1773,29 @@ public class HkPageActivity extends BaseActivity {
             try {
                 File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
                 java.io.File out = HkRuleManager.get().exportAsHkZip(rule.getTitle(), dir);
+                App.post(() -> {
+                    Notify.show("已导出到：" + out.getAbsolutePath());
+                    try {
+                        Intent share = new Intent(Intent.ACTION_SEND);
+                        share.setType("application/zip");
+                        share.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(out));
+                        startActivity(Intent.createChooser(share, "分享规则包"));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+            } catch (Exception e) {
+                App.post(() -> Notify.show("导出失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 导出规则为 .zip 包（内容同 .hkzip）：保存到 Download 目录并调起分享。 */
+    private void doExportAsZip(HkRule rule) {
+        new Thread(() -> {
+            try {
+                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                java.io.File out = HkRuleManager.get().exportAsZip(rule.getTitle(), dir);
                 App.post(() -> {
                     Notify.show("已导出到：" + out.getAbsolutePath());
                     try {

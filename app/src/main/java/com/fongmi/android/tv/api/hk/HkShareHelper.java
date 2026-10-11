@@ -75,10 +75,9 @@ public class HkShareHelper {
         if (file == null || !file.exists()) throw new IllegalArgumentException("文件不存在");
         String name = file.getName().toLowerCase();
         HkRuleManager mgr = HkRuleManager.get();
-        if (name.endsWith(".hkzip")) {
+        if (name.endsWith(".hkzip") || name.endsWith(".zip")) {
+            // .zip 与 .hkzip 同一套解析（parseHkZip：多 rule.json + require.json/libs.zip 附带资源）
             result.addAll(mgr.importHkZip(file));
-        } else if (name.endsWith(".zip")) {
-            result.addAll(mgr.importZip(file));
         } else {
             byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
             String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);

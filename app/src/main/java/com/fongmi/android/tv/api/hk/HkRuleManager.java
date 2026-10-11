@@ -837,10 +837,25 @@ public class HkRuleManager {
      * @return 导出的文件
      */
     public File exportAsHkZip(String title, File destDir) throws Exception {
+        return exportRulePackage(title, destDir, ".hkzip");
+    }
+
+    /**
+     * 导出规则为 .zip 包：内容与 .hkzip 完全相同（rule.json + require.json + libs.zip），仅后缀为 .zip。
+     * 海阔里常见"xxx.zip"规则包（如"黄色仓库.zip"），与 .hkzip 互通，导入走同一套解析。
+     *
+     * @return 导出的文件
+     */
+    public File exportAsZip(String title, File destDir) throws Exception {
+        return exportRulePackage(title, destDir, ".zip");
+    }
+
+    /** 导出规则包的公共实现：ext 决定后缀（.hkzip / .zip），包内容一致。 */
+    private File exportRulePackage(String title, File destDir, String ext) throws Exception {
         File src = new File(getDir(), safeFileName(title) + ".json");
         if (!src.exists()) throw new IllegalArgumentException("规则不存在：" + title);
         if (destDir != null && !destDir.exists()) destDir.mkdirs();
-        File dest = new File(destDir != null ? destDir : getDir(), safeFileName(title) + ".hkzip");
+        File dest = new File(destDir != null ? destDir : getDir(), safeFileName(title) + ext);
         try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(dest.toPath()))) {
             writeZipEntry(zos, "rule.json", Files.readAllBytes(src.toPath()));
             File dataDir = getDataDir(title);

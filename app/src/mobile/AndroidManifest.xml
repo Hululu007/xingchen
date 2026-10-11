@@ -149,9 +149,23 @@
 
         <activity
             android:name=".ui.activity.HkPageActivity"
+            android:exported="true"
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
+            android:screenOrientation="fullUser">
+            <!-- 规则文件"打开方式"：点 .json/.hkzip/.zip 文件直接用星辰打开导入（对照 8.83 ResolveIntentActivity） -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\.json" />
+                <data android:pathPattern=".*\.hkzip" />
+                <data android:pathPattern=".*\.zip" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".ui.activity.PanLoginActivity"

@@ -1823,6 +1823,12 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void openRule(HkRule rule) {
+        // "我的主页"暂未实现（规则内 HikerHome 未定义，打开必报错）：顶部 tabs 不展示它；
+        // 若选中的就是它，自动切到下一个可用的规则
+        if (isHomePageRule(rule)) {
+            HkRule next = nextAvailableRule(rule);
+            if (next != null) rule = next;
+        }
         destroyRouterAsync();
         subStack.clear(); // 切规则时丢弃子列表栈
         currentRule = rule;
@@ -1847,6 +1853,37 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
+     * 是否为"我的主页"规则：顶部 tabs 暂不展示它（HikerHome 未实现）。
+     */
+    private static boolean isHomePageRule(HkRule r) {
+        return r != null && "我的主页".equals(r.getTitle());
+    }
+
+    /**
+     * 取"我的主页"之后下一个可用的规则（排除"我的主页"本身，环绕查找）；没有则返回 null。
+     */
+    private HkRule nextAvailableRule(HkRule home) {
+        try {
+            List<HkRule> rules = com.fongmi.android.tv.api.hk.HkRuleManager.get().getRules();
+            if (rules == null || rules.isEmpty()) return null;
+            int start = -1;
+            for (int i = 0; i < rules.size(); i++) {
+                HkRule r = rules.get(i);
+                if (r == home || (home.getTitle() != null && home.getTitle().equals(r.getTitle()))) {
+                    start = i;
+                    break;
+                }
+            }
+            for (int k = 1; k <= rules.size(); k++) {
+                HkRule r = rules.get((start + k) % rules.size());
+                if (r.isEnabled() && !isHomePageRule(r)) return r;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
      * 8.83 同款：内容页顶部小程序切换 tabs。
      * 横向显示已安装的小程序，点击切换规则。
      */
@@ -1855,7 +1892,8 @@ public class HkPageActivity extends BaseActivity {
             List<HkRule> rules = com.fongmi.android.tv.api.hk.HkRuleManager.get().getRules();
             List<HkRule> enabled = new ArrayList<>();
             for (HkRule r : rules) {
-                if (r.isEnabled()) enabled.add(r);
+                // 顶部 tabs 不需要"我的主页"（HikerHome 未实现，打开必报错）
+                if (r.isEnabled() && !isHomePageRule(r)) enabled.add(r);
             }
             // 当前规则若不在 tabs 列表里（未启用或刚导入），追加进去并选中，保证 tabs 跟随当前页面
             String curTitle = currentRule == null ? null : currentRule.getTitle();

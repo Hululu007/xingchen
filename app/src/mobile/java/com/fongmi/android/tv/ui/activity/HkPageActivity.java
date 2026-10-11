@@ -2158,6 +2158,7 @@ public class HkPageActivity extends BaseActivity {
                 } catch (Throwable ignored) {
                 }
             });
+            adapter.setGoldMode(true); // 金色主题：与分类 pills 颜色区分
             binding.rvMiniappTabs.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
             binding.rvMiniappTabs.setAdapter(adapter);
             // 滚动到选中项，保证当前小程序的 tab 可见
@@ -4735,11 +4736,17 @@ public class HkPageActivity extends BaseActivity {
         private int selected;
         private final OnPick listener;
         private int dropTarget = -1;
+        private boolean goldMode = false;
 
         ChipAdapter(List<String[]> pairs, int selected, OnPick listener) {
             this.pairs = pairs;
             this.selected = selected;
             this.listener = listener;
+        }
+
+        /** 金色主题模式：小程序切换 tabs 用淡金底，与分类 pills（白底/绿选中）颜色区分，一眼看出是两排不同的东西。 */
+        void setGoldMode(boolean goldMode) {
+            this.goldMode = goldMode;
         }
 
         /** 拖拽投放高亮位置（-1=无），供编辑模式拖卡片到分组 pills 用。 */
@@ -4754,10 +4761,14 @@ public class HkPageActivity extends BaseActivity {
 
         static class Holder extends RecyclerView.ViewHolder {
             TextView chip;
+            com.google.android.material.card.MaterialCardView card;
 
             Holder(View v) {
                 super(v);
                 chip = v.findViewById(R.id.tv_chip);
+                android.view.View p = (android.view.View) chip.getParent();
+                card = p instanceof com.google.android.material.card.MaterialCardView
+                        ? (com.google.android.material.card.MaterialCardView) p : null;
             }
         }
 
@@ -4778,12 +4789,34 @@ public class HkPageActivity extends BaseActivity {
             boolean sel = position == selected;
             h.chip.setSelected(sel);
             boolean drop = position == dropTarget;
-            if (drop) {
+            if (goldMode) {
+                // 金色主题：小程序切换 tabs 在圆角框内，透明底 + 金色系文字，与分类 pills 区分
+                if (h.card != null) {
+                    h.card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
+                    h.card.setStrokeWidth(0);
+                }
+                h.chip.setBackgroundResource(0);
+                h.chip.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                h.chip.setTextColor(sel ? 0xFF8A6D00 : 0xFF8A8F98);
+            } else if (drop) {
                 // 拖拽投放目标：金色加粗 + 选中底，提示松手即进该分组
+                if (h.card != null) {
+                    h.card.setCardBackgroundColor(0xC2FFFFFF);
+                    float d2 = h.itemView.getContext().getResources().getDisplayMetrics().density;
+                    h.card.setStrokeWidth((int) (1 * d2 + 0.5f));
+                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
+                }
                 h.chip.setTextColor(0xFFB8890F);
                 h.chip.setTypeface(null, android.graphics.Typeface.BOLD);
                 h.chip.setBackgroundResource(R.drawable.hk_ripple_glass_selected);
             } else {
+                // 恢复卡片默认样式（防止从 goldMode 复用过来的 view 残留透明底）
+                if (h.card != null) {
+                    h.card.setCardBackgroundColor(0xC2FFFFFF);
+                    float d = h.itemView.getContext().getResources().getDisplayMetrics().density;
+                    h.card.setStrokeWidth((int) (1 * d + 0.5f));
+                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
+                }
                 h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
                 // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
                 h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);

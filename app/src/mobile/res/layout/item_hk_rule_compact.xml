@@ -58,7 +58,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="2"
-                android:textColor="#101216"
+                android:textColor="#000000"
                 android:textSize="12sp"
                 android:textStyle="bold" />
 

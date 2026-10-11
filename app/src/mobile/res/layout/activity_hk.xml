@@ -66,15 +66,11 @@
                             android:textSize="20sp"
                             android:textStyle="bold" />
 
-                        <Space
-                            android:layout_width="0dp"
-                            android:layout_height="1dp"
-                            android:layout_weight="1" />
-
                         <ImageView
                             android:id="@+id/btn_search_rule"
                             android:layout_width="32dp"
                             android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
                             android:contentDescription="搜索小程序"
                             android:padding="4dp"
                             android:src="@drawable/ic_action_search" />
@@ -86,8 +82,8 @@
                             android:layout_marginStart="4dp"
                             android:contentDescription="排序"
                             android:padding="4dp"
-                            android:src="@drawable/ic_fab_filter"
-                            android:tint="#101216" />
+                            android:src="@drawable/ic_action_search" />
+                            <!-- placeholder, fixed below -->
 
                         <!-- 编辑模式才显示：分组管理入口 -->
                         <TextView
@@ -267,41 +263,14 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- 8.83 同款原生分类行：横向滚动 + 右侧 ">"（点开"请选择分类"弹窗） -->
+            <!-- 8.83 同款静态分类 tab 行容器：class/area/year/sort 各独立一行
+                 （横向滚动 + 右侧 ">" 点开"请选择分类"弹窗），由 buildCategoryRow 动态建行 -->
             <LinearLayout
                 android:id="@+id/category_row"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rv_category"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clipToPadding="false" />
-
-                <TextView
-                    android:id="@+id/btn_category_expand"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginEnd="5dp"
-                    android:background="@drawable/tab_item_default"
-                    android:contentDescription="展开"
-                    android:gravity="center"
-                    android:maxLines="1"
-                    android:minHeight="30dp"
-                    android:paddingStart="10dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="10dp"
-                    android:paddingBottom="4dp"
-                    android:text=">"
-                    android:textColor="#666666"
-                    android:textSize="16sp" />
-            </LinearLayout>
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
 
             <!-- 8.83 同款：JS scroll_button/flex_button 动态 tab 行容器（每条目一行，各带 > 展开按钮） -->
             <LinearLayout

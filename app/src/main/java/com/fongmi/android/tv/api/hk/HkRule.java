@@ -127,12 +127,14 @@ public class HkRule {
 
     private static List<String[]> pairList(String names, String urls) {
         List<String[]> list = new ArrayList<>();
-        if (isEmpty(names) || isEmpty(urls)) return list;
+        // 8.83 原文（ArticleListFragment .line 1272-1290）：header 行注入只要求 class_name 非空，
+        // url 允许为空（按 "&" 切分后缺省 ""），不因 class_url 为空整行消失。
+        if (isEmpty(names)) return list;
         String[] ns = names.split("&", -1);
-        String[] us = urls.split("&", -1);
-        int n = Math.min(ns.length, us.length);
-        for (int i = 0; i < n; i++) {
-            list.add(new String[]{ns[i].trim(), us[i].trim()});
+        String[] us = isEmpty(urls) ? new String[0] : urls.split("&", -1);
+        for (int i = 0; i < ns.length; i++) {
+            String u = i < us.length ? us[i].trim() : "";
+            list.add(new String[]{ns[i].trim(), u});
         }
         return list;
     }

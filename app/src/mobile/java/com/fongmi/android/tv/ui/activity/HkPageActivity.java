@@ -175,21 +175,27 @@ public class HkPageActivity extends BaseActivity {
     /** preRule loading 弹窗（8.83 showLoading/hideLoading 等价）：规则 JS 调 showLoading("正在获取域名，请稍候") 时弹出。 */
     private android.app.Dialog hkLoadingDialog;
     private TextView hkLoadingText;
+    /** 8.83 MainActivity.isOnPause 等价：onLoading 开头 isOnPause 直接 return，后台时不弹框。 */
+    private boolean hkPaused;
     /** 8.83 canTouchUI 等价：只响应当前规则的 showLoading，避免切规则后旧规则 JS 弹框。 */
     private final HkLoading.Listener hkLoadingListener = new HkLoading.Listener() {
         @Override
         public void onShowLoading(String ruleTitle, String text) {
+            if (hkPaused) return;
             if (currentRule == null || ruleTitle == null || !ruleTitle.equals(currentRule.getTitle())) return;
             showHkLoading(text);
         }
 
         @Override
         public void onHideLoading(String ruleTitle) {
+            if (hkPaused) return;
             if (currentRule == null || ruleTitle == null || !ruleTitle.equals(currentRule.getTitle())) return;
             hideHkLoading();
         }
     };
     private String cls = "", area = "", year = "", sort = "";
+    /** 每行分类 tab 当前选中的名字（8.83 ArticleList.setPic 等价，用于选中高亮）。 */
+    private String clsName = "", areaName = "", yearName = "", sortName = "";
     private int page = 1;
     private boolean loading, noMore;
     private final Map<String, Integer> scrollMem = new HashMap<>();
@@ -331,6 +337,13 @@ public class HkPageActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        hkPaused = false;
+    }
+
+    @Override
+    protected void onPause() {
+        hkPaused = true;
+        super.onPause();
     }
 
     @Override
@@ -2449,7 +2462,6 @@ public class HkPageActivity extends BaseActivity {
         binding.rvVideos.addItemDecoration(new GridSpace());
         contentAdapter = new ContentAdapter(videos);
         binding.rvVideos.setAdapter(contentAdapter);
-        binding.rvCategory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.swipeContent.setColorSchemeColors(0xFFD4A017);
         binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
         binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
@@ -2469,6 +2481,10 @@ public class HkPageActivity extends BaseActivity {
      * 小居中盒（#212121 实底 + 16dp 圆角 + 22dp 内边距 + 28dp 菊花 + 14sp #EEEEEE 单行字）
      * + 全屏 50% 黑阴影（XPopup 默认 shadowBgColor #7F000000）。
      * 之前把深色底设在了全屏 root 上，导致整屏近黑——这就是"满屏"bug 的根因。
+     * 对齐 8.83 MainActivity.showLoading 的 XPopup 默认行为：
+     * 1) 未调 dismissOnTouchOutside/dismissOnBackPressed → 默认都为 true，点外部/返回键可关闭；
+     * 2) asLoading(title) 里 title 为空时只显示菊花、标题 TextView gone，不补默认文案；
+     * 3) 已显示时只 setTitle 更新文字（此处复用 dialog + setText 等价）。
      * 规则 preRule 里调 showLoading(text) 时弹出，hideLoading() 时关闭。
      */
     private void showHkLoading(String text) {
@@ -2512,15 +2528,21 @@ public class HkPageActivity extends BaseActivity {
 
                 hkLoadingDialog = new android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar);
                 hkLoadingDialog.setContentView(root);
-                hkLoadingDialog.setCancelable(false);
-                hkLoadingDialog.setCanceledOnTouchOutside(false);
+                // 对齐 XPopup 默认：dismissOnTouchOutside/dismissOnBackPressed 均为 true
+                hkLoadingDialog.setCancelable(true);
+                hkLoadingDialog.setCanceledOnTouchOutside(true);
                 if (hkLoadingDialog.getWindow() != null) {
                     hkLoadingDialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
                     hkLoadingDialog.getWindow().setDimAmount(0.5f);
                 }
             }
-            String t = TextUtils.isEmpty(text) ? "正在加载，请稍候" : text;
-            hkLoadingText.setText(t);
+            // 对齐 XPopup LoadingPopupView.setup()：title 为空时标题 gone 只显示菊花，不补默认文案
+            if (TextUtils.isEmpty(text)) {
+                hkLoadingText.setVisibility(View.GONE);
+            } else {
+                hkLoadingText.setVisibility(View.VISIBLE);
+                hkLoadingText.setText(text);
+            }
             if (!hkLoadingDialog.isShowing() && !isFinishing()) hkLoadingDialog.show();
         } catch (Throwable ignored) {
         }
@@ -2552,6 +2574,10 @@ public class HkPageActivity extends BaseActivity {
         area = "";
         year = "";
         sort = "";
+        clsName = "";
+        areaName = "";
+        yearName = "";
+        sortName = "";
         page = 1;
         noMore = false;
         loading = false; // 旧规则的在途加载作废，由新 loadContent 接管
@@ -2848,25 +2874,140 @@ public class HkPageActivity extends BaseActivity {
         doSearch(kw);
     }
 
+    /**
+     * 8.83 同款静态分类 tab 行。
+     * 原文（ArticleListFragment.smali .line 1272-1290）：class_name/area_name/year_name/sort_name
+     * 非空即注入一行 header（type="header"，desc="class"/"area"/"year"/"sort"），title/url 按 "&" 切分；
+     * ArticleListAdapter.bindForHeaderHolder（smali:2492，.line 1133-1242）渲染：横向 tab + 右侧 ">"，
+     * ">" 点开"请选择分类" 3 列弹窗（lambda$bindForHeaderHolder$11，smali:10064）。
+     * 点击 tab：onClassClick（ArticleListFragment$5.smali:306，.line 1434-1457）按 desc 把该 tab 的
+     * url 值写入对应变量、page=1 重载；选中名记 pic 用于高亮（此处记 *Name 字段）。
+     * 原版无"全部"tab，不自动添加。
+     */
     private void buildCategoryRow() {
-        List<String[]> pairs = new ArrayList<>();
-        pairs.addAll(currentRule.getClassPairs());
-        // 默认选中规则的第一个分类（原版无"全部"，不自动添加）
-        if (!pairs.isEmpty()) cls = pairs.get(0)[1];
+        binding.categoryRow.removeAllViews();
+        if (currentRule == null) {
+            binding.categoryRow.setVisibility(View.GONE);
+            return;
+        }
+        int rows = 0;
+        rows += addCategoryTabRow(currentRule.getClassPairs(), "class");
+        rows += addCategoryTabRow(currentRule.getAreaPairs(), "area");
+        rows += addCategoryTabRow(currentRule.getYearPairs(), "year");
+        rows += addCategoryTabRow(currentRule.getSortPairs(), "sort");
+        // 8.83 同款：整行按是否有分类显示/隐藏
+        binding.categoryRow.setVisibility(rows > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    /** 建一行分类 tab（横向 RecyclerView + 右侧 ">"），无数据返回 0。 */
+    private int addCategoryTabRow(List<String[]> pairs, String kind) {
+        if (pairs == null || pairs.isEmpty()) return 0;
+        // 8.83 默认：pic 为空时选中第一个 title；instance() 把 *_url 归一化为第一个值（smali .line 434-444）
+        String curName = nameOf(kind);
+        if (curName.isEmpty()) {
+            setNameOf(kind, pairs.get(0)[0]);
+            if (valOf(kind).isEmpty()) setValOf(kind, pairs.get(0)[1]);
+            curName = pairs.get(0)[0];
+        }
+        int sel = 0;
+        for (int i = 0; i < pairs.size(); i++) {
+            if (pairs.get(i)[0].equals(curName)) {
+                sel = i;
+                break;
+            }
+        }
         final List<String[]> finalPairs = pairs;
-        ChipAdapter adapter = new ChipAdapter(pairs, 0, value -> {
-            cls = value;
-            loadContent(true);
-        });
-        binding.rvCategory.setAdapter(adapter);
-        // 8.83 同款：整行（含 > 按钮）按是否有分类显示/隐藏
-        binding.categoryRow.setVisibility(pairs.size() > 0 ? View.VISIBLE : View.GONE);
+        final int finalSel = sel;
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        rowLp.topMargin = dp(8);
+        binding.categoryRow.addView(row, rowLp);
+
+        RecyclerView rv = new RecyclerView(this);
+        rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        rv.setClipToPadding(false);
+        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
+        row.addView(rv, rvLp);
+        rv.setAdapter(new ChipAdapter(pairs, sel, url -> onCategoryTabPick(kind, finalPairs, url)));
+
+        TextView btnExpand = new TextView(this);
+        btnExpand.setText(">");
+        btnExpand.setTextSize(16);
+        btnExpand.setTextColor(0xFF666666);
+        btnExpand.setGravity(android.view.Gravity.CENTER);
+        btnExpand.setBackgroundResource(R.drawable.tab_item_default);
+        btnExpand.setPadding(dp(10), dp(4), dp(10), dp(4));
+        btnExpand.setContentDescription("展开");
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        btnLp.leftMargin = dp(3);
+        btnLp.rightMargin = dp(5);
+        row.addView(btnExpand, btnLp);
         // 8.83 同款：">" 点开"请选择分类"弹窗
-        binding.btnCategoryExpand.setOnClickListener(v ->
-                showCategoryPopup(finalPairs, 0, value -> {
-                    cls = value;
-                    loadContent(true);
-                }));
+        btnExpand.setOnClickListener(v ->
+                showCategoryPopup(finalPairs, finalSel, url -> onCategoryTabPick(kind, finalPairs, url)));
+        return 1;
+    }
+
+    /**
+     * 8.83 onClassClick 等价：按行 kind 把选中 tab 的 url 值写入对应变量
+     * （fyclass/fyarea/fyyear/fysort 替换用），选中名记入 *Name（8.83 setPic 等价），
+     * 重建 tab 行刷新高亮（8.83 updateHeaderHolder 等价），page=1 重载。
+     */
+    private void onCategoryTabPick(String kind, List<String[]> pairs, String url) {
+        String name = "";
+        for (String[] p : pairs) {
+            if (p[1].equals(url)) {
+                name = p[0];
+                break;
+            }
+        }
+        if (name.isEmpty() && !pairs.isEmpty()) name = pairs.get(0)[0];
+        setValOf(kind, url);
+        setNameOf(kind, name);
+        loadContent(true);
+        buildCategoryRow();
+    }
+
+    private String valOf(String kind) {
+        switch (kind) {
+            case "area": return area;
+            case "year": return year;
+            case "sort": return sort;
+            default: return cls;
+        }
+    }
+
+    private String nameOf(String kind) {
+        switch (kind) {
+            case "area": return areaName;
+            case "year": return yearName;
+            case "sort": return sortName;
+            default: return clsName;
+        }
+    }
+
+    private void setValOf(String kind, String v) {
+        switch (kind) {
+            case "area": area = v; break;
+            case "year": year = v; break;
+            case "sort": sort = v; break;
+            default: cls = v; break;
+        }
+    }
+
+    private void setNameOf(String kind, String v) {
+        switch (kind) {
+            case "area": areaName = v; break;
+            case "year": yearName = v; break;
+            case "sort": sortName = v; break;
+            default: clsName = v; break;
+        }
     }
 
     /**
@@ -3075,20 +3216,13 @@ public class HkPageActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 8.83 原文没有筛选行：地区/年份/类型就是分类 tab 行（class/area/year/sort 四行 header，
+     * 见 buildCategoryRow）。此方法保留空实现（调用点不动），避免与 tab 行重复显示。
+     */
     private void buildFilterRows() {
         binding.filterContainer.removeAllViews();
-        addFilterRow("地区", currentRule.getAreaPairs(), value -> {
-            area = value;
-            loadContent(true);
-        });
-        addFilterRow("年份", currentRule.getYearPairs(), value -> {
-            year = value;
-            loadContent(true);
-        });
-        addFilterRow("类型", currentRule.getSortPairs(), value -> {
-            sort = value;
-            loadContent(true);
-        });
+        binding.filterContainer.setVisibility(View.GONE);
     }
 
     private void addFilterRow(String label, List<String[]> pairs, ChipAdapter.OnPick pick) {
@@ -4321,8 +4455,23 @@ public class HkPageActivity extends BaseActivity {
      * 直接播放就不推 V4（粉嫩小BB点封面即播，不闪 V4 loading）。
      */
     private void onContentItemClick(HkItem it) {
-        if (it == null || currentRule == null || TextUtils.isEmpty(it.getUrl())) return;
-        String url = it.getUrl().trim();
+        if (it == null || currentRule == null) return;
+        String url = it.getUrl() == null ? "" : it.getUrl().trim();
+        // 8.83 ArticleListFragment.clickItem(src 2917)：空链接 toast"链接为空，规则有误！"，不静默吞掉
+        if (url.isEmpty()) {
+            android.widget.Toast.makeText(this, "链接为空，规则有误！", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 8.83 clickItem(src 2940)：base64:// 去前缀解码后再走分流
+        if (url.startsWith("base64://")) {
+            try {
+                String decoded = new String(android.util.Base64.decode(
+                        url.substring("base64://".length()).trim(), 2)).trim();
+                url = decoded;
+                it.setUrl(decoded);
+            } catch (Throwable ignored) {
+            }
+        }
         if (handleActionUrl(url, it)) return;
         // P1：hiker://page/ 子页面走 openPage（官方 toNextPage），不进 V4
         if (url.startsWith("hiker://page/") && openPage(it, url)) return;
@@ -4353,6 +4502,7 @@ public class HkPageActivity extends BaseActivity {
         String title;
         int page;
         String cls, area, year, sort;
+        String clsName, areaName, yearName, sortName;
         java.util.List<HkItem> videos;
         int scrollPos;
         int fromView;
@@ -4432,6 +4582,10 @@ public class HkPageActivity extends BaseActivity {
             st.area = area;
             st.year = year;
             st.sort = sort;
+            st.clsName = clsName;
+            st.areaName = areaName;
+            st.yearName = yearName;
+            st.sortName = sortName;
             st.videos = new java.util.ArrayList<>(videos);
             st.scrollPos = contentGrid == null ? 0 : contentGrid.findFirstVisibleItemPosition();
             st.fromView = stack.isEmpty() ? V_CONTENT : stack.peek();
@@ -4445,6 +4599,10 @@ public class HkPageActivity extends BaseActivity {
             area = "";
             year = "";
             sort = "";
+            clsName = "";
+            areaName = "";
+            yearName = "";
+            sortName = "";
             page = 1;
             noMore = false;
             loading = false;
@@ -4534,6 +4692,10 @@ public class HkPageActivity extends BaseActivity {
         area = st.area;
         year = st.year;
         sort = st.sort;
+        clsName = st.clsName == null ? "" : st.clsName;
+        areaName = st.areaName == null ? "" : st.areaName;
+        yearName = st.yearName == null ? "" : st.yearName;
+        sortName = st.sortName == null ? "" : st.sortName;
         noMore = false;
         loading = false;
         contentGen++;
@@ -4600,6 +4762,10 @@ public class HkPageActivity extends BaseActivity {
             st.area = area;
             st.year = year;
             st.sort = sort;
+            st.clsName = clsName;
+            st.areaName = areaName;
+            st.yearName = yearName;
+            st.sortName = sortName;
             st.videos = new java.util.ArrayList<>(videos);
             st.scrollPos = contentGrid == null ? 0 : contentGrid.findFirstVisibleItemPosition();
             st.fromView = stack.isEmpty() ? V_CONTENT : stack.peek();
@@ -4630,6 +4796,10 @@ public class HkPageActivity extends BaseActivity {
             area = "";
             year = "";
             sort = "";
+            clsName = "";
+            areaName = "";
+            yearName = "";
+            sortName = "";
             page = 1;
             noMore = false;
             loading = false;
@@ -5492,15 +5662,13 @@ public class HkPageActivity extends BaseActivity {
             }
             h.desc.setVisibility(View.GONE);
             ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
+            // 8.83：所有条目类型走同一条 onClick→clickItem→dealWithUrl 链，
+            // video 也不单开直调详情（否则动作协议/@rule=分流/详情内直播等都被跳过）
             h.itemView.setOnClickListener(v -> {
                 try {
                     int pos = h.getAdapterPosition();
-                    if (pos >= 0 && currentRule != null) {
-                        HkItem it = items.get(pos);
-                        String u = it.getUrl() == null ? "" : it.getUrl();
-                        // P1：hiker://page/ 子页面走 openPage，不进 V4
-                        if (u.trim().startsWith("hiker://page/") && openPage(it, u)) return;
-                        openDetail(it, true, u.contains("@lazyRule="));
+                    if (pos >= 0 && pos < items.size() && currentRule != null) {
+                        onContentItemClick(items.get(pos));
                     }
                 } catch (Exception e) {
                     android.util.Log.e("HkPage", "bindVideo click failed", e);
@@ -5807,16 +5975,21 @@ public class HkPageActivity extends BaseActivity {
             });
         }
 
-        /** 非视频条目点击：无 url 的纯展示行不设点击。 */
+        /**
+         * 8.83 ArticleListAdapter.bindClick(src 1974)：所有条目都绑点击（含空链接——
+         * 空链接由分流处 toast"链接为空，规则有误！"，不在 bind 时静默去掉）。
+         * 点击时按 position 重取条目（8.83 clickItem src 2859 同款，防复用错位）；
+         * 越界检查照抄 8.83 clickItem(src 2914)：position<0 或 >=size 直接 return。
+         */
         private void setContentClick(Holder h, HkItem item) {
-            if (TextUtils.isEmpty(item.getUrl())) {
-                h.itemView.setOnClickListener(null);
-                return;
-            }
             h.itemView.setOnClickListener(v -> {
-                int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION || currentRule == null) return;
-                onContentItemClick(items.get(pos));
+                try {
+                    int pos = h.getBindingAdapterPosition();
+                    if (pos < 0 || pos >= items.size() || currentRule == null) return;
+                    onContentItemClick(items.get(pos));
+                } catch (Exception e) {
+                    android.util.Log.e("HkPage", "setContentClick failed", e);
+                }
             });
         }
     }

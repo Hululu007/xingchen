@@ -88,6 +88,7 @@ public class HkPageActivity extends BaseActivity {
     private static final String PREFS = "xingchen";
     private static final String KEY_HIST = "hk_search_history";
     private static final String KEY_LAST_CLIP = "hk_last_clip_prompt";
+    private static final String KEY_RULE_SPAN = "hk_rule_span_count";
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HkPageActivity.class));
@@ -97,6 +98,7 @@ public class HkPageActivity extends BaseActivity {
     private final Deque<Integer> stack = new ArrayDeque<>();
 
     private RuleAdapter ruleAdapter;
+    private GridLayoutManager ruleGrid;
     private final List<HkRule> rules = new ArrayList<>();
     /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换）/ 分组筛选（""=全部） */
     private boolean ruleSortByName = false;
@@ -267,10 +269,13 @@ public class HkPageActivity extends BaseActivity {
     // ================= V1 规则列表 =================
 
     private void initRulesView() {
-        binding.rvRules.setLayoutManager(new GridLayoutManager(this, 3));
+        int span = getPrefs().getInt(KEY_RULE_SPAN, 3);
+        ruleGrid = new GridLayoutManager(this, span);
+        binding.rvRules.setLayoutManager(ruleGrid);
         binding.rvRules.addItemDecoration(new GridSpace());
         ruleAdapter = new RuleAdapter();
         binding.rvRules.setAdapter(ruleAdapter);
+        binding.tvTitleRule.setOnClickListener(v -> showColumnSwitchPopup());
         binding.btnSearchRule.setOnClickListener(v -> showRuleSearchDialog());
         binding.btnSortRule.setOnClickListener(v -> {
             ruleSortByName = !ruleSortByName;
@@ -287,6 +292,49 @@ public class HkPageActivity extends BaseActivity {
         ruleManageMode = !ruleManageMode;
         binding.btnEditRule.setText(ruleManageMode ? "完成" : "编辑");
         ruleAdapter.notifyDataSetChanged();
+    }
+
+    /** 点「小程序」标题：弹出 2 列 / 3 列切换小窗（独立卡片选项+间距，当前选中金色加粗）。 */
+    private void showColumnSwitchPopup() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText("小程序列数");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        int current = getPrefs().getInt(KEY_RULE_SPAN, 3);
+        String[] labels = {"2 列", "3 列"};
+        int[] spans = {2, 3};
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            boolean sel = spans[i] == current;
+            tv.setTextColor(sel ? 0xFFB8890F : 0xFF1A1D24);
+            tv.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            final int span = spans[i];
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (span == ruleGrid.getSpanCount()) return;
+                getPrefs().edit().putInt(KEY_RULE_SPAN, span).apply();
+                ruleGrid.setSpanCount(span);
+                binding.rvRules.scrollToPosition(0);
+            });
+            root.addView(tv, lp);
+        }
+        dialog.show();
     }
 
     /** 分组筛选行：全部 | 分组1 | 分组2 ...（8.83 风格：分组名前加①②等序号可排序，显示时去序号）。 */

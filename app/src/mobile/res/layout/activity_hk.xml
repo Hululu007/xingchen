@@ -88,12 +88,22 @@
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_rule_group"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_alignParentBottom="false"
+                android:layout_below="@id/top_bar_rules"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_rules"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_alignParentBottom="true"
-                android:layout_below="@id/top_bar_rules"
-                android:layout_marginTop="12dp"
+                android:layout_below="@id/rv_rule_group"
+                android:layout_marginTop="8dp"
                 android:layout_marginBottom="12dp"
                 android:clipToPadding="false"
                 android:paddingBottom="8dp" />

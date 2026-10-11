@@ -98,10 +98,11 @@ public class HkPageActivity extends BaseActivity {
 
     private RuleAdapter ruleAdapter;
     private final List<HkRule> rules = new ArrayList<>();
-    /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换） */
+    /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换）/ 分组筛选（""=全部） */
     private boolean ruleSortByName = false;
     private String ruleKeyword = "";
     private boolean ruleManageMode = false;
+    private String ruleGroup = "";
 
     private ContentAdapter contentAdapter;
     private final List<HkItem> videos = new ArrayList<>();
@@ -278,6 +279,7 @@ public class HkPageActivity extends BaseActivity {
         });
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
         binding.btnAddRule.setOnClickListener(v -> showImportDialog());
+        binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
     }
 
     /** 顶部「编辑」按钮：切换管理模式（卡片显示启用开关代替 ⋮，按钮文字 编辑/完成 互换）。 */
@@ -285,6 +287,67 @@ public class HkPageActivity extends BaseActivity {
         ruleManageMode = !ruleManageMode;
         binding.btnEditRule.setText(ruleManageMode ? "完成" : "编辑");
         ruleAdapter.notifyDataSetChanged();
+    }
+
+    /** 分组筛选行：全部 | 分组1 | 分组2 ...（8.83 风格：分组名前加①②等序号可排序，显示时去序号）。 */
+    private void buildGroupFilterRow() {
+        List<String> groups = new ArrayList<>();
+        for (HkRule r : rules) {
+            String g = r.getGroup();
+            if (TextUtils.isEmpty(g) || groups.contains(g)) continue;
+            groups.add(g);
+        }
+        Collections.sort(groups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
+        boolean show = !groups.isEmpty();
+        binding.rvRuleGroup.setVisibility(show ? View.VISIBLE : View.GONE);
+        android.widget.RelativeLayout.LayoutParams lp =
+                (android.widget.RelativeLayout.LayoutParams) binding.rvRules.getLayoutParams();
+        lp.getRules()[android.widget.RelativeLayout.BELOW] = show ? R.id.rv_rule_group : R.id.top_bar_rules;
+        binding.rvRules.setLayoutParams(lp);
+        if (!show) return;
+        List<String[]> pairs = new ArrayList<>();
+        pairs.add(new String[]{"全部", ""});
+        for (String g : groups) pairs.add(new String[]{stripGroupPrefix(g), g});
+        int sel = 0;
+        if (!ruleGroup.isEmpty()) {
+            if (groups.contains(ruleGroup)) {
+                sel = groups.indexOf(ruleGroup) + 1;
+            } else {
+                ruleGroup = ""; // 当前选中的分组已被删/改名，回退到全部
+            }
+        }
+        binding.rvRuleGroup.setAdapter(new ChipAdapter(pairs, sel, value -> {
+            ruleGroup = value;
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
+        }));
+    }
+
+    /** 分组排序键：前导①②..序号，没有则排最后。 */
+    private static int groupSortKey(String g) {
+        if (g == null || g.isEmpty()) return Integer.MAX_VALUE;
+        int i = 0, n = 0;
+        while (i < g.length()) {
+            int d = circledDigit(g.codePointAt(i));
+            if (d < 0) break;
+            n = n * 10 + d;
+            i += Character.charCount(g.codePointAt(i));
+        }
+        return i == 0 ? Integer.MAX_VALUE : n;
+    }
+
+    private static int circledDigit(int cp) {
+        if (cp >= 0x2460 && cp <= 0x2473) return cp - 0x2460 + 1; // ①..⑳
+        if (cp >= 0x3251 && cp <= 0x325F) return cp - 0x3251 + 21; // ㉑..㉟
+        return -1;
+    }
+
+    /** 显示用：去掉前导①②序号。 */
+    private static String stripGroupPrefix(String g) {
+        if (g == null) return "";
+        int i = 0;
+        while (i < g.length() && circledDigit(g.codePointAt(i)) >= 0) i += Character.charCount(g.codePointAt(i));
+        return i == 0 ? g : g.substring(i);
     }
 
     /** 搜索已安装的小程序：关键字过滤。 */
@@ -325,6 +388,7 @@ public class HkPageActivity extends BaseActivity {
                 rules.addAll(list);
                 ruleAdapter.rebuildSections();
                 ruleAdapter.notifyDataSetChanged();
+                buildGroupFilterRow();
                 boolean empty = ruleAdapter.getItemCount() == 0;
                 binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
                 binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
@@ -864,10 +928,17 @@ public class HkPageActivity extends BaseActivity {
         private static final int TYPE_RULE = 1;
         private final List<Object> items = new ArrayList<>();
 
-        /** 平铺规则：关键字过滤 + 名称排序开关。 */
+        /** 平铺规则：分组筛选 + 关键字过滤 + 名称排序开关。 */
         void rebuildSections() {
             items.clear();
             List<HkRule> src = new ArrayList<>(rules);
+            if (!TextUtils.isEmpty(ruleGroup)) {
+                Iterator<HkRule> it = src.iterator();
+                while (it.hasNext()) {
+                    HkRule r = it.next();
+                    if (!ruleGroup.equals(r.getGroup())) it.remove();
+                }
+            }
             if (!TextUtils.isEmpty(ruleKeyword)) {
                 String kw = ruleKeyword.toLowerCase(Locale.getDefault());
                 Iterator<HkRule> it = src.iterator();

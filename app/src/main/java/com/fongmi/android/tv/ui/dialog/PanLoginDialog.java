@@ -141,6 +141,9 @@ public class PanLoginDialog extends BaseAlertDialog {
             params.height = Math.round(ResUtil.getScreenHeight(requireContext()) * 0.85f);
         }
         params.gravity = Gravity.CENTER;
+        // 输入法修复：清除 FLAG_ALT_FOCUSABLE_IM，否则对话框窗口连不上输入法，
+        // WebView 里点 input 框键盘弹不出来（RemoteTrustDialog 同样处理）
+        window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
         // 输入法修复：弹窗内 WebView 需要可调起输入法
         params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));

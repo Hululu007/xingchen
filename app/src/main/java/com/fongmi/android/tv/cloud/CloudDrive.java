@@ -1,0 +1,46 @@
+package com.fongmi.android.tv.cloud;
+
+import java.util.List;
+
+/**
+ * 网盘统一接口（115 / 夸克 / PikPak）
+ * 来源：115_tvbox_4_mx3q.py 的 Api 类
+ */
+public interface CloudDrive {
+
+    /** 网盘标识：115 / quark / pikpak */
+    String getId();
+
+    /** 显示名 */
+    String getName();
+
+    /** 是否已登录 */
+    boolean isLogin();
+
+    /** 当前用户名 */
+    String getUserName();
+
+    /** 退出登录 */
+    void logout();
+
+    /** 文件列表 */
+    List<CloudFile> listDir(String cid, int offset, int limit) throws Exception;
+
+    /** 文件总数 */
+    int getTotal(String cid) throws Exception;
+
+    /** 删除文件（fid 或 cid 列表） */
+    boolean delete(List<String> ids, boolean isDir) throws Exception;
+
+    /** 离线下载：磁力/ed2k/http → 云端，返回任务是否提交成功 */
+    boolean offlineDownload(String url, String cid) throws Exception;
+
+    /** 离线任务列表 */
+    List<CloudTask> taskList(int page) throws Exception;
+
+    /** 删除离线任务 */
+    boolean taskDelete(List<String> hashes) throws Exception;
+
+    /** 取播放地址（原画直链或 m3u8） */
+    String getPlayUrl(CloudFile file) throws Exception;
+}

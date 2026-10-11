@@ -28,7 +28,7 @@
             android:background="@drawable/hk_miniapp_icon_bg"
             android:gravity="center"
             android:text="海"
-            android:textColor="#B8890F"
+            android:textColor="#8A6D00"
             android:textSize="18sp"
             android:textStyle="bold" />
 

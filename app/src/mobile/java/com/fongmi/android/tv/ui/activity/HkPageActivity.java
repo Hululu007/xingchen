@@ -1685,7 +1685,8 @@ public class HkPageActivity extends BaseActivity {
             applyIconBg(h.icon, rule.getIcon());
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
-            h.name.setAlpha(alpha);
+            // 禁用态：图标半透示意，文字保持可读（0.75f），深色字必须看得清
+            h.name.setAlpha(rule.isEnabled() ? 1f : 0.75f);
             // 管理模式：显示启用开关 + 分组标签代替 ⋮；普通模式：显示 ⋮
             h.sw.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
             h.more.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);

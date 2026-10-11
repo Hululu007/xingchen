@@ -1252,68 +1252,25 @@ public class HkPageActivity extends BaseActivity {
 
     /**
      * 把选中的解析结果落盘导入（各 .hkzip 的附带资源按所属包分别落盘）。
-     * <p>
-     * D4 规则更新检查：先做版本号比对——
-     * <ul>
-     * <li>导入版本 &gt; 已安装版本：直接更新（成功提示带 v旧→v新）；</li>
-     * <li>导入版本 &le; 已安装版本：弹确认框问是否覆盖，避免静默降级。</li>
-     * </ul>
      *
-     * @param picked 选中的勾选项（UI 线程调用）
+     * @param picked 选中的勾选项
      */
     private void importPickedRules(List<PickEntry> picked) {
         if (picked.isEmpty()) {
             Notify.show("未选中任何规则");
             return;
         }
-        final List<PickEntry> downgrade = new ArrayList<>();
-        final StringBuilder sb = new StringBuilder();
-        for (PickEntry e : picked) {
-            HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
-            if (installed != null && e.parsed.rule.getVersion() <= installed.getVersion()) {
-                downgrade.add(e);
-                if (sb.length() > 0) sb.append('\n');
-                sb.append(e.parsed.rule.getTitle())
-                        .append("（已安装 v").append(installed.getVersion())
-                        .append("，导入 v").append(e.parsed.rule.getVersion()).append("）");
-            }
-        }
-        if (!downgrade.isEmpty()) {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                    .setTitle("版本未更新，是否覆盖？")
-                    .setMessage("以下小程序的导入版本不高于已安装版本：\n" + sb + "\n\n覆盖可能导致降级。")
-                    .setPositiveButton("全部覆盖", (d, w) -> doImportPickedRules(picked))
-                    .setNegativeButton("跳过这些", (d, w) -> {
-                        List<PickEntry> rest = new ArrayList<>(picked);
-                        rest.removeAll(downgrade);
-                        if (rest.isEmpty()) {
-                            Notify.show("已跳过，无需导入");
-                            return;
-                        }
-                        doImportPickedRules(rest);
-                    })
-                    .setNeutralButton("取消", null)
-                    .show();
-            return;
-        }
-        doImportPickedRules(picked);
-    }
-
-    /** importPickedRules 的落盘实现（后台线程）。 */
-    private void doImportPickedRules(List<PickEntry> picked) {
         new Thread(() -> {
             try {
                 List<HkRule> rules = new ArrayList<>();
-                List<String> updatedVer = new ArrayList<>();
+                List<HkRule> updated = new ArrayList<>();
                 Map<HkRuleManager.HkZipData, List<HkRule>> assets = new HashMap<>();
                 for (PickEntry e : picked) {
                     HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
                     boolean isUpdate = installed != null && e.parsed.rule.getVersion() > installed.getVersion();
                     HkRuleManager.get().saveRule(e.parsed.rule, e.parsed.json);
                     rules.add(e.parsed.rule);
-                    if (isUpdate) {
-                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersion() + "→v" + e.parsed.rule.getVersion());
-                    }
+                    if (isUpdate) updated.add(e.parsed.rule);
                     if (e.hkZipData != null) {
                         List<HkRule> g = assets.get(e.hkZipData);
                         if (g == null) {
@@ -1326,9 +1283,9 @@ public class HkPageActivity extends BaseActivity {
                 for (Map.Entry<HkRuleManager.HkZipData, List<HkRule>> en : assets.entrySet()) {
                     HkRuleManager.get().saveHkZipAssets(en.getKey(), en.getValue());
                 }
-                boolean wasUpdate = !updatedVer.isEmpty();
+                boolean wasUpdate = !updated.isEmpty();
                 String msg = rules.size() == 1
-                        ? (wasUpdate ? "更新成功：" + updatedVer.get(0) : "导入成功：" + rules.get(0).getTitle())
+                        ? (wasUpdate ? "更新成功：" : "导入成功：") + rules.get(0).getTitle()
                         : (wasUpdate ? "更新成功 " : "导入成功 ") + rules.size() + " 个小程序";
                 App.post(() -> {
                     Notify.show(msg);

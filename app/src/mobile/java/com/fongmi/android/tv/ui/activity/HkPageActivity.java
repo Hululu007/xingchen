@@ -7,6 +7,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Rect;
@@ -25,6 +26,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
@@ -120,6 +122,14 @@ public class HkPageActivity extends BaseActivity {
     private final Map<String, String> ruleGroupMap = new HashMap<>();
     private List<String> customOrder = null;
     private ItemTouchHelper ruleTouchHelper;
+    // 编辑模式拖拽到分组 pills：拖拽状态（排序快照用于投放分组时回滚换位）
+    private RecyclerView.ViewHolder ruleDragHolder;
+    private int ruleDragFromPos = RecyclerView.NO_POSITION;
+    private String ruleDragTitle;
+    private List<String> ruleDragOrderSnapshot;
+    private ChipAdapter groupChipAdapter;
+    private List<String[]> groupPairs;
+    private int groupDropTargetPos = -1;
 
     private ContentAdapter contentAdapter;
     private final List<HkItem> videos = new ArrayList<>();
@@ -311,6 +321,7 @@ public class HkPageActivity extends BaseActivity {
         updateRulesTopPadding();
         loadCustomRuleData();
         // 编辑模式拖拽排序：长按卡片拖动（仅编辑模式启用）
+        // 拖到顶部悬浮栏的分组 pills 上松手 = 把卡片分配进该分组（换位回滚，仅做分组）
         ruleTouchHelper = new ItemTouchHelper(new ItemTouchHelper.Callback() {
             @Override
             public int getMovementFlags(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
@@ -336,6 +347,61 @@ public class HkPageActivity extends BaseActivity {
             @Override
             public boolean isLongPressDragEnabled() {
                 return ruleManageMode;
+            }
+
+            @Override
+            public void onSelectedChanged(RecyclerView.ViewHolder vh, int actionState) {
+                super.onSelectedChanged(vh, actionState);
+                if (!ruleManageMode) return;
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
+                    ruleDragHolder = vh;
+                    ruleDragFromPos = vh.getBindingAdapterPosition();
+                    ruleDragTitle = null;
+                    if (ruleDragFromPos != RecyclerView.NO_POSITION
+                            && ruleDragFromPos < ruleAdapter.items.size()) {
+                        Object o = ruleAdapter.items.get(ruleDragFromPos);
+                        if (o instanceof HkRule) ruleDragTitle = ((HkRule) o).getTitle();
+                    }
+                    ruleDragOrderSnapshot = new ArrayList<>();
+                    for (HkRule r : rules) ruleDragOrderSnapshot.add(r.getTitle());
+                    // 抬高被拖卡片并放开祖先裁剪，让它能浮到悬浮顶栏的分组 pills 之上
+                    vh.itemView.setElevation(dp(12));
+                    setRulesClipChildren(false);
+                }
+            }
+
+            @Override
+            public void onChildDraw(@NonNull Canvas c, @NonNull RecyclerView rv,
+                                    @NonNull RecyclerView.ViewHolder vh,
+                                    float dX, float dY, int actionState, boolean isCurrentlyActive) {
+                super.onChildDraw(c, rv, vh, dX, dY, actionState, isCurrentlyActive);
+                if (ruleManageMode && isCurrentlyActive
+                        && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    updateGroupDropTarget(vh.itemView);
+                }
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
+                super.clearView(rv, vh);
+                vh.itemView.setElevation(0);
+                setRulesClipChildren(true);
+                int target = groupDropTargetPos;
+                setGroupDropTarget(-1);
+                if (ruleManageMode && target >= 0 && groupPairs != null
+                        && target < groupPairs.size() && ruleDragTitle != null) {
+                    HkRule rule = findRuleByTitle(ruleDragTitle);
+                    restoreDragOrderSnapshot();
+                    if (rule != null) {
+                        String g = groupPairs.get(target)[1];
+                        assignRuleGroup(rule, g);
+                        Notify.show("已移入「" + groupPairs.get(target)[0] + "」");
+                    }
+                }
+                ruleDragHolder = null;
+                ruleDragFromPos = RecyclerView.NO_POSITION;
+                ruleDragTitle = null;
+                ruleDragOrderSnapshot = null;
             }
         });
         ruleTouchHelper.attachToRecyclerView(binding.rvRules);
@@ -363,6 +429,77 @@ public class HkPageActivity extends BaseActivity {
             for (HkRule r : rules) customOrder.add(r.getTitle());
             saveCustomOrder();
         }
+        ruleAdapter.rebuildSections();
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    // ================= 编辑模式：拖拽卡片到分组 pills 分配分组 =================
+
+    /** 放开/恢复 rvRules 祖先链的裁剪，让被拖卡片能浮到悬浮顶栏之上。 */
+    private void setRulesClipChildren(boolean clip) {
+        binding.rvRules.setClipChildren(clip);
+        ViewParent p = binding.rvRules.getParent();
+        int depth = 0;
+        while (p instanceof ViewGroup && depth < 6) {
+            ((ViewGroup) p).setClipChildren(clip);
+            p = p.getParent();
+            depth++;
+        }
+    }
+
+    /** 拖拽中：被拖卡片中心落到哪个分组 pill 上就高亮哪个（-1=无）。 */
+    private void updateGroupDropTarget(View dragView) {
+        int pos = -1;
+        if (binding.rvRuleGroup.getVisibility() == View.VISIBLE && groupChipAdapter != null) {
+            int[] loc = new int[2];
+            dragView.getLocationOnScreen(loc);
+            float cx = loc[0] + dragView.getWidth() / 2f;
+            float cy = loc[1] + dragView.getHeight() / 2f;
+            int[] ploc = new int[2];
+            binding.rvRuleGroup.getLocationOnScreen(ploc);
+            View pill = binding.rvRuleGroup.findChildViewUnder(cx - ploc[0], cy - ploc[1]);
+            if (pill != null) pos = binding.rvRuleGroup.getChildAdapterPosition(pill);
+        }
+        setGroupDropTarget(pos);
+    }
+
+    private void setGroupDropTarget(int pos) {
+        if (groupDropTargetPos == pos) return;
+        groupDropTargetPos = pos;
+        if (groupChipAdapter != null) groupChipAdapter.setDropTarget(pos);
+    }
+
+    private HkRule findRuleByTitle(String title) {
+        if (title == null) return null;
+        for (HkRule r : rules) if (title.equals(r.getTitle())) return r;
+        return null;
+    }
+
+    /** 投放分组时回滚本次拖拽造成的换位（拖拽只做分组，不做排序）。 */
+    private void restoreDragOrderSnapshot() {
+        if (ruleDragOrderSnapshot == null) return;
+        Map<String, HkRule> byTitle = new HashMap<>();
+        for (HkRule r : rules) byTitle.put(r.getTitle(), r);
+        List<HkRule> restored = new ArrayList<>();
+        for (String t : ruleDragOrderSnapshot) {
+            HkRule r = byTitle.remove(t);
+            if (r != null) restored.add(r);
+        }
+        restored.addAll(byTitle.values());
+        rules.clear();
+        rules.addAll(restored);
+        customOrder = new ArrayList<>(ruleDragOrderSnapshot);
+        for (HkRule r : rules) if (!customOrder.contains(r.getTitle())) customOrder.add(r.getTitle());
+        saveCustomOrder();
+    }
+
+    /** 分配规则到分组 g（""=无分组/跟随文件）：拖放与分组弹窗共用同一逻辑。 */
+    private void assignRuleGroup(HkRule rule, String g) {
+        String fileGroup = rule.getGroup() == null ? "" : rule.getGroup();
+        if (g.equals(fileGroup)) ruleGroupMap.remove(rule.getTitle());
+        else ruleGroupMap.put(rule.getTitle(), g);
+        saveRuleGroupMap();
+        buildGroupFilterRow();
         ruleAdapter.rebuildSections();
         ruleAdapter.notifyDataSetChanged();
     }
@@ -526,6 +663,9 @@ public class HkPageActivity extends BaseActivity {
             ruleAdapter.rebuildSections();
             ruleAdapter.notifyDataSetChanged();
         }));
+        groupPairs = pairs;
+        groupChipAdapter = (ChipAdapter) binding.rvRuleGroup.getAdapter();
+        groupDropTargetPos = -1;
     }
 
     /** 分组排序键：前导①②..序号，没有则排最后。 */
@@ -604,13 +744,7 @@ public class HkPageActivity extends BaseActivity {
             lp.topMargin = dp(10);
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
-                String fileGroup = rule.getGroup() == null ? "" : rule.getGroup();
-                if (g.equals(fileGroup)) ruleGroupMap.remove(rule.getTitle());
-                else ruleGroupMap.put(rule.getTitle(), g);
-                saveRuleGroupMap();
-                buildGroupFilterRow();
-                ruleAdapter.rebuildSections();
-                ruleAdapter.notifyDataSetChanged();
+                assignRuleGroup(rule, g);
             });
             opts.addView(tv, lp);
         }
@@ -4185,11 +4319,22 @@ public class HkPageActivity extends BaseActivity {
         private final List<String[]> pairs;
         private int selected;
         private final OnPick listener;
+        private int dropTarget = -1;
 
         ChipAdapter(List<String[]> pairs, int selected, OnPick listener) {
             this.pairs = pairs;
             this.selected = selected;
             this.listener = listener;
+        }
+
+        /** 拖拽投放高亮位置（-1=无），供编辑模式拖卡片到分组 pills 用。 */
+        boolean setDropTarget(int pos) {
+            if (dropTarget == pos) return false;
+            int old = dropTarget;
+            dropTarget = pos;
+            if (old >= 0 && old < pairs.size()) notifyItemChanged(old);
+            if (pos >= 0 && pos < pairs.size()) notifyItemChanged(pos);
+            return true;
         }
 
         static class Holder extends RecyclerView.ViewHolder {
@@ -4217,9 +4362,18 @@ public class HkPageActivity extends BaseActivity {
             h.chip.setText(pair[0]);
             boolean sel = position == selected;
             h.chip.setSelected(sel);
-            // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
-            h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
-            h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
+            boolean drop = position == dropTarget;
+            if (drop) {
+                // 拖拽投放目标：金色加粗 + 选中底，提示松手即进该分组
+                h.chip.setTextColor(0xFFB8890F);
+                h.chip.setTypeface(null, android.graphics.Typeface.BOLD);
+                h.chip.setBackgroundResource(R.drawable.hk_ripple_glass_selected);
+            } else {
+                h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
+                // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
+                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
+                h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
+            }
             h.chip.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;

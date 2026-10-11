@@ -1969,7 +1969,8 @@ public class HkPageActivity extends BaseActivity {
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int position) {
             Holder h = (Holder) vh;
             HkRule rule = (HkRule) items.get(position);
-            h.name.setText(rule.getTitle());
+            String title = rule.getTitle();
+            h.name.setText(android.text.TextUtils.isEmpty(title) ? "未命名规则" : title);
             applyIconBg(h, rule.getIcon());
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);

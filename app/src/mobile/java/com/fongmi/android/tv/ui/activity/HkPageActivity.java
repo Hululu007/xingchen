@@ -34,13 +34,18 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.TextView;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.SystemBarStyle;
 import androidx.annotation.NonNull;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
@@ -90,6 +95,10 @@ public class HkPageActivity extends BaseActivity {
     private static final String KEY_HIST = "hk_search_history";
     private static final String KEY_LAST_CLIP = "hk_last_clip_prompt";
     private static final String KEY_RULE_SPAN = "hk_rule_span_count";
+    /** 自定义分组：有序分组名列表 / 规则标题→自定义分组（""=显式无分组）/ 自定义顺序（规则标题有序列表） */
+    private static final String KEY_CUSTOM_GROUPS = "hk_custom_groups";
+    private static final String KEY_RULE_GROUPS = "hk_rule_group_map";
+    private static final String KEY_RULE_ORDER = "hk_rule_order";
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HkPageActivity.class));
@@ -106,6 +115,11 @@ public class HkPageActivity extends BaseActivity {
     private String ruleKeyword = "";
     private boolean ruleManageMode = false;
     private String ruleGroup = "";
+    /** 自定义分组（本地 prefs，不改 rule.json）：有序分组名 / 标题→分组覆盖 / 自定义顺序（null=未自定义） */
+    private final List<String> customGroups = new ArrayList<>();
+    private final Map<String, String> ruleGroupMap = new HashMap<>();
+    private List<String> customOrder = null;
+    private ItemTouchHelper ruleTouchHelper;
 
     private ContentAdapter contentAdapter;
     private final List<HkItem> videos = new ArrayList<>();
@@ -160,6 +174,11 @@ public class HkPageActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
+        // 编辑模式中按返回：先退出编辑模式（已即时保存），不退出页面
+        if (stack.size() == 1 && stack.peek() == V_RULES && ruleManageMode) {
+            toggleRuleManageMode();
+            return;
+        }
         if (stack.size() > 1) {
             // 子列表返回：先恢复父列表，不弹视图栈（官方 FilmListActivity 返回即回父列表）
             if (stack.peek() == V_CONTENT && !subStack.isEmpty()) {
@@ -284,11 +303,42 @@ public class HkPageActivity extends BaseActivity {
             ruleAdapter.notifyDataSetChanged();
         });
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
+        binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         // 悬浮磨砂顶栏：真 blur 只作用于独立背景层，内容层不被模糊
         FrostedGlass.blurBackground(binding.headerBg);
         updateRulesTopPadding();
+        loadCustomRuleData();
+        // 编辑模式拖拽排序：长按卡片拖动（仅编辑模式启用）
+        ruleTouchHelper = new ItemTouchHelper(new ItemTouchHelper.Callback() {
+            @Override
+            public int getMovementFlags(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
+                if (!ruleManageMode) return 0;
+                int drag = ItemTouchHelper.UP | ItemTouchHelper.DOWN | ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT;
+                return makeMovementFlags(drag, 0);
+            }
+
+            @Override
+            public boolean onMove(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh,
+                                  @NonNull RecyclerView.ViewHolder target) {
+                int from = vh.getBindingAdapterPosition();
+                int to = target.getBindingAdapterPosition();
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION || from == to) return false;
+                ruleAdapter.moveItem(from, to);
+                return true;
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
+            }
+
+            @Override
+            public boolean isLongPressDragEnabled() {
+                return ruleManageMode;
+            }
+        });
+        ruleTouchHelper.attachToRecyclerView(binding.rvRules);
     }
 
     /** 悬浮磨砂顶栏高度变化时，同步列表顶部内边距（内容滚动时从顶栏下穿过）。 */
@@ -301,11 +351,102 @@ public class HkPageActivity extends BaseActivity {
         binding.rvRules.setPadding(0, top, 0, dp(8));
     }
 
-    /** 顶部「编辑」按钮：切换管理模式（卡片显示启用开关代替 ⋮，按钮文字 编辑/完成 互换）。 */
+    /** 顶部「编辑」按钮：进入排列+分组编辑模式（长按拖拽排序，点卡片分配分组；按钮文字 编辑/完成 互换）。 */
     private void toggleRuleManageMode() {
         ruleManageMode = !ruleManageMode;
         binding.btnEditRule.setText(ruleManageMode ? "完成" : "编辑");
+        binding.btnGroupManage.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
+        binding.btnSearchRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        binding.btnSortRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        if (ruleManageMode && customOrder == null) {
+            customOrder = new ArrayList<>();
+            for (HkRule r : rules) customOrder.add(r.getTitle());
+            saveCustomOrder();
+        }
+        ruleAdapter.rebuildSections();
         ruleAdapter.notifyDataSetChanged();
+    }
+
+    // ================= 小程序自定义分组（本地 prefs，不改 rule.json 原文件） =================
+
+    /** 规则的实际分组：prefs 自定义覆盖优先，否则取 rule.json 的 group 字段。 */
+    private String effectiveGroup(HkRule r) {
+        if (ruleGroupMap.containsKey(r.getTitle())) {
+            String g = ruleGroupMap.get(r.getTitle());
+            return g == null ? "" : g;
+        }
+        String g = r.getGroup();
+        return g == null ? "" : g;
+    }
+
+    private void loadCustomRuleData() {
+        customGroups.clear();
+        ruleGroupMap.clear();
+        try {
+            JSONArray arr = new JSONArray(getPrefs().getString(KEY_CUSTOM_GROUPS, "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                String g = arr.optString(i);
+                if (!TextUtils.isEmpty(g) && !customGroups.contains(g)) customGroups.add(g);
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            JSONObject obj = new JSONObject(getPrefs().getString(KEY_RULE_GROUPS, "{}"));
+            Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                ruleGroupMap.put(k, obj.optString(k, ""));
+            }
+        } catch (Exception ignored) {
+        }
+        customOrder = null;
+        try {
+            String s = getPrefs().getString(KEY_RULE_ORDER, null);
+            if (s != null) {
+                customOrder = new ArrayList<>();
+                JSONArray arr = new JSONArray(s);
+                for (int i = 0; i < arr.length(); i++) customOrder.add(arr.optString(i));
+            }
+        } catch (Exception e) {
+            customOrder = null;
+        }
+    }
+
+    private void saveCustomGroups() {
+        getPrefs().edit().putString(KEY_CUSTOM_GROUPS, new JSONArray(customGroups).toString()).apply();
+    }
+
+    private void saveRuleGroupMap() {
+        try {
+            JSONObject obj = new JSONObject();
+            for (Map.Entry<String, String> e : ruleGroupMap.entrySet()) obj.put(e.getKey(), e.getValue());
+            getPrefs().edit().putString(KEY_RULE_GROUPS, obj.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveCustomOrder() {
+        if (customOrder == null) return;
+        getPrefs().edit().putString(KEY_RULE_ORDER, new JSONArray(customOrder).toString()).apply();
+    }
+
+    /** 刷新后同步自定义顺序：删掉已删规则，末尾追加新规则，按自定义顺序重排 rules。 */
+    private void syncCustomOrder() {
+        if (customOrder == null) return;
+        java.util.Set<String> have = new java.util.HashSet<>();
+        for (HkRule r : rules) have.add(r.getTitle());
+        for (int i = customOrder.size() - 1; i >= 0; i--) {
+            if (!have.contains(customOrder.get(i))) customOrder.remove(i);
+        }
+        for (HkRule r : rules) {
+            if (!customOrder.contains(r.getTitle())) customOrder.add(r.getTitle());
+        }
+        final Map<String, Integer> idx = new HashMap<>();
+        for (int i = 0; i < customOrder.size(); i++) idx.put(customOrder.get(i), i);
+        Collections.sort(rules, (a, b) -> Integer.compare(
+                idx.getOrDefault(a.getTitle(), Integer.MAX_VALUE),
+                idx.getOrDefault(b.getTitle(), Integer.MAX_VALUE)));
+        saveCustomOrder();
     }
 
     /** 点「小程序」标题：弹出 2 列 / 3 列切换小窗（独立卡片选项+间距，当前选中金色加粗）。 */
@@ -351,15 +492,20 @@ public class HkPageActivity extends BaseActivity {
         dialog.show();
     }
 
-    /** 分组筛选行：全部 | 分组1 | 分组2 ...（8.83 风格：分组名前加①②等序号可排序，显示时去序号）。 */
+    /** 分组筛选行：全部 | 自定义分组（用户顺序）| 规则文件分组（①②序号排序），显示时去序号。 */
     private void buildGroupFilterRow() {
         List<String> groups = new ArrayList<>();
-        for (HkRule r : rules) {
-            String g = r.getGroup();
-            if (TextUtils.isEmpty(g) || groups.contains(g)) continue;
-            groups.add(g);
+        for (String g : customGroups) {
+            if (!TextUtils.isEmpty(g) && !groups.contains(g)) groups.add(g);
         }
-        Collections.sort(groups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
+        List<String> fileGroups = new ArrayList<>();
+        for (HkRule r : rules) {
+            String g = effectiveGroup(r);
+            if (TextUtils.isEmpty(g) || groups.contains(g) || fileGroups.contains(g)) continue;
+            fileGroups.add(g);
+        }
+        Collections.sort(fileGroups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
+        groups.addAll(fileGroups);
         boolean show = !groups.isEmpty();
         binding.rvRuleGroup.setVisibility(show ? View.VISIBLE : View.GONE);
         updateRulesTopPadding(show);
@@ -409,6 +555,256 @@ public class HkPageActivity extends BaseActivity {
         return i == 0 ? g : g.substring(i);
     }
 
+    /** 编辑模式点卡片：选择分组（无分组 / 自定义分组 / 规则文件分组），即时保存。 */
+    private void showGroupPicker(HkRule rule) {
+        List<String> values = new ArrayList<>();
+        values.add(""); // 无分组
+        for (String g : customGroups) if (!values.contains(g)) values.add(g);
+        for (HkRule r : rules) {
+            String g = r.getGroup();
+            if (!TextUtils.isEmpty(g) && !values.contains(g)) values.add(g);
+        }
+        String current = effectiveGroup(rule);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText(rule.getTitle());
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView sub = new TextView(this);
+        sub.setText("选择分组");
+        sub.setTextColor(0xFF8A8F98);
+        sub.setTextSize(13);
+        sub.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(4);
+        root.addView(sub, subLp);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout opts = new LinearLayout(this);
+        opts.setOrientation(LinearLayout.VERTICAL);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (String g : values) {
+            TextView tv = new TextView(this);
+            tv.setText(TextUtils.isEmpty(g) ? "无分组" : stripGroupPrefix(g));
+            boolean sel = g.equals(current);
+            tv.setTextColor(sel ? 0xFFB8890F : 0xFF1A1D24);
+            tv.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                String fileGroup = rule.getGroup() == null ? "" : rule.getGroup();
+                if (g.equals(fileGroup)) ruleGroupMap.remove(rule.getTitle());
+                else ruleGroupMap.put(rule.getTitle(), g);
+                saveRuleGroupMap();
+                buildGroupFilterRow();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
+            });
+            opts.addView(tv, lp);
+        }
+        sv.addView(opts);
+        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        svLp.topMargin = dp(4);
+        if (values.size() > 6) svLp.height = dp(340);
+        root.addView(sv, svLp);
+        dialog.show();
+    }
+
+    /** 分组管理：新建 / 改名 / 删除 / 排序自定义分组（只管自定义分组，不碰规则文件）。 */
+    private void showGroupManageDialog() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText("分组管理");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView sub = new TextView(this);
+        sub.setText("自定义分组保存在本地，不修改规则文件");
+        sub.setTextColor(0xFF8A8F98);
+        sub.setTextSize(12);
+        sub.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(4);
+        root.addView(sub, subLp);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout listBox = new LinearLayout(this);
+        listBox.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(listBox);
+        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        svLp.topMargin = dp(8);
+        svLp.height = dp(300);
+        root.addView(sv, svLp);
+        TextView addBtn = new TextView(this);
+        addBtn.setText("＋ 新建分组");
+        addBtn.setTextColor(0xFFB8890F);
+        addBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        addBtn.setTextSize(15);
+        addBtn.setGravity(Gravity.CENTER);
+        addBtn.setBackgroundResource(R.drawable.dialog_option_card_light);
+        addBtn.setPadding(dp(16), dp(13), dp(16), dp(13));
+        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        addLp.topMargin = dp(10);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        addBtn.setOnClickListener(v -> showGroupNameInput(null, name -> {
+            customGroups.add(name);
+            saveCustomGroups();
+            renderGroupRows(listBox, dialog);
+            buildGroupFilterRow();
+        }));
+        root.addView(addBtn, addLp);
+        renderGroupRows(listBox, dialog);
+        dialog.setOnDismissListener(d -> {
+            buildGroupFilterRow();
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
+        });
+        dialog.show();
+    }
+
+    /** 分组管理列表行：名称 + ▲▼排序 + 改名 + 删除。 */
+    private void renderGroupRows(LinearLayout box, AlertDialog dialog) {
+        box.removeAllViews();
+        if (customGroups.isEmpty()) {
+            TextView hint = new TextView(this);
+            hint.setText("暂无自定义分组，点下方新建");
+            hint.setTextColor(0xFF8A8F98);
+            hint.setTextSize(14);
+            hint.setGravity(Gravity.CENTER);
+            hint.setPadding(0, dp(24), 0, dp(24));
+            box.addView(hint);
+            return;
+        }
+        for (int i = 0; i < customGroups.size(); i++) {
+            final int pos = i;
+            String g = customGroups.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(4), dp(10), dp(4), dp(10));
+            TextView name = new TextView(this);
+            name.setText(stripGroupPrefix(g));
+            name.setTextColor(0xFF1A1D24);
+            name.setTextSize(15);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+            row.addView(name, nameLp);
+            row.addView(groupRowBtn("▲", v -> {
+                if (pos <= 0) return;
+                Collections.swap(customGroups, pos, pos - 1);
+                saveCustomGroups();
+                renderGroupRows(box, dialog);
+                buildGroupFilterRow();
+            }));
+            row.addView(groupRowBtn("▼", v -> {
+                if (pos >= customGroups.size() - 1) return;
+                Collections.swap(customGroups, pos, pos + 1);
+                saveCustomGroups();
+                renderGroupRows(box, dialog);
+                buildGroupFilterRow();
+            }));
+            row.addView(groupRowBtn("改名", v -> showGroupNameInput(g, name2 -> {
+                customGroups.set(pos, name2);
+                for (Map.Entry<String, String> e : ruleGroupMap.entrySet()) {
+                    if (g.equals(e.getValue())) e.setValue(name2);
+                }
+                saveCustomGroups();
+                saveRuleGroupMap();
+                renderGroupRows(box, dialog);
+                buildGroupFilterRow();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
+            })));
+            row.addView(groupRowBtn("删除", v -> new AlertDialog.Builder(this)
+                    .setTitle("删除分组")
+                    .setMessage("删除「" + stripGroupPrefix(g) + "」？组内小程序将恢复按规则文件分组。")
+                    .setPositiveButton("删除", (d, w) -> {
+                        customGroups.remove(pos);
+                        Iterator<Map.Entry<String, String>> it = ruleGroupMap.entrySet().iterator();
+                        while (it.hasNext()) {
+                            if (g.equals(it.next().getValue())) it.remove();
+                        }
+                        saveCustomGroups();
+                        saveRuleGroupMap();
+                        if (g.equals(ruleGroup)) ruleGroup = "";
+                        renderGroupRows(box, dialog);
+                        buildGroupFilterRow();
+                        ruleAdapter.rebuildSections();
+                        ruleAdapter.notifyDataSetChanged();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show()));
+            box.addView(row);
+            if (i < customGroups.size() - 1) {
+                View div = new View(this);
+                div.setBackgroundColor(0xFFE3E6EB);
+                box.addView(div, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+            }
+        }
+    }
+
+    private TextView groupRowBtn(String text, View.OnClickListener l) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFFB8890F);
+        tv.setTextSize(14);
+        tv.setPadding(dp(10), dp(8), dp(10), dp(8));
+        tv.setOnClickListener(l);
+        return tv;
+    }
+
+    /** 分组名输入框：新建时 oldName=null，改名时带原名；重名/空名拒绝。 */
+    private void showGroupNameInput(String oldName, java.util.function.Consumer<String> onOk) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        EditText et = new EditText(this);
+        et.setHint(oldName == null ? "分组名，如：追剧" : "新分组名");
+        if (oldName != null) et.setText(oldName);
+        et.setSingleLine(true);
+        et.setBackgroundResource(R.drawable.xc_input_bg);
+        et.setPadding(dp(14), dp(12), dp(14), dp(12));
+        root.addView(et, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this)
+                .setTitle(oldName == null ? "新建分组" : "改名")
+                .setView(root)
+                .setPositiveButton("确定", (d, w) -> {
+                    String name = et.getText().toString().trim();
+                    if (TextUtils.isEmpty(name)) {
+                        Notify.show("分组名不能为空");
+                        return;
+                    }
+                    if (!name.equals(oldName) && customGroups.contains(name)) {
+                        Notify.show("分组已存在");
+                        return;
+                    }
+                    onOk.accept(name);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
     /** 搜索已安装的小程序：关键字过滤。 */
     private void showRuleSearchDialog() {
         LinearLayout root = new LinearLayout(this);
@@ -445,6 +841,7 @@ public class HkPageActivity extends BaseActivity {
             App.post(() -> {
                 rules.clear();
                 rules.addAll(list);
+                syncCustomOrder();
                 ruleAdapter.rebuildSections();
                 ruleAdapter.notifyDataSetChanged();
                 buildGroupFilterRow();
@@ -987,7 +1384,7 @@ public class HkPageActivity extends BaseActivity {
         private static final int TYPE_RULE = 1;
         private final List<Object> items = new ArrayList<>();
 
-        /** 平铺规则：分组筛选 + 关键字过滤 + 名称排序开关。 */
+        /** 平铺规则：分组筛选（实际分组=自定义覆盖优先） + 关键字过滤 + 名称排序开关（编辑模式下按拖拽顺序，不做名称排序）。 */
         void rebuildSections() {
             items.clear();
             List<HkRule> src = new ArrayList<>(rules);
@@ -995,7 +1392,7 @@ public class HkPageActivity extends BaseActivity {
                 Iterator<HkRule> it = src.iterator();
                 while (it.hasNext()) {
                     HkRule r = it.next();
-                    if (!ruleGroup.equals(r.getGroup())) it.remove();
+                    if (!ruleGroup.equals(effectiveGroup(r))) it.remove();
                 }
             }
             if (!TextUtils.isEmpty(ruleKeyword)) {
@@ -1007,7 +1404,7 @@ public class HkPageActivity extends BaseActivity {
                     if (!t.contains(kw)) it.remove();
                 }
             }
-            if (ruleSortByName) {
+            if (ruleSortByName && !ruleManageMode) {
                 Collections.sort(src, (a, b) -> {
                     String ta = a.getTitle() == null ? "" : a.getTitle();
                     String tb = b.getTitle() == null ? "" : b.getTitle();
@@ -1017,8 +1414,28 @@ public class HkPageActivity extends BaseActivity {
             items.addAll(src);
         }
 
+        /** 拖拽换位：同步 adapter 显示列表与底层 rules 列表，持久化自定义顺序。 */
+        void moveItem(int from, int to) {
+            HkRule moved = (HkRule) items.get(from);
+            HkRule other = (HkRule) items.get(to);
+            Collections.swap(items, from, to);
+            notifyItemMoved(from, to);
+            int ix = -1, iy = -1;
+            for (int i = 0; i < rules.size(); i++) {
+                String t = rules.get(i).getTitle();
+                if (t.equals(moved.getTitle())) ix = i;
+                if (t.equals(other.getTitle())) iy = i;
+            }
+            if (ix >= 0 && iy >= 0 && ix != iy) {
+                Collections.swap(rules, ix, iy);
+                customOrder = new ArrayList<>();
+                for (HkRule r : rules) customOrder.add(r.getTitle());
+                saveCustomOrder();
+            }
+        }
+
         class Holder extends RecyclerView.ViewHolder {
-            TextView icon, name;
+            TextView icon, name, tag;
             SwitchCompat sw;
             ImageButton more;
 
@@ -1026,6 +1443,7 @@ public class HkPageActivity extends BaseActivity {
                 super(v);
                 icon = v.findViewById(R.id.tv_icon);
                 name = v.findViewById(R.id.tv_name);
+                tag = v.findViewById(R.id.tv_group_tag);
                 sw = v.findViewById(R.id.sw_enable);
                 more = v.findViewById(R.id.btn_more);
             }
@@ -1069,9 +1487,22 @@ public class HkPageActivity extends BaseActivity {
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
             h.name.setAlpha(alpha);
-            // 管理模式：显示启用开关代替 ⋮；普通模式：显示 ⋮
+            // 管理模式：显示启用开关 + 分组标签代替 ⋮；普通模式：显示 ⋮
             h.sw.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
             h.more.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+            h.tag.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
+            if (ruleManageMode) {
+                String g = effectiveGroup(rule);
+                if (TextUtils.isEmpty(g)) {
+                    h.tag.setText("未分组");
+                    h.tag.setTextColor(0xFF8A8F98);
+                    h.tag.setBackgroundResource(R.drawable.hk_group_tag_empty);
+                } else {
+                    h.tag.setText(stripGroupPrefix(g));
+                    h.tag.setTextColor(0xFF1B5E20);
+                    h.tag.setBackgroundResource(R.drawable.hk_group_tag);
+                }
+            }
             h.sw.setOnCheckedChangeListener(null);
             h.sw.setChecked(rule.isEnabled());
             h.sw.setOnCheckedChangeListener((btn, checked) -> {
@@ -1085,7 +1516,12 @@ public class HkPageActivity extends BaseActivity {
                 notifyItemChanged(pos);
             });
             h.more.setOnClickListener(v -> showRuleCardMenu(rule));
-            h.itemView.setOnClickListener(v -> openRule(rule));
+            // 编辑模式：点卡片分配分组（长按拖拽排序）；普通模式：点卡片打开小程序
+            if (ruleManageMode) {
+                h.itemView.setOnClickListener(v -> showGroupPicker(rule));
+            } else {
+                h.itemView.setOnClickListener(v -> openRule(rule));
+            }
         }
 
         @Override

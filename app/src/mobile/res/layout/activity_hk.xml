@@ -84,6 +84,22 @@
                             android:src="@drawable/ic_fab_filter"
                             android:tint="#101216" />
 
+                        <!-- 编辑模式才显示：分组管理入口 -->
+                        <TextView
+                            android:id="@+id/btn_group_manage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="64dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="分组管理"
+                            android:textColor="#101216"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
                         <Space
                             android:layout_width="0dp"
                             android:layout_height="1dp"

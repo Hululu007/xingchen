@@ -1,7 +1,13 @@
 package com.fongmi.android.tv.api.hk;
 
+import com.google.gson.TypeAdapter;
+import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,6 +24,7 @@ public class HkRule {
     private String title;
     @SerializedName("author")
     private String author;
+    @JsonAdapter(VersionAdapter.class)
     @SerializedName("version")
     private String version;
     @SerializedName("type")
@@ -161,6 +168,35 @@ public class HkRule {
             return Integer.parseInt(version.trim());
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    /**
+     * version 字段宽松反序列化：规则 JSON 里 version 可能是整数（"version": 1）、
+     * 字符串（"version": "v17"）、布尔甚至空值，这里统一收敛为 String。
+     * 数字按原文转字符串（1 → "1"，1.5 → "1.5"），非法结构直接跳过取 null。
+     */
+    public static class VersionAdapter extends TypeAdapter<String> {
+        @Override
+        public String read(JsonReader in) throws IOException {
+            JsonToken t = in.peek();
+            if (t == JsonToken.NULL) {
+                in.nextNull();
+                return null;
+            }
+            if (t == JsonToken.BOOLEAN) {
+                return Boolean.toString(in.nextBoolean());
+            }
+            if (t == JsonToken.NUMBER || t == JsonToken.STRING) {
+                return in.nextString();
+            }
+            in.skipValue();
+            return null;
+        }
+
+        @Override
+        public void write(JsonWriter out, String value) throws IOException {
+            out.value(value);
         }
     }
 

@@ -5772,10 +5772,23 @@ public class HkPageActivity extends BaseActivity {
                 h.title.setTextSize(14);
                 h.title.setMaxLines(longText ? 30 : 3);
                 h.title.setText(titleSpan(item.getTitle()));
-                String d = stripHtml(item.getDesc());
-                h.desc.setText(d);
+                String rawD = item.getDesc();
+                if (TextUtils.isEmpty(rawD)) {
+                    h.desc.setVisibility(View.GONE);
+                } else {
+                    h.desc.setVisibility(View.VISIBLE);
+                    if (longText) {
+                        try {
+                            String htmlD = rawD.replace("\n", "<br>");
+                            h.desc.setText(Html.fromHtml(htmlD, Html.FROM_HTML_MODE_LEGACY));
+                        } catch (Throwable t) {
+                            h.desc.setText(stripHtml(rawD));
+                        }
+                    } else {
+                        h.desc.setText(stripHtml(rawD));
+                    }
+                }
                 h.desc.setMaxLines(longText ? 60 : 5);
-                h.desc.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
             }
             setContentClick(h, item);
         }
@@ -6055,12 +6068,21 @@ public class HkPageActivity extends BaseActivity {
         }
 
         /**
-         * 8.83 ArticleListAdapter.bindClick(src 1974)：所有条目都绑点击（含空链接——
-         * 空链接由分流处 toast"链接为空，规则有误！"，不在 bind 时静默去掉）。
+         * 8.83：无 URL 的纯静态文本（如"使用前须知"）不可点击，无任何反馈。
+         * 有 URL 的条目才绑点击（含空链接的异常情况由 onContentItemClick 处 toast）。
          * 点击时按 position 重取条目（8.83 clickItem src 2859 同款，防复用错位）；
          * 越界检查照抄 8.83 clickItem(src 2914)：position<0 或 >=size 直接 return。
          */
         private void setContentClick(Holder h, HkItem item) {
+            String u = item == null || item.getUrl() == null ? "" : item.getUrl().trim();
+            if (u.isEmpty()) {
+                h.itemView.setOnClickListener(null);
+                h.itemView.setClickable(false);
+                h.itemView.setFocusable(false);
+                return;
+            }
+            h.itemView.setClickable(true);
+            h.itemView.setFocusable(true);
             h.itemView.setOnClickListener(v -> {
                 try {
                     int pos = h.getBindingAdapterPosition();

@@ -234,6 +234,35 @@ public class ImgUtil {
                 url = jsParts[0];
                 builder.addHeader("js", jsParts[1]);
             }
+            // @Headers=（大写，TVBox/PY 约定；壳子 getUrl(String) 已支持，小程序路径补上——
+            // 否则后缀留在 URL 里发给服务器导致 404。JSON 体取到下一个 @ 或结尾，兼容组合后缀）
+            if (url.contains("@Headers=")) {
+                String after = url.split("@Headers=", 2)[1];
+                // 取平衡的 JSON 对象（兼容值内含 @ 的极端情况）
+                int brace = after.indexOf('{');
+                if (brace >= 0) {
+                    int depth = 0, end = -1;
+                    for (int i = brace; i < after.length(); i++) {
+                        char c = after.charAt(i);
+                        if (c == '{') depth++;
+                        else if (c == '}') { depth--; if (depth == 0) { end = i; break; } }
+                    }
+                    if (end > brace) {
+                        String json = after.substring(brace, end + 1);
+                        url = url.split("@Headers=")[0] + after.substring(end + 1);
+                        try {
+                            JSONObject o = new JSONObject(json);
+                            java.util.Iterator<String> it = o.keys();
+                            while (it.hasNext()) {
+                                String k = it.next();
+                                builder.addHeader(UrlUtil.fixHeader(k), o.optString(k, ""));
+                            }
+                        } catch (Throwable t) {
+                            Logger.t(TAG).d("parse @Headers= failed");
+                        }
+                    }
+                }
+            }
             // @headers=（8.83 line 124-138）：[1] 须以 { 开头 } 结尾
             String[] hParts = url.split("@headers=");
             if (hParts.length > 1 && hParts[1].startsWith("{") && hParts[1].endsWith("}")) {

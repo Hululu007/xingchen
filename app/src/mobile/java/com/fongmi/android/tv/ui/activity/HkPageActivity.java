@@ -66,9 +66,12 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -95,6 +98,10 @@ public class HkPageActivity extends BaseActivity {
 
     private RuleAdapter ruleAdapter;
     private final List<HkRule> rules = new ArrayList<>();
+    /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换） */
+    private boolean ruleSortByName = false;
+    private String ruleKeyword = "";
+    private boolean ruleManageMode = false;
 
     private ContentAdapter contentAdapter;
     private final List<HkItem> videos = new ArrayList<>();
@@ -259,10 +266,55 @@ public class HkPageActivity extends BaseActivity {
     // ================= V1 规则列表 =================
 
     private void initRulesView() {
-        binding.rvRules.setLayoutManager(new LinearLayoutManager(this));
+        binding.rvRules.setLayoutManager(new GridLayoutManager(this, 3));
+        binding.rvRules.addItemDecoration(new GridSpace());
         ruleAdapter = new RuleAdapter();
         binding.rvRules.setAdapter(ruleAdapter);
-        binding.btnImport.setOnClickListener(v -> showImportDialog());
+        binding.btnSearchRule.setOnClickListener(v -> showRuleSearchDialog());
+        binding.btnSortRule.setOnClickListener(v -> {
+            ruleSortByName = !ruleSortByName;
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
+        });
+        binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
+        binding.btnAddRule.setOnClickListener(v -> showImportDialog());
+    }
+
+    /** 顶部「编辑」按钮：切换管理模式（卡片显示启用开关代替 ⋮，按钮文字 编辑/完成 互换）。 */
+    private void toggleRuleManageMode() {
+        ruleManageMode = !ruleManageMode;
+        binding.btnEditRule.setText(ruleManageMode ? "完成" : "编辑");
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    /** 搜索已安装的小程序：关键字过滤。 */
+    private void showRuleSearchDialog() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        EditText et = new EditText(this);
+        et.setHint("搜索已安装的小程序");
+        et.setText(ruleKeyword);
+        et.setSingleLine(true);
+        et.setBackgroundResource(R.drawable.xc_input_bg);
+        et.setPadding(dp(14), dp(12), dp(14), dp(12));
+        root.addView(et, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this)
+                .setTitle("搜索小程序")
+                .setView(root)
+                .setPositiveButton("搜索", (d, w) -> {
+                    ruleKeyword = et.getText().toString().trim();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                })
+                .setNeutralButton("清空", (d, w) -> {
+                    ruleKeyword = "";
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void refreshRules() {
@@ -273,8 +325,9 @@ public class HkPageActivity extends BaseActivity {
                 rules.addAll(list);
                 ruleAdapter.rebuildSections();
                 ruleAdapter.notifyDataSetChanged();
-                binding.emptyRules.setVisibility(list.isEmpty() ? View.VISIBLE : View.GONE);
-                binding.rvRules.setVisibility(list.isEmpty() ? View.GONE : View.VISIBLE);
+                boolean empty = ruleAdapter.getItemCount() == 0;
+                binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
             });
         }).start();
     }
@@ -691,17 +744,6 @@ public class HkPageActivity extends BaseActivity {
         return out.toString("UTF-8");
     }
 
-    private void showRuleMenu(HkRule rule) {
-        new AlertDialog.Builder(this)
-                .setItems(new String[]{"导出为云口令（长）", "导出为云口令（短）", "导出为文件", "删除"}, (d, which) -> {
-                    if (which == 0) exportAsCloudCode(rule);
-                    else if (which == 1) exportAsShortCloudCode(rule);
-                    else if (which == 2) exportAsFile(rule);
-                    else showDeleteRuleConfirm(rule);
-                })
-                .show();
-    }
-
     /** 导出规则为云口令：上传云端后显示口令，可复制分享（官方 App 也可导入）。 */
     private void exportAsCloudCode(HkRule rule) {
         Notify.show("正在上传云端…");
@@ -822,14 +864,31 @@ public class HkPageActivity extends BaseActivity {
         private static final int TYPE_RULE = 1;
         private final List<Object> items = new ArrayList<>();
 
-        /** 不分组：平铺全部规则，保持原顺序。 */
+        /** 平铺规则：关键字过滤 + 名称排序开关。 */
         void rebuildSections() {
             items.clear();
-            items.addAll(rules);
+            List<HkRule> src = new ArrayList<>(rules);
+            if (!TextUtils.isEmpty(ruleKeyword)) {
+                String kw = ruleKeyword.toLowerCase(Locale.getDefault());
+                Iterator<HkRule> it = src.iterator();
+                while (it.hasNext()) {
+                    HkRule r = it.next();
+                    String t = r.getTitle() == null ? "" : r.getTitle().toLowerCase(Locale.getDefault());
+                    if (!t.contains(kw)) it.remove();
+                }
+            }
+            if (ruleSortByName) {
+                Collections.sort(src, (a, b) -> {
+                    String ta = a.getTitle() == null ? "" : a.getTitle();
+                    String tb = b.getTitle() == null ? "" : b.getTitle();
+                    return ta.compareTo(tb);
+                });
+            }
+            items.addAll(src);
         }
 
         class Holder extends RecyclerView.ViewHolder {
-            TextView icon, name, sub;
+            TextView icon, name;
             SwitchCompat sw;
             ImageButton more;
 
@@ -837,7 +896,6 @@ public class HkPageActivity extends BaseActivity {
                 super(v);
                 icon = v.findViewById(R.id.tv_icon);
                 name = v.findViewById(R.id.tv_name);
-                sub = v.findViewById(R.id.tv_sub);
                 sw = v.findViewById(R.id.sw_enable);
                 more = v.findViewById(R.id.btn_more);
             }
@@ -852,10 +910,22 @@ public class HkPageActivity extends BaseActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_rule, parent, false);
-            RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) v.getLayoutParams();
-            lp.bottomMargin = dp(12);
-            v.setLayoutParams(lp);
             return new Holder(v);
+        }
+
+        /** 图标底色：圆角保持（不用 setBackgroundColor，避免圆角丢失）。 */
+        private void applyIconBg(TextView icon, String iconDef) {
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+            gd.setCornerRadius(dp(10));
+            int color = 0xFFF6EED6;
+            if (!TextUtils.isEmpty(iconDef) && iconDef.startsWith("#")) {
+                try {
+                    color = android.graphics.Color.parseColor(iconDef);
+                } catch (Exception ignored) {
+                }
+            }
+            gd.setColor(color);
+            icon.setBackground(gd);
         }
 
         @Override
@@ -863,17 +933,13 @@ public class HkPageActivity extends BaseActivity {
             Holder h = (Holder) vh;
             HkRule rule = (HkRule) items.get(position);
             h.name.setText(rule.getTitle());
-            h.sub.setText(rule.getAuthor() + " · v" + rule.getVersion());
-            String iconDef = rule.getIcon();
-            if (!TextUtils.isEmpty(iconDef) && iconDef.startsWith("#")) {
-                try {
-                    h.icon.setBackgroundColor(android.graphics.Color.parseColor(iconDef));
-                } catch (Exception ignored) {
-                }
-            }
-            h.icon.setAlpha(rule.isEnabled() ? 1f : 0.5f);
-            h.name.setAlpha(rule.isEnabled() ? 1f : 0.5f);
-            h.sub.setAlpha(rule.isEnabled() ? 1f : 0.5f);
+            applyIconBg(h.icon, rule.getIcon());
+            float alpha = rule.isEnabled() ? 1f : 0.5f;
+            h.icon.setAlpha(alpha);
+            h.name.setAlpha(alpha);
+            // 管理模式：显示启用开关代替 ⋮；普通模式：显示 ⋮
+            h.sw.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
+            h.more.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
             h.sw.setOnCheckedChangeListener(null);
             h.sw.setChecked(rule.isEnabled());
             h.sw.setOnCheckedChangeListener((btn, checked) -> {
@@ -886,7 +952,7 @@ public class HkPageActivity extends BaseActivity {
                 HkRuleManager.get().setEnabled(r.getTitle(), checked);
                 notifyItemChanged(pos);
             });
-            h.more.setOnClickListener(v -> showRuleMenu(rule));
+            h.more.setOnClickListener(v -> showRuleCardMenu(rule));
             h.itemView.setOnClickListener(v -> openRule(rule));
         }
 
@@ -894,6 +960,107 @@ public class HkPageActivity extends BaseActivity {
         public int getItemCount() {
             return items.size();
         }
+    }
+
+    /** 卡片 ⋮ 菜单：编辑 / 分享 / 删除（选项独立卡片框、有间距）。 */
+    private void showRuleCardMenu(HkRule rule) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText(rule.getTitle());
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        String[] labels = {"编辑", "分享", "删除"};
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            tv.setTextColor(0xFF1A1D24);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            final int which = i;
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) showRuleJsonEditor(rule);
+                else if (which == 1) showRuleShareOptions(rule);
+                else showDeleteRuleConfirm(rule);
+            });
+            root.addView(tv, lp);
+        }
+        dialog.show();
+    }
+
+    /** 分享：云口令分享 / 文件分享（独立卡片选项）。 */
+    private void showRuleShareOptions(HkRule rule) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        String[] labels = {"云口令分享", "文件分享"};
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            tv.setTextColor(0xFF1A1D24);
+            tv.setTextSize(16);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = dp(10);
+            final int which = i;
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) exportAsCloudCode(rule);
+                else exportAsFile(rule);
+            });
+            root.addView(tv, lp);
+        }
+        dialog.show();
+    }
+
+    /** 编辑规则 JSON：文本编辑后保存（importJson 会校验，失败直接提示）。 */
+    private void showRuleJsonEditor(HkRule rule) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        EditText et = new EditText(this);
+        et.setBackgroundResource(R.drawable.xc_input_bg);
+        et.setPadding(dp(12), dp(12), dp(12), dp(12));
+        et.setTextSize(12);
+        et.setGravity(Gravity.START | Gravity.TOP);
+        try {
+            String json = HkRuleManager.get().loadRuleJson(rule.getTitle());
+            et.setText(json == null ? "" : json);
+        } catch (Exception e) {
+            et.setText("");
+        }
+        root.addView(et, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(320)));
+        new AlertDialog.Builder(this)
+                .setTitle("编辑规则")
+                .setView(root)
+                .setPositiveButton("保存", (d, w) -> new Thread(() -> {
+                    try {
+                        HkRuleManager.get().importJson(et.getText().toString());
+                        App.post(this::refreshRules);
+                    } catch (Exception e) {
+                        App.post(() -> com.fongmi.android.tv.utils.ToastUtil.show(
+                                HkPageActivity.this, "保存失败：" + e.getMessage()));
+                    }
+                }).start())
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     // ================= V2 分类+列表 =================

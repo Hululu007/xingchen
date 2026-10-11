@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- 8.83 同款：标题栏与内容连为一体，无悬浮胶囊 -->
+            <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 / 新增 -->
             <LinearLayout
                 android:id="@+id/top_bar_rules"
                 android:layout_width="match_parent"
@@ -31,17 +31,67 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="海阔小程序"
+                    android:text="小程序"
                     android:textColor="#101216"
-                    android:textSize="17sp"
+                    android:textSize="20sp"
                     android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/btn_search_rule"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="搜索小程序"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_action_search" />
+
+                <ImageView
+                    android:id="@+id/btn_sort_rule"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:contentDescription="排序"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_fab_filter"
+                    android:tint="#101216" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/btn_edit_rule"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/dialog_option_card_light"
+                    android:gravity="center"
+                    android:minWidth="64dp"
+                    android:paddingLeft="14dp"
+                    android:paddingRight="14dp"
+                    android:text="编辑"
+                    android:textColor="#101216"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/btn_add_rule"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/dialog_option_card_light"
+                    android:gravity="center"
+                    android:minWidth="64dp"
+                    android:paddingLeft="14dp"
+                    android:paddingRight="14dp"
+                    android:text="新增"
+                    android:textColor="#101216"
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_rules"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_above="@id/btn_import"
+                android:layout_alignParentBottom="true"
                 android:layout_below="@id/top_bar_rules"
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="12dp"
@@ -79,27 +129,11 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="点下方按钮导入你的第一条规则"
+                    android:text="点右上角「新增」导入你的第一条规则"
                     android:textColor="#101216"
                     android:textSize="12sp" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/btn_import"
-                android:layout_width="wrap_content"
-                android:layout_height="52dp"
-                android:layout_alignParentBottom="true"
-                android:layout_centerHorizontal="true"
-                android:layout_marginBottom="16dp"
-                android:background="@drawable/hk_gold_button"
-                android:elevation="8dp"
-                android:gravity="center"
-                android:paddingLeft="28dp"
-                android:paddingRight="28dp"
-                android:text="＋ 导入规则"
-                android:textColor="#101216"
-                android:textSize="15sp"
-                android:textStyle="bold" />
         </RelativeLayout>
 
         <!-- ============ V2 分类+列表 ============ -->

@@ -95,6 +95,21 @@ public class HkRuleManager {
     }
 
     /**
+     * 读规则原始 JSON 文本（用于规则编辑）。不存在返回 null。
+     */
+    public String loadRuleJson(String title) {
+        if (title == null || title.isEmpty()) return null;
+        try {
+            File f = new File(getDir(), safeFileName(title) + ".json");
+            if (!f.exists()) return null;
+            byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    /**
      * 按标题取已安装的规则（用于版本更新比对）。不存在返回 null。
      */
     public HkRule getInstalledRule(String title) {

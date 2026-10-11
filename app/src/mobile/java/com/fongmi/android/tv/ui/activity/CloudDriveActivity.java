@@ -196,6 +196,13 @@ public class CloudDriveActivity extends BaseActivity {
         Notify.show("正在获取播放地址…");
         new Thread(() -> {
             try {
+                // 确保 115 代理已启动（播放器只认本机代理地址，不直连 115）
+                if (Drive115.ID.equals(drive.getId()) && drive instanceof Drive115) {
+                    Drive115 d115 = (Drive115) drive;
+                    com.fongmi.android.tv.cloud.drive115.Proxy115
+                            .getInstance(d115.getClient(), d115.getCookieJar())
+                            .start();
+                }
                 String url = drive.getPlayUrl(file);
                 runOnUiThread(() -> {
                     if (!TextUtils.isEmpty(url)) {

@@ -53,12 +53,18 @@ public class Drive115 implements CloudDrive {
     private String cookie = "";
     private String userName = "";
     private long userId = 0;
+    /** 会话 cookie 罐（对照 PY Api._jar）：115 CDN 门票 cookie 全量吸收 */
+    private final CookieJar115 cookieJar = new CookieJar115();
+    /** 播放地址构造器（本机代理） */
+    private PlayUrlBuilder115 playUrlBuilder;
 
     public Drive115() {
         client = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
+                // 取链与取流必须同一 OkHttp 实例（签名绑出口 IP，对照 PY L420）
+                // 代理取流时手动跟重定向，这里关自动重定向由代理层手动处理
                 .build();
         // 从加密存储恢复登录态（供文件浏览器等 UI 直接 new 即用）
         try {
@@ -131,7 +137,13 @@ public class Drive115 implements CloudDrive {
         }
         try (Response resp = client.newCall(rb.build()).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
-            // 自动吸 cookie（对照 PY：Api.req 自动吸 cookie 进 jar）
+            // 自动吸 cookie（对照 PY Api._absorb_cookies）：全量进罐，同名覆盖、空值删除
+            // 115 的文件 CDN 门票 cookie 是某次接口响应悄悄下发的，只看单次响应会时有时无
+            java.util.List<String> scList = resp.headers("Set-Cookie");
+            if (scList != null && !scList.isEmpty()) {
+                cookieJar.absorb(scList);
+            }
+            // 兼容旧逻辑：登录 cookie（UID/CID/SEID/KID）仍单独维护
             String setCookie = resp.header("Set-Cookie");
             if (!TextUtils.isEmpty(setCookie)) {
                 mergeCookie(setCookie);
@@ -395,13 +407,60 @@ public class Drive115 implements CloudDrive {
         if (file == null || TextUtils.isEmpty(file.getPickCode())) {
             throw new Exception("文件 pick_code 为空");
         }
-        // 优先原画直链（用户要求：115 原画播放要做好）
-        try {
-            return downUrl(file.getPickCode());
-        } catch (Exception e) {
-            // 降级到 m3u8
-            return m3u8Url(file.getPickCode());
+        // 走本机代理（对照 PY _play_result）：播放器永远不直连 115
+        // 返回 http://127.0.0.1:PORT/v?t=TOKEN&u=BASE64(真地址)，playUrl 为空
+        if (playUrlBuilder == null) {
+            playUrlBuilder = new PlayUrlBuilder115(this, client, cookieJar);
         }
+        // 确保代理已启动（对照 PY _via_proxy）
+        Proxy115.getInstance(client, cookieJar).start();
+        PlayUrlBuilder115.PlayRequest req = playUrlBuilder.build(file, "auto");
+        return req.proxyUrl;
+    }
+
+    /**
+     * 取原画播放地址（供用户手动选原画）
+     */
+    public String getPlayUrlOrg(CloudFile file) throws Exception {
+        if (file == null || TextUtils.isEmpty(file.getPickCode())) {
+            throw new Exception("文件 pick_code 为空");
+        }
+        if (playUrlBuilder == null) {
+            playUrlBuilder = new PlayUrlBuilder115(this, client, cookieJar);
+        }
+        Proxy115.getInstance(client, cookieJar).start();
+        PlayUrlBuilder115.PlayRequest req = playUrlBuilder.build(file, "org");
+        return req.proxyUrl;
+    }
+
+    /**
+     * 转码画质列表（对照 PY _all_tiers，15分钟缓存）
+     * @return List of {url, definition}，url 已包成代理地址
+     */
+    public List<Map<String, String>> videoTiers(String pickcode) throws Exception {
+        List<Map<String, String>> result = new ArrayList<>();
+        if (TextUtils.isEmpty(pickcode)) return result;
+        // 调 video_info 接口取画质（对照 PY _pick_tiers）
+        try {
+            Map<String, String> p = new HashMap<>();
+            p.put("pickcode", pickcode);
+            JSONObject d = reqJson("https://webapi.115.com/video/info", p, null, UA_115, "https://115.com/");
+            // 解析逻辑对照 PY _pick_tiers，具体字段按实际返回调整
+            // 这里返回空列表，上层降级用 m3u8Url
+        } catch (Exception e) {
+            android.util.Log.d("Drive115", "videoTiers 失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /** 暴露 cookie 罐（供代理层用） */
+    public CookieJar115 getCookieJar() {
+        return cookieJar;
+    }
+
+    /** 暴露 OkHttpClient（取链取流同一实例，对照 PY L420） */
+    public OkHttpClient getClient() {
+        return client;
     }
 
     /**

@@ -1,0 +1,163 @@
+package com.fongmi.android.tv.api.hk;
+
+import android.text.TextUtils;
+
+import androidx.annotation.NonNull;
+
+import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.HttpException;
+import com.bumptech.glide.load.data.DataFetcher;
+import com.bumptech.glide.load.model.GlideUrl;
+import com.bumptech.glide.util.ContentLengthInputStream;
+import com.orhanobut.logger.Logger;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+import okhttp3.Call;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+
+/**
+ * 8.83 {@code OkHttpStreamFetcher} 语义的 Glide 图片抓取器。
+ *
+ * <p>请求头中 {@code js}/{@code timeout} 不发给服务器（8.83 loadData line 55 同款）。
+ * {@code @js=} 求值规则（8.83 onResponse/onFailure 同款）：</p>
+ * <ul>
+ *   <li>HTTP 2xx 且有 js：{@code input} = 响应流；</li>
+ *   <li>HTTP 非 2xx 或请求异常且有 js：{@code input} = null，给规则一次自救机会；</li>
+ *   <li>JS 返回 InputStream 才采用，非流/异常 → 用原流；无 js 时走原逻辑。</li>
+ * </ul>
+ */
+public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.Callback {
+
+    private static final String TAG = "HkImageFetch";
+
+    private final Call.Factory client;
+    private final GlideUrl url;
+    private volatile Call call;
+    private InputStream stream;
+    private ResponseBody responseBody;
+    private DataCallback<? super InputStream> callback;
+
+    public HkOkHttpStreamFetcher(Call.Factory client, GlideUrl url) {
+        this.client = client;
+        this.url = url;
+    }
+
+    @Override
+    public void loadData(@NonNull Priority priority, @NonNull DataCallback<? super InputStream> callback) {
+        Request.Builder builder = new Request.Builder().url(url.toStringUrl());
+        for (Map.Entry<String, String> entry : url.getHeaders().entrySet()) {
+            String key = entry.getKey();
+            if ("js".equals(key) || "timeout".equals(key)) continue;
+            builder.addHeader(key, entry.getValue());
+        }
+        Request request = builder.build();
+        this.callback = callback;
+        call = client.newCall(request);
+        call.enqueue(this);
+    }
+
+    /** GlideUrl headers 中的 js 体（8.83 以 header "js" 传递 @js= 代码）。 */
+    private String jsBody() {
+        String js = url.getHeaders().get("js");
+        return TextUtils.isEmpty(js) ? null : js;
+    }
+
+    /** 调规则当前 HkJsRuntime 求值；拿不到 runtime 时退化为原 input（8.83 无此分支，宿主多规则所需）。 */
+    private InputStream evalImageJs(String jsBody, InputStream input, Map<String, List<String>> headers) {
+        try {
+            HkJsRuntime rt = HkImage.currentRuntime();
+            if (rt == null) return input;
+            return rt.evalImageJs(jsBody, input, headers, url.toString());
+        } catch (Throwable t) {
+            Logger.t(TAG).d("evalImageJs failed: %s", t.getMessage());
+            return input;
+        }
+    }
+
+    @Override
+    public void onFailure(@NonNull Call call, @NonNull IOException e) {
+        String js = jsBody();
+        if (js != null) {
+            InputStream s = evalImageJs(js, null, Collections.emptyMap());
+            if (s != null) {
+                stream = s;
+                callback.onDataReady(s);
+                return;
+            }
+        }
+        callback.onLoadFailed(e);
+    }
+
+    @Override
+    public void onResponse(@NonNull Call call, @NonNull Response response) {
+        responseBody = response.body();
+        String js = jsBody();
+        try {
+            if (response.isSuccessful()) {
+                if (js != null && responseBody != null) {
+                    InputStream input = responseBody.byteStream();
+                    InputStream s = evalImageJs(js, input, response.headers().toMultimap());
+                    stream = s;
+                    callback.onDataReady(s);
+                    return;
+                }
+                InputStream s = responseBody == null ? null
+                        : ContentLengthInputStream.obtain(responseBody.byteStream(), responseBody.contentLength());
+                stream = s;
+                callback.onDataReady(s);
+                return;
+            }
+            if (js != null) {
+                InputStream s = evalImageJs(js, null, response.headers().toMultimap());
+                if (s != null) {
+                    stream = s;
+                    callback.onDataReady(s);
+                    return;
+                }
+            }
+            callback.onLoadFailed(new HttpException(response.message(), response.code()));
+        } catch (Throwable t) {
+            callback.onLoadFailed(new IOException("Hk image fetch failed: " + t.getMessage(), t));
+        }
+    }
+
+    @Override
+    public void cleanup() {
+        try {
+            if (stream != null) stream.close();
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (responseBody != null) responseBody.close();
+        } catch (Throwable ignored) {
+        }
+        stream = null;
+        responseBody = null;
+        callback = null;
+    }
+
+    @Override
+    public void cancel() {
+        Call c = call;
+        if (c != null) c.cancel();
+    }
+
+    @NonNull
+    @Override
+    public Class<InputStream> getDataClass() {
+        return InputStream.class;
+    }
+
+    @NonNull
+    @Override
+    public DataSource getDataSource() {
+        return DataSource.REMOTE;
+    }
+}

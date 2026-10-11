@@ -5,6 +5,8 @@ import static android.widget.ImageView.ScaleType.FIT_CENTER;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.View;
@@ -25,18 +27,23 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.impl.CustomTarget;
-import com.github.catvod.utils.Json;
+import com.fongmi.android.tv.player.PlayerHelper;
+import com.fongmi.android.tv.setting.Setting;
 import com.google.common.net.HttpHeaders;
+import com.orhanobut.logger.Logger;
 
+import org.json.JSONObject;
+
+import java.io.File;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 
 import jahirfiquitiva.libs.textdrawable.TextDrawable;
 
 public class ImgUtil {
 
+    private static final String TAG = "ImgUtil";
     private static final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
 
     public static void logo(ImageView view) {
@@ -93,12 +100,20 @@ public class ImgUtil {
     }
 
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height) {
+        load(text, url, view, vod, width, height, null);
+    }
+
+    /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer（同域防盗链）。 */
+    public static void load(String text, String url, ImageView view, String ruleUrl) {
+        load(text, url, view, true, 0, 0, ruleUrl);
+    }
+
+    public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
         if (TextUtils.isEmpty(url) || failed.contains(url)) view.setImageDrawable(getTextDrawable(text, vod));
-        else if (com.fongmi.android.tv.api.hk.HkImage.isDecryptUrl(url)) loadDecrypt(text, url, view, vod, width, height);
         else try {
-            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, vod));
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
             if (vod) builder.centerCrop().into(view);
             else builder.fitCenter().into(view);
@@ -111,85 +126,198 @@ public class ImgUtil {
      * 圆形裁剪加载（对照 8.83 icon_round_4 / icon_round_small_4 的 bindCircleCropImageView）。
      */
     public static void loadCircle(String text, String url, ImageView view) {
+        loadCircle(text, url, view, null);
+    }
+
+    /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer。 */
+    public static void loadCircle(String text, String url, ImageView view, String ruleUrl) {
         view.setScaleType(CENTER_CROP);
         if (TextUtils.isEmpty(url) || failed.contains(url)) view.setImageDrawable(getTextDrawable(text, true));
-        else if (com.fongmi.android.tv.api.hk.HkImage.isDecryptUrl(url)) loadDecryptCircle(text, url, view);
         else try {
-            Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true)).circleCrop().into(view);
+            Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).circleCrop().into(view);
         } catch (Throwable e) {
             e.printStackTrace();
         }
     }
 
-    private static void loadDecryptCircle(String text, String url, ImageView view) {
-        view.setImageDrawable(getTextDrawable(text, true));
-        final String base = com.fongmi.android.tv.api.hk.HkImage.baseUrl(url);
-        new Thread(() -> {
-            byte[] data = com.fongmi.android.tv.api.hk.HkImage.decrypt(url);
-            App.post(() -> {
-                try {
-                    Object model = data != null ? data : getUrl(base);
-                    if (model == null) {
-                        view.setImageDrawable(getTextDrawable(text, true));
-                        failed.add(url);
-                        return;
-                    }
-                    Glide.with(view).load(model).listener(getListener(text, url, view, true)).circleCrop().into(view);
-                } catch (Throwable e) {
-                    e.printStackTrace();
-                }
-            });
-        }).start();
+    public static Object getUrl(String url) {
+        return getUrl(url, null);
     }
 
     /**
-     * 海阔图片解密链接（url@headers={}@js=...）：后台下载原图 → JS 解密 → 显示；
-     * 解密失败回退加载原图 URL。
+     * 8.83 {@code GlideUtil.getGlideUrl(ruleUrl, picUrl)} 语义移植。
+     *
+     * <p>处理顺序（对照反编译行号）：hiker://images/ → drawable（宿主无 8.83 的
+     * ImageUrlMapEnum R 表，返回 null 走文字占位，不猜映射）；#rrggbb → ColorDrawable；
+     * 非 http：hiker://files/ → file://、去 #originalSize#；http(s)：去 #originalSize#、
+     * gitee 自动 Referer、同域自动 Referer、默认 UA，解析 @js=/@headers=/@Cookie=/
+     * @Referer=/@User-Agent= 后缀组装 GlideUrl。@js= 由 {@code HkOkHttpStreamFetcher}
+     * 做 8.83 同款流式解密（header "js" 不发给服务器）。</p>
      */
-    private static void loadDecrypt(String text, String url, ImageView view, boolean vod, int width, int height) {
-        view.setImageDrawable(getTextDrawable(text, vod));
-        final String base = com.fongmi.android.tv.api.hk.HkImage.baseUrl(url);
-        new Thread(() -> {
-            byte[] data = com.fongmi.android.tv.api.hk.HkImage.decrypt(url);
-            App.post(() -> {
+    public static Object getUrl(String picUrl, String ruleUrl) {
+        if (picUrl == null) return null;
+        try {
+            // 1. hiker://images/* → 8.83 查 ImageUrlMapEnum 得 drawable id；
+            //    宿主无法还原 8.83 的 R 表映射，返回 null 走文字占位（不猜）。
+            if (picUrl.startsWith("hiker://images/")) return null;
+            // 2. # 开头 → 纯色块
+            if (!picUrl.isEmpty() && picUrl.startsWith("#")) {
                 try {
-                    Object model = data != null ? data : getUrl(base);
-                    if (model == null) {
-                        view.setImageDrawable(getTextDrawable(text, vod));
-                        failed.add(url);
-                        return;
-                    }
-                    RequestBuilder<Drawable> builder = Glide.with(view).load(model).listener(getListener(text, url, view, vod));
-                    if (width > 0 && height > 0) builder.override(width, height);
-                    if (vod) builder.centerCrop().into(view);
-                    else builder.fitCenter().into(view);
-                } catch (Throwable e) {
-                    e.printStackTrace();
+                    return new ColorDrawable(Color.parseColor(picUrl));
+                } catch (Throwable t) {
+                    Logger.t(TAG).d("parseColor failed: %s", picUrl);
                 }
-            });
-        }).start();
+            }
+            String url = UrlUtil.convert(picUrl);
+            if (url.startsWith("data:")) return url;
+            boolean http = url.startsWith("http");
+            // 3. 非 http 分支（8.83 line 80-89）：ruleUrl 为空也走这里
+            if (TextUtils.isEmpty(ruleUrl) || !http) {
+                if (!TextUtils.isEmpty(url) && url.startsWith("hiker://files/")) {
+                    String rest = url.replace("hiker://files/", "");
+                    return "file://" + App.get().getFilesDir().getAbsolutePath() + File.separator + rest;
+                }
+                try {
+                    if (!TextUtils.isEmpty(url)) url = url.replace("#originalSize#", "");
+                } catch (Throwable t) {
+                    Logger.t(TAG).d("strip originalSize failed");
+                }
+                return url;
+            }
+            // 4. http(s) 主分支
+            url = url.replace("#originalSize#", "");
+            if (url.contains("gitee.com") && !url.contains("@Referer=")) url += "@Referer=https://gitee.com";
+            LazyHeaders.Builder builder = new LazyHeaders.Builder();
+            // 自动 Referer（8.83 line 103-116）
+            String ruleDom = getDom(ruleUrl);
+            String picDom = getDom(url);
+            String autoReferer;
+            if (TextUtils.equals(ruleDom, picDom)
+                    || (!TextUtils.isEmpty(ruleDom) && !TextUtils.isEmpty(picDom)
+                        && (ruleDom.contains(picDom) || picDom.contains(ruleDom)))) {
+                autoReferer = (ruleUrl.startsWith("https") ? "https://" : "http://") + ruleDom + "/";
+            } else {
+                autoReferer = "";
+            }
+            String ua = defaultUa();
+            // @js=（小写，8.83 line 119-124）：只取第 2 段
+            String[] jsParts = url.split("@js=");
+            if (jsParts.length > 1) {
+                url = jsParts[0];
+                builder.addHeader("js", jsParts[1]);
+            }
+            // @headers=（8.83 line 124-138）：[1] 须以 { 开头 } 结尾
+            String[] hParts = url.split("@headers=");
+            if (hParts.length > 1 && hParts[1].startsWith("{") && hParts[1].endsWith("}")) {
+                url = hParts[0];
+                try {
+                    JSONObject o = new JSONObject(hParts[1]);
+                    java.util.Iterator<String> it = o.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        builder.addHeader(k, o.optString(k, ""));
+                    }
+                } catch (Throwable t) {
+                    Logger.t(TAG).d("parse @headers= failed");
+                }
+            }
+            // @Cookie=（8.83 line 139-145）
+            String[] cParts = url.split("@Cookie=");
+            if (cParts.length > 1) {
+                url = cParts[0];
+                builder.addHeader(HttpHeaders.COOKIE, cParts[1]);
+            }
+            // @Referer= / @User-Agent= 组合（8.83 line 146-171）
+            String referer;
+            String finalUa;
+            String[] rParts = url.split("@Referer=");
+            if (rParts.length > 1) {
+                url = rParts[0];
+                if (url.contains("@User-Agent=")) {
+                    // @User-Agent= 在 @Referer= 之前
+                    referer = rParts[1];
+                    String[] uParts = url.split("@User-Agent=");
+                    url = uParts[0];
+                    finalUa = uParts[1];
+                } else if (rParts[1].contains("@User-Agent=")) {
+                    // @User-Agent= 在 @Referer= 之后
+                    String[] uParts = rParts[1].split("@User-Agent=");
+                    referer = uParts[0];
+                    finalUa = uParts[1];
+                } else {
+                    referer = rParts[1];
+                    finalUa = ua;
+                }
+            } else {
+                if (url.contains("@User-Agent=")) {
+                    String[] uParts = url.split("@User-Agent=");
+                    finalUa = uParts[1];
+                    url = uParts[0];
+                } else {
+                    finalUa = ua;
+                }
+                referer = autoReferer;
+            }
+            // 边界（8.83 line 173）：最终 URL == ruleUrl 且原串无 @Referer= → Referer 置空
+            if (TextUtils.equals(ruleUrl, url) && !url.contains("@Referer=")) referer = "";
+            // Referer 非空但不是 http 开头 → 置空（8.83 line 176）
+            String refererHeader = (!TextUtils.isEmpty(referer) && referer.startsWith("http")) ? referer : "";
+            builder.addHeader(HttpHeaders.USER_AGENT, finalUa);
+            if (!TextUtils.isEmpty(refererHeader)) builder.addHeader(HttpHeaders.REFERER, refererHeader);
+            return TextUtils.isEmpty(url) ? null : new GlideUrl(url, builder.build());
+        } catch (Throwable t) {
+            Logger.t(TAG).d("getUrl failed: %s", t.getMessage());
+            return null;
+        }
     }
 
-    public static Object getUrl(String url) {
-        String param = null;
-        // 8.83 官方 GlideUtil 只认小写 @headers=（smali const-string "@headers="），规则按官方写法吐小写；兼容保留大写
-        boolean noParams = !(url.contains("@Headers=") || url.contains("@headers=") || url.contains("@Cookie=") || url.contains("@Referer=") || url.contains("@User-Agent="));
-        url = UrlUtil.convert(url);
-        if (url.startsWith("data:")) return url;
-        LazyHeaders.Builder builder = new LazyHeaders.Builder();
-        if (url.contains("@Headers=")) addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
-        else if (url.contains("@headers=")) addHeader(builder, param = url.split("@headers=")[1].split("@")[0]);
-        if (url.contains("@Cookie=")) builder.addHeader(HttpHeaders.COOKIE, param = url.split("@Cookie=")[1].split("@")[0]);
-        if (url.contains("@Referer=")) builder.addHeader(HttpHeaders.REFERER, param = url.split("@Referer=")[1].split("@")[0]);
-        if (url.contains("@User-Agent=")) builder.addHeader(HttpHeaders.USER_AGENT, param = url.split("@User-Agent=")[1].split("@")[0]);
-        url = param == null ? url : url.split("@")[0];
-        if (noParams && !TextUtils.isEmpty(url) && url.contains("doubanio.com")) builder.addHeader(HttpHeaders.REFERER, "https://movie.douban.com/");
-        return TextUtils.isEmpty(url) ? null : new GlideUrl(url, builder.build());
+    /** 8.83 默认 UA（SettingConfig.getGlideUA 同款语义：用户 UA 优先，否则播放器默认 UA）。 */
+    private static String defaultUa() {
+        try {
+            String ua = Setting.getUa();
+            return TextUtils.isEmpty(ua) ? PlayerHelper.getDefaultUa() : ua;
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
-    private static void addHeader(LazyHeaders.Builder builder, String header) {
-        Map<String, String> map = Json.toMap(Json.parse(header));
-        for (Map.Entry<String, String> entry : map.entrySet()) builder.addHeader(UrlUtil.fixHeader(entry.getKey()), entry.getValue());
+    /** 8.83 StringUtil.getDom 语义：取 host（含 getRealUrl 预处理）。 */
+    private static String getDom(String url) {
+        if (TextUtils.isEmpty(url)) return url;
+        try {
+            String u = getRealUrl(url);
+            String[] parts = u.split("://");
+            if (parts.length > 1) return parts[1].split("/")[0];
+            parts = u.split("//");
+            if (parts.length > 1) return parts[1].split("/")[0];
+            return u.replaceFirst("http://", "").replaceFirst("https://", "").replaceFirst("hiker://", "").split("/")[0];
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 8.83 StringUtil.getRealUrl 简化版：去 @lazyRule=/@rule= 后缀与 hiker://empty 前缀。 */
+    private static String getRealUrl(String url) {
+        if (TextUtils.isEmpty(url)) return url;
+        try {
+            String u = url.split("@lazyRule=")[0].split("@rule=")[0];
+            if (u.startsWith("hiker://empty#http")) u = replaceOnce(u, "hiker://empty#", "");
+            else if (u.startsWith("webview://")) u = u.replaceFirst("webview://", "");
+            else if (u.startsWith("hiker://empty##http") || u.startsWith("hiker://empty##https%3A%2F%2F") || u.startsWith("hiker://empty##http%3A%2F%2F"))
+                u = replaceOnce(u, "hiker://empty##", "");
+            else if (u.startsWith("hiker://empty$http")) u = replaceOnce(u, "hiker://empty$", "");
+            else if (u.startsWith("hiker://empty$$http")) u = replaceOnce(u, "hiker://empty$$", "");
+            int d = u.indexOf("$$$");
+            if (d >= 0) u = u.substring(0, d);
+            return u;
+        } catch (Throwable t) {
+            return url;
+        }
+    }
+
+    private static String replaceOnce(String s, String from, String to) {
+        int i = s.indexOf(from);
+        return i < 0 ? s : s.substring(0, i) + to + s.substring(i + from.length());
     }
 
     private static Drawable getTextDrawable(String text, boolean vod) {

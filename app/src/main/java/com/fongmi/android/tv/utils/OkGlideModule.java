@@ -9,10 +9,10 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.GlideBuilder;
 import com.bumptech.glide.Registry;
 import com.bumptech.glide.annotation.GlideModule;
-import com.bumptech.glide.integration.okhttp3.OkHttpUrlLoader;
 import com.bumptech.glide.load.engine.cache.InternalCacheDiskCacheFactory;
 import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.module.AppGlideModule;
+import com.fongmi.android.tv.api.hk.HkGlideUrlLoader;
 import com.github.catvod.net.OkHttp;
 
 import java.io.InputStream;
@@ -30,9 +30,9 @@ public class OkGlideModule extends AppGlideModule {
 
     @Override
     public void registerComponents(@NonNull Context context, @NonNull Glide glide, Registry registry) {
-        // Covers go through the shared OkHttp client whose DNS is sanitized by OkDns
-        // (broken IPv6 / hijacked loopback filtered). HttpURLConnection cannot take a
-        // custom Dns, so it would be exposed to broken system-DNS results.
-        registry.replace(GlideUrl.class, InputStream.class, new OkHttpUrlLoader.Factory(OkHttp.client()));
+        // 8.83 OkHttpLibraryGlideModule 同款：GlideUrl→InputStream 走自研 fetcher，
+        // 图片经共享 OkHttp client（OkDns 处理 DNS），@js= 在此做流式解密。
+        // HttpURLConnection 无法注入自定义 Dns，会暴露在异常系统 DNS 下，故不用它。
+        registry.replace(GlideUrl.class, InputStream.class, new HkGlideUrlLoader.Factory(OkHttp.client()));
     }
 }

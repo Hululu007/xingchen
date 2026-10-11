@@ -1034,7 +1034,14 @@ public class HkPageActivity extends BaseActivity {
 
     private HkRouter getRouter() throws Exception {
         if (router == null) router = new HkRouter(currentRule);
+        // 图片 @js= 求值依赖当前规则的 $.require/pages，登记当前 runtime（8.83 JSEngine.getInstance() 同款语义）
+        com.fongmi.android.tv.api.hk.HkImage.setCurrentRuntime(router.getEngine().getJsRuntime());
         return router;
+    }
+
+    /** 当前规则页 URL（8.83 GlideUtil.getGlideUrl 的 ruleUrl 参数：自动 Referer 用）。 */
+    private String hkRuleUrl() {
+        return currentRule == null ? null : currentRule.getUrl();
     }
 
     private int contentGen = 0;
@@ -1449,7 +1456,7 @@ public class HkPageActivity extends BaseActivity {
                         return;
                     }
                     android.widget.ImageView iv = new android.widget.ImageView(this);
-                    com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), urls.get(0), iv, false);
+                    com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), urls.get(0), iv, false, 0, 0, hkRuleUrl());
                     new AlertDialog.Builder(this)
                             .setTitle(stripHtml(item.getTitle()))
                             .setView(iv)
@@ -1468,7 +1475,7 @@ public class HkPageActivity extends BaseActivity {
                     return;
                 case "image": {
                     android.widget.ImageView iv = new android.widget.ImageView(this);
-                    com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), url, iv, false);
+                    com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), url, iv, false, 0, 0, hkRuleUrl());
                     new AlertDialog.Builder(this)
                             .setView(iv)
                             .setPositiveButton("关闭", (d, w) -> d.dismiss())
@@ -1527,7 +1534,7 @@ public class HkPageActivity extends BaseActivity {
         binding.tvDetailEmpty.setVisibility(View.GONE);
         binding.tvDetailTitle.setText(detail.getTitle());
         binding.tvDetailName.setText(detail.getTitle());
-        ImgUtil.load(detail.getTitle(), detail.getPic(), binding.ivDetailCover);
+        ImgUtil.load(detail.getTitle(), detail.getPic(), binding.ivDetailCover, hkRuleUrl());
         int epCount = 0;
         for (HkDetail.Line l : detail.getLines()) epCount += l.getEpisodes().size();
         String meta;
@@ -1789,7 +1796,7 @@ public class HkPageActivity extends BaseActivity {
             h.title.setText(item.getTitle());
             h.desc.setText(item.getDesc());
             h.desc.setVisibility(TextUtils.isEmpty(item.getDesc()) ? View.GONE : View.VISIBLE);
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION || currentRule == null) return;
@@ -2847,7 +2854,7 @@ public class HkPageActivity extends BaseActivity {
                 h.overlay.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
             }
             h.desc.setVisibility(View.GONE);
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION || currentRule == null) return;
@@ -3000,7 +3007,7 @@ public class HkPageActivity extends BaseActivity {
         /** 头像行：圆形图 + 标题横向。 */
         private void bindAvatar(Holder h, HkItem item) {
             h.title.setText(titleSpan(item.getTitle()));
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             setContentClick(h, item);
         }
 
@@ -3010,9 +3017,9 @@ public class HkPageActivity extends BaseActivity {
             h.title.setText(titleSpan(item.getTitle()));
             int vt = h.getItemViewType();
             if (vt == T_ICON_ROUND || vt == T_ICON_ROUND_SMALL || vt == T_ICON_2_ROUND) {
-                ImgUtil.loadCircle(item.getTitle(), item.getPic(), h.cover);
+                ImgUtil.loadCircle(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             } else {
-                ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+                ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             }
             if (vt == T_ICON_1_LEFT_PIC && h.desc != null) {
                 String d = stripHtml(item.getDesc());
@@ -3025,7 +3032,7 @@ public class HkPageActivity extends BaseActivity {
         /** 图文行：text_icon，左文字右图标（对照 8.83 item_text_icon）。 */
         private void bindTextIcon(Holder h, HkItem item) {
             h.title.setText(titleSpan(item.getTitle()));
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             setContentClick(h, item);
         }
 
@@ -3037,7 +3044,7 @@ public class HkPageActivity extends BaseActivity {
                 h.overlay.setText(d);
                 h.overlay.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
             }
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             setContentClick(h, item);
         }
 
@@ -3058,7 +3065,7 @@ public class HkPageActivity extends BaseActivity {
                 }
                 h.cover.setLayoutParams(plp);
             }
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             h.cover.setContentDescription(stripHtml(item.getTitle()));
             setContentClick(h, item);
         }
@@ -3070,7 +3077,7 @@ public class HkPageActivity extends BaseActivity {
             String d = stripHtml(item.getDesc());
             h.desc.setText(d);
             h.desc.setVisibility(TextUtils.isEmpty(d) ? View.GONE : View.VISIBLE);
-            ImgUtil.load(item.getTitle(), item.getPic(), h.cover);
+            ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             setContentClick(h, item);
         }
 

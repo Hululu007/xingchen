@@ -19,11 +19,13 @@ import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeArray;
 import org.mozilla.javascript.NativeJSON;
+import org.mozilla.javascript.NativeJavaObject;
 import org.mozilla.javascript.NativeObject;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 
 import java.io.File;
+import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.net.NetworkInterface;
 import java.nio.charset.Charset;
@@ -2407,14 +2409,165 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     }
 
     /**
+     * 8.83 OkHttpStreamFetcher.evalJS 语义：图片 {@code @js=} 求值。
+     *
+     * <p>{@code input} 绑定为 Java InputStream（响应流；下载失败时为 null）。
+     * JS 求值结果为 InputStream（或其 NativeJavaObject 包装）才采用，且与原 input
+     * 不同时关闭原流；结果非流或任何异常 → 返回原 input（调用方决定失败处理）。
+     * 复用规则 scope（$、Hikerurl.js、规则函数均已注入），跑在 JS 单线程 executor
+     * 上保证 scope 安全；求值前后保存/恢复全局 input。</p>
+     */
+    public InputStream evalImageJs(String jsCode, InputStream input, Map<String, List<String>> headers, String urlString) {
+        try {
+            return submit(() -> {
+                boolean had = ScriptableObject.hasProperty(scope, "input");
+                Object old = had ? ScriptableObject.getProperty(scope, "input") : null;
+                try {
+                    ScriptableObject.putProperty(scope, "input", Context.javaToJS(input, scope));
+                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + wrapImageJs(jsCode);
+                    Object r = evalJs(code);
+                    return coerceImageStream(r, input);
+                } catch (Throwable t) {
+                    return input;
+                } finally {
+                    try {
+                        if (had) ScriptableObject.putProperty(scope, "input", old);
+                        else scope.delete("input");
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }).get();
+        } catch (Throwable t) {
+            return input;
+        }
+    }
+
+    /** 8.83 wrapJS：@js= 体包 try/catch，异常记 log 后按"非流"处理（返回原 input）。 */
+    private static String wrapImageJs(String jsCode) {
+        return "try{\n" + jsCode + "\n}catch(e){\nlog(e.toString());\n}";
+    }
+
+    /** 8.83 JSEngine.generateMY("MY_HEADERS", multimap) 语义。 */
+    private static String generateMyHeaders(Map<String, List<String>> headers) {
+        if (headers == null) return "var MY_HEADERS = null;\n";
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            for (Map.Entry<String, List<String>> e : headers.entrySet()) {
+                o.put(e.getKey(), new org.json.JSONArray(e.getValue()));
+            }
+            return "var my_headers = '" + escapeJsString(o.toString()) + "';\n var MY_HEADERS = JSON.parse(my_headers);\n";
+        } catch (Throwable t) {
+            return "var MY_HEADERS = null;\n";
+        }
+    }
+
+    /** 8.83 JSEngine.getMyUrl 语义：var MY_URL / var MY_HOME。 */
+    private static String getMyUrlJs(String url) {
+        if (url == null) url = "";
+        String esc = escapeJsString(url);
+        return "var MY_URL = '" + esc + "';\nvar MY_HOME = '" + getHomeUrl(esc) + "';\n";
+    }
+
+    /** 8.83 StringUtil.getHome 语义：scheme://dom。 */
+    private static String getHomeUrl(String url) {
+        try {
+            String u = getRealImageUrl(url);
+            String dom = getImageDom(u);
+            String scheme = u.split("://")[0];
+            return scheme + "://" + dom;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** JS 单引号字符串转义（adblockplus Utils.escapeJavaScriptString 同款语义）。 */
+    private static String escapeJsString(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '\'': sb.append("\\'"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                case '\b': sb.append("\\b"); break;
+                case '\f': sb.append("\\f"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format(java.util.Locale.ROOT, "\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 8.83 StringUtil.getRealUrl 简化版：去 @lazyRule=/@rule= 后缀与 hiker://empty 前缀。 */
+    private static String getRealImageUrl(String url) {
+        if (TextUtils.isEmpty(url)) return url;
+        try {
+            String u = url.split("@lazyRule=")[0].split("@rule=")[0];
+            if (u.startsWith("hiker://empty#http")) u = replaceOnce(u, "hiker://empty#", "");
+            else if (u.startsWith("webview://")) u = u.replaceFirst("webview://", "");
+            else if (u.startsWith("hiker://empty##http") || u.startsWith("hiker://empty##https%3A%2F%2F") || u.startsWith("hiker://empty##http%3A%2F%2F"))
+                u = replaceOnce(u, "hiker://empty##", "");
+            else if (u.startsWith("hiker://empty$http")) u = replaceOnce(u, "hiker://empty$", "");
+            else if (u.startsWith("hiker://empty$$http")) u = replaceOnce(u, "hiker://empty$$", "");
+            int d = u.indexOf("$$$");
+            if (d >= 0) u = u.substring(0, d);
+            return u;
+        } catch (Throwable t) {
+            return url;
+        }
+    }
+
+    private static String replaceOnce(String s, String from, String to) {
+        int i = s.indexOf(from);
+        return i < 0 ? s : s.substring(0, i) + to + s.substring(i + from.length());
+    }
+
+    /** 8.83 StringUtil.getDom/getDom0 语义：取 host。 */
+    private static String getImageDom(String url) {
+        if (TextUtils.isEmpty(url)) return url;
+        try {
+            String u = getRealImageUrl(url);
+            String[] parts = u.split("://");
+            if (parts.length > 1) return parts[1].split("/")[0];
+            parts = u.split("//");
+            if (parts.length > 1) return parts[1].split("/")[0];
+            return u.replaceFirst("http://", "").replaceFirst("https://", "").replaceFirst("hiker://", "").split("/")[0];
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 求值结果 → 流：是流则采用（与原流不同时关原流），否则返回原 input。 */
+    private static InputStream coerceImageStream(Object r, InputStream input) {
+        try {
+            Object v = r;
+            if (v instanceof NativeJavaObject) v = ((NativeJavaObject) v).unwrap();
+            if (v instanceof InputStream) {
+                if (v != input && input != null) {
+                    try {
+                        input.close();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                return (InputStream) v;
+            }
+        } catch (Throwable ignored) {
+        }
+        return input;
+    }
+
+    /**
      * M4：lazyRule / 播放 js 的独立作用域求值。
      *
      * <p>按"独立作用域"铁律：只注入全局 Hiker API，外加 {@code MY_URL}/{@code input}
      * 两个形参（均为当前页面地址），不依赖 JS 闭包。返回代码求值结果的字符串；
      * 若求值为空则兜底取 {@code setResult} 收集到的第一条 url。</p>
      */
-    public String evalLazy(String jsCode, String pageUrl) throws Exception {
-        return submit(() -> {
+    public String evalLazy(String jsCode, String pageUrl) throws Exception {        return submit(() -> {
             error = null;
             setContext(pageUrl);
             // 入口口令/输入框：若有一次性 input 覆盖（用户输入的文本），优先使用；

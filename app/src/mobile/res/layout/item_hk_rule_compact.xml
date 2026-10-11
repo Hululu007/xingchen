@@ -22,16 +22,28 @@
         android:orientation="horizontal"
         android:padding="6dp">
 
-        <TextView
-            android:id="@+id/tv_icon"
+        <FrameLayout
             android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:background="@drawable/hk_miniapp_icon_bg"
-            android:gravity="center"
-            android:text="海"
-            android:textColor="#8A6D00"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:layout_height="30dp">
+
+            <ImageView
+                android:id="@+id/iv_icon"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_icon"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/hk_miniapp_icon_bg"
+                android:gravity="center"
+                android:text="海"
+                android:textColor="#6B5300"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="0dp"

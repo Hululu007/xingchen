@@ -367,8 +367,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 悬浮磨砂顶栏：真 blur 只作用于独立背景层，内容层不被模糊
-        FrostedGlass.blurBackground(binding.headerBg);
+        // 顶栏已改实色底，不再需要 blur（之前半透明导致跟滚动内容混在一起像一起滚）
         // 首页 inline 搜索条：磨砂风格，输入实时过滤小程序卡片
         FrostedGlass.blurBackground(binding.inlineSearchBar);
         binding.etInlineSearch.addTextChangedListener(new TextWatcher() {
@@ -1818,12 +1817,14 @@ public class HkPageActivity extends BaseActivity {
 
         class Holder extends RecyclerView.ViewHolder {
             TextView icon, name, tag;
+            android.widget.ImageView ivIcon;
             SwitchCompat sw;
             ImageButton more;
 
             Holder(View v) {
                 super(v);
                 icon = v.findViewById(R.id.tv_icon);
+                ivIcon = v.findViewById(R.id.iv_icon);
                 name = v.findViewById(R.id.tv_name);
                 tag = v.findViewById(R.id.tv_group_tag);
                 sw = v.findViewById(R.id.sw_enable);
@@ -1842,13 +1843,35 @@ public class HkPageActivity extends BaseActivity {
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             int layout = viewType == TYPE_RULE_COMPACT ? R.layout.item_hk_rule_compact : R.layout.item_hk_rule;
             View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
-            // 卡片磨砂：真 blur 只作用于独立背景层，内容层不被模糊
-            FrostedGlass.blurBackground(v.findViewById(R.id.card_bg));
+            // 卡片已改纯白实底，不再需要 blur
             return new Holder(v);
         }
 
-        /** 图标底色：圆角保持（不用 setBackgroundColor，避免圆角丢失）。 */
-        private void applyIconBg(TextView icon, String iconDef) {
+        /** 图标：URL 则加载图片，# 开头则设背景色，否则默认"海"字。 */
+        private void applyIconBg(Holder h, String iconDef) {
+            TextView icon = h.icon;
+            android.widget.ImageView ivIcon = h.ivIcon;
+            boolean isUrl = !TextUtils.isEmpty(iconDef)
+                    && (iconDef.startsWith("http://") || iconDef.startsWith("https://"));
+            if (isUrl) {
+                // URL 图标：显示图片，隐藏"海"字
+                icon.setVisibility(View.GONE);
+                ivIcon.setVisibility(View.VISIBLE);
+                // 圆角裁剪跟文字版一致
+                ivIcon.setClipToOutline(true);
+                ivIcon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
+                try {
+                    com.fongmi.android.tv.utils.ImgUtil.load("", iconDef, ivIcon);
+                } catch (Exception ignored) {
+                    // 加载失败回退到"海"字
+                    ivIcon.setVisibility(View.GONE);
+                    icon.setVisibility(View.VISIBLE);
+                }
+                return;
+            }
+            // 非 URL：显示"海"字
+            ivIcon.setVisibility(View.GONE);
+            icon.setVisibility(View.VISIBLE);
             android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
             gd.setCornerRadius(dp(10));
             int color = 0xFFF6EED6;
@@ -1867,9 +1890,10 @@ public class HkPageActivity extends BaseActivity {
             Holder h = (Holder) vh;
             HkRule rule = (HkRule) items.get(position);
             h.name.setText(rule.getTitle());
-            applyIconBg(h.icon, rule.getIcon());
+            applyIconBg(h, rule.getIcon());
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
+            if (h.ivIcon != null) h.ivIcon.setAlpha(alpha);
             // 禁用态：图标半透示意，文字保持可读（0.75f），深色字必须看得清
             h.name.setAlpha(rule.isEnabled() ? 1f : 0.75f);
             // 管理模式：显示启用开关 + 分组标签；⋮ 按钮已去掉（长按卡片出菜单）

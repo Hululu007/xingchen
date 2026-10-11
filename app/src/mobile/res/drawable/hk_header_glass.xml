@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮磨砂顶栏：半透明底 + 底部发丝线（真 blur 由 FrostedGlass 叠加到背景层） -->
+<!-- 悬浮顶栏：不透底实色 + 底部发丝线（顶栏必须固定清晰，不能跟滚动内容混在一起） -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#B3FFFFFF" />
+            <solid android:color="#F5F6F8" />
         </shape>
     </item>
     <item android:gravity="bottom">
         <shape android:shape="rectangle">
             <size android:height="1dp" />
-            <solid android:color="#E1E5EB" />
+            <solid android:color="#D8DDE3" />
         </shape>
     </item>
 </layer-list>

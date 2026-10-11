@@ -1268,7 +1268,19 @@ public class HkPageActivity extends BaseActivity {
                 App.post(() -> {
                     applyImportGroup(one, Collections.singletonList(isNew), group);
                     Notify.show("导入成功：" + p.rule.getTitle());
-                    refreshRules();
+                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
+                    boolean exists = false;
+                    for (HkRule r : HkPageActivity.this.rules) {
+                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
+                    }
+                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
                     // 导入成功后提示"是否打开"（像海阔原版）
                     showOpenAfterImportDialog(one);
                 });
@@ -1464,7 +1476,19 @@ public class HkPageActivity extends BaseActivity {
                 App.post(() -> {
                     applyImportGroup(one, Collections.singletonList(isNew), group);
                     Notify.show("导入成功：" + p.rule.getTitle());
-                    refreshRules();
+                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
+                    boolean exists = false;
+                    for (HkRule r : HkPageActivity.this.rules) {
+                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
+                    }
+                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
                     showOpenAfterImportDialog(one);
                 });
             } catch (Exception e) {
@@ -1578,7 +1602,24 @@ public class HkPageActivity extends BaseActivity {
                     // 只对新导入的规则应用分组选择；已安装的更新保持原有分组映射不动
                     applyImportGroup(rules, isNewList, pickedGroup);
                     Notify.show(msg);
-                    refreshRules();
+                    // 直接合并内存中的规则进列表（不走 refreshRules 磁盘重读：
+                    // getRules() 在某些机型/场景下返回空会导致导入后列表空，
+                    // 内存中的 rules 是刚解析成功的，直接用最可靠）
+                    java.util.Set<String> have = new java.util.HashSet<>();
+                    for (HkRule r : HkPageActivity.this.rules) have.add(r.getTitle());
+                    for (HkRule r : rules) {
+                        if (!have.contains(r.getTitle())) {
+                            HkPageActivity.this.rules.add(r);
+                            have.add(r.getTitle());
+                        }
+                    }
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
                     // 更新/添加成功后提示"是否打开"（像海阔原版）
                     showOpenAfterImportDialog(rules);
                 });

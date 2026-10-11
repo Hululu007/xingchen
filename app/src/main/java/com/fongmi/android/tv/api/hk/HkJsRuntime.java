@@ -191,14 +191,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         return rhinoCx.evaluateString(scope, js, "hk", 1, null);
     }
 
-    /** JSON 解析（替代 ctx.parse，即 JSON.parse 语义）：非法 JSON 返回空对象，不抛异常。 */
+    /** JSON 解析（替代 ctx.parse，即 JSON.parse 语义）：非法 JSON 返回带原型的空对象，不抛异常。
+     * 8.83 做法：Java 侧不造裸 NativeObject（无原型会导致 JS 拼字符串时抛"未找到对象默认值"），
+     * 一律用 cx.newObject(scope) 创建带原型链的对象。 */
     private Object parseJson(String json) {
-        if (TextUtils.isEmpty(json)) return new NativeObject();
+        if (TextUtils.isEmpty(json)) return rhinoCx.newObject(scope);
         try {
             Object r = NativeJSON.parse(rhinoCx, scope, json, null);
-            return r == null ? new NativeObject() : r;
+            return r == null ? rhinoCx.newObject(scope) : r;
         } catch (Throwable e) {
-            return new NativeObject();
+            return rhinoCx.newObject(scope);
         }
     }
 
@@ -293,18 +295,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         return "";
     }
 
-    /** List<String> -> JS 数组（替代 JSUtil.toArray）。 */
+    /** List<String> -> JS 数组（替代 JSUtil.toArray）。
+     * 8.83 做法：用 cx.newArray 创建带原型链的数组，不用裸 new NativeArray()。 */
     private NativeArray toJsArray(List<String> items) {
-        NativeArray arr = new NativeArray(items == null ? 0 : items.size());
+        NativeArray arr = (NativeArray) rhinoCx.newArray(scope, items == null ? 0 : items.size());
         if (items != null) {
             for (int i = 0; i < items.size(); i++) arr.put(i, arr, items.get(i));
         }
         return arr;
     }
 
-    /** byte[] -> JS 数组（替代 JSUtil.toArray）。 */
+    /** byte[] -> JS 数组（替代 JSUtil.toArray）。
+     * 8.83 做法：用 cx.newArray 创建带原型链的数组，不用裸 new NativeArray()。 */
     private NativeArray toJsArray(byte[] bytes) {
-        NativeArray arr = new NativeArray(bytes == null ? 0 : bytes.length);
+        NativeArray arr = (NativeArray) rhinoCx.newArray(scope, bytes == null ? 0 : bytes.length);
         if (bytes != null) {
             for (int i = 0; i < bytes.length; i++) arr.put(i, arr, (int) bytes[i]);
         }
@@ -781,7 +785,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
 
         // ---- storage0 对象（官方：支持存储 JSON 对象的存储封装） ----
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
-        NativeObject storage0 = new NativeObject();
+        ScriptableObject storage0 = (ScriptableObject) rhinoCx.newObject(scope);
         putFunction(storage0, "putVar", args -> {
             if (args != null && args.length > 1) vars.put(argStr(args[0]), stringifyArg(args[1]));
             return null;
@@ -2953,7 +2957,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             String mp = myParams == null || myParams.isEmpty() ? "{}" : myParams;
             ScriptableObject.putProperty(scope, "MY_PARAMS", parseJson(mp));
         } catch (Throwable ignored) {
-            ScriptableObject.putProperty(scope, "MY_PARAMS", new NativeObject());
+            ScriptableObject.putProperty(scope, "MY_PARAMS", rhinoCx.newObject(scope));
         }
         ScriptableObject.putProperty(scope, "MY_AREA", myArea == null ? "" : myArea);
         ScriptableObject.putProperty(scope, "MY_YEAR", myYear == null ? "" : myYear);
@@ -2981,7 +2985,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         try {
             ScriptableObject.putProperty(scope, "MY_RULE", parseJson(GSON.toJson(rule)));
         } catch (Throwable e) {
-            ScriptableObject.putProperty(scope, "MY_RULE", new NativeObject());
+            ScriptableObject.putProperty(scope, "MY_RULE", rhinoCx.newObject(scope));
         }
     }
 
@@ -3070,7 +3074,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             ScriptableObject.putProperty(scope, "config", obj);
         } catch (Throwable e) {
             try {
-                ScriptableObject.putProperty(scope, "config", new NativeObject());
+                ScriptableObject.putProperty(scope, "config", rhinoCx.newObject(scope));
             } catch (Throwable ignored) {
             }
         }

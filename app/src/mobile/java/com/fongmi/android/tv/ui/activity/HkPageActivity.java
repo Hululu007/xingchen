@@ -2966,42 +2966,96 @@ public class HkPageActivity extends BaseActivity {
 
     /**
      * 8.83 同款"请选择分类"弹窗：居中，3 列竖向网格。
-     * （ArticleListAdapter.lambda$bindForHeaderHolder$11，CustomCenterRecyclerViewPopup）
+     * （ArticleListAdapter.lambda$bindForHeaderHolder$11，CustomCenterRecyclerViewPopup，
+     *  item_rect_radius.xml center=true 浅色模式）
      */
     private void showCategoryPopup(List<String[]> pairs, int selected, ChipAdapter.OnPick listener) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(20));
 
         TextView title = new TextView(this);
         title.setText("请选择分类");
-        title.setTextColor(0xFF1A1D24);
-        title.setTextSize(16);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(0xFF000000);
+        title.setTextSize(20);
+        title.setMaxLines(1);
         title.setGravity(android.view.Gravity.CENTER);
+        int tp = dp(15);
+        title.setPadding(tp, tp, tp, tp);
         root.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         RecyclerView rv = new RecyclerView(this);
         rv.setLayoutManager(new GridLayoutManager(this, 3));
-        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rvLp.topMargin = dp(12);
-        root.addView(rv, rvLp);
+        int rp = dp(10);
+        rv.setPadding(rp, rp, rp, rp);
+        rv.setClipToPadding(false);
+        root.addView(rv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // 选项卡片风格弹窗（与现有选项弹窗统一：独立卡片+间距）
         androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setView(root)
                 .create();
         // 点选项后关闭弹窗
-        rv.setAdapter(new ChipAdapter(pairs, selected, url -> {
+        rv.setAdapter(new CategoryAdapter(pairs, selected, url -> {
             dialog.dismiss();
             listener.onPick(url);
         }));
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_option_card_light);
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.hk_category_popup_bg);
         }
         dialog.show();
+    }
+
+    /** 8.83 同款分类弹窗按钮适配器（对照 item_rect_radius.xml）。 */
+    private static class CategoryAdapter extends RecyclerView.Adapter<CategoryAdapter.Holder> {
+        private final List<String[]> pairs;
+        private final int selected;
+        private final ChipAdapter.OnPick listener;
+
+        CategoryAdapter(List<String[]> pairs, int selected, ChipAdapter.OnPick listener) {
+            this.pairs = pairs;
+            this.selected = selected;
+            this.listener = listener;
+        }
+
+        static class Holder extends RecyclerView.ViewHolder {
+            TextView text;
+            Holder(View v) {
+                super(v);
+                text = v.findViewById(R.id.tv_category);
+            }
+        }
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_category, parent, false);
+            return new Holder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            String[] pair = pairs.get(position);
+            h.text.setText(pair[0]);
+            // 8.83：选中项文字变红（redAction #ffed424b）
+            h.text.setTextColor(position == selected ? 0xFFED424B : 0xFF222222);
+            h.itemView.setOnClickListener(v -> {
+                try {
+                    int pos = h.getAdapterPosition();
+                    if (pos >= 0 && listener != null) {
+                        listener.onPick(pairs.get(pos)[1]);
+                    }
+                } catch (Exception e) {
+                    android.util.Log.e("HkPage", "CategoryAdapter click failed", e);
+                }
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return pairs.size();
+        }
     }
 
     private void buildFilterRows() {
@@ -4227,25 +4281,33 @@ public class HkPageActivity extends BaseActivity {
         return stripHtml(raw);
     }
 
-    /** col_type → viewType：空/movie_3/未知 → 视频卡片（官方 getItemTypeByCode 未知回退 MOVIE_3）。 */
+    /** col_type → viewType：空/movie_3/未知 → 视频卡片（官方 getItemTypeByCode 未知回退 MOVIE_3）。
+     * 8.83 原版：每个 col_type 独立 viewType，不合并（对照 ArticleColTypeEnum）。 */
     private int contentTypeOf(HkItem it) {
         String ct = colTypeOf(it);
         switch (ct) {
-            case "text_center_1":
             case "text_1":
+                return ContentAdapter.T_TEXT_1;
+            case "text_center_1":
+                return ContentAdapter.T_TEXT_CENTER_1;
             case "long_text":
+                return ContentAdapter.T_LONG_TEXT;
             case "header":
+                return ContentAdapter.T_HEADER;
             case "footer":
-                return ContentAdapter.T_TEXT;
+                return ContentAdapter.T_FOOTER;
             case "text_icon":
                 return ContentAdapter.T_TEXT_ICON;
             case "rich_text":
                 return ContentAdapter.T_RICH;
             case "text_2":
+                return ContentAdapter.T_TEXT_2;
             case "text_3":
+                return ContentAdapter.T_TEXT_3;
             case "text_4":
+                return ContentAdapter.T_TEXT_4;
             case "text_5":
-                return ContentAdapter.T_COLS;
+                return ContentAdapter.T_TEXT_5;
             case "avatar":
                 return ContentAdapter.T_AVATAR;
             case "input":
@@ -4257,12 +4319,17 @@ public class HkPageActivity extends BaseActivity {
                 // 8.83 原版：连续同类型条目由 updatePolyList 自动合并，首个渲染整组
                 return ContentAdapter.T_BUTTONS;
             case "card_pic_1":
+                return ContentAdapter.T_CARD_PIC_1;
             case "card_pic_2":
+                return ContentAdapter.T_CARD_PIC_2;
             case "card_pic_2_2":
+                return ContentAdapter.T_CARD_PIC_2_2;
             case "card_pic_2_2_left":
+                return ContentAdapter.T_CARD_PIC_2_2_LEFT;
             case "card_pic_3":
+                return ContentAdapter.T_CARD_PIC_3;
             case "card_pic_3_center":
-                return ContentAdapter.T_CARD;
+                return ContentAdapter.T_CARD_PIC_3_CENTER;
             case "":
             case "movie_3":
                 return ContentAdapter.T_VIDEO;
@@ -4301,7 +4368,16 @@ public class HkPageActivity extends BaseActivity {
                         return ContentAdapter.T_ICON_4_SMALL;
                     return ContentAdapter.T_ICON; // icon_4
                 }
-                if (ct.startsWith("pic") || ct.startsWith("card_pic")) return ContentAdapter.T_PIC;
+                // 8.83 原版：pic_* 各子类型独立 viewType
+                if ("pic_1".equals(ct)) return ContentAdapter.T_PIC_1;
+                if ("pic_1_card".equals(ct)) return ContentAdapter.T_PIC_1_CARD;
+                if ("pic_1_center".equals(ct)) return ContentAdapter.T_PIC_1_CENTER;
+                if ("pic_1_full".equals(ct)) return ContentAdapter.T_PIC_1_FULL;
+                if ("pic_2".equals(ct)) return ContentAdapter.T_PIC_2;
+                if ("pic_2_card".equals(ct)) return ContentAdapter.T_PIC_2_CARD;
+                if ("pic_3".equals(ct)) return ContentAdapter.T_PIC_3;
+                if ("pic_3_square".equals(ct)) return ContentAdapter.T_PIC_3_SQUARE;
+                if (ct.startsWith("pic")) return ContentAdapter.T_PIC_1; // 未知 pic 回退
                 // movie_1/movie_2 等按视频卡片网格渲染（全宽横向图文待后版）
                 if (ct.startsWith("movie")) return ContentAdapter.T_VIDEO;
                 return ContentAdapter.T_VIDEO;
@@ -4873,6 +4949,30 @@ public class HkPageActivity extends BaseActivity {
         static final int T_MOVIE_VERTICAL = 25; // movie_1_vertical_pic：全宽左竖海报右文（8.83 item_movie_one_col_vertical_pic）
         static final int T_MOVIE_VERTICAL_BLUR = 26; // movie_1_vertical_pic_blur：毛玻璃背景 + 竖海报
         static final int T_EMPTY = 27; // 8.83 原版：poly 分组内非首个条目占位的空行（getItemViewType 返回 -1）
+        // 8.83 原版：以下条目类型各自独立 viewType（对照 ArticleColTypeEnum），不合并
+        static final int T_TEXT_1 = 28;
+        static final int T_TEXT_CENTER_1 = 29;
+        static final int T_LONG_TEXT = 30;
+        static final int T_HEADER = 31;
+        static final int T_FOOTER = 32;
+        static final int T_TEXT_2 = 33;
+        static final int T_TEXT_3 = 34;
+        static final int T_TEXT_4 = 35;
+        static final int T_TEXT_5 = 36;
+        static final int T_CARD_PIC_1 = 37;
+        static final int T_CARD_PIC_2 = 38;
+        static final int T_CARD_PIC_2_2 = 39;
+        static final int T_CARD_PIC_2_2_LEFT = 40;
+        static final int T_CARD_PIC_3 = 41;
+        static final int T_CARD_PIC_3_CENTER = 42;
+        static final int T_PIC_1 = 43;
+        static final int T_PIC_1_CARD = 44;
+        static final int T_PIC_1_CENTER = 45;
+        static final int T_PIC_1_FULL = 46;
+        static final int T_PIC_2 = 47;
+        static final int T_PIC_2_CARD = 48;
+        static final int T_PIC_3 = 49;
+        static final int T_PIC_3_SQUARE = 50;
 
         private final List<HkItem> source;
         /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
@@ -4951,12 +5051,19 @@ public class HkPageActivity extends BaseActivity {
                     if ("movie_2".equals(ct)) return 30;
                     return 20;
                 case T_COLS:
-                    // text_2=30 text_3=20 text_4=15 text_5=12（N 个条目一行）
+                case T_TEXT_2:
+                    // text_2=30（2/行）
                     if (ct.endsWith("_2")) return 30;
                     if (ct.endsWith("_3")) return 20;
                     if (ct.endsWith("_4")) return 15;
                     if (ct.endsWith("_5")) return 12;
-                    return 60;
+                    return 30;
+                case T_TEXT_3:
+                    return 20; // text_3=20（3/行）
+                case T_TEXT_4:
+                    return 15; // text_4=15（4/行）
+                case T_TEXT_5:
+                    return 12; // text_5=12（5/行）
                 case T_ICON:
                 case T_ICON_ROUND:
                     return 15; // icon_4 / icon_round_4：4/行（官方 spanCount=15）
@@ -4983,6 +5090,15 @@ public class HkPageActivity extends BaseActivity {
                             || "card_pic_2_2_left".equals(ct)) return 30;
                     if ("card_pic_3".equals(ct) || "card_pic_3_center".equals(ct)) return 20;
                     return 60; // card_pic_1 全宽
+                case T_CARD_PIC_1:
+                    return 60; // card_pic_1 全宽
+                case T_CARD_PIC_2:
+                case T_CARD_PIC_2_2:
+                case T_CARD_PIC_2_2_LEFT:
+                    return 30; // 2/行
+                case T_CARD_PIC_3:
+                case T_CARD_PIC_3_CENTER:
+                    return 20; // 3/行
                 case T_MOVIE_LEFT_PIC:
                     return 60; // movie_1 左图右文全宽
                 case T_MOVIE_VERTICAL:
@@ -4993,6 +5109,17 @@ public class HkPageActivity extends BaseActivity {
                             || "card_pic_2_2".equals(ct) || "card_pic_2_2_left".equals(ct)) return 30;
                     if (ct.startsWith("pic_3") || "card_pic_3".equals(ct) || "card_pic_3_center".equals(ct)) return 20;
                     return 60; // pic_1 / pic_1_full / pic_1_center / pic_1_card / card_pic_1
+                case T_PIC_1:
+                case T_PIC_1_CARD:
+                case T_PIC_1_CENTER:
+                case T_PIC_1_FULL:
+                    return 60; // pic_1 系列全宽
+                case T_PIC_2:
+                case T_PIC_2_CARD:
+                    return 30; // pic_2 系列 2/行
+                case T_PIC_3:
+                case T_PIC_3_SQUARE:
+                    return 20; // pic_3 系列 3/行
                 default:
                     return 60;
             }
@@ -5025,11 +5152,20 @@ public class HkPageActivity extends BaseActivity {
                         }
                         break;
                     case T_TEXT:
+                    case T_TEXT_1:
+                    case T_TEXT_CENTER_1:
+                    case T_LONG_TEXT:
+                    case T_HEADER:
+                    case T_FOOTER:
                     case T_RICH:
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
                         break;
                     case T_COLS:
+                    case T_TEXT_2:
+                    case T_TEXT_3:
+                    case T_TEXT_4:
+                    case T_TEXT_5:
                     case T_BUTTONS:
                         cols = v.findViewById(R.id.cols_container);
                         break;
@@ -5067,6 +5203,12 @@ public class HkPageActivity extends BaseActivity {
                         title = v.findViewById(R.id.tv_title);
                         break;
                     case T_CARD:
+                    case T_CARD_PIC_1:
+                    case T_CARD_PIC_2:
+                    case T_CARD_PIC_2_2:
+                    case T_CARD_PIC_2_2_LEFT:
+                    case T_CARD_PIC_3:
+                    case T_CARD_PIC_3_CENTER:
                         cover = v.findViewById(R.id.iv_cover);
                         title = v.findViewById(R.id.tv_title);
                         overlay = v.findViewById(R.id.tv_overlay);
@@ -5087,6 +5229,14 @@ public class HkPageActivity extends BaseActivity {
                         desc = v.findViewById(R.id.tv_desc);
                         break;
                     case T_PIC:
+                    case T_PIC_1:
+                    case T_PIC_1_CARD:
+                    case T_PIC_1_CENTER:
+                    case T_PIC_1_FULL:
+                    case T_PIC_2:
+                    case T_PIC_2_CARD:
+                    case T_PIC_3:
+                    case T_PIC_3_SQUARE:
                         cover = v.findViewById(R.id.iv_pic);
                         ViewGroup.LayoutParams plp = cover.getLayoutParams();
                         plp.height = picH;
@@ -5141,10 +5291,19 @@ public class HkPageActivity extends BaseActivity {
             int layout;
             switch (viewType) {
                 case T_TEXT:
+                case T_TEXT_1:
+                case T_TEXT_CENTER_1:
+                case T_LONG_TEXT:
+                case T_HEADER:
+                case T_FOOTER:
                 case T_RICH:
                     layout = R.layout.item_hk_text;
                     break;
                 case T_COLS:
+                case T_TEXT_2:
+                case T_TEXT_3:
+                case T_TEXT_4:
+                case T_TEXT_5:
                     layout = R.layout.item_hk_cols;
                     break;
                 case T_BUTTONS:
@@ -5190,6 +5349,12 @@ public class HkPageActivity extends BaseActivity {
                     layout = R.layout.item_hk_text_icon;
                     break;
                 case T_CARD:
+                case T_CARD_PIC_1:
+                case T_CARD_PIC_2:
+                case T_CARD_PIC_2_2:
+                case T_CARD_PIC_2_2_LEFT:
+                case T_CARD_PIC_3:
+                case T_CARD_PIC_3_CENTER:
                     layout = R.layout.item_hk_card_rect;
                     break;
                 case T_MOVIE_LEFT_PIC:
@@ -5202,6 +5367,14 @@ public class HkPageActivity extends BaseActivity {
                     layout = R.layout.item_hk_movie_vertical_blur;
                     break;
                 case T_PIC:
+                case T_PIC_1:
+                case T_PIC_1_CARD:
+                case T_PIC_1_CENTER:
+                case T_PIC_1_FULL:
+                case T_PIC_2:
+                case T_PIC_2_CARD:
+                case T_PIC_3:
+                case T_PIC_3_SQUARE:
                     layout = R.layout.item_hk_pic;
                     break;
                 case T_MOVIE:
@@ -5233,12 +5406,21 @@ public class HkPageActivity extends BaseActivity {
                     bindVideo(h, item);
                     break;
                 case T_TEXT:
+                case T_TEXT_1:
+                case T_TEXT_CENTER_1:
+                case T_LONG_TEXT:
+                case T_HEADER:
+                case T_FOOTER:
                     bindText(h, item);
                     break;
                 case T_RICH:
                     bindRich(h, item);
                     break;
                 case T_COLS:
+                case T_TEXT_2:
+                case T_TEXT_3:
+                case T_TEXT_4:
+                case T_TEXT_5:
                     bindCols(h, item);
                     break;
                 case T_BUTTONS:
@@ -5264,6 +5446,12 @@ public class HkPageActivity extends BaseActivity {
                     bindTextIcon(h, item);
                     break;
                 case T_CARD:
+                case T_CARD_PIC_1:
+                case T_CARD_PIC_2:
+                case T_CARD_PIC_2_2:
+                case T_CARD_PIC_2_2_LEFT:
+                case T_CARD_PIC_3:
+                case T_CARD_PIC_3_CENTER:
                     bindCard(h, item);
                     break;
                 case T_MOVIE_LEFT_PIC:
@@ -5276,6 +5464,14 @@ public class HkPageActivity extends BaseActivity {
                     bindMovieVertical(h, item, true);
                     break;
                 case T_PIC:
+                case T_PIC_1:
+                case T_PIC_1_CARD:
+                case T_PIC_1_CENTER:
+                case T_PIC_1_FULL:
+                case T_PIC_2:
+                case T_PIC_2_CARD:
+                case T_PIC_3:
+                case T_PIC_3_SQUARE:
                     bindPic(h, item);
                     break;
                 case T_MOVIE:
@@ -5325,13 +5521,18 @@ public class HkPageActivity extends BaseActivity {
             h.desc.setVisibility(View.GONE);
             ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
-                int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION || currentRule == null) return;
-                HkItem it = items.get(pos);
-                String u = it.getUrl() == null ? "" : it.getUrl();
-                // P1：hiker://page/ 子页面走 openPage，不进 V4
-                if (u.trim().startsWith("hiker://page/") && openPage(it, u)) return;
-                openDetail(it, true, u.contains("@lazyRule="));
+                try {
+                    int pos = h.getAdapterPosition();
+                    if (pos >= 0 && currentRule != null) {
+                        HkItem it = items.get(pos);
+                        String u = it.getUrl() == null ? "" : it.getUrl();
+                        // P1：hiker://page/ 子页面走 openPage，不进 V4
+                        if (u.trim().startsWith("hiker://page/") && openPage(it, u)) return;
+                        openDetail(it, true, u.contains("@lazyRule="));
+                    }
+                } catch (Exception e) {
+                    android.util.Log.e("HkPage", "bindVideo click failed", e);
+                }
             });
         }
 

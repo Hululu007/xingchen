@@ -52,6 +52,33 @@ public class DrivePikPak implements CloudDrive {
     private static final String CLIENT_SECRET = "dbw2OtmVEeuUvIptb1Coyg";
     private static final String CLIENT_VERSION = "2.0.0";
     private static final String PACKAGE_NAME = "mypikpak.com";
+    private static final String CAPTCHA_REDIRECT_URI = "https://api.mypikpak.com/v1/auth/callback";
+
+    /**
+     * 人机验证签名 salt 表（逆向自 mypikpak.com 网页 JS 的 calculateCaptchaSign）。
+     * 算法：sign = clientId + clientVersion + packageName + deviceId + timestamp；
+     * 依次对每个 salt 做 sign = md5(sign + salt)；最终 captcha_sign = "1." + sign。
+     * salt 取自 2026-10-11 当日线上 drive 主 chunk（含 algorithms 的那个），共 15 个。
+     * 若日后登录又报 captcha_required 且自动取 token 失败，优先怀疑 salt 已轮换，
+     * 按本文件头注释的逆向步骤重新抓取即可（搜 calculateCaptchaSign）。
+     */
+    private static final String[] CAPTCHA_SALTS = {
+            "C9qPpZLN8ucRTaTiUMWYS9cQvWOE",
+            "+r6CQVxjzJV6LCV",
+            "F",
+            "pFJRC",
+            "9WXYIDGrwTCz2OiVlgZa90qpECPD6olt",
+            "/750aCr4lm/Sly/c",
+            "RB+DT/gZCrbV",
+            "",
+            "CyLsf7hdkIRxRm215hl",
+            "7xHvLi2tOYP0Y92b",
+            "ZGTXXxu8E/MIWaEDB+Sm/",
+            "1UI3",
+            "E7fP5Pfijd+7K+t6Tg/NhuLq0eEUVChpJSkrKxpO",
+            "ihtqpG6FMt65+Xk+tWUH2",
+            "NhXXU9rg4XXdzo7u5o",
+    };
     private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             + "(KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36";
 
@@ -292,6 +319,16 @@ public class DrivePikPak implements CloudDrive {
         if (TextUtils.isEmpty(username) || TextUtils.isEmpty(password)) {
             throw new Exception("用户名和密码不能为空");
         }
+        if (TextUtils.isEmpty(captchaToken)) {
+            // 全自动人机验证：先调 shield/captcha/init 取 token（算法逆向自官网 JS，
+            // 见本文件头 CAPTCHA_SALTS 注释），登录时经 body + X-Captcha-Token 带上。
+            // 若取 token 失败则按空继续，服务端仍要求验证时会走 CaptchaRequiredException 兜底。
+            try {
+                captchaToken = fetchCaptchaToken("POST:/v1/auth/signin");
+            } catch (Exception e) {
+                captchaToken = "";
+            }
+        }
         JSONObject query = new JSONObject().put("client_id", CLIENT_ID);
         JSONObject body = new JSONObject()
                 .put("captcha_token", captchaToken == null ? "" : captchaToken)
@@ -319,6 +356,71 @@ public class DrivePikPak implements CloudDrive {
     public void submitCaptchaToken(String captchaToken) {
         // captcha token 在下次 login 时通过 X-Captcha-Token 带上
         CloudAccountStore.saveValue(context, ID, "captcha_token", captchaToken);
+    }
+
+    /** md5 十六进制小写（captcha 签名用） */
+    private static String md5Hex(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] d = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte b : d) sb.append(String.format(Locale.US, "%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 计算 captcha_sign（对着 mypikpak.com 网页 JS 的 calculateCaptchaSign 逆向，
+     * 2026-10-11 用当日线上 JS 实测验证通过）。
+     * sign = clientId + clientVersion + packageName + deviceId + timestamp，
+     * 对 CAPTCHA_SALTS 逐个做 sign = md5(sign + salt)，最后拼 "1." 前缀。
+     */
+    private String calcCaptchaSign(String timestamp) {
+        String sign = CLIENT_ID + CLIENT_VERSION + PACKAGE_NAME + deviceId + timestamp;
+        for (String salt : CAPTCHA_SALTS) {
+            sign = md5Hex(sign + salt);
+        }
+        return "1." + sign;
+    }
+
+    /**
+     * 取 captcha_token（对着 lyqingye/pikpak-go 的 CaptchaToken 实现）。
+     * POST /v1/shield/captcha/init?client_id=... ，action 形如 "POST:/v1/auth/signin"。
+     * 返回的 token 有效期约 300 秒，登录时经 body.captcha_token + X-Captcha-Token 头带上。
+     */
+    private String fetchCaptchaToken(String action) throws Exception {
+        rateLimit();
+        String ts = String.valueOf(System.currentTimeMillis());
+        JSONObject meta = new JSONObject()
+                .put("captcha_sign", calcCaptchaSign(ts))
+                .put("client_version", CLIENT_VERSION)
+                .put("package_name", PACKAGE_NAME)
+                .put("timestamp", ts)
+                .put("user_id", userId == null ? "" : userId);
+        JSONObject body = new JSONObject()
+                .put("action", action)
+                .put("client_id", CLIENT_ID)
+                .put("device_id", deviceId)
+                .put("meta", meta)
+                .put("redirect_uri", CAPTCHA_REDIRECT_URI);
+        HttpUrl url = HttpUrl.parse(USER_HOST + "/v1/shield/captcha/init").newBuilder()
+                .addQueryParameter("client_id", CLIENT_ID).build();
+        Request req = new Request.Builder().url(url)
+                .header("User-Agent", UA)
+                .header("X-Device-ID", deviceId)
+                .post(RequestBody.create(body.toString(), JSON))
+                .build();
+        try (Response resp = client.newCall(req).execute()) {
+            String txt = resp.body() != null ? resp.body().string() : "";
+            JSONObject d = new JSONObject(txt.isEmpty() ? "{}" : txt);
+            String token = d.optString("captcha_token");
+            if (TextUtils.isEmpty(token)) {
+                throw new Exception("取 captcha_token 失败：" + txt);
+            }
+            return token;
+        }
     }
 
     /** 刷新 token（OAuth2 标准 refresh_token 模式） */

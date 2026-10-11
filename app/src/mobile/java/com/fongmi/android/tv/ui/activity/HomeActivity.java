@@ -4,6 +4,7 @@ import android.app.PendingIntent;
 import android.app.SearchManager;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.MenuItem;
@@ -57,7 +58,16 @@ import com.google.android.material.navigation.NavigationBarView;
 import com.google.gson.JsonObject;
 
 import org.greenrobot.eventbus.Subscribe;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.greenrobot.eventbus.ThreadMode;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
 
@@ -142,10 +152,55 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     }
 
     private void checkType(Intent intent) {
-        if ("text/plain".equals(intent.getType()) || UrlUtil.path(intent.getData()).endsWith(".m3u")) {
+        String path = UrlUtil.path(intent.getData());
+        if ("text/plain".equals(intent.getType()) || path.endsWith(".m3u") || path.endsWith(".txt")) {
+            // txt 混合链接导入播放：含 magnet:/ed2k:// 即解析成选集列表播放；
+            // 纯 http 的 txt 仍走直播列表（兼容旧行为）。需求（2026-10-10）。
+            String text = readText(intent.getData());
+            if (text != null && TxtParser.isMixedLinks(text)) {
+                List<TxtParser.Link> links = TxtParser.parse(text);
+                if (links.isEmpty()) {
+                    Notify.show("未找到可播放链接");
+                } else {
+                    playTxtLinks(intent.getData(), links);
+                }
+                return;
+            }
             loadLive("file:/" + FileChooser.getPathFromUri(intent.getData()));
         } else {
             VideoActivity.push(this, intent.getData().toString());
+        }
+    }
+
+    private String readText(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri);
+             BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (sb.length() > 512 * 1024) break;
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void playTxtLinks(Uri uri, List<TxtParser.Link> links) {
+        try {
+            JSONArray arr = new JSONArray();
+            for (TxtParser.Link link : links) {
+                JSONObject obj = new JSONObject();
+                obj.put("name", link.name);
+                obj.put("url", link.url);
+                arr.put(obj);
+            }
+            String filePath = FileChooser.getPathFromUri(uri);
+            String name = filePath == null ? "TXT播放列表" : new File(filePath).getName();
+            VideoActivity.startTxt(this, name, arr.toString());
+        } catch (Exception e) {
+            Notify.show("解析失败");
         }
     }
 

@@ -452,6 +452,27 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         activity.startActivity(intent);
     }
 
+    /**
+     * txt 混合链接播放：episodesJson 为 [{name,url}]，走通用选集 UI + PUSH 播放链。
+     * 需求（2026-10-10）：txt 文件导入播放（磁力/HTTP/m3u8/ed2k 混合）。
+     * 切集走 playerContent(PUSH) → Source.fetch 解析器（magnet/ed2k/thunder 等）。
+     */
+    public static void startTxt(Activity activity, String name, String episodesJson) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(episodesJson);
+            if (arr.length() == 0) return;
+            Intent intent = new Intent(activity, VideoActivity.class);
+            intent.putExtra("key", SiteApi.PUSH);
+            intent.putExtra("id", arr.optJSONObject(0).optString("url"));
+            intent.putExtra("name", name);
+            intent.putExtra("txt_episodes", episodesJson);
+            intent.putExtra("txt_episode_idx", 0);
+            activity.startActivity(intent);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
         start(activity, key, id, name, pic, null, true, wallPic);
     }
@@ -1296,6 +1317,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkId() {
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) {
+            playTxtDirect();
+            return;
+        }
         if (!TextUtils.isEmpty(getIntent().getStringExtra("hk_rule"))) {
             if (getIntent().getBooleanExtra("hk_direct_play", false)) playHkDirect();
             else getHkDetail();
@@ -1349,22 +1374,32 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void playHkDirect() {
         showProgress();
         // 直接播放带选集（HkPageActivity 拼的列表选集）：先渲染线路/选集 UI，再解析当前集播放
-        setupHkDirectEpisodes();
+        setupDirectEpisodes("hk_episodes", "hk_episode_idx");
         String flag = Objects.toString(getIntent().getStringExtra("hk_line"), "");
         mViewModel.playerContent(getKey(), flag, getId());
     }
 
     /**
-     * 海阔直接播放的选集 UI：intent 的 hk_episodes（[{name,url,pic}]）转为单线路 Vod，
-     * 当前集按 hk_episode_idx 选中。选集点击走 playerContent → HkRouter.play 解析。
+     * txt 混合链接直接播放：不加载详情，直接走播放链。
+     * 选集 UI 复用 setupDirectEpisodes，切集走 playerContent(PUSH) → Source.fetch 解析器（magnet/ed2k/thunder 等）。
      */
-    private void setupHkDirectEpisodes() {
+    private void playTxtDirect() {
+        showProgress();
+        setupDirectEpisodes("txt_episodes", "txt_episode_idx");
+        mViewModel.playerContent(getKey(), "", getId());
+    }
+
+    /**
+     * 直接播放的选集 UI：intent 的 episodesJson（[{name,url,pic}]）转为单线路 Vod，
+     * 当前集按 idx 选中。海阔走 playerContent → HkRouter.play 解析；txt 走 playerContent(PUSH)。
+     */
+    private void setupDirectEpisodes(String jsonKey, String idxKey) {
         try {
-            String json = getIntent().getStringExtra("hk_episodes");
+            String json = getIntent().getStringExtra(jsonKey);
             if (TextUtils.isEmpty(json)) return;
             org.json.JSONArray arr = new org.json.JSONArray(json);
             if (arr.length() == 0) return;
-            int selIdx = getIntent().getIntExtra("hk_episode_idx", 0);
+            int selIdx = getIntent().getIntExtra(idxKey, 0);
             Vod vod = new Vod();
             vod.setName(getName());
             vod.setPic(getPic());

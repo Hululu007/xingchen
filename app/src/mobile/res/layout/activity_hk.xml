@@ -271,23 +271,17 @@
                 android:layout_marginTop="8dp"
                 android:orientation="vertical" />
 
-            <!-- 8.83 同款：SmartRefreshLayout + ClassicsHeader 下拉刷新 + 右侧快速滚动条 -->
+            <!-- 下拉刷新 + 右侧快速滚动条（原 SmartRefreshLayout 已从 Maven 下架，改用 SwipeRefreshLayout） -->
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_marginTop="8dp"
                 android:layout_weight="1">
 
-                <com.scwang.smart.refresh.layout.SmartRefreshLayout
+                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
                     android:id="@+id/refresh_content"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    app:srlEnableOverScrollBounce="true"
-                    app:srlEnableOverScrollDrag="true">
-
-                    <com.scwang.smart.refresh.header.ClassicsHeader
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
+                    android:layout_height="match_parent">
 
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rv_videos"
@@ -295,7 +289,7 @@
                         android:layout_height="match_parent"
                         android:clipToPadding="false"
                         android:paddingBottom="8dp" />
-                </com.scwang.smart.refresh.layout.SmartRefreshLayout>
+                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
                 <!-- 右侧快速滚动条（对照 8.83 RecyclerFastScroller） -->
                 <com.fongmi.android.tv.ui.custom.HkFastScroller
@@ -549,27 +543,21 @@
                 android:paddingBottom="8dp"
                 android:visibility="gone" />
 
-            <!-- 对照 8.83 fragment_search：SmartRefreshLayout（ClassicsHeader/Footer），
-                 结果区底部横向不定进度条 -->
+            <!-- 搜索结果区下拉刷新（原 SmartRefreshLayout 已从 Maven 下架，改用 SwipeRefreshLayout；
+                 上拉加载更多改走 RecyclerView 滚动监听），结果区底部横向不定进度条 -->
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_marginTop="8dp"
                 android:layout_weight="1">
 
-                <com.scwang.smartrefresh.layout.SmartRefreshLayout
+                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
                     android:id="@+id/search_refresh"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:layout_marginStart="3dp"
                     android:layout_marginEnd="3dp"
-                    android:layout_marginBottom="3dp"
-                    app:srlEnableOverScrollBounce="true"
-                    app:srlEnableOverScrollDrag="true">
-
-                    <com.scwang.smartrefresh.layout.header.ClassicsHeader
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
+                    android:layout_marginBottom="3dp">
 
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rv_search_results"
@@ -577,11 +565,7 @@
                         android:layout_height="match_parent"
                         android:clipToPadding="false"
                         android:paddingBottom="8dp" />
-
-                    <com.scwang.smartrefresh.layout.footer.ClassicsFooter
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
-                </com.scwang.smartrefresh.layout.SmartRefreshLayout>
+                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
                 <androidx.appcompat.widget.AppCompatImageView
                     android:id="@+id/search_progress"

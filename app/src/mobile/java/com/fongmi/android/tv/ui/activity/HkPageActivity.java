@@ -244,6 +244,8 @@ public class HkPageActivity extends BaseActivity {
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
+    /** 搜索结果是否支持分页（规则 searchUrl 含 fypage）：控制滚动到底部时是否触发 doSearchPage。 */
+    private boolean searchCanPage = true;
     /** 跨小程序搜索代际：新搜索开始时自增，旧搜索的迟到结果直接丢弃。 */
     private final AtomicInteger crossSearchGen = new AtomicInteger(0);
     /** 搜索页：true = 小程序列表入口的整页内容搜索；false = 内容页内单规则搜索 */
@@ -3266,8 +3268,8 @@ public class HkPageActivity extends BaseActivity {
         binding.rvVideos.addItemDecoration(new GridSpace());
         contentAdapter = new ContentAdapter(videos, true);
         binding.rvVideos.setAdapter(contentAdapter);
-        // 8.83 同款：SmartRefreshLayout + ClassicsHeader 下拉刷新
-        binding.refreshContent.setOnRefreshListener(refreshLayout -> loadContent(true));
+        // 下拉刷新（SwipeRefreshLayout；原 SmartRefreshLayout 已从 Maven 下架）
+        binding.refreshContent.setOnRefreshListener(() -> loadContent(true));
         binding.fastScroller.attach(binding.rvVideos);
         binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
         binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
@@ -4191,7 +4193,7 @@ public class HkPageActivity extends BaseActivity {
             App.post(() -> {
                 if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
                 loading = false;
-                binding.refreshContent.finishRefresh();
+                binding.refreshContent.setRefreshing(false);
                 binding.loadingContent.setVisibility(View.GONE);
                 // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
                 hideHkLoading();
@@ -4256,15 +4258,26 @@ public class HkPageActivity extends BaseActivity {
         binding.rvSearchResults.setLayoutManager(new LinearLayoutManager(this));
         searchAdapter = new SearchCardAdapter(searchResults);
         binding.rvSearchResults.setAdapter(searchAdapter);
-        binding.searchRefresh.setOnRefreshListener(layout -> {
+        binding.searchRefresh.setOnRefreshListener(() -> {
             if (keyword.isEmpty()) {
-                layout.finishRefresh();
+                binding.searchRefresh.setRefreshing(false);
                 return;
             }
             if (searchDualMode) doCrossSearch(keyword);
             else doSearch(keyword);
         });
-        binding.searchRefresh.setOnLoadMoreListener(layout -> doSearchPage());
+        // 上拉加载更多：原 SmartRefreshLayout 已从 Maven 下架，改用滚动监听（内容页 rvVideos 同款）
+        binding.rvSearchResults.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0 || searchLoading || searchNoMore || !searchCanPage) return;
+                RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                if (lm instanceof LinearLayoutManager) {
+                    int last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
+                    if (last >= searchAdapter.getItemCount() - 3) doSearchPage();
+                }
+            }
+        });
         binding.rvHistory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         // 搜索页搜索条用实色白底（用户反馈透明看不清，已去磨砂）
         binding.btnBackSearch.setOnClickListener(v -> onBackInvoked());
@@ -4387,11 +4400,9 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void configSearchRefresh() {
-        boolean canPage = currentRule != null && currentRule.getSearchUrl() != null
+        searchCanPage = currentRule != null && currentRule.getSearchUrl() != null
                 && currentRule.getSearchUrl().contains("fypage");
-        binding.searchRefresh.setEnableLoadMore(canPage);
-        binding.searchRefresh.setEnableAutoLoadMore(false);
-        binding.searchRefresh.setEnableRefresh(true);
+        binding.searchRefresh.setEnabled(true);
     }
 
     private String emptySearchTitle() {
@@ -4520,6 +4531,7 @@ public class HkPageActivity extends BaseActivity {
             final List<SearchResult> result = new ArrayList<>(aggregated);
             App.post(() -> {
                 if (gen != crossSearchGen.get()) return; // 已被新搜索取代
+                binding.searchRefresh.setRefreshing(false);
                 searchResults.clear();
                 // 注意：不要在这里清 searchSrcRules——worker 线程刚把来源标注写进去，
                 // 清掉会导致"【来源】"后缀和点击切换丢失。搜索开始时已清过。
@@ -4580,6 +4592,7 @@ public class HkPageActivity extends BaseActivity {
             final List<SearchResult> result = list;
             App.post(() -> {
                 searchLoading = false;
+                binding.searchRefresh.setRefreshing(false);
                 if (result.isEmpty()) {
                     if (p == 1 && searchResults.isEmpty()) {
                         binding.tvSearchEmpty.setVisibility(View.VISIBLE);

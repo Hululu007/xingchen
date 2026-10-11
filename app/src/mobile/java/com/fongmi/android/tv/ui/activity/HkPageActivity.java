@@ -2223,16 +2223,11 @@ public class HkPageActivity extends BaseActivity {
         outer.addView(card, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
-        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_Translucent_NoTitleBar)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(outer).create();
         holder[0] = dialog;
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
-        android.view.Window w = dialog.getWindow();
-        if (w != null) {
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        }
     }
 
     /** 「全部」弹窗的 2 列选项卡片适配器：独立卡片框、有间距，当前选中高亮。 */

@@ -142,6 +142,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     private ScriptableObject scope;
     private Map<String, String> kv;
     private String error;
+    /** preRule 执行失败的根因（动态域名类规则排障用）；parseList 会清 error，本字段独立保留。 */
+    private String preRuleError;
     private int resCode;
     private String lastUrl;
     private volatile boolean destroyed;
@@ -1484,8 +1486,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             }
             return null;
         });
-        stub("showLoading", null);
-        stub("hideLoading", null);
+        // 8.83 showLoading(text)/hideLoading()：post LoadingEvent 由 UI 层弹 loading 框；
+        // 动态域名类规则 preRule 里调 showLoading("正在获取域名，请稍候")，之前是 stub 导致无任何提示。
+        putFunction("showLoading", args -> {
+            try {
+                String text = args != null && args.length > 0 ? argStr(args[0]) : "";
+                Logger.t(TAG).d("showLoading: %s", text);
+                HkLoading.show(rule.getTitle(), text);
+            } catch (Throwable e) {
+                Logger.t(TAG).d("showLoading failed: %s", e.getMessage());
+            }
+            return null;
+        });
+        putFunction("hideLoading", args -> {
+            try {
+                HkLoading.hide(rule.getTitle());
+            } catch (Throwable e) {
+                Logger.t(TAG).d("hideLoading failed: %s", e.getMessage());
+            }
+            return null;
+        });
         stub("refreshReadData", null);
         stub("refreshVideoSource", null);
         stub("refreshVideoUrl", null);
@@ -2978,7 +2998,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             Logger.t(TAG).d("preRule done for %s", rule.getTitle());
         } catch (Throwable e) {
             Logger.t(TAG).d("preRule failed for %s: %s", rule.getTitle(), e.getMessage());
+            // 之前静默吞掉，动态域名类规则（如 18AV）拿不到域名时用户只能看到"加载失败"。
+            // 记下来供排障/UI 展示；不抛异常，保持原有"失败也继续加载"的行为。
+            preRuleError = jsErrorMsg(e);
         }
+    }
+
+    /** preRule 失败根因（null 表示 preRule 不存在或执行成功）。 */
+    public String getPreRuleError() {
+        return preRuleError;
     }
 
     /**

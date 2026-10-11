@@ -37,6 +37,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -59,6 +60,7 @@ import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
+import com.fongmi.android.tv.api.hk.HkLoading;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
@@ -140,6 +142,23 @@ public class HkPageActivity extends BaseActivity {
     private HkRule currentRule;
     private final List<HkRule> miniappRules = new ArrayList<>();
     private HkRouter router;
+    /** preRule loading 弹窗（8.83 showLoading/hideLoading 等价）：规则 JS 调 showLoading("正在获取域名，请稍候") 时弹出。 */
+    private android.app.Dialog hkLoadingDialog;
+    private TextView hkLoadingText;
+    /** 8.83 canTouchUI 等价：只响应当前规则的 showLoading，避免切规则后旧规则 JS 弹框。 */
+    private final HkLoading.Listener hkLoadingListener = new HkLoading.Listener() {
+        @Override
+        public void onShowLoading(String ruleTitle, String text) {
+            if (currentRule == null || ruleTitle == null || !ruleTitle.equals(currentRule.getTitle())) return;
+            showHkLoading(text);
+        }
+
+        @Override
+        public void onHideLoading(String ruleTitle) {
+            if (currentRule == null || ruleTitle == null || !ruleTitle.equals(currentRule.getTitle())) return;
+            hideHkLoading();
+        }
+    };
     private String cls = "", area = "", year = "", sort = "";
     private int page = 1;
     private boolean loading, noMore;
@@ -218,6 +237,8 @@ public class HkPageActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        HkLoading.clearListener(hkLoadingListener);
+        hideHkLoading();
         destroyRouterAsync();
         super.onDestroy();
     }
@@ -2054,6 +2075,62 @@ public class HkPageActivity extends BaseActivity {
         });
     }
 
+    /**
+     * 8.83 LoadingEvent 弹窗等价实现：深色圆角 + 菊花 + 白字（用户 8.83 截图同款：
+     * "正在获取域名，请稍候"）。规则 preRule 里调 showLoading(text) 时弹出，hideLoading() 时关闭。
+     */
+    private void showHkLoading(String text) {
+        try {
+            if (hkLoadingDialog == null) {
+                LinearLayout root = new LinearLayout(this);
+                root.setOrientation(LinearLayout.VERTICAL);
+                root.setGravity(Gravity.CENTER);
+                int pad = dp(28);
+                root.setPadding(pad, dp(24), pad, dp(24));
+                GradientDrawable bg = new GradientDrawable();
+                bg.setShape(GradientDrawable.RECTANGLE);
+                bg.setColor(0xE6191D24);
+                bg.setCornerRadius(dp(16));
+                root.setBackground(bg);
+
+                ProgressBar bar = new ProgressBar(this);
+                LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(36), dp(36));
+                barLp.gravity = Gravity.CENTER_HORIZONTAL;
+                root.addView(bar, barLp);
+
+                hkLoadingText = new TextView(this);
+                hkLoadingText.setTextColor(Color.WHITE);
+                hkLoadingText.setTextSize(14);
+                hkLoadingText.setGravity(Gravity.CENTER);
+                LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                tvLp.gravity = Gravity.CENTER_HORIZONTAL;
+                tvLp.topMargin = dp(12);
+                root.addView(hkLoadingText, tvLp);
+
+                hkLoadingDialog = new android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar);
+                hkLoadingDialog.setContentView(root);
+                hkLoadingDialog.setCancelable(false);
+                hkLoadingDialog.setCanceledOnTouchOutside(false);
+                if (hkLoadingDialog.getWindow() != null) {
+                    hkLoadingDialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                    hkLoadingDialog.getWindow().setDimAmount(0.25f);
+                }
+            }
+            String t = TextUtils.isEmpty(text) ? "正在加载，请稍候" : text;
+            hkLoadingText.setText(t);
+            if (!hkLoadingDialog.isShowing() && !isFinishing()) hkLoadingDialog.show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void hideHkLoading() {
+        try {
+            if (hkLoadingDialog != null && hkLoadingDialog.isShowing()) hkLoadingDialog.dismiss();
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void openRule(HkRule rule) {
         // "我的主页"暂未实现（规则内 HikerHome 未定义，打开必报错）：顶部 tabs 不展示它；
         // 若选中的就是它，自动切到下一个可用的规则
@@ -2064,6 +2141,10 @@ public class HkPageActivity extends BaseActivity {
         destroyRouterAsync();
         subStack.clear(); // 切规则时丢弃子列表栈
         currentRule = rule;
+        // preRule loading 桥：先注册再 loadContent（引擎 init 里跑 preRule，规则调 showLoading 时弹窗）。
+        // 切规则时旧弹窗先关，避免残留。
+        hideHkLoading();
+        HkLoading.setListener(hkLoadingListener);
         cls = "";
         area = "";
         year = "";
@@ -2541,6 +2622,8 @@ public class HkPageActivity extends BaseActivity {
                 loading = false;
                 binding.swipeContent.setRefreshing(false);
                 binding.loadingContent.setVisibility(View.GONE);
+                // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
+                hideHkLoading();
                 // V2：把导航类条目（scroll_button/flex_button 分类）拆出来做顶部 tab，
                 // 分隔块（blank_block/line_blank/line）丢弃，其余内容条目按 col_type
                 // 由 ContentAdapter 多 viewType 渲染（视频/文本/图片/输入框等）。

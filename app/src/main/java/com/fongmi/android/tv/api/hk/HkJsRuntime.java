@@ -432,12 +432,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             String url = argStr(args[0]);
             // D2：hiker://assets/ 走内置 asset（官方 HttpHelper.fetch 经 fetchByHiker 拦截同款）
             if (url.startsWith("hiker://assets/")) return loadAssetText(url);
+            // 8.83 fetchByHiker 同款：hiker://page/、hiker://files/、file://、通用 hiker://
+            // 走内部协议分发返回内容，不再直接掉进 fetchSync 返回 ""（曾导致 JSON.parse("") 抛 Empty JSON string）
+            if (url.startsWith("hiker://") || url.startsWith("file://")) {
+                Object r = fetchByHiker(url, null, false, false);
+                return r instanceof String ? (String) r : "";
+            }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : null;
             return fetchSync(url, options);
         });
         putFunction("post", args -> {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
+            // 8.83 post0→fetch0 经 RuleFetchDelegate→fetchByHiker 拦截同款：内部协议走分发
+            if (url.startsWith("hiker://") || url.startsWith("file://")) {
+                Object r = fetchByHiker(url, null, false, false);
+                return r instanceof String ? (String) r : "";
+            }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
             options = mergeMethod(options, "post");
             return fetchSync(url, options);
@@ -449,6 +460,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             if (url.startsWith("hiker://page/")) return handlePageRequest(url);
             // D2：hiker://assets/ 走内置 asset（官方 $.require 经 getScript→request() 取脚本同款）
             if (url.startsWith("hiker://assets/")) return loadAssetText(url);
+            // 8.83 fetchByHiker 同款：hiker://files/、file://、通用 hiker:// 走内部协议分发
+            if (url.startsWith("hiker://") || url.startsWith("file://")) {
+                Object r = fetchByHiker(url, null, false, false);
+                return r instanceof String ? (String) r : "";
+            }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : null;
             return fetchSync(url, options);
         });
@@ -3519,10 +3535,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         }
     }
 
-    /** hiker:// rule URLs (8.83 HikerRuleUtil.getRulesByHiker) — D3 scope; D1 returns "". */
+    /** hiker:// rule URLs (8.83 HikerRuleUtil.getRulesByHiker)：hiker://home@<规则标题> → 按标题查规则库返回规则 JSON。 */
     private String hkGetRulesByHiker(String url) {
-        Logger.t(TAG).d("hkGetRulesByHiker not yet ported (D3): %s", url);
-        return "";
+        try {
+            if (TextUtils.isEmpty(url) || !url.startsWith("hiker://")) return "";
+            String p0 = url.replace("hiker://", "");
+            if (p0.startsWith("home")) {
+                // 8.83: split("@") 取 parts[1] 为标题查库；宿主用 HkRuleManager.loadRuleJson 同款语义
+                String[] parts = p0.split("@");
+                if (parts.length > 1) {
+                    String json = HkRuleManager.get().loadRuleJson(parts[1]);
+                    return json == null ? "" : json;
+                }
+                return "";
+            }
+            // 8.83 其余分支（bookmark 等）为 D3 范畴，暂返回 ""
+            return "";
+        } catch (Exception e) {
+            Logger.t(TAG).e(e, "hkGetRulesByHiker");
+            return "";
+        }
     }
 
 

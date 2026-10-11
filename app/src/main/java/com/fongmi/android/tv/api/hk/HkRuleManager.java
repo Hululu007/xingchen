@@ -52,11 +52,15 @@ public class HkRuleManager {
     // 云口令（云剪贴板）：格式 云{version}oooole/{path}，version 为 1~10。
     // 逆向自海阔视界官方 App（com.example.hikerviewg v8.83）各 Importer 的真实通道（2026-10-10 实测）：
     //   云1oooole/{id}        → pastebin.com（需官方内嵌 API Key，本 App 不用）
+    //   云1oooole/raw/{pasteId} → pastebin.com（GET https://pastebin.com/raw/{pasteId}）
     //   云2oooole/apidb/{key} → textdb.online（可用）
     //   云2oooole/p/{note_id} → netcut.cn（官方已下线 API，失效）
     //   云5oooole/{id}        → cmd.im（可用：GET https://cmd.im/{id} 取 .test_box 文本）
     //   云6oooole/xxxxxx/{path}(@{pwd}) → pasteme.tyrantg.com（可用：GET /api/getContent/{path}(@{pwd})）
-    //   云7/9/10              → note.ms / txtpad.cn / hastebin（未验证，暂不支持）
+    //   云7oooole/{note}      → note.ms（GET https://note.ms/{note} 取 textarea 文本，8.83 同款）
+    //   云9oooole/{id}        → txtpad.cn（GET https://txtpad.cn/{id}）
+    //   云10oooole/share/a/b/{key} → hastebin（GET hassdtebin.com/raw/{key}，回退 hastebin.com/raw/{key}）
+    //   云3、云4、云8 在 8.83 中无实现，不支持
     private static final Pattern CLOUD_CODE_PATTERN =
             Pattern.compile("^云([1-9]|10)oooole(/.*)$");
     /**
@@ -617,12 +621,96 @@ public class HkRuleManager {
                 return json;
             }
         }
-        // 4) /p/{note_id} → netcut.cn：官方已下线该接口，通道失效，给明确提示
+        // 4) 云1 → pastebin.com（官方云1通道）：云1oooole/raw/{pasteId}
+        //    8.83 PastebinImporter.parse 原文：code.replace("云1oooole","https://pastebin.com")，
+        //    以 https://pastebin.com/raw/ 开头则直接 GET。
+        if ("1".equals(version)) {
+            String id = path.startsWith("/raw/") ? path.substring("/raw/".length()) : path.substring(1);
+            id = id.split("[\\s/]")[0];
+            if (id.isEmpty()) throw new IllegalArgumentException("口令中缺少 pasteId");
+            Request req = new Request.Builder().url("https://pastebin.com/raw/" + id)
+                    .header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null)
+                    throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
+                String json = unwrapShareText(resp.body().string());
+                if (json == null || json.isEmpty()) throw new IllegalArgumentException("云端未返回有效规则");
+                return json;
+            }
+        }
+        // 5) 云7 → note.ms（官方云7通道）：云7oooole/{note}
+        //    8.83 NotesImporter.parseSync 原文：parseDomForUrl(url, "textarea&&Text", "UTF-8")。
+        if ("7".equals(version)) {
+            String id = path.substring(1).split("[\\s/]")[0];
+            if (id.isEmpty()) throw new IllegalArgumentException("口令中缺少便签ID");
+            Request req = new Request.Builder().url("https://note.ms/" + id)
+                    .header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null)
+                    throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
+                String json = unwrapShareText(extractTextarea(resp.body().string()));
+                if (json == null || json.isEmpty()) throw new IllegalArgumentException("云端未返回有效规则");
+                return json;
+            }
+        }
+        // 6) 云9 → txtpad.cn（官方云9通道）：云9oooole/{id}
+        //    8.83 TxtPadImporter.parse 原文：code.replace("云9oooole","https://txtpbbd.cn") 后拉取。
+        if ("9".equals(version)) {
+            String id = path.substring(1).split("[\\s/]")[0];
+            if (id.isEmpty()) throw new IllegalArgumentException("口令中缺少便签ID");
+            Request req = new Request.Builder().url("https://txtpad.cn/" + id)
+                    .header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = client.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null)
+                    throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
+                String json = unwrapShareText(resp.body().string());
+                if (json == null || json.isEmpty()) throw new IllegalArgumentException("云端未返回有效规则");
+                return json;
+            }
+        }
+        // 7) 云10 → hastebin（官方云10通道）：云10oooole/share/a/b/{key}
+        //    8.83 HastebinImporter 原文用 https://hassdtebin.com/share/a/b/ 分享。
+        if ("10".equals(version)) {
+            String[] segs = path.split("/");
+            String key = segs[segs.length - 1].split("\\s")[0];
+            if (key.isEmpty()) throw new IllegalArgumentException("口令中缺少 key");
+            String[] bases = {"https://hassdtebin.com/raw/", "https://hastebin.com/raw/"};
+            for (String base : bases) {
+                try {
+                    Request req = new Request.Builder().url(base + key)
+                            .header("User-Agent", "Mozilla/5.0").build();
+                    try (Response resp = client.newCall(req).execute()) {
+                        if (!resp.isSuccessful() || resp.body() == null) continue;
+                        String json = unwrapShareText(resp.body().string());
+                        if (json != null && !json.isEmpty()) return json;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            throw new IllegalArgumentException("云端未返回有效规则");
+        }
+        // 8) /p/{note_id} → netcut.cn：官方已下线该接口，通道失效，给明确提示
         if (path.startsWith("/p/")) {
             throw new IllegalArgumentException("该口令走 netcut 通道，netcut 已停止开放接口，无法拉取。"
-                    + "请让分享者用「导出为云口令」（云5/云6通道）重新分享，或索取规则文件导入。");
+                    + "请让分享者用「导出为云口令」重新分享，或索取规则文件导入。");
         }
-        throw new IllegalArgumentException("暂不支持该云口令通道（当前支持：云2/apidb、云5、云6）");
+        throw new IllegalArgumentException("暂不支持该云口令通道（当前支持：云1、云2/apidb、云5、云6、云7、云9、云10）");
+    }
+
+    /** 从 note.ms 页面中提取 textarea 文本（8.83 NotesImporter 用 "textarea&&Text" 选择器）。 */
+    private String extractTextarea(String html) {
+        if (html == null) return null;
+        try {
+            Matcher m = Pattern.compile("<textarea[^>]*>(.*?)</textarea>",
+                    Pattern.DOTALL | Pattern.CASE_INSENSITIVE).matcher(html);
+            if (!m.find()) return null;
+            String text = m.group(1).replaceAll("<[^>]+>", "").trim();
+            text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                    .replace("&quot;", "\"").replace("&#39;", "'");
+            return text.isEmpty() ? null : text;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /** 从 pasteme API 响应中提取规则内容：{"return_code":0,"data":"...rule.json..."}。 */

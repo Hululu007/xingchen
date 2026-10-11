@@ -2145,7 +2145,7 @@ public class HkPageActivity extends BaseActivity {
         dialog.show();
     }
 
-    /** 云口令分享：先选择云通道（云2 textdb / 云5 cmd.im 短口令），再走对应上传流程。 */
+    /** 云口令分享：先选择云通道（对照 8.83 的 7 个云剪贴板），再走对应上传流程。 */
     private void showCloudChannelPicker(HkRule rule) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2158,7 +2158,10 @@ public class HkPageActivity extends BaseActivity {
         title.setPadding(0, 0, 0, dp(10));
         root.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        String[] labels = {"云2 · textdb（官方通用）", "云5 · cmd.im（短口令）"};
+        // 8.83 原文的 7 个云剪贴板：云1 pastebin、云2 textdb、云5 cmd.im、云6 pasteme、云7 note.ms、云9 txtpad、云10 hastebin
+        String[] labels = {"云1 · pastebin", "云2 · textdb（官方通用）", "云5 · cmd.im（短口令）",
+                "云6 · pasteme（白阑）", "云7 · note.ms", "云9 · txtpad", "云10 · hastebin"};
+        int[] clipNums = {1, 2, 5, 6, 7, 9, 10};
         AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
@@ -2174,12 +2177,47 @@ public class HkPageActivity extends BaseActivity {
             final int which = i;
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
-                if (which == 0) exportAsCloudCode(rule);
-                else exportAsShortCloudCode(rule);
+                int clipNum = clipNums[which];
+                if (clipNum == 2) exportAsCloudCode(rule);
+                else if (clipNum == 5) exportAsShortCloudCode(rule);
+                else exportAsCloudClipCode(rule, clipNum);
             });
             root.addView(tv, lp);
         }
         dialog.show();
+    }
+
+    /**
+     * 导出为云口令（云1/6/7/9/10）：走 HkCloudClip 上传，生成 8.83 格式口令，
+     * 8.83 官方 App 可导入。
+     */
+    private void exportAsCloudClipCode(HkRule rule, int clipNum) {
+        Notify.show("正在上传云端…");
+        new Thread(() -> {
+            try {
+                String json = HkRuleManager.get().loadRuleJson(rule.getTitle());
+                if (json == null || json.trim().isEmpty())
+                    throw new IllegalArgumentException("规则不存在：" + rule.getTitle());
+                String url = com.fongmi.android.tv.api.hk.HkShareHelper.shareToCloudClip(json, clipNum);
+                String code = buildCloudCode(clipNum, url);
+                App.post(() -> showExportCodeDialog(rule.getTitle(), code));
+            } catch (Exception e) {
+                App.post(() -> Notify.show("导出失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 按 8.83 分享格式，由上传返回的 URL 生成云口令（8.83 parse 原文的逆操作）。 */
+    private String buildCloudCode(int clipNum, String url) {
+        String id = url.substring(url.lastIndexOf('/') + 1).split("[\\s?#]")[0];
+        switch (clipNum) {
+            case 1: return "云1oooole/raw/" + id;         // 8.83 PastebinImporter.parse: 云1oooole→https://pastebin.com，要求 https://pastebin.com/raw/ 开头
+            case 6: return "云6oooole/xxxxxx/" + id;       // 8.83 BailanImporter: 云6oooole/xxxxxx/{path}(@{pwd})
+            case 7: return "云7oooole/" + id;              // 8.83 NotesImporter.share: https://note.ms/→云7oooole
+            case 9: return "云9oooole/" + id;              // 8.83 TxtPadImporter.parse: 云9oooole→https://txtpbbd.cn
+            case 10: return "云10oooole/share/a/b/" + id; // 8.83 HastebinImporter: 云10oooole/share/a/b/
+            default: return url;
+        }
     }
 
     /** 表单式编辑小程序（按 8.83 ArticleListRuleEditActivity）：四个可折叠分区，保存写回 rule.json。 */

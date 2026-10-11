@@ -13,18 +13,18 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * 海阔云剪贴板 1-7 兼容客户端（对照 8.83 RuleImporterManager）。
+ * 海阔云剪贴板兼容客户端（对照 8.83 RuleImporterManager#getImporter packed-switch 原文）。
  *
- * 映射关系（8.83 packed-switch）：
- * 云1 Num1 → PastebinImporter  (pastebin.com)
- * 云2 Num2 → NetCutImporter     (netcut.cn)
- * 云3 Num3 → CmdImporter        (cmd.im)
- * 云4 Num4 → BailanImporter     (pasteme.tyrantg.com)
- * 云5 Num5 → NotesImporter      (note.ms)
- * 云6 Num6 → TxtPadImporter     (txtpad.cn)
- * 云7 Num7 → HastebinImporter   (hassdtebin.com / hastebin.com)
+ * 映射关系（8.83 原文）：
+ * 云1 Num1  → PastebinImporter  (pastebin.com)
+ * 云2 Num2  → NetCutImporter     (netcut.cn / textdb.online)
+ * 云5 Num5  → CmdImporter        (cmd.im)
+ * 云6 Num6  → BailanImporter     (pasteme.tyrantg.com)
+ * 云7 Num7  → NotesImporter      (note.ms)
+ * 云9 Num9  → TxtPadImporter     (txtpad.cn)
+ * 云10 Num10 → HastebinImporter  (hassdtebin.com / hastebin.com)
  *
- * 云9/云10 在 8.83 中无实现（getImporter 返回 null），此处亦不支持。
+ * 云3、云4、云8 在 8.83 中无实现（getImporter 走 default 返回 null），此处亦不支持。
  *
  * 注意：均为第三方公开服务，接口可能变更，不保证长期可用。
  */
@@ -42,18 +42,19 @@ public class HkCloudClip {
         switch (clipNum) {
             case 1: return "云剪贴板1";
             case 2: return "云剪贴板2";
-            case 3: return "云剪贴板3";
-            case 4: return "云剪贴板4";
             case 5: return "云剪贴板5";
             case 6: return "云剪贴板6";
             case 7: return "云剪贴板7";
+            case 9: return "云剪贴板9";
+            case 10: return "云剪贴板10";
             default: return "云剪贴板" + clipNum;
         }
     }
 
-    /** 是否支持该编号（1-7）。 */
+    /** 是否支持该编号（8.83 原文：1、2、5、6、7、9、10）。 */
     public static boolean supported(int clipNum) {
-        return clipNum >= 1 && clipNum <= 7;
+        return clipNum == 1 || clipNum == 2 || clipNum == 5 || clipNum == 6
+                || clipNum == 7 || clipNum == 9 || clipNum == 10;
     }
 
     /** 上传规则 JSON，返回分享 URL（取件码）。 */
@@ -61,11 +62,11 @@ public class HkCloudClip {
         switch (clipNum) {
             case 1: return pastebinUpload(ruleJson);
             case 2: return netcutUpload(ruleJson);
-            case 3: return cmdUpload(ruleJson);
-            case 4: return pastemeUpload(ruleJson);
-            case 5: return notemsUpload(ruleJson);
-            case 6: return txtpadUpload(ruleJson);
-            case 7: return hastebinUpload(ruleJson);
+            case 5: return cmdUpload(ruleJson);
+            case 6: return pastemeUpload(ruleJson);
+            case 7: return notemsUpload(ruleJson);
+            case 9: return txtpadUpload(ruleJson);
+            case 10: return hastebinUpload(ruleJson);
             default: throw new IllegalArgumentException("不支持的云剪贴板编号: " + clipNum);
         }
     }
@@ -75,11 +76,11 @@ public class HkCloudClip {
         switch (clipNum) {
             case 1: return pastebinDownload(code);
             case 2: return netcutDownload(code);
-            case 3: return cmdDownload(code);
-            case 4: return pastemeDownload(code);
-            case 5: return notemsDownload(code);
-            case 6: return txtpadDownload(code);
-            case 7: return hastebinDownload(code);
+            case 5: return cmdDownload(code);
+            case 6: return pastemeDownload(code);
+            case 7: return notemsDownload(code);
+            case 9: return txtpadDownload(code);
+            case 10: return hastebinDownload(code);
             default: throw new IllegalArgumentException("不支持的云剪贴板编号: " + clipNum);
         }
     }
@@ -130,7 +131,7 @@ public class HkCloudClip {
         return c;
     }
 
-    // ---------- 云3: cmd.im ----------
+    // ---------- 云5: cmd.im ----------
 
     private static String cmdUpload(String content) throws Exception {
         FormBody body = new FormBody.Builder()
@@ -148,7 +149,7 @@ public class HkCloudClip {
         return get("https://cmd.im/" + id, null);
     }
 
-    // ---------- 云4: pasteme.tyrantg.com ----------
+    // ---------- 云6: pasteme.tyrantg.com ----------
 
     private static String pastemeUpload(String content) throws Exception {
         FormBody body = new FormBody.Builder()
@@ -173,7 +174,7 @@ public class HkCloudClip {
         return c;
     }
 
-    // ---------- 云5: note.ms ----------
+    // ---------- 云7: note.ms ----------
 
     private static String notemsUpload(String content) throws Exception {
         String note = "hk" + System.currentTimeMillis() % 1000000;
@@ -196,7 +197,7 @@ public class HkCloudClip {
         return get("https://note.ms/" + id, null);
     }
 
-    // ---------- 云6: txtpad.cn ----------
+    // ---------- 云9: txtpad.cn ----------
 
     private static String txtpadUpload(String content) throws Exception {
         String name = "hk" + new java.text.SimpleDateFormat("HHMMdd", java.util.Locale.US).format(new java.util.Date());
@@ -221,7 +222,7 @@ public class HkCloudClip {
         return get("https://txtpad.cn/" + id, null);
     }
 
-    // ---------- 云7: hastebin ----------
+    // ---------- 云10: hastebin ----------
 
     private static String hastebinUpload(String content) throws Exception {
         RequestBody body = RequestBody.create(content, TEXT);

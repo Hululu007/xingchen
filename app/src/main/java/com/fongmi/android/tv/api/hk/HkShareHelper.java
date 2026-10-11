@@ -22,15 +22,15 @@ import java.util.List;
  * - 明文口令：生成 ￥home_rule￥ 文本并复制到剪贴板（海阔官方可识别）
  * - 云剪贴板 1-7：上传到第三方服务，返回分享 URL（取件码）
  *
- * 云剪贴板映射（对照 8.83 RuleImporterManager）：
- * 云1 Num1 → PastebinImporter  (pastebin.com)
- * 云2 Num2 → NetCutImporter     (netcut.cn)
- * 云3 Num3 → CmdImporter        (cmd.im)
- * 云4 Num4 → BailanImporter     (pasteme.tyrantg.com)
- * 云5 Num5 → NotesImporter      (note.ms)
- * 云6 Num6 → TxtPadImporter     (txtpad.cn)
- * 云7 Num7 → HastebinImporter   (hastebin.com)
- * 云9/云10 在 8.83 中无实现（getImporter 返回 null），不支持。
+ * 云剪贴板映射（对照 8.83 RuleImporterManager#getImporter packed-switch 原文）：
+ * 云1 Num1   → PastebinImporter  (pastebin.com)
+ * 云2 Num2   → NetCutImporter     (netcut.cn / textdb.online)
+ * 云5 Num5   → CmdImporter        (cmd.im)
+ * 云6 Num6   → BailanImporter     (pasteme.tyrantg.com)
+ * 云7 Num7   → NotesImporter      (note.ms)
+ * 云9 Num9   → TxtPadImporter     (txtpad.cn)
+ * 云10 Num10 → HastebinImporter   (hassdtebin.com / hastebin.com)
+ * 云3、云4、云8 在 8.83 中无实现（getImporter 走 default 返回 null），不支持。
  * 提交云仓库依赖海阔官方服务端，未实现。
  */
 public class HkShareHelper {
@@ -91,7 +91,7 @@ public class HkShareHelper {
         return result;
     }
 
-    /** 上传到云剪贴板（1-7），返回分享 URL（取件码）。需在后台线程调用。 */
+    /** 上传到云剪贴板（8.83：1、2、5、6、7、9、10），返回分享 URL（取件码）。需在后台线程调用。 */
     public static String shareToCloudClip(String ruleJson, int clipNum) throws Exception {
         if (!HkCloudClip.supported(clipNum)) {
             throw new IllegalArgumentException("不支持的云剪贴板编号: " + clipNum);
@@ -107,7 +107,7 @@ public class HkShareHelper {
         return HkCloudClip.download(code, clipNum);
     }
 
-    /** 云剪贴板显示名（1-7）。 */
+    /** 云剪贴板显示名（8.83：1、2、5、6、7、9、10）。 */
     public static String cloudClipName(int clipNum) {
         return HkCloudClip.name(clipNum);
     }

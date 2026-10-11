@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.cloud.drivepikpak;
 
 import android.content.Context;
+import android.os.Environment;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.cloud.CloudAccountStore;
@@ -11,9 +12,14 @@ import com.fongmi.android.tv.cloud.CloudTask;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -219,6 +225,20 @@ public class DrivePikPak implements CloudDrive {
         }
     }
 
+    /** 人机验证调试日志：把触发验证时的服务端完整返回写到文件，定位验证页 URL 字段 */
+    private void dumpVerifyResponse(String rawJson) {
+        try {
+            File dir = new File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "XingChen");
+            if (!dir.exists()) dir.mkdirs();
+            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            File f = new File(dir, "pikpak_verify_" + ts + ".json");
+            FileWriter w = new FileWriter(f);
+            w.write(rawJson == null ? "" : rawJson);
+            w.close();
+        } catch (Exception ignored) {
+        }
+    }
+
     private JSONObject userApi(String path, JSONObject query, JSONObject body, String captchaToken) throws Exception {
         rateLimit();
         HttpUrl.Builder ub = HttpUrl.parse(USER_HOST + path).newBuilder();
@@ -246,6 +266,7 @@ public class DrivePikPak implements CloudDrive {
             // 检测 captcha（来源：pikpak-sdk ManualVerificationError）
             if (d.has("captcha_token") || d.optString("error_code", "").contains("captcha")
                     || d.optString("error", "").contains("captcha")) {
+                dumpVerifyResponse(txt);  // 调试：落盘完整返回，定位验证页 URL 字段
                 String url = d.optString("url", d.optString("verification_url", ""));
                 throw new CaptchaRequiredException(url, d.optString("captcha_token", ""));
             }

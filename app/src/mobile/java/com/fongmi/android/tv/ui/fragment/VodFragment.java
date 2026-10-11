@@ -372,7 +372,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     private void onScriptSelected(java.io.File file, boolean isPy) {
         try {
-            com.fongmi.android.tv.utils.ToastUtil.show(requireActivity(), "已选择: " + file.getName());
+            android.widget.Toast.makeText(requireActivity(), "已选择: " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
             String name = file.getName();
             String baseName = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             String prefix = isPy ? "py_" : "js_";

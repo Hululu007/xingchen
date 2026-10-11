@@ -608,7 +608,13 @@ public class HkRouter {
                 detail.addCopyItem(it.getTitle(), url.substring(7));
                 continue;
             }
-            // 文本类 col_type → 简介内容区，不进选集
+            // 有可播 url → 一律进选集（按 line 分组），不管 col_type
+            // 8.83 里 text_3 是官方默认详情条目样式，有 url 的就是选集按钮
+            if (isPlayableUrl(url)) {
+                detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), url);
+                continue;
+            }
+            // 无 url + 文本类 col_type → 简介内容区，不进选集
             if (col.contains("long_text") || col.startsWith("text_") || col.contains("text_center")
                     || col.contains("rich_text")) {
                 String c = (it.getTitle() + it.getDesc()).trim();
@@ -624,5 +630,16 @@ public class HkRouter {
             }
             detail.getOrCreateLine(it.getLine()).addEpisode(it.getTitle(), it.getUrl());
         }
+    }
+
+    /** 可播 url：非空、非 javascript:;、非 hiker://empty */
+    private boolean isPlayableUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        if (u.isEmpty()) return false;
+        String lower = u.toLowerCase();
+        if (lower.equals("javascript:;") || lower.startsWith("javascript:")) return false;
+        if (lower.equals("hiker://empty")) return false;
+        return true;
     }
 }

@@ -25,8 +25,8 @@ import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
 
-import com.fongmi.android.tv.cloud.drive115.Drive115;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.databinding.ActivityPanLoginBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
@@ -140,78 +140,21 @@ public class PanLoginActivity extends BaseActivity {
 
     /** 115 原生扫码登录（对照 PY QrLogin，真机验证过的流程） */
     private void showQrLogin115() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER_HORIZONTAL);
-        int pad = ResUtil.dp2px(24);
-        layout.setPadding(pad, pad, pad, pad);
-        ImageView qrView = new ImageView(this);
-        int size = ResUtil.dp2px(220);
-        qrView.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        layout.addView(qrView);
-        TextView tvStatus = new TextView(this);
-        tvStatus.setText("正在获取二维码…");
-        tvStatus.setTextSize(14);
-        tvStatus.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = ResUtil.dp2px(12);
-        tvStatus.setLayoutParams(lp);
-        layout.addView(tvStatus);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("115 扫码登录")
-                .setView(layout)
-                .setNegativeButton("取消", (d, w) -> handler.removeCallbacksAndMessages(null))
-                .setCancelable(true)
-                .create();
-        dialog.setOnCancelListener(d -> handler.removeCallbacksAndMessages(null));
-        dialog.show();
-
-        Drive115 drive = new Drive115();
-        new Thread(() -> {
-            try {
-                Drive115.QrSession session = drive.qrStart();
-                Bitmap bmp = QRCode.getBitmap(session.content, 220, 1);
-                runOnUiThread(() -> {
-                    if (bmp != null) qrView.setImageBitmap(bmp);
-                    tvStatus.setText("请用 115 App 内扫一扫（不要用系统相机/微信扫）");
-                });
-                Runnable poll = new Runnable() {
-                    @Override
-                    public void run() {
-                        new Thread(() -> {
-                            try {
-                                int r = drive.qrPoll(session);
-                                if (r == 2) {
-                                    boolean ok = drive.qrLogin(session);
-                                    runOnUiThread(() -> {
-                                        dialog.dismiss();
-                                        if (ok) {
-                                            PanAuth.put115Cookie(drive.getCookie());
-                                            refreshSub();
-                                            Notify.show("115 登录成功");
-                                        } else {
-                                            Notify.show("登录失败，请重试");
-                                        }
-                                    });
-                                } else if (r == -1) {
-                                    runOnUiThread(() -> tvStatus.setText("二维码已失效，请关闭重试"));
-                                } else {
-                                    runOnUiThread(() -> tvStatus.setText("等待扫码…"));
-                                    handler.postDelayed(this, 2500);
-                                }
-                            } catch (Exception e) {
-                                runOnUiThread(() -> tvStatus.setText("网络异常，稍后重试"));
-                            }
-                        }).start();
-                    }
-                };
-                handler.postDelayed(poll, 2500);
-            } catch (Exception e) {
-                runOnUiThread(() -> tvStatus.setText("获取二维码失败：" + e.getMessage()));
+        LoginManager.get().login115(this, new LoginManager.LoginCallback() {
+            @Override
+            public void onSuccess(String providerId, String cookie) {
+                // Qr115Provider.confirm() 已写入 PanAuth
+                refreshSub();
+                Notify.show("115 登录成功");
             }
-        }).start();
+            @Override
+            public void onError(String msg) {
+                Notify.show("登录失败：" + msg);
+            }
+            @Override
+            public void onCancel() {
+            }
+        });
     }
 
     // ================= 夸克 =================

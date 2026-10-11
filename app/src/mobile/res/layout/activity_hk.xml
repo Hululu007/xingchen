@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 海阔小程序单页：V1 规则列表 / V2 分类+列表 / V3 搜索结果，三视图栈式切换 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#F5F6F8"
@@ -19,110 +18,151 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- 顶栏：左侧[小程序 20sp][☰菜单]，右侧[编辑][新增][🔍搜索]（搜索放最右） -->
-            <LinearLayout
-                android:id="@+id/top_bar_rules"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_alignParentTop="true"
-                android:background="@drawable/hk_header_glass"
-                android:gravity="center_vertical"
-                android:paddingLeft="16dp"
-                android:paddingRight="12dp">
-
-                <TextView
-                    android:id="@+id/tv_title_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="小程序"
-                    android:textColor="#101216"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
-
-                <ImageView
-                    android:id="@+id/btn_menu_rule"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="6dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="菜单"
-                    android:padding="6dp"
-                    android:src="@drawable/ic_hk_menu" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/btn_edit_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@drawable/hk_btn_glass"
-                    android:gravity="center"
-                    android:minWidth="64dp"
-                    android:paddingLeft="14dp"
-                    android:paddingRight="14dp"
-                    android:text="编辑"
-                    android:textColor="#101216"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/btn_add_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@drawable/hk_btn_glass"
-                    android:gravity="center"
-                    android:minWidth="64dp"
-                    android:paddingLeft="14dp"
-                    android:paddingRight="14dp"
-                    android:text="新增"
-                    android:textColor="#101216"
-                    android:textSize="14sp" />
-
-                <ImageView
-                    android:id="@+id/btn_search_rule"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="6dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="搜索小程序"
-                    android:padding="6dp"
-                    android:src="@drawable/ic_action_search" />
-            </LinearLayout>
-
-            <!-- 分组 tab：横向滚动，吸附居中，首项"全部" -->
+            <!-- 规则列表：内容从顶部开始，滚动时从悬浮磨砂顶栏下穿过 -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_rule_group"
-                android:layout_width="match_parent"
-                android:layout_height="46dp"
-                android:layout_below="@id/top_bar_rules"
-                android:clipToPadding="false"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp" />
-
-            <!-- 分组分页：每页一个分组，"全部"页带 TYPE 头卡 -->
-            <androidx.viewpager2.widget.ViewPager2
-                android:id="@+id/vp_rules"
+                android:id="@+id/rv_rules"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_below="@id/rv_rule_group" />
+                android:layout_above="@id/btn_import"
+                android:layout_alignParentTop="true"
+                android:layout_marginBottom="12dp"
+                android:clipToPadding="false"
+                android:paddingTop="64dp"
+                android:paddingBottom="8dp" />
 
-            <!-- 右下悬浮按钮：点开快速切换分组弹窗，长按隐藏 -->
-            <ImageView
-                android:id="@+id/float_btn"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:layout_alignParentBottom="true"
-                android:layout_alignParentEnd="true"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="96dp"
-                android:background="@drawable/hk_float_btn_bg"
-                android:contentDescription="切换分组"
-                android:padding="10dp"
-                android:src="@drawable/ic_hk_layers" />
+            <!-- 悬浮磨砂顶栏：背景直接设在 FrameLayout 上，避免内部 match_parent 的 header_bg 测量异常撑满盖住列表 -->
+            <FrameLayout
+                android:id="@+id/header_cluster"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignParentTop="true"
+                android:background="@drawable/hk_header_glass">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- 小程序列表顶栏：小程序 …… 右侧 搜索 | 排序 | 编辑 -->
+                    <LinearLayout
+                        android:id="@+id/top_bar_rules"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:gravity="center_vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp">
+
+                        <TextView
+                            android:id="@+id/tv_title_rule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="小程序"
+                            android:textColor="#101216"
+                            android:textSize="20sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:id="@+id/btn_search_rule"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
+                            android:contentDescription="搜索小程序"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_action_search" />
+
+                        <ImageView
+                            android:id="@+id/btn_sort_rule"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
+                            android:contentDescription="排序"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_fab_filter"
+                            android:tint="#101216" />
+
+                        <!-- 编辑模式才显示：分组管理入口 -->
+                        <TextView
+                            android:id="@+id/btn_group_manage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="64dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="分组管理"
+                            android:textColor="#101216"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
+                        <Space
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1" />
+
+                        <TextView
+                            android:id="@+id/btn_edit_rule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="64dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="编辑"
+                            android:textColor="#101216"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rv_rule_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:clipToPadding="false"
+                        android:visibility="gone" />
+
+                    <!-- 首页 inline 搜索条：点 🔍 展开，输入实时过滤小程序卡片，不跳页 -->
+                    <LinearLayout
+                        android:id="@+id/inline_search_bar"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginLeft="16dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginRight="16dp"
+                        android:background="@drawable/hk_searchbar_glass"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="4dp"
+                        android:visibility="gone">
+
+                        <EditText
+                            android:id="@+id/et_inline_search"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:hint="搜索小程序"
+                            android:imeOptions="actionSearch"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:textColor="#101216"
+                            android:textColorHint="#8A8F98"
+                            android:textSize="15sp" />
+
+                        <ImageButton
+                            android:id="@+id/btn_inline_close"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="关闭搜索"
+                            android:src="@drawable/ic_hk_close" />
+                    </LinearLayout>
+                </LinearLayout>
+            </FrameLayout>
 
             <LinearLayout
                 android:id="@+id/empty_rules"
@@ -155,13 +195,29 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="点右上角「新增」创建，或点 ☰ 菜单导入"
-                    android:textColor="#8A8F98"
+                    android:text="点下方按钮导入你的第一条规则"
+                    android:textColor="#101216"
                     android:textSize="12sp" />
             </LinearLayout>
 
-        </RelativeLayout>
+            <TextView
+                android:id="@+id/btn_import"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:layout_alignParentBottom="true"
+                android:layout_centerHorizontal="true"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/hk_gold_button"
+                android:elevation="8dp"
+                android:gravity="center"
+                android:paddingLeft="28dp"
+                android:paddingRight="28dp"
+                android:text="＋ 导入规则"
+                android:textColor="#101216"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
+        </RelativeLayout>
 
         <!-- ============ V2 分类+列表 ============ -->
         <LinearLayout
@@ -271,77 +327,72 @@
                 android:layout_marginTop="8dp"
                 android:orientation="vertical" />
 
-            <!-- 下拉刷新 + 右侧快速滚动条（原 SmartRefreshLayout 已从 Maven 下架，改用 SwipeRefreshLayout） -->
-            <FrameLayout
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipe_content"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_marginTop="8dp"
                 android:layout_weight="1">
 
-                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                    android:id="@+id/refresh_content"
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent">
+                    android:layout_height="match_parent"
+                    android:orientation="vertical">
 
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rv_videos"
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
                         android:clipToPadding="false"
                         android:paddingBottom="8dp" />
-                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
-                <!-- 右侧快速滚动条（对照 8.83 RecyclerFastScroller） -->
-                <com.fongmi.android.tv.ui.custom.HkFastScroller
-                    android:id="@+id/fast_scroller"
-                    android:layout_width="20dp"
-                    android:layout_height="match_parent"
-                    android:layout_gravity="end" />
-
-                <TextView
-                    android:id="@+id/tv_content_empty"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:text="加载失败，点我重试"
-                    android:textColor="#101216"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-
-                <LinearLayout
-                    android:id="@+id/loading_content"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:elevation="8dp"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <ProgressBar
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:indeterminateTint="#D4A017" />
 
                     <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="加载中…"
+                        android:id="@+id/tv_content_empty"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="加载失败，点我重试"
                         android:textColor="#101216"
-                        android:textSize="14sp" />
-                </LinearLayout>
+                        android:textSize="14sp"
+                        android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/tv_footer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom"
-                    android:gravity="center"
-                    android:padding="12dp"
-                    android:textColor="#101216"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
-            </FrameLayout>
+                    <LinearLayout
+                        android:id="@+id/loading_content"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:elevation="8dp"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <ProgressBar
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:indeterminateTint="#D4A017" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="加载中…"
+                            android:textColor="#101216"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tv_footer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:padding="12dp"
+                        android:textColor="#101216"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
         </LinearLayout>
 
         <!-- ============ V3 搜索 ============ -->
@@ -352,13 +403,13 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- 对照 8.83 activit_search_one_result：44dp 高 CardView（圆角 8dp 无阴影），
-                 EditText 浅灰底，清空按钮在输入框内部右侧 -->
             <LinearLayout
                 android:id="@+id/search_bar"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="52dp"
                 android:layout_marginTop="16dp"
+                android:background="@drawable/hk_searchbar_glass"
+                android:elevation="8dp"
                 android:gravity="center_vertical"
                 android:paddingLeft="4dp"
                 android:paddingRight="8dp">
@@ -371,49 +422,28 @@
                     android:contentDescription="返回"
                     android:src="@drawable/ic_hk_back" />
 
-                <com.google.android.material.card.MaterialCardView
+                <EditText
+                    android:id="@+id/et_keyword"
                     android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_marginEnd="4dp"
+                    android:layout_height="match_parent"
                     android:layout_weight="1"
-                    app:cardBackgroundColor="#FFFFFF"
-                    app:cardCornerRadius="8dp"
-                    app:cardElevation="0dp">
+                    android:background="@null"
+                    android:hint="输入关键词搜索"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:textColor="#101216"
+                    android:textColorHint="#3A3F45"
+                    android:textSize="15sp" />
 
-                    <FrameLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent">
-
-                        <EditText
-                            android:id="@+id/et_keyword"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:background="@color/gray_rice_deep"
-                            android:gravity="center_vertical"
-                            android:hint="请输入搜索关键词"
-                            android:imeOptions="actionSearch"
-                            android:inputType="text"
-                            android:lines="1"
-                            android:maxLines="1"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="44dp"
-                            android:textColor="#101216"
-                            android:textColorHint="#848484"
-                            android:textSize="16sp" />
-
-                        <ImageView
-                            android:id="@+id/btn_clear"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="end|center_vertical"
-                            android:layout_marginEnd="5dp"
-                            android:contentDescription="清空"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_hk_close"
-                            android:visibility="gone" />
-                    </FrameLayout>
-                </com.google.android.material.card.MaterialCardView>
+                <ImageButton
+                    android:id="@+id/btn_clear"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="清除"
+                    android:src="@drawable/ic_hk_close"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/btn_search_go"
@@ -429,20 +459,6 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
             </LinearLayout>
-
-            <!-- 对照 8.83：搜索模式切换小字，点击在 默认/精准 间切换 -->
-            <TextView
-                android:id="@+id/tv_search_mode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginTop="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:padding="4dp"
-                android:text="搜索模式：默认"
-                android:textColor="#3A3F45"
-                android:textSize="13sp" />
 
             <!-- 小程序内搜索的作用域标识：显示当前在哪个小程序内搜索，避免被误认为全局搜索 -->
             <TextView
@@ -543,42 +559,14 @@
                 android:paddingBottom="8dp"
                 android:visibility="gone" />
 
-            <!-- 搜索结果区下拉刷新（原 SmartRefreshLayout 已从 Maven 下架，改用 SwipeRefreshLayout；
-                 上拉加载更多改走 RecyclerView 滚动监听），结果区底部横向不定进度条 -->
-            <FrameLayout
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_search_results"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_marginTop="8dp"
-                android:layout_weight="1">
-
-                <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                    android:id="@+id/search_refresh"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp"
-                    android:layout_marginBottom="3dp">
-
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/rv_search_results"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:clipToPadding="false"
-                        android:paddingBottom="8dp" />
-                </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
-                <androidx.appcompat.widget.AppCompatImageView
-                    android:id="@+id/search_progress"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginEnd="12dp"
-                    android:layout_marginBottom="2dp"
-                    android:contentDescription="搜索中"
-                    android:src="@drawable/hk_avd_progress_indeterminate"
-                    android:visibility="invisible" />
-            </FrameLayout>
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingBottom="8dp" />
 
             <TextView
                 android:id="@+id/tv_search_empty"
@@ -630,40 +618,18 @@
                     android:textColor="#101216"
                     android:textSize="16sp"
                     android:textStyle="bold" />
-
-                <ImageButton
-                    android:id="@+id/btn_fav_detail"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="加入收藏"
-                    android:src="@drawable/ic_hk_favorite" />
-
-                <ImageButton
-                    android:id="@+id/btn_menu_detail"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="更多"
-                    android:src="@drawable/ic_hk_more" />
             </LinearLayout>
 
             <!-- 8.83 原版：详情页走通用列表渲染器（FilmListActivity + ArticleListAdapter），
                  不再用专用定制布局。条目按 col_type 渲染：detail_header/long_text/flex_button -->
-            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                android:id="@+id/swipe_detail"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_detail_content"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_marginTop="12dp"
-                android:layout_weight="1">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rv_detail_content"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:clipToPadding="false"
-                    android:visibility="gone" />
-            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/tv_detail_loading"

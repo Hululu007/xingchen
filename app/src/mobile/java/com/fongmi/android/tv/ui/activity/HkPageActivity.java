@@ -11,22 +11,15 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
-import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.text.Editable;
 import android.text.Html;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.text.style.ForegroundColorSpan;
-import android.text.style.StyleSpan;
 import android.util.DisplayMetrics;
 import android.util.SparseBooleanArray;
 import android.view.Gravity;
@@ -35,8 +28,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.ViewParent;
-import android.view.Window;
-import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
@@ -61,10 +52,8 @@ import androidx.appcompat.widget.SwitchCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.LinearSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
-import androidx.viewpager2.widget.ViewPager2;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
@@ -72,7 +61,6 @@ import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkDetailItem;
 import com.fongmi.android.tv.api.hk.HkErrorUtil;
-import com.fongmi.android.tv.api.hk.HkHttp;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkLoading;
@@ -80,15 +68,11 @@ import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
-import com.fongmi.android.tv.api.hk.HkShareHelper;
 import com.fongmi.android.tv.api.hk.SearchResult;
 import com.fongmi.android.tv.databinding.ActivityHkBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
-import com.google.gson.Gson;
-import com.google.android.material.textfield.TextInputEditText;
-import com.google.android.material.textfield.TextInputLayout;
 import com.xingchen.tv.theme.FrostedGlass;
 
 import java.io.ByteArrayOutputStream;
@@ -100,7 +84,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
-import java.util.function.BiConsumer;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -124,28 +107,14 @@ public class HkPageActivity extends BaseActivity {
     private static final int V_SEARCH = 2;
     private static final int V_DETAIL = 3;
     private static final int REQ_IMPORT_FILE = 0x101;
-    private static final int REQ_RULE_SEARCH = 0x102;
     private static final String PREFS = "xingchen";
     private static final String KEY_HIST = "hk_search_history";
-    private static final String KEY_SMODE = "smode";
     private static final String KEY_LAST_CLIP = "hk_last_clip_prompt";
     private static final String KEY_RULE_SPAN = "hk_rule_span_count";
-    /** 规则详情用：标题→导入时间戳 / 标题→最近使用时间戳 */
-    private static final String KEY_RULE_IMPORT_TIME = "hk_rule_import_time";
-    private static final String KEY_RULE_LAST_USE = "hk_rule_last_use";
-    /** 图标设置：0=圆形 / 1=圆角矩形 / 2=不显示（默认 1，保持现有样式） */
-    private static final String KEY_RULE_ICON_SHAPE = "hk_rule_icon_shape";
-    /** 新窗口打开设置 */
-    private static final String KEY_RULE_NEW_WINDOW = "hk_rule_new_window";
     /** 自定义分组：有序分组名列表 / 规则标题→自定义分组（""=显式无分组）/ 自定义顺序（规则标题有序列表） */
     private static final String KEY_CUSTOM_GROUPS = "hk_custom_groups";
     private static final String KEY_RULE_GROUPS = "hk_rule_group_map";
     private static final String KEY_RULE_ORDER = "hk_rule_order";
-    /** 详情页：收藏列表 JSON / 足迹 key 前缀 / 跳过片头片尾 key 前缀 / 单页播放器 key 前缀 */
-    private static final String KEY_DETAIL_FAVS = "hk_detail_favs";
-    private static final String KEY_DETAIL_FOOT = "hk_detail_foot_";
-    private static final String KEY_DETAIL_SKIP = "hk_detail_skip_";
-    private static final String KEY_DETAIL_PLAYER = "hk_detail_player_";
     /** 导入时分组选择器的标准分组（8.83 默认分组名，去掉①②序号）。 */
     private static final String[] STD_GROUPS = {"聚合", "视频", "资讯", "图集", "漫画", "其它", "工具", "音频"};
     /** 8.83 ArticleColTypeEnum 的全部 col_type（表单编辑显示样式选择器用）。 */
@@ -169,31 +138,26 @@ public class HkPageActivity extends BaseActivity {
     private ActivityHkBinding binding;
     private final Deque<Integer> stack = new ArrayDeque<>();
 
-    private RulePagerAdapter rulePagerAdapter;
+    private RuleAdapter ruleAdapter;
+    private GridLayoutManager ruleGrid;
     private final List<HkRule> rules = new ArrayList<>();
-    /** 分组 tab 原始值列表（""=全部，首项固定"全部"）；当前选中的 tab 位置 */
-    private final List<String> groupTabs = new ArrayList<>();
-    private int currentGroupPos = 0;
-    private ChipAdapter groupChipAdapter;
-    /** 小程序列表：名称排序开关 / 搜索关键字（表单编辑器内规则选择器复用，列表页已去掉排序与 inline 搜索） */
+    /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换）/ 分组筛选（""=全部） */
     private boolean ruleSortByName = false;
     private String ruleKeyword = "";
-    /** 管理模式（编辑按钮切换）/ 批量删除模式 */
     private boolean ruleManageMode = false;
-    private boolean batchDeleteMode = false;
-    private final java.util.Set<String> batchDeleteSet = new java.util.HashSet<>();
+    private String ruleGroup = "";
     /** 自定义分组（本地 prefs，不改 rule.json）：有序分组名 / 标题→分组覆盖 / 自定义顺序（null=未自定义） */
     private final List<String> customGroups = new ArrayList<>();
     private final Map<String, String> ruleGroupMap = new HashMap<>();
     private List<String> customOrder = null;
-    /** 规则详情用：导入时间 / 最近使用（标题→时间戳） */
-    private final Map<String, Long> ruleImportTime = new HashMap<>();
-    private final Map<String, Long> ruleLastUse = new HashMap<>();
-    // 编辑模式拖拽到分组 tab：拖拽状态（排序快照用于投放分组时回滚换位）
+    private ItemTouchHelper ruleTouchHelper;
+    // 编辑模式拖拽到分组 pills：拖拽状态（排序快照用于投放分组时回滚换位）
     private RecyclerView.ViewHolder ruleDragHolder;
     private int ruleDragFromPos = RecyclerView.NO_POSITION;
     private String ruleDragTitle;
     private List<String> ruleDragOrderSnapshot;
+    private ChipAdapter groupChipAdapter;
+    private List<String[]> groupPairs;
     private int groupDropTargetPos = -1;
 
     private ContentAdapter contentAdapter;
@@ -236,7 +200,7 @@ public class HkPageActivity extends BaseActivity {
     private boolean loading, noMore;
     private final Map<String, Integer> scrollMem = new HashMap<>();
 
-    private SearchCardAdapter searchAdapter;
+    private VideoAdapter searchAdapter;
     private final List<SearchResult> searchResults = new ArrayList<>();
     /** 跨小程序搜索的结果来源标注（SearchResult 保持 8.83 原版纯净，来源放外部映射）。 */
     private final Map<SearchResult, String> searchSrcRules =
@@ -244,8 +208,6 @@ public class HkPageActivity extends BaseActivity {
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
-    /** 搜索结果是否支持分页（规则 searchUrl 含 fypage）：控制滚动到底部时是否触发 doSearchPage。 */
-    private boolean searchCanPage = true;
     /** 跨小程序搜索代际：新搜索开始时自增，旧搜索的迟到结果直接丢弃。 */
     private final AtomicInteger crossSearchGen = new AtomicInteger(0);
     /** 搜索页：true = 小程序列表入口的整页内容搜索；false = 内容页内单规则搜索 */
@@ -259,12 +221,6 @@ public class HkPageActivity extends BaseActivity {
     private final List<HkItem> detailItems = new ArrayList<>();
     private ContentAdapter detailAdapter;
     private GridLayoutManager detailGrid;
-    /** 详情足迹：上次点击的选集 URL（规则 URL 含 #noHistory# 的不记），返回时滚动定位+高亮 */
-    private String detailHighlightUrl = "";
-    /** 切集判断：本详情页已调起播放的选集 URL */
-    private String detailLastPlayedUrl = "";
-    /** 详情倒序开关（⋮ 菜单"切换倒序"） */
-    private boolean detailReversed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -309,9 +265,10 @@ public class HkPageActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
-        // 批量删除模式中按返回：先退出勾选模式，不退出页面
-        if (stack.size() == 1 && stack.peek() == V_RULES && batchDeleteMode) {
-            exitBatchDeleteMode();
+        // inline 搜索条展开时按返回：先收起搜索条，不退出页面
+        if (stack.size() == 1 && stack.peek() == V_RULES
+                && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            closeInlineSearch();
             return;
         }
         // 编辑模式中按返回：先退出编辑模式（已即时保存），不退出页面
@@ -381,16 +338,6 @@ public class HkPageActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         hkPaused = false;
-        // 播放器返回详情页：滚动到足迹选集并高亮（8.83 refreshLastClick 等价）
-        if (!stack.isEmpty() && stack.peek() == V_DETAIL && detailAdapter != null
-                && binding.rvDetailContent.getVisibility() == View.VISIBLE) {
-            int footPos = findFootprintPos();
-            if (footPos >= 0) {
-                detailAdapter.setHighlightUrl(detailHighlightUrl);
-                detailAdapter.notifyDataSetChanged();
-                binding.rvDetailContent.scrollToPosition(detailAdapter.groupFirstPosition(footPos));
-            }
-        }
     }
 
     @Override
@@ -465,249 +412,182 @@ public class HkPageActivity extends BaseActivity {
     // ================= V1 规则列表 =================
 
     private void initRulesView() {
-        // 顶栏：左侧[小程序 20sp][☰菜单]，右侧[编辑][新增][🔍搜索]（搜索放最右）
-        binding.btnMenuRule.setOnClickListener(v -> showHkMainMenu());
-        binding.btnAddRule.setOnClickListener(v -> {
-            if (batchDeleteMode) doBatchDelete();
-            else showNewRuleEditor();
+        int span = getPrefs().getInt(KEY_RULE_SPAN, 3);
+        ruleGrid = new GridLayoutManager(this, span);
+        binding.rvRules.setLayoutManager(ruleGrid);
+        binding.rvRules.addItemDecoration(new GridSpace());
+        ruleAdapter = new RuleAdapter();
+        binding.rvRules.setAdapter(ruleAdapter);
+        binding.tvTitleRule.setOnClickListener(v -> showColumnSwitchPopup());
+        // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：整页内容搜索（搜全部小程序的内容）
+        binding.btnSearchRule.setOnClickListener(v -> toggleInlineSearch());
+        binding.btnSearchRule.setOnLongClickListener(v -> {
+            openContentSearch();
+            return true;
         });
-        binding.btnEditRule.setOnClickListener(v -> {
-            if (batchDeleteMode) exitBatchDeleteMode();
-            else toggleRuleManageMode();
+        binding.btnSortRule.setOnClickListener(v -> {
+            ruleSortByName = !ruleSortByName;
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
         });
-        // 点 🔍 进独立规则搜索页（搜已安装小程序）
-        binding.btnSearchRule.setOnClickListener(v -> {
-            Intent it = new Intent(this, HkRuleSearchActivity.class);
-            startActivityForResult(it, REQ_RULE_SEARCH);
-        });
-        // 分组 tab：横向滚动，吸附居中，首项"全部"；长按 tab 进分组管理
+        binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
+        binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
+        binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        new LinearSnapHelper().attachToRecyclerView(binding.rvRuleGroup);
-        // 分组分页：每页一个分组，"全部"页带 TYPE 头卡
-        rulePagerAdapter = new RulePagerAdapter();
-        binding.vpRules.setAdapter(rulePagerAdapter);
-        binding.vpRules.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+        // 顶栏已改实色底，不再需要 blur（之前半透明导致跟滚动内容混在一起像一起滚）
+        // 首页 inline 搜索条：磨砂风格，输入实时过滤小程序卡片
+        FrostedGlass.blurBackground(binding.inlineSearchBar);
+        binding.etInlineSearch.addTextChangedListener(new TextWatcher() {
             @Override
-            public void onPageSelected(int position) {
-                selectGroupTab(position, false);
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                ruleKeyword = s.toString().trim();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
             }
         });
-        // 右下悬浮按钮：点开快速切换分组弹窗，长按隐藏（5 秒后恢复）
-        binding.floatBtn.setOnClickListener(v -> showGroupSwitchPopup());
-        binding.floatBtn.setOnLongClickListener(v -> {
-            binding.floatBtn.setVisibility(View.INVISIBLE);
-            Notify.show("已临时隐藏悬浮按钮");
-            binding.floatBtn.postDelayed(() -> {
-                if (!isFinishing()) binding.floatBtn.setVisibility(View.VISIBLE);
-            }, 5000);
-            return true;
+        binding.etInlineSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                hideKeyboard();
+                return true;
+            }
+            return false;
         });
+        binding.btnInlineClose.setOnClickListener(v -> closeInlineSearch());
+        updateRulesTopPadding();
         loadCustomRuleData();
-    }
-
-    /** ☰菜单：排序方式、列数切换。 */
-    private void showHkMainMenu() {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, binding.btnMenuRule);
-        android.view.Menu m = menu.getMenu();
-        m.add(0, 1, 0, ruleSortByName ? "按添加顺序排序" : "按名称排序");
-        m.add(0, 2, 0, "切换列数");
-        menu.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == 1) {
-                ruleSortByName = !ruleSortByName;
-                afterRulesChanged();
-            } else if (id == 2) {
-                showColumnSwitchPopup();
+        // 编辑模式拖拽排序：长按卡片拖动（仅编辑模式启用）
+        // 拖到顶部悬浮栏的分组 pills 上松手 = 把卡片分配进该分组（换位回滚，仅做分组）
+        ruleTouchHelper = new ItemTouchHelper(new ItemTouchHelper.Callback() {
+            @Override
+            public int getMovementFlags(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
+                if (!ruleManageMode) return 0;
+                int drag = ItemTouchHelper.UP | ItemTouchHelper.DOWN | ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT;
+                return makeMovementFlags(drag, 0);
             }
-            return true;
+
+            @Override
+            public boolean onMove(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh,
+                                  @NonNull RecyclerView.ViewHolder target) {
+                int from = vh.getBindingAdapterPosition();
+                int to = target.getBindingAdapterPosition();
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION || from == to) return false;
+                ruleAdapter.moveItem(from, to);
+                return true;
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
+            }
+
+            @Override
+            public boolean isLongPressDragEnabled() {
+                return ruleManageMode;
+            }
+
+            @Override
+            public void onSelectedChanged(RecyclerView.ViewHolder vh, int actionState) {
+                super.onSelectedChanged(vh, actionState);
+                if (!ruleManageMode) return;
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
+                    ruleDragHolder = vh;
+                    ruleDragFromPos = vh.getBindingAdapterPosition();
+                    ruleDragTitle = null;
+                    if (ruleDragFromPos != RecyclerView.NO_POSITION
+                            && ruleDragFromPos < ruleAdapter.items.size()) {
+                        Object o = ruleAdapter.items.get(ruleDragFromPos);
+                        if (o instanceof HkRule) ruleDragTitle = ((HkRule) o).getTitle();
+                    }
+                    ruleDragOrderSnapshot = new ArrayList<>();
+                    for (HkRule r : rules) ruleDragOrderSnapshot.add(r.getTitle());
+                    // 抬高被拖卡片并放开祖先裁剪，让它能浮到悬浮顶栏的分组 pills 之上
+                    vh.itemView.setElevation(dp(12));
+                    setRulesClipChildren(false);
+                }
+            }
+
+            @Override
+            public void onChildDraw(@NonNull Canvas c, @NonNull RecyclerView rv,
+                                    @NonNull RecyclerView.ViewHolder vh,
+                                    float dX, float dY, int actionState, boolean isCurrentlyActive) {
+                super.onChildDraw(c, rv, vh, dX, dY, actionState, isCurrentlyActive);
+                if (ruleManageMode && isCurrentlyActive
+                        && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    updateGroupDropTarget(vh.itemView);
+                }
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
+                super.clearView(rv, vh);
+                vh.itemView.setElevation(0);
+                setRulesClipChildren(true);
+                int target = groupDropTargetPos;
+                setGroupDropTarget(-1);
+                if (ruleManageMode && target >= 0 && groupPairs != null
+                        && target < groupPairs.size() && ruleDragTitle != null) {
+                    HkRule rule = findRuleByTitle(ruleDragTitle);
+                    restoreDragOrderSnapshot();
+                    if (rule != null) {
+                        String g = groupPairs.get(target)[1];
+                        assignRuleGroup(rule, g);
+                        Notify.show("已移入「" + groupPairs.get(target)[0] + "」");
+                    }
+                }
+                ruleDragHolder = null;
+                ruleDragFromPos = RecyclerView.NO_POSITION;
+                ruleDragTitle = null;
+                ruleDragOrderSnapshot = null;
+            }
         });
-        menu.show();
+        ruleTouchHelper.attachToRecyclerView(binding.rvRules);
     }
 
-    /** 记录规则导入（打点占位）。 */
-    private void noteRuleImported(String title) {
+    /** 悬浮磨砂顶栏高度变化时，同步列表顶部内边距（内容滚动时从顶栏下穿过）。 */
+    /** 悬浮顶栏总高度 = 顶栏56 + 间距8 + 分组行(48) + inline搜索条(56)，列表 paddingTop 跟随，避免被遮挡。 */
+    private void updateRulesTopPadding() {
+        boolean groups = binding.rvRuleGroup.getVisibility() == View.VISIBLE;
+        boolean search = binding.inlineSearchBar.getVisibility() == View.VISIBLE;
+        int top = dp(56) + dp(8) + (groups ? dp(48) : 0) + (search ? dp(56) : 0);
+        binding.rvRules.setPadding(0, top, 0, dp(8));
     }
 
-    /** 记录规则使用（打点占位）。 */
-    private void noteRuleUsed(String title) {
-    }
-
-    /** 选中分组 tab：高亮 + 居中吸附 + ViewPager 跳页。 */
-    private void selectGroupTab(int pos, boolean fromTab) {
-        if (groupTabs.isEmpty()) return;
-        pos = Math.max(0, Math.min(pos, groupTabs.size() - 1));
-        currentGroupPos = pos;
-        if (groupChipAdapter != null) groupChipAdapter.setSelected(pos);
-        if (!fromTab && binding.vpRules.getCurrentItem() != pos) binding.vpRules.setCurrentItem(pos, true);
-        binding.rvRuleGroup.smoothScrollToPosition(pos);
-    }
-
-    /** 分组 tab：全部（首项）| 自定义分组（用户顺序）| 规则文件分组（①②序号排序），显示时去序号。 */
-    private void buildGroupTabs() {
-        List<String> groups = new ArrayList<>();
-        for (String g : customGroups) {
-            if (!TextUtils.isEmpty(g) && !groups.contains(g)) groups.add(g);
-        }
-        List<String> fileGroups = new ArrayList<>();
-        for (HkRule r : rules) {
-            String g = effectiveGroup(r);
-            if (TextUtils.isEmpty(g) || groups.contains(g) || fileGroups.contains(g)) continue;
-            fileGroups.add(g);
-        }
-        Collections.sort(fileGroups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
-        groups.addAll(fileGroups);
-        groupTabs.clear();
-        groupTabs.add(""); // 首项"全部"
-        groupTabs.addAll(groups);
-        if (currentGroupPos >= groupTabs.size()) currentGroupPos = 0;
-        List<String[]> pairs = new ArrayList<>();
-        for (String g : groupTabs) pairs.add(new String[]{TextUtils.isEmpty(g) ? "全部" : stripGroupPrefix(g), g});
-        groupChipAdapter = new ChipAdapter(pairs, currentGroupPos, value -> {
-            int pos = groupTabs.indexOf(value);
-            if (pos >= 0) selectGroupTab(pos, true);
-        });
-        groupChipAdapter.setOnLongPick(value -> showGroupManageDialog());
-        binding.rvRuleGroup.setAdapter(groupChipAdapter);
-        groupDropTargetPos = -1;
-        rulePagerAdapter.setGroups(groupTabs);
-        rulePagerAdapter.notifyDataSetChanged();
-        selectGroupTab(currentGroupPos, false);
-    }
-
-    private void updateEmptyState() {
-        boolean empty = rules.isEmpty();
-        binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
-        binding.vpRules.setVisibility(empty ? View.GONE : View.VISIBLE);
-        binding.rvRuleGroup.setVisibility(empty ? View.GONE : View.VISIBLE);
-    }
-
-    /** 规则集合变化后：同步自定义顺序 → 重建分组 tab 与分页 → 空态。 */
-    private void afterRulesChanged() {
-        syncCustomOrder();
-        buildGroupTabs();
-        updateEmptyState();
-    }
-
-    /** 刷新全部页面的数据（模式切换/设置变更后）。 */
-    private void refreshPageAdapters() {
-        if (rulePagerAdapter != null) rulePagerAdapter.refreshAllPages();
-    }
-
-    /** 顶部「编辑」按钮：进入拖拽排序模式（按钮文字 编辑/保存 互换，长按卡片拖拽排序，可拖到分组 tab 上分配分组）。 */
+    /** 顶部「编辑」按钮：进入排列+分组编辑模式（长按拖拽排序，点卡片分配分组；按钮文字 编辑/完成 互换）。 */
     private void toggleRuleManageMode() {
         ruleManageMode = !ruleManageMode;
-        binding.btnEditRule.setText(ruleManageMode ? "保存" : "编辑");
+        binding.btnEditRule.setText(ruleManageMode ? "完成" : "编辑");
+        binding.btnGroupManage.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
         binding.btnSearchRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
-        // 编辑模式禁用 ViewPager 横滑，避免与卡片横向拖拽冲突
-        binding.vpRules.setUserInputEnabled(!ruleManageMode);
+        binding.btnSortRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        // 编辑模式下收起 inline 搜索（搜索图标已隐藏）
+        if (ruleManageMode && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            binding.inlineSearchBar.setVisibility(View.GONE);
+            binding.etInlineSearch.setText("");
+            ruleKeyword = "";
+            updateRulesTopPadding();
+        }
         if (ruleManageMode && customOrder == null) {
             customOrder = new ArrayList<>();
             for (HkRule r : rules) customOrder.add(r.getTitle());
             saveCustomOrder();
         }
-        refreshPageAdapters();
+        ruleAdapter.rebuildSections();
+        ruleAdapter.notifyDataSetChanged();
     }
-
-    /** 长按菜单 → 批量删除：进入勾选模式（选中项删除线+灰字），「新增」变「删除选中」。 */
-    private void enterBatchDeleteMode() {
-        if (ruleManageMode) toggleRuleManageMode();
-        batchDeleteMode = true;
-        batchDeleteSet.clear();
-        binding.btnAddRule.setText("删除选中");
-        binding.btnEditRule.setText("取消");
-        refreshPageAdapters();
-        Notify.show("请点击勾选要删除的规则");
-    }
-
-    private void exitBatchDeleteMode() {
-        batchDeleteMode = false;
-        batchDeleteSet.clear();
-        binding.btnAddRule.setText("新增");
-        binding.btnEditRule.setText(ruleManageMode ? "保存" : "编辑");
-        refreshPageAdapters();
-    }
-
-    private void doBatchDelete() {
-        if (batchDeleteSet.isEmpty()) {
-            Notify.show("请先勾选要删除的规则");
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("批量删除")
-                .setMessage("确定删除选中的 " + batchDeleteSet.size() + " 条规则吗？删除后无法恢复。")
-                .setPositiveButton("删除", (d, w) -> new Thread(() -> {
-                    for (String t : new ArrayList<>(batchDeleteSet)) HkRuleManager.get().delete(t);
-                    App.post(() -> {
-                        exitBatchDeleteMode();
-                        refreshRules();
-                    });
-                }).start())
-                .setNegativeButton("取消", null)
-                .show();
-    }
-
-    /** 「新增」：新建规则进表单编辑器。 */
-    private void showNewRuleEditor() {
-        HkRule r = new HkRule();
-        r.setTitle("");
-        showRuleFormEditor(r);
-    }
-
-    /** 右下悬浮按钮：快速切换分组弹窗。 */
-    private void showGroupSwitchPopup() {
-        if (groupTabs.isEmpty()) return;
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(16));
-        TextView title = new TextView(this);
-        title.setText("切换分组");
-        title.setTextColor(0xFF1A1D24);
-        title.setTextSize(16);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        root.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        ScrollView sv = new ScrollView(this);
-        LinearLayout opts = new LinearLayout(this);
-        opts.setOrientation(LinearLayout.VERTICAL);
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
-        for (int i = 0; i < groupTabs.size(); i++) {
-            final int pos = i;
-            String g = groupTabs.get(i);
-            TextView tv = new TextView(this);
-            tv.setText(TextUtils.isEmpty(g) ? "全部" : stripGroupPrefix(g));
-            boolean sel = pos == currentGroupPos;
-            tv.setTextColor(sel ? 0xFFB8890F : 0xFF1A1D24);
-            tv.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-            tv.setTextSize(16);
-            tv.setGravity(Gravity.CENTER);
-            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
-            tv.setPadding(dp(16), dp(13), dp(16), dp(13));
-            tv.setOnClickListener(v -> {
-                dialog.dismiss();
-                selectGroupTab(pos, false);
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(10);
-            opts.addView(tv, lp);
-        }
-        sv.addView(opts);
-        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        svLp.topMargin = dp(6);
-        if (groupTabs.size() > 6) svLp.height = dp(360);
-        root.addView(sv, svLp);
-        dialog.show();
-    }
-
 
     // ================= 编辑模式：拖拽卡片到分组 pills 分配分组 =================
 
-    /** 放开/恢复被拖卡片所在页 RecyclerView 祖先链的裁剪，让被拖卡片能浮到分组 tab 之上。 */
-    private void setRulesClipChildren(RecyclerView rv, boolean clip) {
-        rv.setClipChildren(clip);
-        ViewParent p = rv.getParent();
+    /** 放开/恢复 rvRules 祖先链的裁剪，让被拖卡片能浮到悬浮顶栏之上。 */
+    private void setRulesClipChildren(boolean clip) {
+        binding.rvRules.setClipChildren(clip);
+        ViewParent p = binding.rvRules.getParent();
         int depth = 0;
         while (p instanceof ViewGroup && depth < 6) {
             ((ViewGroup) p).setClipChildren(clip);
@@ -768,7 +648,9 @@ public class HkPageActivity extends BaseActivity {
         if (g.equals(fileGroup)) ruleGroupMap.remove(rule.getTitle());
         else ruleGroupMap.put(rule.getTitle(), g);
         saveRuleGroupMap();
-        buildGroupTabs();
+        buildGroupFilterRow();
+        ruleAdapter.rebuildSections();
+        ruleAdapter.notifyDataSetChanged();
     }
 
     // ================= 小程序自定义分组（本地 prefs，不改 rule.json 原文件） =================
@@ -866,7 +748,7 @@ public class HkPageActivity extends BaseActivity {
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        int current = getPrefs().getInt(KEY_RULE_SPAN, 2);
+        int current = getPrefs().getInt(KEY_RULE_SPAN, 3);
         String[] labels = {"2 列", "3 列"};
         int[] spans = {2, 3};
         AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
@@ -886,9 +768,12 @@ public class HkPageActivity extends BaseActivity {
             final int span = spans[i];
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
-                if (span == current) return;
+                if (span == ruleGrid.getSpanCount()) return;
                 getPrefs().edit().putInt(KEY_RULE_SPAN, span).apply();
-                if (rulePagerAdapter != null) rulePagerAdapter.setSpanCount(span);
+                ruleGrid.setSpanCount(span);
+                // 列数变化时布局类型（普通/紧凑）可能变化，重建卡片视图
+                ruleAdapter.notifyDataSetChanged();
+                binding.rvRules.scrollToPosition(0);
             });
             root.addView(tv, lp);
         }
@@ -896,6 +781,43 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /** 分组筛选行：全部 | 自定义分组（用户顺序）| 规则文件分组（①②序号排序），显示时去序号。 */
+    private void buildGroupFilterRow() {
+        List<String> groups = new ArrayList<>();
+        for (String g : customGroups) {
+            if (!TextUtils.isEmpty(g) && !groups.contains(g)) groups.add(g);
+        }
+        List<String> fileGroups = new ArrayList<>();
+        for (HkRule r : rules) {
+            String g = effectiveGroup(r);
+            if (TextUtils.isEmpty(g) || groups.contains(g) || fileGroups.contains(g)) continue;
+            fileGroups.add(g);
+        }
+        Collections.sort(fileGroups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
+        groups.addAll(fileGroups);
+        boolean show = !groups.isEmpty();
+        binding.rvRuleGroup.setVisibility(show ? View.VISIBLE : View.GONE);
+        updateRulesTopPadding();
+        if (!show) return;
+        List<String[]> pairs = new ArrayList<>();
+        pairs.add(new String[]{"全部", ""});
+        for (String g : groups) pairs.add(new String[]{stripGroupPrefix(g), g});
+        int sel = 0;
+        if (!ruleGroup.isEmpty()) {
+            if (groups.contains(ruleGroup)) {
+                sel = groups.indexOf(ruleGroup) + 1;
+            } else {
+                ruleGroup = ""; // 当前选中的分组已被删/改名，回退到全部
+            }
+        }
+        binding.rvRuleGroup.setAdapter(new ChipAdapter(pairs, sel, value -> {
+            ruleGroup = value;
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
+        }));
+        groupPairs = pairs;
+        groupChipAdapter = (ChipAdapter) binding.rvRuleGroup.getAdapter();
+        groupDropTargetPos = -1;
+    }
 
     /** 分组排序键：前导①②..序号，没有则排最后。 */
     private static int groupSortKey(String g) {
@@ -1068,7 +990,6 @@ public class HkPageActivity extends BaseActivity {
         for (int i = 0; i < saved.size(); i++) {
             if (isNew != null && i < isNew.size() && !isNew.get(i)) continue;
             HkRule r = saved.get(i);
-            noteRuleImported(r.getTitle());
             String fileGroup = r.getGroup() == null ? "" : r.getGroup();
             if (g.equals(fileGroup)) ruleGroupMap.remove(r.getTitle());
             else ruleGroupMap.put(r.getTitle(), g);
@@ -1123,12 +1044,14 @@ public class HkPageActivity extends BaseActivity {
             customGroups.add(name);
             saveCustomGroups();
             renderGroupRows(listBox, dialog);
-            buildGroupTabs();
+            buildGroupFilterRow();
         }));
         root.addView(addBtn, addLp);
         renderGroupRows(listBox, dialog);
         dialog.setOnDismissListener(d -> {
-            buildGroupTabs();
+            buildGroupFilterRow();
+            ruleAdapter.rebuildSections();
+            ruleAdapter.notifyDataSetChanged();
         });
         dialog.show();
     }
@@ -1164,14 +1087,14 @@ public class HkPageActivity extends BaseActivity {
                 Collections.swap(customGroups, pos, pos - 1);
                 saveCustomGroups();
                 renderGroupRows(box, dialog);
-                buildGroupTabs();
+                buildGroupFilterRow();
             }));
             row.addView(groupRowBtn("▼", v -> {
                 if (pos >= customGroups.size() - 1) return;
                 Collections.swap(customGroups, pos, pos + 1);
                 saveCustomGroups();
                 renderGroupRows(box, dialog);
-                buildGroupTabs();
+                buildGroupFilterRow();
             }));
             row.addView(groupRowBtn("改名", v -> showGroupNameInput(g, name2 -> {
                 customGroups.set(pos, name2);
@@ -1181,7 +1104,9 @@ public class HkPageActivity extends BaseActivity {
                 saveCustomGroups();
                 saveRuleGroupMap();
                 renderGroupRows(box, dialog);
-                buildGroupTabs();
+                buildGroupFilterRow();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
             })));
             row.addView(groupRowBtn("删除", v -> new AlertDialog.Builder(this)
                     .setTitle("删除分组")
@@ -1194,9 +1119,11 @@ public class HkPageActivity extends BaseActivity {
                         }
                         saveCustomGroups();
                         saveRuleGroupMap();
-                        if (groupTabs.indexOf(g) == currentGroupPos) currentGroupPos = 0;
+                        if (g.equals(ruleGroup)) ruleGroup = "";
                         renderGroupRows(box, dialog);
-                        buildGroupTabs();
+                        buildGroupFilterRow();
+                        ruleAdapter.rebuildSections();
+                        ruleAdapter.notifyDataSetChanged();
                     })
                     .setNegativeButton("取消", null)
                     .show()));
@@ -1258,11 +1185,45 @@ public class HkPageActivity extends BaseActivity {
             App.post(() -> {
                 rules.clear();
                 rules.addAll(list);
-                afterRulesChanged();
+                syncCustomOrder();
+                ruleAdapter.rebuildSections();
+                ruleAdapter.notifyDataSetChanged();
+                buildGroupFilterRow();
+                boolean empty = ruleAdapter.getItemCount() == 0;
+                binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
             });
         }).start();
     }
 
+    /** 导入入口：三个选项各做成独立卡片框，有间距（选项类弹窗统一按此样式）。 */
+    private void showImportDialog() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        String[] labels = {"从文件导入", "从云口令导入", "粘贴规则 JSON"};
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            tv.setTextColor(0xFF1A1D24);
+            tv.setTextSize(16);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            final int which = i;
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) pickRuleFile();
+                else if (which == 1) showCloudCodeDialog(null);
+                else showPasteDialog();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = dp(10);
+            root.addView(tv, lp);
+        }
+        dialog.show();
+    }
 
     /** 云口令导入对话框（支持 云1~云10 开头，如 云6oooole/apidb/xxxx）。 */
     private void showCloudCodeDialog(String preset) {
@@ -1290,71 +1251,39 @@ public class HkPageActivity extends BaseActivity {
         new Thread(() -> {
             try {
                 HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code);
-                App.post(() -> checkSingleRuleUpdate(p,
-                        keepOld -> finishCloudImport(p, "", keepOld),
-                        () -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group, false))));
+                App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group)));
             } catch (Exception e) {
                 App.post(() -> Notify.show("导入失败：" + e.getMessage()));
             }
         }).start();
     }
 
-    /**
-     * 单规则导入的版本更新检查：导入版本 &gt; 已安装版本时底部滑出"温馨提示"
-     * （对等 8.83 RuleUpdateCheckPopup，底部滑出版本 + 复选框）。
-     * 是更新：走 onUpdate(keepOldAttrs)；不是更新：走 orElse。
-     */
-    private void checkSingleRuleUpdate(HkRuleManager.ParsedRule p,
-                                       java.util.function.Consumer<Boolean> onUpdate, Runnable orElse) {
-        HkRule installed = HkRuleManager.get().getInstalledRule(p.rule.getTitle());
-        if (installed != null && p.rule.getVersion() > installed.getVersion()) {
-            HkUpdateCheck u = new HkUpdateCheck();
-            u.entry = new PickEntry(p, null);
-            u.installed = installed;
-            showRuleUpdatePrompt(Collections.singletonList(u), (confirmed, keepOld) -> {
-                if (!confirmed) {
-                    Notify.show("已跳过更新");
-                    return;
-                }
-                onUpdate.accept(keepOld);
-            });
-            return;
-        }
-        orElse.run();
-    }
-
-    /**
-     * 单规则导入落盘后的 UI 刷新（云口令/JS 共用）：
-     * 分组合并 + 列表刷新 + "是否打开"底部 snackbar。
-     */
-    private void refreshAfterSingleImport(HkRuleManager.ParsedRule p, String group,
-                                          boolean isNew, boolean wasUpdate, boolean updateGroupToRule) {
-        List<HkRule> one = Collections.singletonList(p.rule);
-        applyImportGroup(one, Collections.singletonList(isNew), group);
-        if (updateGroupToRule) assignRuleGroup(p.rule, p.rule.getGroup());
-        Notify.show(wasUpdate ? "更新成功：" + p.rule.getTitle() : "导入成功：" + p.rule.getTitle());
-        boolean exists = false;
-        for (HkRule r : HkPageActivity.this.rules) {
-            if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
-        }
-        if (!exists) HkPageActivity.this.rules.add(p.rule);
-        afterRulesChanged();
-        // 导入成功后提示"是否打开"（像海阔原版）
-        showOpenAfterImportDialog(one);
-    }
-
-    /** 云口令导入：落盘（后台线程）。keepOldAttrs=更新提示复选框"不更新分组、图标和字体颜色"。 */
-    private void finishCloudImport(HkRuleManager.ParsedRule p, String group, boolean keepOldAttrs) {
+    /** 云口令导入：分组选择后的落盘（后台线程）。 */
+    private void finishCloudImport(HkRuleManager.ParsedRule p, String group) {
         new Thread(() -> {
             try {
-                HkRule installed = HkRuleManager.get().getInstalledRule(p.rule.getTitle());
-                boolean isNew = installed == null;
-                boolean wasUpdate = !isNew && p.rule.getVersion() > installed.getVersion();
-                String json = p.json;
-                if (wasUpdate && keepOldAttrs) json = keepOldRuleAttrsJson(json, installed);
-                HkRuleManager.get().saveRule(p.rule, json);
-                final boolean updateGroup = wasUpdate && !keepOldAttrs;
-                App.post(() -> refreshAfterSingleImport(p, group, isNew, wasUpdate, updateGroup));
+                boolean isNew = HkRuleManager.get().getInstalledRule(p.rule.getTitle()) == null;
+                HkRuleManager.get().saveRule(p.rule, p.json);
+                List<HkRule> one = Collections.singletonList(p.rule);
+                App.post(() -> {
+                    applyImportGroup(one, Collections.singletonList(isNew), group);
+                    Notify.show("导入成功：" + p.rule.getTitle());
+                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
+                    boolean exists = false;
+                    for (HkRule r : HkPageActivity.this.rules) {
+                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
+                    }
+                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
+                    // 导入成功后提示"是否打开"（像海阔原版）
+                    showOpenAfterImportDialog(one);
+                });
             } catch (Exception e) {
                 App.post(() -> Notify.show("导入失败：" + e.getMessage()));
             }
@@ -1424,17 +1353,6 @@ public class HkPageActivity extends BaseActivity {
                 uris.add(data.getData());
             }
             if (!uris.isEmpty()) importRuleFiles(uris);
-        }
-        // 独立规则搜索页返回：打开选中的小程序
-        if (requestCode == REQ_RULE_SEARCH && resultCode == RESULT_OK && data != null) {
-            String title = data.getStringExtra("title");
-            HkRule r = findRuleByTitle(title);
-            if (r != null) {
-                noteRuleUsed(title);
-                openRule(r);
-            } else if (!TextUtils.isEmpty(title)) {
-                Notify.show("规则不存在：" + title);
-            }
         }
     }
 
@@ -1529,9 +1447,7 @@ public class HkPageActivity extends BaseActivity {
             try {
                 if (HkRuleManager.isJsRuleText(text)) {
                     HkRuleManager.ParsedRule p = HkRuleManager.get().parseJsRule(text, fileName);
-                    App.post(() -> checkSingleRuleUpdate(p,
-                            keepOld -> finishJsImport(p, "", keepOld),
-                            () -> showImportGroupPicker(p.rule.getTitle(), group -> finishJsImport(p, group, false))));
+                    App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishJsImport(p, group)));
                 } else {
                     // 一键导入：先全部解析，多个则弹窗让用户勾选要导入哪些（带全选）
                     List<HkRuleManager.ParsedRule> parsed = HkRuleManager.get().parseJsonList(text);
@@ -1550,18 +1466,31 @@ public class HkPageActivity extends BaseActivity {
         }).start();
     }
 
-    /** js: 规则导入：落盘（后台线程）。keepOldAttrs=更新提示复选框"不更新分组、图标和字体颜色"。 */
-    private void finishJsImport(HkRuleManager.ParsedRule p, String group, boolean keepOldAttrs) {
+    /** js: 规则导入：分组选择后的落盘（后台线程）。 */
+    private void finishJsImport(HkRuleManager.ParsedRule p, String group) {
         new Thread(() -> {
             try {
-                HkRule installed = HkRuleManager.get().getInstalledRule(p.rule.getTitle());
-                boolean isNew = installed == null;
-                boolean wasUpdate = !isNew && p.rule.getVersion() > installed.getVersion();
-                String json = p.json;
-                if (wasUpdate && keepOldAttrs) json = keepOldRuleAttrsJson(json, installed);
-                HkRuleManager.get().saveRule(p.rule, json);
-                final boolean updateGroup = wasUpdate && !keepOldAttrs;
-                App.post(() -> refreshAfterSingleImport(p, group, isNew, wasUpdate, updateGroup));
+                boolean isNew = HkRuleManager.get().getInstalledRule(p.rule.getTitle()) == null;
+                HkRuleManager.get().saveRule(p.rule, p.json);
+                List<HkRule> one = Collections.singletonList(p.rule);
+                App.post(() -> {
+                    applyImportGroup(one, Collections.singletonList(isNew), group);
+                    Notify.show("导入成功：" + p.rule.getTitle());
+                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
+                    boolean exists = false;
+                    for (HkRule r : HkPageActivity.this.rules) {
+                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
+                    }
+                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
+                    showOpenAfterImportDialog(one);
+                });
             } catch (Exception e) {
                 App.post(() -> Notify.show("导入失败：" + e.getMessage()));
             }
@@ -1607,7 +1536,7 @@ public class HkPageActivity extends BaseActivity {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle("版本未更新，是否覆盖？")
                     .setMessage("以下小程序的导入版本不高于已安装版本：\n" + sb + "\n\n覆盖可能导致降级。")
-                    .setPositiveButton("全部覆盖", (d, w) -> pickGroupThenImport(picked, false))
+                    .setPositiveButton("全部覆盖", (d, w) -> pickGroupThenImport(picked))
                     .setNegativeButton("跳过这些", (d, w) -> {
                         List<PickEntry> rest = new ArrayList<>(picked);
                         rest.removeAll(downgrade);
@@ -1615,76 +1544,42 @@ public class HkPageActivity extends BaseActivity {
                             Notify.show("已跳过，无需导入");
                             return;
                         }
-                        pickGroupThenImport(rest, false);
+                        pickGroupThenImport(rest);
                     })
                     .setNeutralButton("取消", null)
                     .show();
             return;
         }
-        // 规则版本更新提示：导入版本 > 已安装版本时底部滑出"温馨提示"确认框
-        // （对等 8.83 RuleUpdateCheckPopup，底部滑出版本 + 复选框）。
-        final List<HkUpdateCheck> updates = new ArrayList<>();
-        for (PickEntry e : picked) {
-            HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
-            if (installed != null && e.parsed.rule.getVersion() > installed.getVersion()) {
-                HkUpdateCheck u = new HkUpdateCheck();
-                u.entry = e;
-                u.installed = installed;
-                updates.add(u);
-            }
-        }
-        if (!updates.isEmpty()) {
-            showRuleUpdatePrompt(updates, (confirmed, keepOldAttrs) -> {
-                if (!confirmed) {
-                    List<PickEntry> rest = new ArrayList<>(picked);
-                    for (HkUpdateCheck u : updates) rest.remove(u.entry);
-                    if (rest.isEmpty()) {
-                        Notify.show("已跳过更新");
-                        return;
-                    }
-                    pickGroupThenImport(rest, false);
-                    return;
-                }
-                pickGroupThenImport(picked, keepOldAttrs);
-            });
-            return;
-        }
-        pickGroupThenImport(picked, false);
+        pickGroupThenImport(picked);
     }
 
     /**
      * 导入前选分组（忽略规则自带的野分组名），再落盘。UI 线程调用。
      * 多个规则共用一次选择，统一应用。
-     *
-     * @param keepOldAttrs 更新时是否保留旧分组/图标（更新提示复选框"不更新分组、图标和字体颜色"）
      */
-    private void pickGroupThenImport(List<PickEntry> picked, boolean keepOldAttrs) {
+    private void pickGroupThenImport(List<PickEntry> picked) {
         String title = picked.size() == 1
                 ? picked.get(0).parsed.rule.getTitle()
                 : "导入 " + picked.size() + " 个小程序";
-        showImportGroupPicker(title, group -> doImportPickedRules(picked, group, keepOldAttrs));
+        showImportGroupPicker(title, group -> doImportPickedRules(picked, group));
     }
 
     /** importPickedRules 的落盘实现（后台线程）。 */
-    private void doImportPickedRules(List<PickEntry> picked, String group, boolean keepOldAttrs) {
+    private void doImportPickedRules(List<PickEntry> picked, String group) {
         new Thread(() -> {
             try {
                 List<HkRule> rules = new ArrayList<>();
                 List<Boolean> isNewList = new ArrayList<>();
                 List<String> updatedVer = new ArrayList<>();
-                List<HkRule> updatedWithNewAttrs = new ArrayList<>();
                 Map<HkRuleManager.HkZipData, List<HkRule>> assets = new HashMap<>();
                 for (PickEntry e : picked) {
                     HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
                     boolean isUpdate = installed != null && e.parsed.rule.getVersion() > installed.getVersion();
                     isNewList.add(installed == null);
-                    String json = e.parsed.json;
-                    if (isUpdate && keepOldAttrs) json = keepOldRuleAttrsJson(json, installed);
-                    HkRuleManager.get().saveRule(e.parsed.rule, json);
+                    HkRuleManager.get().saveRule(e.parsed.rule, e.parsed.json);
                     rules.add(e.parsed.rule);
                     if (isUpdate) {
-                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersionRaw() + "→v" + e.parsed.rule.getVersionRaw());
-                        if (!keepOldAttrs) updatedWithNewAttrs.add(e.parsed.rule);
+                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersion() + "→v" + e.parsed.rule.getVersion());
                     }
                     if (e.hkZipData != null) {
                         List<HkRule> g = assets.get(e.hkZipData);
@@ -1706,8 +1601,6 @@ public class HkPageActivity extends BaseActivity {
                 App.post(() -> {
                     // 只对新导入的规则应用分组选择；已安装的更新保持原有分组映射不动
                     applyImportGroup(rules, isNewList, pickedGroup);
-                    // 复选框未勾选（更新分组、图标）时：更新分组映射为新规则自带分组
-                    for (HkRule r : updatedWithNewAttrs) assignRuleGroup(r, r.getGroup());
                     Notify.show(msg);
                     // 直接合并内存中的规则进列表（不走 refreshRules 磁盘重读：
                     // getRules() 在某些机型/场景下返回空会导致导入后列表空，
@@ -1721,8 +1614,12 @@ public class HkPageActivity extends BaseActivity {
                         }
                     }
                     syncCustomOrder();
-                    buildGroupTabs();
-                updateEmptyState();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    boolean empty = ruleAdapter.getItemCount() == 0;
+                    binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
+                    binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
                     // 更新/添加成功后提示"是否打开"（像海阔原版）
                     showOpenAfterImportDialog(rules);
                 });
@@ -1732,268 +1629,31 @@ public class HkPageActivity extends BaseActivity {
         }).start();
     }
 
-    // ================= 海阔底部滑出弹窗（对齐 8.83 XPopup BottomPopupView） =================
-
-    /**
-     * 底部滑出 Dialog 基础：底部对齐 + 滑入滑出动画 + 透明背景。
-     * 对等 8.83 的 XPopup BottomPopupView（CustomBottomPopup）。
-     *
-     * @param content   内容 View
-     * @param dimAmount 背景变暗量（0f=不变暗）
-     */
-    private Dialog newHkBottomDialog(View content, float dimAmount) {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setContentView(content);
-        dialog.setCanceledOnTouchOutside(true);
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawableResource(android.R.color.transparent);
-            window.setGravity(Gravity.BOTTOM);
-            WindowManager.LayoutParams params = window.getAttributes();
-            params.width = WindowManager.LayoutParams.MATCH_PARENT;
-            params.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            params.dimAmount = dimAmount;
-            window.setAttributes(params);
-            window.setWindowAnimations(R.style.HkBottomDialogAnim);
-        }
-        return dialog;
-    }
-
-    /**
-     * 8.83 式底部确认卡片构建器（对等 pop_rule_update_check.xml / pop_import_rules.xml）：
-     * 白底卡片 + 标题 + 内容 + 可选 CheckBox + 底部"取消|确认"分栏（50dp 高、0.5dp 分隔线）。
-     * 回调参数：confirmed（点了右按钮），checked（CheckBox 状态，无复选框时为 false）。
-     */
-    private final class HkBottomCard {
-        final Dialog dialog;
-        final LinearLayout root;
-        CheckBox checkBox;
-
-        HkBottomCard() {
-            root = new LinearLayout(HkPageActivity.this);
-            root.setOrientation(LinearLayout.VERTICAL);
-            root.setBackgroundResource(R.drawable.hk_bottom_card);
-            root.setPadding(dp(20), dp(18), dp(20), dp(12));
-            dialog = newHkBottomDialog(root, 0.45f);
-        }
-
-        HkBottomCard title(String t) {
-            TextView tv = new TextView(HkPageActivity.this);
-            tv.setText(t);
-            tv.setTextSize(18);
-            tv.setTypeface(null, android.graphics.Typeface.BOLD);
-            tv.setTextColor(0xFF1A1D24);
-            tv.setMaxLines(1);
-            tv.setEllipsize(TextUtils.TruncateAt.END);
-            root.addView(tv, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            return this;
-        }
-
-        HkBottomCard content(CharSequence c) {
-            TextView tv = new TextView(HkPageActivity.this);
-            tv.setText(c);
-            tv.setTextSize(16);
-            tv.setTextColor(0xFF1A1D24);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(12);
-            lp.bottomMargin = dp(12);
-            root.addView(tv, lp);
-            return this;
-        }
-
-        HkBottomCard check(String text, boolean def) {
-            checkBox = new CheckBox(HkPageActivity.this);
-            checkBox.setText(text);
-            checkBox.setChecked(def);
-            checkBox.setTextSize(16);
-            checkBox.setTextColor(0xFF1A1D24);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dp(12);
-            root.addView(checkBox, lp);
-            return this;
-        }
-
-        HkBottomCard buttons(String left, String right, BiConsumer<Boolean, Boolean> cb) {
-            View divider = new View(HkPageActivity.this);
-            divider.setBackgroundColor(0xFFEEEEEE);
-            root.addView(divider, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
-            LinearLayout row = new LinearLayout(HkPageActivity.this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.END);
-            TextView tvLeft = bottomRowButton(left);
-            TextView tvRight = bottomRowButton(right);
-            row.addView(tvLeft, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-            View vdiv = new View(HkPageActivity.this);
-            vdiv.setBackgroundColor(0xFFEEEEEE);
-            row.addView(vdiv, new LinearLayout.LayoutParams(1,
-                    LinearLayout.LayoutParams.MATCH_PARENT));
-            row.addView(tvRight, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-            root.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
-            final Dialog d = dialog;
-            tvLeft.setOnClickListener(v -> {
-                d.dismiss();
-                cb.accept(false, checkBox != null && checkBox.isChecked());
-            });
-            tvRight.setOnClickListener(v -> {
-                d.dismiss();
-                cb.accept(true, checkBox != null && checkBox.isChecked());
-            });
-            return this;
-        }
-
-        private TextView bottomRowButton(String text) {
-            TextView tv = new TextView(HkPageActivity.this);
-            tv.setText(text);
-            tv.setTextSize(16);
-            tv.setTextColor(0xFF666666);
-            tv.setGravity(Gravity.CENTER);
-            tv.setBackgroundResource(android.R.attr.selectableItemBackground);
-            tv.setClickable(true);
-            tv.setFocusable(true);
-            return tv;
-        }
-
-        void show() {
-            if (!isFinishing() && !isDestroyed()) dialog.show();
-        }
-    }
-
     /**
      * 导入/更新成功后提示"是否打开"（海阔原版行为）。
-     * 底部深色 snackbar 横条："是否打开刚导入/更新的规则"，右侧"打开"强调色/"忽略"灰色，
-     * 6 秒自动消失，从底部滑出。
+     * 单个规则：直接问是否打开该规则；多个：列出供选择。
      */
     private void showOpenAfterImportDialog(List<HkRule> rules) {
         if (rules == null || rules.isEmpty()) return;
+        // 在任何页面（列表/内容/详情/搜索）都要能弹出：用当前前台 Activity 的 context，
+        // Activity 正在销毁时不弹，避免 WindowManager$BadTokenException。
         if (isFinishing() || isDestroyed()) return;
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundResource(R.drawable.hk_dark_snackbar);
-        bar.setPadding(dp(16), dp(14), dp(8), dp(14));
-        TextView msg = new TextView(this);
-        msg.setText(rules.size() == 1 ? "是否打开刚导入/更新的规则"
-                : "是否打开刚导入/更新的规则（" + rules.size() + " 个）");
-        msg.setTextColor(0xFFFFFFFF);
-        msg.setTextSize(14);
-        bar.addView(msg, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        TextView btnOpen = new TextView(this);
-        btnOpen.setText("打开");
-        btnOpen.setTextColor(0xFFFFC94D);
-        btnOpen.setTextSize(14);
-        btnOpen.setTypeface(null, android.graphics.Typeface.BOLD);
-        btnOpen.setPadding(dp(12), dp(8), dp(12), dp(8));
-        TextView btnIgnore = new TextView(this);
-        btnIgnore.setText("忽略");
-        btnIgnore.setTextColor(0xFF9AA1B0);
-        btnIgnore.setTextSize(14);
-        btnIgnore.setPadding(dp(12), dp(8), dp(12), dp(8));
-        bar.addView(btnOpen);
-        bar.addView(btnIgnore);
-        FrameLayout wrap = new FrameLayout(this);
-        FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
-        int m = dp(16);
-        barLp.setMargins(m, m, m, m);
-        wrap.addView(bar, barLp);
-        final Dialog dialog = newHkBottomDialog(wrap, 0f);
-        final Handler handler = new Handler(Looper.getMainLooper());
-        final Runnable autoDismiss = () -> {
-            try {
-                if (dialog.isShowing()) dialog.dismiss();
-            } catch (Throwable ignored) {
-            }
-        };
-        dialog.setOnDismissListener(d -> handler.removeCallbacks(autoDismiss));
-        btnOpen.setOnClickListener(v -> {
-            dialog.dismiss();
-            if (rules.size() == 1) openRule(rules.get(0));
-            else showOpenRuleListDialog(rules);
-        });
-        btnIgnore.setOnClickListener(v -> dialog.dismiss());
-        dialog.show();
-        handler.postDelayed(autoDismiss, 6000);
-    }
-
-    /** 多个规则时"打开"后的底部选择列表（独立卡片框、有间距）。 */
-    private void showOpenRuleListDialog(List<HkRule> rules) {
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setBackgroundResource(R.drawable.hk_bottom_card);
-        list.setPadding(dp(20), dp(18), dp(20), dp(16));
-        TextView title = new TextView(this);
-        title.setText("选择要打开的小程序");
-        title.setTextSize(16);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setTextColor(0xFF1A1D24);
-        title.setGravity(Gravity.CENTER);
-        list.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        final Dialog dialog = newHkBottomDialog(list, 0.45f);
-        for (HkRule r : rules) {
-            TextView tv = new TextView(this);
-            tv.setText(r.getTitle());
-            tv.setTextColor(0xFF1A1D24);
-            tv.setTextSize(16);
-            tv.setGravity(Gravity.CENTER);
-            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
-            tv.setPadding(dp(16), dp(13), dp(16), dp(13));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(10);
-            final HkRule rule = r;
-            tv.setOnClickListener(v -> {
-                dialog.dismiss();
-                openRule(rule);
-            });
-            list.addView(tv, lp);
-        }
-        if (!isFinishing() && !isDestroyed()) dialog.show();
-    }
-
-    /** 规则版本更新检查项：待导入条目 + 已安装旧规则。 */
-    private static class HkUpdateCheck {
-        PickEntry entry;
-        HkRule installed;
-    }
-
-    /**
-     * 规则版本更新提示（对等 8.83 RuleUpdateCheckPopup，底部滑出版本）：
-     * 标题"温馨提示" + 更新内容 + CheckBox"不更新分组、图标和字体颜色" + 底部"取消|确认"。
-     * 回调参数：confirmed（点了确认），keepOldAttrs（复选框勾选=保留旧分组/图标）。
-     */
-    private void showRuleUpdatePrompt(List<HkUpdateCheck> updates, BiConsumer<Boolean, Boolean> cb) {
-        StringBuilder sb = new StringBuilder("发现以下小程序有新版本：\n");
-        for (HkUpdateCheck u : updates) {
-            sb.append('\n').append(u.entry.parsed.rule.getTitle())
-                    .append("：v").append(u.installed.getVersionRaw())
-                    .append(" → v").append(u.entry.parsed.rule.getVersionRaw());
-        }
-        new HkBottomCard()
-                .title("温馨提示")
-                .content(sb.toString())
-                .check("不更新分组、图标和字体颜色", true)
-                .buttons("取消", "确认", cb)
-                .show();
-    }
-
-    /** 更新时保留旧规则属性的 JSON：checked=不更新分组/图标时，把旧图标写回新 JSON（分组走 ruleGroupMap 本就不动）。 */
-    private static String keepOldRuleAttrsJson(String json, HkRule installed) {
-        try {
-            JSONObject jo = new JSONObject(json);
-            jo.put("icon", installed.getIcon());
-            return jo.toString();
-        } catch (Exception e) {
-            return json;
+        if (rules.size() == 1) {
+            HkRule rule = rules.get(0);
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle(rule.getTitle())
+                    .setMessage("是否打开该小程序？")
+                    .setPositiveButton("打开", (d, w) -> openRule(rule))
+                    .setNegativeButton("取消", null)
+                    .show();
+        } else {
+            String[] titles = new String[rules.size()];
+            for (int i = 0; i < rules.size(); i++) titles[i] = rules.get(i).getTitle();
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("是否打开小程序？")
+                    .setItems(titles, (d, which) -> openRule(rules.get(which)))
+                    .setNegativeButton("取消", null)
+                    .show();
         }
     }
 
@@ -2042,26 +1702,6 @@ public class HkPageActivity extends BaseActivity {
             for (int i = 0; i < labels.size(); i++) listView.setItemChecked(i, isChecked);
         });
 
-        // 对等 8.83 pop_import_rules.xml：导入模式复选框"自动备份所有规则"
-        CheckBox cbBackup = new CheckBox(this);
-        cbBackup.setText("自动备份所有规则");
-        cbBackup.setChecked(false);
-        cbBackup.setTextSize(16);
-        cbBackup.setTextColor(0xFF1A1D24);
-        LinearLayout.LayoutParams backupLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        backupLp.topMargin = (int) (8 * density);
-        root.addView(cbBackup, backupLp);
-        TextView backupTip = new TextView(this);
-        backupTip.setText("勾选后将在导入前把已安装规则备份到 backup 文件夹");
-        backupTip.setTextSize(12);
-        backupTip.setTextColor(0xFF8A8F98);
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tipLp.topMargin = (int) (2 * density);
-        tipLp.bottomMargin = (int) (4 * density);
-        root.addView(backupTip, tipLp);
-
         new AlertDialog.Builder(this)
                 .setTitle("选择要导入的小程序（" + labels.size() + "）")
                 .setView(root)
@@ -2071,47 +1711,10 @@ public class HkPageActivity extends BaseActivity {
                     for (int i = 0; i < labels.size(); i++) {
                         if (checked.get(i)) picked.add(entries.get(i));
                     }
-                    if (cbBackup.isChecked()) backupAllRules();
                     importPickedRules(picked);
                 })
                 .setNegativeButton("取消", null)
                 .show();
-    }
-
-    /**
-     * 导入前自动备份所有已安装规则（对等 8.83 导入模式"自动备份所有规则"）：
-     * 把 plugins/hk 下的规则 json 拷到 filesDir/backup/时间戳/。
-     */
-    private void backupAllRules() {
-        try {
-            File srcDir = HkRuleManager.get().getDir();
-            File[] files = srcDir.listFiles((dir, name) -> name.endsWith(".json"));
-            if (files == null || files.length == 0) {
-                Notify.show("没有可备份的规则");
-                return;
-            }
-            String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-                    .format(new java.util.Date());
-            File dstDir = new File(getFilesDir(), "backup/" + ts);
-            if (!dstDir.mkdirs() && !dstDir.isDirectory()) {
-                Notify.show("备份失败：无法创建目录");
-                return;
-            }
-            int ok = 0;
-            byte[] buf = new byte[8192];
-            for (File f : files) {
-                try (FileInputStream in = new FileInputStream(f);
-                     FileOutputStream out = new FileOutputStream(new File(dstDir, f.getName()))) {
-                    int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                    ok++;
-                } catch (Exception ignored) {
-                }
-            }
-            Notify.show(ok > 0 ? "已备份 " + ok + " 个规则到 backup/" + ts : "备份失败");
-        } catch (Exception e) {
-            Notify.show("备份失败：" + e.getMessage());
-        }
     }
 
     /** 取 content uri 的显示文件名（可能为 null）。 */
@@ -2273,258 +1876,63 @@ public class HkPageActivity extends BaseActivity {
         }).start();
     }
 
-    private void showDeleteRuleConfirm(HkRule rule) {
-        SpannableStringBuilder sb = new SpannableStringBuilder();
-        sb.append("确定删除「").append(rule.getTitle()).append("」吗？\n");
-        int warnStart = sb.length();
-        sb.append("注意删除后无法恢复！");
-        sb.setSpan(new ForegroundColorSpan(0xFFE53935), warnStart, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sb.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), warnStart, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        new HkBottomCard()
-                .title("删除规则")
-                .content(sb)
-                .buttons("取消", "确定", (confirmed, checked) -> {
-                    if (!confirmed) return;
-                    new Thread(() -> {
-                        HkRuleManager.get().delete(rule.getTitle());
-                        App.post(this::refreshRules);
-                    }).start();
-                })
+    private void showDeleteRuleConfirm(HkRule rule) {        new AlertDialog.Builder(this)
+                .setTitle("删除规则")
+                .setMessage("确定删除「" + rule.getTitle() + "」吗？")
+                .setPositiveButton("删除", (d, w) -> new Thread(() -> {
+                    HkRuleManager.get().delete(rule.getTitle());
+                    App.post(this::refreshRules);
+                }).start())
+                .setNegativeButton("取消", null)
                 .show();
     }
 
-    /** "全部"页 TYPE 头卡数据（对齐 8.83 TYPE_CODE 伪规则）。 */
-    private static class TypeHeader {
-        final String title;
-        final int count;
-
-        TypeHeader(String title, int count) {
-            this.title = title;
-            this.count = count;
-        }
-    }
-
-    /** 8.83 RuleType 标题与顺序：聚合 / 视频 / 音频 / 直播 / 漫画 / 阅读 / 图集 / 资讯 / 工具 / 其它 */
-    private static final String[] TYPE_ORDER = {"聚合", "视频", "音频", "直播", "漫画", "阅读", "图集", "资讯", "工具", "其它"};
-
-    private static String typeTitleOf(String type) {
-        if (type == null) type = "";
-        switch (type) {
-            case "video": return "视频";
-            case "picture": return "图集";
-            case "audio":
-            case "music": return "音频";
-            case "live": return "直播";
-            case "cartoon":
-            case "comic": return "漫画";
-            case "novel":
-            case "read":
-            case "book": return "阅读";
-            case "news": return "资讯";
-            case "tool": return "工具";
-            case "aggregate": return "聚合";
-            default: return "其它";
-        }
-    }
-
-    /** ViewPager2 分页适配器：每页一个分组（"全部"+各分组），"全部"页带 TYPE 头卡。 */
-    private class RulePagerAdapter extends RecyclerView.Adapter<RulePagerAdapter.PageHolder> {
-        private final List<String> groups = new ArrayList<>();
-        private final List<RulePageAdapter> pages = new ArrayList<>();
-        private final List<GridLayoutManager> layouts = new ArrayList<>();
-
-        void setGroups(List<String> g) {
-            groups.clear();
-            groups.addAll(g);
-        }
-
-        void refreshAllPages() {
-            for (RulePageAdapter p : pages) p.refresh();
-        }
-
-        /** 显示列数变更：更新所有页的列数。 */
-        void setSpanCount(int span) {
-            for (GridLayoutManager glm : layouts) glm.setSpanCount(span);
-            refreshAllPages();
-        }
-
-        class PageHolder extends RecyclerView.ViewHolder {
-            final RulePageAdapter adapter;
-
-            PageHolder(View itemView, RulePageAdapter adapter) {
-                super(itemView);
-                this.adapter = adapter;
-            }
-        }
-
-        @NonNull
-        @Override
-        public PageHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            Context ctx = parent.getContext();
-            final RulePageAdapter adapter = new RulePageAdapter();
-            final GridLayoutManager glm = new GridLayoutManager(ctx, getPrefs().getInt(KEY_RULE_SPAN, 2));
-            glm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-                @Override
-                public int getSpanSize(int position) {
-                    return adapter.isHeader(position) ? glm.getSpanCount() : 1;
-                }
-            });
-            final RecyclerView rv = new RecyclerView(ctx);
-            rv.setLayoutParams(new ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            rv.setLayoutManager(glm);
-            rv.addItemDecoration(new GridSpace());
-            rv.setClipToPadding(false);
-            int pad = dp(7);
-            rv.setPadding(pad, dp(2), pad, dp(96));
-            rv.setAdapter(adapter);
-            // 编辑模式拖拽排序：长按卡片拖动（仅编辑模式启用，TYPE 头卡不可拖）
-            // 拖到分组 tab 上松手 = 把卡片分配进该分组（换位回滚，仅做分组）
-            ItemTouchHelper th = new ItemTouchHelper(new ItemTouchHelper.Callback() {
-                @Override
-                public int getMovementFlags(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh) {
-                    if (!ruleManageMode || adapter.isHeader(vh.getBindingAdapterPosition())) return 0;
-                    int drag = ItemTouchHelper.UP | ItemTouchHelper.DOWN | ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT;
-                    return makeMovementFlags(drag, 0);
-                }
-
-                @Override
-                public boolean onMove(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh,
-                                      @NonNull RecyclerView.ViewHolder target) {
-                    int from = vh.getBindingAdapterPosition();
-                    int to = target.getBindingAdapterPosition();
-                    if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION || from == to) return false;
-                    if (adapter.isHeader(to)) return false;
-                    adapter.moveItem(from, to);
-                    return true;
-                }
-
-                @Override
-                public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
-                }
-
-                @Override
-                public boolean isLongPressDragEnabled() {
-                    return ruleManageMode;
-                }
-
-                @Override
-                public void onSelectedChanged(RecyclerView.ViewHolder vh, int actionState) {
-                    super.onSelectedChanged(vh, actionState);
-                    if (!ruleManageMode) return;
-                    if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
-                        ruleDragHolder = vh;
-                        ruleDragFromPos = vh.getBindingAdapterPosition();
-                        ruleDragTitle = null;
-                        Object o = adapter.getItem(ruleDragFromPos);
-                        if (o instanceof HkRule) ruleDragTitle = ((HkRule) o).getTitle();
-                        ruleDragOrderSnapshot = new ArrayList<>();
-                        for (HkRule r : rules) ruleDragOrderSnapshot.add(r.getTitle());
-                        // 抬高被拖卡片并放开祖先裁剪，让它能浮到分组 tab 之上
-                        vh.itemView.setElevation(dp(12));
-                        setRulesClipChildren(rv, false);
-                    }
-                }
-
-                @Override
-                public void onChildDraw(@NonNull Canvas c, @NonNull RecyclerView r,
-                                        @NonNull RecyclerView.ViewHolder vh,
-                                        float dX, float dY, int actionState, boolean isCurrentlyActive) {
-                    super.onChildDraw(c, r, vh, dX, dY, actionState, isCurrentlyActive);
-                    if (ruleManageMode && isCurrentlyActive
-                            && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
-                        updateGroupDropTarget(vh.itemView);
-                    }
-                }
-
-                @Override
-                public void clearView(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh) {
-                    super.clearView(r, vh);
-                    vh.itemView.setElevation(0);
-                    setRulesClipChildren(rv, true);
-                    int target = groupDropTargetPos;
-                    setGroupDropTarget(-1);
-                    if (ruleManageMode && target >= 0 && target < groupTabs.size() && ruleDragTitle != null) {
-                        HkRule rule = findRuleByTitle(ruleDragTitle);
-                        restoreDragOrderSnapshot();
-                        if (rule != null) {
-                            String g = groupTabs.get(target);
-                            assignRuleGroup(rule, g);
-                            Notify.show("已移入「" + (TextUtils.isEmpty(g) ? "全部" : stripGroupPrefix(g)) + "」");
-                        }
-                    }
-                    ruleDragHolder = null;
-                    ruleDragFromPos = RecyclerView.NO_POSITION;
-                    ruleDragTitle = null;
-                    ruleDragOrderSnapshot = null;
-                }
-            });
-            th.attachToRecyclerView(rv);
-            pages.add(adapter);
-            layouts.add(glm);
-            return new PageHolder(rv, adapter);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull PageHolder holder, int position) {
-            holder.adapter.setGroup(groups.get(position));
-        }
-
-        @Override
-        public int getItemCount() {
-            return groups.size();
-        }
-    }
-
-    /** 单页规则列表："全部"页 = TYPE 头卡 + 全部规则；分组页 = 该组规则。 */
-    private class RulePageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class RuleAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         private static final int TYPE_RULE = 1;
-        private static final int TYPE_HEAD = 2;
+        private static final int TYPE_RULE_COMPACT = 2;
         private final List<Object> items = new ArrayList<>();
-        private String group = "";
 
-        void setGroup(String g) {
-            group = g == null ? "" : g;
-            refresh();
+        /** 平铺规则：分组筛选（实际分组=自定义覆盖优先） + 关键字过滤 + 名称排序开关（编辑模式下按拖拽顺序，不做名称排序）。 */
+        /** 搜索页直接设置数据（不过滤，调用方已过滤）。 */
+        void setItems(List<HkRule> list) {
+            items.clear();
+            items.addAll(list);
         }
 
-        void refresh() {
+        void rebuildSections() {
             items.clear();
-            List<HkRule> src = new ArrayList<>();
-            for (HkRule r : rules) {
-                if (group.isEmpty() || group.equals(effectiveGroup(r))) src.add(r);
+            List<HkRule> src = new ArrayList<>(rules);
+            if (!TextUtils.isEmpty(ruleGroup)) {
+                Iterator<HkRule> it = src.iterator();
+                while (it.hasNext()) {
+                    HkRule r = it.next();
+                    if (!ruleGroup.equals(effectiveGroup(r))) it.remove();
+                }
             }
-            if (group.isEmpty()) {
-                // "全部"页：按类型计数，TYPE 头卡排在前面（对齐 8.83 addTypeItems）
-                Map<String, Integer> count = new HashMap<>();
-                for (HkRule r : src) {
-                    String t = typeTitleOf(r.getType());
-                    count.put(t, count.containsKey(t) ? count.get(t) + 1 : 1);
+            if (!TextUtils.isEmpty(ruleKeyword)) {
+                String kw = ruleKeyword.toLowerCase(Locale.getDefault());
+                Iterator<HkRule> it = src.iterator();
+                while (it.hasNext()) {
+                    HkRule r = it.next();
+                    String t = r.getTitle() == null ? "" : r.getTitle().toLowerCase(Locale.getDefault());
+                    if (!t.contains(kw)) it.remove();
                 }
-                for (String t : TYPE_ORDER) {
-                    if (count.containsKey(t)) items.add(new TypeHeader(t, count.get(t)));
-                }
+            }
+            if (ruleSortByName && !ruleManageMode) {
+                Collections.sort(src, (a, b) -> {
+                    String ta = a.getTitle() == null ? "" : a.getTitle();
+                    String tb = b.getTitle() == null ? "" : b.getTitle();
+                    return ta.compareTo(tb);
+                });
             }
             items.addAll(src);
-            notifyDataSetChanged();
         }
 
-        boolean isHeader(int pos) {
-            return pos >= 0 && pos < items.size() && items.get(pos) instanceof TypeHeader;
-        }
-
-        Object getItem(int pos) {
-            return (pos >= 0 && pos < items.size()) ? items.get(pos) : null;
-        }
-
-        /** 拖拽换位：同步页内显示与全局 rules，持久化自定义顺序。 */
+        /** 拖拽换位：同步 adapter 显示列表与底层 rules 列表，持久化自定义顺序。 */
         void moveItem(int from, int to) {
-            Object mo = items.get(from);
-            Object oo = items.get(to);
-            if (!(mo instanceof HkRule) || !(oo instanceof HkRule)) return;
-            HkRule moved = (HkRule) mo;
-            HkRule other = (HkRule) oo;
+            HkRule moved = (HkRule) items.get(from);
+            HkRule other = (HkRule) items.get(to);
             Collections.swap(items, from, to);
             notifyItemMoved(from, to);
             int ix = -1, iy = -1;
@@ -2541,13 +1949,13 @@ public class HkPageActivity extends BaseActivity {
             }
         }
 
-        class RuleHolder extends RecyclerView.ViewHolder {
+        class Holder extends RecyclerView.ViewHolder {
             TextView icon, name, tag;
             android.widget.ImageView ivIcon;
             SwitchCompat sw;
             ImageButton more;
 
-            RuleHolder(View v) {
+            Holder(View v) {
                 super(v);
                 icon = v.findViewById(R.id.tv_icon);
                 ivIcon = v.findViewById(R.id.iv_icon);
@@ -2558,65 +1966,52 @@ public class HkPageActivity extends BaseActivity {
             }
         }
 
-        class HeadHolder extends RecyclerView.ViewHolder {
-            TextView title, desc;
-
-            HeadHolder(View v) {
-                super(v);
-                title = v.findViewById(R.id.tv_type_title);
-                desc = v.findViewById(R.id.tv_type_desc);
-            }
-        }
-
         @Override
         public int getItemViewType(int position) {
-            return items.get(position) instanceof TypeHeader ? TYPE_HEAD : TYPE_RULE;
+            // 3列模式卡片窄，用紧凑布局保证名字可读；2列用原布局
+            return ruleGrid != null && ruleGrid.getSpanCount() == 3 ? TYPE_RULE_COMPACT : TYPE_RULE;
         }
 
         @NonNull
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            LayoutInflater inf = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_HEAD) {
-                return new HeadHolder(inf.inflate(R.layout.item_hk_rule_type, parent, false));
-            }
-            return new RuleHolder(inf.inflate(R.layout.item_hk_rule, parent, false));
+            int layout = viewType == TYPE_RULE_COMPACT ? R.layout.item_hk_rule_compact : R.layout.item_hk_rule;
+            View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
+            // 卡片已改纯白实底，不再需要 blur
+            return new Holder(v);
         }
 
-        /** 图标：URL 则加载图片（失败用 8.83 同款默认图标占位，可重试），# 开头则设背景色，否则默认"海"字；形状跟随"图标设置"。 */
-        private void applyIconBg(RuleHolder h, String iconDef, String title) {
+        /** 图标：URL 则加载图片，# 开头则设背景色，否则默认"海"字。 */
+        private void applyIconBg(Holder h, String iconDef) {
             TextView icon = h.icon;
             android.widget.ImageView ivIcon = h.ivIcon;
-            int shape = getPrefs().getInt(KEY_RULE_ICON_SHAPE, 1);
-            if (shape == 2) { // 不显示
-                icon.setVisibility(View.GONE);
-                ivIcon.setVisibility(View.GONE);
-                return;
-            }
             boolean isUrl = !TextUtils.isEmpty(iconDef)
                     && (iconDef.startsWith("http://") || iconDef.startsWith("https://"));
             if (isUrl) {
+                // URL 图标：显示图片，隐藏"海"字
                 icon.setVisibility(View.GONE);
                 ivIcon.setVisibility(View.VISIBLE);
+                // 圆角裁剪跟文字版一致
                 ivIcon.setClipToOutline(true);
                 ivIcon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
                 try {
-                    ImgUtil.loadRuleIcon(title, iconDef, ivIcon);
+                    com.fongmi.android.tv.utils.ImgUtil.load("", iconDef, ivIcon);
                 } catch (Exception ignored) {
+                    // 加载失败回退到"海"字
                     ivIcon.setVisibility(View.GONE);
                     icon.setVisibility(View.VISIBLE);
                 }
                 return;
             }
+            // 非 URL：显示"海"字
             ivIcon.setVisibility(View.GONE);
             icon.setVisibility(View.VISIBLE);
-            GradientDrawable gd = new GradientDrawable();
-            if (shape == 0) gd.setShape(GradientDrawable.OVAL);
-            else gd.setCornerRadius(dp(10));
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+            gd.setCornerRadius(dp(10));
             int color = 0xFFF6EED6;
             if (!TextUtils.isEmpty(iconDef) && iconDef.startsWith("#")) {
                 try {
-                    color = Color.parseColor(iconDef);
+                    color = android.graphics.Color.parseColor(iconDef);
                 } catch (Exception ignored) {
                 }
             }
@@ -2626,44 +2021,21 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int position) {
-            Object o = items.get(position);
-            if (o instanceof TypeHeader) {
-                TypeHeader th = (TypeHeader) o;
-                HeadHolder h = (HeadHolder) vh;
-                h.title.setText(th.title);
-                h.desc.setText("共 " + th.count + " 个");
-                h.itemView.setOnClickListener(v -> {
-                    // TYPE 名与分组名一致时跳到该分组页
-                    int pos = groupTabs.indexOf(th.title);
-                    if (pos > 0) selectGroupTab(pos, false);
-                });
-                return;
-            }
-            HkRule rule = (HkRule) o;
-            RuleHolder h = (RuleHolder) vh;
+            Holder h = (Holder) vh;
+            HkRule rule = (HkRule) items.get(position);
             String title = rule.getTitle();
-            h.name.setText(TextUtils.isEmpty(title) ? "未命名规则" : title);
-            applyIconBg(h, rule.getIcon(), title);
+            h.name.setText(android.text.TextUtils.isEmpty(title) ? "未命名规则" : title);
+            applyIconBg(h, rule.getIcon());
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
             if (h.ivIcon != null) h.ivIcon.setAlpha(alpha);
-            boolean selected = batchDeleteMode && batchDeleteSet.contains(title);
-            if (selected) {
-                // 批量删除勾中：删除线 + 灰字
-                h.name.setPaintFlags(h.name.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
-                h.name.setTextColor(0xFF8A8F98);
-                h.name.setAlpha(1f);
-            } else {
-                h.name.setPaintFlags(h.name.getPaintFlags() & ~Paint.STRIKE_THRU_TEXT_FLAG);
-                h.name.setTextColor(0xFF101216);
-                // 禁用态：图标半透示意，文字保持可读（0.75f），深色字必须看得清
-                h.name.setAlpha(rule.isEnabled() ? 1f : 0.75f);
-            }
-            // 管理模式：显示启用开关 + 分组标签；批量删除模式都隐藏
-            h.sw.setVisibility(ruleManageMode && !batchDeleteMode ? View.VISIBLE : View.GONE);
+            // 禁用态：图标半透示意，文字保持可读（0.75f），深色字必须看得清
+            h.name.setAlpha(rule.isEnabled() ? 1f : 0.75f);
+            // 管理模式：显示启用开关 + 分组标签；⋮ 按钮已去掉（长按卡片出菜单）
+            h.sw.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
             h.more.setVisibility(View.GONE);
-            h.tag.setVisibility(ruleManageMode && !batchDeleteMode ? View.VISIBLE : View.GONE);
-            if (ruleManageMode && !batchDeleteMode) {
+            h.tag.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
+            if (ruleManageMode) {
                 String g = effectiveGroup(rule);
                 if (TextUtils.isEmpty(g)) {
                     h.tag.setText("未分组");
@@ -2680,36 +2052,19 @@ public class HkPageActivity extends BaseActivity {
             h.sw.setOnCheckedChangeListener((btn, checked) -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;
-                Object oo = getItem(pos);
-                if (!(oo instanceof HkRule)) return;
-                HkRule r = (HkRule) oo;
+                Object o = items.get(pos);
+                if (!(o instanceof HkRule)) return;
+                HkRule r = (HkRule) o;
                 r.setEnabled(checked);
                 HkRuleManager.get().setEnabled(r.getTitle(), checked);
                 notifyItemChanged(pos);
             });
-            if (batchDeleteMode) {
-                // 批量删除：点卡片勾选/取消勾选
-                h.itemView.setOnClickListener(v -> {
-                    int pos = h.getBindingAdapterPosition();
-                    if (pos == RecyclerView.NO_POSITION) return;
-                    Object oo = getItem(pos);
-                    if (!(oo instanceof HkRule)) return;
-                    String t = ((HkRule) oo).getTitle();
-                    if (batchDeleteSet.contains(t)) batchDeleteSet.remove(t);
-                    else batchDeleteSet.add(t);
-                    notifyItemChanged(pos);
-                });
-                h.itemView.setOnLongClickListener(null);
-            } else if (ruleManageMode) {
-                // 编辑模式：点卡片分配分组（长按拖拽排序）
+            // 编辑模式：点卡片分配分组（长按拖拽排序）；普通模式：点卡片打开小程序，长按弹出菜单（编辑/分享/删除）
+            if (ruleManageMode) {
                 h.itemView.setOnClickListener(v -> showGroupPicker(rule));
                 h.itemView.setOnLongClickListener(null);
             } else {
-                // 普通模式：点卡片打开小程序，长按弹出菜单
-                h.itemView.setOnClickListener(v -> {
-                    noteRuleUsed(rule.getTitle());
-                    openRule(rule);
-                });
+                h.itemView.setOnClickListener(v -> openRule(rule));
                 h.itemView.setOnLongClickListener(v -> {
                     showRuleCardMenu(rule);
                     return true;
@@ -2723,7 +2078,7 @@ public class HkPageActivity extends BaseActivity {
         }
     }
 
-    /** 卡片长按菜单：编辑 / 置顶 / 置底 / 分享 / 批量删除 / 规则详情 / 删除（选项独立卡片框、有间距）。 */
+    /** 卡片 ⋮ 菜单：编辑 / 分享 / 删除（选项独立卡片框、有间距）。 */
     private void showRuleCardMenu(HkRule rule) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2736,7 +2091,7 @@ public class HkPageActivity extends BaseActivity {
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        String[] labels = {"编辑", "置顶", "置底", "分享", "批量删除", "规则详情", "删除"};
+        String[] labels = {"编辑", "分享", "删除"};
         AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
@@ -2753,115 +2108,13 @@ public class HkPageActivity extends BaseActivity {
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
                 if (which == 0) showRuleFormEditor(rule);
-                else if (which == 1) pinRule(rule, true);
-                else if (which == 2) pinRule(rule, false);
-                else if (which == 3) showRuleShareOptions(rule);
-                else if (which == 4) enterBatchDeleteMode();
-                else if (which == 5) showRuleDetail(rule);
+                else if (which == 1) showRuleShareOptions(rule);
                 else showDeleteRuleConfirm(rule);
             });
             root.addView(tv, lp);
         }
         dialog.show();
     }
-
-    /** 置顶 / 置底：调整全局顺序并持久化。 */
-    private void pinRule(HkRule rule, boolean top) {
-        if (customOrder == null) {
-            customOrder = new ArrayList<>();
-            for (HkRule r : rules) customOrder.add(r.getTitle());
-        }
-        rules.remove(rule);
-        if (top) rules.add(0, rule);
-        else rules.add(rule);
-        customOrder.remove(rule.getTitle());
-        if (top) customOrder.add(0, rule.getTitle());
-        else customOrder.add(rule.getTitle());
-        saveCustomOrder();
-        buildGroupTabs();
-        Notify.show("已" + (top ? "置顶" : "置底") + "：" + rule.getTitle());
-    }
-
-    /** 规则详情：导入时间 / 最近使用 / 最后更新 / 错误信息（对齐 8.83 FileDetailPopup）。 */
-    private void showRuleDetail(HkRule rule) {
-        String title = rule.getTitle();
-        String[][] rows = {
-                {"标题", TextUtils.isEmpty(title) ? "未命名规则" : title},
-                {"导入时间", formatRuleTime(ruleImportTime.get(title))},
-                {"最近使用", formatRuleTime(ruleLastUse.get(title))},
-                {"最后更新", formatRuleTime(HkRuleManager.get().ruleModified(title))},
-                {"错误信息", findRuleError(title)},
-        };
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(16), dp(20), dp(16));
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText("规则详情");
-        tvTitle.setTextColor(0xFF1A1D24);
-        tvTitle.setTextSize(16);
-        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setGravity(Gravity.CENTER);
-        root.addView(tvTitle, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        for (String[] row : rows) {
-            LinearLayout line = new LinearLayout(this);
-            line.setOrientation(LinearLayout.HORIZONTAL);
-            line.setPadding(0, dp(10), 0, dp(10));
-            TextView k = new TextView(this);
-            k.setText(row[0]);
-            k.setTextColor(0xFF8A8F98);
-            k.setTextSize(14);
-            k.setMinWidth(dp(72));
-            TextView v = new TextView(this);
-            v.setText(row[1]);
-            v.setTextColor(0xFF1A1D24);
-            v.setTextSize(14);
-            line.addView(k);
-            line.addView(v, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            root.addView(line);
-            if (!row[0].equals("错误信息")) {
-                View div = new View(this);
-                div.setBackgroundColor(0xFFE3E6EB);
-                root.addView(div, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-            }
-        }
-        new AlertDialog.Builder(this)
-                .setView(root)
-                .setPositiveButton("确定", null)
-                .show();
-    }
-
-    private static String formatRuleTime(Long ts) {
-        if (ts == null || ts <= 0) return "无";
-        try {
-            return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    .format(new java.util.Date(ts));
-        } catch (Exception e) {
-            return "无";
-        }
-    }
-
-    /** 规则解析失败日志里找该规则最近一条错误（hk_rule_error.log）。 */
-    private String findRuleError(String title) {
-        try {
-            java.io.File log = new java.io.File(getFilesDir(), "hk_rule_error.log");
-            if (!log.exists() || TextUtils.isEmpty(title)) return "无";
-            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(log));
-            String line, last = null;
-            while ((line = br.readLine()) != null) {
-                if (line.contains(title)) last = line;
-            }
-            br.close();
-            if (last == null) return "无";
-            int i = last.indexOf('|');
-            return i >= 0 && i + 1 < last.length() ? last.substring(i + 1).trim() : last;
-        } catch (Exception e) {
-            return "无";
-        }
-    }
-
 
     /** 分享：云口令分享 / 文件分享（独立卡片选项）。 */
     private void showRuleShareOptions(HkRule rule) {
@@ -2969,16 +2222,16 @@ public class HkPageActivity extends BaseActivity {
 
     /** 表单式编辑小程序（按 8.83 ArticleListRuleEditActivity）：四个可折叠分区，保存写回 rule.json。 */
     private void showRuleFormEditor(HkRule rule) {
-        final String oldTitle = rule.getTitle() == null ? "" : rule.getTitle();
-        final boolean isNew = TextUtils.isEmpty(oldTitle);
         final JSONObject obj;
         try {
-            String raw = isNew ? null : HkRuleManager.get().loadRuleJson(oldTitle);
-            obj = new JSONObject(raw == null || raw.trim().isEmpty() ? "{}" : raw);
+            String raw = HkRuleManager.get().loadRuleJson(rule.getTitle());
+            if (raw == null || raw.trim().isEmpty()) throw new IllegalArgumentException("规则文件不存在");
+            obj = new JSONObject(raw);
         } catch (Exception e) {
             com.fongmi.android.tv.utils.ToastUtil.show(this, "规则读取失败：" + e.getMessage());
             return;
         }
+        final String oldTitle = rule.getTitle();
         final Map<String, EditText> fields = new HashMap<>();
 
         final Dialog dialog = new Dialog(this);
@@ -2998,7 +2251,7 @@ public class HkPageActivity extends BaseActivity {
         btnCancel.setTextSize(16);
         btnCancel.setPadding(dp(14), dp(10), dp(14), dp(10));
         TextView tvTitle = new TextView(this);
-        tvTitle.setText(isNew ? "新建小程序" : "编辑小程序");
+        tvTitle.setText("编辑小程序");
         tvTitle.setTextColor(0xFF1A1D24);
         tvTitle.setTextSize(17);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -3268,7 +2521,7 @@ public class HkPageActivity extends BaseActivity {
                 saveCustomOrder();
             }
         }
-        buildGroupTabs();
+        buildGroupFilterRow();
     }
 
     // ================= V2 分类+列表 =================
@@ -3286,11 +2539,10 @@ public class HkPageActivity extends BaseActivity {
         });
         binding.rvVideos.setLayoutManager(contentGrid);
         binding.rvVideos.addItemDecoration(new GridSpace());
-        contentAdapter = new ContentAdapter(videos, true);
+        contentAdapter = new ContentAdapter(videos);
         binding.rvVideos.setAdapter(contentAdapter);
-        // 下拉刷新（SwipeRefreshLayout；原 SmartRefreshLayout 已从 Maven 下架）
-        binding.refreshContent.setOnRefreshListener(() -> loadContent(true));
-        binding.fastScroller.attach(binding.rvVideos);
+        binding.swipeContent.setColorSchemeColors(0xFFD4A017);
+        binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
         binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
         binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
         binding.rvVideos.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -3649,11 +2901,11 @@ public class HkPageActivity extends BaseActivity {
     /**
      * 8.83 同款：内容页内嵌搜索栏。
      * 规则有搜索能力时显示，输入关键词点搜索跳搜索页。
-     * 规则内容自带 input 搜索框时隐藏，避免两个搜索框重复。
      */
     private void buildContentSearchBar() {
         try {
             if (currentRule != null && currentRule.hasSearch()) {
+                binding.searchBarContent.setVisibility(View.VISIBLE);
                 binding.etSearchContent.setHint("搜索" + currentRule.getTitle() + " / 演员");
                 binding.etSearchContent.setOnEditorActionListener((v, actionId, event) -> {
                     if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
@@ -3663,29 +2915,9 @@ public class HkPageActivity extends BaseActivity {
                     return false;
                 });
                 binding.btnSearchContentGo.setOnClickListener(v -> doContentSearch());
+            } else {
+                binding.searchBarContent.setVisibility(View.GONE);
             }
-        } catch (Throwable ignored) {
-        }
-        updateContentSearchBarVisibility();
-    }
-
-    /** 规则内容里是否自带 input 搜索框（col_type="input"）。 */
-    private boolean hasRuleInputBox() {
-        try {
-            for (HkItem it : videos) {
-                String ct = it.getColType();
-                if (ct != null && "input".equals(ct.trim().toLowerCase())) return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    /** 内嵌搜索条显隐：规则有搜索能力且内容里没有自带 input 框时才显示。 */
-    private void updateContentSearchBarVisibility() {
-        try {
-            boolean show = currentRule != null && currentRule.hasSearch() && !hasRuleInputBox();
-            binding.searchBarContent.setVisibility(show ? View.VISIBLE : View.GONE);
         } catch (Throwable t) {
             binding.searchBarContent.setVisibility(View.GONE);
         }
@@ -4213,7 +3445,7 @@ public class HkPageActivity extends BaseActivity {
             App.post(() -> {
                 if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
                 loading = false;
-                binding.refreshContent.setRefreshing(false);
+                binding.swipeContent.setRefreshing(false);
                 binding.loadingContent.setVisibility(View.GONE);
                 // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
                 hideHkLoading();
@@ -4226,8 +3458,7 @@ public class HkPageActivity extends BaseActivity {
                     String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
                     if ("scroll_button".equals(ct) || "flex_button".equals(ct)) tabs.add(it);
                     else if ("blank_block".equals(ct) || "big_blank_block".equals(ct)
-                            || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)
-                            || "header".equals(ct)) continue;
+                            || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)) continue;
                     else contents.add(it);
                 }
                 if (p == 1) buildDynamicTabs(tabs);
@@ -4253,8 +3484,6 @@ public class HkPageActivity extends BaseActivity {
                     binding.rvVideos.setVisibility(View.VISIBLE);
                     contentAdapter.refreshGroups();
                     contentAdapter.notifyDataSetChanged();
-                    // 内容里自带 input 搜索框时，隐藏星辰内嵌搜索条，避免两个搜索框重复
-                    updateContentSearchBarVisibility();
                 }
                 updateFooter();
             });
@@ -4275,29 +3504,11 @@ public class HkPageActivity extends BaseActivity {
     // ================= V3 搜索 =================
 
     private void initSearchView() {
-        binding.rvSearchResults.setLayoutManager(new LinearLayoutManager(this));
-        searchAdapter = new SearchCardAdapter(searchResults);
+        GridLayoutManager grid = new GridLayoutManager(this, 3);
+        binding.rvSearchResults.setLayoutManager(grid);
+        binding.rvSearchResults.addItemDecoration(new GridSpace());
+        searchAdapter = new VideoAdapter(searchResults, false);
         binding.rvSearchResults.setAdapter(searchAdapter);
-        binding.searchRefresh.setOnRefreshListener(() -> {
-            if (keyword.isEmpty()) {
-                binding.searchRefresh.setRefreshing(false);
-                return;
-            }
-            if (searchDualMode) doCrossSearch(keyword);
-            else doSearch(keyword);
-        });
-        // 上拉加载更多：原 SmartRefreshLayout 已从 Maven 下架，改用滚动监听（内容页 rvVideos 同款）
-        binding.rvSearchResults.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy <= 0 || searchLoading || searchNoMore || !searchCanPage) return;
-                RecyclerView.LayoutManager lm = rv.getLayoutManager();
-                if (lm instanceof LinearLayoutManager) {
-                    int last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
-                    if (last >= searchAdapter.getItemCount() - 3) doSearchPage();
-                }
-            }
-        });
         binding.rvHistory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         // 搜索页搜索条用实色白底（用户反馈透明看不清，已去磨砂）
         binding.btnBackSearch.setOnClickListener(v -> onBackInvoked());
@@ -4335,98 +3546,16 @@ public class HkPageActivity extends BaseActivity {
             if (searchDualMode) doCrossSearch(kw);
             else doSearch(kw);
         });
-        binding.tvSearchMode.setOnClickListener(v -> {
-            boolean precise = !isPreciseMode();
-            getPrefs().edit().putInt(KEY_SMODE, precise ? 1 : 0).apply();
-            updateSearchModeText();
-            Notify.show(precise ? "已设置为精准模式" : "已设置为默认模式");
-            if (!keyword.isEmpty()) {
-                if (searchDualMode) doCrossSearch(keyword);
-                else doSearch(keyword);
+        binding.rvSearchResults.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0 || searchLoading || searchNoMore || keyword.isEmpty()) return;
+                GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
+                if (lm != null && lm.findLastVisibleItemPosition() >= searchAdapter.getItemCount() - 3) {
+                    doSearchPage();
+                }
             }
         });
-        updateSearchModeText();
-    }
-
-    private boolean isPreciseMode() {
-        return getPrefs().getInt(KEY_SMODE, 0) == 1;
-    }
-
-    private void updateSearchModeText() {
-        binding.tvSearchMode.setText(isPreciseMode() ? "搜索模式：精准" : "搜索模式：默认");
-    }
-
-    private void setSearchProgress(boolean on) {
-        try {
-            binding.searchProgress.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
-            android.graphics.drawable.Drawable d = binding.searchProgress.getDrawable();
-            if (d instanceof android.graphics.drawable.Animatable) {
-                if (on) ((android.graphics.drawable.Animatable) d).start();
-                else ((android.graphics.drawable.Animatable) d).stop();
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 8.83 SearchFragment.filterData：精准模式过滤（smode=1 时） */
-    private void filterPrecise(List<SearchResult> list) {
-        if (!isPreciseMode() || list == null || list.isEmpty()) return;
-        // 单条占位结果（验证码/聚合搜索等提示条）直接保留，不进通用过滤
-        if (list.size() == 1) {
-            SearchResult one = list.get(0);
-            String t = one.getTitle();
-            String u = one.getUrl();
-            if (t != null && (t.contains("验证码") || t.contains("聚合搜索") || t.contains("聚搜")
-                    || t.contains("点我") || t.contains("加载中") || t.contains("加载"))) {
-                return;
-            }
-            if (u != null && "hiker://empty".equals(u)) {
-                return;
-            }
-        }
-        java.util.Iterator<SearchResult> it = list.iterator();
-        while (it.hasNext()) {
-            SearchResult r = it.next();
-            String url = r.getUrl();
-            boolean keep = false;
-            if (url != null && !url.isEmpty()
-                    && (url.startsWith("hiker://search") || url.startsWith("海阔视界"))) {
-                keep = true;
-            }
-            if (!keep && !searchContains(r.getTitle(), keyword, false)) {
-                it.remove();
-            }
-        }
-    }
-
-    /** 8.83 StringUtil.searchContains：空标题 false；空关键词 true；多词按序包含 */
-    private static boolean searchContains(String title, String key, boolean ignoreCase) {
-        if (title == null || title.isEmpty()) return false;
-        if (key == null || key.isEmpty()) return true;
-        if (ignoreCase) {
-            title = title.toLowerCase();
-            key = key.toLowerCase();
-        }
-        String[] words = key.split(" ");
-        if (words.length >= 2) {
-            for (String w : words) {
-                int idx = title.indexOf(w);
-                if (idx < 0) return false;
-                title = title.substring(idx + w.length());
-            }
-            return true;
-        }
-        return title.contains(key);
-    }
-
-    private void configSearchRefresh() {
-        searchCanPage = currentRule != null && currentRule.getSearchUrl() != null
-                && currentRule.getSearchUrl().contains("fypage");
-        binding.searchRefresh.setEnabled(true);
-    }
-
-    private String emptySearchTitle() {
-        return "没有找到你想要的噢-_-" + (isPreciseMode() ? "（当前为精准搜索模式）" : "");
     }
 
     private void openSearch() {
@@ -4480,6 +3609,53 @@ public class HkPageActivity extends BaseActivity {
         return KEY_HIST;
     }
 
+    /**
+     * 点 🔍：顶栏下方展开 inline 磨砂搜索条，输入实时过滤首页小程序卡片，不跳页；再点收起。
+     */
+    private void toggleInlineSearch() {
+        if (binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
+            closeInlineSearch();
+        } else {
+            binding.inlineSearchBar.setVisibility(View.VISIBLE);
+            updateRulesTopPadding();
+            binding.etInlineSearch.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(binding.etInlineSearch, InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    /** 关闭 inline 搜索：清空关键词、恢复全部卡片、收起键盘。 */
+    private void closeInlineSearch() {
+        binding.inlineSearchBar.setVisibility(View.GONE);
+        binding.etInlineSearch.setText("");
+        ruleKeyword = "";
+        ruleAdapter.rebuildSections();
+        ruleAdapter.notifyDataSetChanged();
+        updateRulesTopPadding();
+        hideKeyboard();
+    }
+
+    private void hideKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(binding.etInlineSearch.getWindowToken(), 0);
+        binding.etInlineSearch.clearFocus();
+    }
+
+    /**
+     * 长按 🔍：跨小程序内容搜索（只留"搜内容"模式）。
+     */
+    private void openContentSearch() {
+        searchDualMode = true;
+        binding.etKeyword.setText("");
+        binding.etKeyword.setHint("搜索全部小程序的内容");
+        updateSearchScopeLabel();
+        binding.historySection.setVisibility(View.GONE);
+        binding.tvSearchEmpty.setVisibility(View.VISIBLE);
+        binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
+        binding.rvSearchResults.setVisibility(View.GONE);
+        pushView(V_SEARCH);
+        binding.etKeyword.requestFocus();
+    }
 
     /**
      * 搜内容：跨小程序内容搜索。对所有启用的小程序并发调用 search(keyword, 1)，
@@ -4551,11 +3727,9 @@ public class HkPageActivity extends BaseActivity {
             final List<SearchResult> result = new ArrayList<>(aggregated);
             App.post(() -> {
                 if (gen != crossSearchGen.get()) return; // 已被新搜索取代
-                binding.searchRefresh.setRefreshing(false);
                 searchResults.clear();
                 // 注意：不要在这里清 searchSrcRules——worker 线程刚把来源标注写进去，
                 // 清掉会导致"【来源】"后缀和点击切换丢失。搜索开始时已清过。
-                filterPrecise(result);
                 searchResults.addAll(result);
                 searchAdapter.notifyDataSetChanged();
                 if (result.isEmpty()) {
@@ -4612,7 +3786,6 @@ public class HkPageActivity extends BaseActivity {
             final List<SearchResult> result = list;
             App.post(() -> {
                 searchLoading = false;
-                binding.searchRefresh.setRefreshing(false);
                 if (result.isEmpty()) {
                     if (p == 1 && searchResults.isEmpty()) {
                         binding.tvSearchEmpty.setVisibility(View.VISIBLE);
@@ -4621,7 +3794,6 @@ public class HkPageActivity extends BaseActivity {
                         searchNoMore = true;
                     }
                 } else {
-                    filterPrecise(result);
                     searchResults.addAll(result);
                     searchPage = p + 1;
                     searchAdapter.notifyDataSetChanged();
@@ -4667,13 +3839,6 @@ public class HkPageActivity extends BaseActivity {
     private void initDetailView() {
         binding.btnBackDetail.setOnClickListener(v -> onBackInvoked());
         binding.tvDetailTitle.setSelected(true);
-        binding.btnFavDetail.setOnClickListener(v -> toggleDetailFavorite());
-        binding.btnMenuDetail.setOnClickListener(v -> showDetailMenu());
-        binding.swipeDetail.setColorSchemeColors(0xFFD4A017);
-        binding.swipeDetail.setOnRefreshListener(() -> {
-            if (detailItem != null) openDetail(detailItem, detailFromSearch, false, false);
-            else binding.swipeDetail.setRefreshing(false);
-        });
         // 8.83 原版：详情页走通用列表渲染器（60 列栅格 + ContentAdapter），不用专用布局
         detailGrid = new GridLayoutManager(this, 60);
         detailGrid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -4685,7 +3850,6 @@ public class HkPageActivity extends BaseActivity {
         binding.rvDetailContent.setLayoutManager(detailGrid);
         binding.rvDetailContent.addItemDecoration(new GridSpace());
         detailAdapter = new ContentAdapter(detailItems);
-        detailAdapter.setDetailMode(true);
         binding.rvDetailContent.setAdapter(detailAdapter);
         binding.tvDetailEmpty.setOnClickListener(v -> {
             if (detailItem != null) openDetail(detailItem, detailFromSearch);
@@ -4693,7 +3857,7 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void openDetail(HkItem item, boolean fromSearch) {
-        openDetail(item, fromSearch, false, true);
+        openDetail(item, fromSearch, false);
     }
 
     /**
@@ -4721,13 +3885,6 @@ public class HkPageActivity extends BaseActivity {
      *                     避免 V4 loading 闪一下。非直接播放时再补推 V4 展示结果。
      */
     private void openDetail(HkItem item, boolean fromSearch, boolean lazyPrecheck) {
-        openDetail(item, fromSearch, lazyPrecheck, true);
-    }
-
-    /**
-     * @param push false=下拉刷新重载：不重复压栈，结束后也不弹栈
-     */
-    private void openDetail(HkItem item, boolean fromSearch, boolean lazyPrecheck, boolean push) {
         // 官方 clickItem：@rule= 条目进子列表页（dealRule），不进 V4；各调用方统一在此拦截。
         // 顺序与官方一致：只看 @rule= 前段是否含 @lazyRule=，含则走 lazy 预检不进子列表。
         if (item != null && !TextUtils.isEmpty(item.getUrl())) {
@@ -4744,16 +3901,12 @@ public class HkPageActivity extends BaseActivity {
         currentDetail = null;
         detailItems.clear();
         if (detailAdapter != null) detailAdapter.notifyDataSetChanged();
-        // 足迹预载：本详情页上次点击的选集 URL（#noHistory# 规则不记，见 playDetailEpisode）
-        detailHighlightUrl = getPrefs().getString(detailFootKey(), "");
-        detailReversed = false;
         if (!lazyPrecheck) {
             binding.tvDetailTitle.setText(item.getTitle());
             binding.rvDetailContent.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.GONE);
             binding.tvDetailLoading.setVisibility(View.VISIBLE);
-            updateDetailFavIcon();
-            if (push) pushView(V_DETAIL);
+            pushView(V_DETAIL);
         } else {
             // 直接播放预检（条目 URL 自带 @lazyRule=）：后台求值，下方小字"加载中"提示
             // （海阔原版 toast 风格，不挡封面）；求值完成后直接进播放器
@@ -4782,12 +3935,8 @@ public class HkPageActivity extends BaseActivity {
                 // 纯文本结果（文本按钮的 js: 求值返回文本）：弹窗显示，不进 V4/播放
                 String textResult = result == null ? "" : result.getTextResult();
                 if (!TextUtils.isEmpty(textResult)) {
-                    if (lazyPrecheck) binding.loadingContent.setVisibility(View.GONE);
-                    else if (push) onBackInvoked(); // 弹出已推的 V4 空 loading
-                    else {
-                        binding.tvDetailLoading.setVisibility(View.GONE);
-                        binding.swipeDetail.setRefreshing(false);
-                    }
+                    if (!lazyPrecheck) onBackInvoked(); // 弹出已推的 V4 空 loading
+                    else binding.loadingContent.setVisibility(View.GONE);
                     new AlertDialog.Builder(HkPageActivity.this)
                             .setMessage(textResult)
                             .setPositiveButton("确定", (d, w) -> d.dismiss())
@@ -4796,11 +3945,7 @@ public class HkPageActivity extends BaseActivity {
                 }
                 // 分类切换（官方 refreshPage 语义：putMyVar 后重刷列表，不进 V4）
                 if (result != null && result.isTabSwitch()) {
-                    if (!lazyPrecheck && push) onBackInvoked(); // 弹出已推的 V4 空 loading
-                    if (!lazyPrecheck && !push) {
-                        binding.tvDetailLoading.setVisibility(View.GONE);
-                        binding.swipeDetail.setRefreshing(false);
-                    }
+                    if (!lazyPrecheck) onBackInvoked(); // 弹出已推的 V4 空 loading
                     loadContent(true);
                     return;
                 }
@@ -4808,29 +3953,12 @@ public class HkPageActivity extends BaseActivity {
                 // （避免"0条线路 · 共0集"的空详情页；用户点的是视频，期望播放而非空 V4）
                 if (result != null && result.isLazyParseFailed()) {
                     android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试", android.widget.Toast.LENGTH_SHORT).show();
-                    if (!push) {
-                        binding.tvDetailLoading.setVisibility(View.GONE);
-                        binding.swipeDetail.setRefreshing(false);
-                    }
                     return;
                 }
                 String direct = result == null ? "" : result.getDirectPlayUrl();
-                // 动作 URL（如 toast://）：走 handleActionUrl，不进播放器/V4
-                // （8.83 动作 URL 表同款；旧逻辑误判为直接播放地址导致进播放器）
-                String actionUrl = result == null ? "" : result.getActionUrl();
-                if (!TextUtils.isEmpty(actionUrl)) {
-                    if (lazyPrecheck) binding.loadingContent.setVisibility(View.GONE);
-                    else if (push) onBackInvoked(); // 弹出已推的 V4 空 loading
-                    else {
-                        binding.tvDetailLoading.setVisibility(View.GONE);
-                        binding.swipeDetail.setRefreshing(false);
-                    }
-                    handleActionUrl(actionUrl, item);
-                    return;
-                }
                 if (!TextUtils.isEmpty(direct)) {
                     // 直接播放：若已推 V4 先弹出，保证播放器返回时回到列表
-                    if (!lazyPrecheck && push) onBackInvoked();
+                    if (!lazyPrecheck) onBackInvoked();
                     // 预热播放路由：后台提前做 QuickJS 初始化+preRule，
                     // 播放器调 playerContent 时直接命中缓存，不用再等几秒初始化
                     SiteApi.warmHkRouter(currentRule == null ? "" : currentRule.getTitle());
@@ -4840,8 +3968,8 @@ public class HkPageActivity extends BaseActivity {
                 // dealWithUrl 分流（官方：@lazyRule= 解析后不进 V4）
                 String dealKind = result == null ? "" : result.getDealKind();
                 if (!TextUtils.isEmpty(dealKind)) {
-                    if (!lazyPrecheck && push) onBackInvoked();
-                    else if (lazyPrecheck) binding.loadingContent.setVisibility(View.GONE);
+                    if (!lazyPrecheck) onBackInvoked();
+                    else binding.loadingContent.setVisibility(View.GONE);
                     handleDealUrl(dealKind, result.getDealUrl(), item);
                     return;
                 }
@@ -4943,8 +4071,8 @@ public class HkPageActivity extends BaseActivity {
         } catch (Throwable e) {
             android.util.Log.d("HkPage", "handleDealUrl failed: " + e.getMessage());
         }
-        // 未知种类：回退 V4（已在 V4 栈顶时不重复压栈）
-        if (stack.isEmpty() || stack.peek() != V_DETAIL) pushView(V_DETAIL);
+        // 未知种类：回退 V4
+        pushView(V_DETAIL);
         showDetailResult(null);
     }
 
@@ -4953,7 +4081,6 @@ public class HkPageActivity extends BaseActivity {
      * 详情条目按 col_type 直接渲染，不做线路/选集分类。
      */
     private void showDetailResult(HkDetail result) {
-        binding.swipeDetail.setRefreshing(false);
         if (result == null || (result.getRawItems().isEmpty() && !result.hasBasicInfo())) {
             binding.rvDetailContent.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.VISIBLE);
@@ -4982,377 +4109,14 @@ public class HkPageActivity extends BaseActivity {
         // V4 已展示：用户很可能马上点选集，提前预热播放路由，省掉播放时的初始化等待
         SiteApi.warmHkRouter(currentRule == null ? "" : currentRule.getTitle());
         List<HkItem> items = buildDetailHkItems(detail);
-        // 切换倒序：头部保持首位，其余反转（8.83 reverseArticleList 等价）
-        if (detailReversed && items.size() > 1) {
-            int head = "detail_header".equals(items.get(0).getColType()) ? 1 : 0;
-            List<HkItem> tail = new ArrayList<>(items.subList(head, items.size()));
-            Collections.reverse(tail);
-            items = new ArrayList<>(items.subList(0, head));
-            items.addAll(tail);
-        }
         detailItems.clear();
         detailItems.addAll(items);
         detailAdapter.refreshGroups();
-        detailAdapter.setHighlightUrl(detailHighlightUrl);
         detailAdapter.notifyDataSetChanged();
-        binding.swipeDetail.setRefreshing(false);
         binding.rvDetailContent.setVisibility(View.VISIBLE);
         binding.tvDetailEmpty.setVisibility(View.GONE);
         binding.tvDetailTitle.setText(detail.getTitle());
-        updateDetailFavIcon();
-        // 足迹：有记录时滚动到上次点击的选集分组并高亮，否则回顶部
-        int footPos = findFootprintPos();
-        binding.rvDetailContent.scrollToPosition(footPos >= 0 ? detailAdapter.groupFirstPosition(footPos) : 0);
-    }
-
-    /** 足迹 key：规则标题 + 详情条目 URL（8.83 ViewCollection 按标题+规则 URL 存 lastClick 等价）。 */
-    private String detailFootKey() {
-        String r = currentRule == null ? "" : currentRule.getTitle();
-        String u = detailItem == null || detailItem.getUrl() == null ? "" : detailItem.getUrl();
-        return KEY_DETAIL_FOOT + r + "_" + u.hashCode();
-    }
-
-    /** 足迹位置：detailHighlightUrl 在当前详情条目中的下标，无则 -1。 */
-    private int findFootprintPos() {
-        if (TextUtils.isEmpty(detailHighlightUrl) || detailItems.isEmpty()) return -1;
-        for (int i = 0; i < detailItems.size(); i++) {
-            HkItem it = detailItems.get(i);
-            if (it != null && detailHighlightUrl.equals(it.getUrl())) return i;
-        }
-        return -1;
-    }
-
-    /** 详情页唯一标识：规则标题 + 详情条目 URL hash（收藏/足迹/跳过设置 key 用）。 */
-    private String detailPageId() {
-        String r = currentRule == null ? "" : currentRule.getTitle();
-        String u = detailItem == null || detailItem.getUrl() == null ? "" : detailItem.getUrl();
-        return r + "_" + u.hashCode();
-    }
-
-    /** 8.83 film_list_options.xml：详情顶栏 ⋮ 菜单。 */
-    private void showDetailMenu() {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, binding.btnMenuDetail);
-        android.view.Menu m = menu.getMenu();
-        android.view.SubMenu share = m.addSubMenu("分享");
-        share.add(0, 101, 0, "分享链接");
-        share.add(0, 102, 0, "完整口令");
-        share.add(0, 103, 0, "云口令1");
-        share.add(0, 104, 0, "云口令2");
-        share.add(0, 105, 0, "云口令5");
-        share.add(0, 106, 0, "云口令6");
-        m.add(0, 201, 0, "跳过片头片尾设置");
-        m.add(0, 202, 0, "播放器设置");
-        m.add(0, 203, 0, "查看页面规则");
-        m.add(0, 204, 0, "查看页面地址");
-        m.add(0, 205, 0, "切换倒序");
-        m.add(0, 206, 0, "跳转翻页");
-        menu.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == 101) shareDetailLink();
-            else if (id == 102) shareDetailCommand();
-            else if (id == 103) shareDetailCloudCode(1);
-            else if (id == 104) shareDetailCloudCode(2);
-            else if (id == 105) shareDetailCloudCode(5);
-            else if (id == 106) shareDetailCloudCode(6);
-            else if (id == 201) showDetailSkipDialog();
-            else if (id == 202) showDetailPlayerDialog();
-            else if (id == 203) showDetailRuleDialog();
-            else if (id == 204) showDetailUrlDialog();
-            else if (id == 205) showDetailReverseDialog();
-            else if (id == 206) showDetailGoPageDialog();
-            return true;
-        });
-        menu.show();
-    }
-
-    /** 8.83 collect：加入收藏（本地 prefs 存标题/封面/链接/规则），图标状态同步。 */
-    private void toggleDetailFavorite() {
-        if (currentDetail == null || detailItem == null) return;
-        try {
-            JSONArray arr = new JSONArray(getPrefs().getString(KEY_DETAIL_FAVS, "[]"));
-            String url = detailItem.getUrl() == null ? "" : detailItem.getUrl();
-            int found = -1;
-            for (int i = 0; i < arr.length(); i++) {
-                if (url.equals(arr.getJSONObject(i).optString("url"))) {
-                    found = i;
-                    break;
-                }
-            }
-            if (found >= 0) {
-                JSONArray next = new JSONArray();
-                for (int i = 0; i < arr.length(); i++) {
-                    if (i != found) next.put(arr.get(i));
-                }
-                getPrefs().edit().putString(KEY_DETAIL_FAVS, next.toString()).apply();
-                Notify.show("已取消收藏");
-            } else {
-                JSONObject o = new JSONObject();
-                o.put("title", currentDetail.getTitle());
-                o.put("pic", currentDetail.getPic() == null ? "" : currentDetail.getPic());
-                o.put("url", url);
-                o.put("rule", currentRule == null ? "" : currentRule.getTitle());
-                arr.put(o);
-                getPrefs().edit().putString(KEY_DETAIL_FAVS, arr.toString()).apply();
-                Notify.show("已加入收藏");
-            }
-        } catch (Throwable e) {
-            Notify.show("收藏失败");
-        }
-        updateDetailFavIcon();
-    }
-
-    private boolean isDetailFavorite() {
-        if (detailItem == null || detailItem.getUrl() == null) return false;
-        try {
-            JSONArray arr = new JSONArray(getPrefs().getString(KEY_DETAIL_FAVS, "[]"));
-            for (int i = 0; i < arr.length(); i++) {
-                if (detailItem.getUrl().equals(arr.getJSONObject(i).optString("url"))) return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    private void updateDetailFavIcon() {
-        if (binding == null || binding.btnFavDetail == null) return;
-        binding.btnFavDetail.setImageResource(isDetailFavorite()
-                ? R.drawable.ic_hk_favorite_on : R.drawable.ic_hk_favorite);
-    }
-
-    /** 8.83 share_url：分享页面链接（实际抓取页 URL）。 */
-    private void shareDetailLink() {
-        String url = hkPageUrl == null ? "" : hkPageUrl;
-        if (url.isEmpty()) {
-            Notify.show("链接为空，无法分享");
-            return;
-        }
-        try {
-            Intent it = new Intent(Intent.ACTION_SEND);
-            it.setType("text/plain");
-            it.putExtra(Intent.EXTRA_TEXT, url);
-            startActivity(Intent.createChooser(it, "分享链接"));
-        } catch (Throwable e) {
-            Notify.show("分享失败");
-        }
-    }
-
-    private String detailRuleJson() {
-        if (currentRule == null) return "";
-        try {
-            return new Gson().toJson(currentRule);
-        } catch (Throwable e) {
-            return "";
-        }
-    }
-
-    /** 8.83 share_rule：完整口令（海阔明文口令，可被官方识别导入）。 */
-    private void shareDetailCommand() {
-        String json = detailRuleJson();
-        if (json.isEmpty()) {
-            Notify.show("规则为空，无法分享");
-            return;
-        }
-        String cmd = HkRuleManager.buildShareCommand(json);
-        final String text = cmd == null ? "" : cmd;
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextIsSelectable(true);
-        tv.setTextColor(0xFF1A1D24);
-        tv.setTextSize(12);
-        tv.setPadding(dp(12), dp(12), dp(12), dp(12));
-        ScrollView sv = new ScrollView(this);
-        sv.addView(tv);
-        new AlertDialog.Builder(this)
-                .setTitle("完整口令")
-                .setView(sv)
-                .setPositiveButton("复制", (d, w) -> {
-                    copyToClipboard(text);
-                    d.dismiss();
-                })
-                .setNegativeButton("关闭", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    /** 8.83 share_remote_rule*：云口令 1/2/5/6（HkCloudClip 通道）。 */
-    private void shareDetailCloudCode(int clipNum) {
-        String json = detailRuleJson();
-        if (json.isEmpty()) {
-            Notify.show("规则为空，无法分享");
-            return;
-        }
-        String title = currentRule == null ? "" : currentRule.getTitle();
-        Notify.show("正在上传云端…");
-        new Thread(() -> {
-            try {
-                String code = HkShareHelper.shareToCloudClip(json, clipNum);
-                App.post(() -> showExportCodeDialog(title, code));
-            } catch (Exception e) {
-                App.post(() -> Notify.show("导出失败：" + e.getMessage()));
-            }
-        }).start();
-    }
-
-    /** 8.83 collection_jump：跳过片头片尾设置（按详情页存秒数）。 */
-    private void showDetailSkipDialog() {
-        String key = KEY_DETAIL_SKIP + detailPageId();
-        String[] saved = getPrefs().getString(key, "0,0").split(",");
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(16);
-        box.setPadding(pad, pad / 2, pad, pad / 2);
-        EditText etHead = new EditText(this);
-        etHead.setHint("跳过片头（秒）");
-        etHead.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        etHead.setTextColor(0xFF1A1D24);
-        EditText etTail = new EditText(this);
-        etTail.setHint("跳过片尾（秒）");
-        etTail.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        etTail.setTextColor(0xFF1A1D24);
-        try {
-            etHead.setText(saved[0].trim());
-            if (saved.length > 1) etTail.setText(saved[1].trim());
-        } catch (Throwable ignored) {
-        }
-        box.addView(etHead);
-        box.addView(etTail);
-        new AlertDialog.Builder(this)
-                .setTitle("跳过片头片尾设置")
-                .setView(box)
-                .setPositiveButton("保存", (d, w) -> {
-                    String h = etHead.getText().toString().trim();
-                    String t = etTail.getText().toString().trim();
-                    getPrefs().edit().putString(key,
-                            (h.isEmpty() ? "0" : h) + "," + (t.isEmpty() ? "0" : t)).apply();
-                    Notify.show("已保存");
-                    d.dismiss();
-                })
-                .setNegativeButton("取消", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    /** 8.83 collection_player：播放器设置（须先收藏）。 */
-    private void showDetailPlayerDialog() {
-        if (!isDetailFavorite()) {
-            Notify.show("请先加入收藏");
-            return;
-        }
-        String key = KEY_DETAIL_PLAYER + detailPageId();
-        int cur = getPrefs().getInt(key, 0);
-        String[] opts = {"跟随系统", "ExoPlayer", "MPV"};
-        new AlertDialog.Builder(this)
-                .setTitle("播放器设置")
-                .setSingleChoiceItems(opts, cur, (d, w) -> {
-                    getPrefs().edit().putInt(key, w).apply();
-                    d.dismiss();
-                    Notify.show("已设为" + opts[w]);
-                })
-                .setNegativeButton("取消", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    /** 8.83 showRule：查看页面规则（格式化 JSON，可复制）。 */
-    private void showDetailRuleDialog() {
-        String json = detailRuleJson();
-        if (json.isEmpty()) {
-            Notify.show("规则为空");
-            return;
-        }
-        try {
-            json = new JSONObject(json).toString(2);
-        } catch (Throwable ignored) {
-        }
-        final String text = json;
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextIsSelectable(true);
-        tv.setTextColor(0xFF1A1D24);
-        tv.setTextSize(12);
-        tv.setPadding(dp(12), dp(12), dp(12), dp(12));
-        ScrollView sv = new ScrollView(this);
-        sv.addView(tv);
-        new AlertDialog.Builder(this)
-                .setTitle("页面规则")
-                .setView(sv)
-                .setPositiveButton("复制", (d, w) -> {
-                    copyToClipboard(text);
-                    d.dismiss();
-                })
-                .setNegativeButton("关闭", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    /** 8.83 showUrl：查看页面地址（可复制）。 */
-    private void showDetailUrlDialog() {
-        String url = hkPageUrl == null ? "" : hkPageUrl;
-        final String text = url;
-        TextView tv = new TextView(this);
-        tv.setText(url.isEmpty() ? "（空）" : url);
-        tv.setTextIsSelectable(true);
-        tv.setTextColor(0xFF1A1D24);
-        tv.setTextSize(13);
-        tv.setPadding(dp(16), dp(16), dp(16), dp(16));
-        new AlertDialog.Builder(this)
-                .setTitle("页面地址")
-                .setView(tv)
-                .setPositiveButton("复制", (d, w) -> {
-                    if (!text.isEmpty()) copyToClipboard(text);
-                    d.dismiss();
-                })
-                .setNegativeButton("关闭", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    private void copyToClipboard(String text) {
-        try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("hk_detail", text));
-                Notify.show("已复制");
-            }
-        } catch (Throwable e) {
-            Notify.show("复制失败");
-        }
-    }
-
-    /** 8.83 reverse：切换倒序（有翻页机制的页面不支持）。 */
-    private void showDetailReverseDialog() {
-        String ruleUrl = currentRule == null || currentRule.getUrl() == null ? "" : currentRule.getUrl();
-        if (ruleUrl.contains("fypage")) {
-            Notify.show("当前页面有翻页机制，不支持倒序");
-            return;
-        }
-        String[] opts = {"顺序显示", "倒序显示"};
-        new AlertDialog.Builder(this)
-                .setTitle("切换倒序")
-                .setSingleChoiceItems(opts, detailReversed ? 1 : 0, (d, w) -> {
-                    d.dismiss();
-                    boolean rev = w == 1;
-                    if (rev != detailReversed && currentDetail != null) {
-                        detailReversed = rev;
-                        bindDetailItems(currentDetail);
-                    }
-                })
-                .setNegativeButton("取消", (d, w) -> d.dismiss())
-                .show();
-    }
-
-    /** 8.83 gopage：跳转翻页（无翻页机制的页面提示）。 */
-    private void showDetailGoPageDialog() {
-        String ruleUrl = currentRule == null || currentRule.getUrl() == null ? "" : currentRule.getUrl();
-        if (!ruleUrl.contains("fypage")) {
-            Notify.show("当前页面没有翻页机制哦");
-            return;
-        }
-        showSimpleInputDialog("跳转翻页", "1", pageStr -> {
-            try {
-                int p = Integer.parseInt(pageStr.trim());
-                if (p < 1) p = 1;
-                int target = Math.min((p - 1) * 20, Math.max(0, detailItems.size() - 1));
-                binding.rvDetailContent.scrollToPosition(detailAdapter.groupFirstPosition(target));
-            } catch (Throwable ignored) {
-                Notify.show("页码无效");
-            }
-        });
+        binding.rvDetailContent.scrollToPosition(0);
     }
 
     /** 详情原始条目 → 通用列表条目（8.83 原版：不做线路/选集分类，原样渲染）。 */
@@ -5405,84 +4169,11 @@ public class HkPageActivity extends BaseActivity {
      * 先过 HkRouter.play() 解析（处理 @lazyRule=/@rule=js: 等），再进播放器；
      * 选集列表取当前详情所有可播条目，支持播放器内切集。
      */
-    // 8.83 同款"动态解析规则中" loading 视图（转圈染白，对齐 8.83 LoadingPopupView 白色风格）
-    private android.view.View getParsingView() {
-        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
-        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
-        layout.setGravity(android.view.Gravity.CENTER);
-        int pad = dp(28);
-        layout.setPadding(pad, dp(24), pad, dp(24));
-        android.widget.ProgressBar bar = new android.widget.ProgressBar(this);
-        try {
-            bar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        } catch (Throwable ignored) {
-        }
-        android.widget.LinearLayout.LayoutParams bp =
-                new android.widget.LinearLayout.LayoutParams(dp(36), dp(36));
-        bp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        layout.addView(bar, bp);
-        android.widget.TextView tv = new android.widget.TextView(this);
-        tv.setText("动态解析规则中，请稍候");
-        tv.setTextSize(15);
-        tv.setTextColor(0xFFFFFFFF);
-        tv.setGravity(android.view.Gravity.CENTER);
-        android.widget.LinearLayout.LayoutParams tp =
-                new android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-        tp.topMargin = dp(12);
-        tp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        layout.addView(tv, tp);
-        return layout;
-    }
-
     private void playDetailEpisode(HkItem it, String url) {
-        boolean needsParse = url.contains("@lazyRule=") || url.contains("@rule=") || url.startsWith("js:");
-        boolean noLoading = url.contains("#noLoading#");
-        // 切集：本详情页之前已播过别的选集（8.83 VideoPlayerActivity.playByPos 切集 toast 等价）
-        boolean isSwitch = !TextUtils.isEmpty(detailLastPlayedUrl) && !detailLastPlayedUrl.equals(url);
-        detailLastPlayedUrl = url;
-        // 足迹：记本次点击的选集位置（8.83 memoryPosition 等价；#noHistory# 规则不记）
-        String ruleUrl = currentRule == null || currentRule.getUrl() == null ? "" : currentRule.getUrl();
-        if (!ruleUrl.contains("#noHistory#")) {
-            detailHighlightUrl = url;
-            try {
-                getPrefs().edit().putString(detailFootKey(), url).apply();
-            } catch (Throwable ignored) {
-            }
-            if (detailAdapter != null) {
-                detailAdapter.setHighlightUrl(url);
-                detailAdapter.notifyDataSetChanged();
-            }
-        }
-        // 8.83 同款：详情页弹"动态解析规则中" loading，解析完再进播放器，不直接跳页。
-        // 直链不弹；规则 URL 含 #noLoading# 不弹；切集时改弹 toast（播放器自带 loading）。
-        android.app.AlertDialog loading = null;
-        if (needsParse && !noLoading && !isSwitch) {
-            loading = new android.app.AlertDialog.Builder(HkPageActivity.this)
-                    .setView(getParsingView())
-                    .setCancelable(false)
-                    .create();
-            try {
-                android.view.Window w = loading.getWindow();
-                if (w != null) {
-                    android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                            new int[]{0xE6333333, 0xE6333333});
-                    bg.setCornerRadius(dp(16));
-                    w.setBackgroundDrawable(bg);
-                }
-            } catch (Throwable ignored) {
-            }
-            loading.show();
-        } else if (needsParse && !noLoading && isSwitch) {
-            Notify.show("动态解析规则中，请稍候");
-        }
-        final android.app.AlertDialog loadingDialog = loading;
         new Thread(() -> {
             String playUrl = url;
             try {
-                if (needsParse) {
+                if (url.contains("@lazyRule=") || url.contains("@rule=") || url.startsWith("js:")) {
                     HkPlay play = getRouter().play(url);
                     if (!play.getUrl().isEmpty()) playUrl = play.getUrl();
                 }
@@ -5516,10 +4207,6 @@ public class HkPageActivity extends BaseActivity {
             final String eps = arr.toString();
             final int sel = selIdx;
             App.post(() -> {
-                try {
-                    if (loadingDialog != null) loadingDialog.dismiss();
-                } catch (Throwable ignored) {
-                }
                 if (TextUtils.isEmpty(pu)) {
                     android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试",
                             android.widget.Toast.LENGTH_SHORT).show();
@@ -5580,45 +4267,52 @@ public class HkPageActivity extends BaseActivity {
         }
     }
 
-    /** 海阔搜索结果竖向全宽卡片：对照 8.83 item_search_all。 */
-    private class SearchCardAdapter extends RecyclerView.Adapter<SearchCardAdapter.Holder> {
+    private class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.Holder> {
         private final List<SearchResult> items;
+        private final boolean fromContent;
+        private final int imgHeight;
 
-        SearchCardAdapter(List<SearchResult> items) {
+        VideoAdapter(List<SearchResult> items, boolean fromContent) {
             this.items = items;
+            this.fromContent = fromContent;
+            // 8.83 item_movie_tools：封面容器固定 150dp
+            imgHeight = dp(150);
         }
 
         class Holder extends RecyclerView.ViewHolder {
-            View imgBg;
-            ImageView img;
-            TextView title, content, desc, notice, descMore;
+            ImageView cover;
+            TextView title, desc;
 
             Holder(View v) {
                 super(v);
-                imgBg = v.findViewById(R.id.img_bg);
-                img = v.findViewById(R.id.img);
-                title = v.findViewById(R.id.title);
-                content = v.findViewById(R.id.content);
-                desc = v.findViewById(R.id.desc);
-                notice = v.findViewById(R.id.notice);
-                descMore = v.findViewById(R.id.desc_more);
+                cover = v.findViewById(R.id.iv_cover);
+                title = v.findViewById(R.id.tv_title);
+                desc = v.findViewById(R.id.tv_desc);
+                View container = v.findViewById(R.id.cover_container);
+                if (container != null) {
+                    ViewGroup.LayoutParams lp = container.getLayoutParams();
+                    lp.height = imgHeight;
+                    container.setLayoutParams(lp);
+                } else {
+                    ViewGroup.LayoutParams lp = cover.getLayoutParams();
+                    lp.height = imgHeight;
+                    cover.setLayoutParams(lp);
+                }
             }
         }
 
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_search, parent, false);
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_video, parent, false);
             return new Holder(v);
         }
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
             SearchResult sr = items.get(position);
-            h.title.setText(sr.getTitle() == null ? "" : sr.getTitle());
-            String content = sr.getContent() == null ? "" : sr.getContent();
-            h.content.setText(content);
-            h.content.setVisibility(TextUtils.isEmpty(content) ? View.GONE : View.VISIBLE);
+            h.title.setText(sr.getTitle());
+            // 跨小程序搜索结果：在 desc 前缀标注来源小程序
             String srcRule = searchSrcRules.get(sr);
             String desc = sr.getDesc() == null ? "" : sr.getDesc();
             if (!TextUtils.isEmpty(srcRule)) {
@@ -5626,23 +4320,13 @@ public class HkPageActivity extends BaseActivity {
             }
             h.desc.setText(desc);
             h.desc.setVisibility(TextUtils.isEmpty(desc) ? View.GONE : View.VISIBLE);
-            String descMore = sr.getDescMore() == null ? "" : sr.getDescMore();
-            h.descMore.setText(descMore);
-            h.descMore.setVisibility(TextUtils.isEmpty(descMore) ? View.GONE : View.VISIBLE);
-            h.notice.setVisibility(View.GONE);
-            String imgUrl = sr.getImg();
-            if (!TextUtils.isEmpty(imgUrl)) {
-                h.imgBg.setVisibility(View.VISIBLE);
-                ImgUtil.load(sr.getTitle(), imgUrl, h.img, hkRuleUrl());
-            } else {
-                h.imgBg.setVisibility(View.GONE);
-            }
+            ImgUtil.load(sr.getTitle(), sr.getImg(), h.cover, hkRuleUrl());
             h.itemView.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;
                 SearchResult s = items.get(pos);
-                if (TextUtils.isEmpty(s.getUrl())) return;
                 HkItem it = HkItem.fromSearchResult(s);
+                // 跨搜索结果：先切到来源小程序，再走正常详情流程
                 String itSrc = searchSrcRules.get(s);
                 if (!TextUtils.isEmpty(itSrc)
                         && (currentRule == null || !itSrc.equals(currentRule.getTitle()))) {
@@ -5656,9 +4340,11 @@ public class HkPageActivity extends BaseActivity {
                 }
                 if (currentRule == null) return;
                 String mu = it.getUrl() == null ? "" : it.getUrl();
+                // 动作协议优先：@inputRule= 口令弹窗、toast:// 等；之前缺这行导致口令点了没反应
                 if (handleActionUrl(mu.trim(), it)) return;
+                // P1：hiker://page/ 子页面走 openPage，不进 V4
                 if (mu.trim().startsWith("hiker://page/") && openPage(it, mu)) return;
-                openDetail(it, true, mu.contains("@lazyRule="));
+                openDetail(it, !fromContent, mu.contains("@lazyRule="));
             });
         }
 
@@ -5940,74 +4626,32 @@ public class HkPageActivity extends BaseActivity {
             String findRule = nextRule + s1.toString();
             if (findRule.trim().isEmpty()) return false;
             // goTo 预检：@rule=js: 可能是导航动作（如 xhotview 点封面调 goTo('hiker://page/detail...') 跳 V4），
-            // 不是子列表。先在后台求值，若规则调了 goTo，按目标 URL 导航；否则走子列表流程。
-            // 8.83 语义：js: 分支仅当实际调了 goTo() 才走导航，否则直接建子列表规则。
+            // 不是子列表。先在后台求值，若规则调了 goTo，按目标 URL 导航，不建子列表。
             String frTrim = findRule.trim();
             if (frTrim.startsWith("js:")) {
                 final String jsCode = frTrim;
-                final String pUrl = pageUrl;
                 final HkItem item = it;
-                final String fRule = findRule;
-                final String cType = colType;
-                // 点击即反馈：预检（HkHttp.get + evalLazy）全程在后台线程，先弹 loading，
-                // 对齐 8.83 点击即有反馈（之前静默，用户感知为"点了没反应"）。
-                showHkLoading("加载中…");
                 new Thread(() -> {
                     String target = "";
-                    boolean needRefresh = false;
                     try {
                         HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
-                        // @rule= 相关流程：JS 求值前先 HkHttp.get(baseUrl) 取正文，供 getResCode() 返回
-                        // （8.83 getResCode 返回 String 正文，不是 int 状态码）
-                        // 预检加 10s 超时，避免长时间无响应
-                        try {
-                            if (pUrl != null && (pUrl.startsWith("http://") || pUrl.startsWith("https://"))) {
-                                String body = HkHttp.get(pUrl, null, 10000);
-                                rt.setEvalResCodeBody(body);
-                            }
-                        } catch (Throwable ignored) {}
-                        try {
-                            rt.evalLazy(jsCode, pUrl);
-                            target = rt.consumeGoToRequest();
-                            // 动作回调（如同意按钮 putMyVar+refreshPage）：无 goTo 但请求了刷新，
-                            // 必须取走 refreshPage 标记直接重刷当前列表，不进子列表流程
-                            //（否则 flag 被丢弃、router 被销毁、myVars 丢失，表现为"点了没反应"）。
-                            needRefresh = rt.consumeRefreshRequest();
-                        } finally {
-                            rt.setEvalResCodeBody(null);
-                        }
+                        rt.evalLazy(jsCode, pageUrl);
+                        target = rt.consumeGoToRequest();
                     } catch (Throwable ignored) {
                     }
                     final String t = target == null ? "" : target.trim();
-                    final boolean refresh = needRefresh;
                     App.post(() -> {
-                        hideHkLoading();
                         if (!t.isEmpty()) {
                             handleGoToUrl(t, item);
-                        } else if (refresh) {
-                            // 有 refresh 无 goTo：动作回调，直接刷新当前列表
-                            //（对齐 8.83 refreshPage EventBus 机制，跟走哪条点击链路无关）
-                            loadContent(true);
                         } else {
-                            // 无 goTo：走子列表流程（deriveSubRule + loadContent），不对 openDetail 退化
-                            doOpenSubListFlow(item, pUrl, fRule, cType);
+                            // 无 goTo：按原子列表流程继续（在 UI 线程重入 openSubList 的剩余部分）
+                            // 为简单起见，此处退化为打开详情页
+                            openDetail(item, true, false);
                         }
                     });
                 }).start();
                 return true;
             }
-            return doOpenSubListFlow(it, pageUrl, findRule, colType);
-        } catch (Throwable e) {
-            return false;
-        }
-    }
-
-    /**
-     * @rule= 子列表流程（官方 dealRule）：压栈保存父列表状态，派生子规则并加载。
-     * js: 分支无 goTo 时也走这里，不退化为 openDetail。
-     */
-    private boolean doOpenSubListFlow(HkItem it, String pageUrl, String findRule, String colType) {
-        try {
             // 压栈保存父列表状态
             SubListState st = new SubListState();
             st.rule = currentRule;
@@ -6141,7 +4785,6 @@ public class HkPageActivity extends BaseActivity {
         buildFilterRows();
         contentAdapter.refreshGroups();
         contentAdapter.notifyDataSetChanged();
-        updateContentSearchBarVisibility();
         binding.tvContentEmpty.setVisibility(View.GONE);
         binding.rvVideos.setVisibility(videos.isEmpty() ? View.GONE : View.VISIBLE);
         if (contentGrid != null && st.scrollPos > 0) contentGrid.scrollToPosition(st.scrollPos);
@@ -6162,9 +4805,6 @@ public class HkPageActivity extends BaseActivity {
     private boolean openPage(HkItem it, String url) {
         try {
             if (it == null || currentRule == null || TextUtils.isEmpty(url)) return false;
-            // 与 V4 流程对齐（3899 行）：子页面也要设置 detailItem，
-            // 否则 playDetailEpisode 拿到的 title 为空，播放页标题丢失
-            detailItem = it;
             String u = url.trim();
             if (!u.startsWith("hiker://page/")) return false;
             // 取 path：hiker://page/erji1?page=..#.. → erji1
@@ -6175,35 +4815,8 @@ public class HkPageActivity extends BaseActivity {
             if (h >= 0) path = path.substring(0, h);
             path = path.trim();
             if (path.isEmpty()) return false;
-            // R4：8.83 PageParser.parsePageRule：?rule= 跨规则跳转，按标题查库定位另一条规则
-            com.fongmi.android.tv.api.hk.HkRule pageOwnerRule = currentRule;
-            try {
-                int qi2 = u.indexOf('?');
-                if (qi2 >= 0) {
-                    String query = u.substring(qi2 + 1);
-                    int hi2 = query.indexOf('#');
-                    if (hi2 >= 0) query = query.substring(0, hi2);
-                    for (String kv : query.split("&")) {
-                        int eq = kv.indexOf('=');
-                        if (eq > 0 && "rule".equals(kv.substring(0, eq).trim())) {
-                            String rt = kv.substring(eq + 1).trim();
-                            try {
-                                rt = java.net.URLDecoder.decode(rt, "UTF-8");
-                            } catch (Throwable ignored) {
-                            }
-                            if (!rt.isEmpty()) {
-                                com.fongmi.android.tv.api.hk.HkRule found =
-                                        com.fongmi.android.tv.api.hk.HkRuleManager.get().getInstalledRule(rt);
-                                if (found != null) pageOwnerRule = found;
-                            }
-                            break;
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
             // 在规则 pages 里找对应页面
-            String pagesJson = pageOwnerRule.getPages();
+            String pagesJson = currentRule.getPages();
             if (TextUtils.isEmpty(pagesJson)) return false;
             org.json.JSONArray pages = new org.json.JSONArray(pagesJson);
             org.json.JSONObject pageObj = null;
@@ -6218,7 +4831,7 @@ public class HkPageActivity extends BaseActivity {
             String pageRule = pageObj.optString("rule");
             if (TextUtils.isEmpty(pageRule)) return false;
             String colType = pageObj.optString("col_type");
-            if (TextUtils.isEmpty(colType)) colType = pageOwnerRule.getColType();
+            if (TextUtils.isEmpty(colType)) colType = currentRule.getColType();
             // 压栈保存父列表状态（复用子列表机制，返回时恢复）
             SubListState st = new SubListState();
             st.rule = currentRule;
@@ -6237,7 +4850,7 @@ public class HkPageActivity extends BaseActivity {
             st.fromView = stack.isEmpty() ? V_CONTENT : stack.peek();
             subStack.push(st);
             // 派生子规则：find_rule 用页面 rule；extra → MY_PARAMS
-            HkRule sub = pageOwnerRule.deriveSubRule(u, pageRule, colType);
+            HkRule sub = currentRule.deriveSubRule(u, pageRule, colType);
             sub.clearNav();
             // D6：MY_PARAMS 唯一来源是点击条目的 extra（8.83 PageParser.getNextPage 语义：
             // 仅当 extra 非空且以 { 开头 } 结尾才 setParams）。URL query 不进 MY_PARAMS，
@@ -6461,6 +5074,12 @@ public class HkPageActivity extends BaseActivity {
 
     /** 简单输入对话框（input:// 与 @inputRule= 共用）。 */
     private void showSimpleInputDialog(String title, String def, java.util.function.Consumer<String> cb) {
+        final EditText et = new EditText(this);
+        et.setHint("请输入");
+        if (!TextUtils.isEmpty(def)) et.setText(def);
+        et.setTextColor(0xFF1A1D24);
+        int pad = dp(16);
+        et.setPadding(pad, pad, pad, pad);
         // 弹窗标题也走标题颜色标记逻辑（弯引号/ASCII三引号 → 红色）
         CharSequence dialogTitle = "输入";
         if (title != null && !title.isEmpty()) {
@@ -6475,66 +5094,15 @@ public class HkPageActivity extends BaseActivity {
                 dialogTitle = stripHtml(title);
             }
         }
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundResource(R.drawable.hk_bottom_card);
-        root.setPadding(dp(20), dp(18), dp(20), dp(12));
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText(dialogTitle);
-        tvTitle.setTextSize(18);
-        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setTextColor(0xFF1A1D24);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleLp.bottomMargin = dp(12);
-        root.addView(tvTitle, titleLp);
-        TextInputLayout til = new TextInputLayout(this);
-        til.setHint("请输入");
-        til.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
-        TextInputEditText et = new TextInputEditText(til.getContext());
-        if (!TextUtils.isEmpty(def)) et.setText(def);
-        et.setTextColor(0xFF1A1D24);
-        et.setSingleLine(true);
-        til.addView(et);
-        LinearLayout.LayoutParams tilLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tilLp.bottomMargin = dp(12);
-        root.addView(til, tilLp);
-        View divider = new View(this);
-        divider.setBackgroundColor(0xFFEEEEEE);
-        root.addView(divider, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        TextView btnCancel = new TextView(this);
-        btnCancel.setText("取消");
-        btnCancel.setTextSize(16);
-        btnCancel.setTextColor(0xFF666666);
-        btnCancel.setGravity(Gravity.CENTER);
-        btnCancel.setBackgroundResource(android.R.attr.selectableItemBackground);
-        TextView btnOk = new TextView(this);
-        btnOk.setText("确认");
-        btnOk.setTextSize(16);
-        btnOk.setTextColor(0xFF666666);
-        btnOk.setGravity(Gravity.CENTER);
-        btnOk.setBackgroundResource(android.R.attr.selectableItemBackground);
-        row.addView(btnCancel, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-        View vdiv = new View(this);
-        vdiv.setBackgroundColor(0xFFEEEEEE);
-        row.addView(vdiv, new LinearLayout.LayoutParams(1,
-                LinearLayout.LayoutParams.MATCH_PARENT));
-        row.addView(btnOk, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-        root.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
-        final Dialog dialog = newHkBottomDialog(root, 0.45f);
-        btnCancel.setOnClickListener(v -> dialog.dismiss());
-        btnOk.setOnClickListener(v -> {
-            dialog.dismiss();
-            cb.accept(et.getText() == null ? "" : et.getText().toString().trim());
-        });
-        if (!isFinishing() && !isDestroyed()) dialog.show();
+        new AlertDialog.Builder(this)
+                .setTitle(dialogTitle)
+                .setView(et)
+                .setPositiveButton("确定", (d, w) -> {
+                    d.dismiss();
+                    cb.accept(et.getText().toString().trim());
+                })
+                .setNegativeButton("取消", (d, w) -> d.dismiss())
+                .show();
     }
 
     /** WebView 弹窗（@x5Rule= 与 x5_webview_single 共用）。 */
@@ -6612,7 +5180,6 @@ public class HkPageActivity extends BaseActivity {
         static final int T_PIC_3 = 49;
         static final int T_PIC_3_SQUARE = 50;
         static final int T_DETAIL_HEADER = 51; // 8.83 原版详情页头部：movie_one_col（标题左+封面右）
-        static final int T_LOAD_MORE = 52; // 内容列表末尾"下一页"按钮（对照 8.83 view_load_more_footer）
 
         private final List<HkItem> source;
         /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
@@ -6621,32 +5188,24 @@ public class HkPageActivity extends BaseActivity {
         private final java.util.List<java.util.List<HkItem>> polyList = new java.util.ArrayList<>();
         /** 8.83 polyPositionMap：条目下标 → 所属分组下标。 */
         private final java.util.Map<Integer, Integer> polyPositionMap = new java.util.HashMap<>();
-        /** 内容页列表末尾是否追加"下一页"按钮（详情页复用本 adapter 时关闭）。 */
-        private final boolean footerMore;
-        /** 详情页模式：scroll_button/flex_button 按 8.83 区分渲染（内容页保持旧灰胶囊）。 */
-        private boolean detailMode;
-        /** 足迹高亮的选集 URL（详情页）。 */
-        private String highlightUrl = "";
-        /** scroll_button 已展开的分组下标集合（详情页）。 */
-        private final java.util.Set<Integer> expandedBtnGroups = new java.util.HashSet<>();
+        private int videoImgH;
         private final int picH;
 
         ContentAdapter(List<HkItem> items) {
-            this(items, false);
-        }
-
-        ContentAdapter(List<HkItem> items, boolean footerMore) {
             this.source = items;
             this.items = items;
-            this.footerMore = footerMore;
             updatePolyList();
             DisplayMetrics dm = getResources().getDisplayMetrics();
             picH = (dm.widthPixels - dp(16) * 2) * 9 / 16;
+            updateVideoImgH();
         }
 
-        /** 是否显示"下一页" footer：内容页有数据且还有下一页时显示。 */
-        private boolean showFooter() {
-            return footerMore && items != null && !items.isEmpty() && !noMore;
+        /**
+         * 视频卡片图高：对齐 8.83 item_movie_tools，封面容器固定 150dp。
+         * （之前用列宽*3/2≈180dp，比 8.83 高 20%，centerCrop 过度放大导致封面显"歪"。）
+         */
+        void updateVideoImgH() {
+            videoImgH = dp(150);
         }
 
         /**
@@ -6654,29 +5213,6 @@ public class HkPageActivity extends BaseActivity {
          */
         void refreshGroups() {
             updatePolyList();
-        }
-
-        void setDetailMode(boolean m) {
-            detailMode = m;
-        }
-
-        void setHighlightUrl(String url) {
-            highlightUrl = url == null ? "" : url;
-        }
-
-        /**
-         * 条目下标 → 其 poly 分组首个条目下标（足迹滚动定位用；按钮组渲染为单个 ViewHolder）。
-         */
-        int groupFirstPosition(int position) {
-            Integer gi = polyPositionMap.get(position);
-            if (gi == null || gi < 0 || gi >= polyList.size()) return position;
-            List<HkItem> group = polyList.get(gi);
-            if (group == null || group.isEmpty()) return position;
-            HkItem first = group.get(0);
-            for (int i = 0; i < source.size(); i++) {
-                if (source.get(i) == first) return i;
-            }
-            return position;
         }
 
         /**
@@ -6813,7 +5349,16 @@ public class HkPageActivity extends BaseActivity {
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
                         overlay = v.findViewById(R.id.tv_overlay);
-                        // 封面高度由 bindVideo 按列数动态算（高=宽×17/12），此处不再固定
+                        View containerV = v.findViewById(R.id.cover_container);
+                        if (containerV != null) {
+                            ViewGroup.LayoutParams vlp = containerV.getLayoutParams();
+                            vlp.height = videoImgH;
+                            containerV.setLayoutParams(vlp);
+                        } else {
+                            ViewGroup.LayoutParams vlp = cover.getLayoutParams();
+                            vlp.height = videoImgH;
+                            cover.setLayoutParams(vlp);
+                        }
                         break;
                     case T_TEXT:
                     case T_TEXT_1:
@@ -6892,14 +5437,9 @@ public class HkPageActivity extends BaseActivity {
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
                         break;
+                    case T_PIC:
                     case T_PIC_1:
                     case T_PIC_1_CARD:
-                        // 图文：对照 8.83 item_pic_one_col / item_pic_one_card_col
-                        cover = v.findViewById(R.id.iv_cover);
-                        title = v.findViewById(R.id.tv_title);
-                        desc = v.findViewById(R.id.tv_overlay);
-                        break;
-                    case T_PIC:
                     case T_PIC_1_CENTER:
                     case T_PIC_1_FULL:
                     case T_PIC_2:
@@ -6937,8 +5477,7 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public int getItemViewType(int position) {
-            if (showFooter() && items != null && position == items.size()) return T_LOAD_MORE;
-            if (position < 0 || items == null || position >= items.size()) return T_VIDEO;
+            if (position < 0 || position >= items.size()) return T_VIDEO;
             int t = contentTypeOf(items.get(position));
             // 对照 8.83 getItemViewType（反编译第 309-321 行）：
             // scroll_button/flex_button 连续组内非首个条目 → 空行（8.83 返回 -1）
@@ -7042,13 +5581,9 @@ public class HkPageActivity extends BaseActivity {
                 case T_MOVIE_VERTICAL_BLUR:
                     layout = R.layout.item_hk_movie_vertical_blur;
                     break;
-                case T_PIC_1:
-                    layout = R.layout.item_hk_pic_one_col; // pic_1 图文（对照 8.83 item_pic_one_col）
-                    break;
-                case T_PIC_1_CARD:
-                    layout = R.layout.item_hk_pic_one_card; // pic_1_card 图文卡片（对照 8.83 item_pic_one_card_col）
-                    break;
                 case T_PIC:
+                case T_PIC_1:
+                case T_PIC_1_CARD:
                 case T_PIC_1_CENTER:
                 case T_PIC_1_FULL:
                 case T_PIC_2:
@@ -7069,9 +5604,6 @@ public class HkPageActivity extends BaseActivity {
                 case T_DETAIL_HEADER:
                     layout = R.layout.item_hk_detail_header;
                     break;
-                case T_LOAD_MORE:
-                    layout = R.layout.item_hk_load_more_footer;
-                    break;
                 default:
                     layout = R.layout.item_hk_video;
                     break;
@@ -7082,11 +5614,6 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
-            // 列表末尾"下一页"按钮：点后加载下一页（loadContent 自带 loading 守卫）
-            if (h.getItemViewType() == T_LOAD_MORE) {
-                h.itemView.setOnClickListener(v -> loadContent(false));
-                return;
-            }
             if (position < 0 || position >= items.size()) return;
             HkItem item = items.get(position);
             // 按 Holder 创建时的 viewType 来 bind：布局过程中若 viewType 发生变化，
@@ -7185,37 +5712,16 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public int getItemCount() {
-            int n = items == null ? 0 : items.size();
-            return showFooter() ? n + 1 : n;
+            return items.size();
         }
 
         /** 视频卡片：保持原 VideoAdapter 行为；desc 压在封面底部（原版 overlay 样式）。 */
         private void bindVideo(Holder h, HkItem item) {
             if (h.title == null || h.cover == null) return; // 防 ViewHolder 类型错配
-            // movie_3 卡片封面高度动态算：高=宽×17/12，宽=(屏宽-12dp×(列数+1))/列数；
-            // 条目上下 margin 各 6dp
-            String ct = item.getColType() == null ? "" : item.getColType().trim().toLowerCase();
-            int cols = "movie_2".equals(ct) ? 2 : 3;
-            DisplayMetrics dmv = h.itemView.getContext().getResources().getDisplayMetrics();
-            int cardW = (dmv.widthPixels - dp(12) * (cols + 1)) / cols;
-            int cardH = cardW * 17 / 12;
-            View coverBox = h.itemView.findViewById(R.id.cover_container);
-            View coverTarget = coverBox != null ? coverBox : h.cover;
-            ViewGroup.LayoutParams vlp = coverTarget.getLayoutParams();
-            if (vlp.height != cardH) {
-                vlp.height = cardH;
-                coverTarget.setLayoutParams(vlp);
-            }
-            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) h.itemView.getLayoutParams();
-            int m6 = dp(6);
-            if (mlp.topMargin != m6 || mlp.bottomMargin != m6) {
-                mlp.topMargin = m6;
-                mlp.bottomMargin = m6;
-                h.itemView.setLayoutParams(mlp);
-            }
             h.title.setText(titleSpan(item.getTitle()));
             // movie_3_marquee：标题跑马灯（对照 8.83 item_movie_tools_marquee，marqueeRepeatLimit=3）；
             // 非 marquee 时复位（防复用串台）
+            String ct = item.getColType() == null ? "" : item.getColType().trim().toLowerCase();
             if ("movie_3_marquee".equals(ct)) {
                 h.title.setEllipsize(TextUtils.TruncateAt.MARQUEE);
                 h.title.setSingleLine(true);
@@ -7239,7 +5745,7 @@ public class HkPageActivity extends BaseActivity {
             // video 也不单开直调详情（否则动作协议/@rule=分流/详情内直播等都被跳过）
             h.itemView.setOnClickListener(v -> {
                 try {
-                    int pos = h.getBindingAdapterPosition();
+                    int pos = h.getAdapterPosition();
                     if (pos >= 0 && pos < items.size() && currentRule != null) {
                         onContentItemClick(items.get(pos));
                     }
@@ -7330,30 +5836,14 @@ public class HkPageActivity extends BaseActivity {
         }
 
         /**
-         * 按钮组：8.83 区分 scroll_button / flex_button（详情页）。
-         * - flex_button：无底色 16sp 纯文字按钮，换行流式（min 40×30dp）
-         * - scroll_button：横向滚动行 + 右侧 ">" 展开按钮
-         * 内容页保持旧灰底圆角胶囊不变。
+         * 流式胶囊按钮组：对照 8.83 bindForScrollButtonHolder，
+         * 从 polyList 取整组渲染（position 为组内首个条目）。
          */
         private void bindButtons(Holder h, int position) {
             h.cols.removeAllViews();
             Integer gi = polyPositionMap.get(position);
             List<HkItem> subs = (gi == null || gi < 0 || gi >= polyList.size()) ? null : polyList.get(gi);
             if (subs == null || subs.isEmpty()) return;
-            String ct = colTypeOf(subs.get(0));
-            if (detailMode && "flex_button".equals(ct)) {
-                bindFlexButtons(h, subs);
-                return;
-            }
-            if (detailMode && "scroll_button".equals(ct)) {
-                bindScrollButtons(h, position, gi, subs);
-                return;
-            }
-            bindCapsuleButtons(h, subs);
-        }
-
-        /** 旧灰底圆角胶囊（内容页保持）。 */
-        private void bindCapsuleButtons(Holder h, List<HkItem> subs) {
             Context ctx = h.itemView.getContext();
             int parentW = h.cols.getWidth();
             if (parentW <= 0) {
@@ -7407,152 +5897,6 @@ public class HkPageActivity extends BaseActivity {
             return row;
         }
 
-        /**
-         * 8.83 flex_button（item_article_flex_btn_item）：无底色 16sp 纯文字按钮，
-         * 换行流式，min 40×30dp；足迹选中项文字染绿（8.83 yellowAction #109d58）。
-         */
-        private void bindFlexButtons(Holder h, List<HkItem> subs) {
-            Context ctx = h.itemView.getContext();
-            int parentW = h.cols.getWidth();
-            if (parentW <= 0) {
-                parentW = ctx.getResources().getDisplayMetrics().widthPixels - dp(16) * 2;
-            }
-            LinearLayout flow = new LinearLayout(ctx);
-            flow.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout row = newButtonRow(ctx);
-            int rowW = 0;
-            for (HkItem sub : subs) {
-                TextView tv = newFlexButtonView(ctx, sub);
-                tv.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-                int w = tv.getMeasuredWidth() + dp(4);
-                if (rowW + w > parentW && rowW > 0) {
-                    flow.addView(row, new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                    row = newButtonRow(ctx);
-                    rowW = 0;
-                }
-                row.addView(tv);
-                rowW += w;
-            }
-            flow.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            h.cols.addView(flow, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-
-        private TextView newFlexButtonView(Context ctx, HkItem sub) {
-            TextView tv = new TextView(ctx);
-            tv.setText(titleSpan(sub.getTitle()));
-            tv.setTextSize(16);
-            tv.setGravity(Gravity.CENTER);
-            tv.setMaxLines(1);
-            tv.setEllipsize(TextUtils.TruncateAt.END);
-            tv.setMinWidth(dp(40));
-            tv.setMinHeight(dp(30));
-            tv.setPadding(dp(8), dp(4), dp(8), dp(4));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            int m = dp(2);
-            lp.setMargins(m, m, m, m);
-            tv.setLayoutParams(lp);
-            boolean sel = !highlightUrl.isEmpty() && highlightUrl.equals(sub.getUrl());
-            tv.setTextColor(sel ? 0xFF109D58 : 0xFF444444);
-            tv.setOnClickListener(v -> onContentItemClick(sub));
-            return tv;
-        }
-
-        /**
-         * 8.83 scroll_button：横向滚动行 + 右侧 ">" 展开按钮（item_article_header_item 风格：
-         * 16sp 白底圆角，选中项浅黄底 + 绿字）。点 ">" 在单行滚动 / 换行展开间切换。
-         */
-        private void bindScrollButtons(Holder h, int position, int gi, List<HkItem> subs) {
-            Context ctx = h.itemView.getContext();
-            LinearLayout root = new LinearLayout(ctx);
-            root.setOrientation(LinearLayout.HORIZONTAL);
-            root.setGravity(Gravity.CENTER_VERTICAL);
-            boolean expanded = expandedBtnGroups.contains(gi);
-            if (expanded) {
-                int parentW = h.cols.getWidth();
-                if (parentW <= 0) {
-                    parentW = ctx.getResources().getDisplayMetrics().widthPixels - dp(16) * 2;
-                }
-                LinearLayout flow = new LinearLayout(ctx);
-                flow.setOrientation(LinearLayout.VERTICAL);
-                LinearLayout row = newButtonRow(ctx);
-                int rowW = 0;
-                for (HkItem sub : subs) {
-                    TextView tv = newScrollButtonView(ctx, sub);
-                    tv.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-                    int w = tv.getMeasuredWidth() + dp(10);
-                    if (rowW + w > parentW && rowW > 0) {
-                        flow.addView(row, new LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                        row = newButtonRow(ctx);
-                        rowW = 0;
-                    }
-                    row.addView(tv);
-                    rowW += w;
-                }
-                flow.addView(row, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                root.addView(flow, new LinearLayout.LayoutParams(0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            } else {
-                android.widget.HorizontalScrollView sv = new android.widget.HorizontalScrollView(ctx);
-                sv.setHorizontalScrollBarEnabled(false);
-                LinearLayout row = newButtonRow(ctx);
-                for (HkItem sub : subs) row.addView(newScrollButtonView(ctx, sub));
-                sv.addView(row, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                root.addView(sv, new LinearLayout.LayoutParams(0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            }
-            TextView expand = new TextView(ctx);
-            expand.setText(expanded ? "∧" : ">");
-            expand.setTextSize(16);
-            expand.setTextColor(0xFF222222);
-            expand.setGravity(Gravity.CENTER);
-            expand.setMinHeight(dp(30));
-            expand.setPadding(dp(10), dp(4), dp(10), dp(4));
-            expand.setContentDescription("展开");
-            expand.setOnClickListener(v -> {
-                if (expandedBtnGroups.contains(gi)) expandedBtnGroups.remove(gi);
-                else expandedBtnGroups.add(gi);
-                notifyItemChanged(position);
-            });
-            root.addView(expand, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            h.cols.addView(root, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-
-        private TextView newScrollButtonView(Context ctx, HkItem sub) {
-            TextView tv = new TextView(ctx);
-            tv.setText(titleSpan(sub.getTitle()));
-            tv.setTextSize(16);
-            tv.setGravity(Gravity.CENTER);
-            tv.setMaxLines(1);
-            tv.setEllipsize(TextUtils.TruncateAt.END);
-            tv.setMinHeight(dp(30));
-            tv.setPadding(dp(5), dp(4), dp(5), dp(4));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            int m = dp(5);
-            lp.setMargins(m, 0, m, 0);
-            tv.setLayoutParams(lp);
-            boolean sel = !highlightUrl.isEmpty() && highlightUrl.equals(sub.getUrl());
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(8));
-            bg.setColor(sel ? 0xFFE6F3E6 : 0xFFFFFFFF);
-            if (!sel) {
-                bg.setStroke(dp(1), 0xFFE0E0E0);
-            }
-            tv.setBackground(bg);
-            tv.setTextColor(sel ? 0xFF109D58 : 0xFF1A1D24);
-            tv.setOnClickListener(v -> onContentItemClick(sub));
-            return tv;
-        }
-
         /** 头像行：圆形图 + 标题横向。 */
         private void bindAvatar(Holder h, HkItem item) {
             h.title.setText(titleSpan(item.getTitle()));
@@ -7599,21 +5943,6 @@ public class HkPageActivity extends BaseActivity {
 
         /** 图片：pic_1系列全宽16:9；pic_2半宽16:9；pic_3/pic_3_square按列宽正方形。 */
         private void bindPic(Holder h, HkItem item) {
-            int vt = h.getItemViewType();
-            if (vt == T_PIC_1 || vt == T_PIC_1_CARD) {
-                // 图文：对照 8.83 item_pic_one_col / item_pic_one_card_col
-                if (h.title == null || h.cover == null) return; // 防 ViewHolder 类型错配
-                h.title.setText(titleSpan(item.getTitle()));
-                String pd = stripHtml(item.getDesc());
-                if (h.desc != null) {
-                    h.desc.setText(pd);
-                    h.desc.setVisibility(TextUtils.isEmpty(pd) ? View.GONE : View.VISIBLE);
-                }
-                ImgUtil.load(item.getTitle(), item.getPic(), h.cover, hkRuleUrl());
-                h.cover.setContentDescription(stripHtml(item.getTitle()));
-                setContentClick(h, item);
-                return;
-            }
             String ct = colTypeOf(item);
             ViewGroup.LayoutParams plp = h.cover.getLayoutParams();
             if (plp != null) {
@@ -7749,14 +6078,9 @@ public class HkPageActivity extends BaseActivity {
             void onPick(String value);
         }
 
-        interface OnLongPick {
-            void onLongPick(String value);
-        }
-
         private final List<String[]> pairs;
         private int selected;
         private final OnPick listener;
-        private OnLongPick longPickListener;
         private int dropTarget = -1;
         private boolean goldMode = false;
 
@@ -7764,17 +6088,6 @@ public class HkPageActivity extends BaseActivity {
             this.pairs = pairs;
             this.selected = selected;
             this.listener = listener;
-        }
-
-        /** 编程选中（ViewPager 翻页时同步 tab 高亮）。 */
-        void setSelected(int pos) {
-            if (selected == pos) return;
-            selected = pos;
-            notifyDataSetChanged();
-        }
-
-        void setOnLongPick(OnLongPick l) {
-            longPickListener = l;
         }
 
         /** 金色主题模式：小程序切换 tabs 用淡金底，与分类 pills（白底/绿选中）颜色区分，一眼看出是两排不同的东西。 */
@@ -7809,6 +6122,9 @@ public class HkPageActivity extends BaseActivity {
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_chip, parent, false);
+            RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) v.getLayoutParams();
+            lp.rightMargin = (int) (8 * parent.getContext().getResources().getDisplayMetrics().density + 0.5f);
+            v.setLayoutParams(lp);
             return new Holder(v);
         }
 
@@ -7831,8 +6147,10 @@ public class HkPageActivity extends BaseActivity {
             } else if (drop) {
                 // 拖拽投放目标：金色加粗 + 选中底，提示松手即进该分组
                 if (h.card != null) {
-                    h.card.setCardBackgroundColor(0xFFFFFFFF);
-                    h.card.setStrokeWidth(0);
+                    h.card.setCardBackgroundColor(0xC2FFFFFF);
+                    float d2 = h.itemView.getContext().getResources().getDisplayMetrics().density;
+                    h.card.setStrokeWidth((int) (1 * d2 + 0.5f));
+                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
                 }
                 h.chip.setTextColor(0xFFB8890F);
                 h.chip.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -7840,11 +6158,14 @@ public class HkPageActivity extends BaseActivity {
             } else {
                 // 恢复卡片默认样式（防止从 goldMode 复用过来的 view 残留透明底）
                 if (h.card != null) {
-                    h.card.setCardBackgroundColor(0xFFFFFFFF);
-                    h.card.setStrokeWidth(0);
+                    h.card.setCardBackgroundColor(0xC2FFFFFF);
+                    float d = h.itemView.getContext().getResources().getDisplayMetrics().density;
+                    h.card.setStrokeWidth((int) (1 * d + 0.5f));
+                    h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
                 }
                 h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
-                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF666666);
+                // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
+                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
                 h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
             }
             h.chip.setOnClickListener(v -> {
@@ -7853,14 +6174,6 @@ public class HkPageActivity extends BaseActivity {
                 selected = pos;
                 notifyDataSetChanged();
                 if (listener != null) listener.onPick(pairs.get(pos)[1]);
-            });
-            h.itemView.setOnLongClickListener(v -> {
-                int pos = h.getBindingAdapterPosition();
-                if (pos != RecyclerView.NO_POSITION && longPickListener != null) {
-                    longPickListener.onLongPick(pairs.get(pos)[1]);
-                    return true;
-                }
-                return false;
             });
         }
 

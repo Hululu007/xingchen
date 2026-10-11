@@ -11,18 +11,6 @@ public class XingChenDoh {
     public static final String KEY = "xingchen.doh_provider";
     public static final String[] NAMES = {"系统", "腾讯", "阿里", "360"};
     private static final String[] URLS = {"", "https://doh.pub/dns-query", "https://dns.alidns.com/dns-query", "https://doh.360.cn/dns-query"};
-    /**
-     * DoH 服务器直连 IP（bootstrap JSON）：运营商劫持 DNS 时，DoH 连服务器域名都解析不出来，
-     * 用这些 IP 直连 443 端口做 DoH 查询，不走 DNS。
-     * FongMi 正统机制：ips 走 Doh 原生 @SerializedName("ips") 字段，经 Doh.objectFrom(JSON) 解析，
-     * 不新增 setter 方法。IP 数值经 Google(8.8.8.8) 与 Cloudflare(1.1.1.1) DoH 双源交叉验证（2026-10-11）。
-     */
-    private static final String[] IPS_JSON = {
-            "[]",
-            "[\"1.12.12.12\",\"120.53.53.53\"]",        // 腾讯 doh.pub
-            "[\"223.5.5.5\",\"223.6.6.6\"]",            // 阿里 dns.alidns.com
-            "[\"101.198.192.33\",\"101.198.193.29\"]",  // 360 doh.360.cn
-    };
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences("xingchen", Context.MODE_PRIVATE);
@@ -39,8 +27,8 @@ public class XingChenDoh {
 
     public static Doh toDoh(Context context) {
         int i = getIndex(context);
-        // FongMi 正统方式：拼出带 ips 的 JSON，走原生 Doh.objectFrom() 解析，不新增 setter
-        String json = "{\"name\":\"" + NAMES[i] + "\",\"url\":\"" + URLS[i] + "\",\"ips\":" + IPS_JSON[i] + "}";
+        // FongMi 原版行为：内置条目不带 ips（无 bootstrap），ips 只从配置下发来
+        String json = "{\"name\":\"" + NAMES[i] + "\",\"url\":\"" + URLS[i] + "\"}";
         return Doh.objectFrom(json);
     }
 

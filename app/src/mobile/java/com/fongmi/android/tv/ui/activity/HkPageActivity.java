@@ -2860,21 +2860,38 @@ public class HkPageActivity extends BaseActivity {
             return;
         }
         binding.llTabRows.setVisibility(View.VISIBLE);
+        // 8.83 updatePolyList（smali ArticleListAdapter:12152）：连续同 col_type 的条目自动合并成一组
+        List<List<HkItem>> groups = new ArrayList<>();
         for (HkItem it : tabs) {
-            String rawTitle = it.getTitle() == null ? "" : it.getTitle();
-            String rawUrl = it.getUrl() == null ? "" : it.getUrl();
-            // 8.83：title/url 按 "&" 切分（bindForHeaderHolder 第 1140 行）
-            String[] names = rawTitle.split("&", -1);
-            String[] urls = rawUrl.split("&", -1);
+            String t = it.getColType();
+            if (!groups.isEmpty()) {
+                List<HkItem> last = groups.get(groups.size() - 1);
+                if (last.get(0).getColType().equals(t)) {
+                    last.add(it);
+                    continue;
+                }
+            }
+            List<HkItem> g = new ArrayList<>();
+            g.add(it);
+            groups.add(g);
+        }
+        for (List<HkItem> group : groups) {
             List<String[]> pairs = new ArrayList<>();
             int sel = 0;
-            for (int i = 0; i < names.length; i++) {
-                String raw = names[i];
-                if (isTabSelected(raw)) sel = i;
-                String name = stripHtml(raw);
-                if (name.isEmpty()) name = "分类" + (i + 1);
-                String u = i < urls.length ? urls[i] : "";
-                pairs.add(new String[]{name, u, raw});
+            for (HkItem it : group) {
+                String rawTitle = it.getTitle() == null ? "" : it.getTitle();
+                String rawUrl = it.getUrl() == null ? "" : it.getUrl();
+                // 8.83：title/url 按 "&" 切分（bindForHeaderHolder 第 1140 行）
+                String[] names = rawTitle.split("&", -1);
+                String[] urls = rawUrl.split("&", -1);
+                for (int i = 0; i < names.length; i++) {
+                    String raw = names[i];
+                    if (isTabSelected(raw)) sel = pairs.size();
+                    String name = stripHtml(raw);
+                    if (name.isEmpty()) name = "分类" + (pairs.size() + 1);
+                    String u = i < urls.length ? urls[i] : "";
+                    pairs.add(new String[]{name, u, raw});
+                }
             }
             if (pairs.isEmpty()) continue;
             // 行容器：横向 RecyclerView + 右侧 ">" 展开按钮（8.83 view_article_list_header.xml 同款）

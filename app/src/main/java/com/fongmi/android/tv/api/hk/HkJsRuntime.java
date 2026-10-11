@@ -44,6 +44,15 @@ import java.util.concurrent.TimeUnit;
 
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import android.os.Environment;
+import java.net.URI;
+import java.util.UUID;
+import org.mozilla.javascript.Function;
+import org.mozilla.javascript.GeneratedClassLoader;
+import org.mozilla.javascript.Script;
+import org.mozilla.javascript.SecurityController;
+import org.mozilla.javascript.commonjs.module.provider.StrongCachingModuleScriptProvider;
+import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
 
 /**
  * 海阔 JS 运行时（M2，设计文档 §4.4）。
@@ -316,6 +325,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
             rhinoCx.setOptimizationLevel(-1);
             scope = rhinoCx.initStandardObjects();
             registerApi();
+            // D1: build 8.83 allFunctions prelude (JSAnnotation-reflected stubs + MY_UA suffix).
+            try {
+                allFunctions = String.format(getAllFunctions(), HkJsRuntime.class.getName())
+                        + "\n var MY_UA = JSON.parse(getUaObject());\n var MOBILE_UA =  MY_UA.mobileUa;\n var PC_UA = MY_UA.pcUa";
+            } catch (Throwable t) {
+                Logger.t(TAG).e(t, "build allFunctions");
+                allFunctions = "";
+            }
             // 官方内置 CryptoJS（aes.js）：自动注入为全局，兼容直接使用 CryptoJS 的规则；
             // 库本身幂等（var CryptoJS = CryptoJS || ...），规则再 eval(getCryptoJS()) 无害
             try {
@@ -1798,7 +1815,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
                 "                    } else if (typeof MY_TITLE !== \"undefined\") {\n" +
                 "                        title = MY_TITLE;\n" +
                 "                    }\n" +
-                "                    RequireUtils.generateRequireMap(title, module.modulePath, \"\", getPath(module.id).slice(7));\n" +
+                "                    generateRequireMap(title, module.modulePath, \"\", getPath(module.id).slice(7));\n" +
                 "                } catch (e) {}\n" +
                 "            }\n" +
                 "        }\n" +
@@ -3207,4 +3224,1983 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         } catch (Throwable ignored) {
         }
     }
+// ============ D1: 8.83 JSEngine P0 core port ============
+// 8.83 JSEngine.smali P0 (D1): eval core / script wrap / require / parse entries /
+// network bottom + infra helpers. Faithful smali->Java ports; substitutions documented
+// in workspace/jsengine-d1/*_notes.md. New methods have no live callers yet (D3 wires them).
+
+    // ---- D1 nested types (8.83 JSEngine$*) ----
+    /** 8.83 JSEngine$ReturnType (enum, $values order). */
+    public enum ReturnType { VOID, STRING, JSON, BOOL, Num, OBJECT }
+
+    /** 8.83 JSEngine$JSAnnotation. */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+    @java.lang.annotation.Target(java.lang.annotation.ElementType.METHOD)
+    public @interface JSAnnotation {
+        String alias() default "";
+        ReturnType returnType() default ReturnType.VOID;
+    }
+
+    /** 8.83 JSEngine$Parameter. */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+    @java.lang.annotation.Target(java.lang.annotation.ElementType.PARAMETER)
+    public @interface Parameter {
+        int defaultInt() default -1;
+        String defaultValue() default "";
+        String value() default "";
+    }
+
+    /** 8.83 JSEngine$OnFindCallBack mirror. */
+    private interface JSEngineCallback<T> {
+        void onSuccess(String key, T result);
+        void onUpdate(String key, String value);
+        void showErr(String err);
+    }
+
+    /** 8.83 NoSecurityController (rhino/NoSecurityController.smali, 42 lines). */
+    private static class HkNoSecurityController extends SecurityController {
+        @Override
+        public GeneratedClassLoader createClassLoader(ClassLoader parent, Object securityDomain) {
+            return new GeneratedClassLoader() {
+                @Override public Class<?> defineClass(String name, byte[] data) {
+                    return super.defineClass(name, data, 0, data.length);
+                }
+                @Override public void linkClass(Class<?> cl) {}
+            };
+        }
+        @Override public Object getDynamicSecurityDomain(Object securityDomain) { return null; }
+    }
+
+    /** 8.83 JSEngine$MyRequire: Rhino Require with function name "requirejs". */
+    private static class MyRequire extends org.mozilla.javascript.commonjs.module.Require {
+        MyRequire(Context cx, Scriptable scope,
+                  org.mozilla.javascript.commonjs.module.ModuleScriptProvider provider,
+                  Script preExec, Script postExec, boolean sandboxed) {
+            super(cx, scope, provider, preExec, postExec, sandboxed);
+        }
+        @Override
+        public String getFunctionName() {
+            return "requirejs";
+        }
+    }
+
+    /** Minimal page-rule model for hiker://page/ JSON (GSON). 8.83: ArticleListPageRule. */
+    private static class HkPageRule {
+        String rule;
+        String getRule() { return rule; }
+    }
+
+    /** 8.83 RequireDescription model (GSON). */
+    private static class RequireDescription {
+        String url; int version;
+        RequireDescription(String url, int version) { this.url = url; this.version = version; }
+        int getVersion() { return version; }
+    }
+
+    /** 8.83 RequireItem model (GSON). */
+    private static class RequireItem {
+        String url, proxy, file; long accessTime;
+        RequireItem(String url, String proxy, String file, long accessTime) {
+            this.url = url; this.proxy = proxy; this.file = file; this.accessTime = accessTime;
+        }
+        String getUrl() { return url; }
+        long getAccessTime() { return accessTime; }
+        void setAccessTime(long t) { accessTime = t; }
+        void setProxy(String p) { proxy = p; }
+    }
+
+
+    // ---- D1 fields (8.83 JSEngine state) ----
+    private final Map<String, Object> globalMap = new HashMap<>();
+    private final HkRc4 rc4 = new HkRc4();
+    private final HkMyBase64 myBase64 = new HkMyBase64();
+    private final Map<String, JSEngineCallback<?>> callbackMap = new HashMap<>();
+    private final Map<String, String> resCodeMap = new HashMap<>();
+    private final List<String> methodList = new ArrayList<>();
+    private volatile StrongCachingModuleScriptProvider cachingModuleScriptProvider;
+    private String allFunctions = "";
+    private final Class<?> clazz = HkJsRuntime.class;
+    private static final Map<String, String> ruleTicketMap = new HashMap<>();
+    private static final Map<String, String> ticketMap = new HashMap<>();
+
+
+    // ---- D1 small helpers (merger-written) ----
+    /** 8.83 RhinoAndroidHelper.enterContext() equivalent: NoSecurityController + Context.enter(). */
+    private static Context enterRhino() {
+        if (!SecurityController.hasGlobal()) {
+            SecurityController.initGlobal(new HkNoSecurityController());
+        }
+        return Context.enter();
+    }
+
+    /** 8.83 UriUtils.getRootDir(ctx): getExternalFilesDir(DOCUMENTS), mkdirs. */
+    private static String hkRootDir() {
+        File docs = App.get().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        if (docs != null && !docs.exists()) docs.mkdirs();
+        return docs != null ? docs.getAbsolutePath() : "";
+    }
+
+    /** 8.83 JSEngine.getFilesDir(): rootDir + "/files" (smali 3563-3621). */
+    private String getFilesDir() {
+        return hkRootDir() + File.separator + "files";
+    }
+
+    /** 8.83 UUIDUtil.genUUID(): dashed-stripped UUID (verified in smali). */
+    private static String genUuid() {
+        return UUID.randomUUID().toString().replaceAll("-", "");
+    }
+
+    /** 8.83 JSEngine.generateTicket (smali 2998-3045): title -> stable ticket uuid. */
+    private static String generateTicket(String title) {
+        if (TextUtils.isEmpty(title)) return title;
+        String t = ruleTicketMap.get(title);
+        if (!TextUtils.isEmpty(t)) return t;
+        String uuid = genUuid();
+        ticketMap.put(uuid, title);
+        ruleTicketMap.put(title, uuid);
+        return uuid;
+    }
+
+    /** 8.83 JSEngine.log(Object, Object) JS API (D3 ports full version; D1: log it). */
+    private void log(Object msg, Object tag) {
+        Logger.t(TAG).d(String.valueOf(msg));
+    }
+
+    /** 8.83 4-arg setError (smali 24004, 530 lines) is D3; D1 records into error field like the JS bridge. */
+    private void setError(Object o, Object callbackKey, Object ruleKey, Object extra) {
+        error = o == null ? "" : String.valueOf(o);
+        Logger.t(TAG).d("setError: %s key=%s", error, String.valueOf(callbackKey));
+    }
+
+    private static InputStream hkFileToInputStream(String path) throws java.io.IOException {
+        return new java.io.FileInputStream(path);
+    }
+
+    private static byte[] hkFileToBytes(String path) throws java.io.IOException {
+        java.io.File f = new java.io.File(path);
+        byte[] b = new byte[(int) f.length()];
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            int off = 0, n;
+            while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) off += n;
+        }
+        return b;
+    }
+
+    /** hiker://assets/ -> app assets (8.83 HikerRuleUtil.getAssetsFileByHiker; D1 mapping). */
+    private String hkGetAssetsFile(String url) {
+        try {
+            String p = url.substring("hiker://assets/".length());
+            return loadAsset(p);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** hiker:// rule URLs (8.83 HikerRuleUtil.getRulesByHiker) — D3 scope; D1 returns "". */
+    private String hkGetRulesByHiker(String url) {
+        Logger.t(TAG).d("hkGetRulesByHiker not yet ported (D3): %s", url);
+        return "";
+    }
+
+
+    // ---- D1-A: eval core (smali 13914-15069, 26009-26128) ----
+    // (ReturnType/JSAnnotation/Parameter defined once as nested types above.)
+
+// 1. evalJS(String, InputStream) — smali lines 13914-14288.
+// Runs the script in a FRESH Rhino context/scope, injecting input/_globalMap/rc4/
+// _base64/javaContext/javaLoader plus the allFunctions prelude; returns the eval
+// result as InputStream (unwrapping NativeJavaObject), closing the passed-in
+// stream when the result is a different InputStream. Any Exception -> Context.exit
+// and return the original stream; any Throwable -> Context.exit and rethrow.
+public InputStream evalJS(String p1, InputStream p2) {
+    String v1;
+    if (p1.contains("let my_rule = '")) {
+        v1 = "";
+    } else {
+        v1 = getMyRule(null); // MISSING (8.83 static)
+    }
+    String script = new StringBuilder()
+            .append(v1)
+            .append(getMyType("eval")) // MISSING
+            .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
+            .append(p1)
+            .toString();
+    String v3 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
+    Context v1cx = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
+            App.get()).enterContext(); // 8.83 external
+    initRhino(v1cx); // MISSING
+    try {
+        ScriptableObject v2 = v1cx.initStandardObjects();
+        org.mozilla.javascript.ImporterTopLevel.init(v1cx, v2, false);
+        initRequire(v1cx, v2); // MISSING
+        ScriptableObject.putProperty(v2, "input", Context.javaToJS(p2, v2));
+        ScriptableObject.putProperty(v2, "_globalMap", Context.javaToJS(globalMap, v2)); // field MISSING
+        ScriptableObject.putProperty(v2, "rc4", Context.javaToJS(rc4, v2)); // field MISSING
+        ScriptableObject.putProperty(v2, "_base64", Context.javaToJS(myBase64, v2)); // field MISSING
+        ScriptableObject.putProperty(v2, "javaContext", Context.javaToJS(this, v2));
+        ScriptableObject.putProperty(v2, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v2)); // field MISSING
+        if (!v3.contains("eval(getJsPlugin());\n")) {
+            v1cx.evaluateString(v2, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
+        } else {
+            v1cx.evaluateString(v2, allFunctions, clazz.getSimpleName(), 1, null);
+        }
+        Object p1res = v1cx.evaluateString(v2, v3, clazz.getSimpleName(), 1, null);
+        if (p1res instanceof InputStream) {
+            if (p1res != p2 && p2 != null) {
+                try {
+                    p2.close();
+                } catch (Exception e) {
+                    Logger.t(TAG).e(e); // 8.83 external; target uses Logger
+                }
+            }
+            InputStream result = (InputStream) p1res;
+            Context.exit();
+            return result;
+        }
+        if (p1res instanceof NativeJavaObject) {
+            p1res = ((NativeJavaObject) p1res).unwrap();
+            if (p1res instanceof InputStream && p1res != p2 && p2 != null) {
+                try {
+                    p2.close();
+                } catch (Exception e) {
+                    Logger.t(TAG).e(e); // 8.83 external; target uses Logger
+                }
+            }
+            if (p1res instanceof InputStream) {
+                p2 = (InputStream) p1res;
+            }
+            Context.exit();
+            return p2;
+        }
+        Context.exit();
+        return p2;
+    } catch (Exception e) {
+        Context.exit();
+        return p2;
+    } catch (Throwable t) {
+        // smali :catchall_0 — exit then rethrow (NOT a finally: normal paths exit explicitly)
+        Context.exit();
+        throw t;
+    }
+}
+
+// 2. evalJS(String, String) — smali lines 14289-14301. Delegates with decode=true.
+public String evalJS(String p1, String p2) {
+    return evalJS(p1, p2, true);
+}
+
+// 3. evalJS(String, String, boolean) — smali lines 14302-14735.
+// Same fresh-context shape as (1) but injects `var input=...` (getMyInput) instead of
+// the "input" property; when p3 is true the script is passed through
+// StringUtil.decodeConflictStr. Result mapping: String -> itself;
+// Undefined -> "undefined"; NativeObject/NativeArray -> argsNativeObjectAdjust +
+// JSON stringify; anything else -> String.valueOf. Exception -> "error:"+message;
+// Throwable -> Context.exit and rethrow.
+public String evalJS(String p1, String p2, boolean p3) {
+    String errPrefix = "error:";
+    String empty = "";
+    String v4;
+    if (p1.contains("let my_rule = '")) {
+        v4 = empty;
+    } else {
+        v4 = getMyRule(null); // MISSING (8.83 static)
+    }
+    String v4b = new StringBuilder()
+            .append(getMyInput(p2)) // MISSING
+            .append(v4)
+            .append(getMyType("eval")) // MISSING
+            .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
+            .toString();
+    String v0;
+    if (p3) {
+        v0 = v4b + decodeConflictStr(p1); // 8.83 external
+    } else {
+        v0 = v4b + p1;
+    }
+    String v8 = getReplaceJS(appendLineVar(v0)); // MISSING, MISSING
+    Context v6 = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
+            App.get()).enterContext(); // 8.83 external
+    initRhino(v6); // MISSING
+    try {
+        ScriptableObject v7 = v6.initStandardObjects();
+        org.mozilla.javascript.ImporterTopLevel.init(v6, v7, false);
+        initRequire(v6, v7); // MISSING
+        ScriptableObject.putProperty(v7, "_globalMap", Context.javaToJS(globalMap, v7)); // field MISSING
+        ScriptableObject.putProperty(v7, "rc4", Context.javaToJS(rc4, v7)); // field MISSING
+        ScriptableObject.putProperty(v7, "_base64", Context.javaToJS(myBase64, v7)); // field MISSING
+        ScriptableObject.putProperty(v7, "javaContext", Context.javaToJS(this, v7));
+        ScriptableObject.putProperty(v7, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v7)); // field MISSING
+        if (!v8.contains("eval(getJsPlugin());\n")) {
+            v6.evaluateString(v7, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
+        } else {
+            v6.evaluateString(v7, allFunctions, clazz.getSimpleName(), 1, null);
+        }
+        Object v0res = v6.evaluateString(v7, v8, clazz.getSimpleName(), 1, null);
+        if (v0res instanceof String) {
+            Context.exit();
+            return (String) v0res;
+        }
+        if (v0res instanceof Undefined) {
+            Context.exit();
+            return "undefined";
+        }
+        if (v0res instanceof NativeObject || v0res instanceof NativeArray) {
+            Object adjusted = argsNativeObjectAdjust(v0res); // exists in HkJsRuntime
+            // 8.83: GSON.toJson(adjusted); fastjson absent in
+            // target — argsNativeObjectAdjust yields LinkedHashMap/ArrayList, so GSON is equivalent.
+            String json = GSON.toJson(adjusted);
+            Context.exit();
+            return json;
+        }
+        String s = new StringBuilder().append(v0res).append(empty).toString();
+        Context.exit();
+        return s;
+    } catch (Exception e) {
+        String err = errPrefix + e.getMessage();
+        Context.exit();
+        return err;
+    } catch (Throwable t) {
+        // smali :catchall_0 — exit then rethrow (NOT a finally: normal paths exit explicitly)
+        Context.exit();
+        throw t;
+    }
+}
+
+// 4. evalJSForObj(String, Object) — smali lines 14736-15032.
+// Same fresh-context shape as (1) ("input" property injected, NOT getMyInput).
+// Returns the raw eval result after argsNativeObjectAdjust (+ NativeJavaObject
+// unwrap); any Exception -> Context.exit and return null; Throwable -> exit, rethrow.
+public Object evalJSForObj(String p1, Object p2) {
+    String v1;
+    if (p1.contains("let my_rule = '")) {
+        v1 = "";
+    } else {
+        v1 = getMyRule(null); // MISSING (8.83 static)
+    }
+    String script = new StringBuilder()
+            .append(v1)
+            .append(getMyType("eval")) // MISSING
+            .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
+            .append(p1)
+            .toString();
+    String v5 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
+    Context v3 = new com.example.hikerview.service.parser.rhino.RhinoAndroidHelper( // 8.83 external
+            App.get()).enterContext(); // 8.83 external
+    initRhino(v3); // MISSING
+    try {
+        ScriptableObject v4 = v3.initStandardObjects();
+        org.mozilla.javascript.ImporterTopLevel.init(v3, v4, false);
+        initRequire(v3, v4); // MISSING
+        ScriptableObject.putProperty(v4, "input", Context.javaToJS(p2, v4));
+        ScriptableObject.putProperty(v4, "_globalMap", Context.javaToJS(globalMap, v4)); // field MISSING
+        ScriptableObject.putProperty(v4, "rc4", Context.javaToJS(rc4, v4)); // field MISSING
+        ScriptableObject.putProperty(v4, "_base64", Context.javaToJS(myBase64, v4)); // field MISSING
+        ScriptableObject.putProperty(v4, "javaContext", Context.javaToJS(this, v4));
+        ScriptableObject.putProperty(v4, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v4)); // field MISSING
+        if (!v5.contains("eval(getJsPlugin());\n")) {
+            v3.evaluateString(v4, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
+        } else {
+            v3.evaluateString(v4, allFunctions, clazz.getSimpleName(), 1, null);
+        }
+        Object p1res = v3.evaluateString(v4, v5, clazz.getSimpleName(), 1, null);
+        p1res = argsNativeObjectAdjust(p1res); // exists in HkJsRuntime
+        if (p1res instanceof NativeJavaObject) {
+            p1res = ((NativeJavaObject) p1res).unwrap();
+        }
+        Context.exit();
+        return p1res;
+    } catch (Exception e) {
+        Context.exit();
+        return null;
+    } catch (Throwable t) {
+        // smali :catchall_0 — exit then rethrow (NOT a finally: normal paths exit explicitly)
+        Context.exit();
+        throw t;
+    }
+}
+
+// 5. evalLazyRule(Object, String, String) — smali lines 15033-15069.
+// Builds getMyRule(p1) + decodeConflictStr(p2), then evalJS(script, p3, false)
+// (decode=false: the lazy rule was already decoded).
+public String evalLazyRule(Object p1, String p2, String p3) {
+    String script = new StringBuilder()
+            .append(getMyRule(p1)) // MISSING (8.83 static)
+            .append(decodeConflictStr(p2)) // 8.83 external
+            .toString();
+    return evalJS(script, p3, false);
+}
+
+// 6. syncExecute(Object) — smali lines 26009-26128, declared-synchronized.
+// JS-bridge entry (8.83 @JSAnnotation(returnType=OBJECT), @Parameter("task")):
+// if the arg is null/undefined -> null; else argsNativeObjectAdjust(arg, true)
+// (8.83 casts to fastjson JSONObject — adapted to java.util.Map since the target's
+// adjuster returns LinkedHashMap). Takes "func" (BaseFunction) and "param" from the
+// map and invokes func.call(currentContext, func.getParentScope(), func, [param]).
+@JSAnnotation(returnType = ReturnType.OBJECT)
+public synchronized Object syncExecute(@Parameter("task") Object task) {
+    Object p1 = task;
+    if (p1 != null) {
+        if (isUndefined(p1)) { // exists in HkJsRuntime; matches 8.83 smali 5714-5738
+            p1 = null;
+        } else {
+            // 8.83: check-cast to com.alibaba.fastjson.JSONObject (fastjson absent in
+            // target); the target's two-arg adjuster returns LinkedHashMap, so Map is equivalent.
+            p1 = (java.util.Map<?, ?>) argsNativeObjectAdjust(p1, true); // two-arg exists in HkJsRuntime
+        }
+    }
+    java.util.Map<?, ?> jo = (java.util.Map<?, ?>) p1; // null-safe cast, mirrors smali register flow
+    BaseFunction v1;
+    if (jo != null && jo.containsKey("func")) {
+        v1 = (BaseFunction) jo.get("func");
+    } else {
+        v1 = null;
+    }
+    Object v0 = null;
+    if (jo != null) {
+        v0 = jo.get("param");
+    }
+    Scriptable parentScope = v1.getParentScope();
+    Context v2 = Context.getCurrentContext();
+    return v1.call(v2, parentScope, v1, new Object[]{v0});
+}
+
+
+    // ---- D1-B: script wrap (smali 3622-4574, 9142-9479, 9963-9991) ----
+
+
+// ---- methods ----------------------------------------------------------------
+
+/**
+ * Port of JSEngine.getFunctionStr(String, JSEngine$ReturnType, String, Method).
+ * Smali lines 3622-4574. Builds the JS injection template for one ScriptAPI
+ * method: " var method_<name> = ScriptAPI.getMethod(\"<name>\"[,types]);" plus
+ * " function <name>(param0,...){ ... }", honouring @Parameter annotations
+ * (ruleTitleKey/evalKey/dirKey/typeKey/urlKey/ruleKey/callbackKey, plus
+ * defaultValue/defaultInt fallbacks). All const-string literals reproduced
+ * character-for-character from the smali.
+ */
+private String getFunctionStr(String prefix, ReturnType type, String alias, java.lang.reflect.Method method) {
+    String name = method.getName();
+    Class<?>[] paramTypes = method.getParameterTypes();
+    String types;
+    String invokeArgs;
+    String paramNames;
+    if (paramTypes.length > 0) {
+        String[] typeNames = new String[paramTypes.length];
+        String[] names = new String[paramTypes.length];
+        for (int i = 0; i < paramTypes.length; i++) {
+            typeNames[i] = paramTypes[i].getName();
+            names[i] = "param" + i;
+        }
+        types = String.format(",[%s]", TextUtils.join(",", typeNames));
+        paramNames = TextUtils.join(",", names);
+        invokeArgs = "," + paramNames;
+    } else {
+        types = "";
+        invokeArgs = "";
+        paramNames = "";
+    }
+    StringBuilder sb = new StringBuilder();
+    java.lang.annotation.Annotation[][] paramAnnotations = method.getParameterAnnotations();
+    for (int i = 0; i < paramAnnotations.length; i++) {
+        for (java.lang.annotation.Annotation annotation : paramAnnotations[i]) {
+            if (Parameter.class.equals(annotation.annotationType())) {
+                Parameter param = (Parameter) annotation;
+                String value = param.value();
+                int which = -1;
+                switch (value) {
+                    case "ruleTitleKey":
+                        which = 0;
+                        break;
+                    case "evalKey":
+                        which = 1;
+                        break;
+                    case "dirKey":
+                        which = 2;
+                        break;
+                    case "typeKey":
+                        which = 3;
+                        break;
+                    case "urlKey":
+                        which = 4;
+                        break;
+                    case "ruleKey":
+                        which = 5;
+                        break;
+                    case "callbackKey":
+                        which = 6;
+                        break;
+                }
+                switch (which) {
+                    case 0:
+                        sb.append("param").append(i).append(" = MY_TICKET;\n");
+                        break;
+                    case 1:
+                        sb.append("param").append(i).append(" = eval;\n");
+                        break;
+                    case 2:
+                        sb.append("param").append(i).append(" = param").append(i).append(" || MY_DIR;\n");
+                        break;
+                    case 3:
+                        sb.append("param").append(i).append(" = MY_TYPE;\n");
+                        break;
+                    case 4:
+                        sb.append("param").append(i).append(" = param").append(i).append(" || MY_URL;\n");
+                        break;
+                    case 5:
+                        sb.append("param").append(i).append(" = MY_RULE;\n");
+                        break;
+                    case 6:
+                        sb.append("param").append(i).append(" = CALLBACK_KEY;\n");
+                        break;
+                }
+                String defaultValue = param.defaultValue();
+                if (!TextUtils.isEmpty(defaultValue)) {
+                    sb.append("param").append(i).append(" = param").append(i)
+                            .append(" || \"").append(escapeJsString(defaultValue)).append("\";\n");
+                }
+                int defaultInt = param.defaultInt();
+                if (defaultInt >= 0) {
+                    sb.append("param").append(i).append(" = param").append(i)
+                            .append(" != null ? param").append(i).append(" : ").append(defaultInt).append(";\n");
+                }
+            }
+        }
+    }
+    String retPrefix = method.getReturnType().getSimpleName().equals("void") ? "" : "return";
+    String methodDecl = String.format(" var method_%s = ScriptAPI.getMethod(\"%s\"%s);\n", name, name, types);
+    String functionStr;
+    if (type == ReturnType.STRING) {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    var retStr = method_%s.invoke(javaContext%s);\n"
+                        + "    try {\n"
+                        + "       if(retStr instanceof java.io.InputStream) return retStr;\n"
+                        + "    } catch(e){}\n"
+                        + "    return retStr == null ? retStr : retStr + '';\n"
+                        + " }\n")
+                .toString(), name, paramNames, name, invokeArgs);
+    } else if (type == ReturnType.JSON) {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    var retStr = method_%s.invoke(javaContext%s);\n"
+                        + "    return JSON.parse(retStr);\n"
+                        + " }\n")
+                .toString(), name, paramNames, name, invokeArgs);
+    } else if (type == ReturnType.OBJECT) {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    return method_%s.invoke(javaContext%s);\n"
+                        + " }\n")
+                .toString(), name, paramNames, name, invokeArgs);
+    } else if (type == ReturnType.BOOL) {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    var retStr = method_%s.invoke(javaContext%s);\n"
+                        + "    return retStr + '' == 'true';\n"
+                        + " }\n")
+                .toString(), name, paramNames, name, invokeArgs);
+    } else if (type == ReturnType.Num) {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    var retStr = method_%s.invoke(javaContext%s);\n"
+                        + "    return parseInt(retStr);\n"
+                        + " }\n")
+                .toString(), name, paramNames, name, invokeArgs);
+    } else {
+        functionStr = String.format(new StringBuilder(" function %s(%s){\n")
+                .append(sb.toString())
+                .append("    %s method_%s.invoke(javaContext%s);\n"
+                        + " }\n")
+                .toString(), name, paramNames, retPrefix, name, invokeArgs);
+    }
+    String result = prefix + methodDecl + functionStr;
+    methodList.add(name);
+    if (!TextUtils.isEmpty(alias)) {
+        result += String.format("\nvar %s = %s;", alias, name);
+        methodList.add(alias);
+    }
+    return result;
+}
+
+/**
+ * Port of JSEngine.runScript(String, String). Smali lines 9142-9152.
+ * Delegates to the 3-arg overload with throwOnError=false.
+ */
+private void runScript(String script, String key) {
+    runScript(script, key, false);
+}
+
+/**
+ * Port of JSEngine.runScript(String, String, boolean). Smali lines 9153-9479.
+ * Builds the final script via appendLineVar + getReplaceJS, enters a fresh
+ * Rhino context (RhinoAndroidHelper), installs the standard 8.83 scope
+ * bindings (_globalMap, rc4, _base64, javaContext, javaLoader), evaluates
+ * allFunctions (+ "\neval(getJsPlugin());\n" when the script lacks the
+ * "eval(getJsPlugin());\n" marker) and then the script itself. On Exception:
+ * setError("JS编译出错：" + msg, key, new JSONObject()) unless throwOnError,
+ * in which case the exception is rethrown. Context.exit() always runs
+ * (smali allcatch -> finally). Afterwards resCodeMap/callbackMap entries for
+ * key are removed (each path has its own try/catch -> Timber.e, faithfully
+ * collapsed here into the single straight-line cleanup).
+ */
+private void runScript(String script, String key, boolean throwOnError) {
+    String replaced = getReplaceJS(appendLineVar(script), throwOnError);
+    Context cx =
+            new RhinoAndroidHelper(Application.getContext()).enterContext();
+    initRhino(cx);
+    try {
+        ScriptableObject scope = cx.initStandardObjects();
+        org.mozilla.javascript.ImporterTopLevel.init(cx, scope, false);
+        initRequire(cx, scope);
+        ScriptableObject.putProperty(scope, "_globalMap",
+                Context.javaToJS(globalMap, scope));
+        ScriptableObject.putProperty(scope, "rc4",
+                Context.javaToJS(rc4, scope));
+        ScriptableObject.putProperty(scope, "_base64",
+                Context.javaToJS(myBase64, scope));
+        ScriptableObject.putProperty(scope, "javaContext",
+                Context.javaToJS(this, scope));
+        ScriptableObject.putProperty(scope, "javaLoader",
+                Context.javaToJS(clazz.getClassLoader(), scope));
+        if (!script.contains("eval(getJsPlugin());\n")) {
+            cx.evaluateString(scope, allFunctions + "\neval(getJsPlugin());\n",
+                    clazz.getSimpleName(), 1, null);
+        } else {
+            cx.evaluateString(scope, allFunctions, clazz.getSimpleName(), 1, null);
+        }
+        cx.evaluateString(scope, replaced, clazz.getSimpleName(), 1, null);
+    } catch (Exception e) {
+        if (!throwOnError) {
+            setError("JS编译出错：" + e.getMessage(), key, new HashMap<String, Object>());
+        } else {
+            throw e;
+        }
+    } finally {
+        Context.exit();
+    }
+    try {
+        if (!TextUtils.isEmpty(key)) {
+            resCodeMap.remove(key);
+            callbackMap.remove(key);
+        }
+    } catch (Exception e) {
+        Logger.t(TAG).e(e);
+    }
+}
+
+/**
+ * Port of JSEngine.wrapTryScript(String). Smali lines 9963-9991.
+ * Returns "try {" + script + "}catch(err){}".
+ */
+private String wrapTryScript(String script) {
+    return new StringBuilder("try {").append(script).append("}catch(err){}").toString();
+}
+
+
+    // ---- D1-C: require (smali 5400-5484, 8192-8237, 8468-9141) ----
+    /**
+     * 8.83 JSEngine.require0(Object p1, Object p2, int p3, Object p4,
+     *                        Object p5, boolean p6, String p7, int p8) — smali 8468-9141.
+     * $.require 的核心模块加载器。参数角色按寄存器用法：
+     *   p1 options     — 传给 proxyRequire 的选项对象（可含 proxy 字段）
+     *   p2 name        — 经 tryGetString 转字符串，作模块名/描述（updateDescription/generateRequireMap 用）
+     *   p3 expireHours — 本地缓存过期小时数：<0 只比版本；==0 永远重下；>0 版本不够重下，否则按 3600000*p3 过期
+     *   p4 fetchOpts   — 透传给 requestForCode 的请求选项对象
+     *   p5 callback    — Function；p6=true 时把代码字符串作唯一实参回调，其 parentScope 作调用 scope
+     *   p6 useCallback — true=回调模式（返回 Function.call 结果），false=返回代码字符串
+     *   p7 ruleTitle   — 规则标题（hiker://page/ 查库 + generateRequireMap 用）
+     *   p8 reqVersion  — 期望依赖版本号（与 <md5>.json 里存的版本比）
+     */
+    private Object require0(Object options, Object name, int expireHours, Object fetchOpts,
+                            Object callback, boolean useCallback, String ruleTitle, int reqVersion) throws Exception {
+        // smali: v1=p4(fetchOpts), v2=p7(ruleTitle), v3=tryGetString(p2), v4=p8(reqVersion)
+        String desc = tryGetString(name);            // v3, .line 3626
+        String url = proxyRequire(options, desc);    // v5, .line 3627
+
+        // .line 3628: isNotEmpty(url) && (startsWith("file://") || startsWith("hiker://")) -> :cond_0
+        if (!TextUtils.isEmpty(url) && (url.startsWith("file://") || url.startsWith("hiker://"))) {
+            // :cond_0
+            Object ruleObj = null;                   // v7
+            if (url.startsWith("hiker://page/")) {
+                // 8.83: LitePal.where("title = ?", ruleTitle).limit(1).findFirst(ArticleListRule.class)
+                ruleObj = HkRuleManager.get().getInstalledRule(ruleTitle);
+            }
+            // :cond_1
+            String code = (String) fetchByHiker(url, ruleObj, false, false);  // v2
+            if (!useCallback) {
+                return code;                         // :cond_4
+            }
+            if (url.startsWith("hiker://page/")) {
+                // 8.83: com.alibaba.fastjson.JSON.parseObject(code, HkPageRule.class)
+                HkPageRule pageRule = GSON.fromJson(code, HkPageRule.class);
+                if (pageRule != null) {
+                    String rule = pageRule.getRule();
+                    if (!TextUtils.isEmpty(rule)) {
+                        code = rule.startsWith("js:") ? rule.substring(3) : rule;  // v8=3
+                    }
+                }
+            }
+            // :goto_0 — Function.call(cx, parentScope, parentScope, new Object[]{code})
+            Context cx = Context.getCurrentContext();
+            Scriptable parentScope = ((Scriptable) callback).getParentScope();
+            return ((Function) callback).call(cx, parentScope, parentScope, new Object[]{code});
+        }
+
+        // :cond_5 — 非 file/hiker 协议：必须 http 开头，否则抛
+        if (TextUtils.isEmpty(url) || !url.startsWith("http")) {
+            // :cond_12
+            throw new Exception("require地址必须为http地址：" + url);
+        }
+
+        // http(s) 分支：本地缓存 libs/<md5(url)>.js + 版本文件 <md5(url)>.json
+        Context cx = Context.getCurrentContext();                          // v6
+        Scriptable parentScope = ((Scriptable) callback).getParentScope(); // v9
+        String md5 = Util.md5(url);                                        // v10, 8.83: StringUtil.md5
+        String libsDir = hkRootDir() + File.separator + "libs";  // v12
+        String jsPath = libsDir + File.separator + md5 + ".js";            // v11
+        String jsonPath = libsDir + File.separator + md5 + ".json";        // v10
+        File jsFile = new File(jsPath);                                    // v12
+        int savedVer = getRequireVersion(jsonPath, reqVersion); // v13
+        // v15 = "获取远程依赖失败："
+
+        // 缓存有效性：smali 3667-3672 的 if-gez/if-ge/if-lt/if-eqz/cmp-long 判定链
+        //   p3 < 0：只比版本（savedVer >= reqVersion 用本地，否则下载）
+        //   p3 == 0：永远重新下载
+        //   p3 > 0：版本不够直接下载；版本够则 age <= 3600000*p3 用本地，否则下载
+        boolean useLocal;
+        if (!jsFile.exists()) {
+            useLocal = false;
+        } else if (expireHours < 0) {
+            useLocal = savedVer >= reqVersion;
+        } else if (expireHours == 0) {
+            useLocal = false;
+        } else if (savedVer < reqVersion) {
+            useLocal = false;
+        } else {
+            long age = System.currentTimeMillis() - jsFile.lastModified();
+            useLocal = age <= 3600000L * expireHours;
+        }
+
+        String code;  // v1
+        if (useLocal) {
+            // :cond_b / :goto_1 — 缓存有效，直接读本地
+            code = readFileContent(jsPath);          // 8.83: FileUtil.fileToString(jsPath)
+        } else {
+            code = requestForCode(url, fetchOpts);   // :cond_7 / :cond_f 下载
+            if (!jsFile.exists()) {
+                // :cond_f — 本地无文件：无内容校验，直接落盘
+                if (TextUtils.isEmpty(code)) {
+                    // :cond_11
+                    throw new Exception("获取远程依赖失败：" + url);
+                }
+                writeFileContent(jsPath, code);      // 8.83: FileUtil.stringToFile(code, jsPath)
+                updateDescription(jsonPath, desc, reqVersion);
+            } else if (useCallback && !isJsCode(code)) {
+                // :cond_7 回调模式：下载内容被判定为非 JS 代码 → 打日志后回退本地
+                log("url: " + url + "获取的内容被判定为非JS代码", null);  // v7=null
+                code = readFileContent(jsPath);      // goto :goto_1
+            } else if (!useCallback && url.contains("hiker.nokia.press")
+                    && (TextUtils.isEmpty(code) || code.length() < 3 || code.contains("非法猎鹰"))) {
+                // :cond_8 — nokia.press 拦截页（空/过短/含"非法猎鹰"）→ 回退本地
+                code = readFileContent(jsPath);      // goto :goto_1
+            } else if (giteePoisoned(url, code)) {
+                // :cond_9 + :cond_a — gitee 坏内容 → 回退本地
+                code = readFileContent(jsPath);      // goto :goto_1
+            } else if (TextUtils.isEmpty(code)) {
+                // :cond_c — 空内容
+                throw new Exception("获取远程依赖失败：" + url);
+            } else {
+                // :cond_c — 内容可用，落盘并更新版本描述
+                writeFileContent(jsPath, code);      // 8.83: FileUtil.stringToFile(code, jsPath)
+                updateDescription(jsonPath, desc, reqVersion);
+            }
+        }
+        // :goto_2 公共收尾
+        return finishRequire(ruleTitle, desc, url, jsPath, code, cx, parentScope, callback, useCallback);
+    }
+
+    /**
+     * :cond_9 + :cond_a 的 gitee 内容校验（结构辅助方法，非 8.83 独立方法）：
+     * url 含 gitee.com/ 且（内容空 / 长度<3 / 含 "The Repository is invisible"）→ true（回退本地）。
+     * 不含 gitee.com/ → false（走 :cond_c）。
+     */
+    private boolean giteePoisoned(String url, String code) {
+        if (!url.contains("gitee.com/")) return false;  // :cond_9 !contains -> :cond_a -> !contains -> :cond_c
+        if (TextUtils.isEmpty(code)) return true;       // :cond_9 空 -> :goto_1
+        if (code.length() < 3) return true;             // :cond_9 长度<3 -> :goto_1（v8=3）
+        return code.contains("The Repository is invisible");  // :cond_a
+    }
+
+    /**
+     * :goto_2 公共收尾（结构辅助方法，非 8.83 独立方法）：
+     * generateRequireMap 登记模块；useCallback=true 时调 Function 回调并返回其结果，否则返回代码字符串。
+     */
+    private Object finishRequire(String ruleTitle, String desc, String url, String jsPath, String code,
+                                 Context cx, Scriptable parentScope, Object callback, boolean useCallback) {
+        generateRequireMap(ruleTitle, desc, url, jsPath);
+        if (useCallback) {
+            return ((Function) callback).call(cx, parentScope, parentScope, new Object[]{code});
+        }
+        return code;
+    }
+
+    /**
+     * 8.83 JSEngine.proxyRequire(Object p1, String p2) — smali 8192-8237 (.line 3590-3596)。
+     * p2 为空（null/""）直接返回 p2；否则把 p1 经 argsNativeObjectAdjust 转换，
+     * 是 JSONObject（本移植：Map，见 argsNativeObjectAdjust 注释）则取 "proxy" 字段，
+     * 走 proxyUrl(p2, proxy) 拼出代理地址返回；不是则原样返回 p2。
+     */
+    private String proxyRequire(Object options, String url) {
+        if (url == null || url.isEmpty()) return url;   // :cond_1 / :goto_0
+        // :cond_0
+        Object adjusted = argsNativeObjectAdjust(options);  // .line 3593
+        // 8.83: adjusted instanceof com.alibaba.fastjson.JSONObject；本移植已转 Map
+        if (adjusted instanceof Map) {                  // .line 3594
+            Object proxy = ((Map<?, ?>) adjusted).get("proxy");  // .line 3595
+            return proxyUrl(url, proxy == null ? null : String.valueOf(proxy));  // .line 3596
+        }
+        return url;                                     // :cond_1
+    }
+
+    /**
+     * 8.83 JSEngine.initRequire(Context p1, Scriptable p2) — smali 5400-5484 (.line 540-558)。
+     * CommonJS requirejs 桥：StrongCachingModuleScriptProvider（UrlModuleSourceProvider 指向
+     * getDirectory() 即 <rootDir>/libs 的 file:// URI）双重检查锁单例；
+     * new MyRequire(cx, scope, provider, null, null, false) 挂到 scope.requirejs。
+     * 8.83 锁的是 JSEngine.class，本移植锁 HkJsRuntime.class（移植类）。
+     */
+    private void initRequire(Context cx, Scriptable scope) {
+        if (cachingModuleScriptProvider == null) {      // .line 540
+            synchronized (HkJsRuntime.class) {          // .line 541, 8.83: synchronized (JSEngine.class)
+                if (cachingModuleScriptProvider == null) {  // .line 542
+                    // .line 543-546
+                    UrlModuleSourceProvider sourceProvider = new UrlModuleSourceProvider(
+                            Collections.singleton(getDirectory()), null);
+                    cachingModuleScriptProvider = new StrongCachingModuleScriptProvider(sourceProvider);
+                }
+            }                                           // :catchall_0 即 synchronized 语义
+        }
+        // :cond_1 / :goto_0 — .line 550: new MyRequire(cx, scope, provider, null, null, false)
+        MyRequire require = new MyRequire(cx, scope, cachingModuleScriptProvider, null, null, false);
+        // .line 558
+        ScriptableObject.putProperty(scope, "requirejs", require);
+    }
+
+
+    // ---- D1-D: parse entries (smali 7945-8147, 20401-21179) ----
+    /** 8.83 OnFindCallBack<T> 的镜像（smali JSEngine$OnFindCallBack）：onSuccess/onUpdate/showErr。 */
+    private interface JSEngineCallback<T> {
+        void onSuccess(String key, T result);
+        void onUpdate(String key, String value);
+        void showErr(String err);
+    }
+
+    // ---- 8.83 实例状态（HkJsRuntime 暂无，见 notes 接线提案） ----
+    /** 8.83 JSEngine.callbackMap：uuid -> 回调，runScript 完成时按 uuid 取回分发。 */
+    private final Map<String, JSEngineCallback<?>> callbackMap = new HashMap<>();
+    /** 8.83 JSEngine.resCodeMap：uuid -> getResCode 用的 resCode 字符串。 */
+    private final Map<String, String> resCodeMap = new HashMap<>();
+
+    // ================= 1. parseHome (smali 20401-20560) =================
+    /**
+     * 8.83: parseHome(String url, String resCode, ArticleListRule rule, String js,
+     * Map injectMap, OnFindCallBack&lt;List&lt;ArticleList&gt;&gt; callback)。
+     * 脚本拼接顺序：\n + getMyRule + generateInjectMap + generateMyParams(myParams)
+     * + getMyType("home") + getMyCallbackKey + getMyUrl + getMyJs；runScript(script, uuid)。
+     */
+    public void parseHome(String url, String resCode, HkRule rule, String js,
+                          Map<String, Object> injectMap, JSEngineCallback<List<?>> callback) {
+        String uuid = genUuid();
+        callbackMap.put(uuid, callback);
+        resCodeMap.put(uuid, resCode);
+        try {
+            String script = "\n"
+                    + getMyRule(rule)
+                    + generateInjectMap(injectMap)
+                    + generateMyParams(myParams)
+                    + getMyType("home")
+                    + getMyCallbackKey(uuid)
+                    + getMyUrl(url)
+                    + getMyJs(js);
+            runScript(script, uuid);
+        } catch (Exception e) {
+            setError("运行出错：" + e.getMessage(), uuid, GSON.toJson(rule));
+            Logger.t(TAG).e(e, "parseHome: ");
+        }
+    }
+
+    // ================= 2. parseLastChapterRule (smali 20561-20701) =================
+    /**
+     * 8.83: parseLastChapterRule(String url, String resCode, ArticleListRule rule, String js,
+     * Map injectMap, OnFindCallBack&lt;String&gt; callback)。
+     * 拼接顺序：getMyRule + generateMyParams(myParams) + generateInjectMap
+     * + getMyType("lastChapter") + getMyCallbackKey + getMyUrl + getMyJs；
+     * runScript(script, uuid, true)。异常走 callback.showErr（不 setError）。
+     */
+    public void parseLastChapterRule(String url, String resCode, HkRule rule, String js,
+                                     Map<String, Object> injectMap, JSEngineCallback<String> callback) {
+        String uuid = genUuid();
+        callbackMap.put(uuid, callback);
+        resCodeMap.put(uuid, resCode);
+        try {
+            String script = ""
+                    + getMyRule(rule)
+                    + generateMyParams(myParams)
+                    + generateInjectMap(injectMap)
+                    + getMyType("lastChapter")
+                    + getMyCallbackKey(uuid)
+                    + getMyUrl(url)
+                    + getMyJs(js);
+            runScript(script, uuid, true);
+        } catch (Exception e) {
+            callback.showErr(e.getMessage());
+            Logger.t(TAG).e(e, "parseLastChapter: ");
+        }
+    }
+
+    // ================= 3. parsePreRule(SearchEngine) (smali 20725-20823) =================
+    /**
+     * 8.83: parsePreRule(SearchEngine engine)。
+     * 拼接顺序：getMyCallbackKey + getMyType("preEngine") + getMyRule + engine.getPreRule()；
+     * runScript(script, uuid)。因 HkRule 统一了 SearchEngine/ArticleListRule 模型，
+     * 与下方的 parsePreRule(HkRule) 签名冲突，故更名为 parsePreEngineRule（见 notes）。
+     */
+    public void parsePreEngineRule(HkRule rule) {
+        String uuid = genUuid();
+        try {
+            String script = ""
+                    + getMyCallbackKey(uuid)
+                    + getMyType("preEngine")
+                    + getMyRule(rule)
+                    + rule.getPreRule();
+            runScript(script, uuid);
+        } catch (Exception e) {
+            setError("运行出错：" + e.toString(), uuid, GSON.toJson(rule));
+            Logger.t(TAG).e(e, "parsePreRule: ");
+        }
+    }
+
+    // ================= 4. parsePreRule(ArticleListRule) (smali 20824-20834) =================
+    /** 8.83: parsePreRule(ArticleListRule rule) -> parsePreRule(rule, false)。 */
+    public void parsePreRule(HkRule rule) throws Exception {
+        parsePreRule(rule, false);
+    }
+
+    // ================= 5. parsePreRule(ArticleListRule, boolean) (smali 20835-20955) =================
+    /**
+     * 8.83: parsePreRule(ArticleListRule rule, boolean throwOnError)。
+     * 拼接顺序：getMyCallbackKey + getMyType("preHome") + getMyRule
+     * + generateMyParams(myParams) + rule.getPreRule()；
+     * runScript(script, uuid, throwOnError)。
+     * catch 内先 Timber.e；throwOnError=false 时 setError 后返回，true 时原样 throw。
+     */
+    public void parsePreRule(HkRule rule, boolean throwOnError) throws Exception {
+        String uuid = genUuid();
+        try {
+            String script = ""
+                    + getMyCallbackKey(uuid)
+                    + getMyType("preHome")
+                    + getMyRule(rule)
+                    + generateMyParams(myParams)
+                    + rule.getPreRule();
+            runScript(script, uuid, throwOnError);
+        } catch (Exception e) {
+            Logger.t(TAG).e(e, "parsePreRule: ");
+            if (!throwOnError) {
+                setError("运行出错：" + e.getMessage(), uuid, GSON.toJson(rule));
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    // ================= 6. parseSearchRes public (smali 21021-21059) =================
+    /**
+     * 8.83: parseSearchRes(String url, String resCode, SearchEngine engine,
+     * Map injectMap, OnFindCallBack&lt;List&lt;SearchResult&gt;&gt; callback)
+     * 先 engine.toMovieRule() 再调私有 parseSearchRes。
+     * HkRule 统一模型后 toMovieRule 投影被吸收，直接委托私有版本。
+     */
+    public void parseSearchRes(String url, String resCode, HkRule rule,
+                               Map<String, Object> injectMap, JSEngineCallback<List<?>> callback) {
+        parseSearchResInternal(url, resCode, rule, injectMap, callback);
+    }
+
+    // ================= 7. parseStr (smali 21060-21179) =================
+    /**
+     * 8.83: parseStr(String resCode, String js, MovieRule rule, OnFindCallBack&lt;String&gt; callback)。
+     * 注意：p1 是 resCode（进 resCodeMap），p2 是 js。
+     * 拼接顺序：getMyCallbackKey + getMyType("string") + getMyRule + getMyJs(js)；
+     * runScript(script, uuid)。
+     */
+    public void parseStr(String resCode, String js, HkRule rule, JSEngineCallback<String> callback) {
+        String uuid = genUuid();
+        callbackMap.put(uuid, callback);
+        resCodeMap.put(uuid, resCode);
+        try {
+            String script = ""
+                    + getMyCallbackKey(uuid)
+                    + getMyType("string")
+                    + getMyRule(rule)
+                    + getMyJs(js);
+            runScript(script, uuid);
+        } catch (Exception e) {
+            setError("运行出错：" + e.getMessage(), uuid, GSON.toJson(rule));
+            Logger.t(TAG).e(e, "parseStr: ");
+        }
+    }
+
+    // ================= 8. parseSearchRes private (smali 7945-8147) =================
+    /**
+     * 8.83 私有 parseSearchRes(String url, String resCode, MovieRule rule,
+     * Map injectMap, OnFindCallBack&lt;List&lt;SearchResult&gt;&gt; callback)。
+     * searchFind 非 "js:" 开头时直接 callback.showErr(title + "---搜索结果解析失败！请检查规则") 并返回。
+     * 拼接顺序：getMyCallbackKey + getMyRule + generateInjectMap
+     * + generateMyParams(myParams) + getMyUrl(url) + getMyType("search")
+     * + getMyJs(rule.getSearchFind())；runScript(script, uuid)。
+     * catch 内先 Timber.e 再 setError（用 e.toString() 而非 getMessage()）。
+     */
+    private void parseSearchResInternal(String url, String resCode, HkRule rule,
+                                        Map<String, Object> injectMap, JSEngineCallback<List<?>> callback) {
+        String uuid = genUuid();
+        callbackMap.put(uuid, callback);
+        resCodeMap.put(uuid, resCode);
+        if (!rule.getSearchFind().startsWith("js:")) {
+            callback.showErr(rule.getTitle() + "---搜索结果解析失败！请检查规则");
+            return;
+        }
+        try {
+            String script = ""
+                    + getMyCallbackKey(uuid)
+                    + getMyRule(rule)
+                    + generateInjectMap(injectMap)
+                    + generateMyParams(myParams)
+                    + getMyUrl(url)
+                    + getMyType("search")
+                    + getMyJs(rule.getSearchFind());
+            runScript(script, uuid);
+        } catch (Exception e) {
+            Logger.t(TAG).e(e, "parseSearchRes: ");
+            setError("运行出错：" + e.toString(), uuid, GSON.toJson(rule));
+        }
+    }
+
+
+    // ---- D1-E: network (smali 2061-2381, 8148-8191, 15903-15919) ----
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine$$ExternalSyntheticLambda15 / lambda$fetch0$9
+// HttpHelper$RuleFetchDelegate.fetch(String url, boolean toHex, boolean inputStream)
+// captures (JSEngine, ruleKey): argsNativeObjectAdjust(ruleKey) -> fetchByHiker(...)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.fetch0(String url, Object options, Object ruleKey,
+//                        HttpHelper$HeadersInterceptor)  [smali 2061-2143]
+// Called by the JS fetch API path. resCode/lastUrl are captured inside
+// HttpHelper.fetch0 (NOT HERE); this method only builds options and delegates.
+// ---------------------------------------------------------------------------
+private Object fetch0(String url, Object options, Object ruleKey, HkHttpHelper.HeadersInterceptor interceptor) {
+    try {
+        if (TextUtils.isEmpty(url)) return "";
+        url = proxyRequire(ruleKey, url);
+        java.util.Map<String, Object> opts = null;
+        if (options != null && !isUndefined(options)) {
+            opts = (java.util.Map<String, Object>) argsNativeObjectAdjust(options);
+        }
+        final Object ruleKey0 = ruleKey;
+        return HkHttpHelper.fetch0(url, opts, interceptor, new HkHttpHelper.RuleFetchDelegate() {
+            @Override
+            public Object fetch(String u, boolean toHex, boolean inputStream) {
+                return fetchByHiker(u, argsNativeObjectAdjust(ruleKey0), toHex, inputStream);
+            }
+        });
+    } catch (Throwable t) {
+        Logger.t(TAG).e(t, "fetch0");
+        return "";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.fetchByHiker(String url, Object options, boolean toHex,
+//                             boolean inputStream)  [smali 2144-2381]
+// Handles the hiker:// and file:// pseudo-protocols for fetch.
+// NOTE the signature swap: at smali :cond_0 p3 ("hiker://page/") is reused as a
+// boolean flag AFTER the page branch, i.e. (toHex, inputStream) order.
+// ---------------------------------------------------------------------------
+private Object fetchByHiker(String url, Object options, boolean toHex, boolean inputStream) {
+    if (url.startsWith("hiker://files/") || url.startsWith("file://")) {
+        // file branch
+        String path = getFilePath(url);
+        java.io.File f = new java.io.File(path);
+        if (!f.exists()) return "";
+        if (inputStream) {
+            return hkFileToInputStream(path);
+        }
+        if (toHex) {
+            byte[] bytes = hkFileToBytes(path);
+            return hkBytesToHexString(bytes);
+        }
+        return fileToString(f, null, true);
+    }
+    if (url.startsWith("hiker://page/")) {
+        // 8.83: PageParser.parsePageRule(rule, url)；宿主已移植为 handlePageRequest(url)（同文件）。
+        try {
+            return handlePageRequest(url);
+        } catch (Exception e) {
+            Logger.t(TAG).e(e, "fetchByHiker page");
+            return "";
+        }
+    }
+    if (url.startsWith("hiker://")) {
+        if (url.startsWith("hiker://assets/")) {
+            try {
+                return hkGetAssetsFile(url);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+        try {
+            return hkGetRulesByHiker(url);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+    return Boolean.FALSE; // 8.83 clobbers p4 to 0x0 before :cond_2, so this is always FALSE
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.post0(String url, Object options, Object ruleKey,
+//                      boolean flag)  [smali 8148-8191]
+// NOTE: the trailing boolean is passed INVERTED (xor 1) to
+// generateRequestOptions(ops, !flag). 8.83 callers: post/postRequest pass
+// true, postPC passes false — keep the same values at the call sites.
+// ---------------------------------------------------------------------------
+private Object post0(String url, Object options, Object ruleKey, boolean flag) {
+    Object postOps = argsNativeObjectAdjust(options);
+    if (isUndefined(postOps)) {
+        postOps = null;
+    }
+    if (postOps != null) {
+        postOps = HkHttpHelper.generatePostOps((java.util.Map<String, Object>) postOps);
+    }
+    Object requestOptions = generateRequestOptions(postOps, !flag);
+    return fetch0(url, requestOptions, ruleKey, null);
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.fetchWithHeadersInterceptor(String, Object, Object,
+//                                            HttpHelper$HeadersInterceptor)
+//                                              [smali 15903-15919] (public)
+// Applies generateHeadersOptions(options) first, then fetch0.
+// ---------------------------------------------------------------------------
+public String fetchWithHeadersInterceptor(String url, Object options, Object ruleKey,
+                                          HkHttpHelper.HeadersInterceptor interceptor) {
+    Object headerOpts = generateHeadersOptions(options);
+    Object result = fetch0(url, headerOpts, ruleKey, interceptor);
+    return (String) result;
+}
+
+
+    // ---- D1-F: eval infra helpers ----
+/**
+ * Port of JSEngine.initRhino(Lorg/mozilla/javascript/Context;)V.
+ * Smali lines 5485-5505. Note: the Context here is Context.
+ */
+private void initRhino(Context cx) {
+    cx.setOptimizationLevel(-1);
+    cx.setLanguageVersion(200);
+    cx.setTrackUnhandledPromiseRejections(true);
+}
+
+// ---- 2. getMyRule (smali 4936-5112) ------------------------------------------
+
+/**
+ * Port of JSEngine.getMyRule(Ljava/lang/Object;)Ljava/lang/String; (public static).
+ * Smali lines 4936-5112.
+ *
+ * DIVERGENCE (documented, not simplified): 8.83 dispatches on three model
+ * classes (ArticleListRule / SearchEngine / MovieRule), each contributing
+ * getTitle() + getDisplayName(). The target has a single HkRule type with
+ * getTitle() and no display-name concept, so the dispatch collapses to one
+ * instanceof and displayName stays null (the _displayName branch is kept
+ * verbatim and simply never fires).
+ */
+public static String getMyRule(Object rule) {
+    String title = "";
+    String displayName = null;
+    if (rule instanceof HkRule) {
+        title = ((HkRule) rule).getTitle();
+    }
+    StringBuilder sb = new StringBuilder("let my_rule = '");
+    sb.append(escapeJsString(GSON.toJson(rule)));
+    sb.append("';\n const MY_RULE = JSON.parse(my_rule);\n my_rule = null;\n ");
+    if (!TextUtils.isEmpty(displayName)) {
+        sb.append("const _displayName = '").append(escapeJsString(displayName)).append("';\n");
+    }
+    sb.append("const MY_TICKET = '");
+    sb.append(escapeJsString(generateTicket(title)));
+    sb.append("';\neval(getJsPlugin());\neval(getJsLazyPlugin());\n");
+    return sb.toString();
+}
+
+// ---- 3. getMyType (smali 5113-5139) --------------------------------------------
+
+/**
+ * Port of JSEngine.getMyType(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 5113-5139. Note: 8.83 does NOT escape the type value here.
+ */
+private String getMyType(String type) {
+    return "var MY_TYPE = '" + type + "';\n";
+}
+
+// ---- 4. getMyCallbackKey (smali 4863-4889) ---------------------------------------
+
+/**
+ * Port of JSEngine.getMyCallbackKey(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 4863-4889. Note: 8.83 does NOT escape the key here.
+ */
+private String getMyCallbackKey(String callbackKey) {
+    return "var CALLBACK_KEY = '" + callbackKey + "';\n";
+}
+
+// ---- 5. getMyInput (smali 4890-4920) ----------------------------------------------
+
+/**
+ * Port of JSEngine.getMyInput(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 4890-4920.
+ */
+private String getMyInput(String input) {
+    return "var input = '" + escapeJsString(input) + "';\n";
+}
+
+// ---- 6. getMyJs (smali 4921-4935) -------------------------------------------------
+
+/**
+ * Port of JSEngine.getMyJs(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 4921-4935. 8.83 uses Apache StringUtils.replaceOnce("js:", "");
+ * the indexOf/substring form below is the same first-occurrence replacement.
+ */
+private String getMyJs(String js) {
+    int i = js.indexOf("js:");
+    return i < 0 ? js : js.substring(0, i) + js.substring(i + 3);
+}
+
+// ---- 7. getMyUrl (smali 17338-17389) -----------------------------------------------
+
+/**
+ * Port of JSEngine.getMyUrl(Ljava/lang/String;)Ljava/lang/String; (public in 8.83).
+ * Smali lines 17338-17389.
+ * QUIRK PRESERVED: 8.83 escapes the URL first, then computes MY_HOME from the
+ * ESCAPED string (StringUtil.getHome is called on the already-escaped value).
+ */
+public String getMyUrl(String url) {
+    if (url == null) {
+        url = "";
+    }
+    url = escapeJsString(url);
+    return "var MY_URL = '" + url + "';\nvar MY_HOME = '" + StringUtil.getHome(url) + "';\n";
+}
+
+// ---- 8. appendLineVar (smali 555-703) -----------------------------------------------
+
+/**
+ * Port of JSEngine.appendLineVar(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 555-703. Counts the leading run of blank lines plus lines that
+ * declare script-injected vars (const/var my_*, const/var MY_*, "var input =",
+ * "var CALLBACK_", "eval(getJs", "const _displayName"); the FIRST other line
+ * stops the count. Emits "const MY_PRE_LINE = <count>;\n" ahead of the script.
+ * Returns the input unchanged when it is empty.
+ */
+private String appendLineVar(String script) {
+    if (!TextUtils.isEmpty(script)) {
+        String[] lines = script.split("\n");
+        int count = 0;
+        for (String line : lines) {
+            String t = line.trim();
+            if (!t.isEmpty()
+                    && !t.startsWith("const my_")
+                    && !t.startsWith("var my_")
+                    && !t.startsWith("const MY_")
+                    && !t.startsWith("var MY_")
+                    && !t.startsWith("var input =")
+                    && !t.startsWith("var CALLBACK_")
+                    && !t.startsWith("eval(getJs")
+                    && !t.startsWith("const _displayName")) {
+                break;
+            }
+            count++;
+        }
+        script = "const MY_PRE_LINE = " + count + ";\n" + script;
+    }
+    return script;
+}
+
+// ---- 9. getReplaceJS (smali 5212-5224) ------------------------------------------------
+
+/**
+ * Port of JSEngine.getReplaceJS(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 5212-5224. Delegates with raw=false.
+ */
+private String getReplaceJS(String js) {
+    return getReplaceJS(js, false);
+}
+
+// ---- 10. getReplaceJS (smali 5225-5273) -------------------------------------------------
+
+/**
+ * Port of JSEngine.getReplaceJS(Ljava/lang/String;Z)Ljava/lang/String; (private).
+ * Smali lines 5225-5273. Rewrites the Java-style "b.length()" to the JS
+ * "b.length"; when raw is false (the usual path) wraps the whole script in
+ * "try{\n ... \n}catch(e){\nsetError(e);\n}". Empty input is returned as-is.
+ */
+private String getReplaceJS(String js, boolean raw) {
+    if (!TextUtils.isEmpty(js)) {
+        js = js.replace("if (b != null && b.length() > 0) {", "if (b != null && b.length > 0) {");
+        if (raw) {
+            return js;
+        }
+        js = "try{\n" + js + "\n}catch(e){\nsetError(e);\n}";
+    }
+    return js;
+}
+
+// ---- 11. getAllFunctions (smali 3046-3105) -----------------------------------------------
+
+/**
+ * Port of JSEngine.getAllFunctions()Ljava/lang/String; (private).
+ * Smali lines 3046-3105. Reflects over the engine class for methods annotated
+ * with @JSAnnotation and folds getFunctionStr(template, returnType, alias, method)
+ * over them, starting from the " var ScriptAPI = java.lang.Class.forName(...)"
+ * template. Returns the template unchanged when no method is annotated.
+ * DIVERGENCE: 8.83 uses this.getClass(); per the port spec this reflects over
+ * HkJsRuntime.class explicitly.
+ */
+private String getAllFunctions() {
+    java.lang.reflect.Method[] methods = HkJsRuntime.class.getDeclaredMethods();
+    String result = " var ScriptAPI = java.lang.Class.forName(\"%s\", true, javaLoader);\n";
+    for (java.lang.reflect.Method method : methods) {
+        JSAnnotation annotation = method.getAnnotation(JSAnnotation.class);
+        if (annotation == null) {
+            continue;
+        }
+        result = getFunctionStr(result, annotation.returnType(), annotation.alias(), method);
+    }
+    return result;
+}
+
+// ---- 12. getUaObject (smali 17809-17847) ---------------------------------------------------
+
+/**
+ * Port of JSEngine.getUaObject()Ljava/lang/String; (public, @JSAnnotation STRING).
+ * Smali lines 17809-17847. 8.83 builds a fastjson JSONObject; the target has
+ * no fastjson, so a LinkedHashMap + Gson is used (same key order, same JSON).
+ */
+@JSAnnotation(returnType = ReturnType.STRING)
+public String getUaObject() {
+    java.util.Map<String, String> ua = new java.util.LinkedHashMap<>();
+    ua.put("mobileUa", UA_MOBILE);
+    ua.put("pcUa", UA_PC);
+    return GSON.toJson(ua);
+}
+
+// ---- 13. setError 3-arg (smali 23978-24003) ----------------------------------------------------
+
+/**
+ * Port of JSEngine.setError(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V
+ * (public). Smali lines 23978-24003. Delegates to the 4-arg overload with a
+ * null 4th argument. @Parameter annotations kept as in 8.83.
+ */
+public void setError(@Parameter("o") Object o,
+                    @Parameter("callbackKey") Object callbackKey,
+                    @Parameter("ruleKey") Object ruleKey) {
+    setError(o, callbackKey, ruleKey, null);
+}
+
+// ---- 14. tryGetString (smali 9929-9962) ---------------------------------------------------------
+
+/**
+ * Port of JSEngine.tryGetString(Ljava/lang/Object;)Ljava/lang/String; (private).
+ * Smali lines 9929-9962. Throws Exception("参数类型只能是字符串") when the
+ * (native-object-adjusted) argument is not a String.
+ */
+private String tryGetString(Object o) throws Exception {
+    o = argsNativeObjectAdjust(o);
+    if (o instanceof String) {
+        return (String) o;
+    }
+    throw new Exception("参数类型只能是字符串");
+}
+
+// ---- 15. generateMyParams (smali 2836-2879) ---------------------------------------------------------
+
+/**
+ * Port of JSEngine.generateMyParams(Ljava/lang/String;)Ljava/lang/String; (private).
+ * Smali lines 2836-2879. Empty input yields "var MY_PARAMS = {};\n"; otherwise
+ * the JSON text is embedded escaped and parsed as MY_PARAMS.
+ */
+private String generateMyParams(String params) {
+    if (TextUtils.isEmpty(params)) {
+        return "var MY_PARAMS = {};\n";
+    }
+    return "var _my_params = '" + escapeJsString(params) + "';\n var MY_PARAMS = JSON.parse(_my_params);\n";
+}
+
+// ---- 16. generateInjectMap (smali 2600-2835) ------------------------------------------------------------
+
+/**
+ * Port of JSEngine.generateInjectMap(Ljava/util/Map;)Ljava/lang/String;
+ * (private static). Smali lines 2600-2835. Emits one "var <key> = <value>;"
+ * line per entry: String values are single-quoted + escaped, null becomes
+ * "null;", Integer/Float/Boolean are appended raw, anything else becomes
+ * "JSON.parse('<escaped fastjson/gson json>');". Null map yields "".
+ * (escapeJsString is private static in the target, so this static method can
+ * call it directly.)
+ */
+private static String generateInjectMap(java.util.Map<String, Object> map) {
+    String result = "";
+    if (map == null) {
+        return result;
+    }
+    for (java.util.Map.Entry<String, Object> entry : map.entrySet()) {
+        Object value = entry.getValue();
+        result = result + "var " + entry.getKey() + " = ";
+        if (value instanceof String) {
+            result = result + "'" + escapeJsString((String) value) + "';\n";
+        } else if (value == null) {
+            result = result + "null;\n";
+        } else if (value instanceof Integer || value instanceof Float || value instanceof Boolean) {
+            result = result + value + ";\n";
+        } else {
+            result = result + "JSON.parse('" + escapeJsString(GSON.toJson(value)) + "');\n";
+        }
+    }
+    return result;
+}
+
+// ---- 17. decodeConflictStr (StringUtil.smali 1421-1469) -----------------------------------------------
+
+/**
+ * Port of StringUtil.decodeConflictStr(Ljava/lang/String;)Ljava/lang/String;
+ * (public static). StringUtil.smali lines 1421-1469. Maps doubled full-width
+ * punctuation back to ASCII: ？？→? ＆＆→& ；；→; ，，→,. Empty input returned as-is.
+ */
+private static String decodeConflictStr(String s) {
+    if (TextUtils.isEmpty(s)) {
+        return s;
+    }
+    s = s.replace("？？", "?");
+    s = s.replace("＆＆", "&");
+    s = s.replace("；；", ";");
+    s = s.replace("，，", ",");
+    return s;
+}
+
+
+    // ---- D1-G: require/net helpers ----
+public static String proxyUrl(String url, String proxyConfig) {
+    if (!TextUtils.isEmpty(proxyConfig)) {
+        String[] lines = proxyConfig.split("\\n");
+        for (String line : lines) {
+            String[] kv = line.split("=>");
+            if (kv.length < 2) continue;
+            String key = kv[0].trim();
+            if (!url.contains(key)) continue;
+            String replacement = kv[1].trim();
+            String newUrl = url.replace(key, replacement);
+            Logger.t(TAG).d("proxyRequire: old: %s, new: %s", url, newUrl);
+            return newUrl;
+        }
+    }
+    return url;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.requestForCode(String, Object)String  [JSEngine.smali 8374-8467]
+// private. Requests url with withHeaders options; the body must be a JSON
+// object {"error":..., "statusCode":..., "body":...}: returns body only when
+// error is empty/"null" and statusCode starts with "2"; else null.
+// fastjson JSONObject access is mapped to Rhino Scriptable access (see notes).
+// ---------------------------------------------------------------------------
+private String requestForCode(String url, Object options) {
+    try {
+        Object headersOptions = generateHeadersOptions(options);
+        String result = (String) fetch0(url, generateRequestOptions(headersOptions, false), null, null); // MISSING: JSEngine.request(String,Object,Object)
+        Scriptable json = (Scriptable) parseJson(result);
+        if (json != null) {
+            String error = getString(ScriptableObject.getProperty(json, "error"));
+            if (!TextUtils.isEmpty(error) && !"null".equals(error)) return null;
+            String statusCode = String.valueOf((int) toDouble(ScriptableObject.getProperty(json, "statusCode")));
+            if (!statusCode.startsWith("2")) return null;
+            return getString(ScriptableObject.getProperty(json, "body"));
+        }
+    } catch (Exception e) {
+        Logger.t(TAG).e(e, "requestForCode failed");
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.isJsCode(String)Z  [JSEngine.smali 5506-5713]
+// private. False for empty input and for HTML/XML documents; true when the
+// text contains JS keywords or any name from the methodList field.
+// ---------------------------------------------------------------------------
+private boolean isJsCode(String code) {
+    if (TextUtils.isEmpty(code)) return false;
+    code = code.trim();
+    for (String prefix : new String[]{"<!DOCTYPE", "<html", "<?xml"}) {
+        if (code.startsWith(prefix)) return false;
+    }
+    for (String suffix : new String[]{"</html>", "</rss>"}) {
+        if (code.endsWith(suffix)) return false;
+    }
+    for (String keyword : new String[]{"var ", "let ", "function", "eval(", "call(", "eval (", "call (", " => ", ")=>"}) {
+        if (code.contains(keyword)) return true;
+    }
+    if (this.methodList != null) { // MISSING: 8.83 JSEngine field List<String> methodList
+        for (String name : this.methodList) {
+            if (code.contains(name)) return true;
+        }
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.getDirectory()URI  [JSEngine.smali 3311-3361]
+// private. 8.83: URI.create("file://" + UriUtils.getRootDir(ctx) + "/libs/").
+// Substituted per task: App.get().getExternalFilesDir(DIRECTORY_DOCUMENTS),
+// mkdirs if missing.
+// ---------------------------------------------------------------------------
+private URI getDirectory() {
+    File docs = App.get().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+    if (docs != null && !docs.exists()) docs.mkdirs();
+    String root = docs != null ? docs.getAbsolutePath() : "";
+    return URI.create("file://" + root + File.separator + "libs" + File.separator);
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.generateRequestOptions(Object, boolean)Object
+// [JSEngine.smali 2880-2997]  private. NOTE: exact signature takes (Object,
+// boolean) — the boolean selects PC vs mobile UA.
+// Normalizes options to a Map (headers/header fallback), filling in a
+// default User-Agent when absent.
+// ---------------------------------------------------------------------------
+@SuppressWarnings("unchecked")
+private Object generateRequestOptions(Object options, boolean isPc) {
+    if (options != null && !isUndefined(options)) {
+        Map<String, Object> map = (Map<String, Object>) argsNativeObjectAdjust(options);
+        Map<String, Object> headers = (Map<String, Object>) map.get("headers");
+        if (headers == null) headers = (Map<String, Object>) map.get("header");
+        if (headers == null) {
+            headers = new HashMap<>();
+            map.put("headers", headers);
+        }
+        if (!headers.containsKey("User-Agent")) {
+            // MISSING: 8.83 com.example.hikerview.constants.UA_PC
+            // MISSING: 8.83 com.example.hikerview.ui.setting.model.UA_MOBILE
+            headers.put("User-Agent", isPc ? UA_PC : UA_MOBILE);
+        }
+        return map;
+    }
+    Map<String, Object> map = new HashMap<>();
+    Map<String, Object> headers = new HashMap<>();
+    // MISSING: UA_PC / UA_MOBILE (same as above)
+    headers.put("User-Agent", isPc ? UA_PC : UA_MOBILE);
+    map.put("headers", headers);
+    return map;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.generateHeadersOptions(Object)Object  [JSEngine.smali 2555-2599]
+// private. NOTE: exact signature takes a single Object and returns Object.
+// Adds withHeaders=true to the options map (fresh map when options is
+// null/undefined).
+// ---------------------------------------------------------------------------
+@SuppressWarnings("unchecked")
+private Object generateHeadersOptions(Object options) {
+    Boolean withHeaders = Boolean.valueOf(true);
+    if (options != null && !isUndefined(options)) {
+        Map<String, Object> map = (Map<String, Object>) argsNativeObjectAdjust(options);
+        map.put("withHeaders", withHeaders);
+        return map;
+    }
+    Map<String, Object> map = new HashMap<>();
+    map.put("withHeaders", withHeaders);
+    return map;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.getFilePath(String)String  [JSEngine.smali 3490-3562]
+// NOTE: smali declares this public static (not private as described in the
+// task); kept public static. "hiker://files/<p>" -> rootDir/<p>;
+// "file://<p>" -> <p> (prefix stripped).
+// UriUtils.getRootDir substituted per task (same as getDirectory).
+// ---------------------------------------------------------------------------
+public static String getFilePath(String path) {
+    if (path.startsWith("hiker://files/")) {
+        path = path.replace("hiker://files/", "");
+        File docs = App.get().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        if (docs != null && !docs.exists()) docs.mkdirs();
+        String root = docs != null ? docs.getAbsolutePath() : "";
+        return root + File.separator + path;
+    }
+    if (path.startsWith("file://")) {
+        path = path.replace("file://", "");
+    }
+    return path;
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: JSEngine.fileToString(File, String, boolean)String
+// [JSEngine.smali 2382-2554]  private.
+// NOTE: exact signature is (File, String, boolean), not (String).
+// Binary extensions (.zip/.db/.apk/.mp4/.png/.jpg) and anything under a
+// "backup" dir return "". When charset arg is non-empty: encrypted=false ->
+// charset-detect read; encrypted=true -> fetch the "i--" item as AES key and
+// decrypt. Empty charset arg + path inside getFilesDir() -> "".
+// ---------------------------------------------------------------------------
+private String fileToString(File file, String charset, boolean encrypted) {
+    if (!file.exists()) return "";
+    String path = file.getAbsolutePath();
+    if (path.endsWith(".zip") || path.endsWith(".db") || path.endsWith(".apk")
+            || path.endsWith(".mp4") || path.endsWith(".png") || path.endsWith(".jpg")) {
+        return "";
+    }
+    if (path.contains(File.separator + "backup" + File.separator)) return "";
+    if (!TextUtils.isEmpty(charset)) {
+        if (!encrypted) return readFileContent(path); // MISSING: 8.83 JSEngine private method
+        String key = kv.get("i--"); // MISSING: 8.83 JSEngine private method
+        if (!TextUtils.isEmpty(key)) {
+            // MISSING: 8.83 JSEngine.aesDecode(Object, Object)
+            // MISSING: 8.83 com.example.hikerview.utils.FileUtil.fileToString(String)
+            return aesDecode(key, readFileContent(path));
+        }
+    } else {
+        if (path.contains(getFilesDir())) return ""; // MISSING: 8.83 getFilesDir()
+    }
+    return readFileContent(path); // MISSING (same as above)
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: getRequireVersion(String, int)int
+// [RequireUtils.smali 866-913]  public static.
+// DEVIATION: target has no RequireUtils class; ported as private static here.
+// Reads the description file and returns its version; Math.min(version, 0)
+// when the file is missing/unparseable.
+// ---------------------------------------------------------------------------
+private static int getRequireVersion(String path, int version) {
+    if (new File(path).exists()) {
+        String content = readFileContentStatic(path);
+        // fastjson JSON.parseObject -> GSON.fromJson substitution.
+        RequireDescription desc = GSON.fromJson(content, RequireDescription.class);
+        if (desc != null) return desc.getVersion();
+    }
+    return Math.min(version, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: updateDescription(String, String, int)void
+// [RequireUtils.smali 946-975]  public static.
+// DEVIATION: target has no RequireUtils class; ported as private static here.
+// Writes new RequireDescription(url, version) JSON to path; IOException is
+// logged and swallowed.
+// ---------------------------------------------------------------------------
+private static void updateDescription(String path, String url, int version) {
+    try {
+        // MISSING: 8.83 com.example.hikerview.ui.rules.model.RequireDescription
+        RequireDescription desc = new RequireDescription(url, version);
+        // 8.83 FileUtil.stringToFile -> plain write; fastjson JSON.toJSONString -> GSON.toJson.
+        writeFileContentStatic(path, GSON.toJson(desc));
+    } catch (IOException e) {
+        Logger.t(TAG).e(e, "updateDescription failed");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: generateRequireMap(String, String, String, String)void
+// [RequireUtils.smali 431-461]  public static.
+// DEVIATION: target has no RequireUtils class; ported as private static here.
+// (dirName, url, proxy, file). 8.83 wraps generateRequireMapSync in a synthetic
+// lambda class and posts it to HeavyTaskUtil; expressed here as a Java lambda.
+// NOTE: the guard below is a literal port — 8.83 posts ONLY when dirName is
+// empty AND url is non-empty (see notes; semantics look inverted).
+// ---------------------------------------------------------------------------
+private static void generateRequireMapSync(String dirName, String url, String proxy, String file) {
+    String path = getFilesDirStatic() + dirName + File.separator + "require.json";
+    java.util.List<RequireItem> items;
+    if (new File(path).exists()) {
+        try {
+            String json = readFileContentStatic(path);
+            java.lang.reflect.Type t = new TypeToken<java.util.List<RequireItem>>() {}.getType();
+            items = GSON.fromJson(json, t);
+            if (items == null) items = new ArrayList<>();
+        } catch (Exception e) {
+            Logger.t(TAG).e(e);
+            items = new ArrayList<>();
+        }
+    } else {
+        items = new ArrayList<>();
+    }
+    generateRequireMap(items, dirName, url, proxy, file);
+}
+
+private static String getFilesDirStatic() {
+    return hkRootDir() + File.separator + "files";
+}
+
+private static String readFileContentStatic(String path) {
+    try {
+        java.io.File f = new java.io.File(path);
+        byte[] b = new byte[(int) f.length()];
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            int off = 0, n;
+            while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) off += n;
+        }
+        return new String(b, java.nio.charset.StandardCharsets.UTF_8);
+    } catch (Exception e) {
+        return "";
+    }
+}
+
+private static void writeFileContentStatic(String path, String content) {
+    try (java.io.OutputStream out = new java.io.FileOutputStream(path)) {
+        out.write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    } catch (Exception e) {
+        Logger.t(TAG).e(e, "writeFileContent failed");
+    }
+}
+
+private static void generateRequireMap(String dirName, String url, String proxy, String file) {
+    if (TextUtils.isEmpty(dirName) && !TextUtils.isEmpty(url)) {
+        // 8.83 posts to HeavyTaskUtil queue; here a plain thread (generateRequireMapSync ported above).
+        new Thread(() -> generateRequireMapSync(dirName, url, proxy, file)).start();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8.83: generateRequireMap(List<RequireItem>, String, String,
+//   String, String)void  [RequireUtils.smali 462-648]  private static.
+// DEVIATION: target has no RequireUtils class; kept private static here.
+// (items, dirName, url, proxy, file): refresh accessTime/proxy of the entry
+// whose url matches, else append new RequireItem(url, proxy, file, now);
+// drop entries untouched for 7 days when the list exceeds 100; persist to
+// <getFilesDir()>/<dirName>/require.json.
+// ---------------------------------------------------------------------------
+private static void generateRequireMap(List<RequireItem> items, String dirName, String url, String proxy, String file) {
+    long now = System.currentTimeMillis();
+    boolean found = false;
+    // MISSING: 8.83 com.example.hikerview.ui.rules.model.RequireItem
+    //   (url, proxy, file, accessTime; RequireItem.smali ctor verified)
+    for (RequireItem item : items) {
+        if (item.getUrl().equals(url)) {
+            item.setAccessTime(now);
+            // 8.83: org.apache.commons.lang3.StringUtils.equals(url, proxy) -> null-safe; TextUtils.equals used.
+            if (TextUtils.equals(url, proxy)) proxy = null;
+            item.setProxy(proxy);
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        items.add(new RequireItem(url, TextUtils.equals(url, proxy) ? null : proxy, file, now));
+    }
+    if (items.size() > 100) {
+        long threshold = now - 604800000L; // 8.83 literal 0x240c8400 = 7 days in ms
+        // 8.83: annimon Stream.of(items).filter(i -> i.getAccessTime() > threshold).toList()
+        List<RequireItem> kept = new ArrayList<>();
+        for (RequireItem item : items) {
+            if (item.getAccessTime() > threshold) kept.add(item);
+        }
+        items = kept;
+    }
+    try {
+        String path = getFilesDirStatic() + dirName + File.separator + "require.json";
+        // fastjson JSON.toJSONString -> GSON.toJson substitution.
+        writeFileContentStatic(path, GSON.toJson(items));
+    } catch (Exception e) {
+        Logger.t(TAG).e(e, "generateRequireMap failed");
+    }
+}
+
+
+
+    // ---- D1-H: crypto (RC4 / MyBase64) ----
+private static class HkRc4 {
+
+    public HkRc4() {
+    }
+
+    public String encode(String data, String key) {
+        return enc(data, key, "UTF-8");
+    }
+
+    public String encode(String data, String key, String charset) {
+        return enc(data, key, charset);
+    }
+
+    public static String decode(String hex, String key) {
+        return dec(hex, key, "UTF-8");
+    }
+
+    public static String decode(String hex, String key, String charset) {
+        return dec(hex, key, charset);
+    }
+
+    public static String enc(String data, String key, String charset) {
+        if (data == null || key == null) {
+            return "";
+        }
+        try {
+            char[] digits = "0123456789ABCDEF".toCharArray();
+            byte[] cipher = rc4Base(data.getBytes(charset), key, charset);
+            char[] out = new char[cipher.length * 2];
+            int j = 0;
+            for (byte b : cipher) {
+                out[j++] = digits[(b >>> 4) & 0xF];
+                out[j++] = digits[b & 0xF];
+            }
+            return new String(out);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public static String dec(String hex, String key, String charset) {
+        if (hex == null || key == null) {
+            return "";
+        }
+        try {
+            byte[] cipher = hexString2Bytes(hex, charset);
+            byte[] plain = rc4Base(cipher, key, charset);
+            return new String(plain, charset);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static byte[] hexString2Bytes(String hex, String charset) {
+        try {
+            byte[] src = hex.getBytes(charset);
+            byte[] out = new byte[hex.length() / 2];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = uniteBytes(src[i * 2], src[i * 2 + 1]);
+            }
+            return out;
+        } catch (Exception e) {
+            return new byte[0];
+        }
+    }
+
+    private static byte[] rc4Base(byte[] data, String key, String charset) {
+        byte[] s = initKey(key, charset);
+        byte[] out = new byte[data.length];
+        int i = 0;
+        int j = 0;
+        for (int n = 0; n < data.length; n++) {
+            i = (i + 1) & 0xFF;
+            byte si = s[i];
+            j = (j + (si & 0xFF)) & 0xFF;
+            byte sj = s[j];
+            s[i] = sj;
+            s[j] = si;
+            int t = ((s[i] & 0xFF) + (si & 0xFF)) & 0xFF;
+            out[n] = (byte) (data[n] ^ s[t]);
+        }
+        return out;
+    }
+
+    private static byte[] initKey(String key, String charset) {
+        try {
+            byte[] keyBytes = key.getBytes(charset);
+            byte[] s = new byte[256];
+            for (int i = 0; i < 256; i++) {
+                s[i] = (byte) i;
+            }
+            if (keyBytes == null || keyBytes.length == 0) {
+                return null;
+            }
+            int j = 0;
+            for (int i = 0; i < 256; i++) {
+                j = (j + (keyBytes[i % keyBytes.length] & 0xFF) + (s[i] & 0xFF)) & 0xFF;
+                byte tmp = s[i];
+                s[i] = s[j];
+                s[j] = tmp;
+            }
+            return s;
+        } catch (Exception e) {
+            return new byte[0];
+        }
+    }
+
+    private static byte uniteBytes(byte b1, byte b2) {
+        int high = Byte.decode("0x" + new String(new byte[]{b1})).byteValue();
+        int low = Byte.decode("0x" + new String(new byte[]{b2})).byteValue();
+        return (byte) (((char) high << 4) ^ (char) low);
+    }
+}
+
+// Fragment for HkJsRuntime.java — paste inside the class body.
+// Source: 8.83 decompile of com.example.hikerview.utils.encrypt.MyBase64 (+ MyBase64$Coder/Decoder/Encoder).
+// Finding: it is a verbatim port of AOSP android.util.Base64 — same flag constants, same
+// standard alphabet (A–Z a–z 0–9 +/, and -_ under URL_SAFE), same 76-char wrap, same padding
+// rules, same "bad base-64" IllegalArgumentException. Delegating to android.util.Base64 is
+// therefore bit-identical; the full streaming Encoder/Decoder/Coder state machine was not
+// re-ported by hand to avoid transcription drift. See frag_crypto_notes.md.
+
+private static class HkMyBase64 {
+
+    public final int DEFAULT = 0;
+    public final int NO_PADDING = 1;
+    public final int NO_WRAP = 2;
+    public final int CRLF = 4;
+    public final int URL_SAFE = 8;
+    public final int NO_CLOSE = 16;
+
+    public HkMyBase64() {
+    }
+
+    public byte[] decode(String str, int flags) {
+        return decode(str.getBytes(), flags);
+    }
+
+    public byte[] decode(byte[] input, int flags) {
+        return decode(input, 0, input.length, flags);
+    }
+
+    public byte[] decode(byte[] input, int offset, int len, int flags) {
+        return android.util.Base64.decode(input, offset, len, flags);
+    }
+
+    public byte[] encode(byte[] input, int flags) {
+        return encode(input, 0, input.length, flags);
+    }
+
+    public byte[] encode(byte[] input, int offset, int len, int flags) {
+        return android.util.Base64.encode(input, offset, len, flags);
+    }
+
+    public String encodeToString(byte[] input, int flags) {
+        return android.util.Base64.encodeToString(input, flags);
+    }
+
+    public String encodeToString(byte[] input, int offset, int len, int flags) {
+        return android.util.Base64.encodeToString(input, offset, len, flags);
+    }
+}
+
+
+    // ---- D1 merge shims ----
+    /** 8.83 HttpHelper.bytesToHexString (in HkHttpHelper as private; local copy for fetchByHiker). */
+    private static String hkBytesToHexString(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            String h = Integer.toHexString(b & 0xFF);
+            if (h.length() == 1) sb.append('0');
+            sb.append(h);
+        }
+        return sb.toString();
+    }
+
+
 }

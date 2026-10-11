@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 磨砂涟漪（选中 pill）：淡绿半透明底，深色字保持可读 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#ffcfcfcf">
+    <item android:drawable="#C4DFF2E2" />
+</ripple>

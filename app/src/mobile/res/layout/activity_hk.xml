@@ -18,82 +18,100 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 -->
-            <LinearLayout
-                android:id="@+id/top_bar_rules"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_alignParentTop="true"
-                android:gravity="center_vertical"
-                android:paddingLeft="16dp"
-                android:paddingRight="16dp">
-
-                <TextView
-                    android:id="@+id/tv_title_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="小程序"
-                    android:textColor="#101216"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
-
-                <ImageView
-                    android:id="@+id/btn_search_rule"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="4dp"
-                    android:contentDescription="搜索小程序"
-                    android:padding="4dp"
-                    android:src="@drawable/ic_action_search" />
-
-                <ImageView
-                    android:id="@+id/btn_sort_rule"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:contentDescription="排序"
-                    android:padding="4dp"
-                    android:src="@drawable/ic_fab_filter"
-                    android:tint="#101216" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/btn_edit_rule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="32dp"
-                    android:background="@drawable/dialog_option_card_light"
-                    android:gravity="center"
-                    android:minWidth="64dp"
-                    android:paddingLeft="14dp"
-                    android:paddingRight="14dp"
-                    android:text="编辑"
-                    android:textColor="#101216"
-                    android:textSize="14sp" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_rule_group"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_alignParentBottom="false"
-                android:layout_below="@id/top_bar_rules"
-                android:layout_marginTop="8dp"
-                android:clipToPadding="false"
-                android:visibility="gone" />
-
+            <!-- 规则列表：内容从顶部开始，滚动时从悬浮磨砂顶栏下穿过 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_rules"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_above="@id/btn_import"
-                android:layout_below="@id/rv_rule_group"
-                android:layout_marginTop="8dp"
+                android:layout_alignParentTop="true"
                 android:layout_marginBottom="12dp"
                 android:clipToPadding="false"
+                android:paddingTop="64dp"
                 android:paddingBottom="8dp" />
+
+            <!-- 悬浮磨砂顶栏：独立背景层（真 blur）+ 内容层，列表滚动时从下方穿过 -->
+            <FrameLayout
+                android:id="@+id/header_cluster"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignParentTop="true">
+
+                <View
+                    android:id="@+id/header_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/hk_header_glass" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- 小程序列表顶栏：小程序 | 搜索 | 排序 …… 右侧 编辑 -->
+                    <LinearLayout
+                        android:id="@+id/top_bar_rules"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:gravity="center_vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp">
+
+                        <TextView
+                            android:id="@+id/tv_title_rule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="小程序"
+                            android:textColor="#101216"
+                            android:textSize="20sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:id="@+id/btn_search_rule"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="4dp"
+                            android:contentDescription="搜索小程序"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_action_search" />
+
+                        <ImageView
+                            android:id="@+id/btn_sort_rule"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:contentDescription="排序"
+                            android:padding="4dp"
+                            android:src="@drawable/ic_fab_filter"
+                            android:tint="#101216" />
+
+                        <Space
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1" />
+
+                        <TextView
+                            android:id="@+id/btn_edit_rule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="64dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="编辑"
+                            android:textColor="#101216"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rv_rule_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:clipToPadding="false"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </FrameLayout>
 
             <LinearLayout
                 android:id="@+id/empty_rules"

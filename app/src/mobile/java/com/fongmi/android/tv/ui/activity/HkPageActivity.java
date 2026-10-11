@@ -58,6 +58,7 @@ import com.fongmi.android.tv.databinding.ActivityHkBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.xingchen.tv.theme.FrostedGlass;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -285,6 +286,19 @@ public class HkPageActivity extends BaseActivity {
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        // 悬浮磨砂顶栏：真 blur 只作用于独立背景层，内容层不被模糊
+        FrostedGlass.blurBackground(binding.headerBg);
+        updateRulesTopPadding();
+    }
+
+    /** 悬浮磨砂顶栏高度变化时，同步列表顶部内边距（内容滚动时从顶栏下穿过）。 */
+    private void updateRulesTopPadding() {
+        updateRulesTopPadding(binding.rvRuleGroup.getVisibility() == View.VISIBLE);
+    }
+
+    private void updateRulesTopPadding(boolean groupsVisible) {
+        int top = dp(56) + dp(8) + (groupsVisible ? dp(48) : 0);
+        binding.rvRules.setPadding(0, top, 0, dp(8));
     }
 
     /** 顶部「编辑」按钮：切换管理模式（卡片显示启用开关代替 ⋮，按钮文字 编辑/完成 互换）。 */
@@ -348,10 +362,7 @@ public class HkPageActivity extends BaseActivity {
         Collections.sort(groups, (a, b) -> Integer.compare(groupSortKey(a), groupSortKey(b)));
         boolean show = !groups.isEmpty();
         binding.rvRuleGroup.setVisibility(show ? View.VISIBLE : View.GONE);
-        android.widget.RelativeLayout.LayoutParams lp =
-                (android.widget.RelativeLayout.LayoutParams) binding.rvRules.getLayoutParams();
-        lp.getRules()[android.widget.RelativeLayout.BELOW] = show ? R.id.rv_rule_group : R.id.top_bar_rules;
-        binding.rvRules.setLayoutParams(lp);
+        updateRulesTopPadding(show);
         if (!show) return;
         List<String[]> pairs = new ArrayList<>();
         pairs.add(new String[]{"全部", ""});
@@ -1029,6 +1040,8 @@ public class HkPageActivity extends BaseActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_rule, parent, false);
+            // 卡片磨砂：真 blur 只作用于独立背景层，内容层不被模糊
+            FrostedGlass.blurBackground(v.findViewById(R.id.card_bg));
             return new Holder(v);
         }
 
@@ -3768,7 +3781,9 @@ public class HkPageActivity extends BaseActivity {
             h.chip.setText(pair[0]);
             boolean sel = position == selected;
             h.chip.setSelected(sel);
-            h.chip.setTextColor(sel ? 0xFF1A1D24 : 0xFF222222);
+            // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
+            h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
+            h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
             h.chip.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;

@@ -2,7 +2,6 @@ package com.github.catvod.crawler;
 
 import android.content.Context;
 
-import com.github.catvod.net.OkDns;
 import com.github.catvod.net.OkHttp;
 
 import java.util.HashMap;
@@ -17,8 +16,7 @@ public abstract class Spider {
     public String siteKey;
 
     public static Dns safeDns() {
-        OkDns wrapper = OkHttp.dns();
-        return wrapper.isCustom() ? wrapper : Dns.SYSTEM;
+        return OkHttp.dns();
     }
 
     public static OkHttpClient client() {

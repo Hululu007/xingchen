@@ -32,7 +32,12 @@ public class XingChenDoh {
 
     public static void apply(Context context) {
         try {
-            OkHttp.dns().setDoh(toDoh(context));
+            if (getIndex(context) == 0) {
+                // 系统模式：不启用 DoH，传空 URL 的 Doh 使 OkDns 走 Dns.SYSTEM（跟默影视一致）
+                OkHttp.dns().setDoh(new Doh().name(NAMES[0]).url(""));
+            } else {
+                OkHttp.dns().setDoh(toDoh(context));
+            }
         } catch (Throwable t) {
             t.printStackTrace();
         }

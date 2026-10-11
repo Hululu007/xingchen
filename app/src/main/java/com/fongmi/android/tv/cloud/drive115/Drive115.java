@@ -70,6 +70,25 @@ public class Drive115 implements CloudDrive {
 
     public void setCookie(String cookie) {
         this.cookie = cookie == null ? "" : cookie;
+        // cookie 里自带 UID=xxx（PanAuth.is115LoggedIn 要求必须含 UID/CID/SEID），
+        // 从加密存储恢复时一并还原 userId，否则 isLogin() 恒为 false，
+        // 卡片显示"已登录"但点进文件却弹"请先登录"
+        this.userId = parseUidFromCookie(this.cookie);
+    }
+
+    private static long parseUidFromCookie(String cookie) {
+        if (cookie == null) return 0;
+        for (String pair : cookie.split(";")) {
+            String p = pair.trim();
+            if (p.regionMatches(true, 0, "UID=", 0, 4)) {
+                try {
+                    return Long.parseLong(p.substring(4).trim());
+                } catch (NumberFormatException ignored) {
+                    return 0;
+                }
+            }
+        }
+        return 0;
     }
 
     public String getCookie() {

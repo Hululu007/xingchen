@@ -59,6 +59,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.hk.HkDetail;
+import com.fongmi.android.tv.api.hk.HkErrorUtil;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkLoading;
@@ -3179,20 +3180,15 @@ public class HkPageActivity extends BaseActivity {
                 if (p == 1) buildDynamicTabs(tabs);
                 if (contents.isEmpty()) {
                     if (p == 1 && videos.isEmpty()) {
-                        // 空态：若引擎记录了 JS 失败原因则展示，否则保持原文案。
-                        // 之前任何失败都只显示"加载失败"，根因只能靠 debug 日志，用户无法反馈。
+                        // 空态：8.83 式规则错误弹窗（HkErrorUtil），对等 DebugUtil.showErrorMsg。
                         String hkErr = null;
                         try {
                             hkErr = getRouter().getEngine().getError();
                         } catch (Throwable ignored) {
                         }
-                        if (!TextUtils.isEmpty(hkErr)) {
-                            String e = hkErr.trim();
-                            if (e.length() > 80) e = e.substring(0, 80);
-                            binding.tvContentEmpty.setText("加载失败：" + e + "，点我重试");
-                        } else {
-                            binding.tvContentEmpty.setText("加载失败，点我重试");
-                        }
+                        String ruleTitle = currentRule == null ? "" : currentRule.getTitle();
+                        HkErrorUtil.showErrorMsg(HkPageActivity.this, "规则执行过程中出现错误", ruleTitle, hkErr, null);
+                        binding.tvContentEmpty.setText("加载失败，点我重试");
                         binding.tvContentEmpty.setVisibility(View.VISIBLE);
                         binding.rvVideos.setVisibility(View.GONE);
                     } else {
@@ -3797,16 +3793,12 @@ public class HkPageActivity extends BaseActivity {
         if (result == null || (result.isEmpty() && !result.hasBasicInfo())) {
             binding.detailScroll.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.VISIBLE);
-            // 空态显示引擎记录的 JS 真实错误（与列表页一致），方便用户截图反馈
+            // 空态：8.83 式规则错误弹窗（HkErrorUtil），对等 DebugUtil.showErrorMsg。
             try {
                 String hkErr = getRouter().getEngine().getError();
-                if (!TextUtils.isEmpty(hkErr)) {
-                    String e = hkErr.trim();
-                    if (e.length() > 80) e = e.substring(0, 80);
-                    binding.tvDetailEmpty.setText("加载失败：" + e + "，点我重试");
-                } else {
-                    binding.tvDetailEmpty.setText("加载失败，点我重试");
-                }
+                String ruleTitle = currentRule == null ? "" : currentRule.getTitle();
+                HkErrorUtil.showErrorMsg(HkPageActivity.this, "规则执行过程中出现错误", ruleTitle, hkErr, null);
+                binding.tvDetailEmpty.setText("加载失败，点我重试");
             } catch (Throwable ignored) {
                 binding.tvDetailEmpty.setText("加载失败，点我重试");
             }

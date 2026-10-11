@@ -33,7 +33,7 @@ public class HkCloudClip {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
     private static final MediaType TEXT = MediaType.get("text/plain; charset=utf-8");
 
-    private static final String UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    private static final String UA = "Mozilla/5.0 (Linux; Android 15; 2407FRK8EC Build/AP3A.240617.008; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36";
 
     /** Pastebin API key（自 8.83 反编译提取）。 */
     private static final String PASTEBIN_DEV_KEY = "Qs2VjmfmU1Qz-SGdXpUV6fRPquPzR0js";

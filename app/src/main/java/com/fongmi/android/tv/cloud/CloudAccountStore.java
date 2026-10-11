@@ -47,6 +47,24 @@ public class CloudAccountStore {
         prefs(context).edit()
                 .remove("cookie_" + driveId)
                 .remove("user_" + driveId)
+                .remove("token_" + driveId)
                 .apply();
+    }
+
+    /** 通用键值存储（用于 access_token / refresh_token / device_id 等） */
+    public static void saveValue(Context context, String driveId, String key, String value) {
+        prefs(context).edit().putString(key + "_" + driveId, value == null ? "" : value).apply();
+    }
+
+    public static String getValue(Context context, String driveId, String key) {
+        return prefs(context).getString(key + "_" + driveId, "");
+    }
+
+    public static void saveLong(Context context, String driveId, String key, long value) {
+        prefs(context).edit().putLong(key + "_" + driveId, value).apply();
+    }
+
+    public static long getLong(Context context, String driveId, String key) {
+        return prefs(context).getLong(key + "_" + driveId, 0);
     }
 }

@@ -670,6 +670,8 @@ public class HkPageActivity extends BaseActivity {
                 if (span == ruleGrid.getSpanCount()) return;
                 getPrefs().edit().putInt(KEY_RULE_SPAN, span).apply();
                 ruleGrid.setSpanCount(span);
+                // 列数变化时布局类型（普通/紧凑）可能变化，重建卡片视图
+                ruleAdapter.notifyDataSetChanged();
                 binding.rvRules.scrollToPosition(0);
             });
             root.addView(tv, lp);
@@ -1793,13 +1795,15 @@ public class HkPageActivity extends BaseActivity {
 
         @Override
         public int getItemViewType(int position) {
-            return TYPE_RULE;
+            // 3列模式卡片窄，用紧凑布局保证名字可读；2列用原布局
+            return ruleGrid != null && ruleGrid.getSpanCount() == 3 ? TYPE_RULE_COMPACT : TYPE_RULE;
         }
 
         @NonNull
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_rule, parent, false);
+            int layout = viewType == TYPE_RULE_COMPACT ? R.layout.item_hk_rule_compact : R.layout.item_hk_rule;
+            View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
             // 卡片磨砂：真 blur 只作用于独立背景层，内容层不被模糊
             FrostedGlass.blurBackground(v.findViewById(R.id.card_bg));
             return new Holder(v);

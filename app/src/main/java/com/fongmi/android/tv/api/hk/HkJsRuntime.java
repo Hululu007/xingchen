@@ -2264,6 +2264,32 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
     }
 
     /**
+     * 8.83 JSEngine.generateRequestOptions 同款：fetch/post/request 没传 User-Agent 时
+     * 自动补移动端 UA（SettingConfig.getMobileUA）。照抄 mergeDesktopUa，只换 UA 值。
+     */
+    private static String mergeMobileUa(String optionsJson) {
+        try {
+            Map<String, Object> map = GSON.fromJson(
+                    TextUtils.isEmpty(optionsJson) ? "{}" : optionsJson,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+            if (map == null) map = new HashMap<>();
+            Object headers = map.get("headers");
+            Map<String, Object> hm = headers instanceof Map ? (Map<String, Object>) headers : new HashMap<>();
+            boolean hasUa = false;
+            for (String k : hm.keySet()) {
+                if ("user-agent".equalsIgnoreCase(k)) { hasUa = true; break; }
+            }
+            if (!hasUa) {
+                hm.put("User-Agent", UA_MOBILE);
+                map.put("headers", hm);
+            }
+            return GSON.toJson(map);
+        } catch (Throwable e) {
+            return "{\"headers\":{\"User-Agent\":\"" + UA_MOBILE + "\"}}";
+        }
+    }
+
+    /**
      * 文件路径解析：hiker://files/... → App filesDir；绝对路径原样；相对路径 → 规则数据目录。
      * 全部钳制在 App 文件目录内。
      */
@@ -3311,6 +3337,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator {
         if (TextUtils.isEmpty(url)) return "";
         // hiker://empty 等非 http 协议直接返回空（由上层按形态分流）
         if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
+        // 8.83 generateRequestOptions 同款：没传 User-Agent 时自动补移动端 UA。
+        // 之前缺这步，规则 fetch(url) 不带 UA 就以 okhttp/4.x.x 发出，被站点拦截 → 规则报"站点没响应"。
+        optionsJson = mergeMobileUa(optionsJson);
         try {
             Req req = TextUtils.isEmpty(optionsJson) ? Req.objectFrom("{}") : Req.objectFrom(optionsJson);
             String opt = optionsJson == null ? "" : optionsJson;

@@ -91,21 +91,21 @@ public class X5CoreDialog extends BaseAlertDialog {
             Notify.show("正在下载中…");
             return;
         }
-        X5Manager.startDownload();
+        X5Manager.startDownload(requireContext(), null);
         refresh();
     }
 
     private void onUninstallClick() {
-        X5Manager.uninstallCore();
+        X5Manager.uninstallCore(requireContext());
         Notify.show("X5 内核已卸载，已切回系统 WebView");
         refresh();
     }
 
     private void refresh() {
         if (binding == null || getActivity() == null) return;
-        int status = X5Manager.getStatus();
+        int status = X5Manager.getStatus(requireContext());
         if (status == X5Manager.STATUS_DOWNLOADED) {
-            binding.tvX5Status.setText("已下载 " + X5Manager.getCoreSizeText());
+            binding.tvX5Status.setText("已下载 " + X5Manager.getCoreSizeText(requireContext()));
             binding.pbX5.setVisibility(View.GONE);
             binding.btnX5Download.setVisibility(View.GONE);
             binding.btnX5Uninstall.setVisibility(View.VISIBLE);

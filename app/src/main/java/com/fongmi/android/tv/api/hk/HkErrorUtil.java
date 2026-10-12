@@ -137,6 +137,16 @@ public class HkErrorUtil {
             }
             sb.append(stack);
         }
+        // 排障：Empty JSON 大概率是 fetch 拿到空数据，附上最近一次网络诊断（host/状态码/异常）
+        try {
+            if (desc != null && desc.contains("Empty JSON")) {
+                String diag = HkJsRuntime.getLastFetchDiag();
+                if (diag != null && !diag.isEmpty()) {
+                    sb.append("\n网络诊断：").append(diag);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
         return sb.toString();
     }
 

@@ -15,11 +15,9 @@ import com.fongmi.android.tv.ui.dialog.AboutDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.ProxyDialog;
 import com.fongmi.android.tv.ui.dialog.GlobalProxyDialog;
-import com.fongmi.android.tv.ui.dialog.X5CoreDialog;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.utils.X5Manager;
 import com.fongmi.android.tv.utils.XingChenDoh;
 import com.fongmi.android.tv.utils.XingChenProxy;
 
@@ -56,8 +54,6 @@ public class XingChenSettingsActivity extends BaseActivity {
             XingChenDoh.setIndex(this, which);
             updateDohSub();
         }));
-        updateX5Sub();
-        binding.cardX5.setOnClickListener(v -> X5CoreDialog.create().show(this));
         refreshCacheSize();
         binding.cardCache.setOnClickListener(v -> FileUtil.clearCache(new Callback() {
             @Override
@@ -82,24 +78,12 @@ public class XingChenSettingsActivity extends BaseActivity {
         binding.tvDohSub.setText(XingChenDoh.getName(this));
     }
 
-    private void updateX5Sub() {
-        int status = X5Manager.getStatus(this);
-        if (status == X5Manager.STATUS_DOWNLOADED) {
-            binding.tvX5Sub.setText("已下载");
-        } else if (status == X5Manager.STATUS_DOWNLOADING) {
-            binding.tvX5Sub.setText("下载中" + Math.max(0, X5Manager.getLastProgress()) + "%");
-        } else {
-            binding.tvX5Sub.setText("未下载");
-        }
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
         updateProxySub();
         updateGlobalProxySub();
         updateDohSub();
-        updateX5Sub();
     }
 
     private void refreshCacheSize() {

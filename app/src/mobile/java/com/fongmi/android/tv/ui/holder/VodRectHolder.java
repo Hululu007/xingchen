@@ -31,7 +31,7 @@ public class VodRectHolder extends BaseVodHolder {
 
     public VodRectHolder size(int[] size) {
         this.specSize = size;
-        binding.image.getLayoutParams().height = size[1];
+        binding.imageWrap.getLayoutParams().height = size[1];
         binding.getRoot().getLayoutParams().width = size[0];
         return this;
     }

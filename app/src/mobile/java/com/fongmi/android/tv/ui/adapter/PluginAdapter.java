@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
@@ -62,6 +63,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             boolean next = !ShortDramaHelper.isPluginShortDrama(fileName);
             ShortDramaHelper.setPluginShortDrama(fileName, next);
             updateShortDramaBadge(holder.tvShortDrama, fileName);
+            Toast.makeText(v.getContext(), next ? "已标记为短剧源" : "已取消短剧标记", Toast.LENGTH_SHORT).show();
         });
     }
 

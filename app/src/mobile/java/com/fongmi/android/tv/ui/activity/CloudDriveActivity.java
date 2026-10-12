@@ -6,6 +6,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -40,6 +41,7 @@ import java.util.List;
  */
 public class CloudDriveActivity extends BaseActivity {
 
+    private static final String TAG = "CloudDriveActivity";
     private static final String EXTRA_DRIVE_ID = "drive_id";
     private static final int PAGE_LIMIT = 100;
 
@@ -197,11 +199,12 @@ public class CloudDriveActivity extends BaseActivity {
         new Thread(() -> {
             try {
                 // 确保 115 代理已启动（播放器只认本机代理地址，不直连 115）
+                // 用 startProxy()（优选端口 32115+），不要裸调 NanoHTTPD.start()
                 if (Drive115.ID.equals(drive.getId()) && drive instanceof Drive115) {
                     Drive115 d115 = (Drive115) drive;
                     com.fongmi.android.tv.cloud.drive115.Proxy115
                             .getInstance(d115.getClient(), d115.getCookieJar())
-                            .start();
+                            .startProxy();
                 }
                 String url = drive.getPlayUrl(file);
                 runOnUiThread(() -> {
@@ -212,7 +215,18 @@ public class CloudDriveActivity extends BaseActivity {
                     }
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> Notify.show("获取播放地址失败：" + msg(e)));
+                Log.e(TAG, "115 播放失败", e); // 完整堆栈打到 Logcat
+                String m = msg(e);
+                String toast;
+                if (m.contains("代理启动失败")) {
+                    toast = "代理启动失败，请重试";
+                } else if (m.contains("pick_code")) {
+                    toast = "文件 pick_code 为空";
+                } else {
+                    toast = "获取播放地址失败：" + m;
+                }
+                final String ft = toast;
+                runOnUiThread(() -> Notify.show(ft));
             }
         }).start();
     }

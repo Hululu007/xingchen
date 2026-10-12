@@ -401,10 +401,10 @@ public class HkDetailFragment extends Fragment {
     private void showWebViewDialog(String url) {
         if (!isAdded()) return;
         try {
-            com.tencent.smtt.sdk.WebView wv = new com.tencent.smtt.sdk.WebView(requireContext());
+            android.webkit.WebView wv = new android.webkit.WebView(requireContext());
             wv.getSettings().setJavaScriptEnabled(true);
             wv.getSettings().setDomStorageEnabled(true);
-            wv.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
+            wv.setWebViewClient(new android.webkit.WebViewClient());
             wv.loadUrl(url);
             new AlertDialog.Builder(requireContext())
                     .setView(wv)
@@ -989,7 +989,7 @@ public class HkDetailFragment extends Fragment {
             TextView title, desc, overlay;
             LinearLayout cols;
             EditText input;
-            com.tencent.smtt.sdk.WebView web;
+            android.webkit.WebView web;
             // 8.83 第一批补齐新增：
             android.widget.HorizontalScrollView hsvButtons; // T_SCROLL_BUTTON
             LinearLayout llButtons;                          // T_SCROLL_BUTTON
@@ -1119,7 +1119,7 @@ public class HkDetailFragment extends Fragment {
                         web = v.findViewById(R.id.wv_page);
                         web.getSettings().setJavaScriptEnabled(true);
                         web.getSettings().setDomStorageEnabled(true);
-                        web.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
+                        web.setWebViewClient(new android.webkit.WebViewClient());
                         break;
                     case T_DETAIL_HEADER:
                         // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右

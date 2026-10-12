@@ -99,9 +99,3 @@
 
 # Zxing
 -keep class com.google.zxing.** { *; }
-
-# TBS X5 WebView
--dontwarn dalvik.**
--dontwarn com.tencent.smtt.**
--keep class com.tencent.smtt.** { *; }
--keep class com.tencent.tbs.** { *; }

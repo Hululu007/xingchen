@@ -180,6 +180,48 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** @rule= js: 预检时设置的响应正文（HkHttp.get 取回），供 getResCode() 返回；用后清零。 */
     private String evalResCodeBody;
     private String lastUrl;
+    /** 网络诊断（排障用）：最近一次 fetch 异常/非2xx/空数据的脱敏信息，供错误弹窗展示。只记录，不改业务逻辑。 */
+    private static volatile String lastFetchDiag = "";
+    /** 供 HkErrorUtil 在"错误详细信息"里展示最近一次网络诊断。 */
+    public static String getLastFetchDiag() { return lastFetchDiag; }
+    /** 脱敏：只取 host，不带 path/query（避免 token 泄露）。 */
+    private static String hostOfUrl(String url) {
+        try {
+            String u = url == null ? "" : url.trim();
+            int p = u.indexOf("://");
+            String rest = p >= 0 ? u.substring(p + 3) : u;
+            int q = rest.indexOf('?');
+            if (q >= 0) rest = rest.substring(0, q);
+            int slash = rest.indexOf('/');
+            if (slash >= 0) rest = rest.substring(0, slash);
+            int at = rest.lastIndexOf('@');
+            if (at >= 0) rest = rest.substring(at + 1);
+            return rest.isEmpty() ? "(unknown)" : rest;
+        } catch (Throwable t) {
+            return "(unknown)";
+        }
+    }
+    private static void recordFetchDiag(String url, int code, Throwable e, boolean emptyBody) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("host=").append(hostOfUrl(url));
+            sb.append(" code=").append(code);
+            if (e != null) {
+                String msg = e.getMessage();
+                sb.append(" err=").append(e.getClass().getSimpleName());
+                if (!TextUtils.isEmpty(msg)) {
+                    String m = msg.length() > 160 ? msg.substring(0, 160) : msg;
+                    sb.append(": ").append(m.replace('\n', ' '));
+                }
+            } else if (code < 200 || code >= 300) {
+                sb.append(" httpError");
+            } else if (emptyBody) {
+                sb.append(" bodyEmpty");
+            }
+            lastFetchDiag = sb.toString();
+        } catch (Throwable ignored) {
+        }
+    }
     private volatile boolean destroyed;
     private volatile boolean preRuleDone;
     /**
@@ -3947,6 +3989,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try (Response res = HkHttp.to(url, req).execute()) {
                 resCode = res.code();
                 lastUrl = url;
+                if (res.code() < 200 || res.code() >= 300) {
+                    recordFetchDiag(url, res.code(), null, false);
+                }
                 Map<String, String> headers = new HashMap<>();
                 for (String name : res.headers().names()) headers.put(name, res.header(name, ""));
                 if (onlyHeaders) {
@@ -3957,6 +4002,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
                 ResponseBody body = res.body();
                 byte[] bytes = body == null ? new byte[0] : body.bytes();
+                if (bytes.length == 0 && res.code() >= 200 && res.code() < 300) {
+                    // 诊断：200 但空 body（JSON.parse("") 抛 Empty JSON 的源头）
+                    recordFetchDiag(url, res.code(), null, true);
+                }
                 String content;
                 if (toHex) {
                     StringBuilder sb = new StringBuilder(bytes.length * 2);
@@ -3984,6 +4033,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         } catch (Throwable e) {
             Logger.t(TAG).d("fetch failed %s: %s", url, e.getMessage());
+            recordFetchDiag(url, 0, e, false);
             resCode = 0;
             return "";
         }

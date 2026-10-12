@@ -251,12 +251,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        // X5：首次进小程序提示下载内核（8.83模式，用户手动确认）
-        try { com.fongmi.android.tv.utils.X5Manager.promptDownloadIfNeeded(this); } catch (Throwable ignored) {}
         initRulesView();
-        initContentView();
-        initSearchView();
-        initDetailView();
         stack.push(V_RULES);
         showView(V_RULES);
         refreshRules();
@@ -2729,34 +2724,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     // ================= V2 分类+列表 =================
 
-    private void initContentView() {
-        // 官方 60 列栅格（8.83 ArticleColTypeEnum.spanCount 反编译实测）：
-        // movie_3/pic_3/icon_small_3(3/行)=20；icon_4系列(4/行)=15；icon_5/text_5(5/行)=12；
-        // icon_2/pic_2/text_2(2/行)=30；其余全宽=60
-        contentGrid = new GridLayoutManager(this, 60);
-        contentGrid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-            @Override
-            public int getSpanSize(int position) {
-                return contentAdapter == null ? 60 : contentAdapter.spanFor(position);
-            }
-        });
-        binding.rvVideos.setLayoutManager(contentGrid);
-        binding.rvVideos.addItemDecoration(new GridSpace());
-        contentAdapter = new ContentAdapter(videos);
-        binding.rvVideos.setAdapter(contentAdapter);
-        binding.swipeContent.setColorSchemeColors(0xFFD4A017);
-        binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
-        binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
-        binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
-        binding.rvVideos.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy <= 0 || loading || noMore) return;
-                int last = contentGrid.findLastVisibleItemPosition();
-                if (last >= contentAdapter.getItemCount() - 3) loadContent(false);
-            }
-        });
-    }
 
     /**
      * 8.83 LoadingEvent 弹窗等价实现（XPopup asLoading 同款）：
@@ -2862,24 +2829,16 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         sortName = "";
         page = 1;
         noMore = false;
-        loading = false; // 旧规则的在途加载作废，由新 loadContent 接管
-        contentGen++; // 旧回调过期
+        loading = false;
+        contentGen++;
         videos.clear();
         contentTitle = rule.getTitle();
-        buildMiniappTabs();
-        buildCategoryRow();
-        buildFilterRows();
-        buildContentSearchBar();
-        // 内容页内切换小程序（顶部 tabs / 全部弹窗）时栈顶已是 V_CONTENT：只做替换不再重复 push，
-        // 否则返回键第一次 pop 后仍停留在 V_CONTENT，视觉上毫无变化，看起来"没反应"（时好时坏的根因）
+        // 旧视图已迁入 Fragment：只做视图切换，内容加载由 HkContentFragment 经 hostLoadContent 触发
         if (stack.isEmpty() || stack.peek() != V_CONTENT) {
             pushView(V_CONTENT);
         } else {
             showView(V_CONTENT);
         }
-        loadContent(true);
-        Integer pos = scrollMem.get(rule.getTitle());
-        if (pos != null && pos > 0) contentGrid.scrollToPosition(pos);
     }
 
     /**
@@ -2917,72 +2876,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 8.83 同款：内容页顶部小程序切换 tabs。
      * 横向显示已安装的小程序，点击切换规则。
      */
-    private void buildMiniappTabs() {
-        try {
-            List<HkRule> rules = com.fongmi.android.tv.api.hk.HkRuleManager.get().getRules();
-            List<HkRule> enabled = new ArrayList<>();
-            for (HkRule r : rules) {
-                // 顶部 tabs 不需要"我的主页"（HikerHome 未实现，打开必报错）
-                // 标题为空（脏数据已在 getTitle 清洗）的规则不展示，避免空白 tab
-                if (r.isEnabled() && !isHomePageRule(r) && !r.getTitle().isEmpty()) enabled.add(r);
-            }
-            // 当前规则若不在 tabs 列表里（未启用或刚导入），追加进去并选中，保证 tabs 跟随当前页面
-            String curTitle = currentRule == null ? null : currentRule.getTitle();
-            boolean hasCur = false;
-            if (curTitle != null) {
-                for (HkRule r : enabled) {
-                    if (curTitle.equals(r.getTitle())) {
-                        hasCur = true;
-                        break;
-                    }
-                }
-            }
-            if (!hasCur && currentRule != null) {
-                enabled.add(currentRule);
-            }
-            miniappRules.clear();
-            miniappRules.addAll(enabled);
-            if (enabled.size() <= 1) {
-                binding.miniappTabsRow.setVisibility(View.GONE);
-                return;
-            }
-            List<String[]> pairs = new ArrayList<>();
-            int sel = 0;
-            for (int i = 0; i < enabled.size(); i++) {
-                HkRule r = enabled.get(i);
-                pairs.add(new String[]{r.getTitle(), String.valueOf(i)});
-                if (curTitle != null && curTitle.equals(r.getTitle())) sel = i;
-            }
-            final List<HkRule> finalEnabled = enabled;
-            ChipAdapter adapter = new ChipAdapter(pairs, sel, idx -> {
-                try {
-                    int i = Integer.parseInt(idx);
-                    if (i >= 0 && i < finalEnabled.size()) {
-                        HkRule target = finalEnabled.get(i);
-                        if (currentRule == null || !target.getTitle().equals(currentRule.getTitle())) {
-                            openRule(target);
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-            });
-            adapter.setGoldMode(true); // 金色主题：与分类 pills 颜色区分
-            binding.rvMiniappTabs.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-            binding.rvMiniappTabs.setAdapter(adapter);
-            // 滚动到选中项，保证当前小程序的 tab 可见
-            final int finalSel = sel;
-            binding.rvMiniappTabs.post(() -> {
-                try {
-                    ((LinearLayoutManager) binding.rvMiniappTabs.getLayoutManager())
-                            .scrollToPositionWithOffset(finalSel, 0);
-                } catch (Throwable ignored) {
-                }
-            });
-            binding.miniappTabsRow.setVisibility(View.VISIBLE);
-        } catch (Throwable t) {
-            binding.miniappTabsRow.setVisibility(View.GONE);
-        }
-    }
 
     /**
      * 小程序切换：顶部 tabs 栏最右「全部」按钮弹窗。
@@ -3106,26 +2999,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 8.83 同款：内容页内嵌搜索栏。
      * 规则有搜索能力时显示，输入关键词点搜索跳搜索页。
      */
-    private void buildContentSearchBar() {
-        try {
-            if (currentRule != null && currentRule.hasSearch()) {
-                binding.etSearchContent.setHint("搜索" + currentRule.getTitle() + " / 演员");
-                binding.etSearchContent.setOnEditorActionListener((v, actionId, event) -> {
-                    if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
-                        doContentSearch();
-                        return true;
-                    }
-                    return false;
-                });
-                binding.btnSearchContentGo.setOnClickListener(v -> doContentSearch());
-            } else {
-                binding.searchBarContent.setVisibility(View.GONE);
-            }
-        } catch (Throwable t) {
-            binding.searchBarContent.setVisibility(View.GONE);
-        }
-        updateContentSearchBarVisibility();
-    }
 
     /** 规则内容里是否自带 input 搜索框（col_type="input"）。 */
     private boolean hasRuleInputBox() {
@@ -3140,43 +3013,18 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     }
 
     /** 内嵌搜索条显隐：规则有搜索能力且内容里没有自带 input 框时才显示。 */
-    private void updateContentSearchBarVisibility() {
-        try {
-            boolean show = currentRule != null && currentRule.hasSearch() && !hasRuleInputBox();
-            binding.searchBarContent.setVisibility(show ? View.VISIBLE : View.GONE);
-        } catch (Throwable t) {
-            binding.searchBarContent.setVisibility(View.GONE);
-        }
-    }
 
-    private void doContentSearch() {
-        try {
-            String kw = binding.etSearchContent.getText().toString().trim();
-            if (!kw.isEmpty() && currentRule != null) {
-                // 复用现有搜索页逻辑
-                openSearchWithKeyword(kw);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
 
     /** 内容页内嵌搜索栏：带关键词直接打开搜索页并执行搜索。 */
     private void openSearchWithKeyword(String kw) {
         searchDualMode = false;
-        keyword = "";
+        keyword = kw != null ? kw : "";
         searchPage = 1;
         searchNoMore = false;
         searchResults.clear();
         searchSrcRules.clear();
-        searchAdapter.notifyDataSetChanged();
-        binding.etKeyword.setText(kw);
-        binding.etKeyword.setHint(searchHint());
-        updateSearchScopeLabel();
-        binding.tvSearchEmpty.setVisibility(View.GONE);
-        binding.rvSearchResults.setVisibility(View.VISIBLE);
-        binding.historySection.setVisibility(View.GONE);
+        // 旧视图已迁入 Fragment：只设状态，UI 由 HkSearchFragment 经 host 读取
         pushView(V_SEARCH);
-        doSearch(kw);
     }
 
     /**
@@ -3189,75 +3037,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * url 值写入对应变量、page=1 重载；选中名记 pic 用于高亮（此处记 *Name 字段）。
      * 原版无"全部"tab，不自动添加。
      */
-    private void buildCategoryRow() {
-        binding.categoryRow.removeAllViews();
-        if (currentRule == null) {
-            binding.categoryRow.setVisibility(View.GONE);
-            return;
-        }
-        int rows = 0;
-        rows += addCategoryTabRow(currentRule.getClassPairs(), "class");
-        rows += addCategoryTabRow(currentRule.getAreaPairs(), "area");
-        rows += addCategoryTabRow(currentRule.getYearPairs(), "year");
-        rows += addCategoryTabRow(currentRule.getSortPairs(), "sort");
-        // 8.83 同款：整行按是否有分类显示/隐藏
-        binding.categoryRow.setVisibility(rows > 0 ? View.VISIBLE : View.GONE);
-    }
 
     /** 建一行分类 tab（横向 RecyclerView + 右侧 ">"），无数据返回 0。 */
-    private int addCategoryTabRow(List<String[]> pairs, String kind) {
-        if (pairs == null || pairs.isEmpty()) return 0;
-        // 8.83 默认：pic 为空时选中第一个 title；instance() 把 *_url 归一化为第一个值（smali .line 434-444）
-        String curName = nameOf(kind);
-        if (curName.isEmpty()) {
-            setNameOf(kind, pairs.get(0)[0]);
-            if (valOf(kind).isEmpty()) setValOf(kind, pairs.get(0)[1]);
-            curName = pairs.get(0)[0];
-        }
-        int sel = 0;
-        for (int i = 0; i < pairs.size(); i++) {
-            if (pairs.get(i)[0].equals(curName)) {
-                sel = i;
-                break;
-            }
-        }
-        final List<String[]> finalPairs = pairs;
-        final int finalSel = sel;
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
-        rowLp.topMargin = dp(8);
-        binding.categoryRow.addView(row, rowLp);
-
-        RecyclerView rv = new RecyclerView(this);
-        rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        rv.setClipToPadding(false);
-        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
-        row.addView(rv, rvLp);
-        rv.setAdapter(new ChipAdapter(pairs, sel, url -> onCategoryTabPick(kind, finalPairs, url)));
-
-        TextView btnExpand = new TextView(this);
-        btnExpand.setText(">");
-        btnExpand.setTextSize(16);
-        btnExpand.setTextColor(0xFF666666);
-        btnExpand.setGravity(android.view.Gravity.CENTER);
-        btnExpand.setBackgroundResource(R.drawable.tab_item_default);
-        btnExpand.setPadding(dp(10), dp(4), dp(10), dp(4));
-        btnExpand.setContentDescription("展开");
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        btnLp.leftMargin = dp(3);
-        btnLp.rightMargin = dp(5);
-        row.addView(btnExpand, btnLp);
-        // 8.83 同款：">" 点开"请选择分类"弹窗
-        btnExpand.setOnClickListener(v ->
-                showCategoryPopup(finalPairs, finalSel, url -> onCategoryTabPick(kind, finalPairs, url)));
-        return 1;
-    }
 
     /**
      * 8.83 onClassClick 等价：按行 kind 把选中 tab 的 url 值写入对应变量
@@ -3323,101 +3104,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 标题去 HTML 标签；含高亮色（#ff1493/#FF5D50 等）的为当前选中。
      * 点击 tab 求值其 lazyRule（putMyVar 设分类变量），再刷新列表。
      */
-    private void buildDynamicTabs(List<HkItem> tabs) {
-        binding.llTabRows.removeAllViews();
-        if (tabs == null || tabs.isEmpty()) {
-            binding.llTabRows.setVisibility(View.GONE);
-            return;
-        }
-        binding.llTabRows.setVisibility(View.VISIBLE);
-        // 8.83 updatePolyList（smali ArticleListAdapter:12152）：连续同 col_type 的条目自动合并成一组
-        List<List<HkItem>> groups = new ArrayList<>();
-        for (HkItem it : tabs) {
-            String t = it.getColType();
-            if (!groups.isEmpty()) {
-                List<HkItem> last = groups.get(groups.size() - 1);
-                if (last.get(0).getColType().equals(t)) {
-                    last.add(it);
-                    continue;
-                }
-            }
-            List<HkItem> g = new ArrayList<>();
-            g.add(it);
-            groups.add(g);
-        }
-        for (List<HkItem> group : groups) {
-            List<String[]> pairs = new ArrayList<>();
-            int sel = 0;
-            for (HkItem it : group) {
-                String rawTitle = it.getTitle() == null ? "" : it.getTitle();
-                String rawUrl = it.getUrl() == null ? "" : it.getUrl();
-                // 8.83：title/url 按 "&" 切分（bindForHeaderHolder 第 1140 行）
-                String[] names = rawTitle.split("&", -1);
-                String[] urls = rawUrl.split("&", -1);
-                for (int i = 0; i < names.length; i++) {
-                    String raw = names[i];
-                    if (isTabSelected(raw)) sel = pairs.size();
-                    String name = stripHtml(raw);
-                    if (name.isEmpty()) name = "分类" + (pairs.size() + 1);
-                    String u = i < urls.length ? urls[i] : "";
-                    pairs.add(new String[]{name, u, raw});
-                }
-            }
-            if (pairs.isEmpty()) continue;
-            // 行容器：横向 RecyclerView + 右侧 ">" 展开按钮（8.83 view_article_list_header.xml 同款）
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
-            rowLp.topMargin = dp(8);
-            binding.llTabRows.addView(row, rowLp);
-
-            RecyclerView rv = new RecyclerView(this);
-            rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-            rv.setClipToPadding(false);
-            LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
-            row.addView(rv, rvLp);
-
-            final List<String[]> finalPairs = pairs;
-            final int finalSel = sel;
-            ChipAdapter adapter = new ChipAdapter(pairs, sel, url -> {
-                if (url == null || url.isEmpty()) return;
-                new Thread(() -> {
-                    try {
-                        getRouter().evalTab(url);
-                    } catch (Throwable ignored) {
-                    }
-                    App.post(() -> loadContent(true));
-                }).start();
-            });
-            rv.setAdapter(adapter);
-
-            TextView btnExpand = new TextView(this);
-            btnExpand.setText(">");
-            btnExpand.setTextSize(16);
-            btnExpand.setTextColor(0xFF666666);
-            btnExpand.setGravity(android.view.Gravity.CENTER);
-            btnExpand.setBackgroundResource(R.drawable.tab_item_default);
-            btnExpand.setPadding(dp(10), dp(4), dp(10), dp(4));
-            btnExpand.setContentDescription("展开");
-            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            btnLp.leftMargin = dp(3);
-            btnLp.rightMargin = dp(5);
-            row.addView(btnExpand, btnLp);
-            btnExpand.setOnClickListener(v -> showCategoryPopup(finalPairs, finalSel, url -> {
-                if (url == null || url.isEmpty()) return;
-                new Thread(() -> {
-                    try {
-                        getRouter().evalTab(url);
-                    } catch (Throwable ignored) {
-                    }
-                    App.post(() -> loadContent(true));
-                }).start();
-            }));
-        }
-    }
 
     /** tab 是否为选中态：标题含高亮色标记（8.83 规则常用 #ff1493/#FF5D50/#ff0000 等）。 */
     private boolean isTabSelected(String rawTitle) {
@@ -3525,86 +3211,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 8.83 原文没有筛选行：地区/年份/类型就是分类 tab 行（class/area/year/sort 四行 header，
      * 见 buildCategoryRow）。此方法保留空实现（调用点不动），避免与 tab 行重复显示。
      */
-    private void buildFilterRows() {
-        binding.filterContainer.removeAllViews();
-        binding.filterContainer.setVisibility(View.GONE);
-    }
 
-    private void addFilterRow(String label, List<String[]> pairs, ChipAdapter.OnPick pick) {
-        if (pairs == null || pairs.isEmpty()) return;
-        // 8.83 同款：筛选行带 ">" 展开/收起，默认收起只显示一行
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(4), dp(8), dp(4), dp(8));
-        
-        TextView tv = new TextView(this);
-        tv.setText(label);
-        tv.setTextColor(0xFF101216);
-        tv.setTextSize(13);
-        tv.setTypeface(null, android.graphics.Typeface.BOLD);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.WRAP_CONTENT);
-        header.addView(tv, labelLp);
-        
-        // 已选项显示
-        TextView tvSelected = new TextView(this);
-        tvSelected.setText("全部");
-        tvSelected.setTextColor(0xFF8A8F98);
-        tvSelected.setTextSize(12);
-        LinearLayout.LayoutParams selLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        header.addView(tvSelected, selLp);
-        
-        // ">" 展开指示器
-        TextView tvArrow = new TextView(this);
-        tvArrow.setText(">");
-        tvArrow.setTextColor(0xFF8A8F98);
-        tvArrow.setTextSize(14);
-        tvArrow.setPadding(dp(8), 0, dp(8), 0);
-        header.addView(tvArrow);
-        
-        container.addView(header);
-        
-        // 选项行（默认收起）
-        RecyclerView rv = new RecyclerView(this);
-        rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        List<String[]> all = new ArrayList<>();
-        all.add(new String[]{"全部", ""});
-        all.addAll(pairs);
-        final boolean[] expanded = {false};
-        rv.setVisibility(View.GONE);
-        
-        ChipAdapter adapter = new ChipAdapter(all, 0, value -> {
-            // 更新已选项显示
-            for (String[] p : all) {
-                if (p[1].equals(value)) {
-                    tvSelected.setText(p[0]);
-                    break;
-                }
-            }
-            pick.onPick(value);
-        });
-        rv.setAdapter(adapter);
-        LinearLayout.LayoutParams rvLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
-        rvLp.topMargin = dp(4);
-        rvLp.bottomMargin = dp(4);
-        container.addView(rv, rvLp);
-        
-        // 点击头部展开/收起
-        header.setOnClickListener(v -> {
-            expanded[0] = !expanded[0];
-            rv.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
-            tvArrow.setText(expanded[0] ? "v" : ">");
-            tvArrow.setRotation(expanded[0] ? 90 : 0);
-        });
-        
-        LinearLayout.LayoutParams containerLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        binding.filterContainer.addView(container, containerLp);
-    }
 
     private HkRouter getRouter() throws Exception {
         if (router == null) router = new HkRouter(currentRule);
@@ -3655,155 +3262,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         return fr != null && fr.trim().startsWith("js:");
     }
 
-    private void loadContent(boolean reset) {
-        if (loading || currentRule == null) return;
-        if (!reset && !canAutoPage()) {
-            noMore = true;
-            updateFooter();
-            return;
-        }
-        loading = true;
-        final int gen = ++contentGen;
-        if (reset) {
-            page = 1;
-            noMore = false;
-            videos.clear();
-            contentAdapter.refreshGroups();
-            contentAdapter.notifyDataSetChanged();
-            binding.tvContentEmpty.setVisibility(View.GONE);
-            binding.rvVideos.setVisibility(View.GONE);
-            binding.loadingContent.setVisibility(View.VISIBLE);
-        }
-        updateFooter();
-        final int p = page;
-        final String c = cls, a = area, y = year, s = sort;
-        new Thread(() -> {
-            List<HkItem> list;
-            try {
-                list = getRouter().home(p, c, a, y, s);
-                // 记录实际抓取页 URL：图片自动 Referer 用（8.83 GlideUtil.getGlideUrl 同款语义）
-                recordHkPageUrl(p, c, a, y, s);
-            } catch (Throwable e) {
-                list = new ArrayList<>();
-            }
-            final List<HkItem> result = list;
-            App.post(() -> {
-                // 先释放 loading：过期回调也不能把标记卡死，否则滚动翻页/下拉刷新永久失效
-                //（翻页请求在途时用户点了别的导致 contentGen 自增，就会走到这里）。
-                loading = false;
-                if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
-                binding.swipeContent.setRefreshing(false);
-                binding.loadingContent.setVisibility(View.GONE);
-                // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
-                hideHkLoading();
-                // V2：把导航类条目（scroll_button/flex_button 分类）拆出来做顶部 tab，
-                // 分隔块（blank_block/line_blank/line）丢弃，其余内容条目按 col_type
-                // 由 ContentAdapter 多 viewType 渲染（视频/文本/图片/输入框等）。
-                List<HkItem> tabs = new ArrayList<>();
-                List<HkItem> contents = new ArrayList<>();
-                for (HkItem it : result) {
-                    String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
-                    if ("scroll_button".equals(ct) || "flex_button".equals(ct)) tabs.add(it);
-                    else if ("blank_block".equals(ct) || "big_blank_block".equals(ct)
-                            || "big_big_blank_block".equals(ct) || "line_blank".equals(ct) || "line".equals(ct)) continue;
-                    else contents.add(it);
-                }
-                if (p == 1) buildDynamicTabs(tabs);
-                if (contents.isEmpty()) {
-                    if (p == 1 && videos.isEmpty()) {
-                        // 空态：8.83 式规则错误弹窗（HkErrorUtil），对等 DebugUtil.showErrorMsg。
-                        String hkErr = null;
-                        try {
-                            hkErr = getRouter().getEngine().getError();
-                        } catch (Throwable ignored) {
-                        }
-                        String ruleTitle = currentRule == null ? "" : currentRule.getTitle();
-                        HkErrorUtil.showErrorMsg(HkPageActivity.this, "规则执行过程中出现错误", ruleTitle, hkErr, null);
-                        binding.tvContentEmpty.setText("加载失败，点我重试");
-                        binding.tvContentEmpty.setVisibility(View.VISIBLE);
-                        binding.rvVideos.setVisibility(View.GONE);
-                    } else {
-                        noMore = true;
-                    }
-                } else {
-                    videos.addAll(contents);
-                    page = p + 1;
-                    binding.rvVideos.setVisibility(View.VISIBLE);
-                    contentAdapter.refreshGroups();
-                    contentAdapter.notifyDataSetChanged();
-                }
-                updateFooter();
-            });
-        }).start();
-    }
 
     private void updateFooter() {
-        if (videos.isEmpty()) {
-            binding.tvFooter.setVisibility(View.GONE);
-            return;
-        }
-        binding.tvFooter.setVisibility(View.VISIBLE);
-        if (loading) binding.tvFooter.setText("加载中…");
-        else if (noMore) binding.tvFooter.setText("已加载全部");
-        else binding.tvFooter.setText("");
     }
 
     // ================= V3 搜索 =================
 
-    private void initSearchView() {
-        GridLayoutManager grid = new GridLayoutManager(this, 3);
-        binding.rvSearchResults.setLayoutManager(grid);
-        binding.rvSearchResults.addItemDecoration(new GridSpace());
-        searchAdapter = new VideoAdapter(searchResults, false);
-        binding.rvSearchResults.setAdapter(searchAdapter);
-        binding.rvHistory.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 搜索页搜索条用实色白底（用户反馈透明看不清，已去磨砂）
-        binding.btnBackSearch.setOnClickListener(v -> onBackInvoked());
-        binding.btnClear.setOnClickListener(v -> binding.etKeyword.setText(""));
-        binding.btnClearHistory.setOnClickListener(v -> {
-            getPrefs().edit().remove(histKey()).apply();
-            refreshHistory();
-        });
-        binding.etKeyword.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                binding.btnClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-            }
-        });
-        binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                String kw = v.getText().toString().trim();
-                // 小程序列表入口 = 跨小程序内容搜索；内容页内 = 单规则搜索
-                if (searchDualMode) doCrossSearch(kw);
-                else doSearch(kw);
-                return true;
-            }
-            return false;
-        });
-        binding.btnSearchGo.setOnClickListener(v -> {
-            String kw = binding.etKeyword.getText().toString().trim();
-            if (searchDualMode) doCrossSearch(kw);
-            else doSearch(kw);
-        });
-        binding.rvSearchResults.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy <= 0 || searchLoading || searchNoMore || keyword.isEmpty()) return;
-                GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
-                if (lm != null && lm.findLastVisibleItemPosition() >= searchAdapter.getItemCount() - 3) {
-                    doSearchPage();
-                }
-            }
-        });
-    }
 
     private void openSearch() {
         searchDualMode = false;
@@ -3812,17 +3276,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         searchNoMore = false;
         searchResults.clear();
         searchSrcRules.clear();
-        searchAdapter.notifyDataSetChanged();
-        binding.etKeyword.setText("");
-        // 小程序内搜索：hint 带上规则名，明确作用域（之前通用 hint 像全局搜索）
-        binding.etKeyword.setHint(searchHint());
-        updateSearchScopeLabel();
-        binding.tvSearchEmpty.setVisibility(View.GONE);
-        binding.rvSearchResults.setVisibility(View.VISIBLE);
-        refreshHistory();
-        binding.historySection.setVisibility(View.VISIBLE);
+        // 旧视图已迁入 Fragment：只设状态，UI 由 HkSearchFragment 经 host 读取
         pushView(V_SEARCH);
-        binding.etKeyword.requestFocus();
     }
 
     /** 小程序内搜索的输入框 hint：带上规则名，如"搜索一个APP"。 */
@@ -3835,16 +3290,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     /** V_SEARCH 作用域标识：单规则模式显示"在「X」内搜索"，跨搜模式隐藏。 */
     private void updateSearchScopeLabel() {
-        try {
-            if (!searchDualMode && currentRule != null && currentRule.getTitle() != null
-                    && !currentRule.getTitle().isEmpty()) {
-                binding.tvSearchScope.setText("在「" + currentRule.getTitle() + "」内搜索");
-                binding.tvSearchScope.setVisibility(View.VISIBLE);
-            } else {
-                binding.tvSearchScope.setVisibility(View.GONE);
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     /** 搜索历史按作用域隔离：小程序内搜索用各规则独立的 key，跨搜用全局 key。 */
@@ -3892,16 +3337,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 长按 🔍：跨小程序内容搜索（只留"搜内容"模式）。
      */
     private void openContentSearch() {
-        searchDualMode = true;
-        binding.etKeyword.setText("");
-        binding.etKeyword.setHint("搜索全部小程序的内容");
-        updateSearchScopeLabel();
-        binding.historySection.setVisibility(View.GONE);
-        binding.tvSearchEmpty.setVisibility(View.VISIBLE);
-        binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
-        binding.rvSearchResults.setVisibility(View.GONE);
-        pushView(V_SEARCH);
-        binding.etKeyword.requestFocus();
     }
 
     /** H3: 长按搜索按钮弹出选择：搜内容 / 搜规则（已安装小程序） */
@@ -3923,144 +3358,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 结果按小程序分组展示（来源标注在条目 desc 前缀），点击条目自动切到对应小程序再进详情。
      */
     private void doCrossSearch(String kw) {
-        final int gen = crossSearchGen.incrementAndGet();
-        binding.rvSearchResults.setVisibility(View.GONE);
-        binding.tvSearchEmpty.setVisibility(View.VISIBLE);
-        searchResults.clear();
-        searchSrcRules.clear();
-        searchAdapter.notifyDataSetChanged();
-        if (kw.isEmpty()) {
-            binding.tvSearchEmpty.setText("输入关键词，搜索全部小程序的内容");
-            return;
-        }
-        List<com.fongmi.android.tv.api.hk.HkRule> enabled;
-        try {
-            enabled = com.fongmi.android.tv.api.hk.HkRuleManager.get().getEnabledRules();
-        } catch (Throwable e) {
-            enabled = new ArrayList<>();
-        }
-        if (enabled.isEmpty()) {
-            binding.tvSearchEmpty.setText("没有启用的小程序");
-            return;
-        }
-        binding.tvSearchEmpty.setText("正在搜索 " + enabled.size() + " 个小程序…");
-        saveHistory(kw);
-        final List<com.fongmi.android.tv.api.hk.HkRule> rules = enabled;
-        final String keywordFinal = kw;
-        new Thread(() -> {
-            int poolSize = Math.min(rules.size(), 8);
-            ThreadPoolExecutor pool = new ThreadPoolExecutor(poolSize, poolSize, 10L,
-                    TimeUnit.SECONDS, new LinkedBlockingQueue<>(256));
-            CountDownLatch latch = new CountDownLatch(rules.size());
-            List<SearchResult> aggregated = Collections.synchronizedList(new ArrayList<>());
-            for (com.fongmi.android.tv.api.hk.HkRule rule : rules) {
-                final com.fongmi.android.tv.api.hk.HkRule r = rule;
-                pool.execute(() -> {
-                    try {
-                        // 每个规则独立 router，避免与当前页面的 router 互相干扰
-                        com.fongmi.android.tv.api.hk.HkRouter router =
-                                new com.fongmi.android.tv.api.hk.HkRouter(r);
-                        List<SearchResult> list = router.search(keywordFinal, 1);
-                        if (list != null) {
-                            for (SearchResult sr : list) {
-                                if (sr == null) continue;
-                                // 标注来源小程序，供展示分组与点击切换（SearchResult 保持 8.83 原版纯净，来源放外部映射）
-                                if (gen == crossSearchGen.get()) searchSrcRules.put(sr, r.getTitle());
-                                aggregated.add(sr);
-                            }
-                        }
-                    } catch (Throwable ignored) {
-                    } finally {
-                        latch.countDown();
-                    }
-                });
-            }
-            try {
-                // 整体超时 25 秒，避免某个规则卡死拖住全部
-                latch.await(25, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            try {
-                if (!pool.isShutdown()) pool.shutdownNow();
-            } catch (Throwable ignored) {
-            }
-            final List<SearchResult> result = new ArrayList<>(aggregated);
-            App.post(() -> {
-                if (gen != crossSearchGen.get()) return; // 已被新搜索取代
-                searchResults.clear();
-                // 注意：不要在这里清 searchSrcRules——worker 线程刚把来源标注写进去，
-                // 清掉会导致"【来源】"后缀和点击切换丢失。搜索开始时已清过。
-                searchResults.addAll(result);
-                searchAdapter.notifyDataSetChanged();
-                if (result.isEmpty()) {
-                    binding.tvSearchEmpty.setVisibility(View.VISIBLE);
-                    binding.rvSearchResults.setVisibility(View.GONE);
-                    binding.tvSearchEmpty.setText("无相关结果");
-                } else {
-                    binding.tvSearchEmpty.setVisibility(View.GONE);
-                    binding.rvSearchResults.setVisibility(View.VISIBLE);
-                }
-            });
-        }).start();
     }
 
     private void doSearch(String kw) {
-        if (kw.isEmpty() || currentRule == null) return;
-        keyword = kw;
-        searchPage = 1;
-        searchNoMore = false;
-        searchResults.clear();
-        searchSrcRules.clear();
-        searchAdapter.notifyDataSetChanged();
-        binding.tvSearchEmpty.setVisibility(View.GONE);
-        // 空态文案带上作用域，避免"无相关结果"被误读为全局无结果
-        binding.tvSearchEmpty.setText("在「" + currentRule.getTitle() + "」中无相关结果");
-        binding.rvSearchResults.setVisibility(View.VISIBLE);
-        binding.historySection.setVisibility(View.GONE);
-        saveHistory(kw);
-        doSearchPage();
     }
 
     private void doSearchPage() {
-        if (searchLoading || currentRule == null || keyword.isEmpty()) return;
-        searchLoading = true;
-        final int p = searchPage;
-        final String kw = keyword;
-        new Thread(() -> {
-            List<SearchResult> list;
-            try {
-                list = getRouter().search(kw, p);
-                // 记录搜索实际抓取 URL：搜索结果图 Referer 用
-                try {
-                    String su = getRouter().getEngine().getJsRuntime().getLastUrl();
-                    if (!TextUtils.isEmpty(su) && (su.startsWith("http://") || su.startsWith("https://"))) {
-                        hkPageUrl = su;
-                    } else if (currentRule != null) {
-                        hkPageUrl = com.fongmi.android.tv.api.hk.HkHttp.expandSearchUrl(currentRule.getSearchUrl(), kw, p);
-                    }
-                } catch (Throwable ignored) {
-                }
-            } catch (Throwable e) {
-                list = new ArrayList<>();
-            }
-            final List<SearchResult> result = list;
-            App.post(() -> {
-                searchLoading = false;
-                if (result.isEmpty()) {
-                    if (p == 1 && searchResults.isEmpty()) {
-                        binding.tvSearchEmpty.setVisibility(View.VISIBLE);
-                        binding.rvSearchResults.setVisibility(View.GONE);
-                    } else {
-                        searchNoMore = true;
-                    }
-                } else {
-                    searchResults.addAll(result);
-                    searchPage = p + 1;
-                    searchAdapter.notifyDataSetChanged();
-                }
-            });
-        }).start();
     }
 
     private SharedPreferences getPrefs() {
@@ -4088,34 +3391,10 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     }
 
     private void refreshHistory() {
-        List<String> hist = loadHistory();
-        List<String[]> pairs = new ArrayList<>();
-        for (String h : hist) pairs.add(new String[]{h, h});
-        binding.rvHistory.setAdapter(new ChipAdapter(pairs, -1, value -> doSearch(value)));
-        binding.historySection.setVisibility(hist.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     // ================= V4 详情 =================
 
-    private void initDetailView() {
-        binding.btnBackDetail.setOnClickListener(v -> onBackInvoked());
-        binding.tvDetailTitle.setSelected(true);
-        // 8.83 原版：详情页走通用列表渲染器（60 列栅格 + ContentAdapter），不用专用布局
-        detailGrid = new GridLayoutManager(this, 60);
-        detailGrid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-            @Override
-            public int getSpanSize(int position) {
-                return detailAdapter == null ? 60 : detailAdapter.spanFor(position);
-            }
-        });
-        binding.rvDetailContent.setLayoutManager(detailGrid);
-        binding.rvDetailContent.addItemDecoration(new GridSpace());
-        detailAdapter = new ContentAdapter(detailItems);
-        binding.rvDetailContent.setAdapter(detailAdapter);
-        binding.tvDetailEmpty.setOnClickListener(v -> {
-            if (detailItem != null) openDetail(detailItem, detailFromSearch);
-        });
-    }
 
     private void openDetail(HkItem item, boolean fromSearch) {
         openDetail(item, fromSearch, false);
@@ -4147,7 +3426,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      */
     private void openDetail(HkItem item, boolean fromSearch, boolean lazyPrecheck) {
         // 官方 clickItem：@rule= 条目进子列表页（dealRule），不进 V4；各调用方统一在此拦截。
-        // 顺序与官方一致：只看 @rule= 前段是否含 @lazyRule=，含则走 lazy 预检不进子列表。
         if (item != null && !TextUtils.isEmpty(item.getUrl())) {
             String u = item.getUrl().trim();
             // P1：hiker://page/ 子页面走 openPage（官方 toNextPage），不进 V4
@@ -4157,94 +3435,11 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 if (openSubList(item, u)) return;
             }
         }
+        // 旧视图已迁入 Fragment：委托给 hostOpenDetail，由 HkDetailFragment 处理详情加载
+        // lazyPrecheck 由 Fragment 内部处理
         detailItem = item;
         detailFromSearch = fromSearch;
-        currentDetail = null;
-        detailItems.clear();
-        if (detailAdapter != null) detailAdapter.notifyDataSetChanged();
-        if (!lazyPrecheck) {
-            binding.tvDetailTitle.setText(item.getTitle());
-            binding.rvDetailContent.setVisibility(View.GONE);
-            binding.tvDetailEmpty.setVisibility(View.GONE);
-            binding.tvDetailLoading.setVisibility(View.VISIBLE);
-            pushView(V_DETAIL);
-        } else {
-            // 直接播放预检（条目 URL 自带 @lazyRule=）：后台求值，下方小字"加载中"提示
-            // （海阔原版 toast 风格，不挡封面）；求值完成后直接进播放器
-            showLoadingHint();
-        }
-        new Thread(() -> {
-            HkDetail detail;
-            try {
-                detail = getRouter().detail(item.getUrl(), item, fromSearch);
-                // 记录详情页实际抓取 URL：详情封面/推荐图 Referer 用
-                try {
-                    String du = getRouter().getEngine().getJsRuntime().getLastUrl();
-                    if (!TextUtils.isEmpty(du) && (du.startsWith("http://") || du.startsWith("https://"))) {
-                        hkPageUrl = du;
-                    }
-                } catch (Throwable ignored) {
-                }
-            } catch (Throwable e) {
-                detail = null;
-            }
-            final HkDetail result = detail;
-            App.post(() -> {
-                hideLoadingHint();
-                if (lazyPrecheck) binding.loadingContent.setVisibility(View.GONE);
-                else binding.tvDetailLoading.setVisibility(View.GONE);
-                // 纯文本结果（文本按钮的 js: 求值返回文本）：弹窗显示，不进 V4/播放
-                String textResult = result == null ? "" : result.getTextResult();
-                if (!TextUtils.isEmpty(textResult)) {
-                    if (!lazyPrecheck) onBackInvoked(); // 弹出已推的 V4 空 loading
-                    else binding.loadingContent.setVisibility(View.GONE);
-                    new AlertDialog.Builder(HkPageActivity.this)
-                            .setMessage(textResult)
-                            .setPositiveButton("确定", (d, w) -> d.dismiss())
-                            .show();
-                    return;
-                }
-                // 分类切换（官方 refreshPage 语义：putMyVar 后重刷列表，不进 V4）
-                if (result != null && result.isTabSwitch()) {
-                    if (!lazyPrecheck) onBackInvoked(); // 弹出已推的 V4 空 loading
-                    loadContent(true);
-                    return;
-                }
-                // lazyRule 解析失败（@lazyRule= 求值无结果）：不推空 V4，直接报错
-                // （避免"0条线路 · 共0集"的空详情页；用户点的是视频，期望播放而非空 V4）
-                if (result != null && result.isLazyParseFailed()) {
-                    android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试", android.widget.Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                String direct = result == null ? "" : result.getDirectPlayUrl();
-                if (!TextUtils.isEmpty(direct)) {
-                    // 直接播放：若已推 V4 先弹出，保证播放器返回时回到列表
-                    if (!lazyPrecheck) onBackInvoked();
-                    // 预热播放路由：后台提前做 QuickJS 初始化+preRule，
-                    // 播放器调 playerContent 时直接命中缓存，不用再等几秒初始化
-                    SiteApi.warmHkRouter(currentRule == null ? "" : currentRule.getTitle());
-                    startHkDirectPlay(item, direct);
-                    return;
-                }
-                // dealWithUrl 分流（官方：@lazyRule= 解析后不进 V4）
-                String dealKind = result == null ? "" : result.getDealKind();
-                if (!TextUtils.isEmpty(dealKind)) {
-                    if (!lazyPrecheck) onBackInvoked();
-                    else binding.loadingContent.setVisibility(View.GONE);
-                    handleDealUrl(dealKind, result.getDealUrl(), item);
-                    return;
-                }
-                if (lazyPrecheck) {
-                    // 预检非直接播放：补推 V4 再展示（复用已算出的 result，不二次求值）
-                    binding.tvDetailTitle.setText(item.getTitle());
-                    binding.rvDetailContent.setVisibility(View.GONE);
-                    binding.tvDetailEmpty.setVisibility(View.GONE);
-                    binding.tvDetailLoading.setVisibility(View.GONE);
-                    pushView(V_DETAIL);
-                }
-                showDetailResult(result);
-            });
-        }).start();
+        hostOpenDetail(item);
     }
 
     /**
@@ -4342,21 +3537,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * 详情条目按 col_type 直接渲染，不做线路/选集分类。
      */
     private void showDetailResult(HkDetail result) {
-        if (result == null || (result.getRawItems().isEmpty() && !result.hasBasicInfo())) {
-            binding.rvDetailContent.setVisibility(View.GONE);
-            binding.tvDetailEmpty.setVisibility(View.VISIBLE);
-            // 空态：8.83 式规则错误弹窗（HkErrorUtil），对等 DebugUtil.showErrorMsg。
-            try {
-                String hkErr = getRouter().getEngine().getError();
-                String ruleTitle = currentRule == null ? "" : currentRule.getTitle();
-                HkErrorUtil.showErrorMsg(HkPageActivity.this, "规则执行过程中出现错误", ruleTitle, hkErr, null);
-                binding.tvDetailEmpty.setText("加载失败，点我重试");
-            } catch (Throwable ignored) {
-                binding.tvDetailEmpty.setText("加载失败，点我重试");
-            }
-        } else {
-            bindDetailItems(result);
-        }
     }
 
     /**
@@ -4366,18 +3546,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * - 播放按钮：原始条目原样渲染，点击在详情页内直接播放（不套娃进详情）
      */
     private void bindDetailItems(HkDetail detail) {
-        currentDetail = detail;
-        // V4 已展示：用户很可能马上点选集，提前预热播放路由，省掉播放时的初始化等待
-        SiteApi.warmHkRouter(currentRule == null ? "" : currentRule.getTitle());
-        List<HkItem> items = buildDetailHkItems(detail);
-        detailItems.clear();
-        detailItems.addAll(items);
-        detailAdapter.refreshGroups();
-        detailAdapter.notifyDataSetChanged();
-        binding.rvDetailContent.setVisibility(View.VISIBLE);
-        binding.tvDetailEmpty.setVisibility(View.GONE);
-        binding.tvDetailTitle.setText(detail.getTitle());
-        binding.rvDetailContent.scrollToPosition(0);
     }
 
     /** 详情原始条目 → 通用列表条目（8.83 原版：不做线路/选集分类，原样渲染）。 */
@@ -5204,15 +4372,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         videos.clear();
         videos.addAll(st.videos);
         contentTitle = st.title;
-        buildCategoryRow();
-        buildFilterRows();
-        contentAdapter.refreshGroups();
-        contentAdapter.notifyDataSetChanged();
-        updateContentSearchBarVisibility();
-        binding.tvContentEmpty.setVisibility(View.GONE);
-        binding.rvVideos.setVisibility(videos.isEmpty() ? View.GONE : View.VISIBLE);
-        if (contentGrid != null && st.scrollPos > 0) contentGrid.scrollToPosition(st.scrollPos);
-        updateFooter();
+        // 旧视图已迁入 Fragment：用 replace 刷新 Fragment，由 Fragment 按 Activity 状态重渲染
+        showContentFragment();
         if (st.fromView != V_CONTENT && stack.size() > 1) {
             stack.pop();
             showView(stack.peek());
@@ -5532,10 +4693,10 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     /** WebView 弹窗（@x5Rule= 与 x5_webview_single 共用）。 */
     private void showWebViewDialog(String url) {
         try {
-            com.tencent.smtt.sdk.WebView wv = new com.tencent.smtt.sdk.WebView(this);
+            android.webkit.WebView wv = new android.webkit.WebView(this);
             wv.getSettings().setJavaScriptEnabled(true);
             wv.getSettings().setDomStorageEnabled(true);
-            wv.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
+            wv.setWebViewClient(new android.webkit.WebViewClient());
             wv.loadUrl(url);
             new AlertDialog.Builder(this)
                     .setView(wv)
@@ -5784,7 +4945,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             TextView title, desc, overlay;
             LinearLayout cols;
             EditText input;
-            com.tencent.smtt.sdk.WebView web;
+            android.webkit.WebView web;
             // 8.83 第一批补齐新增：
             android.widget.HorizontalScrollView hsvButtons; // T_SCROLL_BUTTON
             LinearLayout llButtons;                          // T_SCROLL_BUTTON
@@ -5914,7 +5075,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         web = v.findViewById(R.id.wv_page);
                         web.getSettings().setJavaScriptEnabled(true);
                         web.getSettings().setDomStorageEnabled(true);
-                        web.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
+                        web.setWebViewClient(new android.webkit.WebViewClient());
                         break;
                     case T_DETAIL_HEADER:
                         // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右

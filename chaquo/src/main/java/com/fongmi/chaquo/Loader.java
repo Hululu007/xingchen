@@ -62,7 +62,22 @@ public class Loader {
             try {
                 java.io.File f = new java.io.File(api);
                 if (f.exists() && f.isFile()) {
-                    byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+                    byte[] bytes = null;
+                    try {
+                        bytes = java.nio.file.Files.readAllBytes(f.toPath());
+                    } catch (Exception readEx) {
+                        // Files.readAllBytes 对中文路径可能失败，fallback 用 FileInputStream
+                        java.io.FileInputStream fis = null;
+                        try {
+                            fis = new java.io.FileInputStream(f);
+                            byte[] buf = new byte[(int) f.length()];
+                            int offset = 0, n;
+                            while (offset < buf.length && (n = fis.read(buf, offset, buf.length - offset)) != -1) offset += n;
+                            bytes = buf;
+                        } finally {
+                            if (fis != null) try { fis.close(); } catch (Exception ignored) {}
+                        }
+                    }
                     return new String(bytes, StandardCharsets.UTF_8);
                 }
                 if (api.contains("class Spider") || api.contains("def homeContent") || api.contains("import ")) {
@@ -70,6 +85,19 @@ public class Loader {
                 }
                 return api;
             } catch (Exception e) {
+                // 详细日志：文件名、可读性、长度、异常链
+                java.io.File f = new java.io.File(api);
+                StringBuilder log = new StringBuilder("PY read failed: ").append(api)
+                        .append(" | exists=").append(f.exists())
+                        .append(" | isFile=").append(f.isFile())
+                        .append(" | canRead=").append(f.canRead())
+                        .append(" | length=").append(f.length());
+                Throwable cause = e;
+                while (cause != null) {
+                    log.append(" | cause=").append(cause.getClass().getSimpleName()).append(":").append(cause.getMessage());
+                    cause = cause.getCause();
+                }
+                SpiderDebug.log("python-spider", log.toString());
                 throw new IllegalStateException("Unable to read python script: " + api, e);
             }
         }

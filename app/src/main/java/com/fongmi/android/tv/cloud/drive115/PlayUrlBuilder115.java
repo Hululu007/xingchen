@@ -95,17 +95,23 @@ public class PlayUrlBuilder115 {
                 isM3u8 = true;
             }
         } else {
-            // 默认/转码：先给转码（起播快、省带宽），再兜原画
-            // 这里简化：直接给 m3u8，失败时上层可重试原画
-            url = drive.m3u8Url(pc);
-            isM3u8 = true;
-            // 如果调用方明确要原画，尝试取直链
-            if ("org".equals(mode)) {
-                String org = getDownUrlCached(pc, forceRefresh);
-                if (!TextUtils.isEmpty(org)) {
-                    url = org;
-                    isM3u8 = false;
-                }
+            // 默认/自动：m3u8 优先（起播快、省带宽）；m3u8 失败时兜底原画直链（对照 PY 候选链 m3u8 → 原画）
+            url = null;
+            isM3u8 = false;
+            String m3u8 = null;
+            try {
+                m3u8 = drive.m3u8Url(pc);
+            } catch (Exception e) {
+                Log.d(TAG, "m3u8 地址构造失败: " + e.getMessage());
+            }
+            if (!TextUtils.isEmpty(m3u8) && probeM3u8(m3u8)) {
+                url = m3u8;
+                isM3u8 = true;
+            }
+            if (TextUtils.isEmpty(url)) {
+                Log.d(TAG, "m3u8 不可用，兜底原画直链");
+                url = getDownUrlCached(pc, forceRefresh);
+                isM3u8 = false;
             }
         }
 
@@ -121,6 +127,43 @@ public class PlayUrlBuilder115 {
 
         Log.d(TAG, "播放地址已包代理: " + (isM3u8 ? "m3u8" : "原画"));
         return new PlayRequest(proxyUrl, url, isM3u8);
+    }
+
+    /**
+     * 轻量探查 m3u8 接口：上游是否返回可用的 video_url
+     * 失败（异常/空/state=false）返回 false，上层兜底原画直链
+     */
+    private boolean probeM3u8(String m3u8Url) {
+        try {
+            okhttp3.OkHttpClient probeClient = client.newBuilder()
+                    .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+            okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(m3u8Url)
+                    .header("User-Agent", "Mozilla/5.0 115Browser/27.0.5.7")
+                    .header("Referer", "https://115.com/");
+            String cookie = cookieJar.merged(drive.getCookie());
+            if (!TextUtils.isEmpty(cookie)) {
+                rb.header("Cookie", cookie);
+            }
+            try (okhttp3.Response resp = probeClient.newCall(rb.build()).execute()) {
+                okhttp3.ResponseBody body = resp.body();
+                String text = body != null ? body.string() : "";
+                String trim = text.trim();
+                if (trim.startsWith("{")) {
+                    org.json.JSONObject jo = new org.json.JSONObject(trim);
+                    boolean ok = !TextUtils.isEmpty(jo.optString("video_url", ""));
+                    Log.d(TAG, "m3u8 探查: " + (ok ? "可用" : "无 video_url"));
+                    return ok;
+                }
+                boolean ok = trim.startsWith("#EXTM3U");
+                Log.d(TAG, "m3u8 探查: " + (ok ? "直接返回清单" : "未知内容"));
+                return ok;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "m3u8 探查异常: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

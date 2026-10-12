@@ -98,8 +98,6 @@ public class App extends Application implements Application.ActivityLifecycleCal
     public void onCreate() {
         super.onCreate();
         try { com.xingchen.tv.theme.ThemeManager.init(this); } catch (Exception e) {}
-        // X5：轻量预初始化（不下载内核，用户在设置页或小程序里手动确认后才下载）
-        try { com.fongmi.android.tv.utils.X5Manager.preInit(this); } catch (Throwable ignored) {}
         if (PlaybackRecoveryMonitor.isRecoveryProcess(this)) return;
         PlaybackMemoryMonitor.process().initialize(this);
         PlaybackSystemConditionMonitor.process().initialize(this);

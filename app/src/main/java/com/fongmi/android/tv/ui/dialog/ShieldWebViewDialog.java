@@ -9,10 +9,10 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import com.tencent.smtt.sdk.CookieManager;
-import com.tencent.smtt.sdk.WebChromeClient;
-import com.tencent.smtt.sdk.WebView;
-import com.tencent.smtt.sdk.WebViewClient;
+import android.webkit.CookieManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -169,13 +169,13 @@ public class ShieldWebViewDialog extends BaseAlertDialog {
     /** 小封装：移动端 UA + 视口，避免被识别为爬虫 UA */
     private static class WebSettingsHolder {
         static void apply(WebView webView) {
-            com.tencent.smtt.sdk.WebSettings s = webView.getSettings();
+            android.webkit.WebSettings s = webView.getSettings();
             s.setUseWideViewPort(true);
             s.setLoadWithOverviewMode(true);
             s.setSupportZoom(true);
             s.setBuiltInZoomControls(true);
             s.setDisplayZoomControls(false);
-            s.setCacheMode(com.tencent.smtt.sdk.WebSettings.LOAD_DEFAULT);
+            s.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
         }
     }
 

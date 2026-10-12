@@ -283,8 +283,23 @@ public class PanLoginActivity extends BaseActivity {
         if (PanAuth.isPikPakLoggedIn()) {
             CloudDriveActivity.start(this, "pikpak");
         } else {
-            showPikPakLogin();
+            showPikPakLoginMethods();
         }
+    }
+
+    /**
+     * PikPak 登录方式选择。
+     * 网页登录（推荐）：WebView 内完成登录，绕开 OkHttp 直调登录接口被风控掐连接的问题；
+     * 账号密码登录：原有原生 API 链路，保留作备用。
+     */
+    private void showPikPakLoginMethods() {
+        showLoginMethods("PikPak", new String[]{"网页登录（推荐）", "账号密码登录"}, which -> {
+            if (which == 0) {
+                PikPakWebLoginActivity.start(this);
+            } else {
+                showPikPakLogin();
+            }
+        });
     }
 
     private boolean onPikPakLongClick() {
@@ -382,8 +397,9 @@ public class PanLoginActivity extends BaseActivity {
         String url = ce.getVerifyUrl();
         String token = ce.getCaptchaToken();
         if (TextUtils.isEmpty(url)) {
-            // 服务端没给验证页：让用户手动填 token（对着桌面浏览器 F12 抓）
-            showPikPakManualToken(u, p, attempt);
+            // 服务端没下发验证页：F12 手动填 token 在手机上不可用，引导改用网页登录
+            Notify.show("未能获取验证页，请改用网页登录");
+            PikPakWebLoginActivity.start(this);
             return;
         }
         LinearLayout layout = new LinearLayout(this);
@@ -472,7 +488,6 @@ public class PanLoginActivity extends BaseActivity {
                 .setTitle("PikPak 人机验证")
                 .setView(layout)
                 .setPositiveButton("已完成验证，继续登录", null)
-                .setNeutralButton("手动填写 token", null)
                 .setNegativeButton("取消", null)
                 .create();
         dlg.setOnDismissListener(d -> web.destroy());
@@ -485,10 +500,6 @@ public class PanLoginActivity extends BaseActivity {
                 Notify.show("没抓到新的验证凭证，用旧 token 重试一次");
             }
             doPikPakLogin(u, p, useToken, attempt + 1);
-        });
-        dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-            dlg.dismiss();
-            showPikPakManualToken(u, p, attempt);
         });
     }
 
@@ -506,9 +517,13 @@ public class PanLoginActivity extends BaseActivity {
     }
 
     /**
-     * 手动填写 captcha_token（兜底，跟 Alist 文档同一套流程）：
-     * 在电脑/手机浏览器打开验证页完成滑块，按 F12 在网络请求里找到 captcha_token，粘贴到这里。
+     * @deprecated F12 手动填 captcha_token 在手机上不可用，已下线全部入口（保留代码备查）。
+     * 新流程请走 {@link PikPakWebLoginActivity} 网页登录。
+     *
+     * 原兜底流程（跟 Alist 文档同一套）：在电脑/手机浏览器打开验证页完成滑块，
+     * 按 F12 在网络请求里找到 captcha_token，粘贴到这里。
      */
+    @Deprecated
     private void showPikPakManualToken(String u, String p, int attempt) {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);

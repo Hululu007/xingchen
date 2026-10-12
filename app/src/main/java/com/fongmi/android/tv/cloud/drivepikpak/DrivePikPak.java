@@ -361,6 +361,51 @@ public class DrivePikPak implements CloudDrive {
         CloudAccountStore.saveValue(context, ID, "captcha_token", captchaToken);
     }
 
+    /**
+     * WebView 登录成功后调用：把网页版拿到的凭证导入为 App 会话。
+     * 网页版与 App 使用同一 OAuth client_id（YUMx5nI8ZU8Ap8pm），
+     * refresh_token 可直接复用 refresh() 接口，后续流程零改动。
+     * userId 为空时会尝试从 access_token（JWT）的 sub 字段解析。
+     *
+     * @param refreshToken 网页 localStorage credentials* 里的 refresh_token（必需）
+     * @param accessToken  网页凭证里的 access_token（可空，为空时调用方应随后调 refresh() 换取）
+     * @param expiresInSec access_token 有效期秒数（<=0 时按 7200）
+     * @param userId       用户 id（可空）
+     */
+    public void importWebSession(String refreshToken, String accessToken, long expiresInSec, String userId) {
+        if (TextUtils.isEmpty(refreshToken)) {
+            throw new IllegalArgumentException("refresh_token 不能为空");
+        }
+        this.refreshToken = refreshToken;
+        this.accessToken = accessToken == null ? "" : accessToken;
+        if (!TextUtils.isEmpty(userId)) {
+            this.userId = userId;
+        } else if (!TextUtils.isEmpty(this.accessToken)) {
+            String sub = parseJwtSub(this.accessToken);
+            if (!TextUtils.isEmpty(sub)) this.userId = sub;
+        }
+        long expiresIn = expiresInSec > 0 ? expiresInSec : 7200;
+        // 提前 5 分钟视为过期（与 login() 一致）
+        this.expiresAt = System.currentTimeMillis() + (expiresIn - 300) * 1000;
+        saveSession();
+    }
+
+    /** access_token 是 JWT 时，从 payload 的 sub 字段取 user_id */
+    private static String parseJwtSub(String accessToken) {
+        try {
+            String[] parts = accessToken.split("\\.");
+            if (parts.length < 2) return "";
+            String payload = parts[1].replace('-', '+').replace('_', '/');
+            int pad = (4 - payload.length() % 4) % 4;
+            StringBuilder sb = new StringBuilder(payload);
+            for (int i = 0; i < pad; i++) sb.append('=');
+            String json = new String(android.util.Base64.decode(sb.toString(), android.util.Base64.DEFAULT), "UTF-8");
+            return new JSONObject(json).optString("sub", "");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     /** md5 十六进制小写（captcha 签名用） */
     private static String md5Hex(String s) {
         try {

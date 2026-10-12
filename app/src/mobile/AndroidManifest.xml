@@ -179,6 +179,12 @@
             android:screenOrientation="fullUser" />
 
         <activity
+            android:name=".ui.activity.PikPakWebLoginActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:screenOrientation="fullUser"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.activity.CloudDriveActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />

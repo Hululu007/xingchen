@@ -87,7 +87,7 @@ public class X5CoreDialog extends BaseAlertDialog {
     }
 
     private void onDownloadClick() {
-        if (X5Manager.getStatus() == X5Manager.STATUS_DOWNLOADING) {
+        if (X5Manager.getStatus(requireContext()) == X5Manager.STATUS_DOWNLOADING) {
             Notify.show("正在下载中…");
             return;
         }

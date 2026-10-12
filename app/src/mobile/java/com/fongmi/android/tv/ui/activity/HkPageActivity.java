@@ -439,6 +439,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     private void showContentFragment() {
         if (contentFragment == null) {
             contentFragment = new HkContentFragment();
+            contentFragment.setContentAdapter(new ContentAdapter(contentFragment.getVideos()));
         }
         getSupportFragmentManager().beginTransaction()
                 .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,

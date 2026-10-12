@@ -96,6 +96,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** 规则内会话变量（getMyVar/putMyVar，官方 key 形态为 ruleTitle@key；单规则单实例，等价）。 */
     private final Map<String, String> myVars = new HashMap<>();
 
+    /** Java 侧设置规则变量（供 HkPageActivity 等调用）。 */
+    public void putMyVar(String key, String value) {
+        if (key != null) myVars.put(myVarKey(key), value == null ? "" : value);
+    }
+
+    /** Java 侧读取规则变量。 */
+    public String getMyVar(String key) {
+        String v = myVars.get(myVarKey(key));
+        return v == null ? "" : v;
+    }
+
     /**
      * E8: myVar key 加 ruleTitle@ 前缀做规则间隔离（8.83 JSEngine.smali:21694）。
      * 若 key 已带 @ 则直接用（兼容旧数据）。

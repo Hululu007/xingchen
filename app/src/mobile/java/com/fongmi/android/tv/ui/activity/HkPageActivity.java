@@ -4677,7 +4677,7 @@ public class HkPageActivity extends BaseActivity {
         // 8.83 clickItem(2948)：fileSelect://<js> 打开文件选择器，选完后把文件名注入 _fileSelect_<name> 并执行 JS
         if (url.startsWith("fileSelect://")) {
             fileSelectJs = url.substring("fileSelect://".length());
-            fileSelectPosition = items.indexOf(it);
+            fileSelectPosition = videos.indexOf(it);
             android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
             intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");

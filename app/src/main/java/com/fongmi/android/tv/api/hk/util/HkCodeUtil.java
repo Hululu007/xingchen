@@ -294,8 +294,13 @@ public final class HkCodeUtil {
     private static void dealFileByHiker(String url, OnCodeGetListener listener) {
         if (url.startsWith("hiker://assets/")) {
             listener.onSuccess(HkHikerRuleUtil.getAssetsFileByHiker(url));
+            return;
         }
-        HkHikerRuleUtil.getRulesByHiker(url, listener::onSuccess);
+        try {
+            listener.onSuccess(HkHikerRuleUtil.getRulesByHiker(url));
+        } catch (Exception e) {
+            listener.onFailure(-1, e.getMessage());
+        }
     }
 
     /** 8.83 dealFileByPath：file:// 去前缀读本地文件。 */

@@ -148,7 +148,7 @@ public class PlayUrlBuilder115 {
      */
     private String viaProxy(String url, String pc) {
         Proxy115 proxy = Proxy115.getInstance(client, cookieJar);
-        int port = proxy.start();
+        int port = proxy.startProxy();
         if (port <= 0) return "";
 
         // 请求头：115 认 UA

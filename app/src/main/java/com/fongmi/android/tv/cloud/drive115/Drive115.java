@@ -413,7 +413,7 @@ public class Drive115 implements CloudDrive {
             playUrlBuilder = new PlayUrlBuilder115(this, client, cookieJar);
         }
         // 确保代理已启动（对照 PY _via_proxy）
-        Proxy115.getInstance(client, cookieJar).start();
+        Proxy115.getInstance(client, cookieJar).startProxy();
         PlayUrlBuilder115.PlayRequest req = playUrlBuilder.build(file, "auto");
         return req.proxyUrl;
     }
@@ -428,7 +428,7 @@ public class Drive115 implements CloudDrive {
         if (playUrlBuilder == null) {
             playUrlBuilder = new PlayUrlBuilder115(this, client, cookieJar);
         }
-        Proxy115.getInstance(client, cookieJar).start();
+        Proxy115.getInstance(client, cookieJar).startProxy();
         PlayUrlBuilder115.PlayRequest req = playUrlBuilder.build(file, "org");
         return req.proxyUrl;
     }

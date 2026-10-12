@@ -1,13 +1,10 @@
 package com.fongmi.android.tv.api.hk.util;
 
-import android.security.keystore.KeyGenParameterSpec;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.KeyStore;
 import java.security.Signature;
-import java.security.spec.AlgorithmParameterSpec;
 
 /**
  * 移植自 8.83 {@code com.example.hikerview.service.parser.EcdsaSha256Kt}（smali 203 行）。
@@ -31,21 +28,14 @@ public final class HkEcdsaSha256 {
      */
     public static String sign(String message) {
         try {
-            KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC", "AndroidKeyStore");
-            KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(KEYPAIR_ALIAS,
-                    KeyGenParameterSpec.PURPOSE_SIGN)
-                    .setDigests(KeyGenParameterSpec.DIGEST_SHA256, KeyGenParameterSpec.DIGEST_SHA512)
-                    .setKeySize(256)
-                    .build();
-            kpg.initialize((AlgorithmParameterSpec) spec);
+            // 简化：不用 AndroidKeyStore，直接用内存密钥对（8.83 语义：签名+公钥拼接）
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
+            kpg.initialize(256);
             KeyPair keyPair = kpg.generateKeyPair();
 
             Signature signature = Signature.getInstance("SHA256withECDSA");
             signature.initSign(keyPair.getPrivate());
             signature.update(message.getBytes(StandardCharsets.UTF_8));
-
-            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
-            keyStore.load(null);
 
             byte[] signed = signature.sign();
             String hex = bytesToHexString(signed);

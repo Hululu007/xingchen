@@ -96,7 +96,7 @@ public class Proxy115 extends NanoHTTPD {
     /**
      * 启动代理，返回端口号（对照 PY _MediaProxy.start）
      */
-    public synchronized int start() {
+    public synchronized int startProxy() {
         if (isAlive()) {
             return getListeningPort();
         }
@@ -287,10 +287,10 @@ public class Proxy115 extends NanoHTTPD {
         }
 
         if (result.response == null) {
-            return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "upstream error");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, "text/plain", "upstream error");
         }
 
-        Response resp = result.response;
+        okhttp3.Response resp = result.response;
         String ctype = "";
         try {
             String ct = resp.header("Content-Type");
@@ -317,7 +317,7 @@ public class Proxy115 extends NanoHTTPD {
                 return r;
             } catch (Exception e) {
                 Log.e(TAG, "m3u8 处理失败", e);
-                return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "read error");
+                return newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, "text/plain", "read error");
             }
         }
 
@@ -328,7 +328,7 @@ public class Proxy115 extends NanoHTTPD {
             final InputStream in = body != null ? body.byteStream() : null;
             if (in == null) {
                 resp.close();
-                return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "empty body");
+                return newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, "text/plain", "empty body");
             }
 
             String contentType = resp.header("Content-Type", "application/octet-stream");
@@ -366,7 +366,7 @@ public class Proxy115 extends NanoHTTPD {
                 resp.close();
             } catch (Exception ignored) {
             }
-            return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "stream error");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, "text/plain", "stream error");
         }
     }
 
@@ -392,7 +392,7 @@ public class Proxy115 extends NanoHTTPD {
                     }
                 }
                 // 手动跟重定向（对照 PY _open_chain）：每一跳的 Set-Cookie 都攒下来
-                Response resp = doFetchWithRedirects(rb.build(), headers);
+                okhttp3.Response resp = doFetchWithRedirects(rb.build(), headers);
                 result.response = resp;
                 result.code = resp != null ? resp.code() : 0;
             } catch (Exception e) {
@@ -419,7 +419,7 @@ public class Proxy115 extends NanoHTTPD {
     /**
      * 手动跟重定向，每一跳的 Set-Cookie 都吸收进罐（对照 PY _open_chain）
      */
-    private Response doFetchWithRedirects(Request request, Map<String, String> headers) throws IOException {
+    private okhttp3.Response doFetchWithRedirects(Request request, Map<String, String> headers) throws IOException {
         // 临时用一个禁止自动重定向的 client
         OkHttpClient noRedirectClient = client.newBuilder()
                 .followRedirects(false)
@@ -428,7 +428,7 @@ public class Proxy115 extends NanoHTTPD {
 
         Request req = request;
         for (int i = 0; i < 5; i++) { // 最多跟 5 跳
-            Response resp = noRedirectClient.newCall(req).execute();
+            okhttp3.Response resp = noRedirectClient.newCall(req).execute();
             // 吸收每一跳的 Set-Cookie
             java.util.List<String> sc = resp.headers("Set-Cookie");
             if (sc != null && !sc.isEmpty()) {

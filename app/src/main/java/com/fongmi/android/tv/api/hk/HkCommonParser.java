@@ -56,7 +56,7 @@ public class HkCommonParser {
         String[] minusSplit = rule.split("--");
         if (minusSplit.length > 1) {
             prettyPrint(element, false);
-            Document doc = getTrueElement(minusSplit[0], element);
+            Element doc = getTrueElement(minusSplit[0], element);
             String html = doc.outerHtml();
             for (int i = 1; i < minusSplit.length; i++) {
                 html = html.replace(getTrueElement(minusSplit[i], doc).outerHtml(), "");

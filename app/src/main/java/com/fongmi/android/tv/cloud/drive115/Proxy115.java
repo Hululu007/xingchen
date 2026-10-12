@@ -300,6 +300,48 @@ public class Proxy115 extends NanoHTTPD {
 
         boolean isPlaylist = target.toLowerCase().contains(".m3u8") || ctype.contains("mpegurl");
 
+        // 115 m3u8 接口返回的是 JSON（含 video_url），不是清单本身：先解析拿真地址
+        if (isPlaylist && result.response != null) {
+            try {
+                okhttp3.ResponseBody _b = result.response.body();
+                String _t = _b != null ? _b.string() : "";
+                result.response.close();
+                String _trim = _t.trim();
+                if (_trim.startsWith("{")) {
+                    org.json.JSONObject _jo = new org.json.JSONObject(_trim);
+                    String _vu = _jo.optString("video_url", "");
+                    if (!_vu.isEmpty()) {
+                        Log.d(TAG, "115 API 返回 JSON，提取 video_url 重取");
+                        result.response.close();
+                        FetchResult _r2 = fetchWithWatchdog(_vu, headers, 90);
+                        if (_r2.response != null) {
+                            result = _r2;
+                            target = _vu;
+                            String _ct2 = _r2.response.header("Content-Type", "").toLowerCase();
+                            isPlaylist = target.toLowerCase().contains(".m3u8") || _ct2.contains("mpegurl");
+                        }
+                    } else {
+                        Log.d(TAG, "115 API 未返回 video_url: " + _trim.substring(0, Math.min(200, _trim.length())));
+                    }
+                } else if (_trim.startsWith("#EXTM3U")) {
+                    // 已经是清单，后面正常走改写；这里把 body 拼回去避免二次读取
+                    // （response 已关闭，后面 isPlaylist 分支会重新取——为简单起见这里不优化）
+                }
+                // 非 JSON 非清单：后面按原逻辑处理
+                // 注意：_t 已消费，若既不是 JSON 也不是清单，后续分支会重新 fetch
+                if (!_trim.startsWith("{") && !_trim.startsWith("#EXTM3U")) {
+                    // 把已读的内容包成新 response 供后续使用？简单起见：重新取一次
+                    result.response.close();
+                    result = fetchWithWatchdog(target, headers, 90);
+                } else if (_trim.startsWith("#EXTM3U")) {
+                    // 是清单但 body 已消费：重新取一次（保持简单可靠）
+                    result = fetchWithWatchdog(target, headers, 90);
+                }
+            } catch (Exception _e) {
+                Log.d(TAG, "115 JSON 解析失败: " + _e.getMessage());
+            }
+        }
+
         if (isPlaylist) {
             // m3u8：全文读出 → 改写清单 → 返回
             try {

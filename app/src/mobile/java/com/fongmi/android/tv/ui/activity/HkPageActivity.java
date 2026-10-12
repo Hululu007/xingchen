@@ -445,6 +445,17 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 .commit();
     }
 
+    /** 旧方法存根：已迁移到 Fragment，保留以兼容旧调用 */
+    private void loadContent(boolean refresh) {
+        showContentFragment();
+    }
+
+    private void buildCategoryRow() {
+    }
+
+    private void buildFilterRows() {
+    }
+
     /** 显示搜索页 Fragment */
     private void showSearchFragment() {
         if (searchFragment == null) {

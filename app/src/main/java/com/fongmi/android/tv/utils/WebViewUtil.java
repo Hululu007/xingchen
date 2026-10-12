@@ -72,7 +72,8 @@ public class WebViewUtil {
             settings.setDomStorageEnabled(true);
             settings.setDatabaseEnabled(true);
             settings.setMediaPlaybackRequiresUserGesture(false);
-            settings.setMixedContentMode(com.tencent.smtt.sdk.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            // smtt WebSettings 无 MIXED_CONTENT_ALWAYS_ALLOW 常量，0 即 ALWAYS_ALLOW（与系统值一致）
+            settings.setMixedContentMode(0);
         } catch (Throwable e) {
             android.util.Log.w("WebViewUtil", "configureBase(x5) failed: " + e.getMessage());
         }

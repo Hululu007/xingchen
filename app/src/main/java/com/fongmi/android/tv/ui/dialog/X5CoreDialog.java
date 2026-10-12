@@ -82,7 +82,7 @@ public class X5CoreDialog extends BaseAlertDialog {
                 });
             }
         };
-        X5Manager.addListener(listener);
+        X5Manager.setDownloadListener(listener);
         refresh();
     }
 
@@ -129,7 +129,7 @@ public class X5CoreDialog extends BaseAlertDialog {
     @Override
     public void onDestroyView() {
         destroyed = true;
-        if (listener != null) X5Manager.removeListener(listener);
+        X5Manager.setDownloadListener(null);
         super.onDestroyView();
     }
 }

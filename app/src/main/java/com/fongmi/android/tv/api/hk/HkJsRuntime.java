@@ -569,20 +569,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     // ================= API 注册 =================
 
     private void registerApi() {
-        // 覆盖 JSON.parse：空串/非法 JSON 返回带原型空对象，不抛异常（8.83 lenient 语义）；
-        // JSON.stringify 保持原生不动。
-        Object jsonObj = ScriptableObject.getProperty(scope, "JSON");
-        if (jsonObj instanceof ScriptableObject) {
-            ScriptableObject json = (ScriptableObject) jsonObj;
-            json.put("parse", json, new BaseFunction() {
-                @Override
-                public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-                    Object a0 = (args != null && args.length > 0) ? args[0] : null;
-                    if (a0 == null || a0 == Context.getUndefinedValue()) return parseJson(null);
-                    return parseJson(Context.toString(a0));
-                }
-            });
-        }
+        // 8.83 原版 JSON.parse：空串/非法 JSON 抛 SyntaxError（"Empty JSON string"），不吞错。
+        // 之前宽容模式（返回空对象）导致规则 try/catch 降级失效，空对象往下传才在各处报 startsWith on undefined。
+        // 已恢复原版行为。
         // ---- 结果返回 ----
         putFunction("setResult", args -> {
             beginResult();

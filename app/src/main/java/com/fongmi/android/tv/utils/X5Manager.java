@@ -254,6 +254,10 @@ public class X5Manager {
     /** 开始下载/加载 X5 内核（用户确认后调用）。 */
     public static void startDownload(Context context, final Runnable onDone) {
         try {
+            // 用户明确要 X5：先清除之前拒绝/卸载时设的 force 标记，否则新 WebView 仍走系统
+            try { QbSdk.unForceSysWebView(); } catch (Throwable ignored) {}
+            setDeclined(context.getApplicationContext(), false);
+            lastProgress = 0;
             QbSdk.initX5Environment(context.getApplicationContext(), new QbSdk.PreInitCallback() {
                 @Override
                 public void onViewInitFinished(boolean isX5Core) {

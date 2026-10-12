@@ -95,12 +95,16 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.fongmi.android.tv.ui.fragment.HkContentFragment;
+import com.fongmi.android.tv.ui.fragment.HkDetailFragment;
+import com.fongmi.android.tv.ui.fragment.HkPageHost;
+import com.fongmi.android.tv.ui.fragment.HkSearchFragment;
 
 /**
  * 海阔小程序单页（M3）：V1 规则列表 / V2 分类+列表 / V3 搜索结果 / V4 详情，三视图栈式切换。
  * 点条目 → V4 海阔详情（标题/封面/简介/线路/选集）；点选集 → VideoActivity 直接播放。
  */
-public class HkPageActivity extends BaseActivity {
+public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     private static final int V_RULES = 0;
     private static final int V_CONTENT = 1;
@@ -137,6 +141,10 @@ public class HkPageActivity extends BaseActivity {
 
     private ActivityHkBinding binding;
     private final Deque<Integer> stack = new ArrayDeque<>();
+    /** 内页 Fragments（8.83 架构，V_RULES 不动） */
+    private HkContentFragment contentFragment;
+    private HkSearchFragment searchFragment;
+    private HkDetailFragment detailFragment;
 
     private RuleAdapter ruleAdapter;
     private GridLayoutManager ruleGrid;
@@ -402,10 +410,160 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void showView(int v) {
+        // V_RULES（首页）保持原样，一行不动
         binding.viewRules.setVisibility(v == V_RULES ? View.VISIBLE : View.GONE);
-        binding.viewContent.setVisibility(v == V_CONTENT ? View.VISIBLE : View.GONE);
-        binding.viewSearch.setVisibility(v == V_SEARCH ? View.VISIBLE : View.GONE);
-        binding.viewDetail.setVisibility(v == V_DETAIL ? View.VISIBLE : View.GONE);
+        // 内页改用 Fragment 架构（8.83 式，带过渡动画）
+        if (v == V_CONTENT) {
+            binding.viewContent.setVisibility(View.VISIBLE);
+            binding.viewSearch.setVisibility(View.GONE);
+            binding.viewDetail.setVisibility(View.GONE);
+            showContentFragment();
+        } else if (v == V_SEARCH) {
+            binding.viewContent.setVisibility(View.GONE);
+            binding.viewSearch.setVisibility(View.VISIBLE);
+            binding.viewDetail.setVisibility(View.GONE);
+            showSearchFragment();
+        } else if (v == V_DETAIL) {
+            binding.viewContent.setVisibility(View.GONE);
+            binding.viewSearch.setVisibility(View.GONE);
+            binding.viewDetail.setVisibility(View.VISIBLE);
+            showDetailFragment();
+        } else {
+            binding.viewContent.setVisibility(View.GONE);
+            binding.viewSearch.setVisibility(View.GONE);
+            binding.viewDetail.setVisibility(View.GONE);
+        }
+    }
+
+    /** 显示内容页 Fragment（带淡入动画，网页级顺滑） */
+    private void showContentFragment() {
+        if (contentFragment == null) {
+            contentFragment = new HkContentFragment();
+        }
+        getSupportFragmentManager().beginTransaction()
+                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
+                        android.R.anim.fade_in, android.R.anim.fade_out)
+                .replace(R.id.view_content, contentFragment)
+                .commit();
+    }
+
+    /** 显示搜索页 Fragment */
+    private void showSearchFragment() {
+        if (searchFragment == null) {
+            searchFragment = new HkSearchFragment();
+        }
+        getSupportFragmentManager().beginTransaction()
+                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
+                        android.R.anim.fade_in, android.R.anim.fade_out)
+                .replace(R.id.view_search, searchFragment)
+                .commit();
+    }
+
+    /** 显示详情页 Fragment */
+    private void showDetailFragment() {
+        if (detailFragment == null) {
+            detailFragment = new HkDetailFragment();
+        }
+        getSupportFragmentManager().beginTransaction()
+                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
+                        android.R.anim.fade_in, android.R.anim.fade_out)
+                .replace(R.id.view_detail, detailFragment)
+                .commit();
+    }
+
+    // ================= HkPageHost 接口实现 =================
+    // Activity 作为协调者：提供共享资源（router/currentRule），导航由 showView 统一管理。
+    // 业务逻辑已移至各 Fragment，Activity 不再直接操作内页视图（V_RULES 相关代码保持原样）。
+    // 注意：Fragment 的 public API 以各 Fragment 实际定义为准（loadContent/openSearchWithKeyword/openDetail 等）。
+
+    @Override
+    public Object getHkRouter() {
+        return getRouter();
+    }
+
+    @Override
+    public com.fongmi.android.tv.api.hk.HkRule getCurrentRule() {
+        return currentRule;
+    }
+
+    @Override
+    public void hostLoadContent(boolean reset) {
+        if (contentFragment != null) {
+            contentFragment.loadContent(reset);
+        }
+    }
+
+    @Override
+    public void hostOnContentItemClick(com.fongmi.android.tv.api.hk.HkItem item) {
+        // 内容页条目点击 → 打开详情（Fragment 内部已处理 URL 分流，这里只做导航）
+        hostOpenDetail(item);
+    }
+
+    @Override
+    public void hostPlayContentDirect(com.fongmi.android.tv.api.hk.HkItem item) {
+        // 直接播放由 HkContentFragment 内部处理（条目长按/播放按钮），Activity 不再持有该逻辑
+        // 保留接口以兼容，实际走 Fragment 内部点击链
+        hostOnContentItemClick(item);
+    }
+
+    @Override
+    public void hostDoSearch(String keyword) {
+        if (searchFragment != null) {
+            searchFragment.openSearchWithKeyword(keyword);
+        }
+    }
+
+    @Override
+    public void hostDoCrossSearch(String keyword) {
+        // 跨源搜索由 HkSearchFragment 内部触发（doCrossSearch 为 private），这里走统一入口
+        if (searchFragment != null) {
+            searchFragment.openSearchWithKeyword(keyword);
+        }
+    }
+
+    @Override
+    public void hostOpenDetail(com.fongmi.android.tv.api.hk.HkItem item) {
+        // 先显示详情页 Fragment（showView 会创建并 attach），再让 Fragment 打开详情
+        showView(V_DETAIL);
+        if (detailFragment != null) {
+            // openDetail(item, fromSearch)：fromSearch=false 为普通打开
+            // Fragment 内部有 isAdded/binding 判空，未就绪时调用安全（会排队到 onViewCreated）
+            detailFragment.openDetail(item, false);
+        }
+    }
+
+    @Override
+    public void hostPlayDetailEpisode(com.fongmi.android.tv.api.hk.HkItem item, int index) {
+        // 选集播放由 HkDetailFragment 内部处理（playDetailEpisode 为 private），这里确保详情页已打开
+        // Fragment 的选集列表点击会直接走内部播放链，无需 Activity 中转
+        if (detailFragment == null || !detailFragment.isAdded()) {
+            hostOpenDetail(item);
+        }
+        // 具体的 index 播放由 Fragment 内部选集点击触发
+    }
+
+    @Override
+    public void hostNavigateBack() {
+        onBackInvoked();
+    }
+
+    @Override
+    public void hostOpenSearch(String keyword) {
+        showView(V_SEARCH);
+        // 空 keyword 时只导航，不重置搜索模式（按 Fragment 约定：showSearchChooser 的"搜内容"分支依赖此约定）
+        if (keyword != null && !keyword.isEmpty() && searchFragment != null) {
+            searchFragment.openSearchWithKeyword(keyword);
+        }
+    }
+
+    @Override
+    public void hostShowLoading() {
+        showHkLoading();
+    }
+
+    @Override
+    public void hostHideLoading() {
+        hideHkLoading();
     }
 
     private void pushView(int v) {

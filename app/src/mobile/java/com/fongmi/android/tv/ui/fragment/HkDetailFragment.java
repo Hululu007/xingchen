@@ -4,10 +4,12 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Outline;
 import android.graphics.Rect;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.Html;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -486,7 +488,7 @@ public class HkDetailFragment extends Fragment {
                 String hkErr = router().getEngine().getError();
                 HkRule rule = hostRule();
                 String ruleTitle = rule == null ? "" : rule.getTitle();
-                HkErrorUtil.showErrorMsg(requireContext(), "规则执行过程中出现错误", ruleTitle, hkErr, null);
+                HkErrorUtil.showErrorMsg(requireActivity(), "规则执行过程中出现错误", ruleTitle, hkErr, null);
                 binding.tvDetailEmpty.setText("加载失败，点我重试");
             } catch (Throwable ignored) {
                 binding.tvDetailEmpty.setText("加载失败，点我重试");
@@ -1163,6 +1165,107 @@ public class HkDetailFragment extends Fragment {
             }
         }
 
+        /**
+         * colType → T_* 常量映射。对照 8.83 ArticleColTypeEnum.getItemTypeByCode
+         * 及 HkPageActivity.contentTypeOf（原版逻辑），不可 stub。
+         */
+        private int contentTypeOf(HkItem it) {
+            String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
+            switch (ct) {
+                case "text_1":
+                    return T_TEXT_1;
+                case "text_center_1":
+                    return T_TEXT_CENTER_1;
+                case "long_text":
+                    return T_LONG_TEXT;
+                case "detail_header":
+                    return T_DETAIL_HEADER;
+                case "header":
+                    return T_HEADER_TABS;
+                case "footer":
+                    return T_FOOTER;
+                case "text_icon":
+                    return T_TEXT_ICON;
+                case "rich_text":
+                    return T_RICH;
+                case "text_2":
+                    return T_CHANNEL;
+                case "text_3":
+                    return T_TEXT_3;
+                case "text_4":
+                    return T_TEXT_4;
+                case "text_5":
+                    return T_TEXT_5;
+                case "avatar":
+                    return T_AVATAR;
+                case "input":
+                    return T_INPUT;
+                case "line":
+                case "line_blank":
+                    return T_LINE;
+                case "x5_webview_single":
+                case "video":
+                    return T_WEB;
+                case "scroll_button":
+                    return T_SCROLL_BUTTON;
+                case "flex_button":
+                    return T_FLEX_BUTTON;
+                case "card_pic_1":
+                    return T_CARD_PIC_1;
+                case "card_pic_2":
+                    return T_CARD_PIC_2;
+                case "card_pic_2_2":
+                    return T_CARD_PIC_2_2;
+                case "card_pic_2_2_left":
+                    return T_CARD_PIC_2_2_LEFT;
+                case "card_pic_3":
+                    return T_CARD_PIC_3;
+                case "card_pic_3_center":
+                    return T_CARD_PIC_3_CENTER;
+                case "":
+                case "movie_3":
+                    return T_TOOLS;
+                case "movie_1":
+                    return T_MOVIE;
+                case "movie_1_left_pic":
+                    return T_MOVIE_LEFT_PIC;
+                case "movie_1_vertical_pic":
+                    return T_MOVIE_VERTICAL;
+                case "movie_1_vertical_pic_blur":
+                    return T_MOVIE_VERTICAL_BLUR;
+                case "movie_3_marquee":
+                    return T_TOOLS;
+                case "movie_2":
+                    return T_VIDEO;
+                default:
+                    if (ct.startsWith("icon")) {
+                        if ("icon_3_fill".equals(ct) || "icon_3_round_fill".equals(ct)) return T_ICON_FILL;
+                        if ("icon_2_round".equals(ct)) return T_ICON_2_ROUND;
+                        if ("icon_2".equals(ct)) return T_ICON_2;
+                        if ("icon_4_card".equals(ct)) return T_ICON_4_CARD;
+                        if ("icon_small_3".equals(ct)) return T_ICON_3_SMALL;
+                        if ("icon_1_search".equals(ct)) return T_ICON_1_SEARCH;
+                        if ("icon_1_left_pic".equals(ct)) return T_ICON_1_LEFT_PIC;
+                        if ("icon_round_4".equals(ct)) return T_ICON_ROUND;
+                        if ("icon_round_small_4".equals(ct)) return T_ICON_ROUND_SMALL;
+                        if ("icon_small_4".equals(ct)) return T_ICON_4_SMALL;
+                        if ("icon_5".equals(ct) || "icon_5_no_crop".equals(ct)) return T_ICON_FIVE;
+                        return T_ICON;
+                    }
+                    if ("pic_1".equals(ct)) return T_PIC_1;
+                    if ("pic_1_card".equals(ct)) return T_PIC_1_CARD;
+                    if ("pic_1_center".equals(ct)) return T_PIC_1_CENTER;
+                    if ("pic_1_full".equals(ct)) return T_PIC_1_FULL;
+                    if ("pic_2".equals(ct)) return T_PIC_2;
+                    if ("pic_2_card".equals(ct)) return T_PIC_2_CARD;
+                    if ("pic_3".equals(ct)) return T_PIC_3;
+                    if ("pic_3_square".equals(ct)) return T_PIC_3_SQUARE;
+                    if (ct.startsWith("pic")) return T_PIC_1;
+                    if (ct.startsWith("movie")) return T_VIDEO;
+                    return T_VIDEO;
+            }
+        }
+
         @Override
         public int getItemViewType(int position) {
             if (position < 0 || position >= items.size()) return T_VIDEO;
@@ -1767,7 +1870,6 @@ public class HkDetailFragment extends Fragment {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 // 8.83 选中态：rule.url 含 tabUrl 且 firstHeader == desc → tab_item_selected
                 boolean selected = !tabUrl.isEmpty() && ruleUrl.contains(tabUrl) && firstHeader.equals(desc);
-                if (isTabSelected(names[i])) selected = true;
                 tv.setTextColor(selected ? 0xFFE8590C : 0xFF1A1D24);
                 try {
                     tv.setBackgroundResource(selected ? R.drawable.tab_item_selected : R.drawable.tab_item_default);
@@ -1805,6 +1907,27 @@ public class HkDetailFragment extends Fragment {
             h.itemView.setOnClickListener(null);
             h.itemView.setClickable(false);
             h.itemView.setFocusable(false);
+        }
+
+        /**
+         * "请选择分类"弹窗。对照 8.83（HkPageActivity.showCategoryPopup），
+         * 用普通 AlertDialog 列表实现，点击后回调 onPick。
+         */
+        private void showCategoryPopup(java.util.List<String[]> pairs, int selected,
+                                       java.util.function.Consumer<String> onPick) {
+            android.content.Context ctx = requireContext();
+            String[] names = new String[pairs.size()];
+            for (int i = 0; i < pairs.size(); i++) {
+                names[i] = pairs.get(i)[0];
+            }
+            new AlertDialog.Builder(ctx)
+                    .setTitle("请选择分类")
+                    .setItems(names, (d, which) -> {
+                        if (which >= 0 && which < pairs.size()) {
+                            onPick.accept(pairs.get(which)[1]);
+                        }
+                    })
+                    .show();
         }
 
         /** header tab 点击：8.83 onClassClick 等价 → evalTab 求值分类变量后重刷列表。 */

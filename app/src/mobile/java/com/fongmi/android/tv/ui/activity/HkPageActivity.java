@@ -561,7 +561,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     public void hostShowLoading() {
-        showHkLoading();
+        showHkLoading("");
     }
 
     @Override

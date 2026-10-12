@@ -83,11 +83,11 @@ public class XingChenSettingsActivity extends BaseActivity {
     }
 
     private void updateX5Sub() {
-        int status = X5Manager.getStatus();
+        int status = X5Manager.getStatus(this);
         if (status == X5Manager.STATUS_DOWNLOADED) {
-            binding.tvX5Sub.setText("已下载" + X5Manager.getCoreSizeText());
+            binding.tvX5Sub.setText("已下载");
         } else if (status == X5Manager.STATUS_DOWNLOADING) {
-            binding.tvX5Sub.setText("下载中" + X5Manager.getLastProgress() + "%");
+            binding.tvX5Sub.setText("下载中" + Math.max(0, X5Manager.getLastProgress()) + "%");
         } else {
             binding.tvX5Sub.setText("未下载");
         }

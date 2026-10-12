@@ -7,7 +7,7 @@ import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.load.model.ModelLoader;
 import com.bumptech.glide.load.model.ModelLoaderFactory;
 import com.bumptech.glide.load.model.MultiModelLoaderFactory;
-import com.bumptech.glide.signature.Key;
+import com.bumptech.glide.load.Key;
 import com.bumptech.glide.signature.ObjectKey;
 
 import java.io.InputStream;

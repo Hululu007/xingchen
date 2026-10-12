@@ -204,13 +204,21 @@
                     android:textSize="16sp"
                     android:textStyle="bold" />
                 <TextView
-                    android:id="@+id/tv_x5_sub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
+                    android:text="腾讯浏览服务，H5 渲染加速"
                     android:textColor="#101216"
                     android:textSize="12sp" />
             </LinearLayout>
+            <TextView
+                android:id="@+id/tv_x5_sub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="未下载"
+                android:textColor="#1B2431"
+                android:textSize="13sp" />
             <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_chev_v2" />
         </LinearLayout>
         <LinearLayout

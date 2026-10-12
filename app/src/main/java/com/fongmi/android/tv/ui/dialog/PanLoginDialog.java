@@ -9,8 +9,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.webkit.CookieManager;
-import android.webkit.WebChromeClient;
+import com.tencent.smtt.sdk.CookieManager;
+import com.tencent.smtt.sdk.WebChromeClient;
 import com.tencent.smtt.sdk.WebView;
 import com.tencent.smtt.sdk.WebViewClient;
 
@@ -259,13 +259,13 @@ public class PanLoginDialog extends BaseAlertDialog {
 
     private static class WebSettingsHolder {
         static void apply(WebView webView) {
-            android.webkit.WebSettings s = webView.getSettings();
+            com.tencent.smtt.sdk.WebSettings s = webView.getSettings();
             s.setUseWideViewPort(true);
             s.setLoadWithOverviewMode(true);
             s.setSupportZoom(true);
             s.setBuiltInZoomControls(true);
             s.setDisplayZoomControls(false);
-            s.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
+            s.setCacheMode(com.tencent.smtt.sdk.WebSettings.LOAD_DEFAULT);
         }
     }
 }

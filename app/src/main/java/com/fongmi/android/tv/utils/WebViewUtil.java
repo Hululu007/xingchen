@@ -62,6 +62,22 @@ public class WebViewUtil {
         logSettings(webView, role);
     }
 
+    /** X5 版：给 com.tencent.smtt.sdk.WebView 用的同名配置（API 与系统 WebView 对齐）。 */
+    public static void configureBase(com.tencent.smtt.sdk.WebView webView, String role) {
+        if (webView == null) return;
+        try {
+            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
+            com.tencent.smtt.sdk.WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setMixedContentMode(com.tencent.smtt.sdk.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        } catch (Throwable e) {
+            android.util.Log.w("WebViewUtil", "configureBase(x5) failed: " + e.getMessage());
+        }
+    }
+
     public static void configureHome(WebView webView) {
         configureBase(webView, "webhome");
         WebSettings settings = webView.getSettings();

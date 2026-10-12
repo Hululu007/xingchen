@@ -371,7 +371,7 @@ public class Proxy115 extends NanoHTTPD {
     }
 
     private static class FetchResult {
-        NanoHTTPD.Response response;
+        okhttp3.Response response;
         int code;
     }
 

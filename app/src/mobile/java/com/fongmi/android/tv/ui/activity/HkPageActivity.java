@@ -251,6 +251,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // X5：首次进小程序提示下载内核（8.83模式，用户手动确认）
+        try { com.fongmi.android.tv.utils.X5Manager.promptDownloadIfNeeded(this); } catch (Throwable ignored) {}
         initRulesView();
         initContentView();
         initSearchView();
@@ -5526,10 +5528,10 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     /** WebView 弹窗（@x5Rule= 与 x5_webview_single 共用）。 */
     private void showWebViewDialog(String url) {
         try {
-            android.webkit.WebView wv = new android.webkit.WebView(this);
+            com.tencent.smtt.sdk.WebView wv = new com.tencent.smtt.sdk.WebView(this);
             wv.getSettings().setJavaScriptEnabled(true);
             wv.getSettings().setDomStorageEnabled(true);
-            wv.setWebViewClient(new android.webkit.WebViewClient());
+            wv.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
             wv.loadUrl(url);
             new AlertDialog.Builder(this)
                     .setView(wv)
@@ -5778,7 +5780,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             TextView title, desc, overlay;
             LinearLayout cols;
             EditText input;
-            android.webkit.WebView web;
+            com.tencent.smtt.sdk.WebView web;
             // 8.83 第一批补齐新增：
             android.widget.HorizontalScrollView hsvButtons; // T_SCROLL_BUTTON
             LinearLayout llButtons;                          // T_SCROLL_BUTTON
@@ -5908,7 +5910,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         web = v.findViewById(R.id.wv_page);
                         web.getSettings().setJavaScriptEnabled(true);
                         web.getSettings().setDomStorageEnabled(true);
-                        web.setWebViewClient(new android.webkit.WebViewClient());
+                        web.setWebViewClient(new com.tencent.smtt.sdk.WebViewClient());
                         break;
                     case T_DETAIL_HEADER:
                         // 8.83 原版详情页头部（item_movie_one_col）：标题左 + 封面右

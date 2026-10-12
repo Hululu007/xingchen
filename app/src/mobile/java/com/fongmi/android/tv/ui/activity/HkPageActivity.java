@@ -481,7 +481,11 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     public Object getHkRouter() {
-        return getRouter();
+        try {
+            return getRouter();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override

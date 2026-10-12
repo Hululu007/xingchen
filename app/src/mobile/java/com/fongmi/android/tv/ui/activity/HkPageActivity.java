@@ -4876,40 +4876,6 @@ public class HkPageActivity extends BaseActivity {
                 }).start();
                 return true;
             }
-
-    /**
-     * 规则自绘"加载更多"按钮的就地更新（8.83 addItemBefore/deleteItemByCls 同款语义）：
-     * 把 JS 追加的新条目（按 url+title 去重）插到被点按钮之前，按钮保留以便继续翻页。
-     */
-    private void mergeActionItems(HkItem button, List<HkItem> after) {
-        if (after == null || after.isEmpty() || contentAdapter == null) return;
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (HkItem v : videos) seen.add(itemKey(v));
-        List<HkItem> delta = new ArrayList<>();
-        for (HkItem it : after) {
-            if (seen.add(itemKey(it))) delta.add(it);
-        }
-        if (delta.isEmpty()) return;
-        int at = -1;
-        if (button != null) {
-            String bk = itemKey(button);
-            for (int i = 0; i < videos.size(); i++) {
-                if (bk.equals(itemKey(videos.get(i)))) { at = i; break; }
-            }
-        }
-        if (at < 0) videos.addAll(delta);
-        else videos.addAll(at, delta);
-        contentAdapter.refreshGroups();
-        contentAdapter.notifyDataSetChanged();
-        updateFooter();
-    }
-
-    private static String itemKey(HkItem it) {
-        if (it == null) return "";
-        String u = it.getUrl() == null ? "" : it.getUrl();
-        String t = it.getTitle() == null ? "" : it.getTitle();
-        return u + "‖" + t;
-    }
             // 压栈保存父列表状态
             SubListState st = new SubListState();
             st.rule = currentRule;
@@ -4957,6 +4923,40 @@ public class HkPageActivity extends BaseActivity {
         } catch (Throwable e) {
             return false;
         }
+    }
+
+    /**
+     * 规则自绘"加载更多"按钮的就地更新（8.83 addItemBefore/deleteItemByCls 同款语义）：
+     * 把 JS 追加的新条目（按 url+title 去重）插到被点按钮之前，按钮保留以便继续翻页。
+     */
+    private void mergeActionItems(HkItem button, List<HkItem> after) {
+        if (after == null || after.isEmpty() || contentAdapter == null) return;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (HkItem v : videos) seen.add(itemKey(v));
+        List<HkItem> delta = new ArrayList<>();
+        for (HkItem it : after) {
+            if (seen.add(itemKey(it))) delta.add(it);
+        }
+        if (delta.isEmpty()) return;
+        int at = -1;
+        if (button != null) {
+            String bk = itemKey(button);
+            for (int i = 0; i < videos.size(); i++) {
+                if (bk.equals(itemKey(videos.get(i)))) { at = i; break; }
+            }
+        }
+        if (at < 0) videos.addAll(delta);
+        else videos.addAll(at, delta);
+        contentAdapter.refreshGroups();
+        contentAdapter.notifyDataSetChanged();
+        updateFooter();
+    }
+
+    private static String itemKey(HkItem it) {
+        if (it == null) return "";
+        String u = it.getUrl() == null ? "" : it.getUrl();
+        String t = it.getTitle() == null ? "" : it.getTitle();
+        return u + "‖" + t;
     }
 
     /** 子列表返回：恢复父列表状态；若从非列表视图进入则回到原视图。 */

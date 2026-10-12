@@ -203,13 +203,13 @@ public class Proxy115 extends NanoHTTPD {
     }
 
     @Override
-    public Response serve(IHTTPSession session) {
+    public NanoHTTPD.Response serve(IHTTPSession session) {
         String uri = session.getUri();
         Map<String, String> params = session.getParms();
 
         // 只处理 /v 路径
         if (!"/v".equals(uri)) {
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, "text/plain", "not found");
         }
 
         String token = params.get("t");
@@ -217,12 +217,12 @@ public class Proxy115 extends NanoHTTPD {
         Map<String, String> meta = ctx.get(token);
         if (TextUtils.isEmpty(enc) || meta == null) {
             Log.d(TAG, "播放器来连，但 token 已失效");
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "token expired");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, "text/plain", "token expired");
         }
 
         String target = b64d(enc);
         if (TextUtils.isEmpty(target)) {
-            return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "bad url");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_REQUEST, "text/plain", "bad url");
         }
 
         // targets 里有更新的直链就用新的（403 重铸后写回）
@@ -287,7 +287,7 @@ public class Proxy115 extends NanoHTTPD {
         }
 
         if (result.response == null) {
-            return newFixedLengthResponse(Response.Status.BAD_GATEWAY, "text/plain", "upstream error");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "upstream error");
         }
 
         Response resp = result.response;
@@ -310,14 +310,14 @@ public class Proxy115 extends NanoHTTPD {
                     text = rewritePlaylist(text, target, token, getListeningPort());
                 }
                 byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-                Response r = newFixedLengthResponse(Response.Status.OK,
+                Response r = newFixedLengthResponse(NanoHTTPD.Response.Status.OK,
                         "application/vnd.apple.mpegurl",
                         new java.io.ByteArrayInputStream(bytes), bytes.length);
                 r.addHeader("Access-Control-Allow-Origin", "*");
                 return r;
             } catch (Exception e) {
                 Log.e(TAG, "m3u8 处理失败", e);
-                return newFixedLengthResponse(Response.Status.BAD_GATEWAY, "text/plain", "read error");
+                return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "read error");
             }
         }
 
@@ -328,7 +328,7 @@ public class Proxy115 extends NanoHTTPD {
             final InputStream in = body != null ? body.byteStream() : null;
             if (in == null) {
                 resp.close();
-                return newFixedLengthResponse(Response.Status.BAD_GATEWAY, "text/plain", "empty body");
+                return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "empty body");
             }
 
             String contentType = resp.header("Content-Type", "application/octet-stream");
@@ -339,14 +339,14 @@ public class Proxy115 extends NanoHTTPD {
             } catch (Exception ignored) {
             }
 
-            Response r;
+            NanoHTTPD.Response r;
             if (contentLength >= 0) {
                 r = newFixedLengthResponse(
-                        result.code == 206 ? Response.Status.PARTIAL_CONTENT : Response.Status.OK,
+                        result.code == 206 ? NanoHTTPD.Response.Status.PARTIAL_CONTENT : NanoHTTPD.Response.Status.OK,
                         contentType, in, contentLength);
             } else {
                 r = newChunkedResponse(
-                        result.code == 206 ? Response.Status.PARTIAL_CONTENT : Response.Status.OK,
+                        result.code == 206 ? NanoHTTPD.Response.Status.PARTIAL_CONTENT : NanoHTTPD.Response.Status.OK,
                         contentType, in);
             }
 
@@ -366,12 +366,12 @@ public class Proxy115 extends NanoHTTPD {
                 resp.close();
             } catch (Exception ignored) {
             }
-            return newFixedLengthResponse(Response.Status.BAD_GATEWAY, "text/plain", "stream error");
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_GATEWAY, "text/plain", "stream error");
         }
     }
 
     private static class FetchResult {
-        Response response;
+        NanoHTTPD.Response response;
         int code;
     }
 

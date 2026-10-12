@@ -11,4 +11,11 @@
         <attr name="android:minHeight" />
         <attr name="maxHeight" />
     </declare-styleable>
+
+    <!-- 8.83 AdaptiveTextView 原样移植 -->
+    <declare-styleable name="HkAdaptiveTextView">
+        <attr name="operateType" format="integer" />
+        <attr name="lineSpaceLowerLimit" format="dimension" />
+        <attr name="maxLineNumLowerLimit" format="integer" />
+    </declare-styleable>
 </resources>

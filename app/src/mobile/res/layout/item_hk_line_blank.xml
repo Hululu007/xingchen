@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 8.83 item_line_blank_col.xml：空白分隔块（line_blank 用） -->
+<TextView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/result_bg"
+    android:background="#fff2f2f2"
+    android:layout_width="match_parent"
+    android:layout_height="12dp" />

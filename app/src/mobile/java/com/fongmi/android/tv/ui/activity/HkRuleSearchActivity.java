@@ -33,11 +33,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** 独立规则搜索页：搜已安装小程序（对齐 8.83 ArticleListRuleSearchActivity）。 */
+/**
+ * 独立规则搜索页：搜已安装小程序。
+ * 对齐 8.83 ArticleListRuleSearchActivity：
+ * - 搜索分两轮：第一轮标题(忽略大小写)/作者；第二轮 URL/各类规则正文
+ * - 空关键词显示全部规则
+ * - 历史只存关键词
+ */
 public class HkRuleSearchActivity extends BaseActivity {
 
     private static final String PREFS = "xingchen";
     private static final String KEY_HIST = "hk_rule_search_history";
+
+    public static void start(Context context) {
+        context.startActivity(new Intent(context, HkRuleSearchActivity.class));
+    }
 
     private ActivityHkRuleSearchBinding binding;
     private final List<HkRule> allRules = new ArrayList<>();
@@ -63,6 +73,7 @@ public class HkRuleSearchActivity extends BaseActivity {
         binding.rvHistory.setAdapter(histAdapter);
         binding.btnBack.setOnClickListener(v -> finish());
         binding.btnClear.setOnClickListener(v -> binding.etKeyword.setText(""));
+        // 8.83: TextWatcher 实时搜索；空关键词显示全部规则
         binding.etKeyword.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -70,12 +81,14 @@ public class HkRuleSearchActivity extends BaseActivity {
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                binding.btnClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.INVISIBLE);
-                doSearch(s.toString().trim());
             }
 
             @Override
             public void afterTextChanged(Editable s) {
+                if (s == null) return;
+                String kw = s.toString();
+                binding.btnClear.setVisibility(TextUtils.isEmpty(kw) ? View.INVISIBLE : View.VISIBLE);
+                doSearch(kw.trim());
             }
         });
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
@@ -98,24 +111,65 @@ public class HkRuleSearchActivity extends BaseActivity {
         }).start();
     }
 
-    /** 8.83：搜小程序名称、链接、规则。 */
+    /**
+     * 对齐 8.83 searchKey：
+     * 第一轮：标题(忽略大小写包含) 或 作者(包含)
+     * 第二轮：排除第一轮结果，检查 url/search_url/find_rule/searchFind/
+     *         detail_find_rule/sdetail_find_rule/preRule/pages 是否包含关键词
+     * 空关键词：显示全部规则
+     */
     private void doSearch(String kw) {
         results.clear();
-        if (!kw.isEmpty()) {
-            String k = kw.toLowerCase(Locale.getDefault());
+        if (kw.isEmpty()) {
+            // 8.83: 空关键词显示全部规则
+            results.addAll(allRules);
+        } else {
+            // 第一轮：标题 / 作者
+            String kLower = kw.toLowerCase(Locale.getDefault());
             for (HkRule r : allRules) {
-                String t = r.getTitle() == null ? "" : r.getTitle().toLowerCase(Locale.getDefault());
-                String u = r.getUrl() == null ? "" : r.getUrl().toLowerCase(Locale.getDefault());
-                if (t.contains(k) || u.contains(k)) results.add(r);
+                if (matchFirstRound(r, kw, kLower)) results.add(r);
+            }
+            // 第二轮：规则正文各字段（排除已命中）
+            for (HkRule r : allRules) {
+                if (results.contains(r)) continue;
+                if (matchSecondRound(r, kw)) results.add(r);
             }
         }
         resultAdapter.notifyDataSetChanged();
-        boolean empty = !kw.isEmpty() && results.isEmpty();
-        binding.tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
-        binding.rvResults.setVisibility(kw.isEmpty() || !results.isEmpty() ? View.VISIBLE : View.GONE);
+        boolean empty = !results.isEmpty();
+        binding.tvEmpty.setVisibility(empty ? View.GONE : View.VISIBLE);
+        binding.rvResults.setVisibility(empty ? View.VISIBLE : View.GONE);
+        // 8.83: 有关键词时不显示历史
         boolean showHist = kw.isEmpty() && !history.isEmpty();
         binding.rvHistory.setVisibility(showHist ? View.VISIBLE : View.GONE);
         binding.tvHistoryLabel.setVisibility(showHist ? View.VISIBLE : View.GONE);
+    }
+
+    /** 第一轮：标题(忽略大小写) 或 作者 */
+    private boolean matchFirstRound(HkRule r, String kw, String kLower) {
+        String title = r.getTitle();
+        if (!TextUtils.isEmpty(title)
+                && title.toLowerCase(Locale.getDefault()).contains(kLower)) {
+            return true;
+        }
+        String author = r.getAuthor();
+        return !TextUtils.isEmpty(author) && author.contains(kw);
+    }
+
+    /** 第二轮：URL 与各类规则正文字段 */
+    private boolean matchSecondRound(HkRule r, String kw) {
+        return contains(r.getUrl(), kw)
+                || contains(r.getSearchUrl(), kw)
+                || contains(r.getFindRule(), kw)
+                || contains(r.getSearchFind(), kw)
+                || contains(r.getDetailFindRule(), kw)
+                || contains(r.getSdetailFindRule(), kw)
+                || contains(r.getPreRule(), kw)
+                || contains(r.getPages(), kw);
+    }
+
+    private boolean contains(String field, String kw) {
+        return !TextUtils.isEmpty(field) && field.contains(kw);
     }
 
     private void pushHistory(String kw) {
@@ -124,6 +178,9 @@ public class HkRuleSearchActivity extends BaseActivity {
         while (history.size() > 12) history.remove(history.size() - 1);
         getPrefs().edit().putString(KEY_HIST, joinHist()).apply();
         histAdapter.notifyDataSetChanged();
+        // 8.83: 有关键词时隐藏历史区
+        binding.rvHistory.setVisibility(View.GONE);
+        binding.tvHistoryLabel.setVisibility(View.GONE);
     }
 
     private String joinHist() {
@@ -190,7 +247,7 @@ public class HkRuleSearchActivity extends BaseActivity {
             h.icon.setText(!TextUtils.isEmpty(title) ? title.substring(0, 1) : "海");
             h.icon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
             h.itemView.setOnClickListener(v -> {
-                pushHistory(title);
+                // M12: 历史只存关键词，不存标题。点击结果直接返回，不写历史。
                 Intent data = new Intent();
                 data.putExtra("title", title);
                 setResult(Activity.RESULT_OK, data);

@@ -208,6 +208,10 @@ public class HkPageActivity extends BaseActivity {
     private String keyword = "";
     private int searchPage = 1;
     private boolean searchLoading, searchNoMore;
+    /** 8.83 fileSelect://：文件选择后的 JS 回调与条目位置（对齐 ArticleListFragment.fileSelectJs/fileSelectPosition）。 */
+    private String fileSelectJs = "";
+    private int fileSelectPosition = -1;
+    private static final int REQ_FILE_SELECT = 0x2385;
     /** 跨小程序搜索代际：新搜索开始时自增，旧搜索的迟到结果直接丢弃。 */
     private final AtomicInteger crossSearchGen = new AtomicInteger(0);
     /** 搜索页：true = 小程序列表入口的整页内容搜索；false = 内容页内单规则搜索 */
@@ -419,10 +423,10 @@ public class HkPageActivity extends BaseActivity {
         ruleAdapter = new RuleAdapter();
         binding.rvRules.setAdapter(ruleAdapter);
         binding.tvTitleRule.setOnClickListener(v -> showColumnSwitchPopup());
-        // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：整页内容搜索（搜全部小程序的内容）
+        // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：选择搜内容/搜规则
         binding.btnSearchRule.setOnClickListener(v -> toggleInlineSearch());
         binding.btnSearchRule.setOnLongClickListener(v -> {
-            openContentSearch();
+            showSearchChooser();
             return true;
         });
         binding.btnSortRule.setOnClickListener(v -> {
@@ -1340,6 +1344,40 @@ public class HkPageActivity extends BaseActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        // 8.83 onActivityResult(5273)：fileSelect 文件选择结果，文件名注入 _fileSelect_<name> 后执行 JS
+        if (requestCode == REQ_FILE_SELECT) {
+            String js = fileSelectJs;
+            fileSelectJs = "";
+            if (js != null && !js.isEmpty() && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                android.net.Uri uri = data.getData();
+                String name = "";
+                try {
+                    android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
+                    if (c != null) {
+                        int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                        if (c.moveToFirst() && idx >= 0) name = c.getString(idx);
+                        c.close();
+                    }
+                } catch (Throwable ignored) {
+                }
+                if (name.isEmpty()) name = uri.getLastPathSegment();
+                final String varName = "_fileSelect_" + (name == null ? "" : name);
+                final String code = js;
+                // 把文件内容读出来注入变量（8.83 用 UriUtils 读文件，这里简化：只注入文件名变量，JS 可按需用 _fileSelect_ 取）
+                new Thread(() -> {
+                    try {
+                        HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
+                        rt.putMyVar(varName, uri.toString());
+                        rt.eval(code, "");
+                        boolean needRefresh = rt.consumeRefreshRequest();
+                        if (needRefresh) App.post(() -> loadContent(true));
+                    } catch (Throwable e) {
+                        android.util.Log.d("HkPage", "fileSelect eval failed: " + e.getMessage());
+                    }
+                }).start();
+            }
+            return;
+        }
         if (requestCode == REQ_IMPORT_FILE && resultCode == RESULT_OK && data != null) {
             List<Uri> uris = new ArrayList<>();
             ClipData clip = data.getClipData();
@@ -3701,6 +3739,20 @@ public class HkPageActivity extends BaseActivity {
         binding.etKeyword.requestFocus();
     }
 
+    /** H3: 长按搜索按钮弹出选择：搜内容 / 搜规则（已安装小程序） */
+    private void showSearchChooser() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("搜索")
+                .setItems(new String[]{"搜内容", "搜规则"}, (d, which) -> {
+                    if (which == 0) {
+                        openContentSearch();
+                    } else {
+                        HkRuleSearchActivity.start(this);
+                    }
+                })
+                .show();
+    }
+
     /**
      * 搜内容：跨小程序内容搜索。对所有启用的小程序并发调用 search(keyword, 1)，
      * 结果按小程序分组展示（来源标注在条目 desc 前缀），点击条目自动切到对应小程序再进详情。
@@ -4500,7 +4552,8 @@ public class HkPageActivity extends BaseActivity {
             case "rich_text":
                 return ContentAdapter.T_RICH;
             case "text_2":
-                return ContentAdapter.T_TEXT_2;
+                // 8.83 原版：text_2 → ChannelHolder（item_card_rect 矩形频道条目）
+                return ContentAdapter.T_CHANNEL;
             case "text_3":
                 return ContentAdapter.T_TEXT_3;
             case "text_4":
@@ -4511,6 +4564,10 @@ public class HkPageActivity extends BaseActivity {
                 return ContentAdapter.T_AVATAR;
             case "input":
                 return ContentAdapter.T_INPUT;
+            case "line":
+            case "line_blank":
+                // 8.83 原版：line/line_blank → LineHolder（分隔线/空白块）
+                return ContentAdapter.T_LINE;
             case "x5_webview_single":
                 return ContentAdapter.T_WEB;
             case "video":
@@ -4518,9 +4575,11 @@ public class HkPageActivity extends BaseActivity {
                 // 星辰无 X5，用系统 WebView 的 T_WEB 复用 bindWeb
                 return ContentAdapter.T_WEB;
             case "scroll_button":
+                // 8.83 原版：scroll_button → ScrollButtonHolder（横向滚动按钮组）
+                return ContentAdapter.T_SCROLL_BUTTON;
             case "flex_button":
-                // 8.83 原版：连续同类型条目由 updatePolyList 自动合并，首个渲染整组
-                return ContentAdapter.T_BUTTONS;
+                // 8.83 原版：flex_button → FlexButtonHolder（流式按钮组）
+                return ContentAdapter.T_FLEX_BUTTON;
             case "card_pic_1":
                 return ContentAdapter.T_CARD_PIC_1;
             case "card_pic_2":
@@ -4535,7 +4594,8 @@ public class HkPageActivity extends BaseActivity {
                 return ContentAdapter.T_CARD_PIC_3_CENTER;
             case "":
             case "movie_3":
-                return ContentAdapter.T_VIDEO;
+                // 8.83 原版：movie_3 → ToolsHolder（item_movie_tools 影片工具卡片）
+                return ContentAdapter.T_TOOLS;
             case "movie_1":
                 // 8.83 item_movie_one_col：文字左 + 封面右（130×90dp），T_MOVIE 专用
                 return ContentAdapter.T_MOVIE;
@@ -4549,8 +4609,8 @@ public class HkPageActivity extends BaseActivity {
                 // 官方 movie_1_vertical_pic_blur span=60 毛玻璃背景 + 竖海报（D3）
                 return ContentAdapter.T_MOVIE_VERTICAL_BLUR;
             case "movie_3_marquee":
-                // 官方 movie_3_marquee span=20 三列，标题跑马灯（bindVideo 里按 col_type 开 marquee）
-                return ContentAdapter.T_VIDEO;
+                // 8.83 原版：movie_3_marquee → ToolsHolder（item_movie_tools_marquee，标题跑马灯）
+                return ContentAdapter.T_TOOLS;
             case "movie_2":
                 // 官方 movie_2 span=30 两列（走 T_VIDEO，spanFor 按 col_type 给 30）
                 return ContentAdapter.T_VIDEO;
@@ -4567,8 +4627,11 @@ public class HkPageActivity extends BaseActivity {
                     if ("icon_1_left_pic".equals(ct)) return ContentAdapter.T_ICON_1_LEFT_PIC;
                     if ("icon_round_4".equals(ct)) return ContentAdapter.T_ICON_ROUND;
                     if ("icon_round_small_4".equals(ct)) return ContentAdapter.T_ICON_ROUND_SMALL;
-                    if ("icon_small_4".equals(ct) || "icon_5".equals(ct) || "icon_5_no_crop".equals(ct))
+                    if ("icon_small_4".equals(ct))
                         return ContentAdapter.T_ICON_4_SMALL;
+                    // 8.83 原版：icon_5/icon_5_no_crop → IconFiveHolder（五列图标）
+                    if ("icon_5".equals(ct) || "icon_5_no_crop".equals(ct))
+                        return ContentAdapter.T_ICON_FIVE;
                     return ContentAdapter.T_ICON; // icon_4
                 }
                 // 8.83 原版：pic_* 各子类型独立 viewType
@@ -4611,6 +4674,20 @@ public class HkPageActivity extends BaseActivity {
             }
         }
         if (handleActionUrl(url, it)) return;
+        // 8.83 clickItem(2948)：fileSelect://<js> 打开文件选择器，选完后把文件名注入 _fileSelect_<name> 并执行 JS
+        if (url.startsWith("fileSelect://")) {
+            fileSelectJs = url.substring("fileSelect://".length());
+            fileSelectPosition = items.indexOf(it);
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+            intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try {
+                startActivityForResult(android.content.Intent.createChooser(intent, "选择文件"), REQ_FILE_SELECT);
+            } catch (Throwable t) {
+                android.widget.Toast.makeText(this, "无法打开文件选择器", android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         // P1：hiker://page/ 子页面走 openPage（官方 toNextPage），不进 V4
         if (url.startsWith("hiker://page/") && openPage(it, url)) return;
         // 官方 clickItem 顺序：@rule= 前段里的 @lazyRule= 优先（dealLazyRule），再是 @rule=（dealRule 子列表）
@@ -4621,6 +4698,12 @@ public class HkPageActivity extends BaseActivity {
         if (ar >= 0 && !hasLazy && openSubList(it, url)) return;
         // 8.83 原版 dealWithUrl：详情页内可播 URL 直接播放，不套娃进详情
         if (!stack.isEmpty() && stack.peek() == V_DETAIL) {
+            // 8.83 H2：@lazyRule= 优先走 lazy 解析（dealLazyRule），绝不进 webview；
+            // dealKind 会把含 @lazyRule= 的 http URL 误判为 "web"。
+            if (hasLazy) {
+                playDetailEpisode(it, url);
+                return;
+            }
             String kind = HkRouter.dealKind(url);
             if ("video".equals(kind)) {
                 playDetailEpisode(it, url);
@@ -4631,7 +4714,69 @@ public class HkPageActivity extends BaseActivity {
                 return;
             }
         }
+        // M9: 8.83 clickItem 3040-3043 - 仅当规则配置了 detail_find_rule 且 URL 非 video:// 开头，
+        // 才进详情页；无 detail_find_rule 的规则，点可播 URL 直接进播放器，不进详情页（省一次点击）。
+        // @lazyRule= 走 openDetail 的 lazyPrecheck（后台求值后直达播放，不推 V4），保持原样。
+        if (!hasLazy) {
+            String dfr = currentRule.getDetailFindRule();
+            boolean hasDetailRule = dfr != null && !dfr.trim().isEmpty();
+            if (!hasDetailRule || url.startsWith("video://")) {
+                if (HkRouter.isVideoOrMusicUrl(url)) {
+                    playContentDirect(it, url);
+                    return;
+                }
+                String dk = HkRouter.dealKind(url);
+                if (!dk.isEmpty()) {
+                    if ("video".equals(dk)) {
+                        playContentDirect(it, url);
+                    } else {
+                        handleDealUrl(dk, url, it);
+                    }
+                    return;
+                }
+            }
+        }
         openDetail(it, true, hasLazy);
+    }
+
+    /**
+     * M9: 内容页直接播放（无 detail_find_rule 的规则，可播 URL 不进 V4 详情页）。
+     * 对齐 8.83 PlayerChooser.startPlayer：解析播放地址后直达播放器，选集列表仅含当前条目。
+     */
+    private void playContentDirect(HkItem it, String url) {
+        new Thread(() -> {
+            String playUrl = url;
+            try {
+                if (url.contains("@lazyRule=") || url.contains("@rule=") || url.startsWith("js:")) {
+                    HkPlay play = getRouter().play(url);
+                    if (!play.getUrl().isEmpty()) playUrl = play.getUrl();
+                }
+            } catch (Throwable ignored) {
+            }
+            final String pu = playUrl;
+            App.post(() -> {
+                if (TextUtils.isEmpty(pu)) {
+                    android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try {
+                    org.json.JSONArray arr = new org.json.JSONArray();
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("name", stripHtml(it.getTitle()));
+                    o.put("url", url);
+                    o.put("pic", it.getPic() == null ? "" : it.getPic());
+                    arr.put(o);
+                    String lineName = it.getLine() == null || it.getLine().isEmpty() ? "默认" : it.getLine();
+                    VideoActivity.startHkPlay(HkPageActivity.this,
+                            currentRule == null ? "" : currentRule.getTitle(), lineName,
+                            pu, it.getTitle(), it.getTitle(),
+                            it.getPic() == null ? "" : it.getPic(),
+                            arr.toString(), 0);
+                } catch (Throwable ignored) {
+                }
+            });
+        }).start();
     }
 
     /** 子列表状态（@rule= 进子列表时压栈，返回时恢复）。 */
@@ -5295,6 +5440,15 @@ public class HkPageActivity extends BaseActivity {
         static final int T_PIC_3_SQUARE = 50;
         static final int T_DETAIL_HEADER = 51; // 8.83 原版详情页头部：movie_one_col（标题左+封面右）
         static final int T_HEADER_TABS = 52; // 8.83 bindForHeaderHolder：规则 header 条目横向分类 tab（title/url 按 & 切分）
+        // 8.83 第一批补齐（对照 ArticleListAdapter 46 种 ViewHolder）：
+        static final int T_NOPIC = 53;        // movie_one_col_nopic：无图影片条目（text_1 用）
+        static final int T_NOPIC_CENTER = 54; // movie_one_col_nopic_center：无图居中（text_center_1 用）
+        static final int T_LINE = 55;         // line/line_blank：分隔线/空白块（LineHolder）
+        static final int T_SCROLL_BUTTON = 56; // scroll_button：横向滚动按钮组（ScrollButtonHolder）
+        static final int T_FLEX_BUTTON = 57;   // flex_button：流式按钮组（FlexButtonHolder）
+        static final int T_CHANNEL = 58;       // text_2：矩形频道条目（ChannelHolder，item_card_rect）
+        static final int T_TOOLS = 59;         // movie_3/movie_3_marquee：影片工具卡片（ToolsHolder）
+        static final int T_ICON_FIVE = 60;     // icon_5/icon_5_no_crop：五列图标（IconFiveHolder）
 
         private final List<HkItem> source;
         /** 展示列表（与 source 同一引用；8.83 原版 getItemCount 直接返回 list.size()，不做快照）。 */
@@ -5444,6 +5598,17 @@ public class HkPageActivity extends BaseActivity {
                     return 20; // pic_3 系列 3/行
                 case T_DETAIL_HEADER:
                     return 60; // 详情页头部全宽
+                case T_NOPIC:
+                case T_NOPIC_CENTER:
+                case T_LINE:
+                case T_SCROLL_BUTTON:
+                case T_FLEX_BUTTON:
+                case T_CHANNEL:
+                    return 60; // 全宽
+                case T_TOOLS:
+                    return 20; // movie_3：3/行（官方 spanCount=20）
+                case T_ICON_FIVE:
+                    return 12; // icon_5：5/行（官方 spanCount=12）
                 default:
                     return 60;
             }
@@ -5455,6 +5620,11 @@ public class HkPageActivity extends BaseActivity {
             LinearLayout cols;
             EditText input;
             android.webkit.WebView web;
+            // 8.83 第一批补齐新增：
+            android.widget.HorizontalScrollView hsvButtons; // T_SCROLL_BUTTON
+            LinearLayout llButtons;                          // T_SCROLL_BUTTON
+            TextView tvExpand;                               // T_SCROLL_BUTTON
+            com.google.android.flexbox.FlexboxLayout flexbox; // T_FLEX_BUTTON
 
             Holder(View v, int type) {
                 super(v);
@@ -5586,6 +5756,40 @@ public class HkPageActivity extends BaseActivity {
                         cover = v.findViewById(R.id.dh_cover);
                         title = v.findViewById(R.id.dh_title);
                         desc = v.findViewById(R.id.dh_desc);
+                        break;
+                    case T_NOPIC:
+                    case T_NOPIC_CENTER:
+                        // 8.83 item_movie_one_col_nopic(_center)：无图影片条目
+                        title = v.findViewById(R.id.tv_title);
+                        desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_LINE:
+                        // 8.83 LineHolder：分隔线/空白块，无需绑定子 view
+                        break;
+                    case T_SCROLL_BUTTON:
+                        // 8.83 ScrollButtonHolder：横向滚动按钮组
+                        hsvButtons = v.findViewById(R.id.hsv_buttons);
+                        llButtons = v.findViewById(R.id.ll_buttons);
+                        tvExpand = v.findViewById(R.id.tv_expand);
+                        break;
+                    case T_FLEX_BUTTON:
+                        // 8.83 FlexButtonHolder：流式按钮组
+                        flexbox = v.findViewById(R.id.flexboxLayout);
+                        break;
+                    case T_CHANNEL:
+                        // 8.83 ChannelHolder（item_card_rect）：矩形频道条目
+                        title = v.findViewById(R.id.tv_title);
+                        break;
+                    case T_TOOLS:
+                        // 8.83 ToolsHolder（item_movie_tools）：影片工具卡片
+                        cover = v.findViewById(R.id.iv_cover);
+                        title = v.findViewById(R.id.tv_title);
+                        desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_ICON_FIVE:
+                        // 8.83 IconFiveHolder：五列图标
+                        cover = v.findViewById(R.id.iv_icon);
+                        title = v.findViewById(R.id.tv_title);
                         break;
                 }
             }
@@ -5723,6 +5927,32 @@ public class HkPageActivity extends BaseActivity {
                 case T_DETAIL_HEADER:
                     layout = R.layout.item_hk_detail_header;
                     break;
+                case T_NOPIC:
+                    layout = R.layout.item_hk_movie_nopic;
+                    break;
+                case T_NOPIC_CENTER:
+                    layout = R.layout.item_hk_movie_nopic_center;
+                    break;
+                case T_LINE:
+                    // line 用细线，line_blank 用空白块——按 col_type 区分在 bind 时处理，
+                    // 此处默认细线布局
+                    layout = R.layout.item_hk_line;
+                    break;
+                case T_SCROLL_BUTTON:
+                    layout = R.layout.item_hk_scroll_button;
+                    break;
+                case T_FLEX_BUTTON:
+                    layout = R.layout.item_hk_flex_button;
+                    break;
+                case T_CHANNEL:
+                    layout = R.layout.item_hk_channel;
+                    break;
+                case T_TOOLS:
+                    layout = R.layout.item_hk_tools;
+                    break;
+                case T_ICON_FIVE:
+                    layout = R.layout.item_hk_icon_five;
+                    break;
                 default:
                     layout = R.layout.item_hk_video;
                     break;
@@ -5828,6 +6058,34 @@ public class HkPageActivity extends BaseActivity {
                     break;
                 case T_DETAIL_HEADER:
                     bindDetailHeader(h, item);
+                    break;
+                case T_NOPIC:
+                case T_NOPIC_CENTER:
+                    // 8.83 无图影片条目：标题+描述
+                    bindText(h, item);
+                    break;
+                case T_LINE:
+                    // 8.83 LineHolder：分隔线/空白块，无需绑定
+                    break;
+                case T_SCROLL_BUTTON:
+                    bindScrollButtons(h, position);
+                    break;
+                case T_FLEX_BUTTON:
+                    bindFlexButtons(h, position);
+                    break;
+                case T_CHANNEL:
+                    // 8.83 ChannelHolder：矩形频道条目，标题居中
+                    if (h.title != null) {
+                        h.title.setText(titleSpan(item.getTitle()));
+                    }
+                    break;
+                case T_TOOLS:
+                    // 8.83 ToolsHolder：影片工具卡片，复用 bindVideo（cover/title/desc）
+                    bindVideo(h, item);
+                    break;
+                case T_ICON_FIVE:
+                    // 8.83 IconFiveHolder：五列图标，复用 bindIcon
+                    bindIcon(h, item);
                     break;
             }
         }
@@ -6030,6 +6288,82 @@ public class HkPageActivity extends BaseActivity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             return row;
+        }
+
+        /**
+         * 8.83 ScrollButtonHolder：横向滚动按钮组。
+         * 从 poly 分组取同组条目，横向排列在 HorizontalScrollView 内。
+         */
+        private void bindScrollButtons(Holder h, int position) {
+            if (h.llButtons == null) return;
+            h.llButtons.removeAllViews();
+            Integer gi = polyPositionMap.get(position);
+            List<HkItem> subs = (gi == null || gi < 0 || gi >= polyList.size()) ? null : polyList.get(gi);
+            if (subs == null || subs.isEmpty()) {
+                // 非分组场景：只渲染当前条目
+                subs = new ArrayList<>();
+                subs.add(items.get(position));
+            }
+            Context ctx = h.itemView.getContext();
+            int padH = dp(14), padV = dp(7);
+            for (HkItem sub : subs) {
+                TextView tv = new TextView(ctx);
+                tv.setText(titleSpan(sub.getTitle()));
+                tv.setTextColor(0xFF1A1D24);
+                tv.setTextSize(13);
+                tv.setGravity(Gravity.CENTER);
+                tv.setMaxLines(1);
+                tv.setEllipsize(TextUtils.TruncateAt.END);
+                tv.setPadding(padH, padV, padH, padV);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setColor(0xFFF1F3F6);
+                bg.setCornerRadius(dp(14));
+                tv.setBackground(bg);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = dp(8);
+                tv.setLayoutParams(lp);
+                tv.setOnClickListener(v -> onContentItemClick(sub));
+                h.llButtons.addView(tv);
+            }
+        }
+
+        /**
+         * 8.83 FlexButtonHolder：流式按钮组（FlexboxLayout 自动换行）。
+         */
+        private void bindFlexButtons(Holder h, int position) {
+            if (h.flexbox == null) return;
+            h.flexbox.removeAllViews();
+            Integer gi = polyPositionMap.get(position);
+            List<HkItem> subs = (gi == null || gi < 0 || gi >= polyList.size()) ? null : polyList.get(gi);
+            if (subs == null || subs.isEmpty()) {
+                subs = new ArrayList<>();
+                subs.add(items.get(position));
+            }
+            Context ctx = h.itemView.getContext();
+            int padH = dp(14), padV = dp(7);
+            for (HkItem sub : subs) {
+                TextView tv = new TextView(ctx);
+                tv.setText(titleSpan(sub.getTitle()));
+                tv.setTextColor(0xFF1A1D24);
+                tv.setTextSize(13);
+                tv.setGravity(Gravity.CENTER);
+                tv.setMaxLines(1);
+                tv.setEllipsize(TextUtils.TruncateAt.END);
+                tv.setPadding(padH, padV, padH, padV);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setColor(0xFFF1F3F6);
+                bg.setCornerRadius(dp(14));
+                tv.setBackground(bg);
+                com.google.android.flexbox.FlexboxLayout.LayoutParams lp =
+                        new com.google.android.flexbox.FlexboxLayout.LayoutParams(
+                                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = dp(8);
+                lp.bottomMargin = dp(8);
+                tv.setLayoutParams(lp);
+                tv.setOnClickListener(v -> onContentItemClick(sub));
+                h.flexbox.addView(tv);
+            }
         }
 
         /**
@@ -6284,6 +6618,7 @@ public class HkPageActivity extends BaseActivity {
             String u = item == null || item.getUrl() == null ? "" : item.getUrl().trim();
             if (u.isEmpty()) {
                 h.itemView.setOnClickListener(null);
+                h.itemView.setOnLongClickListener(null);
                 h.itemView.setClickable(false);
                 h.itemView.setFocusable(false);
                 return;
@@ -6299,7 +6634,69 @@ public class HkPageActivity extends BaseActivity {
                     android.util.Log.e("HkPage", "setContentClick failed", e);
                 }
             });
+            // 8.83 ArticleListFragment 长按菜单（dealLongMenuClick）：复制链接/访问链接/下载资源等
+            h.itemView.setOnLongClickListener(v -> {
+                try {
+                    int pos = h.getBindingAdapterPosition();
+                    if (pos < 0 || pos >= items.size()) return true;
+                    showContentLongMenu(items.get(pos));
+                } catch (Exception e) {
+                    android.util.Log.e("HkPage", "longClick failed", e);
+                }
+                return true;
+            });
         }
+    }
+
+    /**
+     * 8.83 dealLongMenuClick：内容条目长按菜单。
+     * 菜单项对照 8.83：复制链接 / 访问链接 / 下载资源 / 自由复制。
+     */
+    private void showContentLongMenu(HkItem item) {
+        if (item == null) return;
+        String url = item.getUrl() == null ? "" : item.getUrl().trim();
+        String title = stripHtml(item.getTitle() == null ? "" : item.getTitle());
+        String[] labels = {"复制链接", "访问链接", "下载资源", "自由复制"};
+        new AlertDialog.Builder(this)
+                .setTitle(title.isEmpty() ? "操作" : (title.length() > 20 ? title.substring(0, 20) + "…" : title))
+                .setItems(labels, (d, which) -> {
+                    switch (which) {
+                        case 0: { // 复制链接
+                            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                            cm.setPrimaryClip(ClipData.newPlainText("hk", url));
+                            android.widget.Toast.makeText(this, "已复制链接", android.widget.Toast.LENGTH_SHORT).show();
+                            break;
+                        }
+                        case 1: { // 访问链接：在系统浏览器打开 http(s) 链接
+                            if (url.startsWith("http")) {
+                                try {
+                                    startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+                                } catch (Throwable t) {
+                                    android.widget.Toast.makeText(this, "无法打开链接", android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                            } else {
+                                android.widget.Toast.makeText(this, "当前页面不支持此操作", android.widget.Toast.LENGTH_SHORT).show();
+                            }
+                            break;
+                        }
+                        case 2: { // 下载资源：走 download:// 动作
+                            if (!url.isEmpty()) {
+                                HkItem nav = new HkItem();
+                                nav.setTitle(title);
+                                nav.setUrl("download://" + url);
+                                handleActionUrl("download://" + url, nav);
+                            }
+                            break;
+                        }
+                        case 3: { // 自由复制：复制标题+链接
+                            ClipboardManager cm2 = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                            cm2.setPrimaryClip(ClipData.newPlainText("hk", title + "\n" + url));
+                            android.widget.Toast.makeText(this, "已复制", android.widget.Toast.LENGTH_SHORT).show();
+                            break;
+                        }
+                    }
+                })
+                .show();
     }
 
     private static class ChipAdapter extends RecyclerView.Adapter<ChipAdapter.Holder> {

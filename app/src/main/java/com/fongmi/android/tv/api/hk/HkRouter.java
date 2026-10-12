@@ -566,6 +566,11 @@ public class HkRouter {
     public static String dealKind(String url) {
         if (url == null || url.trim().isEmpty()) return "";
         String u = url.trim();
+        // 8.83 H2：@lazyRule= 优先（dealLazyRule），绝不按普通 URL 分流；
+        // 只看 @rule= 前段是否含 @lazyRule=（与 clickItem 顺序一致）。
+        int ar = u.indexOf("@rule=");
+        String pre = ar >= 0 ? u.substring(0, ar) : u;
+        if (pre.contains("@lazyRule=")) return "";
         String low = u.toLowerCase();
         if (low.startsWith("pics://")) return "pics";
         if (low.startsWith("x5://")) return "x5";

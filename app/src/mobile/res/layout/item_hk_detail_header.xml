@@ -27,7 +27,7 @@
             android:paddingStart="4dp"
             android:paddingEnd="4dp" />
 
-        <TextView
+        <com.fongmi.android.tv.api.hk.view.HkAdaptiveTextView
             android:id="@+id/dh_desc"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -39,7 +39,8 @@
             android:textColor="#101216"
             android:includeFontPadding="false"
             android:paddingStart="4dp"
-            android:paddingEnd="4dp" />
+            android:paddingEnd="4dp"
+            app:operateType="3" />
     </RelativeLayout>
 
     <com.google.android.material.card.MaterialCardView

@@ -1549,8 +1549,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         }
                     }
                 }
-                // r 参数：广告规则（暂存，待 HkM3u8ClearUtil 完整移植后使用）
-                String cleaned = HkM3u8ClearUtil.getProxyContent(url, headers);
+                // r 参数：广告规则 JSONArray（8.83 传 List<M3u8ClearAdRule>）
+                java.util.List<HkM3u8ClearAdRule> adRules = null;
+                if (args.length > 2 && args[2] != null) {
+                    try {
+                        String rJson = argStr(args[2]);
+                        if (rJson != null && !rJson.isEmpty() && !"undefined".equals(rJson)) {
+                            adRules = new com.google.gson.Gson().fromJson(rJson,
+                                    new com.google.gson.reflect.TypeToken<java.util.List<HkM3u8ClearAdRule>>() {
+                                    }.getType());
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (adRules == null) adRules = HkM3u8ClearUtil.getRules();
+                String cleaned = HkM3u8ClearUtil.getProxyContent(url, headers, adRules);
                 if (cleaned == null || cleaned.isEmpty()) {
                     return url; // 8.83：清理结果为空返回原 URL
                 }

@@ -17,6 +17,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.setting.SiteOrderStore;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -180,6 +181,14 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         holder.binding.text.setOnLongClickListener(v -> listener.onTextLongClick(holder));
         holder.binding.search.setOnLongClickListener(v -> listener.onSearchLongClick(item));
         holder.binding.change.setOnLongClickListener(v -> listener.onChangeLongClick(item));
+        // 短剧标记小圆点（低调）：灰=未标记，橙=短剧源
+        boolean sdMarked = ShortDramaHelper.isSiteShortDrama(item.getKey());
+        holder.binding.shortDramaDot.setBackgroundTintList(ColorStateList.valueOf(sdMarked ? 0xFFF0A400 : 0xFF8A8F98));
+        holder.binding.shortDramaDotWrap.setOnClickListener(v -> {
+            boolean next = !ShortDramaHelper.isSiteShortDrama(item.getKey());
+            ShortDramaHelper.setSiteShortDrama(item.getKey(), next);
+            holder.binding.shortDramaDot.setBackgroundTintList(ColorStateList.valueOf(next ? 0xFFF0A400 : 0xFF8A8F98));
+        });
     }
 
     private int getSearchIcon(Site item) {

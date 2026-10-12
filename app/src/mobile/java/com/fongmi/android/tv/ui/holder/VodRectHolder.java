@@ -20,6 +20,8 @@ public class VodRectHolder extends BaseVodHolder {
     private final VodAdapter.OnClickListener listener;
     private final AdapterVodRectBinding binding;
     private String boundTitle = "";
+    private int[] specSize;
+    private Runnable tmdbRunnable;
 
     public VodRectHolder(@NonNull AdapterVodRectBinding binding, VodAdapter.OnClickListener listener) {
         super(binding.getRoot());
@@ -28,6 +30,7 @@ public class VodRectHolder extends BaseVodHolder {
     }
 
     public VodRectHolder size(int[] size) {
+        this.specSize = size;
         binding.image.getLayoutParams().height = size[1];
         binding.getRoot().getLayoutParams().width = size[0];
         return this;
@@ -46,26 +49,35 @@ public class VodRectHolder extends BaseVodHolder {
         binding.remark.setVisibility(item.getRemarkVisible());
         binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
         binding.getRoot().setOnLongClickListener(v -> listener.onLongClick(item));
-        ImgUtil.load(item.getName(), item.getPic(), binding.image);
+        if (specSize != null) ImgUtil.loadTopRounded(item.getName(), item.getPic(), binding.image, specSize[0], specSize[1]);
+        else ImgUtil.loadTopRounded(item.getName(), item.getPic(), binding.image, 0, 0);
         boundTitle = item.getName();
+        // TMDB 请求防抖：item 可见超过 300ms 才触发，快速滑动时不发起请求
+        binding.getRoot().removeCallbacks(tmdbRunnable);
         if (!TextUtils.isEmpty(boundTitle) && TmdbApi.isConfigured(binding.getRoot().getContext())) {
-            TmdbApi.fetch(binding.getRoot().getContext(), boundTitle, info -> {
-                if (info == null || !boundTitle.equals(item.getName())) return;
-                if (!TextUtils.isEmpty(info.year)) {
-                    binding.year.setText(info.year);
-                    binding.year.setVisibility(View.VISIBLE);
-                }
-                if (info.rating > 0) {
-                    binding.rating.setText(String.format(Locale.US, "%.1f", info.rating));
-                    binding.rating.setVisibility(View.VISIBLE);
-                }
-            });
+            final String title = boundTitle;
+            tmdbRunnable = () -> {
+                if (!title.equals(boundTitle)) return;
+                TmdbApi.fetch(binding.getRoot().getContext(), title, info -> {
+                    if (info == null || !title.equals(boundTitle) || !title.equals(item.getName())) return;
+                    if (!TextUtils.isEmpty(info.year)) {
+                        binding.year.setText(info.year);
+                        binding.year.setVisibility(View.VISIBLE);
+                    }
+                    if (info.rating > 0) {
+                        binding.rating.setText(String.format(Locale.US, "%.1f", info.rating));
+                        binding.rating.setVisibility(View.VISIBLE);
+                    }
+                });
+            };
+            binding.getRoot().postDelayed(tmdbRunnable, 300);
         }
     }
 
     @Override
     public void unbind() {
         boundTitle = "";
+        binding.getRoot().removeCallbacks(tmdbRunnable);
         Glide.with(binding.image).clear(binding.image);
     }
 }

@@ -114,6 +114,11 @@ public class HkHttp {
                             .connectTimeout(15, TimeUnit.SECONDS)
                             .readTimeout(30, TimeUnit.SECONDS)
                             .writeTimeout(30, TimeUnit.SECONDS);
+                    // 封面多为同 host（127.0.0.1 本地代理或单图床），默认 maxRequestsPerHost=5
+                    // 会 5 个 5 个波次出来；放到 12，并行感明显改善
+                    okhttp3.Dispatcher d = new okhttp3.Dispatcher();
+                    d.setMaxRequestsPerHost(12);
+                    b.dispatcher(d);
                     try {
                         Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
                         Object inst = c.getField("INSTANCE").get(null);

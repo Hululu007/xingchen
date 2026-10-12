@@ -1,11 +1,15 @@
 package com.fongmi.android.tv.ui.custom;
 
 import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.bean.Result;
 
 public class CustomScroller extends RecyclerView.OnScrollListener {
+
+    /** 提前触发下一页的阈值：距离底部还剩这么多个 item 时就开始加载 */
+    private static final int PREFETCH_THRESHOLD = 10;
 
     private final Callback callback;
     private boolean loading;
@@ -20,8 +24,25 @@ public class CustomScroller extends RecyclerView.OnScrollListener {
 
     @Override
     public void onScrolled(@NonNull RecyclerView view, int dx, int dy) {
-        if (view.getScrollState() == RecyclerView.SCROLL_STATE_IDLE || view.canScrollVertically(1) || dy <= 0) return;
-        loadMore();
+        if (view.getScrollState() == RecyclerView.SCROLL_STATE_IDLE || dy <= 0) return;
+        if (isNearBottom(view)) loadMore();
+    }
+
+    /**
+     * 是否接近底部：最后一个可见 item 距离总数在阈值内时返回 true，
+     * 不再等到绝对底部（canScrollVertically(1)==false）才触发。
+     */
+    private boolean isNearBottom(RecyclerView view) {
+        RecyclerView.LayoutManager lm = view.getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            LinearLayoutManager llm = (LinearLayoutManager) lm;
+            int total = llm.getItemCount();
+            if (total == 0) return false;
+            int lastVisible = llm.findLastVisibleItemPosition();
+            if (lastVisible == RecyclerView.NO_POSITION) return false;
+            return total - lastVisible <= PREFETCH_THRESHOLD;
+        }
+        return !view.canScrollVertically(1);
     }
 
     public void checkMore(RecyclerView view) {

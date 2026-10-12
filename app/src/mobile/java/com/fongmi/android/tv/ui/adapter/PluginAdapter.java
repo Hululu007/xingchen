@@ -10,6 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Plugin;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,20 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             notifyItemRemoved(position);
             if (onChanged != null) onChanged.run();
         });
+
+        // 短剧标记（跟插件文件名绑定，点一下切换）
+        String fileName = new File(p.getPath()).getName();
+        updateShortDramaBadge(holder.tvShortDrama, fileName);
+        holder.tvShortDrama.setOnClickListener(v -> {
+            boolean next = !ShortDramaHelper.isPluginShortDrama(fileName);
+            ShortDramaHelper.setPluginShortDrama(fileName, next);
+            updateShortDramaBadge(holder.tvShortDrama, fileName);
+        });
+    }
+
+    private void updateShortDramaBadge(TextView badge, String fileName) {
+        boolean marked = ShortDramaHelper.isPluginShortDrama(fileName);
+        badge.setTextColor(marked ? 0xFFF0A400 : 0xFF8A8F98);
     }
 
     @Override
@@ -73,7 +88,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
 
     static class ViewHolder extends RecyclerView.ViewHolder {
         CheckBox cbSelect;
-        TextView tvName, tvVersion, tvDelete;
+        TextView tvName, tvVersion, tvDelete, tvShortDrama;
         Switch switchEnable;
         ViewHolder(View itemView) {
             super(itemView);
@@ -81,6 +96,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             tvName = itemView.findViewById(R.id.tv_name);
             tvVersion = itemView.findViewById(R.id.tv_version);
             tvDelete = itemView.findViewById(R.id.tv_delete);
+            tvShortDrama = itemView.findViewById(R.id.tv_short_drama);
             switchEnable = itemView.findViewById(R.id.switch_enable);
         }
     }

@@ -63,6 +63,7 @@ import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
 import com.fongmi.android.tv.web.HomeWebController;
 import com.fongmi.android.tv.web.WebHomeChrome;
 import com.fongmi.android.tv.web.WebHomeChromeStartup;
@@ -584,6 +585,32 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     public void onItemClick(int position, Class item) {
         mBinding.pager.setCurrentItem(position);
         mAdapter.setSelected(position);
+    }
+
+    @Override
+    public boolean onItemLongClick(int position, Class item) {
+        try {
+            String siteKey = getHome() == null ? "" : getHome().getKey();
+            String typeId = item.getTypeId();
+            String typeName = item.getTypeName();
+            if (siteKey.isEmpty() || typeId == null || typeId.isEmpty() || "home".equals(typeId)) return true;
+            boolean marked = ShortDramaHelper.isShortDramaCategoryMarked(siteKey, typeId);
+            boolean auto = ShortDramaHelper.isShortDramaCategoryName(typeName);
+            String[] options = marked
+                    ? new String[]{"取消短剧分类标记"}
+                    : new String[]{"标记为短剧分类"};
+            new androidx.appcompat.app.AlertDialog.Builder(requireActivity())
+                    .setTitle(typeName + (auto ? "（已自动识别为短剧）" : ""))
+                    .setItems(options, (d, which) -> {
+                        ShortDramaHelper.setShortDramaCategoryMarked(siteKey, typeId, !marked);
+                        android.widget.Toast.makeText(requireActivity(), !marked ? "已标记为短剧分类" : "已取消短剧分类标记", android.widget.Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return true;
     }
 
     @Override

@@ -28,6 +28,10 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
     public interface OnClickListener {
 
         void onItemClick(int position, Class item);
+
+        default boolean onItemLongClick(int position, Class item) {
+            return false;
+        }
     }
 
     private Class home() {
@@ -80,6 +84,7 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
         holder.binding.text.setText(item.getTypeName());
         holder.binding.text.setSelected(item.isSelected());
         holder.binding.text.setOnClickListener(v -> listener.onItemClick(position, item));
+        holder.binding.text.setOnLongClickListener(v -> listener.onItemLongClick(position, item));
     }
 
     public class ViewHolder extends RecyclerView.ViewHolder {

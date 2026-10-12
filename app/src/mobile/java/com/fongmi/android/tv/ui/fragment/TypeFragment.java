@@ -22,10 +22,13 @@ import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.FragmentTypeBinding;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
+import com.fongmi.android.tv.utils.CoverRatioCache;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.VodAdapter;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.custom.CustomScroller;
+import com.fongmi.android.tv.ui.custom.VodPreloader;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 
@@ -58,6 +61,15 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
 
     private String getTypeId() {
         return getArguments().getString("typeId");
+    }
+
+    private String getTypeName() {
+        try {
+            com.fongmi.android.tv.bean.Class type = getParent().getType();
+            return type == null ? "" : type.getTypeName();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private Style getStyle() {
@@ -141,17 +153,22 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     protected void initEvent() {
         mBinding.swipeLayout.setOnRefreshListener(this);
         mBinding.recycler.addOnScrollListener(mScroller);
+        mBinding.recycler.addOnScrollListener(new VodPreloader());
     }
 
     private void setRecyclerView() {
         mBinding.recycler.setTranslationY(-ResUtil.dp2px(getY()));
         mBinding.recycler.setHasFixedSize(true);
+        mBinding.recycler.setItemViewCacheSize(8);
         setStyle(getStyle());
     }
 
     private void setStyle(Style style) {
         mBinding.recycler.setAdapter(mAdapter = new VodAdapter(this, style, Product.getSpec(requireActivity(), style)));
         mBinding.recycler.setLayoutManager(style.isList() ? new LinearLayoutManager(requireActivity()) : new GridLayoutManager(getContext(), Product.getColumn(requireActivity(), style)));
+        if (mBinding.recycler.getLayoutManager() instanceof GridLayoutManager) {
+            ((GridLayoutManager) mBinding.recycler.getLayoutManager()).setInitialPrefetchItemCount(6);
+        }
     }
 
     private void setViewModel() {
@@ -234,6 +251,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             getParent().openFolder(item.getId(), mExtends);
         } else {
             if (getSite().isIndex()) SearchActivity.start(requireActivity(), item.getName());
+            else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName()) || CoverRatioCache.isShortDramaCover(item.getPic())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);
         }
     }

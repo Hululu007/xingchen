@@ -41,6 +41,8 @@ import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.custom.CustomScroller;
 import com.fongmi.android.tv.utils.MobileWindow;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.CoverRatioCache;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -355,7 +357,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (item.isFolder()) FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
         else {
             String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
-            VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic());
+            if (ShortDramaHelper.isPluginShortDramaBySite(item.getSiteKey()) || CoverRatioCache.isShortDramaCover(pic)) VideoActivity.startShortDrama(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic);
+            else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic());
         }
     }
 

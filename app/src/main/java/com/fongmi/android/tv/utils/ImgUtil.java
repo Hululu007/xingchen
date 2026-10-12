@@ -22,6 +22,9 @@ import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.load.model.LazyHeaders;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.load.resource.bitmap.GranularRoundedCorners;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.target.Target;
 import com.fongmi.android.tv.App;
@@ -113,6 +116,7 @@ public class ImgUtil {
         else try {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
+            builder.placeholder(getTextDrawable(text, vod));
             if (vod) builder.centerCrop().into(view);
             else builder.fitCenter().into(view);
         } catch (Throwable e) {
@@ -133,6 +137,43 @@ public class ImgUtil {
         if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
         else try {
             Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).circleCrop().into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 顶部圆角加载（Vod.Rect 网格：上 8dp，下直角）。
+     * 二期优化：替代 ShapeableImageView 的 GPU 实时裁剪，解码时一次裁好。
+     */
+    public static void loadTopRounded(String text, String url, ImageView view, int width, int height) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        else try {
+            int r = ResUtil.dp2px(8);
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            if (width > 0 && height > 0) builder.override(width, height);
+            builder.placeholder(getTextDrawable(text, true));
+            builder.transform(new CenterCrop(), new GranularRoundedCorners(r, r, 0, 0));
+            builder.into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 全圆角加载（Vod.List 列表：四角 8dp）。
+     * 二期优化：替代 ShapeableImageView 的 GPU 实时裁剪，解码时一次裁好。
+     */
+    public static void loadRounded(String text, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        else try {
+            int r = ResUtil.dp2px(8);
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            builder.placeholder(getTextDrawable(text, true));
+            builder.transform(new CenterCrop(), new RoundedCorners(r));
+            builder.into(view);
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -435,6 +476,7 @@ public class ImgUtil {
 
             @Override
             public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                if (resource != null) CoverRatioCache.put(url, resource.getIntrinsicWidth(), resource.getIntrinsicHeight());
                 return false;
             }
         };

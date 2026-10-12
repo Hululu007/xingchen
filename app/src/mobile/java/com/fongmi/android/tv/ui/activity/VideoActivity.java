@@ -161,6 +161,7 @@ import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.utils.CoverRatioCache;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -252,6 +253,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mAudioStageVisible;
     private boolean mAudioLightEffectAnimated;
     private boolean mKaraokeResultShown;
+    private boolean mUserExitedFullscreenForThisVideo;
+    private boolean mShortDramaMode;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
     private AlertDialog mKaraokeResultDialog;
@@ -286,6 +289,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private Vod mPendingDetailVod;
     private boolean mDetailCacheShown;
     private Result mPendingPlayerResult;
+    private Result mPreparsedHistoryResult;
+    private String mPreparsedHistorySpec;
+    private final NextEpisodePreloader mNextPreloader = new NextEpisodePreloader();
     private int mAudioArtworkColor = Color.rgb(55, 45, 68);
     private final Map<String, String> mAudioQueueFlags = new HashMap<>();
     private final Map<String, String> mAudioQueueTitles = new HashMap<>();
@@ -536,6 +542,25 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         activity.startActivity(intent);
+    }
+
+    public static void startShortDrama(Activity activity, String key, String id, String name, String pic) {
+        ImgUtil.preload(activity, pic);
+        Intent intent = new Intent(activity, VideoActivity.class);
+        intent.putExtra("name", name);
+        intent.putExtra("pic", pic);
+        intent.putExtra("key", key);
+        intent.putExtra("id", id);
+        intent.putExtra("short_drama", true);
+        activity.startActivity(intent);
+    }
+
+    private static boolean isShortDramaType(String typeName) {
+        if (typeName == null || typeName.isEmpty()) return true;
+        if (typeName.contains("短剧") || typeName.contains("竖屏") || typeName.contains("微剧")) return true;
+        if (typeName.toLowerCase().contains("micro")) return true;
+        if (typeName.contains("电影") || typeName.contains("电视剧") || typeName.contains("综艺") || typeName.contains("动漫")) return false;
+        return true;
     }
 
     private String getName() {
@@ -886,6 +911,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.widget.error.setOnClickListener(view -> onRefresh());
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
+        mBinding.control.right.episodesVertical.setOnClickListener(view -> onEpisodes());
+        mBinding.control.right.castVertical.setOnClickListener(view -> onCast());
         mBinding.control.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
         mBinding.control.action.text.setOnClickListener(this::onTrack);
@@ -1333,6 +1360,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkId() {
+        mShortDramaMode = getIntent().getBooleanExtra("short_drama", false);
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) {
             playTxtDirect();
             return;
@@ -1448,6 +1476,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void getDetail() {
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
+        mNextPreloader.clear();
+        mPreparsedHistoryResult = null;
+        mPreparsedHistorySpec = null;
         SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s", getKey(), getId(), getName());
         mDetailCacheShown = false;
         Vod cached = VodDetailCache.get(this, getKey(), getId());
@@ -1518,6 +1549,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mPendingDetailVod = item;
             return;
         }
+        if (mShortDramaMode) mShortDramaMode = isShortDramaType(item.getTypeName());
         item.checkPic(getPic());
         item.checkName(getName());
         item.checkContent(getContent());
@@ -1602,6 +1634,22 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
+        // 首集加速：surface 提前挂载（Exo only），与解析链并行
+        if (!player().isMpv()) attachSurface();
+        // 预解析命中检查：历史预解析 / 下一集预加载
+        Result preparsed = consumePreparsed(playFlag, episode.getUrl());
+        if (preparsed != null) {
+            mBinding.control.title.setSelected(true);
+            updateHistory(episode);
+            showProgress();
+            try {
+                String videoTitle = mBinding.name.getText().toString();
+                SubtitleManager.autoMatch(player(), videoTitle);
+            } catch (Throwable ignored) {
+            }
+            setPlayer(preparsed);
+            return;
+        }
         mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
@@ -1614,8 +1662,29 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
+    /**
+     * 消费预解析结果：先查历史预解析，再查下一集预加载。
+     * 命中返回 Result，未命中返回 null（走正常解析链）。
+     */
+    private Result consumePreparsed(String playFlag, String episodeUrl) {
+        String spec = getKey() + "|" + playFlag + "|" + episodeUrl;
+        if (spec.equals(mPreparsedHistorySpec) && mPreparsedHistoryResult != null) {
+            Result r = mPreparsedHistoryResult;
+            mPreparsedHistoryResult = null;
+            mPreparsedHistorySpec = null;
+            SpiderDebug.log("video-flow", "history preparse hit key=%s", getKey());
+            return r;
+        }
+        Result next = mNextPreloader.consumeIfMatch(getKey(), playFlag, episodeUrl);
+        if (next != null) {
+            SpiderDebug.log("video-flow", "next-episode preload hit key=%s", getKey());
+        }
+        return next;
+    }
+
     private void setPlayer(Result result) {
         if (isFinishing() || isDestroyed()) return;
+        mUserExitedFullscreenForThisVideo = false;
         if (service() == null) {
             mPendingPlayerResult = result;
             return;
@@ -1640,6 +1709,23 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Episode playEpisode = getEpisode();
         if (DanmakuApi.canAutoSearch(siteDanmakus) && playEpisode != null)
             DanmakuApi.search(mHistory.getVodName(), playEpisode.getName(), player()::setDanmaku);
+        if (mShortDramaMode && !isFullscreen()) enterFullscreen();
+        preloadNextEpisode();
+    }
+
+    /**
+     * 下一集预加载：当前集开始播后，后台提前解析下一集 URL。
+     * 只走 ExoPlayer 路径；最后一集不预加载。
+     */
+    private void preloadNextEpisode() {
+        if (player().isMpv()) return;
+        try {
+            Episode next = getAdjacentEpisode(1);
+            if (next == null || next.isSelected() || TextUtils.isEmpty(next.getUrl())) return;
+            String playFlag = getEpisodePlayFlag(getFlag(), next);
+            mNextPreloader.preload(getKey(), playFlag, next);
+        } catch (Throwable ignored) {
+        }
     }
 
     private boolean consumePendingPlaybackResult() {
@@ -1722,6 +1808,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     public void onItemClick(Vod item) {
         setAutoMode(false);
         applySearchArtwork(item);
+        mShortDramaMode = CoverRatioCache.isShortDramaCover(item.getPic());
         getDetail(item);
     }
 
@@ -2062,7 +2149,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onBack() {
-        if (isFullscreen()) exitFullscreen();
+        if (mShortDramaMode && isFullscreen()) finishVideoPlayback();
+        else if (isFullscreen()) exitFullscreen();
         else finishVideoPlayback();
     }
 
@@ -4326,6 +4414,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void exitFullscreen() {
         if (!isFullscreen()) return;
+        mUserExitedFullscreenForThisVideo = true;
         if (service() == null) {
             SpiderDebug.log("video-flow", "fullscreen exit deferred reason=player-not-ready");
             return;
@@ -4407,7 +4496,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setTrackVisible();
         hideWidgetOverlay();
         mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !DanmakuSetting.isShow() ? View.GONE : View.VISIBLE);
-        mBinding.control.setting.setVisibility(View.GONE);
+        boolean isVerticalFullscreen = isFullscreen() && player().isPortrait();
+        mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.fullscreen.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
@@ -4418,6 +4508,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
+        if (isVerticalFullscreen) {
+            mBinding.control.action.playParams.setVisibility(View.GONE);
+            mBinding.control.action.scale.setVisibility(View.GONE);
+            mBinding.control.action.lut.setVisibility(View.GONE);
+            mBinding.control.action.repeat.setVisibility(View.GONE);
+        } else {
+            boolean showPlayParams2 = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
+            mBinding.control.action.playParams.setVisibility(showPlayParams2 ? View.VISIBLE : View.GONE);
+            mBinding.control.action.scale.setVisibility(View.VISIBLE);
+            mBinding.control.action.lut.setVisibility(View.VISIBLE);
+            mBinding.control.action.repeat.setVisibility(View.VISIBLE);
+        }
+        mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.cast.setVisibility(View.GONE);
@@ -4657,6 +4761,35 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
+        preparseHistoryEpisode();
+    }
+
+    /**
+     * 首集启动加速：历史集并行预解析。
+     * checkHistory 拿到历史选集后，后台提前跑 playerContent 解析，
+     * 与 checkFlag/seamless 的 UI 流程并行，命中时 getPlayer 可跳过解析链。
+     * 只走 ExoPlayer 路径（MPV 不预解析）。
+     */
+    private void preparseHistoryEpisode() {
+        mPreparsedHistoryResult = null;
+        mPreparsedHistorySpec = null;
+        if (player().isMpv()) return;
+        String episodeUrl = mHistory.getEpisodeUrl();
+        Flag historyFlag = mHistory.getFlag();
+        if (TextUtils.isEmpty(episodeUrl) || historyFlag == null) return;
+        String flag = historyFlag.getFlag();
+        if (TextUtils.isEmpty(flag)) return;
+        String spec = getKey() + "|" + flag + "|" + episodeUrl;
+        mPreparsedHistorySpec = spec;
+        Task.execute(() -> {
+            try {
+                Result result = SiteApi.playerContent(getKey(), flag, episodeUrl);
+                if (spec.equals(mPreparsedHistorySpec)) {
+                    mPreparsedHistoryResult = result;
+                }
+            } catch (Throwable ignored) {
+            }
+        });
     }
 
     private boolean shouldKeepPushArtwork() {
@@ -6223,6 +6356,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } else if (isFullscreen() && isRotate() && player().isLandscape()) {
             setRequestedOrientation(PlaybackOrientation.getLandscapeVideoSizeOrientation());
             setRotate(false);
+        } else if (!isFullscreen() && player().isPortrait() && PlayerSetting.isPortraitAutoFullscreen() && !mUserExitedFullscreenForThisVideo) {
+            enterFullscreen();
         }
     }
 

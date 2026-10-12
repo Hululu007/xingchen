@@ -423,7 +423,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         finish();
     }
 
-    private void attachSurface() {
+    protected void attachSurface() {
         if (mService == null) return;
         int targetRender = getRender();
         logSurfaceState("attach start target=" + targetRender);

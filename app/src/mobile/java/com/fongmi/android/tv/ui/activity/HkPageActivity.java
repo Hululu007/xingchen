@@ -2908,6 +2908,16 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         } else {
             showView(V_CONTENT);
         }
+        // 真正的切规则通知：Fragment 的 onRuleChanged（重置筛选/分页/列表、重建 tabs、重载）
+        // 此前全工程无人调用——openRule 只改了 Activity 自己的状态字段，Fragment 从没收到
+        // 换规则的消息，一直显示旧规则的内容（用户实测：顶部 tab 点了永远停在原页面、
+        // 退出再进来还是它）。Fragment 注释里本就写明"Activity 的 openRule 中调用"。
+        try {
+            if (contentFragment != null && contentFragment.isAdded() && contentFragment.getView() != null) {
+                contentFragment.onRuleChanged();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

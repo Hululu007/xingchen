@@ -160,7 +160,8 @@ public class HkHttp {
                             .readTimeout(30, TimeUnit.SECONDS)
                             .writeTimeout(30, TimeUnit.SECONDS)
                             .followRedirects(true)
-                            .followSslRedirects(true);
+                            .followSslRedirects(true)
+                            .retryOnConnectionFailure(false);
                     // Brotli（8.83 标配）：反射加载，缺失则跳过
                     try {
                         Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
@@ -216,7 +217,10 @@ public class HkHttp {
         applyThreadTag(rb);
         if (req.getMethod().equalsIgnoreCase("post")) {
             return rb.post(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
-        } else if (req.getMethod().equalsIgnoreCase("header")) {
+        } else if (req.getMethod().equalsIgnoreCase("put")) {
+            // 8.83：PUT 走 OkGo.put 带 body；此前 PUT/HEAD 一律掉进 GET，body 被丢
+            return rb.put(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
+        } else if (req.getMethod().equalsIgnoreCase("head") || req.getMethod().equalsIgnoreCase("header")) {
             return rb.head().build();
         } else {
             return rb.get().build();
@@ -237,6 +241,9 @@ public class HkHttp {
         if (req.getData() != null && "form".equals(req.getPostType())) return getFormBody(req);
         if (req.getData() != null && "form-data".equals(req.getPostType())) return getFormDataBody(req);
         if (req.getBody() != null && contentType != null) return RequestBody.create(req.getBody(), MediaType.get(contentType));
+        // 无 Content-Type 时绝不丢 body（此前直接返回空 body：空 POST 出去、服务端回 200 空正文，规则全灭）。
+        // 与 fetch0 共用同一套 8.83 拼法（buildPostBody 按内容判 JSON/表单），消除两套解析并存。
+        if (req.getBody() != null) return HkHttpHelper.buildPostBody(req.getMethod(), req.getBody(), null, req.isRejectCoding(), new java.util.HashMap<>());
         return RequestBody.create(new byte[0]);
     }
 

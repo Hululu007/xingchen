@@ -605,6 +605,8 @@ public class HkContentFragment extends BaseFragment {
                         }
                         HkRule r = currentRule();
                         String ruleTitle = r == null ? "" : r.getTitle();
+                        com.github.catvod.crawler.SpiderDebug.log("hk", "page empty rule=%s err=%s fetch=%s",
+                                ruleTitle, hkErr, com.fongmi.android.tv.api.hk.HkJsRuntime.getLastFetchDiag());
                         HkErrorUtil.showErrorMsg(requireActivity(), "规则执行过程中出现错误", ruleTitle, hkErr, null);
                         binding.tvContentEmpty.setText("加载失败，点我重试");
                         binding.tvContentEmpty.setVisibility(View.VISIBLE);

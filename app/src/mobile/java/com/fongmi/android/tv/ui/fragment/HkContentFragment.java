@@ -538,7 +538,16 @@ public class HkContentFragment extends BaseFragment {
      */
     public void loadContent(boolean reset) {
         HkRule rule = currentRule();
-        if (loading || rule == null) return;
+        if (loading || rule == null) {
+            // 早退也要关下拉刷新圈：加载卡住时用户下拉刷新走到这里直接 return，
+            // 刷新圈没人关会永远转（用户实测两个转圈同屏的第二个就是它）。
+            // 本次调用不会产生完成回调，关掉是安全的；真正在途的那次完成后仍会再关一次（幂等）。
+            try {
+                if (binding != null) binding.swipeContent.setRefreshing(false);
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
         if (!reset && !canAutoPage()) {
             noMore = true;
             updateFooter();

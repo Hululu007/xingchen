@@ -5599,7 +5599,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 h.desc.setMaxLines(longText ? 60 : 5);
             }
             // 简介折叠：long_text 长文本点击切换折叠/展开
-            if (longText && h.desc != null) {
+            if ("long_text".equals(ct) && h.desc != null) {
                 h.desc.setTag(R.id.tv_desc, Boolean.FALSE);
                 h.desc.setOnClickListener(v -> {
                     Boolean expanded = (Boolean) v.getTag(R.id.tv_desc);

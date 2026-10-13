@@ -113,7 +113,10 @@ public class HkHttp {
                             .dns(HK_DNS)
                             .connectTimeout(15, TimeUnit.SECONDS)
                             .readTimeout(30, TimeUnit.SECONDS)
-                            .writeTimeout(30, TimeUnit.SECONDS);
+                            .writeTimeout(30, TimeUnit.SECONDS)
+                            // 总超时必须有：connect/read/write 都管不住 DNS 解析阶段，
+                            // 域名被污染时解析能无限挂起，图片请求整批死等（真机封面全白同因）
+                            .callTimeout(45, TimeUnit.SECONDS);
                     // 封面多为同 host（127.0.0.1 本地代理或单图床），默认 maxRequestsPerHost=5
                     // 会 5 个 5 个波次出来；放到 12，并行感明显改善
                     okhttp3.Dispatcher d = new okhttp3.Dispatcher();
@@ -159,9 +162,15 @@ public class HkHttp {
                             .connectTimeout(15, TimeUnit.SECONDS)
                             .readTimeout(30, TimeUnit.SECONDS)
                             .writeTimeout(30, TimeUnit.SECONDS)
+                            // 总超时必须有（2026-10-13 真机+本地复现定案）：connect/read/write
+                            // 都覆盖不到 DNS 解析阶段，摸鱼日报的接口域名被污染后解析无限挂起，
+                            // execute() 既不返回也不抛错，加载线程死等、转圈永转、日志无下文。
+                            // callTimeout 把整条调用（含解析）封顶，超时后正常抛错走失败路径。
+                            .callTimeout(45, TimeUnit.SECONDS)
                             .followRedirects(true)
-                            .followSslRedirects(true)
-                            .retryOnConnectionFailure(false);
+                            .followSslRedirects(true);
+                            // retryOnConnectionFailure 不显式关闭：8.83 HttpHelper 原文未设置
+                            // （OkHttp 默认 true，多地址时可换路由重试），此前被仿写版写成 false
                     // Brotli（8.83 标配）：反射加载，缺失则跳过
                     try {
                         Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
@@ -189,6 +198,13 @@ public class HkHttp {
      * 例如 fetch(url, {redirect: 0}) 用于取 302 的 Location 头。默认跟随跳转。</p>
      */
     public static Call to(String url, Req req) {
+        // 入口留痕：此前只有完成/失败才记 fetch 诊断，卡在 execute 里时日志里
+        // 分不清"没走到"还是"走到了没回来"（1.2.6 真机日志的教训）
+        try {
+            okhttp3.HttpUrl hu = okhttp3.HttpUrl.parse(url);
+            com.github.catvod.crawler.SpiderDebug.log("hk", "fetch start host=%s", hu == null ? "?" : hu.host());
+        } catch (Throwable ignored) {
+        }
         boolean redirect = req.isRedirect();
         // Req.getTimeout() 默认 10000ms；8.83 用传入的 timeout 设 read/write/connect
         int timeout = 10000;

@@ -730,8 +730,8 @@ public class HkHttpHelper {
      * <li>body 为空 → 空 FormBody（OkGo generateRequestBody 无内容时同样落到空 FormBody）</li>
      * </ul>
      */
-    private static RequestBody buildPostBody(String reqMethod, String body, String contentType,
-                                             boolean rejectCoding, Map<String, String> formParams) {
+    static RequestBody buildPostBody(String reqMethod, String body, String contentType,
+                                     boolean rejectCoding, Map<String, String> formParams) {
         if (isEmpty(body)) {
             return new FormBody.Builder().build();
         }

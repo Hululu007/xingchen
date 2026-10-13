@@ -243,39 +243,45 @@ public class AiFloatManager {
             return;
         }
         try {
-            destroyRecognizer();
-            voiceRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx);
+            // 与 AiChatDialog 同款用法：识别器只建一次反复用；每按必销毁重建会撞上系统服务未绑定的窗口，直接哑火
+            if (voiceRecognizer == null) voiceRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx);
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-            // 按住说话：不依赖系统端点检测，松开时手动 stop
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 10000);
             voiceRecognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) {}
                 @Override public void onBeginningOfSpeech() {}
-                @Override public void onRmsChanged(float rmsdB) {}
+                @Override public void onRmsChanged(float rmsdB) {
+                    // 录音音量条：格子动=麦克风在拾音，不动=识别服务没在听
+                    try {
+                        if (recordTip != null) {
+                            int level = Math.max(0, Math.min(5, (int) ((rmsdB + 2) / 2.4f)));
+                            StringBuilder bars = new StringBuilder();
+                            for (int i = 0; i < 5; i++) bars.append(i < level ? "▮" : "▯");
+                            recordTip.setText("🎤 正在录音，松开发送 " + bars);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
                 @Override public void onBufferReceived(byte[] buffer) {}
                 @Override public void onEndOfSpeech() {}
                 @Override public void onError(int error) {
                     if (!voiceRecording) return;
                     voiceRecording = false;
                     hideRecordingUI();
-                    destroyRecognizer();
                     if (error == SpeechRecognizer.ERROR_NO_MATCH
                             || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         toast(ctx, "没听清，请重试");
-                    } else if (error != SpeechRecognizer.ERROR_CLIENT) {
-                        toast(ctx, "语音识别失败，请重试");
+                    } else {
+                        toast(ctx, "语音识别失败(" + error + ")，请重试");
                     }
                 }
                 @Override public void onResults(Bundle results) {
                     if (!voiceRecording) return;
                     voiceRecording = false;
                     hideRecordingUI();
-                    destroyRecognizer();
                     ArrayList<String> list = results.getStringArrayList(
                             SpeechRecognizer.RESULTS_RECOGNITION);
                     String text = (list != null && !list.isEmpty()) ? list.get(0).trim() : "";
@@ -314,7 +320,6 @@ public class AiFloatManager {
                     if (voiceRecognizer != null) voiceRecognizer.cancel();
                 } catch (Exception ignored) {
                 }
-                destroyRecognizer();
                 Activity act = activityRef.get();
                 if (act != null) Toast.makeText(act, "识别超时，请重试", Toast.LENGTH_SHORT).show();
             }
@@ -327,7 +332,10 @@ public class AiFloatManager {
         if (!voiceRecording) return;
         voiceRecording = false;
         hideRecordingUI();
-        destroyRecognizer();
+        try {
+            if (voiceRecognizer != null) voiceRecognizer.cancel();
+        } catch (Exception ignored) {
+        }
     }
 
     private void destroyRecognizer() {

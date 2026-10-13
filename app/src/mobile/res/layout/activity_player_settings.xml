@@ -130,37 +130,6 @@
             android:background="@drawable/xc_setcard_v2"
             android:orientation="horizontal"
             android:padding="15dp"
-            android:gravity="center_vertical"
-            android:clickable="true"
-            android:focusable="true">
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="竖屏视频自动全屏"
-                    android:textColor="#0C0E12"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="竖屏视频（短剧）播放时自动进入全屏"
-                    android:textColor="#101216"
-                    android:textSize="12sp" />
-            </LinearLayout>
-            <Switch android:id="@+id/switch_portrait_fullscreen" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:thumb="@drawable/xc_switch_thumb"/>
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:background="@drawable/xc_setcard_v2"
-            android:orientation="horizontal"
-            android:padding="15dp"
             android:gravity="center_vertical">
             <LinearLayout
                 android:layout_width="0dp"

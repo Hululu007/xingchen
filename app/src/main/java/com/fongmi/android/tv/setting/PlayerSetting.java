@@ -268,14 +268,6 @@ public class PlayerSetting {
         Prefers.put("player_auto_play", autoPlay);
     }
 
-    public static boolean isPortraitAutoFullscreen() {
-        return Prefers.getBoolean("player_portrait_auto_fullscreen", true);
-    }
-
-    public static void putPortraitAutoFullscreen(boolean enabled) {
-        Prefers.put("player_portrait_auto_fullscreen", enabled);
-    }
-
     /** Whether MPV should enter the HDMV Blu-ray menu instead of the main title. */
     public static boolean isBlurayMenu() {
         return Prefers.getBoolean("playback_bluray_menu", false);

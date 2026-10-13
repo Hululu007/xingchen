@@ -455,6 +455,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         if (contentFragment == null) {
             contentFragment = new HkContentFragment();
             contentFragment.setContentAdapter(new ContentAdapter(contentFragment.getVideos()));
+            // 小程序 tabs/「全部」弹窗的切规则回调：此前从未注册，监听器恒为 null，
+            // 顶部 tab 点了没任何反应（用户实测"tab 是摆设"）；Fragment 注释里写明由 Activity 调 openRule
+            contentFragment.setOnRulePickListener(this::openRule);
         }
         getSupportFragmentManager().beginTransaction()
                 .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,

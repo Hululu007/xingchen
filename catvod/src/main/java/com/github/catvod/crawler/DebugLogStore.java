@@ -95,7 +95,8 @@ public class DebugLogStore {
 
     public static synchronized void restoreEnabled() {
         categories = Prefers.getInt(PREF_CATEGORIES, DiagnosticCategories.ALL) & DiagnosticCategories.ALL;
-        enabled = Prefers.getBoolean(PREF_ENABLED);
+        // 星辰：调试日志默认开（webhtv 原版默认关，用户找不到日志文件）；用户显式关过则尊重存储值
+        enabled = Prefers.getBoolean(PREF_ENABLED, true);
         if (!enabled) return;
         create().start(true);
         beginCollection("restore");

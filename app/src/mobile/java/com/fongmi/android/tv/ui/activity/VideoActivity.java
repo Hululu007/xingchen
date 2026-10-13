@@ -4531,6 +4531,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
+        if (!TextUtils.isEmpty(text)) mBinding.widget.errorText.setText(text);
         hideProgress();
     }
 

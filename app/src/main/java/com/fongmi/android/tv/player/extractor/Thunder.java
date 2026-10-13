@@ -9,8 +9,8 @@ import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.utils.Download;
 import com.fongmi.android.tv.utils.ResUtil;
-import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.UrlUtil;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.xunlei.downloadlib.XLTaskHelper;
@@ -27,7 +27,6 @@ import java.util.regex.Pattern;
 public class Thunder implements Source.Extractor {
 
     private GetTaskId taskId;
-    private File downloadDir;
 
     @Override
     public boolean match(Uri uri) {
@@ -70,49 +69,40 @@ public class Thunder implements Source.Extractor {
         for (int i = 0; i < 300; i++) {
             XLTaskInfo info = XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo;
             if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
-            if (info.mTaskStatus != 0) return XLTaskHelper.get().getLocalUrl(new File(parent, name));
+            if (info.mTaskStatus != 0) {
+                String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
+                SpiderDebug.log("thunder", "bt task ready status=%d local=%s", info.mTaskStatus, local);
+                return local;
+            }
             SystemClock.sleep(100);
         }
         throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
     }
 
-    private String addThunderTask(String url) {
+    private String addThunderTask(String url) throws Exception {
         File folder = Path.thunder(Util.md5(url));
-        downloadDir = folder;
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
-        return XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
+        // 与 BT 路径对齐：等任务真正启动再取本地地址；任务失败/超时直接抛真错误，不再把无效地址交给播放器黑屏干等
+        for (int i = 0; i < 300; i++) {
+            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
+            if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
+            if (info.mTaskStatus != 0) {
+                String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
+                SpiderDebug.log("thunder", "task ready status=%d local=%s", info.mTaskStatus, local);
+                return local;
+            }
+            SystemClock.sleep(100);
+        }
+        throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
     }
 
     @Override
     public void stop() {
         if (taskId == null) return;
-        try {
-            XLTaskHelper.get().deleteTask(taskId);
-        } catch (Exception ignored) {
-        }
+        // 回到 FongMi 原版语义：删任务 + 释放 SDK（下次 fetch 会重新 init）；不再额外删下载目录，避免与重播同一链接的新任务抢目录
+        XLTaskHelper.get().deleteTask(taskId);
+        XLTaskHelper.get().release();
         taskId = null;
-        File dir = downloadDir;
-        downloadDir = null;
-        if (dir != null) Task.execute(() -> deleteQuietly(dir));
-    }
-
-    private void deleteQuietly(File dir) {
-        try {
-            File root = Path.thunder().getCanonicalFile();
-            File target = dir.getCanonicalFile();
-            if (!target.getPath().startsWith(root.getPath())) return;
-            deleteRecursively(target);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private void deleteRecursively(File file) {
-        File[] children = file.listFiles();
-        if (children != null) for (File child : children) deleteRecursively(child);
-        try {
-            file.delete();
-        } catch (Exception ignored) {
-        }
     }
 
     @Override

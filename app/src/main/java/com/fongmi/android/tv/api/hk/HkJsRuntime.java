@@ -220,6 +220,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 sb.append(" bodyEmpty");
             }
             lastFetchDiag = sb.toString();
+            // 同步写进调试日志文件（此前只喂屏幕弹窗，日志里查不到海阔的失败）
+            com.github.catvod.crawler.SpiderDebug.log("hk", "fetch %s", lastFetchDiag);
         } catch (Throwable ignored) {
         }
     }
@@ -611,6 +613,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // setOptimizationLevel(-1) 禁用优化器（Android 无字节码生成，必须关）
             rhinoCx = Context.enter();
             rhinoCx.setOptimizationLevel(-1);
+            // 8.83 initRhino 同款：语言版本 200（此前热路径 Context 没设，与第二套实现不一致）
+            rhinoCx.setLanguageVersion(200);
             scope = rhinoCx.initStandardObjects();
             registerApi();
             // D1: build 8.83 allFunctions prelude (JSAnnotation-reflected stubs + MY_UA suffix).
@@ -629,10 +633,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable e) {
                 Logger.t(TAG).d("inject CryptoJS failed: " + e.getMessage());
             }
-            // 官方内置 Hikerurl.js（$ 工具库）：自动注入为全局，定义 $.lazyRule/$.rule/$.image 等；
-            // 官方 JSEngine.allFunctionsEnd 会 eval(getJsPlugin())，规则直接调 $ 方法时也需要
-            // Hikerurl.js 引用官方 Java 类 com.example.hikerview..RequireUtils（模块缓存映射），
-            // 宿主无此 Java 类时整文件求值失败导致 $ 残缺；先在 JS 层 stub 该命名空间（官方调用处有 try-catch）
+            // 官方内置 Hikerurl.js（$ 工具库）：assets 已换回 8.83 原版 v2（逐字）。
+            // 此前放的是 v6 社区版：本地用生产同款 Rhino 1.7.15 实测，默认版本死于解析错误、
+            // ES6 模式死于加载期调用宿主函数（clearMyVar），两种都注入必失败、$ 永不存在。
+            // $ 的主定义在 registerApi 的 JS 预置段（超集，含 $.require）；本资产仅作官方兜底
+            // （其 window.$ 赋值带 typeof undefined 守卫，不覆盖已有 $）。下面的 RequireUtils stub 保留防其他资产引用。
             try {
                 evalJsInSharedScope(
                     "var com = (typeof com !== 'undefined') ? com : {};\n" +
@@ -751,6 +756,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // N1: 8.83 的 request 默认补移动端 UA（JSEngine.smali:22856），裸 fetch 才不补
             options = injectMobileUa(options);
             return fetchSync(url, options);
+        });
+        putFunction("getRule", args -> {
+            // 8.83 JSEngine.getRule：恒等返回传入的规则字符串（此前缺失，调用的规则直接 ReferenceError）
+            return args == null || args.length == 0 || args[0] == null ? "" : argStr(args[0]);
         });
         putFunction("getResCode", args -> {
             // 8.83 (JSEngine.smali:17733): getResCode(callbackKey) 返回 resCodeMap 中的响应正文 (String)，
@@ -1895,7 +1904,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction("getIP", args -> getLocalIp());
         putFunction("ipping", args -> false);
-        putFunction("isLogin", args -> false);
+        // 8.83 JSEngine.isLogin：恒返回字符串 "true"（此前写反成 false，按登录态分流的规则全走错分支）
+        putFunction("isLogin", args -> "true");
 
         // ---- 事件监听（官方 onClose 等；宿主仅记录，不触发） ----
         putFunction("addListener", args -> {
@@ -1961,11 +1971,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
 
-        // ---- xpath（宿主 Parser 基于 jsoup，不支持 xpath，走空） ----
-        putFunction("xpath", args -> "");
-        putFunction("xpa", args -> toJsArray(new ArrayList<>()));
+        // ---- xpath/xpathArray（xpa）：8.83 JSEngine 同款 javax.xml 真 XPath 求值 ----
+        // 此前是空桩（借口宿主 Parser 不支持），XML/RSS 类规则必死
+        putFunction("xpath", args -> {
+            if (args == null || args.length < 2) return "";
+            try {
+                javax.xml.xpath.XPath xp = javax.xml.xpath.XPathFactory.newInstance().newXPath();
+                Object r = xp.evaluate(argStr(args[1]), parseXmlDoc(argStr(args[0])));
+                return r == null ? "" : String.valueOf(r);
+            } catch (Throwable e) {
+                Logger.t(TAG).d("xpath failed: %s", e.getMessage());
+                return "";
+            }
+        });
+        putFunction("xpa", args -> xpathArrayImpl(args));
         // 官方全名：xpathArray 即 xpa
-        putFunction("xpathArray", args -> toJsArray(new ArrayList<>()));
+        putFunction("xpathArray", args -> xpathArrayImpl(args));
 
         // ---- refreshPage：官方刷新当前页（bool 为 true 时回顶）。宿主实现为"刷新请求"
         // 标记：lazyRule 回调（如 tab 切换 setItem 后调 refreshPage(true)）经 evalLazy 求值，
@@ -4380,6 +4401,28 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
+    // 8.83 JSEngine.xpath 系列同款：namespaceAware 的 DOM 解析 + XPath 求值
+    private static org.w3c.dom.Document parseXmlDoc(String html) throws Exception {
+        javax.xml.parsers.DocumentBuilderFactory f = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        f.setNamespaceAware(true);
+        javax.xml.parsers.DocumentBuilder b = f.newDocumentBuilder();
+        return b.parse(new java.io.ByteArrayInputStream(html.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    private Object xpathArrayImpl(Object[] args) {
+        List<String> out = new ArrayList<>();
+        if (args == null || args.length < 2) return toJsArray(out);
+        try {
+            javax.xml.xpath.XPath xp = javax.xml.xpath.XPathFactory.newInstance().newXPath();
+            org.w3c.dom.NodeList nodes = (org.w3c.dom.NodeList) xp.evaluate(
+                    argStr(args[1]), parseXmlDoc(argStr(args[0])), javax.xml.xpath.XPathConstants.NODESET);
+            for (int i = 0; i < nodes.getLength(); i++) out.add(nodes.item(i).getNodeValue());
+        } catch (Throwable e) {
+            Logger.t(TAG).d("xpathArray failed: %s", e.getMessage());
+        }
+        return toJsArray(out);
+    }
+
     // 8.83 HttpHelper.generatePostOps：post/postRequest/postPC 共用——body 是对象转表单串
     // （buildParamStr），是其它非字符串转 JSON 串，method 强制 POST。
     // 普通 fetch 不走这里：fetch 的对象 body 在 fetch0 里是转 JSON 串（见 Req.normalizeBody）。
@@ -4658,7 +4701,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (!SecurityController.hasGlobal()) {
             SecurityController.initGlobal(new HkNoSecurityController());
         }
-        return Context.enter();
+        Context cx = Context.enter();
+        // 8.83 initRhino 同款：语言版本 200
+        cx.setLanguageVersion(200);
+        return cx;
     }
 
     /** 8.83 UriUtils.getRootDir(ctx): getExternalFilesDir(DOCUMENTS), mkdirs. */

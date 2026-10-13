@@ -730,9 +730,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return r instanceof String ? (String) r : "";
             }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
-            options = mergeMethod(options, "post");
-            // N1: 8.83 的 post 默认补移动端 UA（JSEngine.smali:21353），裸 fetch 才不补
-            options = injectMobileUa(options);
+            // 8.83 post0（JSEngine:1976-1999）：只走 generatePostOps（对象 body 转表单串、method=POST），
+            // 不走 generateRequestOptions——不补 UA（此前把 UA 补反到了 post 上、postRequest 反而没补）
+            options = applyGeneratePostOps(options);
             return fetchSync(url, options);
         });
         putFunction("request", args -> {
@@ -1447,7 +1447,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
-            options = mergeMethod(options, "post");
+            options = applyGeneratePostOps(options);
             return fetchSync(url, mergeDesktopUa(options));
         });
         // 官方 fetchCookie(url, options)：带 withHeaders 抓取，返回 set-cookie
@@ -1488,7 +1488,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
-            return fetchSync(url, mergeMethod(options, "post"));
+            // 8.83 post0(request=true)：generatePostOps 之后再走 generateRequestOptions（缺 UA 时补移动端 UA）
+            return fetchSync(url, injectMobileUa(applyGeneratePostOps(options)));
         });
         // fcbw/ewr：WebView 取码与 Web 规则执行
         // 8.83 原文：
@@ -4379,6 +4380,59 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
+    // 8.83 HttpHelper.generatePostOps：post/postRequest/postPC 共用——body 是对象转表单串
+    // （buildParamStr），是其它非字符串转 JSON 串，method 强制 POST。
+    // 普通 fetch 不走这里：fetch 的对象 body 在 fetch0 里是转 JSON 串（见 Req.normalizeBody）。
+    private static String applyGeneratePostOps(String optionsJson) {
+        try {
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(optionsJson).getAsJsonObject();
+            com.google.gson.JsonElement body = obj.get("body");
+            if (body != null && !body.isJsonNull()
+                    && !(body.isJsonPrimitive() && body.getAsJsonPrimitive().isString())) {
+                if (body.isJsonObject()) obj.addProperty("body", buildParamStr(body.getAsJsonObject()));
+                else obj.addProperty("body", GSON.toJson(body));
+            }
+            obj.addProperty("method", "POST");
+            return GSON.toJson(obj);
+        } catch (Throwable e) {
+            return mergeMethod(optionsJson, "post");
+        }
+    }
+
+    // 8.83 HttpHelper.buildParamStr：key=value 以 & 连接，值是字符串原样、其它转 JSON，不做 URL 编码
+    private static String buildParamStr(com.google.gson.JsonObject json) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, com.google.gson.JsonElement> e : json.entrySet()) {
+            if (sb.length() > 0) sb.append('&');
+            sb.append(e.getKey()).append('=');
+            com.google.gson.JsonElement v = e.getValue();
+            sb.append(v != null && v.isJsonPrimitive() && v.getAsJsonPrimitive().isString()
+                    ? v.getAsString() : GSON.toJson(v));
+        }
+        return sb.toString();
+    }
+
+    // 8.83 fetch 开关取值（Map 取值强转 Boolean）：布尔 true 或数字非 0 视为开
+    private static boolean optFlag(com.google.gson.JsonObject obj, String key) {
+        if (obj == null) return false;
+        com.google.gson.JsonElement e = obj.get(key);
+        if (e == null || !e.isJsonPrimitive()) return false;
+        if (e.getAsJsonPrimitive().isBoolean()) return e.getAsBoolean();
+        if (e.getAsJsonPrimitive().isNumber()) return e.getAsInt() != 0;
+        return false;
+    }
+
+    // 8.83 返回包装（HttpHelper:349-356）：五字段 body/headers/url/statusCode/error，headers 为多值表
+    private static String wrapFetch(String body, Map<String, List<String>> headers, String realUrl, int statusCode, String error) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("body", body);
+        out.put("headers", headers);
+        out.put("url", realUrl);
+        out.put("statusCode", statusCode);
+        out.put("error", error);
+        return GSON.toJson(out);
+    }
+
     /**
      * 同步 fetch（跑在 JS 单线程上，直接阻塞等待）。
      * options 为 JSON：{headers, body/data, method, timeout, withHeaders}。
@@ -4389,29 +4443,42 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
         // 8.83 原版：fetch 不走 generateRequestOptions，不自动补 UA（smali 实证）。
         // 之前 mergeMobileUa 是偏离 8.83 的行为，已移除。
+        boolean withHeaders = false;
+        boolean withStatusCode = false;
+        boolean onlyHeaders = false;
         try {
             Req req = TextUtils.isEmpty(optionsJson) ? Req.objectFrom("{}") : Req.objectFrom(optionsJson);
-            String opt = optionsJson == null ? "" : optionsJson;
-            boolean withHeaders = opt.contains("\"withHeaders\":true") || opt.contains("\"withHeaders\":1");
-            // P2：fetch 选项 withStatusCode / toHex / onlyHeaders
-            boolean withStatusCode = opt.contains("\"withStatusCode\":true") || opt.contains("\"withStatusCode\":1");
-            boolean toHex = opt.contains("\"toHex\":true") || opt.contains("\"toHex\":1");
-            boolean onlyHeaders = opt.contains("\"onlyHeaders\":true") || opt.contains("\"onlyHeaders\":1");
+            // 开关一律解析 options JSON 取值；此前用子串扫整个 options 字符串，
+            // 正文里含同名 JSON 键会被误判进包装分支
+            com.google.gson.JsonObject optObj = null;
+            try {
+                if (!TextUtils.isEmpty(optionsJson)) {
+                    com.google.gson.JsonElement parsedOpt = com.google.gson.JsonParser.parseString(optionsJson);
+                    if (parsedOpt != null && parsedOpt.isJsonObject()) optObj = parsedOpt.getAsJsonObject();
+                }
+            } catch (Throwable ignored) {
+            }
+            withHeaders = optFlag(optObj, "withHeaders");
+            withStatusCode = optFlag(optObj, "withStatusCode");
+            boolean toHex = optFlag(optObj, "toHex");
+            onlyHeaders = optFlag(optObj, "onlyHeaders");
+            if (onlyHeaders) withHeaders = true;
+            String method = req.getMethod();
+            if (method.equalsIgnoreCase("head") || method.equalsIgnoreCase("header")) withHeaders = true;
             try (Response res = HkHttp.to(url, req).execute()) {
                 resCode = res.code();
                 lastUrl = url;
                 if (res.code() < 200 || res.code() >= 300) {
                     recordFetchDiag(url, res.code(), null, false);
                 }
-                Map<String, String> headers = new HashMap<>();
-                for (String name : res.headers().names()) headers.put(name, res.header(name, ""));
+                Map<String, List<String>> headers = res.headers().toMultimap();
+                String realUrl = res.request().url().toString();
                 if (onlyHeaders) {
-                    Map<String, Object> out = new HashMap<>();
-                    out.put("headers", headers);
-                    out.put("code", res.code());
-                    return GSON.toJson(out);
+                    return wrapFetch(null, headers, realUrl, res.code(), null);
                 }
                 ResponseBody body = res.body();
+                // 8.83：Content-Length 超 20MB 直接抛错走失败路径，不整包读进内存
+                if (body != null && body.contentLength() > 20L * 1024 * 1024) throw new java.io.IOException("response too large");
                 byte[] bytes = body == null ? new byte[0] : body.bytes();
                 if (bytes.length == 0 && res.code() >= 200 && res.code() < 300) {
                     // 诊断：200 但空 body（JSON.parse("") 抛 Empty JSON 的源头）
@@ -4428,24 +4495,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     // 8.83 没有 ISO-8859-1 字节映射行为。
                     content = new String(bytes, req.getCharset());
                 }
-                if (withStatusCode) {
-                    Map<String, Object> out = new HashMap<>();
-                    out.put("body", content);
-                    out.put("code", res.code());
-                    out.put("headers", headers);
-                    return GSON.toJson(out);
-                }
-                if (!withHeaders) return content;
-                Map<String, Object> out = new HashMap<>();
-                out.put("body", content);
-                out.put("headers", headers);
-                out.put("code", res.code());
-                return GSON.toJson(out);
+                if (withHeaders || withStatusCode) return wrapFetch(content, headers, realUrl, res.code(), null);
+                return content;
             }
         } catch (Throwable e) {
             Logger.t(TAG).d("fetch failed %s: %s", url, e.getMessage());
             recordFetchDiag(url, 0, e, false);
             resCode = 0;
+            // 8.83：要求了包装时失败也要回带 error 的包装 JSON，读 .error 的规则才能感知失败原因；
+            // 此前一律返回 ""，规则只会撞上 Empty JSON
+            if (withHeaders || withStatusCode || onlyHeaders) {
+                return wrapFetch(null, new HashMap<>(), url, 0, e.getMessage());
+            }
             return "";
         }
     }

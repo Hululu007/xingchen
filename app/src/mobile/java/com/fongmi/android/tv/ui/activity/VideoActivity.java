@@ -4440,14 +4440,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } catch (Exception ignored) {
         }
         try {
-            // 2) 播放器元数据（已加载时准）
-            if (player() != null) {
-                // 元数据未就绪时 isPortrait() 恒返回 false，不可信，跳过
-                // 这里用宽高是否为 0 判断（需 PlayerManager 暴露，暂用 try）
-                boolean p = player().isPortrait();
-                // 只有短剧模式或明确有尺寸时才信播放器；否则走启发式
-                // 简化：直接信播放器（元数据就绪后 checkOrientation 会二次校正）
-                return p;
+            // 2) 播放器元数据：宽高已知时才准；未知时 isPortrait() 恒返回 false，不可信，必须落到第 3 步启发式
+            if (player() != null && player().getVideoWidth() > 0 && player().getVideoHeight() > 0) {
+                return player().isPortrait();
             }
         } catch (Exception ignored) {
         }

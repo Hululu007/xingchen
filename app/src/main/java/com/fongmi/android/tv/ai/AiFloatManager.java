@@ -315,7 +315,8 @@ public class AiFloatManager {
                 } catch (Exception ignored) {
                 }
                 destroyRecognizer();
-                Toast.makeText(ctx, "识别超时，请重试", Toast.LENGTH_SHORT).show();
+                Activity act = activityRef.get();
+                if (act != null) Toast.makeText(act, "识别超时，请重试", Toast.LENGTH_SHORT).show();
             }
         }, 3000);
     }

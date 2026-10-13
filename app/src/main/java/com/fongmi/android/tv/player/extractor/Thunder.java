@@ -33,10 +33,24 @@ public class Thunder implements Source.Extractor {
         return List.of("magnet", "ed2k").contains(UrlUtil.scheme(uri));
     }
 
+    // 同一 URL 的本地地址缓存：播放链会对同一链接并发多次 fetch（1.2.4 日志实证 50ms 内
+    // 建了 4 个 native 任务写同一文件互抢），复用已建任务的地址，不再重复建任务
+    private String lastKey;
+    private String lastLocal;
+
     @Override
-    public String fetch(String url) throws Exception {
-        if (isRawMagnet(url)) return fetchParsedMagnet(url);
-        return url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
+    public synchronized String fetch(String url) throws Exception {
+        if (url != null && url.equals(lastKey) && lastLocal != null && taskId != null) {
+            SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
+            return lastLocal;
+        }
+        String local = isRawMagnet(url) ? fetchParsedMagnet(url)
+                : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
+        if (local != null && local.contains("127.0.0.1")) {
+            lastKey = url;
+            lastLocal = local;
+        }
+        return local;
     }
 
     /**
@@ -66,31 +80,58 @@ public class Thunder implements Source.Extractor {
         String name = uri.getQueryParameter("name");
         int index = Integer.parseInt(uri.getQueryParameter("index"));
         taskId = XLTaskHelper.get().addTorrentTask(torrent, parent, index);
-        for (int i = 0; i < 300; i++) {
-            XLTaskInfo info = XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo;
-            if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
-            if (info.mTaskStatus != 0) {
-                String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
-                SpiderDebug.log("thunder", "bt task ready status=%d local=%s", info.mTaskStatus, local);
-                return local;
-            }
-            SystemClock.sleep(100);
-        }
-        throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
+        // 就绪门（见 waitDataReady）：等子任务真实已下载字节，不再状态非 0 就交地址
+        waitDataReady(() -> XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo);
+        String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
+        SpiderDebug.log("thunder", "bt task ready local=%s", local);
+        return local;
     }
 
     private String addThunderTask(String url) throws Exception {
         File folder = Path.thunder(Util.md5(url));
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
-        // 与 BT 路径对齐：等任务真正启动再取本地地址；任务失败/超时直接抛真错误，不再把无效地址交给播放器黑屏干等
-        for (int i = 0; i < 300; i++) {
-            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
-            if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
-            if (info.mTaskStatus != 0) {
-                String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
-                SpiderDebug.log("thunder", "task ready status=%d local=%s", info.mTaskStatus, local);
-                return local;
+        // 就绪门（见 waitDataReady）：helper 的 status 是合成值不可信，真实进度看下载文件长度
+        waitDataReady(() -> {
+            XLTaskInfo info = new XLTaskInfo();
+            File f = taskId.getSaveFile();
+            info.mDownloadSize = f.exists() ? f.length() : 0;
+            return info;
+        });
+        String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
+        SpiderDebug.log("thunder", "task ready local=%s", local);
+        return local;
+    }
+
+    private interface InfoSource {
+        XLTaskInfo get();
+    }
+
+    // 就绪门：XLTaskHelper.getTaskInfo 的 status=2 是"文件已存在"的合成值（SDK 建任务即预建
+    // 文件），此前两条路径都在 0 字节时就把本地地址交给播放器；SDK 本地服务对未下载到的区间
+    // 只挂起不吐数据，播放器 30 秒读超时必死（1.2.4 日志实证：任务 50ms 内报 ready、播放器
+    // 30975ms 零字节 SocketTimeout；下载本身 4.9MB/s 正常，只是喂不到播放器）。
+    // 改为等真实已下载字节：≥2MB，或已有数据且 3 秒不再增长（下完/小文件），最长等 90 秒；
+    // 任务真失败（status==3）立即抛真错误，不把死地址交给播放器。
+    private void waitDataReady(InfoSource source) throws Exception {
+        long lastSize = -1;
+        int stable = 0;
+        for (int i = 0; i < 900; i++) {
+            XLTaskInfo info = source.get();
+            if (info != null && info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
+            long size = info == null ? 0 : info.mDownloadSize;
+            if (size >= 2_000_000) {
+                SpiderDebug.log("thunder", "data ready size=%d", size);
+                return;
             }
+            if (size > 0) {
+                if (size == lastSize) {
+                    if (++stable >= 30) {
+                        SpiderDebug.log("thunder", "data stable size=%d", size);
+                        return;
+                    }
+                } else stable = 0;
+            }
+            lastSize = size;
             SystemClock.sleep(100);
         }
         throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
@@ -98,6 +139,8 @@ public class Thunder implements Source.Extractor {
 
     @Override
     public void stop() {
+        lastKey = null;
+        lastLocal = null;
         if (taskId == null) return;
         // 回到 FongMi 原版语义：删任务 + 释放 SDK（下次 fetch 会重新 init）；不再额外删下载目录，避免与重播同一链接的新任务抢目录
         XLTaskHelper.get().deleteTask(taskId);

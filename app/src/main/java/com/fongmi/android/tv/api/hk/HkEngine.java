@@ -2,6 +2,7 @@ package com.fongmi.android.tv.api.hk;
 
 import android.text.TextUtils;
 
+import com.github.catvod.crawler.SpiderDebug;
 import com.orhanobut.logger.Logger;
 
 import java.util.ArrayList;
@@ -24,8 +25,14 @@ public class HkEngine {
 
     public HkEngine(HkRule rule) throws Exception {
         this.rule = rule;
-        this.jsRuntime = new HkJsRuntime(rule);
-        this.jsRuntime.init();
+        try {
+            this.jsRuntime = new HkJsRuntime(rule);
+            this.jsRuntime.init();
+        } catch (Exception e) {
+            // 引擎建不起来时以前只有 logcat 有痕迹，调试日志里查不到；接进文件日志
+            SpiderDebug.log("hk", "engine init failed rule=%s err=%s", rule.getTitle(), String.valueOf(e));
+            throw e;
+        }
         // 图片 @js= 求值依赖当前规则的 JS 运行时；HkPageActivity.getRouter() 也会设置，
         // 这里兜底保证引擎创建时即登记（8.83 JSEngine.getInstance() 单例语义）。
         HkImage.setCurrentRuntime(this.jsRuntime);
@@ -71,6 +78,8 @@ public class HkEngine {
             return selector.parseList(html, findRule, url);
         } catch (Throwable e) {
             Logger.t(TAG).d("home failed: %s", e.getMessage());
+            // 死因隐身器拆掉：home 的异常以前只进 logcat，文件日志里必须留原文
+            SpiderDebug.log("hk", "home failed rule=%s err=%s", rule.getTitle(), String.valueOf(e));
             return new ArrayList<>();
         }
     }
@@ -110,6 +119,7 @@ public class HkEngine {
             return selector.parseSearch(html, searchFind, url);
         } catch (Throwable e) {
             Logger.t(TAG).d("search failed: %s", e.getMessage());
+            SpiderDebug.log("hk", "search failed rule=%s err=%s", rule.getTitle(), String.valueOf(e));
             return new ArrayList<>();
         }
     }

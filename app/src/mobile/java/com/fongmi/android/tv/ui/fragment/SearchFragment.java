@@ -19,6 +19,8 @@ import static androidx.fragment.app.FragmentTransaction.TRANSIT_FRAGMENT_OPEN;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ai.AiSearchParser;
+import com.fongmi.android.tv.ai.AiStore;
 import com.fongmi.android.tv.bean.Word;
 import com.fongmi.android.tv.databinding.FragmentSearchBinding;
 import com.fongmi.android.tv.impl.Callback;
@@ -47,6 +49,7 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
     private List<Word.Data> mIqiyiWords = new ArrayList<>();
     private List<Word.Data> mTencentWords = new ArrayList<>();
     private int mSuggestSeq;
+    private boolean mAiParsing;
 
     public static SearchFragment newInstance(String keyword) {
         return newInstance(keyword, null);
@@ -95,7 +98,18 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
     @Override
     protected void initView() {
         setRecyclerView();
+        refreshAiHint();
         checkKeyword();
+    }
+
+    /** AI 提示行：仅配置了智能搜片服务商时显示 */
+    private void refreshAiHint() {
+        boolean show = AiStore.resolveForFeature(requireContext(), AiStore.FEATURE_SMART_SEARCH) != null;
+        mBinding.aiHint.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show && !mAiParsing) {
+            mBinding.aiHint.setText("✨ 试试说：周星驰的喜剧电影");
+            mBinding.aiHint.setTextColor(0xFF8A9199);
+        }
     }
 
     private void setRecyclerView() {
@@ -138,6 +152,10 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
         if (TextUtils.isEmpty(getKeyword()) && !visible) Util.showKeyboard(mBinding.keyword);
         setKeyword(getKeyword());
         getWord(getKeyword());
+        // AI 搜片：有关键词直接执行搜索，不停在搜索界面
+        if (!TextUtils.isEmpty(getKeyword())) {
+            mBinding.keyword.post(() -> doSearch(getKeyword()));
+        }
     }
 
     private void setKeyword(String text) {
@@ -148,6 +166,42 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
     private void search() {
         if (empty()) return;
         String keyword = mBinding.keyword.getText().toString().trim();
+        if (shouldAiParse(keyword)) {
+            runAiSearch(keyword);
+        } else {
+            doSearch(keyword);
+        }
+    }
+
+    private boolean shouldAiParse(String keyword) {
+        if (mAiParsing) return false;
+        if (AiStore.resolveForFeature(requireContext(), AiStore.FEATURE_SMART_SEARCH) == null) return false;
+        return AiSearchParser.isNaturalLanguage(keyword);
+    }
+
+    /** AI 智能搜片：自然语言 → 意图 → 用解析出的 keyword 走正常搜索链路 */
+    private void runAiSearch(String original) {
+        mAiParsing = true;
+        mBinding.aiHint.setVisibility(View.VISIBLE);
+        mBinding.aiHint.setText("✨ AI 正在理解…");
+        mBinding.aiHint.setTextColor(0xFFE8A33D);
+        mBinding.keyword.setEnabled(false);
+        Util.hideKeyboard(mBinding.keyword);
+        AiSearchParser.parse(requireContext(), original, intent -> {
+            if (!isAdded()) return;
+            mAiParsing = false;
+            mBinding.keyword.setEnabled(true);
+            refreshAiHint();
+            if (intent != null && !TextUtils.isEmpty(intent.keyword)) {
+                setKeyword(intent.keyword);
+                doSearch(intent.keyword);
+            } else {
+                doSearch(original);
+            }
+        });
+    }
+
+    private void doSearch(String keyword) {
         App.post(() -> mRecordAdapter.add(keyword), 250);
         Util.hideKeyboard(mBinding.keyword);
         collect(keyword);

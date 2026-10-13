@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 书签/收藏编辑弹窗：对照 8.83 pop_input_bookmark_add.xml（BookmarkEditPopup） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/hk_update_log_bg"
+    android:orientation="vertical"
+    android:paddingTop="16dp"
+    android:paddingBottom="8dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp">
+
+    <TextView
+        android:id="@+id/hk_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:text="新增收藏"
+        android:textColor="#ff222222"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/hk_edit_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="10dp"
+        android:hint="请输入书签标题"
+        android:maxHeight="80dp"
+        android:textColor="#ff222222"
+        android:textColorHint="#ff999999"
+        android:textSize="16sp" />
+
+    <EditText
+        android:id="@+id/hk_edit_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:hint="请输入网页地址"
+        android:maxHeight="80dp"
+        android:textColor="#ff222222"
+        android:textColorHint="#ff999999"
+        android:textSize="16sp" />
+
+    <EditText
+        android:id="@+id/hk_edit_icon"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:hint="请输入图标地址"
+        android:maxHeight="80dp"
+        android:textColor="#ff222222"
+        android:textColorHint="#ff999999"
+        android:textSize="16sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/hk_group_view"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/hk_group_edit_text"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="false"
+            android:enabled="false"
+            android:focusable="false"
+            android:hint="文件夹"
+            android:inputType="none"
+            android:maxLines="1"
+            android:paddingStart="10dp"
+            android:textColor="#ff222222"
+            android:textColorHint="#ff999999"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/hk_group_img"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="▾"
+            android:textColor="#ff666666"
+            android:textSize="20sp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="#ffeeeeee" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/hk_tv_cancel"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?android:selectableItemBackground"
+            android:gravity="center"
+            android:text="取消"
+            android:textColor="#ff666666"
+            android:textSize="16sp" />
+
+        <View
+            android:layout_width="0.5dp"
+            android:layout_height="match_parent"
+            android:background="#ffeeeeee" />
+
+        <TextView
+            android:id="@+id/hk_tv_confirm"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?android:selectableItemBackground"
+            android:gravity="center"
+            android:text="确认"
+            android:textColor="#ff666666"
+            android:textSize="16sp" />
+    </LinearLayout>
+</LinearLayout>

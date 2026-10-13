@@ -133,6 +133,11 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.exo4kCompat.setOnClickListener(this::onPerformance);
         mBinding.caption.setOnClickListener(this::setCaption);
         mBinding.adblock.setOnClickListener(this::setAdblock);
+        // TODO: 关键词管理对话框待修复
+        // mBinding.adblock.setOnLongClickListener(v -> {
+        //     AdblockKeywordDialog.show(getChildFragmentManager());
+        //     return true;
+        // });
         mBinding.caption.setOnLongClickListener(this::onCaption);
         mBinding.background.setOnClickListener(this::onBackground);
         mBinding.audioDecode.setOnClickListener(this::setAudioDecode);

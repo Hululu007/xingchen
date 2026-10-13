@@ -942,4 +942,30 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         releasePlaybackService();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy afterRelease activity=%s key=%s", getClass().getSimpleName(), getPlaybackKey());
     }
+
+    /** AI 剧情问答：当前影片名（供 AiQaHelper 反射调用） */
+    public String aiGetVodName() {
+        try {
+            String name = getIntent().getStringExtra("vodName");
+            if (name != null && !name.isEmpty()) return name;
+            name = getIntent().getStringExtra("title");
+            if (name != null && !name.isEmpty()) return name;
+            name = getIntent().getStringExtra("name");
+            if (name != null && !name.isEmpty()) return name;
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    /** AI 剧情问答：当前影片元数据（供 AiQaHelper 反射调用） */
+    public String aiGetVodMeta() {
+        try {
+            String name = aiGetVodName();
+            if (!name.isEmpty()) {
+                return "片名：" + name + "\n";
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
 }

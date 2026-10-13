@@ -133,6 +133,19 @@ public abstract class BaseActivity extends AppCompatActivity {
         { getWindow().getDecorView().post(() -> { com.xingchen.tv.theme.ThemeManager.get().apply(this); }); } // xc_onResume
         super.onResume();
         Updater.create().resume(this);
+        try {
+            com.fongmi.android.tv.ai.AiFloatManager.get().onResume(this);
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        try {
+            com.fongmi.android.tv.ai.AiFloatManager.get().onPause();
+        } catch (Exception ignored) {
+        }
+        super.onPause();
     }
 
     @Override

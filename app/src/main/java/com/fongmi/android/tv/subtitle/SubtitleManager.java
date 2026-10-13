@@ -114,7 +114,11 @@ public class SubtitleManager {
     /** 把本地字幕文件应用到播放器（Exo/MPV 通用），player 为 null 时跳过 */
     public static void applyToPlayer(PlayerManager player, File file) {
         try {
-            if (player != null && file != null) player.setSub(Sub.from(file.getAbsolutePath()));
+            if (player != null && file != null) {
+                player.setSub(Sub.from(file.getAbsolutePath()));
+                // 记录当前外挂字幕，供 AI 翻译使用
+                com.fongmi.android.tv.ai.AiSubtitleTranslator.setCurrentSubFile(file);
+            }
         } catch (Throwable ignored) {
         }
     }

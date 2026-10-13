@@ -29,6 +29,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
     private DialogEpisodeGridBinding binding;
     private List<Episode> episodes;
     private boolean reverse;
+    private boolean shortDrama;
     private int spanCount;
     private int itemCount;
 
@@ -51,6 +52,11 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
         return this;
     }
 
+    public EpisodeGridDialog shortDrama(boolean shortDrama) {
+        this.shortDrama = shortDrama;
+        return this;
+    }
+
     public void show(FragmentActivity activity) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) if (f instanceof EpisodeGridDialog) return;
@@ -64,9 +70,40 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        setSpanCount();
-        setTitles();
-        setPager();
+        if (shortDrama) {
+            initShortDramaView();
+        } else {
+            setSpanCount();
+            setTitles();
+            setPager();
+        }
+    }
+
+    private void initShortDramaView() {
+        // 短剧模式：隐藏分页，显示直接滚动列表，半屏高度
+        binding.tabs.setVisibility(View.GONE);
+        binding.pager.setVisibility(View.GONE);
+        binding.rvShortDrama.setVisibility(View.VISIBLE);
+        binding.column.setVisibility(View.GONE);
+        // 设置半屏高度
+        ViewGroup.LayoutParams params = binding.getRoot().getLayoutParams();
+        if (params != null) {
+            params.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.5);
+            binding.getRoot().setLayoutParams(params);
+        }
+        // 设置 RecyclerView
+        binding.rvShortDrama.setLayoutManager(new androidx.recyclerview.widget.GridLayoutManager(getContext(), 4));
+        java.util.ArrayList<Episode> items = new java.util.ArrayList<>();
+        if (episodes != null) {
+            if (reverse) java.util.Collections.reverse(episodes);
+            items.addAll(episodes);
+        }
+        EpisodeAdapter.OnClickListener listener = episode -> {
+            ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(episode);
+            dismiss();
+        };
+        EpisodeAdapter adapter = new EpisodeAdapter(listener, com.fongmi.android.tv.ui.base.ViewType.GRID, items);
+        binding.rvShortDrama.setAdapter(adapter);
     }
 
     @Override

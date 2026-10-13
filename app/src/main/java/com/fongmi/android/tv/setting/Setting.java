@@ -728,6 +728,47 @@ public class Setting {
         Prefers.put("adblock", adblock);
     }
 
+    public static java.util.List<String> getAdblockKeywords() {
+        String json = Prefers.getString("adblock_keywords", "[]");
+        try {
+            java.util.List<String> list = new java.util.ArrayList<>();
+            org.json.JSONArray array = new org.json.JSONArray(json);
+            for (int i = 0; i < array.length(); i++) {
+                list.add(array.optString(i));
+            }
+            return list;
+        } catch (Exception e) {
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    public static void putAdblockKeywords(java.util.List<String> keywords) {
+        try {
+            org.json.JSONArray array = new org.json.JSONArray();
+            for (String k : keywords) array.put(k);
+            Prefers.put("adblock_keywords", array.toString());
+        } catch (Exception e) {
+            Prefers.put("adblock_keywords", "[]");
+        }
+    }
+
+    public static void addAdblockKeyword(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return;
+        java.util.List<String> list = getAdblockKeywords();
+        String k = keyword.trim();
+        if (!list.contains(k)) {
+            list.add(k);
+            putAdblockKeywords(list);
+        }
+    }
+
+    public static void removeAdblockKeyword(String keyword) {
+        java.util.List<String> list = getAdblockKeywords();
+        if (list.remove(keyword)) {
+            putAdblockKeywords(list);
+        }
+    }
+
     public static boolean isZhuyin() {
         return Prefers.getBoolean("zhuyin");
     }

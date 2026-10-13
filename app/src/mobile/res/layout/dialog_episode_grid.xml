@@ -53,4 +53,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 
+    <!-- 短剧模式：直接滚动列表，无分页 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_short_drama"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone"
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="16dp" />
+
 </androidx.appcompat.widget.LinearLayoutCompat>

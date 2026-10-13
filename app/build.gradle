@@ -43,8 +43,8 @@ android {
         applicationId "com.XingChen.tv"
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
-        versionCode 3
-        versionName "1.1.0"
+        versionCode 15
+        versionName "1.2.2"
         buildConfigField "String", "BUILD_TIME", "\"${buildTime}\""
         buildConfigField "String", "BUILD_TAG", "\"${releaseTag}\""
         buildConfigField "String", "GIT_REVISION", "\"${gitRevision}\""
@@ -164,9 +164,12 @@ androidComponents {
 
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.aar"])
+    // sherpa-onnx: compileOnly，运行时通过插件动态加载，不打包进 APK
+    compileOnly files("libs-compile/sherpa-onnx.aar")
     implementation project(':catvod')
     implementation project(':chaquo')
     implementation project(':quickjs')
+    implementation project(':thunder')
     implementation libs.rhino
     implementation libs.appcompat
     implementation libs.lifecycle.service

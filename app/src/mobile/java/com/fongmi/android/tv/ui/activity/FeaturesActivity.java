@@ -40,6 +40,7 @@ public class FeaturesActivity extends BaseActivity {
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
+        refreshAi();
         binding.swMiniapp.setOnCheckedChangeListener((btn, checked) -> {
             getPrefs().edit().putBoolean(KEY_MINIAPP, checked).apply();
             refreshMiniApp();
@@ -48,6 +49,15 @@ public class FeaturesActivity extends BaseActivity {
         binding.cardAdblock.setOnClickListener(v -> AdBlockActivity.start(this));
         binding.cardTmdb.setOnClickListener(v -> TmdbActivity.start(this));
         binding.cardPanlogin.setOnClickListener(v -> PanLoginActivity.start(this));
+        binding.cardAi.setOnClickListener(v -> AiSettingsActivity.start(this));
+        binding.cardAiRecommend.setOnClickListener(v -> AiRecommendActivity.start(this));
+        binding.cardAiAsr.setOnClickListener(v -> {
+            if (AiAsrSettingsActivity.isSupported()) {
+                AiAsrSettingsActivity.start(this);
+            } else {
+                com.fongmi.android.tv.utils.Notify.show("当前设备不支持本地语音识别");
+            }
+        });
     }
 
     @Override
@@ -57,6 +67,7 @@ public class FeaturesActivity extends BaseActivity {
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
+        refreshAi();
     }
 
     private SharedPreferences getPrefs() {
@@ -81,5 +92,30 @@ public class FeaturesActivity extends BaseActivity {
         boolean enabled = isMiniAppEnabled(this);
         binding.swMiniapp.setChecked(enabled);
         binding.tvMiniappSub.setText(enabled ? "已启用" : "未启用");
+    }
+
+    private void refreshAi() {
+        binding.tvAiSub.setText(com.fongmi.android.tv.ai.AiStore.summary(this));
+        // 未配置 AI 时隐藏推荐入口
+        boolean hasAi = com.fongmi.android.tv.ai.AiStore.hasAny(this);
+        binding.cardAiRecommend.setVisibility(hasAi ? View.VISIBLE : View.GONE);
+        refreshAiAsr();
+    }
+
+    private void refreshAiAsr() {
+        // 本地字幕入口：只在支持的设备上显示
+        boolean supported = AiAsrSettingsActivity.isSupported();
+        binding.cardAiAsr.setVisibility(supported ? View.VISIBLE : View.GONE);
+        if (supported) {
+            boolean modelReady = com.fongmi.android.tv.ai.asr.AiAsrModelManager.isModelReady(this);
+            boolean enabled = com.fongmi.android.tv.ai.asr.AiAsrController.get().isEnabled(this);
+            if (enabled) {
+                binding.tvAiAsrSub.setText("已开启 · 本地识别中");
+            } else if (modelReady) {
+                binding.tvAiAsrSub.setText("模型已下载 · 点击管理");
+            } else {
+                binding.tvAiAsrSub.setText("无字幕时本地识别");
+            }
+        }
     }
 }

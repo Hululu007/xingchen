@@ -31,6 +31,10 @@ import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.databinding.FragmentHkContentBinding;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -122,14 +126,112 @@ public class HkContentFragment extends BaseFragment {
     @Override
     protected void initView() {
         initContentView();
+        if (!EventBus.getDefault().isRegistered(this)) {
+            EventBus.getDefault().register(this);
+        }
     }
 
     @Override
     public void onDestroyView() {
+        try {
+            EventBus.getDefault().unregister(this);
+        } catch (Throwable ignored) {
+        }
         super.onDestroyView();
         binding = null;
         contentGrid = null;
         viewInited = false;
+    }
+
+    /**
+     * 8.83 refreshPage(true) 对齐：内容列表回到顶部。
+     * 供 HkPageActivity 在消费 refreshPage 请求且 isRefreshToTop() 为 true 时调用。
+     */
+    public void scrollContentToTop() {
+        try {
+            if (binding != null && binding.rvVideos != null) {
+                binding.rvVideos.scrollToPosition(0);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 8.83 ArticleListFragment.onItemModify(26267) 对齐：JS 的 updateItem/deleteItem/
+     * deleteItemByCls 经 HkJsRuntime post ItemModifyEvent，内容页收到后就地更新已展示列表。
+     * （refreshPage 走 flag 整页重刷；addItem 系列走快照合并；此处补 UPDATE/DELETE 缺口。）
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onItemModify(com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent event) {
+        if (event == null || videos == null || videos.isEmpty()) return;
+        try {
+            com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action action = event.getAction();
+            if (action == com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.DELETE) {
+                boolean changed = false;
+                // 按 cls 删除（deleteItemByCls）
+                String cls = event.getCls();
+                if (!TextUtils.isEmpty(cls)) {
+                    for (int i = videos.size() - 1; i >= 0; i--) {
+                        HkItem it = videos.get(i);
+                        if (it != null && cls.equals(it.getColType())) {
+                            videos.remove(i);
+                            changed = true;
+                        }
+                    }
+                } else {
+                    // 按 id（url）删除（deleteItem）
+                    Object o = event.getArticleList();
+                    String id = itemIdOf(o);
+                    if (!TextUtils.isEmpty(id)) {
+                        for (int i = videos.size() - 1; i >= 0; i--) {
+                            HkItem it = videos.get(i);
+                            if (it != null && id.equals(it.getUrl())) {
+                                videos.remove(i);
+                                changed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (changed && contentAdapter != null) contentAdapter.notifyDataSetChanged();
+            } else if (action == com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.UPDATE) {
+                // 按 id（url）就地更新（updateItem）
+                Object o = event.getArticleList();
+                String id = itemIdOf(o);
+                if (!TextUtils.isEmpty(id) && o instanceof HkItem) {
+                    HkItem src = (HkItem) o;
+                    for (int i = 0; i < videos.size(); i++) {
+                        HkItem it = videos.get(i);
+                        if (it != null && id.equals(it.getUrl())) {
+                            copyItemFields(it, src);
+                            if (contentAdapter != null) contentAdapter.notifyDataSetChanged();
+                            break;
+                        }
+                    }
+                }
+            }
+            // ADD 走 HkPageActivity 的快照合并（mergeActionItems），此处不处理，避免重复。
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 取条目的 id（url 优先，与 HkJsRuntime.findResultIndex 一致）。 */
+    private static String itemIdOf(Object o) {
+        if (o instanceof HkItem) {
+            String u = ((HkItem) o).getUrl();
+            return u == null ? "" : u;
+        }
+        return "";
+    }
+
+    /** 把 src 的展示字段拷贝到 dst（就地更新，不替换对象引用）。 */
+    private static void copyItemFields(HkItem dst, HkItem src) {
+        if (dst == null || src == null) return;
+        if (src.getTitle() != null) dst.setTitle(src.getTitle());
+        if (src.getUrl() != null) dst.setUrl(src.getUrl());
+        if (src.getPic() != null) dst.setPic(src.getPic());
+        if (src.getDesc() != null) dst.setDesc(src.getDesc());
+        if (src.getColType() != null) dst.setColType(src.getColType());
     }
 
     // ================= Host 协作 =================

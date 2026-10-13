@@ -14,6 +14,7 @@ import com.github.catvod.utils.Util;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.orhanobut.logger.Logger;
+import org.greenrobot.eventbus.EventBus;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ConsString;
@@ -243,6 +244,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
+     * 扫码宿主回调（8.83 JSEngine.startQRScanPage:25977 对齐）。
+     * main 包不能引用 mobile 的 HkPageActivity/ScanActivity，由宿主 Activity 实现并注册。
+     */
+    public interface QrScanHost {
+        void startQrScan();
+    }
+
+    private static volatile QrScanHost qrScanHost;
+
+    public static void setQrScanHost(QrScanHost host) {
+        qrScanHost = host;
+    }
+
+    /**
      * 把 lambda 注册为 scope 上的全局函数（Rhino BaseFunction）。
      * 8.83 官方语义（JSEngine.smali）：桥接函数内不使用 Context.javaToJS
      * （22 处调用全在 runScript/evalJS 的 scope 全局注入）；Java 返回值靠 Rhino
@@ -266,9 +281,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
     }
 
-    /** 求值（替代 ctx.evaluate）。 */
+    /** 求值（替代 ctx.evaluate）。每次用新 scope，避免规则顶层 const 污染共享 scope。 */
     private Object evalJs(String js) {
-        return rhinoCx.evaluateString(scope, js, "hk", 1, null);
+        // 新 scope 以共享 scope 为原型，API 函数经原型链可访问，但顶层 const/let 声明隔离在新 scope 内
+        Scriptable newScope = rhinoCx.newObject(scope);
+        newScope.setPrototype(scope);
+        newScope.setParentScope(null);
+        return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
+    }
+
+    /** 在共享 scope 上直接求值（用于插件 JS 如 Hikerurl.js，需将 $ 等挂到共享 scope 供规则经原型链访问）。 */
+    private Object evalJsInSharedScope(String js) {
+        return rhinoCx.evaluateString(scope, js, "hk-plugin", 1, null);
     }
 
     /**
@@ -493,6 +517,31 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
+     * 8.83 StringUtil.searchContains 等价实现：
+     * text 为空返回 false，keyword 为空返回 true；
+     * ignoreCase 为 true 时转小写；keyword 按空格切分，多词需在 text 中按序包含。
+     */
+    private boolean hkSearchContains(String text, String keyword, boolean ignoreCase) {
+        if (text == null || text.isEmpty()) return false;
+        if (keyword == null || keyword.isEmpty()) return true;
+        if (ignoreCase) {
+            text = text.toLowerCase();
+            keyword = keyword.toLowerCase();
+        }
+        String[] parts = keyword.split(" ");
+        if (parts.length >= 2) {
+            int pos = 0;
+            for (String part : parts) {
+                int idx = text.indexOf(part, pos);
+                if (idx < 0) return false;
+                pos = idx + part.length();
+            }
+            return true;
+        }
+        return text.contains(keyword);
+    }
+
+    /**
      * JS 对象转 Map（用于 proxyClearM3u8 的 headers 参数解析）。
      * 支持 Rhino NativeObject 和 Java Map。
      */
@@ -576,7 +625,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // 库本身幂等（var CryptoJS = CryptoJS || ...），规则再 eval(getCryptoJS()) 无害
             try {
                 String cryptoJs = loadAsset("aes.js");
-                if (!TextUtils.isEmpty(cryptoJs)) evalJs(cryptoJs);
+                if (!TextUtils.isEmpty(cryptoJs)) evalJsInSharedScope(cryptoJs);
             } catch (Throwable e) {
                 Logger.t(TAG).d("inject CryptoJS failed: " + e.getMessage());
             }
@@ -585,7 +634,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // Hikerurl.js 引用官方 Java 类 com.example.hikerview..RequireUtils（模块缓存映射），
             // 宿主无此 Java 类时整文件求值失败导致 $ 残缺；先在 JS 层 stub 该命名空间（官方调用处有 try-catch）
             try {
-                evalJs(
+                evalJsInSharedScope(
                     "var com = (typeof com !== 'undefined') ? com : {};\n" +
                     "com.example = com.example || {};\n" +
                     "com.example.hikerview = com.example.hikerview || {};\n" +
@@ -597,7 +646,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     "com.example.hikerview.ui.rules.service.require.RequireUtils || { generateRequireMap: function() {} };\n"
                 );
                 String hikerUrlJs = loadAsset("Hikerurl.js");
-                if (!TextUtils.isEmpty(hikerUrlJs)) evalJs(hikerUrlJs);
+                if (!TextUtils.isEmpty(hikerUrlJs)) evalJsInSharedScope(hikerUrlJs);
             } catch (Throwable e) {
                 Logger.t(TAG).d("inject Hikerurl.js failed: " + e.getMessage());
             }
@@ -1143,6 +1192,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     if (idx >= 0) {
                         mergeItem(results.get(idx), m);
                         Logger.t(TAG).d("updateItem: %s", id);
+                        // 8.83 JSEngine.updateItem(26507)：post ItemModifyEvent(UPDATE) 经 EventBus，
+                        // 内容页收到后就地更新条目（parse 时直接改 results 已够；展示后需同步 UI）
+                        postItemModifyEvent(results.get(idx),
+                                com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.UPDATE, null);
                     }
                     if (collectRaw) {
                         for (Map<String, String> raw : rawResults) {
@@ -1171,9 +1224,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args != null && args.length > 0) {
                 String id = argStr(args[0]);
                 int idx = findResultIndex(id);
-                if (idx >= 0) results.remove(idx);
+                HkItem removed = null;
+                if (idx >= 0) removed = results.remove(idx);
                 if (collectRaw) rawResults.removeIf(r -> id.equals(r.get("url")));
                 Logger.t(TAG).d("deleteItem: %s", id);
+                // 8.83 JSEngine.deleteItem(13478)：post ItemModifyEvent(DELETE) 经 EventBus
+                if (removed != null) {
+                    postItemModifyEvent(removed,
+                            com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.DELETE, null);
+                }
             }
             return null;
         });
@@ -1183,6 +1242,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 results.removeIf(it -> cls.equals(it.getColType()));
                 if (collectRaw) rawResults.removeIf(r -> cls.equals(r.get("col_type")));
                 Logger.t(TAG).d("deleteItemByCls: %s", cls);
+                // 8.83 JSEngine.deleteItemByCls(13643)：post ItemModifyEvent(DELETE) + setCls 经 EventBus
+                postItemModifyEvent(null,
+                        com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.DELETE, cls);
             }
             return null;
         });
@@ -1435,20 +1497,79 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         //     options.timeout（1000-30000ms，默认 30000ms）；同步等待 CountDownLatch；返回源码字符串。
         //   executeWebRule(url, rule, options) (JSEngine.smali:15132，别名 ewr)：
         //     用 WebkitExecutor 在 WebView 里执行另一条 web 规则；同上超时机制；返回执行结果字符串。
-        // 依赖：8.83 的 WebkitFetcher/WebkitExecutor/WebkitRunner（WebView 基础设施，约2000+行）。
-        // 星辰暂无 WebView 后台抓取基础设施。完整移植需先搬运 Webkit* 类（Phase 2）。
-        stub("fcbw", "");
-        stub("ewr", "");
-        // 官方全名 stub
-        stub("fetchCodeByWebView", "");
-        stub("executeWebRule", "");
+        // 移植：HkWebkitFetcher（WebView 主线程加载 + CountDownLatch 同步等待，语义与 8.83 一致）
+        putFunction("fetchCodeByWebView", args -> {
+            try {
+                String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                if (url.isEmpty()) return "";
+                java.util.Map<String, Object> options = null;
+                if (args.length > 1 && args[1] instanceof java.util.Map) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[1];
+                    options = m;
+                }
+                return HkWebkitFetcher.fetchCodeByWebView(url, options);
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        putFunction("fcbw", args -> {
+            try {
+                String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                if (url.isEmpty()) return "";
+                java.util.Map<String, Object> options = null;
+                if (args.length > 1 && args[1] instanceof java.util.Map) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[1];
+                    options = m;
+                }
+                return HkWebkitFetcher.fetchCodeByWebView(url, options);
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        putFunction("executeWebRule", args -> {
+            try {
+                String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                String rule = args != null && args.length > 1 && args[1] != null ? String.valueOf(args[1]) : "";
+                if (url.isEmpty()) return "";
+                java.util.Map<String, Object> options = null;
+                if (args.length > 2 && args[2] instanceof java.util.Map) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[2];
+                    options = m;
+                }
+                return HkWebkitFetcher.executeWebRule(url, rule, options);
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        putFunction("ewr", args -> {
+            try {
+                String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                String rule = args != null && args.length > 1 && args[1] != null ? String.valueOf(args[1]) : "";
+                if (url.isEmpty()) return "";
+                java.util.Map<String, Object> options = null;
+                if (args.length > 2 && args[2] instanceof java.util.Map) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[2];
+                    options = m;
+                }
+                return HkWebkitFetcher.executeWebRule(url, rule, options);
+            } catch (Throwable t) {
+                return "";
+            }
+        });
         stub("cacheCode0", null);
         // setPageReverse：官方设置页面倒序标记；宿主存 kv 供规则自查
+        // 8.83 JSEngine.setPageReverse(4140)：post OnReversePageEvent(reverse) 经 EventBus，FilmListActivity.onSetReverse 接收后调 reverseArticleList
         putFunction("setPageReverse", args -> {
             try {
                 boolean rev = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
                 kv.put("__pageReverse", rev ? "1" : "0");
                 saveKv();
+                // 对齐 8.83：发 EventBus 事件，详情页收到后倒序列表
+                org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.OnReversePageEvent(rev));
             } catch (Throwable ignored) {
             }
             return null;
@@ -1625,8 +1746,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- 页面信息 ----
+        // setPageTitle：8.83 JSEngine.setPageTitle(2758)：post SetPageTitleEvent(title) 经 EventBus
         putFunction("setPageTitle", args -> {
-            if (args != null && args.length > 0) pageTitle = argStr(args[0]);
+            if (args != null && args.length > 0) {
+                pageTitle = argStr(args[0]);
+                try {
+                    org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.SetPageTitleEvent(pageTitle));
+                } catch (Throwable ignored) {
+                }
+            }
             return null;
         });
         putFunction("getPageTitle", args -> pageTitle);
@@ -1890,6 +2018,206 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
+        // openAppIntent(p, a, param, ruleTitleKey)：8.83 JSEngine.openAppIntent。
+        // 敏感操作，需用户授权。授权后解析 Intent 并启动外部应用。
+        putFunction("openAppIntent", args -> {
+            try {
+                String ruleTitle = rule != null ? rule.getTitle() : "";
+                final boolean[] result = {false};
+                boolean allowed = HkAuthManager.checkAuth(ruleTitle, "openAppIntent",
+                        "打开其他应用", () -> {
+                            try {
+                                android.content.Intent intent = new android.content.Intent();
+                                if (args != null && args.length > 0 && args[0] != null) {
+                                    String p = argStr(args[0]);
+                                    if (p.startsWith("http")) {
+                                        intent.setAction(android.content.Intent.ACTION_VIEW);
+                                        intent.setData(android.net.Uri.parse(p));
+                                    } else {
+                                        intent.setClassName(App.get(), p);
+                                    }
+                                }
+                                if (args != null && args.length > 1 && args[1] != null) {
+                                    intent.setAction(argStr(args[1]));
+                                }
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                                App.get().startActivity(intent);
+                                result[0] = true;
+                            } catch (Throwable e) {
+                                Logger.t(TAG).d("openAppIntent failed: %s", e.getMessage());
+                            }
+                        });
+                return allowed && result[0];
+            } catch (Throwable e) {
+                Logger.t(TAG).d("openAppIntent failed: %s", e.getMessage());
+                return false;
+            }
+        });
+        // publishRule(ruleJson, ruleTitleKey)：8.83 JSEngine.publishRule。
+        // 敏感操作，需用户授权。简化版：仅提示，完整发布逻辑待实现。
+        putFunction("publishRule", args -> {
+            try {
+                String ruleTitle = rule != null ? rule.getTitle() : "";
+                boolean allowed = HkAuthManager.checkAuth(ruleTitle, "publishRule",
+                        "发布/分享规则", () -> {
+                            try {
+                                android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+                                h.post(() -> android.widget.Toast.makeText(App.get(), "规则发布功能开发中", android.widget.Toast.LENGTH_SHORT).show());
+                            } catch (Throwable ignored) {
+                            }
+                        });
+                return null;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("publishRule failed: %s", e.getMessage());
+                return null;
+            }
+        });
+        // registerDNS(options, ruleTitleKey)：8.83 JSEngine.registerDNS。
+        // 敏感操作，需用户授权。options 为 JSON（含 dns/hosts 等）。
+        putFunction("registerDNS", args -> {
+            try {
+                String ruleTitle = rule != null ? rule.getTitle() : "";
+                boolean allowed = HkAuthManager.checkAuth(ruleTitle, "registerDNS",
+                        "设置自定义 DNS", () -> {
+                            try {
+                                if (args != null && args.length > 0 && args[0] != null) {
+                                    String json = argStr(args[0]);
+                                    Logger.t(TAG).d("registerDNS: %s", json);
+                                    // 简化版：记录日志，完整 DNS 注册待实现
+                                }
+                            } catch (Throwable e) {
+                                Logger.t(TAG).d("registerDNS apply failed: %s", e.getMessage());
+                            }
+                        });
+                return null;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("registerDNS failed: %s", e.getMessage());
+                return null;
+            }
+        });
+        // findJavaClass(p, c, so, ruleTitleKey)：8.83 JSEngine.findJavaClass。
+        // 高敏感操作（可执行任意代码），需用户明确授权。
+        putFunction("findJavaClass", args -> {
+            try {
+                String ruleTitle = rule != null ? rule.getTitle() : "";
+                final Object[] result = {null};
+                boolean allowed = HkAuthManager.checkAuth(ruleTitle, "findJavaClass",
+                        "加载 Java 类", () -> {
+                            try {
+                                String className = args != null && args.length > 1 ? argStr(args[1]) : "";
+                                if (!className.isEmpty()) {
+                                    result[0] = Class.forName(className);
+                                }
+                            } catch (Throwable e) {
+                                Logger.t(TAG).d("findJavaClass failed: %s", e.getMessage());
+                            }
+                        });
+                return allowed ? result[0] : null;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("findJavaClass failed: %s", e.getMessage());
+                return null;
+            }
+        });
+        // loadJavaClass(p, c, so, ruleTitleKey)：8.83 JSEngine.loadJavaClass。
+        // 高敏感操作（可执行任意代码），需用户明确授权。
+        putFunction("loadJavaClass", args -> {
+            try {
+                String ruleTitle = rule != null ? rule.getTitle() : "";
+                final Object[] result = {null};
+                boolean allowed = HkAuthManager.checkAuth(ruleTitle, "loadJavaClass",
+                        "从 URL 加载 Java 类", () -> {
+                            try {
+                                String className = args != null && args.length > 1 ? argStr(args[1]) : "";
+                                if (!className.isEmpty()) {
+                                    result[0] = Class.forName(className);
+                                }
+                            } catch (Throwable e) {
+                                Logger.t(TAG).d("loadJavaClass failed: %s", e.getMessage());
+                            }
+                        });
+                return allowed ? result[0] : null;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("loadJavaClass failed: %s", e.getMessage());
+                return null;
+            }
+        });
+        // back(refreshPage)：8.83 JSEngine.back：post OnBackEvent(refreshPage, false) 经 EventBus。
+        // 参数为 Boolean 时用其值，否则默认 true（8.83 语义）。
+        putFunction("back", args -> {
+            boolean refreshPage = true;
+            try {
+                if (args != null && args.length > 0) {
+                    Object o = argsNativeObjectAdjust(args[0]);
+                    if (o instanceof Boolean) {
+                        refreshPage = (Boolean) o;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.OnBackEvent(refreshPage, false));
+            } catch (Throwable e) {
+                Logger.t(TAG).d("back failed: %s", e.getMessage());
+            }
+            return null;
+        });
+        // backToHome()：8.83 JSEngine.backToHome：post BackMainEvent 经 EventBus（简化版，完整 Activity 栈管理为海阔特有）。
+        putFunction("backToHome", args -> {
+            try {
+                EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.video.BackMainEvent());
+            } catch (Throwable e) {
+                Logger.t(TAG).d("backToHome failed: %s", e.getMessage());
+            }
+            return null;
+        });
+        // getSearchMode()：8.83 JSEngine.getSearchMode：返回 Preference "smode"（默认 0）的字符串形式。
+        putFunction("getSearchMode", args -> {
+            try {
+                android.content.SharedPreferences sp = App.get().getSharedPreferences("hiker", android.content.Context.MODE_PRIVATE);
+                int mode = sp.getInt("smode", 0);
+                return String.valueOf(mode);
+            } catch (Throwable e) {
+                return "0";
+            }
+        });
+        // setSearchMode(mode)：8.83 JSEngine.setSearchMode：mode 为 0 或 1 时存入 Preference "smode"。
+        putFunction("setSearchMode", args -> {
+            try {
+                int mode = 0;
+                if (args != null && args.length > 0) {
+                    Object o = argsNativeObjectAdjust(args[0]);
+                    if (o instanceof Integer) {
+                        mode = (Integer) o;
+                    } else if (o instanceof Double) {
+                        mode = ((Double) o).intValue();
+                    }
+                }
+                if (mode == 0 || mode == 1) {
+                    App.get().getSharedPreferences("hiker", android.content.Context.MODE_PRIVATE)
+                            .edit().putInt("smode", mode).apply();
+                }
+            } catch (Throwable e) {
+                Logger.t(TAG).d("setSearchMode failed: %s", e.getMessage());
+            }
+            return null;
+        });
+        // searchContains(text, keyword, ignoreCase)：8.83 JSEngine.searchContains：
+        // text 为空返回 "false"，keyword 为空返回 "true"，否则按 ignoreCase 做包含匹配（keyword 按空格切分，多词需按序包含）。
+        putFunction("searchContains", args -> {
+            try {
+                String text = args != null && args.length > 0 ? argStr(args[0]) : "";
+                String keyword = args != null && args.length > 1 ? argStr(args[1]) : "";
+                boolean ignoreCase = false;
+                if (args != null && args.length > 2) {
+                    Object o = argsNativeObjectAdjust(args[2]);
+                    if (o instanceof Boolean) ignoreCase = (Boolean) o;
+                }
+                boolean result = hkSearchContains(text, keyword, ignoreCase);
+                return String.valueOf(result);
+            } catch (Throwable e) {
+                return "false";
+            }
+        });
         // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine.smali:22071），之前被 stub 为空函数
         putFunction("refresh", args -> {
             refreshRequested = true;
@@ -1897,12 +2225,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Logger.t(TAG).d("refresh(%s) requested (alias of refreshPage)", refreshToTop);
             return null;
         });
-        stub("setPageParams", null);
+        // setPageParams：8.83 JSEngine.setPageParams(2779)：post SetPageParamsEvent(t) 经 EventBus，FilmListActivity.onSetParams 接收后更新 rule params
+        putFunction("setPageParams", args -> {
+            try {
+                String params = args != null && args.length > 0 ? argStr(args[0]) : "";
+                if (params == null) params = "";
+                org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.SetPageParamsEvent(params));
+            } catch (Throwable ignored) {
+            }
+            return null;
+        });
         // 官方 setPagePicUrl(title)：发 SetPagePicEvent 更新页面配图；宿主存字段供上层取用
+        // 8.83 JSEngine.setPagePicUrl(2769)：post SetPagePicEvent(picUrl) 经 EventBus
         putFunction("setPagePicUrl", args -> {
             try {
                 pagePicUrl = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setPagePicUrl: %s", pagePicUrl);
+                org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.SetPagePicEvent(pagePicUrl));
             } catch (Throwable e) {
                 Logger.t(TAG).d("setPagePicUrl failed: %s", e.getMessage());
             }
@@ -1933,10 +2272,30 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("refreshVideoUrl", null);
         stub("refreshX5Desc", null);
         stub("refreshX5WebView", null);
-        stub("startQRScanPage", null);
+        // 8.83 JSEngine.startQRScanPage(25977)：请求相机权限后 startActivityForResult
+        // 扫码页（8.83 用 MyCaptureActivity，星辰用已有的 ScanActivity），扫码结果经
+        // onActivityResult → dealQRContent 处理。宿主（HkPageActivity）通过 setQrScanHost 注册。
+        putFunction("startQRScanPage", args -> {
+            try {
+                QrScanHost host = qrScanHost;
+                if (host != null) {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        try {
+                            host.startQrScan();
+                        } catch (Throwable t) {
+                            Logger.t(TAG).d("startQRScanPage failed: %s", t.getMessage());
+                        }
+                    });
+                } else {
+                    Logger.t(TAG).d("stub startQRScanPage called (no host registered)");
+                }
+            } catch (Throwable e) {
+                Logger.t(TAG).d("startQRScanPage failed: %s", e.getMessage());
+            }
+            return null;
+        });
         stub("createQRCode", null);
         stub("createQRCodeToFile", "");
-        stub("openAppIntent", false);
         stub("initChaquopy", null);
         // 文件/下载类（官方行为：saveImage 下载图片到 path；requireDownload 文件不存在才下载；
         // deleteCache(c) c=-1 清规则全部缓存否则按 url 清，宿主清内存缓存）
@@ -1989,12 +2348,35 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("writeHexFile", null);
         // 代理/服务类
         // startProxyServer：8.83 JSEngine.startProxyServer (JSEngine.smali:25880)。
-        //   语义：startProxyServer(js) 设置代理 JS，启动 AndServer 本地服务（30秒超时等待），
+        //   语义：startProxyServer(js) 设置代理 JS，启动本地服务（30秒超时等待），
         //   返回 serverUrl + "/proxy"。
-        //   依赖：8.83 的 RemoteServerManager + AndServer 库（com.yanzhenjie.andserver）。
-        //   星辰无 AndServer 依赖。完整移植需先引入 AndServer 并搬运 RemoteServerManager。
-        stub("startProxyServer", "");
-        stub("registerDNS", null);
+        //   8.83 用 RemoteServerManager + AndServer；星辰用 HkProxyServer（NanoHTTPD，
+        //   项目已有依赖），只实现 /proxy 端点（DLNA/web 管理属 App 壳子，不移植）。
+        putFunction("startProxyServer", args -> {
+            try {
+                String js = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                HkProxyServer server = HkProxyServer.instance();
+                server.setProxyJS(js);
+                server.setEvaluator(this);
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                try {
+                    if (server.isRunning()) {
+                        latch.countDown();
+                    } else {
+                        server.startServer();
+                        latch.countDown();
+                    }
+                } catch (Throwable t) {
+                    latch.countDown();
+                }
+                latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                String url = server.getServerUrl();
+                if (url == null || url.isEmpty()) return "";
+                return url + "/proxy";
+            } catch (Throwable t) {
+                return "";
+            }
+        });
         stub("addWebProxyRule", null);
         stub("removeWebProxyRule", null);
         stub("refreshWebProxyRule", null);
@@ -2028,6 +2410,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try {
                 lastChapterRule = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
                 Logger.t(TAG).d("setLastChapterRule: %d chars", lastChapterRule.length());
+                // 8.83 JSEngine.setLastChapterRule(2774)：post SetPageLastChapterRuleEvent(rule) 经 EventBus
+                org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.SetPageLastChapterRuleEvent(lastChapterRule));
             } catch (Throwable e) {
                 Logger.t(TAG).d("setLastChapterRule failed: %s", e.getMessage());
             }
@@ -2071,7 +2455,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return "[]";
             }
         });
-        stub("publishRule", null);
         putFunction("getRuleCount", args -> {
             try {
                 File dir = HkRuleManager.get().getDir();
@@ -2154,8 +2537,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         // Java 互操作（宿主不开放）
         stub("getCurrentActivity", null);
-        stub("findJavaClass", null);
-        stub("loadJavaClass", null);
         // 官方 getPrivateJS(c)：AES 加密（key=AES_DEFAULT_KEY="1234567890kkkk"）；
         // 宿主用同 key 的 AES/ECB/PKCS5Padding 实现（base64 输出），保证宿主内确定性
         putFunction("getPrivateJS", args -> {
@@ -2192,11 +2573,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("getMyJs", "");
         stub("syncExecute", null);
         // 首页子模块：8.83 JSEngine.getHomeSub/hasHomeSub (JSEngine.smali:17037/18002)
-        // 依赖 8.83 的 HomeRulesSubService.getSubRecords()（首页订阅服务），星辰无此服务。
         // 8.83 语义：getHomeSub() 返回订阅记录 JSON 数组；hasHomeSub(url) 返回 "true"/"false" 字符串。
-        // 宿主无订阅服务，保持安全默认值。完整移植需先搬运 HomeRulesSubService。
-        stub("hasHomeSub", false);
-        stub("getHomeSub", "[]");
+        // 移植：HkHomeSubService.getSubRecords()（SharedPreferences 存，语义与 8.83 BigTextDO.getHomeSub() 一致）
+        putFunction("getHomeSub", args -> {
+            try {
+                return new com.google.gson.Gson().toJson(HkHomeSubService.getSubRecords());
+            } catch (Throwable t) {
+                return "[]";
+            }
+        });
+        putFunction("hasHomeSub", args -> {
+            try {
+                String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                return HkHomeSubService.hasHomeSub(url);
+            } catch (Throwable t) {
+                return "false";
+            }
+        });
         // 应用信息（真实现）
         putFunction("getAppVersion", args -> {
             try {
@@ -2645,6 +3038,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (!TextUtils.isEmpty(pr)) item.setPreRule(pr);
         String r = str(m, "rule");
         if (!TextUtils.isEmpty(r)) item.setRule(r);
+    }
+
+    /**
+     * 8.83 JSEngine item 系列 API（updateItem/deleteItem/deleteItemByCls）经 EventBus
+     * post ItemModifyEvent，内容页收到后就地更新已展示列表（对齐 8.83 FilmListActivity/
+     * ArticleListFragment.onItemModify）。parse 时直接改 results 已够；展示后的规则
+     * 回调（如点击动作里调 updateItem）需经此链同步 UI。
+     */
+    private void postItemModifyEvent(HkItem item,
+            com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action action, String cls) {
+        try {
+            com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent e =
+                    new com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent(item, action);
+            if (cls != null) e.setCls(cls);
+            org.greenrobot.eventbus.EventBus.getDefault().post(e);
+        } catch (Throwable t) {
+            Logger.t(TAG).d("postItemModifyEvent failed: %s", t.getMessage());
+        }
     }
 
     /** addItemAfter/addItemBefore(id, obj)：在匹配 url 的条目之后/之前插入。 */

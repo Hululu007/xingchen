@@ -15,12 +15,16 @@ import com.fongmi.android.tv.ui.base.ViewType;
 import com.fongmi.android.tv.ui.holder.VodListHolder;
 import com.fongmi.android.tv.ui.holder.VodOvalHolder;
 import com.fongmi.android.tv.ui.holder.VodRectHolder;
+import com.fongmi.android.tv.utils.ShortDramaHelper;
+import com.fongmi.android.tv.utils.VideoDimensionFetcher;
 
 public class VodAdapter extends BaseDiffAdapter<Vod, BaseVodHolder> {
 
     private final OnClickListener listener;
     private Style style;
     private final int[] size;
+    /** 站点 key，用于判断是否为用户标记的短剧源（只对标记源预取视频尺寸） */
+    private String siteKey;
 
     public VodAdapter(OnClickListener listener, Style style, int[] size) {
         this.listener = listener;
@@ -43,6 +47,10 @@ public class VodAdapter extends BaseDiffAdapter<Vod, BaseVodHolder> {
         this.style = style;
     }
 
+    public void setSiteKey(String siteKey) {
+        this.siteKey = siteKey;
+    }
+
     @Override
     public int getItemViewType(int position) {
         String type = getItem(position).getStyle(style).getType();
@@ -53,7 +61,20 @@ public class VodAdapter extends BaseDiffAdapter<Vod, BaseVodHolder> {
 
     @Override
     public void onBindViewHolder(@NonNull BaseVodHolder holder, int position) {
-        holder.initView(getItem(position));
+        Vod item = getItem(position);
+        holder.initView(item);
+        // 短剧源后台预取视频尺寸：用户标记的源才预取，控制流量
+        // 注意：列表项通常无直链，此处为尽力而为；有 URL 时防抖预取
+        try {
+            if (siteKey != null && ShortDramaHelper.isSiteShortDrama(siteKey)
+                    || (siteKey != null && ShortDramaHelper.isPluginShortDramaBySite(siteKey))) {
+                String playUrl = item.getPlayUrl();
+                if (playUrl != null && !playUrl.isEmpty()) {
+                    VideoDimensionFetcher.preFetchDebounced(playUrl);
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

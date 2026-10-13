@@ -102,7 +102,17 @@ public class Danmaku {
 
     private static List<Danmaku> filter(List<Danmaku> items) {
         if (items == null) return Collections.emptyList();
-        return items.stream().filter(item -> item != null && !item.isEmpty()).collect(Collectors.toCollection(ArrayList::new));
+        return items.stream().filter(item -> item != null && !item.isEmpty() && !isAdKeyword(item.getName())).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private static boolean isAdKeyword(String text) {
+        if (!com.fongmi.android.tv.setting.Setting.isAdblock()) return false;
+        if (text == null || text.isEmpty()) return false;
+        java.util.List<String> keywords = com.fongmi.android.tv.setting.Setting.getAdblockKeywords();
+        for (String keyword : keywords) {
+            if (!keyword.isEmpty() && text.contains(keyword)) return true;
+        }
+        return false;
     }
 
     public static Danmaku from(String path) {

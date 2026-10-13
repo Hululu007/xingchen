@@ -23,6 +23,9 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ai.AiProvider;
+import com.fongmi.android.tv.ai.AiStore;
+import com.fongmi.android.tv.ai.AiSubtitleTranslator;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.databinding.DialogTrackBinding;
@@ -31,9 +34,19 @@ import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.ui.adapter.TrackAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.utils.FileChooser;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 
+import android.app.AlertDialog;
+import android.content.Context;
+import android.widget.ArrayAdapter;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.Spinner;
+import android.widget.TextView;
+
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -108,6 +121,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.choose.setOnClickListener(this::onChoose);
         binding.subtitle.setOnClickListener(this::onSubtitle);
         binding.search.setOnClickListener(this::onSearch);
+        binding.aiTranslate.setOnClickListener(this::onAiTranslate);
     }
 
     private void refreshTrackList() {
@@ -122,6 +136,9 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.choose.setVisibility(hasChoose() ? View.VISIBLE : View.GONE);
         binding.subtitle.setVisibility(hasText() ? View.VISIBLE : View.GONE);
         binding.search.setVisibility(hasChoose() ? View.VISIBLE : View.GONE);
+        binding.aiTranslate.setVisibility(hasText() && AiStore.hasAny(App.get()) ? View.VISIBLE : View.GONE);
+        // 已翻译状态：高亮按钮提示可恢复
+        binding.aiTranslate.setAlpha(AiSubtitleTranslator.isTranslatedActive() ? 1.0f : 0.7f);
     }
 
     private String getTitle() {
@@ -154,6 +171,216 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         if (activity == null) return;
         dismissAllowingStateLoss();
         SubtitleSearchDialog.create().player(player).restoreParent(true).show(activity);
+    }
+
+    // ---------------- AI 字幕翻译 ----------------
+
+    private AlertDialog translateProgressDialog;
+    private ProgressBar translateProgressBar;
+    private TextView translateProgressText;
+
+    private void onAiTranslate(View view) {
+        Context ctx = getContext();
+        if (ctx == null) return;
+        AiProvider provider = AiStore.resolveForFeature(ctx, AiStore.FEATURE_SUBTITLE);
+        if (provider == null) {
+            Notify.show("请先在 AI 设置中配置服务商");
+            return;
+        }
+        if (AiSubtitleTranslator.isTranslatedActive()) {
+            FragmentActivity activity = getActivity();
+            if (activity == null) return;
+            ChoiceDialog.showSingle(activity.getSupportFragmentManager(), "AI 字幕翻译",
+                    new CharSequence[]{"恢复原文", "重新翻译"}, -1, which -> {
+                        if (which == 0) restoreOriginalSubtitle();
+                        else startTranslateFlow();
+                    });
+            return;
+        }
+        startTranslateFlow();
+    }
+
+    private void startTranslateFlow() {
+        File subFile = AiSubtitleTranslator.getCurrentSubFile();
+        if (subFile == null || !subFile.exists()) {
+            Notify.show("请先加载外挂字幕文件");
+            return;
+        }
+        List<AiSubtitleTranslator.SubtitleLine> lines =
+                AiSubtitleTranslator.parseSrt(AiSubtitleTranslator.readFile(subFile));
+        if (lines.isEmpty()) {
+            Notify.show("字幕解析失败，仅支持 SRT 格式");
+            return;
+        }
+        FragmentActivity activity = getActivity();
+        if (activity == null) return;
+        final List<AiSubtitleTranslator.SubtitleLine> finalLines = lines;
+        final File finalFile = subFile;
+        showLangPairDialog(activity, (srcLang, targetLang) -> confirmTranslate(finalLines, finalFile, srcLang, targetLang));
+    }
+
+    /** 翻译语言选择：源语言下拉 + 目标语言下拉 */
+    private void showLangPairDialog(FragmentActivity activity, OnLangPairSelected onSelected) {
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = ResUtil.dp2px(24);
+        layout.setPadding(pad, pad / 2, pad, pad);
+
+        TextView srcLabel = new TextView(activity);
+        srcLabel.setText("源语言");
+        srcLabel.setTextSize(13);
+        srcLabel.setPadding(0, 0, 0, ResUtil.dp2px(6));
+        layout.addView(srcLabel);
+        Spinner srcSpinner = new Spinner(activity);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
+                android.R.layout.simple_spinner_item, AiSubtitleTranslator.LANG_NAMES);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        srcSpinner.setAdapter(adapter);
+        // 默认源语言：English
+        for (int i = 0; i < AiSubtitleTranslator.LANG_CODES.length; i++) {
+            if (AiSubtitleTranslator.LANG_EN.equals(AiSubtitleTranslator.LANG_CODES[i])) {
+                srcSpinner.setSelection(i);
+                break;
+            }
+        }
+        layout.addView(srcSpinner);
+
+        TextView dstLabel = new TextView(activity);
+        dstLabel.setText("目标语言");
+        dstLabel.setTextSize(13);
+        dstLabel.setPadding(0, ResUtil.dp2px(14), 0, ResUtil.dp2px(6));
+        layout.addView(dstLabel);
+        Spinner dstSpinner = new Spinner(activity);
+        dstSpinner.setAdapter(adapter);
+        // 默认目标语言：中文
+        dstSpinner.setSelection(0);
+        layout.addView(dstSpinner);
+
+        new AlertDialog.Builder(activity)
+                .setTitle("选择翻译语言")
+                .setView(layout)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("下一步", (dialog, which) -> {
+                    String srcLang = AiSubtitleTranslator.LANG_CODES[srcSpinner.getSelectedItemPosition()];
+                    String targetLang = AiSubtitleTranslator.LANG_CODES[dstSpinner.getSelectedItemPosition()];
+                    if (srcLang.equals(targetLang)) {
+                        Notify.show("源语言与目标语言相同，请重新选择");
+                        return;
+                    }
+                    onSelected.onSelected(srcLang, targetLang);
+                })
+                .create()
+                .show();
+    }
+
+    private interface OnLangPairSelected {
+        void onSelected(String srcLang, String targetLang);
+    }
+
+    private void confirmTranslate(List<AiSubtitleTranslator.SubtitleLine> lines, File subFile, String srcLang, String targetLang) {
+        FragmentActivity activity = getActivity();
+        if (activity == null) return;
+        int batches = AiSubtitleTranslator.getBatchCount(lines.size());
+        String msg = "共 " + lines.size() + " 条字幕（" + AiSubtitleTranslator.langDisplayName(srcLang)
+                + " → " + AiSubtitleTranslator.langDisplayName(targetLang) + "），将消耗约 " + batches + " 次 AI 调用，是否继续？";
+        ChoiceDialog.showConfirm(activity.getSupportFragmentManager(), "AI 字幕翻译", msg, "开始翻译", () -> doTranslate(lines, subFile, srcLang, targetLang));
+    }
+
+    private void doTranslate(List<AiSubtitleTranslator.SubtitleLine> lines, File subFile, String srcLang, String targetLang) {
+        FragmentActivity activity = getActivity();
+        if (activity == null) return;
+        dismissAllowingStateLoss();
+        showTranslateProgress(lines.size());
+        String tag = srcLang + "2" + targetLang;
+        AiSubtitleTranslator.translate(activity, lines, srcLang, targetLang, new AiSubtitleTranslator.Callback() {
+            @Override
+            public void onProgress(int done, int total) {
+                // TrackDialog 已关闭，用捕获的 activity 引用更新进度
+                activity.runOnUiThread(() -> updateTranslateProgress(done, total));
+            }
+
+            @Override
+            public void onDone(List<AiSubtitleTranslator.SubtitleLine> translated) {
+                activity.runOnUiThread(() -> {
+                    dismissTranslateProgress();
+                    applyTranslated(activity, translated, subFile, tag);
+                });
+            }
+
+            @Override
+            public void onError(String msg) {
+                activity.runOnUiThread(() -> {
+                    dismissTranslateProgress();
+                    Notify.show("翻译失败：" + msg);
+                });
+            }
+        });
+    }
+
+    private void applyTranslated(FragmentActivity activity, List<AiSubtitleTranslator.SubtitleLine> translated, File original, String tag) {
+        String srt = AiSubtitleTranslator.toSrt(translated);
+        File out = AiSubtitleTranslator.writeTranslatedSrt(activity, srt, tag);
+        if (out == null) {
+            Notify.show("字幕文件写入失败");
+            return;
+        }
+        AiSubtitleTranslator.onTranslated(out, original);
+        if (player != null) player.setSub(Sub.from(out.getAbsolutePath()));
+        Notify.show("翻译完成，已替换字幕");
+    }
+
+    private void restoreOriginalSubtitle() {
+        File original = AiSubtitleTranslator.getOriginalFile();
+        if (original == null || !original.exists()) {
+            Notify.show("原文文件不存在");
+            return;
+        }
+        AiSubtitleTranslator.onRestored();
+        if (player != null) player.setSub(Sub.from(original.getAbsolutePath()));
+        Notify.show("已恢复原文");
+        dismissAllowingStateLoss();
+    }
+
+    private void showTranslateProgress(int total) {
+        FragmentActivity activity = getActivity();
+        if (activity == null) return;
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = ResUtil.dp2px(24);
+        layout.setPadding(pad, pad / 2, pad, pad);
+        translateProgressText = new TextView(activity);
+        translateProgressText.setText("正在翻译 (0/" + total + ")…");
+        translateProgressText.setTextSize(14);
+        translateProgressText.setPadding(0, 0, 0, ResUtil.dp2px(12));
+        layout.addView(translateProgressText);
+        translateProgressBar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
+        translateProgressBar.setMax(total);
+        translateProgressBar.setProgress(0);
+        layout.addView(translateProgressBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        translateProgressDialog = new AlertDialog.Builder(activity)
+                .setTitle("AI 字幕翻译")
+                .setView(layout)
+                .setCancelable(false)
+                .create();
+        translateProgressDialog.show();
+    }
+
+    private void updateTranslateProgress(int done, int total) {
+        if (translateProgressBar != null) translateProgressBar.setProgress(done);
+        if (translateProgressText != null) translateProgressText.setText("正在翻译 (" + done + "/" + total + ")…");
+    }
+
+    private void dismissTranslateProgress() {
+        if (translateProgressDialog != null) {
+            try {
+                translateProgressDialog.dismiss();
+            } catch (Exception ignored) {
+            }
+            translateProgressDialog = null;
+        }
+        translateProgressBar = null;
+        translateProgressText = null;
     }
 
     private List<Track> getTrack() {
@@ -209,7 +436,10 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
 
     private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
-        player.setSub(Sub.from(FileChooser.getPathFromUri(result.getData().getData())));
+        String path = FileChooser.getPathFromUri(result.getData().getData());
+        player.setSub(Sub.from(path));
+        // 记录当前外挂字幕，供 AI 翻译使用
+        if (path != null) AiSubtitleTranslator.setCurrentSubFile(new File(path));
         dismiss();
     });
 

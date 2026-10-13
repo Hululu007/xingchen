@@ -38,14 +38,22 @@ import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
+import com.fongmi.android.tv.api.hk.event.home.OnReversePageEvent;
+import com.fongmi.android.tv.api.hk.event.home.SetPageLastChapterRuleEvent;
+import com.fongmi.android.tv.api.hk.event.home.SetPageParamsEvent;
+import com.fongmi.android.tv.api.hk.event.home.SetPageTitleEvent;
 import com.fongmi.android.tv.databinding.FragmentHkDetailBinding;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -124,19 +132,250 @@ public class HkDetailFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        EventBus.getDefault().register(this);
         initDetailView();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        try {
+            EventBus.getDefault().unregister(this);
+        } catch (Throwable ignored) {
+        }
         hideLoadingHint();
         binding = null;
+    }
+
+    /**
+     * 8.83 FilmListActivity.onSetReverse：收到 OnReversePageEvent 后倒序详情列表。
+     * 对应 JS API setPageReverse(reverse) 的行为。
+     * 8.83 原文还会写 hiker_reverse 到 rule params 并刷页；此处直接倒序内存列表并刷新 UI，
+     * 语义等价（列表已在内存，无需重新抓取）。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onReversePage(OnReversePageEvent event) {
+        if (event == null || detailItems.isEmpty()) return;
+        // 只有当前确实需要改变顺序时才倒序（避免重复调用来回翻）
+        boolean isReversed = isDetailReversed();
+        if (event.isReverse() == isReversed) return;
+        Collections.reverse(detailItems);
+        setDetailReversed(event.isReverse());
+        if (detailAdapter != null) detailAdapter.notifyDataSetChanged();
+    }
+
+    /**
+     * 8.83 FilmListActivity.onSetParams：收到 SetPageParamsEvent 后更新规则 params。
+     * 对应 JS API setPageParams(t) 的行为。
+     * 8.83 原文：articleListRule.setParams() + articleListFragment.updateParams() + 更新 ruleData JSON。
+     * 此处更新当前详情规则的 params 字段，供后续逻辑（如翻页、刷新）使用。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onSetPageParams(SetPageParamsEvent event) {
+        if (event == null || event.getParams() == null) return;
+        try {
+            HkRule rule = hostRule();
+            if (rule != null) {
+                rule.setParams(event.getParams());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 8.83 FilmListActivity.onSetTitle：收到 SetPageTitleEvent 后更新页面标题。
+     * 对应 JS API setPageTitle(title) 的行为。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onSetPageTitle(SetPageTitleEvent event) {
+        if (event == null || event.getTitle() == null || binding == null) return;
+        try {
+            binding.tvDetailTitle.setText(event.getTitle());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 8.83 FilmListActivity.onSetLastChapterRule：收到 SetPageLastChapterRuleEvent 后更新规则的最新章节规则。
+     * 对应 JS API setLastChapterRule(rule) 的行为。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onSetLastChapterRule(SetPageLastChapterRuleEvent event) {
+        if (event == null || event.getRule() == null) return;
+        try {
+            HkRule rule = hostRule();
+            if (rule != null) {
+                rule.setLastChapterRule(event.getRule());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 详情列表当前是否处于倒序状态（内存标记）。 */
+    private boolean detailReversed = false;
+
+    private boolean isDetailReversed() {
+        return detailReversed;
+    }
+
+    /**
+     * 8.83 FilmListActivity.isHasCollect(1462) 对齐：当前详情页是否已收藏。
+     * 查询键：CUrl（详情页 URL）+ MTitle（标题）。
+     */
+    private boolean isHasCollect() {
+        try {
+            String url = hkRuleUrl();
+            String title = currentDetail != null ? currentDetail.getTitle() : null;
+            if (title == null && binding != null && binding.tvDetailTitle != null) {
+                CharSequence cs = binding.tvDetailTitle.getText();
+                title = cs == null ? null : cs.toString();
+            }
+            return com.fongmi.android.tv.api.hk.HkCollectService.isHasCollect(url, title);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * 8.83 FilmListActivity.collectOrUpdate(787)/cancelCollectOrUpdate 对齐：
+     * 长按标题：未收藏 → 弹"新增收藏"编辑框（BookmarkEditPopup：标题/链接/分组）；
+     * 已收藏 → 弹选项（"更新收藏"/"取消收藏"，对照 8.83 长按收藏项的 XPopup 选项框）。
+     */
+    private void toggleCollect() {
+        try {
+            String url = hkRuleUrl();
+            if (TextUtils.isEmpty(url)) {
+                Toast.makeText(requireContext(), "无法收藏：页面地址为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String title = currentDetail != null ? currentDetail.getTitle() : null;
+            if (TextUtils.isEmpty(title) && binding != null && binding.tvDetailTitle != null) {
+                CharSequence cs = binding.tvDetailTitle.getText();
+                title = cs == null ? "" : cs.toString();
+            }
+            final String fUrl = url;
+            final String fTitle = title == null ? "" : title;
+            if (com.fongmi.android.tv.api.hk.HkCollectService.isHasCollect(fUrl, fTitle)) {
+                showCollectOptions(fUrl, fTitle);
+            } else {
+                showCollectEditPopup("新增收藏", fTitle, fUrl, defaultCollectGroup());
+            }
+        } catch (Throwable t) {
+            try {
+                Toast.makeText(requireContext(), "收藏失败", Toast.LENGTH_SHORT).show();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 8.83 cancelCollectOrUpdate 的"取消收藏/更新收藏"选项框对齐。 */
+    private void showCollectOptions(String url, String title) {
+        try {
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setItems(new String[]{"更新收藏", "取消收藏"}, (d, which) -> {
+                        if (which == 0) {
+                            com.fongmi.android.tv.api.hk.HkViewCollection r =
+                                    com.fongmi.android.tv.api.hk.HkCollectService.find(url, title);
+                            showCollectEditPopup("更新收藏", title, url,
+                                    r != null && !TextUtils.isEmpty(r.getGroup()) ? r.getGroup() : defaultCollectGroup());
+                        } else {
+                            com.fongmi.android.tv.api.hk.HkCollectService.cancelCollect(url, title);
+                            Toast.makeText(requireContext(), "已取消收藏", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 当前收藏记录的分组列表（8.83 DataSourceUtil.getCollectionGroups 对齐）。 */
+    private java.util.List<String> collectGroups() {
+        java.util.List<String> groups = new java.util.ArrayList<>();
+        try {
+            for (com.fongmi.android.tv.api.hk.HkViewCollection r
+                    : com.fongmi.android.tv.api.hk.HkCollectService.getAll()) {
+                if (r != null && !TextUtils.isEmpty(r.getGroup()) && !groups.contains(r.getGroup())) {
+                    groups.add(r.getGroup());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return groups;
+    }
+
+    private String defaultCollectGroup() {
+        HkRule rule = hostRule();
+        return rule != null && !TextUtils.isEmpty(rule.getGroup()) ? rule.getGroup() : "";
+    }
+
+    /** 8.83 BookmarkEditPopup 收藏编辑框：确认后校验标题非空，写入收藏。 */
+    private void showCollectEditPopup(String dialogTitle, String titleDefault, String url, String groupDefault) {
+        try {
+            com.fongmi.android.tv.api.hk.HkBookmarkEditPopup.showForCollect(
+                    requireActivity(), dialogTitle, titleDefault, url, groupDefault,
+                    collectGroups(),
+                    (t, u, icon, group) -> {
+                        if (TextUtils.isEmpty(t)) {
+                            Toast.makeText(requireContext(), "请输入标题，不能为空", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        com.fongmi.android.tv.api.hk.HkViewCollection r =
+                                new com.fongmi.android.tv.api.hk.HkViewCollection();
+                        r.setCUrl(u);
+                        r.setMTitle(t);
+                        r.setMITitle(t);
+                        r.setGroup(group);
+                        if (currentDetail != null) {
+                            r.setPicUrl(currentDetail.getPic());
+                            r.setDesc(currentDetail.getContent());
+                        }
+                        com.fongmi.android.tv.api.hk.HkCollectService.collectOrUpdate(r);
+                        Toast.makeText(requireContext(),
+                                "新增收藏".equals(dialogTitle) ? "已收藏" : "已更新收藏",
+                                Toast.LENGTH_SHORT).show();
+                    });
+        } catch (Throwable t) {
+            try {
+                Toast.makeText(requireContext(), "收藏失败", Toast.LENGTH_SHORT).show();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void setDetailReversed(boolean reversed) {
+        this.detailReversed = reversed;
     }
 
     private void initDetailView() {
         binding.btnBackDetail.setOnClickListener(v -> host().hostNavigateBack());
         binding.tvDetailTitle.setSelected(true);
+        // 8.83 详情页收藏（collectOrUpdate/cancelCollectOrUpdate）：长按标题
+        // → 未收藏弹"新增收藏"编辑框（BookmarkEditPopup），已收藏弹"更新收藏/取消收藏"选项
+        binding.tvDetailTitle.setOnLongClickListener(v -> {
+            toggleCollect();
+            return true;
+        });
+        // 8.83 FilmListActivity.setDoubleTab(412)：双击标题栏 → 在顶部则滚到底部，否则滚到顶部
+        final android.view.GestureDetector doubleTapDetector = new android.view.GestureDetector(
+                requireContext(),
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onDoubleTap(android.view.MotionEvent e) {
+                        if (binding == null || binding.rvDetailContent == null) return true;
+                        if (!binding.rvDetailContent.canScrollVertically(-1)) {
+                            int count = binding.rvDetailContent.getAdapter() != null
+                                    ? binding.rvDetailContent.getAdapter().getItemCount() : 0;
+                            if (count > 0) binding.rvDetailContent.smoothScrollToPosition(count - 1);
+                        } else {
+                            binding.rvDetailContent.smoothScrollToPosition(0);
+                        }
+                        return true;
+                    }
+                });
+        binding.tvDetailTitle.setOnTouchListener((v, event) -> {
+            doubleTapDetector.onTouchEvent(event);
+            return false; // 不消费事件，保证长按收藏等原有手势正常
+        });
         // 8.83 原版：详情页走通用列表渲染器（60 列栅格 + ContentAdapter），不用专用布局
         detailGrid = new GridLayoutManager(requireContext(), 60);
         detailGrid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -512,6 +751,8 @@ public class HkDetailFragment extends Fragment {
         List<HkItem> items = buildDetailHkItems(detail);
         detailItems.clear();
         detailItems.addAll(items);
+        // 新内容加载：重置倒序标记（8.83 reverseArticleList 按规则 params 的 hiker_reverse 决定，此处简化为内存标记）
+        detailReversed = false;
         detailAdapter.refreshGroups();
         detailAdapter.notifyDataSetChanged();
         binding.rvDetailContent.setVisibility(View.VISIBLE);
@@ -1640,6 +1881,16 @@ public class HkDetailFragment extends Fragment {
                     }
                 }
                 h.desc.setMaxLines(longText ? 60 : 5);
+            }
+            // 简介折叠：long_text 长文本点击切换折叠/展开
+            if (longText && h.desc != null) {
+                h.desc.setTag(R.id.tv_desc, Boolean.FALSE);
+                h.desc.setOnClickListener(v -> {
+                    Boolean expanded = (Boolean) v.getTag(R.id.tv_desc);
+                    boolean isExpanded = expanded != null && expanded;
+                    v.setTag(R.id.tv_desc, !isExpanded);
+                    ((TextView) v).setMaxLines(isExpanded ? 5 : 60);
+                });
             }
             setContentClick(h, item);
         }

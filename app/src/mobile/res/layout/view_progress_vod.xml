@@ -22,6 +22,7 @@
             android:shadowRadius="8"
             android:text="@string/player_loading_hint"
             android:textColor="@color/white"
+            android:visibility="gone"
             android:textSize="18sp" />
 
         <com.google.android.material.textview.MaterialTextView

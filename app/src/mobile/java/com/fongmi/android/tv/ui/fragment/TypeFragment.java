@@ -165,6 +165,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
 
     private void setStyle(Style style) {
         mBinding.recycler.setAdapter(mAdapter = new VodAdapter(this, style, Product.getSpec(requireActivity(), style)));
+        mAdapter.setSiteKey(getKey());
         mBinding.recycler.setLayoutManager(style.isList() ? new LinearLayoutManager(requireActivity()) : new GridLayoutManager(getContext(), Product.getColumn(requireActivity(), style)));
         if (mBinding.recycler.getLayoutManager() instanceof GridLayoutManager) {
             ((GridLayoutManager) mBinding.recycler.getLayoutManager()).setInitialPrefetchItemCount(6);
@@ -251,7 +252,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             getParent().openFolder(item.getId(), mExtends);
         } else {
             if (getSite().isIndex()) SearchActivity.start(requireActivity(), item.getName());
-            else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName()) || CoverRatioCache.isShortDramaCover(item.getPic())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
+            else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);
         }
     }
@@ -311,6 +312,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             if (styleChanged || columnChanged) {
                 java.util.List<com.fongmi.android.tv.bean.Vod> data = new java.util.ArrayList<>(mAdapter.getItems());
                 mAdapter = new VodAdapter(this, newStyle, com.fongmi.android.tv.Product.getSpec(requireActivity(), newStyle));
+                mAdapter.setSiteKey(getKey());
                 mAdapter.setItems(data);
                 mBinding.recycler.setAdapter(mAdapter);
                 if (newStyle.isList()) {

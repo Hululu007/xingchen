@@ -978,6 +978,7 @@ public class HkRuleManager {
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
         if (files == null) return list;
         Gson gson = new Gson();
+        java.util.Set<String> seenTitles = new java.util.HashSet<>();
         for (File f : files) {
             try {
                 byte[] bytes = Files.readAllBytes(f.toPath());
@@ -989,6 +990,8 @@ public class HkRuleManager {
                     if (fn.endsWith(".json")) fn = fn.substring(0, fn.length() - 5);
                     if (!fn.isEmpty() && !"unnamed".equals(fn)) rule.setTitle(fn);
                 }
+                // 去重：跳过重复标题的规则（保留第一个）
+                if (!seenTitles.add(rule.getTitle())) continue;
                 rule.setEnabled(isEnabled(rule.getTitle()));
                 list.add(rule);
             } catch (Exception e) {

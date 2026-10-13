@@ -76,6 +76,51 @@ public final class SubtitleDialog extends BaseBottomSheetDialog {
         binding.large.setOnClickListener(this::onLarge);
         binding.small.setOnClickListener(this::onSmall);
         binding.reset.setOnClickListener(this::onReset);
+        binding.aiSubtitle.setOnClickListener(this::onAiSubtitle);
+        refreshAiSubtitle();
+    }
+
+    private void onAiSubtitle(View view) {
+        if (getActivity() == null) return;
+        // 只在支持的设备上显示
+        if (!com.fongmi.android.tv.ai.asr.AiAsrPluginManager.isSupported()) {
+            com.fongmi.android.tv.utils.Notify.show("当前设备不支持本地语音识别");
+            return;
+        }
+        com.fongmi.android.tv.ai.asr.AiAsrController.get().toggle(getActivity(),
+                new com.fongmi.android.tv.ai.asr.AiAsrController.ToggleCallback() {
+                    @Override
+                    public void onPreparing(String msg) {
+                        com.fongmi.android.tv.utils.Notify.show(msg);
+                    }
+
+                    @Override
+                    public void onEnabled() {
+                        com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已开启");
+                        refreshAiSubtitle();
+                    }
+
+                    @Override
+                    public void onDisabled() {
+                        com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已关闭");
+                        refreshAiSubtitle();
+                    }
+
+                    @Override
+                    public void onError(String msg) {
+                        com.fongmi.android.tv.utils.Notify.show(msg);
+                    }
+                });
+    }
+
+    private void refreshAiSubtitle() {
+        if (getActivity() == null || binding.aiSubtitle == null) return;
+        try {
+            boolean enabled = com.fongmi.android.tv.ai.asr.AiAsrController.get()
+                    .isEnabled(getActivity());
+            binding.aiSubtitle.setText(enabled ? "AI·开" : "AI·本地");
+            binding.aiSubtitle.setTextColor(enabled ? 0xFFE8A33D : 0xB3000000);
+        } catch (Exception ignored) {}
     }
 
     private void onUp(View view) {

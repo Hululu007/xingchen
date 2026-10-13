@@ -460,10 +460,9 @@ public class ImgUtil {
     }
 
     private static Drawable getTextDrawable(String text, boolean vod) {
-        TextDrawable.Builder builder = new TextDrawable.Builder();
-        text = TextUtils.isEmpty(text) ? "！" : text.substring(0, 1);
-        if (vod) builder.buildRect(text, ColorGenerator.get400(text));
-        return builder.buildRoundRect(text, ColorGenerator.get400(text), ResUtil.dp2px(4));
+        // 透明占位：不显示任何占位图，等图片加载完成直接显示
+        android.graphics.drawable.ColorDrawable drawable = new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
+        return drawable;
     }
 
     private static RequestListener<Drawable> getListener(String text, String url, ImageView view, boolean vod) {

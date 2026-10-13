@@ -35,11 +35,12 @@ public class XingChenDoh {
     public static void apply(Context context) {
         try {
             if (getIndex(context) == 0) {
-                // 系统模式：不启用 DoH，传空 URL 的 Doh 使 OkDns 走 Dns.SYSTEM（跟默影视一致）
-                OkHttp.dns().setDoh(new Doh().name(NAMES[0]).url(""));
+                // 系统模式：清除 DoH，直接走系统 DNS
+                OkHttp.dns().clearDoh();
             } else {
                 OkHttp.dns().setDoh(toDoh(context));
             }
+            // 注意：不要在这里 resetClients，会把封面搞没（1.1.8 教训）
         } catch (Throwable t) {
             t.printStackTrace();
         }

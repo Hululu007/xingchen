@@ -70,6 +70,18 @@
 
     </androidx.appcompat.widget.LinearLayoutCompat>
 
+    <!-- AI 智能搜片提示（仅配置 AI 时显示） -->
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/aiHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="2dp"
+        android:text="✨ 试试说：周星驰的喜剧电影"
+        android:textColor="#8A9199"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
     <!-- Search suggestions (联想) -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/wordRecycler"

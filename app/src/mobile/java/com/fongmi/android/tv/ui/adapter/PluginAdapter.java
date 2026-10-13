@@ -40,6 +40,15 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         holder.cbSelect.setChecked(p.isSelected());
         holder.switchEnable.setChecked(p.isEnabled());
         
+        // 长按切换短剧标记（替代原来难看的"短剧"文字按钮）
+        String fileName = new File(p.getPath()).getName();
+        holder.itemView.setOnLongClickListener(v -> {
+            boolean next = !ShortDramaHelper.isPluginShortDrama(fileName);
+            ShortDramaHelper.setPluginShortDrama(fileName, next);
+            Toast.makeText(v.getContext(), next ? "已标记为短剧源" : "已取消短剧标记", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        
         holder.cbSelect.setOnCheckedChangeListener((btn, checked) -> {
             p.setSelected(checked);
         });
@@ -54,16 +63,6 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             plugins.remove(position);
             notifyItemRemoved(position);
             if (onChanged != null) onChanged.run();
-        });
-
-        // 短剧标记（跟插件文件名绑定，点一下切换）
-        String fileName = new File(p.getPath()).getName();
-        updateShortDramaBadge(holder.tvShortDrama, fileName);
-        holder.tvShortDrama.setOnClickListener(v -> {
-            boolean next = !ShortDramaHelper.isPluginShortDrama(fileName);
-            ShortDramaHelper.setPluginShortDrama(fileName, next);
-            updateShortDramaBadge(holder.tvShortDrama, fileName);
-            Toast.makeText(v.getContext(), next ? "已标记为短剧源" : "已取消短剧标记", Toast.LENGTH_SHORT).show();
         });
     }
 

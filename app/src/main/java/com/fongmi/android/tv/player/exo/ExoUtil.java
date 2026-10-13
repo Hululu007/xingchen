@@ -878,6 +878,13 @@ public class ExoUtil {
                         enableAudioOutputPlaybackParams)
                 .setAudioOutputProvider(
                         ExoDiagnosticAudioOutput.provider(directPolicy.wrapOutputProvider(outputProvider, diagnostics), diagnostics));
+        // AI 本地字幕：注入音频采集处理器（passthrough，不影响播放；仅 AI 字幕开启时采集）
+        try {
+            builder.setAudioProcessors(
+                    new androidx.media3.common.audio.AudioProcessor[]{com.fongmi.android.tv.ai.asr.AiAsrController.get().getAudioProcessor()});
+        } catch (Throwable ignored) {
+            // AI 模块异常不影响音频链路
+        }
         return ExoDiagnosticAudioOutput.sink(builder.build(), diagnostics);
     }
 

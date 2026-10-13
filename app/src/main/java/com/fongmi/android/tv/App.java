@@ -98,6 +98,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
     public void onCreate() {
         super.onCreate();
         try { com.xingchen.tv.theme.ThemeManager.init(this); } catch (Exception e) {}
+        try { com.fongmi.android.tv.ai.AiActivityTracker.init(this); } catch (Exception e) {}
         if (PlaybackRecoveryMonitor.isRecoveryProcess(this)) return;
         PlaybackMemoryMonitor.process().initialize(this);
         PlaybackSystemConditionMonitor.process().initialize(this);

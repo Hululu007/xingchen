@@ -251,6 +251,8 @@ public class HealthActivity extends BaseActivity {
                 // 逐站点缓存，供下次进入直接显示
                 if (item.status >= SiteItem.STATUS_OK && item.status <= SiteItem.STATUS_UNSUPPORTED) {
                     results.put(item.key, item.status);
+                    // 同步到源列表的健康状态
+                    com.fongmi.android.tv.setting.SiteHealthStore.recordManualCheck(item.key, item.status == SiteItem.STATUS_OK);
                 }
             }
             getSharedPreferences("xingchen", MODE_PRIVATE).edit()

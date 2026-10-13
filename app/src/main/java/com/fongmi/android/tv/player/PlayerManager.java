@@ -737,6 +737,11 @@ public class PlayerManager implements ParseCallback {
         return playerType;
     }
 
+    /** 当前播放的 PlaySpec（含 URL 与请求头，供 AI 本地字幕 MPV 影子采集使用） */
+    public PlaySpec getSpec() {
+        return spec;
+    }
+
     public String getLutText() {
         return LutSetting.getButtonText();
     }

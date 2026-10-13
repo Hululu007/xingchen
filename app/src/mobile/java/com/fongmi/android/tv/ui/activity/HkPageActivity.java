@@ -111,6 +111,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     private static final int V_SEARCH = 2;
     private static final int V_DETAIL = 3;
     private static final int REQ_IMPORT_FILE = 0x101;
+    /** 8.83 JSEngine.startQRScanPage 的 startActivityForResult 请求码（8.83 用 0x961）。 */
+    private static final int REQ_QR_SCAN = 0x961;
     private static final String PREFS = "xingchen";
     private static final String KEY_HIST = "hk_search_history";
     private static final String KEY_LAST_CLIP = "hk_last_clip_prompt";
@@ -237,6 +239,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 8.83 startQRScanPage：JS 扫码 API 的宿主回调（HkJsRuntime.QrScanHost）
+        com.fongmi.android.tv.api.hk.HkJsRuntime.setQrScanHost(qrScanHost);
         // 海阔页浅色主题：状态栏/导航栏用深色图标（BaseActivity 统一强制了白色图标，会盖掉主题的 windowLightStatusBar）
         EdgeToEdge.enable(this,
                 SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
@@ -303,11 +307,25 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     protected void onDestroy() {
+        com.fongmi.android.tv.api.hk.HkJsRuntime.setQrScanHost(null);
         HkLoading.clearListener(hkLoadingListener);
         hideHkLoading();
         destroyRouterAsync();
         super.onDestroy();
     }
+
+    /** 8.83 JSEngine.startQRScanPage(25977) 对齐：JS 扫码 API 宿主实现。 */
+    private final com.fongmi.android.tv.api.hk.HkJsRuntime.QrScanHost qrScanHost =
+            new com.fongmi.android.tv.api.hk.HkJsRuntime.QrScanHost() {
+                @Override
+                public void startQrScan() {
+                    try {
+                        Intent intent = new Intent(HkPageActivity.this, ScanActivity.class);
+                        startActivityForResult(intent, REQ_QR_SCAN);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
 
     /**
      * 异步销毁旧路由：HkJsRuntime.destroy() 会 submit(...).get() 等 JS 单线程池清空，
@@ -448,6 +466,30 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     /** 旧方法存根：已迁移到 Fragment，保留以兼容旧调用 */
     private void loadContent(boolean refresh) {
         showContentFragment();
+    }
+
+    /**
+     * 8.83 refreshPage(scrollTop) 对齐：消费 JS 的刷新请求，重刷内容列表；
+     * 若规则要求回顶（refreshPage(true)），列表回到顶部。
+     */
+    private void refreshContentFromJs(com.fongmi.android.tv.api.hk.HkJsRuntime rt) {
+        if (rt == null) return;
+        boolean needRefresh = rt.consumeRefreshRequest();
+        boolean toTop = rt.isRefreshToTop();
+        if (needRefresh) {
+            App.post(() -> {
+                loadContent(true);
+                if (toTop && contentFragment != null) {
+                    // 延迟到列表重刷后执行，确保 adapter 已更新
+                    App.post(() -> {
+                        try {
+                            contentFragment.scrollContentToTop();
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                }
+            });
+        }
     }
 
     private void buildCategoryRow() {
@@ -1540,12 +1582,25 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
                         rt.putMyVar(varName, uri.toString());
                         rt.eval(code, "");
-                        boolean needRefresh = rt.consumeRefreshRequest();
-                        if (needRefresh) App.post(() -> loadContent(true));
+                        refreshContentFromJs(rt);
                     } catch (Throwable e) {
                         android.util.Log.d("HkPage", "fileSelect eval failed: " + e.getMessage());
                     }
                 }).start();
+            }
+            return;
+        }
+        if (requestCode == REQ_QR_SCAN) {
+            // 8.83 onActivityResult → dealQRContent(1054)：扫码结果处理。
+            // 8.83 用 "codedContent"，星辰 ScanActivity 返回 "address"，此处适配。
+            if (resultCode == RESULT_OK && data != null) {
+                String content = data.getStringExtra("address");
+                if (content == null || content.isEmpty()) {
+                    content = data.getStringExtra("codedContent");
+                }
+                if (content != null && !content.isEmpty()) {
+                    com.fongmi.android.tv.api.hk.HkQrUtil.dealQRContent(this, content);
+                }
             }
             return;
         }
@@ -3804,9 +3859,15 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         }
     }
 
-    /** col_type 小写形式（js 结果里填充，未设置则空串）。 */
+    /** col_type 小写形式（js 结果里填充，未设置则回退到规则级 col_type）。 */
     private String colTypeOf(HkItem it) {
-        return it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
+        String ct = it.getColType() == null ? "" : it.getColType().trim();
+        if (ct.isEmpty() && currentRule != null) {
+            // 主列表条目无 col_type 时回退到规则级 col_type（非 detail_col_type）
+            String ruleCt = currentRule.getColType();
+            if (ruleCt != null && !ruleCt.trim().isEmpty()) ct = ruleCt.trim();
+        }
+        return ct.toLowerCase();
     }
 
     /** 去 HTML 标签（col_type 标题里常带 <font> 等），逻辑同 buildDynamicTabs。 */
@@ -4182,6 +4243,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 new Thread(() -> {
                     String target = "";
                     boolean needRefresh = false;
+                    boolean toTop = false;
                     int before = 0;
                     List<HkItem> after = null;
                     try {
@@ -4193,11 +4255,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         // 必须取走 refreshPage 标记直接重刷当前列表，不进子列表流程
                         //（否则 flag 被丢弃、router 被销毁、myVars 丢失，表现为"点了没反应"）。
                         needRefresh = rt.consumeRefreshRequest();
+                        toTop = rt.isRefreshToTop();
                         after = rt.snapshotActionResults();
                     } catch (Throwable ignored) {
                     }
                     final String t = target == null ? "" : target.trim();
                     final boolean refresh = needRefresh;
+                    final boolean scrollTop = toTop;
                     final List<HkItem> act = after;
                     final int n0 = before;
                     App.post(() -> {
@@ -4207,6 +4271,15 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                             // 有 refresh 无 goTo：动作回调，直接刷新当前列表
                             //（对齐 8.83 refreshPage EventBus 机制，跟走哪条点击链路无关）
                             loadContent(true);
+                            // 8.83 refreshPage(true)：回顶
+                            if (scrollTop && contentFragment != null) {
+                                App.post(() -> {
+                                    try {
+                                        contentFragment.scrollContentToTop();
+                                    } catch (Throwable ignored) {
+                                    }
+                                });
+                            }
                         } else if (act != null && act.size() > n0) {
                             // 规则自绘"加载更多"按钮：JS 用 addItemBefore 就地追加了条目，
                             // 8.83 同款就地更新当前列表，不进详情/子列表。
@@ -4608,6 +4681,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             String errMsg = null;
             String result = "";
             boolean needRefresh = false;
+            boolean toTop = false;
             try {
                 HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
                 // 官方语义：input 全局注入后直接求值。不用 evalLazy + 局部 var 包裹，
@@ -4616,6 +4690,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 // 取走 refreshPage 请求标记：规则（如口令正确时 setItem 后调 refreshPage）要求刷新，
                 // 必须在回调返回 toast:// 等动作后依然执行，否则页面不刷新（如星集口令正确却进不去）。
                 needRefresh = rt.consumeRefreshRequest();
+                toTop = rt.isRefreshToTop();
                 String jsErr = rt.getError();
                 if (jsErr != null && !jsErr.isEmpty()) errMsg = jsErr;
             } catch (Throwable e) {
@@ -4626,7 +4701,19 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             final String r = ("undefined".equals(r0) || "null".equals(r0)) ? "" : r0;
             final String em = errMsg;
             final boolean refresh = needRefresh;
+            final boolean scrollTop = toTop;
             App.post(() -> {
+                // 8.83 refreshPage(true) 回顶辅助
+                final Runnable doScrollTop = () -> {
+                    if (scrollTop && contentFragment != null) {
+                        App.post(() -> {
+                            try {
+                                contentFragment.scrollContentToTop();
+                            } catch (Throwable ignored) {
+                            }
+                        });
+                    }
+                };
                 if (em != null && !em.isEmpty()) {
                     android.widget.Toast.makeText(HkPageActivity.this,
                             "执行失败：" + em, android.widget.Toast.LENGTH_SHORT).show();
@@ -4639,13 +4726,17 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     nav.setUrl(r);
                     if (handleActionUrl(r, nav)) {
                         // toast:// 等动作已消费，但规则若请求了 refreshPage（如口令正确），仍需刷新列表
-                        if (refresh) loadContent(true);
+                        if (refresh) {
+                            loadContent(true);
+                            doScrollTop.run();
+                        }
                         return;
                     }
                     onContentItemClick(nav);
                     return;
                 }
                 loadContent(true);
+                doScrollTop.run();
             });
         }).start();
     }
@@ -4857,7 +4948,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             if (position < 0 || position >= items.size()) return 60;
             HkItem it = items.get(position);
             int t = getItemViewType(position);
-            String ct = it.getColType() == null ? "" : it.getColType().trim().toLowerCase();
+            String ct = colTypeOf(it);
             switch (t) {
                 case T_VIDEO:
                     // 官方：movie_2 span=30（2/行）；movie_3 span=20（3/行）
@@ -5506,6 +5597,16 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     }
                 }
                 h.desc.setMaxLines(longText ? 60 : 5);
+            }
+            // 简介折叠：long_text 长文本点击切换折叠/展开
+            if (longText && h.desc != null) {
+                h.desc.setTag(R.id.tv_desc, Boolean.FALSE);
+                h.desc.setOnClickListener(v -> {
+                    Boolean expanded = (Boolean) v.getTag(R.id.tv_desc);
+                    boolean isExpanded = expanded != null && expanded;
+                    v.setTag(R.id.tv_desc, !isExpanded);
+                    ((TextView) v).setMaxLines(isExpanded ? 5 : 60);
+                });
             }
             setContentClick(h, item);
         }

@@ -88,6 +88,23 @@ public class SiteHealthStore {
         }
     }
 
+    /** 手动检测：更新源健康状态，供源列表显示 */
+    public static void recordManualCheck(String key, boolean success) {
+        if (skip(key)) return;
+        synchronized (SiteHealthStore.class) {
+            Health health = get(key);
+            health.updatedAt = System.currentTimeMillis();
+            if (success) {
+                health.searchSuccess++;
+                health.lastSearchSuccessAt = health.updatedAt;
+            } else {
+                health.searchFail++;
+                health.lastSearchFailAt = health.updatedAt;
+            }
+            markDirty();
+        }
+    }
+
     public static void sortSites(List<Site> sites) {
         if (!Setting.isSiteHealthSort()) return;
         if (sites == null || sites.size() < 2) return;

@@ -168,9 +168,12 @@ public class HkRule {
         if (isEmpty(names)) return list;
         String[] ns = names.split("&", -1);
         String[] us = isEmpty(urls) ? new String[0] : urls.split("&", -1);
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (int i = 0; i < ns.length; i++) {
+            String n = ns[i].trim();
+            if (n.isEmpty() || !seen.add(n)) continue; // 去重：跳过空名和重复名
             String u = i < us.length ? us[i].trim() : "";
-            list.add(new String[]{ns[i].trim(), u});
+            list.add(new String[]{n, u});
         }
         return list;
     }

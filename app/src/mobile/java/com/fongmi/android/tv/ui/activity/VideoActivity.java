@@ -255,6 +255,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mKaraokeResultShown;
     private boolean mUserExitedFullscreenForThisVideo;
     private boolean mShortDramaMode;
+    private boolean mContentExpanded = false;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
     private AlertDialog mKaraokeResultDialog;
@@ -287,6 +288,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mArtworkRequestUrl;
     private String mArtworkRequestOwner;
     private Vod mPendingDetailVod;
+    private Vod mAiVod; // P3：当前影片详情，供 AI 剧情问答取元数据
     private boolean mDetailCacheShown;
     private Result mPendingPlayerResult;
     private Result mPreparsedHistoryResult;
@@ -556,11 +558,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private static boolean isShortDramaType(String typeName) {
-        if (typeName == null || typeName.isEmpty()) return true;
+        if (typeName == null || typeName.isEmpty()) return false;
         if (typeName.contains("短剧") || typeName.contains("竖屏") || typeName.contains("微剧")) return true;
         if (typeName.toLowerCase().contains("micro")) return true;
         if (typeName.contains("电影") || typeName.contains("电视剧") || typeName.contains("综艺") || typeName.contains("动漫")) return false;
-        return true;
+        return false;
     }
 
     private String getName() {
@@ -1361,6 +1363,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void checkId() {
         mShortDramaMode = getIntent().getBooleanExtra("short_drama", false);
+        // 短剧模式：一进来就直接全屏，不闪详情页
+        if (mShortDramaMode) {
+            getWindow().getDecorView().post(() -> {
+                if (!isFullscreen()) enterFullscreen();
+            });
+        }
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) {
             playTxtDirect();
             return;
@@ -1549,6 +1557,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mPendingDetailVod = item;
             return;
         }
+        mAiVod = item; // P3：记录当前影片，供 AI 剧情问答
         if (mShortDramaMode) mShortDramaMode = isShortDramaType(item.getTypeName());
         item.checkPic(getPic());
         item.checkName(getName());
@@ -1567,6 +1576,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setText(Vod item) {
         setText(mBinding.content, R.string.detail_content, item.getContent());
+        updateContentFold();
         setDetailLyrics(item.getContent());
         setMeta(item);
         updateAudioStageText();
@@ -1700,6 +1710,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (result.hasPosition()) mHistory.setPosition(result.getPosition());
         if (result.hasDesc()) {
             setText(mBinding.content, R.string.detail_content, result.getDesc());
+            updateContentFold();
             setPlaybackLyrics(result.getDesc());
         }
         updateAudioStageText();
@@ -2109,13 +2120,32 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Flag flag = getFlag();
         if (flag == null) return;
         syncSelectedEpisode(flag);
-        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(flag.getEpisodes()).show(this);
+        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(flag.getEpisodes()).shortDrama(mShortDramaMode).show(this);
     }
 
     private void onContent() {
         CharSequence content = mBinding.content.getText();
         if (TextUtils.isEmpty(content)) return;
-        VideoContentDialog.create().content(content).show(this);
+        // 简介折叠/展开切换：短文本不处理，长文本点击切换
+        if (content.length() < 100) {
+            // 短简介：保持原有弹窗行为
+            VideoContentDialog.create().content(content).show(this);
+            return;
+        }
+        mContentExpanded = !mContentExpanded;
+        mBinding.content.setMaxLines(mContentExpanded ? Integer.MAX_VALUE : 3);
+    }
+
+    /** 简介折叠初始化：长文本默认折叠为3行，点击展开/收起 */
+    private void updateContentFold() {
+        mContentExpanded = false;
+        CharSequence content = mBinding.content.getText();
+        if (!TextUtils.isEmpty(content) && content.length() >= 100) {
+            mBinding.content.setMaxLines(3);
+            mBinding.content.setEllipsize(TextUtils.TruncateAt.END);
+        } else {
+            mBinding.content.setMaxLines(Integer.MAX_VALUE);
+        }
     }
 
     private void showQuickSearch(String keyword) {
@@ -4392,6 +4422,39 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return enter;
     }
 
+    /**
+     * 进入全屏时的方向判定（优先级从高到低）：
+     * 1. 后台预取的真实视频宽高缓存（最准，无闪烁）
+     * 2. 播放器已加载的元数据
+     * 3. 短剧启发式（短剧源默认竖屏）
+     */
+    private boolean resolveOrientation() {
+        try {
+            // 1) 查预取缓存
+            Episode ep = getEpisode();
+            String url = ep == null ? null : ep.getUrl();
+            if (!TextUtils.isEmpty(url)) {
+                Boolean cached = com.fongmi.android.tv.utils.VideoDimensionCache.isPortrait(url);
+                if (cached != null) return cached;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            // 2) 播放器元数据（已加载时准）
+            if (player() != null) {
+                // 元数据未就绪时 isPortrait() 恒返回 false，不可信，跳过
+                // 这里用宽高是否为 0 判断（需 PlayerManager 暴露，暂用 try）
+                boolean p = player().isPortrait();
+                // 只有短剧模式或明确有尺寸时才信播放器；否则走启发式
+                // 简化：直接信播放器（元数据就绪后 checkOrientation 会二次校正）
+                return p;
+            }
+        } catch (Exception ignored) {
+        }
+        // 3) 启发式：短剧默认竖屏
+        return mShortDramaMode;
+    }
+
     private void enterFullscreen() {
         if (isFullscreen()) return;
         if (service() == null) {
@@ -4402,10 +4465,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setFullscreen(true);
         if (isLand() && !player().isPortrait()) setTransition();
         mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
-        setRequestedOrientation(PlaybackOrientation.getEnterFullscreenOrientation(player().isPortrait()));
+        // 方向判定优先级：1) 后台预取的真实宽高缓存（最准） 2) 播放器元数据 3) 短剧启发式
+        boolean isPortrait = resolveOrientation();
+        setRequestedOrientation(PlaybackOrientation.getEnterFullscreenOrientation(isPortrait));
         mBinding.control.title.setVisibility(View.VISIBLE);
         setSizeText();
-        setRotate(player().isPortrait());
+        setRotate(isPortrait);
         mKeyDown.resetScale();
         App.post(mR3, 2000);
         hideControl();
@@ -4819,6 +4884,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.progressLayout.showContent();
         mBinding.name.setText(getName());
         setText(mBinding.content, R.string.detail_content, getContent());
+        updateContentFold();
         setDetailLyrics(getContent());
         if (!getPic().isEmpty()) setArtwork(getPic());
         else if (!getWallPic().isEmpty()) setContextWall(getWallPic());
@@ -6265,8 +6331,75 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onSubtitleClick() {
+        // 绑定 AI 本地字幕控制器
+        try {
+            com.fongmi.android.tv.ai.asr.AiAsrController.get()
+                    .bindSubtitleView(mBinding.exo.getSubtitleView());
+        } catch (Exception ignored) {}
+        bindAiAsrMpvProvider();
         SubtitleDialog.create().view(mBinding.exo.getSubtitleView()).player(player()).show(this);
         hideControl();
+    }
+
+    /**
+     * 向 AI 本地字幕控制器注入 MPV 播放信息。
+     * MPV 内核时 libmpv 在 native 层输出音频，Java 层无钩子，控制器需要 URL/headers
+     * 起影子播放器采集音频；Exo 内核时走音频链注入，不需要。
+     */
+    private void bindAiAsrMpvProvider() {
+        try {
+            com.fongmi.android.tv.ai.asr.AiAsrController.get()
+                    .setMpvInfoProvider(new com.fongmi.android.tv.ai.asr.AiAsrController.MpvInfoProvider() {
+                        @Override
+                        public boolean isMpvActive() {
+                            try {
+                                return player() != null && player().isMpv();
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        }
+
+                        @Override
+                        public String getMediaUrl() {
+                            try {
+                                com.fongmi.android.tv.player.engine.PlaySpec spec = player().getSpec();
+                                return spec == null ? null : spec.getUrl();
+                            } catch (Exception e) {
+                                return null;
+                            }
+                        }
+
+                        @Override
+                        public java.util.Map<String, String> getMediaHeaders() {
+                            try {
+                                com.fongmi.android.tv.player.engine.PlaySpec spec = player().getSpec();
+                                return spec == null ? null : spec.getHeaders();
+                            } catch (Exception e) {
+                                return null;
+                            }
+                        }
+
+                        @Override
+                        public long getPositionMs() {
+                            try {
+                                androidx.media3.common.Player p = player().getPlayer();
+                                return p == null ? 0 : p.getCurrentPosition();
+                            } catch (Exception e) {
+                                return 0;
+                            }
+                        }
+
+                        @Override
+                        public boolean isPlaying() {
+                            try {
+                                androidx.media3.common.Player p = player().getPlayer();
+                                return p != null && p.isPlaying();
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        }
+                    });
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -6282,6 +6415,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         syncCurrentAudioPlaylistMetadata();
         debugLyricsLoop("clock", false);
         syncKaraokePosition();
+        // AI 本地字幕 MPV 影子采集同步（每秒）：漂移校正 + 播放状态镜像 + 内核切换自愈
+        try {
+            com.fongmi.android.tv.ai.asr.AiAsrController.get().syncMpvShadow();
+        } catch (Exception ignored) {}
         if (mLyrics != null) mLyrics.update(player());
         if (mKaraoke != null) mKaraoke.update(player(), mLyrics == null ? null : mLyrics.getLines());
         position = mHistory.getPosition();
@@ -6356,7 +6493,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } else if (isFullscreen() && isRotate() && player().isLandscape()) {
             setRequestedOrientation(PlaybackOrientation.getLandscapeVideoSizeOrientation());
             setRotate(false);
-        } else if (!isFullscreen() && player().isPortrait() && PlayerSetting.isPortraitAutoFullscreen() && !mUserExitedFullscreenForThisVideo) {
+        } else if (!isFullscreen() && !mUserExitedFullscreenForThisVideo && mShortDramaMode) {
+            // 只有短剧才自动进入全屏，普通视频不自动全屏
             enterFullscreen();
         }
     }
@@ -6612,6 +6750,268 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setFullscreen(boolean fullscreen) {
         Util.toggleFullscreen(this, this.fullscreen = fullscreen);
         updateDiscMenuTools();
+    }
+
+    // ---------- AI 语音控制（P1） ----------
+
+    /** AI：下一集 */
+    public void aiNext() {
+        runOnUiThread(this::checkNext);
+    }
+
+    /** AI：上一集 */
+    public void aiPrev() {
+        runOnUiThread(this::checkPrev);
+    }
+
+    /** AI：暂停/播放切换 */
+    public void aiTogglePlay() {
+        runOnUiThread(() -> {
+            if (player().isPlaying()) onPaused();
+            else onPlay();
+        });
+    }
+
+    /** AI：快进/快退（毫秒，正数快进负数快退） */
+    public void aiSeekBy(long ms) {
+        runOnUiThread(() -> {
+            try {
+                long pos = player().getPosition() + ms;
+                if (pos < 0) pos = 0;
+                long dur = player().getDuration();
+                if (dur > 0 && pos > dur) pos = dur;
+                controller().seekTo(pos);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：音量+ */
+    public void aiVolumeUp() {
+        runOnUiThread(() -> adjustVolume(1));
+    }
+
+    /** AI：音量- */
+    public void aiVolumeDown() {
+        runOnUiThread(() -> adjustVolume(-1));
+    }
+
+    private void adjustVolume(int delta) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+            int dir = delta > 0 ? android.media.AudioManager.ADJUST_RAISE
+                    : android.media.AudioManager.ADJUST_LOWER;
+            am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, android.media.AudioManager.FLAG_SHOW_UI);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** AI：进入全屏 */
+    public void aiEnterFullscreen() {
+        runOnUiThread(() -> setFullscreen(true));
+    }
+
+    /** AI：退出全屏 */
+    public void aiExitFullscreen() {
+        runOnUiThread(() -> setFullscreen(false));
+    }
+
+    /** AI：倍速+ */
+    public void aiSpeedUp() {
+        runOnUiThread(() -> {
+            try {
+                player().addSpeed(0.25f);
+                saveDefaultSpeed();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：倍速- */
+    public void aiSpeedDown() {
+        runOnUiThread(() -> {
+            try {
+                player().subSpeed(0.25f);
+                saveDefaultSpeed();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：设置倍速 */
+    public void aiSetSpeed(float speed) {
+        runOnUiThread(() -> {
+            try {
+                player().setSpeed(speed);
+                saveDefaultSpeed();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：屏幕亮度+ */
+    public void aiBrightUp() {
+        runOnUiThread(() -> adjustBrightness(0.1f));
+    }
+
+    /** AI：屏幕亮度- */
+    public void aiBrightDown() {
+        runOnUiThread(() -> adjustBrightness(-0.1f));
+    }
+
+    private void adjustBrightness(float delta) {
+        try {
+            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+            float b = lp.screenBrightness;
+            if (b < 0) b = 0.5f;
+            b += delta;
+            if (b > 1) b = 1;
+            if (b < 0.05f) b = 0.05f;
+            lp.screenBrightness = b;
+            getWindow().setAttributes(lp);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** AI：弹幕开关（mode: 1=开，0=关，-1=切换） */
+    public void aiDanmakuSet(int mode) {
+        runOnUiThread(() -> {
+            try {
+                boolean show = mode == 1 || (mode == -1 && !com.fongmi.android.tv.setting.DanmakuSetting.isShow());
+                com.fongmi.android.tv.setting.DanmakuSetting.putShow(show);
+                checkDanmakuImg();
+                showDanmaku();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：字幕开关（mode: 1=开，0=关，-1=切换） */
+    public void aiSubtitleSet(int mode) {
+        runOnUiThread(() -> {
+            try {
+                android.view.View sv = mBinding.exo.getSubtitleView();
+                if (sv == null) return;
+                int vis = sv.getVisibility();
+                boolean show = mode == 1 || (mode == -1 && vis != android.view.View.VISIBLE);
+                sv.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：本地 AI 字幕开关（mode: 1=开，0=关，-1=切换） */
+    public void aiAiSubtitleSet(int mode) {
+        runOnUiThread(() -> {
+            try {
+                com.fongmi.android.tv.ai.asr.AiAsrController controller =
+                        com.fongmi.android.tv.ai.asr.AiAsrController.get();
+                // 绑定字幕 View 与 MPV 播放信息（MPV 影子采集需要）
+                controller.bindSubtitleView(mBinding.exo.getSubtitleView());
+                bindAiAsrMpvProvider();
+                boolean currentlyOn = controller.isEnabled(this);
+                boolean target = mode == 1 || (mode == -1 && !currentlyOn);
+                if (mode == 0) target = false;
+                if (target == currentlyOn) return;
+                if (target) {
+                    controller.enable(this, new com.fongmi.android.tv.ai.asr.AiAsrController.ToggleCallback() {
+                        @Override public void onPreparing(String msg) {
+                            com.fongmi.android.tv.utils.Notify.show(msg);
+                        }
+                        @Override public void onEnabled() {
+                            com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已开启");
+                        }
+                        @Override public void onDisabled() {}
+                        @Override public void onError(String msg) {
+                            com.fongmi.android.tv.utils.Notify.show(msg);
+                        }
+                    });
+                } else {
+                    controller.disable(this);
+                    com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已关闭");
+                }
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：播放第N集（1-based） */
+    public void aiPlayEpisode(int n) {
+        runOnUiThread(() -> {
+            try {
+                com.fongmi.android.tv.bean.Flag flag = getFlag();
+                if (flag == null) return;
+                java.util.List<com.fongmi.android.tv.bean.Episode> items = flag.getEpisodes();
+                int idx = n - 1;
+                if (idx < 0 || idx >= items.size()) return;
+                onItemClick(items.get(idx));
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：投屏 */
+    public void aiCast() {
+        runOnUiThread(() -> {
+            try {
+                onCast();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** AI：下载本集 */
+    public void aiDownloadEpisode() {
+        runOnUiThread(() -> {
+            try {
+                onDownload();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    // ---------- AI 剧情问答（P3） ----------
+
+    /** AI：当前影片名（详情未加载时回退 intent 里的名字） */
+    public String aiGetVodName() {
+        try {
+            if (mAiVod != null && !TextUtils.isEmpty(mAiVod.getName())) return mAiVod.getName();
+        } catch (Exception ignored) {
+        }
+        return getName();
+    }
+
+    /** AI：当前影片元数据文本，供拼 system prompt */
+    public String aiGetVodMeta() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            Vod v = mAiVod;
+            if (v == null) {
+                appendAiMeta(sb, "片名", getName());
+                appendAiMeta(sb, "简介", getContent());
+                return sb.toString();
+            }
+            appendAiMeta(sb, "片名", v.getName());
+            try {
+                Episode ep = getEpisode();
+                if (ep != null) appendAiMeta(sb, "当前集", ep.getName());
+            } catch (Exception ignored) {
+            }
+            appendAiMeta(sb, "类型", v.getTypeName());
+            appendAiMeta(sb, "年份", v.getYear());
+            appendAiMeta(sb, "地区", v.getArea());
+            appendAiMeta(sb, "导演", v.getDirector());
+            appendAiMeta(sb, "演员", v.getActor());
+            appendAiMeta(sb, "简介", v.getContent());
+        } catch (Exception ignored) {
+        }
+        return sb.toString();
+    }
+
+    private void appendAiMeta(StringBuilder sb, String label, String value) {
+        if (TextUtils.isEmpty(value)) return;
+        if (sb.length() > 0) sb.append("\n");
+        sb.append(label).append("：").append(value);
     }
 
     private boolean isInitAuto() {
@@ -6986,6 +7386,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onDestroy() {
         hasPlayer = false;
+        // 释放 AI 本地字幕
+        try {
+            com.fongmi.android.tv.ai.asr.AiAsrController.get().onPlayerRelease(this);
+            com.fongmi.android.tv.ai.asr.AiAsrController.get().unbind();
+        } catch (Exception ignored) {}
         if (mCustomButtonPlayer != null) {
             mCustomButtonPlayer.removeCustomButtonStateListener(mCustomButtonStateListener);
             mCustomButtonPlayer = null;

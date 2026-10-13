@@ -17,6 +17,7 @@ import com.orhanobut.logger.Logger;
 import org.greenrobot.eventbus.EventBus;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.ContextFactory;
 import org.mozilla.javascript.ConsString;
 import org.mozilla.javascript.NativeArray;
 import org.mozilla.javascript.NativeJSON;
@@ -83,6 +84,63 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     public static volatile boolean BATCH_EXECUTE_READY = false;
     private static final Gson GSON = new Gson();
     private static final Type MAP_LIST_TYPE = new TypeToken<List<Map<String, Object>>>() {}.getType();
+
+    // ---- JS 看门狗 ----
+    // 2026-10-13 真机实锤：1.2.6 里 $.require 修好后，规则 preRule 第一次能真正跑进去，
+    // 一旦 JS 进入死循环（拉不到数据无限重试等），解释模式的 Rhino 没有指令观察者就
+    // 永远不抛异常、永远不结束——init 的 submit().get() 无限等待，页面永远转圈、
+    // 日志里只有 "load start" 再无下文。这里装全局 ContextFactory：每次经
+    // evalJs/evalJsInSharedScope 求值前在 Context 上放一个截止时间，指令观察者
+    // 越过截止就抛 Error 打断脚本（经 submit/get 转成 ExecutionException 被上层接住）。
+    private static final String DEADLINE_KEY = "hk.eval.deadline";
+    private static final long EVAL_BUDGET_MS = 20_000L;
+
+    private static class HkContextFactory extends ContextFactory {
+        @Override
+        protected Context makeContext() {
+            Context cx = super.makeContext();
+            cx.setInstructionObserverThreshold(10_000);
+            return cx;
+        }
+
+        @Override
+        protected void observeInstructionCount(Context cx, int instructionCount) {
+            Object d = cx.getThreadLocal(DEADLINE_KEY);
+            if (d instanceof Long && System.currentTimeMillis() > (Long) d) {
+                throw new Error("hk js eval timeout (" + EVAL_BUDGET_MS + "ms)");
+            }
+        }
+    }
+
+    static {
+        try {
+            if (!ContextFactory.hasExplicitGlobal()) ContextFactory.initGlobal(new HkContextFactory());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 给当前 Context 装上求值截止时间，返回旧值供嵌套求值恢复。 */
+    private static Object armEvalDeadline() {
+        try {
+            Context cx = Context.getCurrentContext();
+            if (cx == null) return null;
+            Object old = cx.getThreadLocal(DEADLINE_KEY);
+            cx.putThreadLocal(DEADLINE_KEY, System.currentTimeMillis() + EVAL_BUDGET_MS);
+            return old;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void restoreEvalDeadline(Object old) {
+        try {
+            Context cx = Context.getCurrentContext();
+            if (cx == null) return;
+            if (old == null) cx.removeThreadLocal(DEADLINE_KEY);
+            else cx.putThreadLocal(DEADLINE_KEY, old);
+        } catch (Throwable ignored) {
+        }
+    }
 
     private final ExecutorService executor;
     private final HkRule rule;
@@ -289,12 +347,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         Scriptable newScope = rhinoCx.newObject(scope);
         newScope.setPrototype(scope);
         newScope.setParentScope(null);
-        return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
+        Object oldDeadline = armEvalDeadline();
+        try {
+            return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
+        } finally {
+            restoreEvalDeadline(oldDeadline);
+        }
     }
 
     /** 在共享 scope 上直接求值（用于插件 JS 如 Hikerurl.js，需将 $ 等挂到共享 scope 供规则经原型链访问）。 */
     private Object evalJsInSharedScope(String js) {
-        return rhinoCx.evaluateString(scope, js, "hk-plugin", 1, null);
+        Object oldDeadline = armEvalDeadline();
+        try {
+            return rhinoCx.evaluateString(scope, js, "hk-plugin", 1, null);
+        } finally {
+            restoreEvalDeadline(oldDeadline);
+        }
     }
 
     /**
@@ -607,7 +675,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 在 JS 线程上初始化：建 Context、注册 API、加载 kv、跑 preRule。
      */
     public void init() throws Exception {
-        submit(() -> {
+        java.util.concurrent.Future<?> initFuture = submit(() -> {
             jsThread = Thread.currentThread();
             // Rhino：每个规则独立 Context + Scope（变量隔离），跑在单线程 executor 上；
             // setOptimizationLevel(-1) 禁用优化器（Android 无字节码生成，必须关）
@@ -617,6 +685,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             rhinoCx.setLanguageVersion(200);
             scope = rhinoCx.initStandardObjects();
             registerApi();
+            com.github.catvod.crawler.SpiderDebug.log("hk", "init step=api rule=%s", rule.getTitle());
             // D1: build 8.83 allFunctions prelude (JSAnnotation-reflected stubs + MY_UA suffix).
             try {
                 allFunctions = String.format(getAllFunctions(), HkJsRuntime.class.getName())
@@ -657,11 +726,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable e) {
                 Logger.t(TAG).d("inject Hikerurl.js failed: " + e.getMessage());
             }
+            com.github.catvod.crawler.SpiderDebug.log("hk", "init step=hikerurl rule=%s", rule.getTitle());
             loadKv();
             loadConfig();
+            com.github.catvod.crawler.SpiderDebug.log("hk", "init step=config rule=%s", rule.getTitle());
             runPreRule();
+            com.github.catvod.crawler.SpiderDebug.log("hk", "init step=prerule-done rule=%s", rule.getTitle());
             return null;
-        }).get();
+        });
+        try {
+            initFuture.get(60, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            // 兜底：init 内部真堵死（非 JS 死循环的 Java 侧阻塞）也不能让加载线程无限等
+            com.github.catvod.crawler.SpiderDebug.log("hk", "engine init timeout rule=%s", rule.getTitle());
+            throw new Exception("engine init timeout (60s) rule=" + rule.getTitle(), e);
+        }
     }
 
     // ================= API 注册 =================
@@ -3889,6 +3968,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         preRuleDone = true;
         String pre = rule.getPreRule();
         if (TextUtils.isEmpty(pre) || TextUtils.isEmpty(pre.trim())) return;
+        com.github.catvod.crawler.SpiderDebug.log("hk", "prerule start rule=%s", rule.getTitle());
         try {
             // preRule 的 MY_URL 同样传原始 url（保留 hiker://empty# 前缀）。
             setContext(HkHttp.expandUrl(rule.getUrl(), "", "", "", "", 1, false));
@@ -3896,6 +3976,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Logger.t(TAG).d("preRule done for %s", rule.getTitle());
         } catch (Throwable e) {
             Logger.t(TAG).d("preRule failed for %s: %s", rule.getTitle(), e.getMessage());
+            com.github.catvod.crawler.SpiderDebug.log("hk", "prerule failed rule=%s err=%s", rule.getTitle(), String.valueOf(e));
             // 之前静默吞掉，动态域名类规则（如 18AV）拿不到域名时用户只能看到"加载失败"。
             // 记下来供排障/UI 展示；不抛异常，保持原有"失败也继续加载"的行为。
             preRuleError = jsErrorMsg(e);

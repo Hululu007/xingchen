@@ -31,8 +31,6 @@ public class PlayerSettingsActivity extends BaseActivity {
         binding.decodeSoft.setOnClickListener(v -> { setDecode("soft"); updateDecodeUI(); });
         binding.switchAutonext.setChecked(getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("auto_next", true));
         binding.switchAutonext.setOnCheckedChangeListener((b, c) -> { getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("auto_next", c).apply(); PlayerSetting.putAutoPlay(c); });
-        binding.switchPortraitFullscreen.setChecked(PlayerSetting.isPortraitAutoFullscreen());
-        binding.switchPortraitFullscreen.setOnCheckedChangeListener((b, c) -> PlayerSetting.putPortraitAutoFullscreen(c));
         binding.switchSkip.setChecked(getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_intro", false));
         binding.switchSkip.setOnCheckedChangeListener((b, c) -> getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("skip_intro", c).apply());
         boolean skipOpening = getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_opening_show", true);

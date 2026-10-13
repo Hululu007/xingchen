@@ -5,6 +5,8 @@ import android.text.TextUtils;
 import com.github.catvod.utils.Json;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Arrays;
@@ -34,7 +36,25 @@ public class Req {
     private Boolean rejectCoding;
 
     public static Req objectFrom(String json) {
-        return new Gson().fromJson(json, Req.class);
+        return new Gson().fromJson(normalizeBody(json), Req.class);
+    }
+
+    // 8.83 同款（HttpHelper）：body 允许是对象/数组，原版取出后直接序列化成 JSON 字符串；
+    // 本类 body 字段是 String，不预处理的话 Gson 严格反序列化会抛 JsonSyntaxException，请求根本发不出去
+    private static String normalizeBody(String json) {
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (parsed == null || !parsed.isJsonObject()) return json;
+            JsonObject obj = parsed.getAsJsonObject();
+            JsonElement body = obj.get("body");
+            if (body == null || body.isJsonNull()) return json;
+            if (body.isJsonPrimitive() && body.getAsJsonPrimitive().isString()) return json;
+            Gson gson = new Gson();
+            obj.addProperty("body", gson.toJson(body));
+            return gson.toJson(obj);
+        } catch (Exception e) {
+            return json;
+        }
     }
 
     public int getBuffer() {

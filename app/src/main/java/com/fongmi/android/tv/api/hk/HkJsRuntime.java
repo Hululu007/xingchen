@@ -633,11 +633,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable e) {
                 Logger.t(TAG).d("inject CryptoJS failed: " + e.getMessage());
             }
-            // 官方内置 Hikerurl.js（$ 工具库）：assets 已换回 8.83 原版 v2（逐字）。
-            // 此前放的是 v6 社区版：本地用生产同款 Rhino 1.7.15 实测，默认版本死于解析错误、
-            // ES6 模式死于加载期调用宿主函数（clearMyVar），两种都注入必失败、$ 永不存在。
-            // $ 的主定义在 registerApi 的 JS 预置段（超集，含 $.require）；本资产仅作官方兜底
-            // （其 window.$ 赋值带 typeof undefined 守卫，不覆盖已有 $）。下面的 RequireUtils stub 保留防其他资产引用。
+            // 官方内置 Hikerurl.js v6（$ 工具集的唯一定义，含官方 $.require 实现）：
+            // 本地用生产同款 Rhino 1.7.15 + 宿主桥桩实测——加载完整跑通，
+            // $.require('engine').home() 能真实走通模块加载并返回结果。
+            // 它加载时需要语言版本 200（init 首行已设）与 clearMyVar 等桥（registerApi 已注册）。
+            // 此前并存的仿写 $ 预置段已删除（错漏连环、与资产互相覆盖）；8.83 的 v2 版无 require，
+            // 用户的现代规则都用 $.require，故用 v6 官方版本。下面的 RequireUtils stub 必须
+            // 在资产之前求值：v6 的 require 工厂引用该类路径，stub 给它一个 no-op 的 generateRequireMap。
             try {
                 evalJsInSharedScope(
                     "var com = (typeof com !== 'undefined') ? com : {};\n" +
@@ -2637,210 +2639,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return GSON.toJson(ua);
         });
 
-        // ---- $ 选择器助手：$('').lazyRule(fn) / $('...').rule(fn) / $.toString(fn, ...args) / $.require(path) ----
-        // lazyRule 把函数序列化为 @lazyRule=.js:... 字符串，拼到 URL 上由 HkRouter.play() 求值；
-        // $.toString 把函数+绑定参数序列化为 js:... 字符串，点击时由 evalLazy 求值（input 为全局）。
-        // $.require(path)：hiker://page/<path> 从规则 pages 取页面代码求值返回 $.exports，
-        // 其他路径复用 require 的远程/本地库逻辑（__hkRequirePage 为 Java 实现）。
+        // ---- $ 工具集：由 init 注入的官方 v6 版 Hikerurl.js 提供（$ 本体/$.require/$.toString/lazyRule），
+        // 本地用生产同款 Rhino 1.7.15 实测：加载跑通、$.require('engine').home() 能真实返回结果。
+        // 此前这里有一段手敲仿写的 $ 预置（照反编译重写 $require 等），与资产 $ 互相覆盖且错漏连环
+        // （三处转义写错曾让整段在解析期全灭），已整段删除，不再与官方实现并存。
+        // 仅保留 Uint8Array 垫片：Rhino 无此内建，部分规则/加密代码会用到，官方 $ 不提供。
         try {
             evalJs(
-                "function $(url, headers) {\n" +
-                "  url = (typeof url === 'undefined' || url == null) ? '' : String(url);\n" +
-                "  var _headersJson = '{}';\n" +
-                "  try {\n" +
-                "    if (headers != null) _headersJson = (typeof headers === 'string') ? headers : JSON.stringify(headers);\n" +
-                "  } catch (_he) {}\n" +
-                "  return {\n" +
-                "    lazyRule: function(fn) {\n" +
-                "      var _a = [];\n" +
-                "      for (var _i = 1; _i < arguments.length; _i++) {\n" +
-                "        try { _a.push(JSON.stringify(arguments[_i])); } catch (_e) { _a.push('null'); }\n" +
-                "      }\n" +
-                "      return url + '@lazyRule=.js:(' + fn.toString() + ')(' + _a.join(',') + ');';\n" +
-                "    },\n" +
-                "    rule: function(fn) {\n" +
-                "      return url + '@rule=js:(' + fn.toString() + ')();';\n" +
-                "    },\n" +
-                "    image: function(fn) {\n" +
-                "      if (typeof fn !== 'function') return url;\n" +
-                "      var _a = [];\n" +
-                "      for (var _i = 1; _i < arguments.length; _i++) {\n" +
-                "        try { _a.push(JSON.stringify(arguments[_i])); } catch (_e) { _a.push('null'); }\n" +
-                "      }\n" +
-                "      var _mt = '';\\n" +
-                "      try { _mt = (typeof MY_RULE !== 'undefined' && MY_RULE && MY_RULE.title) ? MY_RULE.title : ''; } catch (_mte) {}\\n" +
-                "      return url + '@headers=' + _headersJson + '@js=MY_TITLE=' + JSON.stringify(_mt) + ';(' + fn.toString() + ')(' + _a.join(',') + ');';\\n" +
-                "    },\n" +
-                "    confirm: function(fn) {\n" +
-                "      return url + '@confirmRule=js:(' + fn.toString() + ')();';\n" +
-                "    },\n" +
-                "    input: function(fn) {\n" +
-                "      return '@inputRule=.js:(' + fn.toString() + ')();';\n" +
-                "    },\n" +
-                "    b64: function() {\n" +
-                "      return $(url, headers);\n" +
-                "    },\n" +
-                "    x5Rule: function(fn) {\n" +
-                "      return '@x5Rule=js:(' + fn.toString() + ')();';\n" +
-                "    }\n" +
-                "  };\n" +
-                "}\n" +
-                "$.toString = function(fn) {\n" +
-                "  if (arguments.length === 0) return \"$\";\n" +
-                "  var args = [];\n" +
-                "  for (var i = 1; i < arguments.length; i++) {\n" +
-                "    try { args.push((typeof $.stringify === 'function' ? $.stringify : JSON.stringify)(arguments[i])); } catch (e) { args.push('null'); }\n" +
-                "  }\n" +
-                "  if (typeof fn !== 'function') return '';\n" +
-                "  var _fnStr;\n" +
-                "  try { _fnStr = fn.__toString__(); } catch (_e) { try { _fnStr = fn.toString(); } catch (_e2) { return ''; } }\n" +
-                "  return '(' + _fnStr + ')(' + args.join(',') + ')';\n" +
-                "};\n" +
-                                "var $require = (function() {\n" +
-                "    var RequireUtils = com.example.hikerview.ui.rules.service.require.RequireUtils;\n" +
-                "    function Module(o) {\n" +
-                "        this.id = o.id;\n" +
-                "        this.exports = {};\n" +
-                "        this.importParam = o.importParam;\n" +
-                "        this.modulePath = o.modulePath;\n" +
-                "        this.headers = o.headers;\n" +
-                "        this.time = o.time;\n" +
-                "        this.code = o.code;\n" +
-                "    }\n" +
-                "    Module._cache = new Map();\n" +
-                "    Module._extensions = {\n" +
-                "        'json': function(module) {\n" +
-                "            var script = getScript(module).trim();\n" +
-                "            try {\n" +
-                "                module.exports = JSON.parse(script);\n" +
-                "            } catch (e) {\n" +
-                "                Module._extensions.js(module);\n" +
-                "            }\n" +
-                "        },\n" +
-                "        'js': function(module) {\n" +
-                "            var script = getScript(module);\n" +
-                "            var templateFn = new Function(\"module\", \"exports\", \"__filename\", script);\n" +
-                "            var exports = module.exports;\n" +
-                "            templateFn.call(exports, module, exports, module.id);\n" +
-                "        }\n" +
-                "    };\n" +
-                "    Module.prototype.load = function() {\n" +
-                "        var $temp = [$.exports, $.importParam];\n" +
-                "        var referee = this.exports;\n" +
-                "        $.exports = this.exports;\n" +
-                "        $.importParam = this.importParam;\n" +
-                "        var type = this.id.split(\"?\")[0];\n" +
-                "        if (type.endsWith(\".json\")) {\n" +
-                "            Module._extensions.json(this);\n" +
-                "        } else {\n" +
-                "            Module._extensions.js(this);\n" +
-                "        }\n" +
-                "        if ($.exports !== this.exports && referee === this.exports) {\n" +
-                "            this.exports = $.exports;\n" +
-                "        }\n" +
-                "        $.exports = $temp[0];\n" +
-                "        $.importParam = $temp[1];\n" +
-                "    };\n" +
-                "    function getScript(module) {\n" +
-                "        var code = \"\";\n" +
-                "        if (module.code !== void 0) return module.code;\n" +
-                "        if (module.id.startsWith(\"hiker://page/\")) {\n" +
-                "            var codeObject = request(module.id);\n" +
-                "            if (!codeObject) throw new Error('Module \"' + module.modulePath + '\" cannot be found.');\n" +
-                "            code = JSON.parse(codeObject).rule;\n" +
-                "        } else {\n" +
-                "            if (fileExist(module.id) || module.id.startsWith(\"hiker://assets/\")) {\n" +
-                "                if (module.time) {\n" +
-                "                    code = fetchCache(module.modulePath, module.time, module.headers);\n" +
-                "                } else {\n" +
-                "                    code = request(module.id);\n" +
-                "                }\n" +
-                "            } else if (module.modulePath.startsWith(\"http\")) {\n" +
-                "                code = request(module.modulePath, module.headers);\n" +
-                "                if (!isJsCode(code)) {\n" +
-                "                    throw new Error('failed to get module \"' + module.modulePath + '\" from the network!');\n" +
-                "                }\n" +
-                "                writeFile(module.id, code);\n" +
-                "            } else {\n" +
-                "                throw new Error('Module \"' + module.modulePath + '\" cannot be found.');\n" +
-                "            }\n" +
-                "            if (module.modulePath.startsWith(\"http\")) {\n" +
-                "                try {\n" +
-                "                    var title = \"\";\n" +
-                "                    if (typeof MY_RULE !== \"undefined\" && MY_RULE != null) {\n" +
-                "                        title = MY_RULE.title;\n" +
-                "                    } else if (typeof MY_TITLE !== \"undefined\") {\n" +
-                "                        title = MY_TITLE;\n" +
-                "                    }\n" +
-                "                    generateRequireMap(title, module.modulePath, \"\", getPath(module.id).slice(7));\n" +
-                "                } catch (e) {}\n" +
-                "            }\n" +
-                "        }\n" +
-                "        if (code.startsWith(\"js:\")) {\n" +
-                "            code = code.slice(3);\n" +
-                "        }\n" +
-                "        return code;\n" +
-                "    }\n" +
-                "    function isJsCode(code) {\n" +
-                "        if (!code) return false;\n" +
-                "        code = code.trim();\n" +
-                "        var notJsCode1 = [\"<!DOCTYPE\", \"<html\", \"<?xml\"];\n" +
-                "        for (var s of notJsCode1) {\n" +
-                "            if (code.startsWith(s)) return false;\n" +
-                "        }\n" +
-                "        var notJsCode2 = [\"</html>\", \"</rss>\"];\n" +
-                "        for (var s of notJsCode2) {\n" +
-                "            if (code.endsWith(s)) return false;\n" +
-                "        }\n" +
-                "        var jsKey = [\"var \", \"let \", \"const \", \"this.\", \"function\", \"eval(\", \"call(\", \"eval (\", \"call (\", \" => \", \")=>\"];\n" +
-                "        for (var s of jsKey) {\n" +
-                "            if (code.includes(s)) return true;\n" +
-                "        }\n" +
-                "        return false;\n" +
-                "    }\n" +
-                "    function require(modulePath, importParam, headers, time) {\n" +
-                "        if (typeof headers === \"number\") {\n" +
-                "            time = headers;\n" +
-                "            headers = undefined;\n" +
-                "        }\n" +
-                "        modulePath = modulePath || \"\";\n" +
-                "        var absPathname = require.resolve(modulePath);\n" +
-                "        if (Module._cache.has(absPathname)) {\n" +
-                "            return Module._cache.get(absPathname).exports;\n" +
-                "        }\n" +
-                "        var module = new Module({id: absPathname, modulePath: modulePath, importParam: importParam, headers: headers, time: time});\n" +
-                "        module.load();\n" +
-                "        Module._cache.set(module.id, module);\n" +
-                "        return module.exports;\n" +
-                "    }\n" +
-                "    require.resolve = function(modulePath) {\n" +
-                "        if (modulePath.startsWith(\"../\") || modulePath.startsWith(\"./\")) {\n" +
-                "            return joinUrl(\"file:///files/data/\" + MY_RULE.title + \"/\", modulePath).replace(\"file:///\", \"hiker://\");\n" +
-                "        } else if (modulePath.startsWith(\"https://\") || modulePath.startsWith(\"http://\")) {\n" +
-                "            return \"hiker://files/libs/\" + md5(modulePath) + \".js\";\n" +
-                "        } else if (!modulePath.startsWith(\"hiker://\") && !modulePath.startsWith(\"file://\")) {\n" +
-                "            return \"hiker://page/\" + modulePath;\n" +
-                "        } else {\n" +
-                "            return modulePath;\n" +
-                "        }\n" +
-                "    };\n" +
-                "    require.cache = Module._cache;\n" +
-                "    require.eval = function(code, eid, importParam) {\n" +
-                "        eid = eid || md5(code);\n" +
-                "        if (Module._cache.has(eid)) {\n" +
-                "            return Module._cache.get(eid).exports;\n" +
-                "        }\n" +
-                "        var module = new Module({id: eid, importParam: importParam, code: code});\n" +
-                "        module.load();\n" +
-                "        Module._cache.set(module.id, module);\n" +
-                "        return module.exports;\n" +
-                "    };\n" +
-                "    return require;\n" +
-                "})();\n" +
-                "$.require = $require;\n" +
-                "$.exports = $.exports || {};\n" +
-                "$.importParam = $.importParam || null;\n" +
-                "\n" +
                 "function Uint8Array(a) {\n" +
                 "  var r = [];\n" +
                 "  if (typeof a === 'number') { for (var i = 0; i < a; i++) r.push(0); }\n" +
@@ -2849,7 +2654,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 "}\n"
             );
         } catch (Throwable e) {
-            Logger.t(TAG).d("$ helper failed: %s", e.getMessage());
+            Logger.t(TAG).d("Uint8Array shim failed: %s", e.getMessage());
         }
     }
 

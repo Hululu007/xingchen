@@ -564,10 +564,15 @@ public class HkContentFragment extends BaseFragment {
         new Thread(() -> {
             List<HkItem> list;
             try {
+                // 入口留痕：点开小程序必有此行，缺了它就是没走到加载（列表/tab 层的问题）
+                com.github.catvod.crawler.SpiderDebug.log("hk", "load start rule=%s page=%d", rule.getTitle(), p);
                 list = getRouter().home(p, c, a, y, s);
                 // 记录实际抓取页 URL：图片自动 Referer 用（8.83 GlideUtil.getGlideUrl 同款语义）
                 recordHkPageUrl(p, c, a, y, s);
             } catch (Throwable e) {
+                // 以前这里全吞：引擎建不起来/路由异常都无声变空列表，日志里查不到
+                com.github.catvod.crawler.SpiderDebug.log("hk", "load threw rule=%s err=%s",
+                        rule.getTitle(), String.valueOf(e));
                 list = new ArrayList<>();
             }
             final List<HkItem> result = list;
@@ -575,12 +580,18 @@ public class HkContentFragment extends BaseFragment {
                 // 先释放 loading：过期回调也不能把标记卡死，否则滚动翻页/下拉刷新永久失效
                 //（翻页请求在途时用户点了别的导致 contentGen 自增，就会走到这里）。
                 loading = false;
-                if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
-                if (!isAdded() || binding == null) return;
-                binding.swipeContent.setRefreshing(false);
-                binding.loadingContent.setVisibility(View.GONE);
+                // 加载视觉的清理必须排在过期检查前面：以前过期回调直接 return，
+                // 全屏转圈/下拉刷新/preRule 弹窗全没人关——页面已经显示"加载失败"，
+                // 底部还在转圈（用户实测）。清理是幂等的，先做永远安全；只有内容
+                // 应用才需要被 gen 拦住。
+                if (binding != null) {
+                    binding.swipeContent.setRefreshing(false);
+                    binding.loadingContent.setVisibility(View.GONE);
+                }
                 // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
                 hideHkLoading();
+                if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果
+                if (!isAdded() || binding == null) return;
                 // V2：把导航类条目（scroll_button/flex_button 分类）拆出来做顶部 tab，
                 // 分隔块（blank_block/line_blank/line）丢弃，其余内容条目按 col_type
                 // 由 ContentAdapter 多 viewType 渲染（视频/文本/图片/输入框等）。

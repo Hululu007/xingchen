@@ -99,3 +99,13 @@
 
 # Zxing
 -keep class com.google.zxing.** { *; }
+
+# 海阔引擎 JS 桥：HkJsRuntime 靠反射扫描 @JSAnnotation 方法生成同名 JS 函数
+# （getAllFunctions），方法名即规则调用的 API 名；R8 改名后真机上 getUaObject
+# 等全部 ReferenceError（本地未混淆测不出）。整类保名，含内部注解类型。
+-keep class com.fongmi.android.tv.api.hk.HkJsRuntime { *; }
+-keep class com.fongmi.android.tv.api.hk.HkJsRuntime$* { *; }
+
+# 海阔模型：Gson 按字段名序列化/反序列化（MY_RULE、hiker://page 规则体），字段名不能改
+-keep class com.fongmi.android.tv.api.hk.HkRule { *; }
+-keep class com.fongmi.android.tv.api.hk.HkPageRule { *; }

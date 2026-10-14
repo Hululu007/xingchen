@@ -6,18 +6,29 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.view.Gravity;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkRule;
+import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.google.gson.Gson;
@@ -61,6 +72,8 @@ public class HkListActivity extends AppCompatActivity
     private HkArticleFragment fragment;
     private HkRule rule;
     private String pageTitle;
+    /** 顶部小程序切换 tabs 的规则集（自旧内容页迁入，行为不变）。 */
+    private final java.util.List<HkRule> miniappRules = new java.util.ArrayList<>();
     private boolean childHasWebView;
     /** editFile:// 支登记的保存后回调 JS（原版宿主同名字段族），编辑页以 0x4e16 回流后逐个求值。 */
     private final java.util.List<String> fileEditCallbackJs = new java.util.ArrayList<>();
@@ -294,10 +307,13 @@ public class HkListActivity extends AppCompatActivity
         // 活动标题必须真实设置：HkFuck.inList(Activity) 与 Fragment.activityTitle() 都读它
         setTitle(pageTitle == null ? "" : pageTitle);
         setContentView(R.layout.activity_hk_list);
+        // 海阔浅色页状态栏：不透出星辰壁纸，用与标题栏一致的白色（ThemeManager 的 resume 重刷同义处理）
+        getWindow().setStatusBarColor(0xFFFFFFFF);
         TextView titleView = findViewById(R.id.hk_list_title);
         if (titleView != null) titleView.setText(pageTitle);
         android.view.View back = findViewById(R.id.hk_list_back);
         if (back != null) back.setOnClickListener(v -> finish());
+        buildMiniappTabs();
         if (savedInstanceState != null) {
             androidx.fragment.app.Fragment restored =
                     getSupportFragmentManager().findFragmentById(R.id.hk_list_container);
@@ -639,5 +655,293 @@ public class HkListActivity extends AppCompatActivity
             }
         }
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    // ================= 顶部小程序切换 tabs（星辰自有功能，自旧内容页 HkContentFragment 原样迁入） =================
+
+    /**
+     * 内容页顶部小程序切换 tabs：横向显示已安装的小程序，点击切换规则。
+     * 新架构下切换 = 以新页打开目标规则并关掉本页（返回栈回小程序首页，与开页导航一致）。
+     * 仅规则首页级（listHost=false）显示；子列表级保持 8.83 原版页眉，不挂此栏。
+     */
+    private void buildMiniappTabs() {
+        View row = findViewById(R.id.hk_miniapp_tabs_row);
+        if (row == null) return;
+        if (getIntent().getBooleanExtra("listHost", false)) {
+            row.setVisibility(View.GONE);
+            return;
+        }
+        try {
+            List<HkRule> rules = HkRuleManager.get().getRules();
+            java.util.List<HkRule> enabled = new java.util.ArrayList<>();
+            for (HkRule r : rules) {
+                // 顶部 tabs 不需要"我的主页"（HikerHome 未实现，打开必报错）
+                // 标题为空（脏数据已在 getTitle 清洗）的规则不展示，避免空白 tab
+                if (r.isEnabled() && !isHomePageRule(r) && !r.getTitle().isEmpty()) enabled.add(r);
+            }
+            // 当前规则若不在 tabs 列表里（未启用或刚导入），追加进去并选中，保证 tabs 跟随当前页面
+            HkRule cur = rule;
+            String curTitle = cur == null ? null : cur.getTitle();
+            boolean hasCur = false;
+            if (curTitle != null) {
+                for (HkRule r : enabled) {
+                    if (curTitle.equals(r.getTitle())) {
+                        hasCur = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasCur && cur != null) {
+                enabled.add(cur);
+            }
+            miniappRules.clear();
+            miniappRules.addAll(enabled);
+            if (enabled.size() <= 1) {
+                row.setVisibility(View.GONE);
+                return;
+            }
+            java.util.List<String[]> pairs = new java.util.ArrayList<>();
+            int sel = 0;
+            for (int i = 0; i < enabled.size(); i++) {
+                HkRule r = enabled.get(i);
+                pairs.add(new String[]{r.getTitle(), String.valueOf(i)});
+                if (curTitle != null && curTitle.equals(r.getTitle())) sel = i;
+            }
+            final java.util.List<HkRule> finalEnabled = enabled;
+            MiniappChipAdapter adapter = new MiniappChipAdapter(pairs, sel, idx -> {
+                try {
+                    int i = Integer.parseInt(idx);
+                    if (i >= 0 && i < finalEnabled.size()) {
+                        HkRule target = finalEnabled.get(i);
+                        if (rule == null || !target.getTitle().equals(rule.getTitle())) {
+                            switchRule(target);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+            RecyclerView tabsRv = findViewById(R.id.hk_rv_miniapp_tabs);
+            tabsRv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+            // 横向 tab 行不抢垂直滚动：避免嵌套滚动冲突
+            tabsRv.setHasFixedSize(true);
+            tabsRv.setNestedScrollingEnabled(false);
+            tabsRv.setAdapter(adapter);
+            // 滚动到选中项，保证当前小程序的 tab 可见
+            final int finalSel = sel;
+            tabsRv.post(() -> {
+                try {
+                    ((LinearLayoutManager) tabsRv.getLayoutManager())
+                            .scrollToPositionWithOffset(finalSel, 0);
+                } catch (Throwable ignored) {
+                }
+            });
+            View all = findViewById(R.id.hk_btn_miniapp_all);
+            if (all != null) all.setOnClickListener(v -> showMiniappSwitchDialog());
+            row.setVisibility(View.VISIBLE);
+        } catch (Throwable t) {
+            row.setVisibility(View.GONE);
+        }
+    }
+
+    /** 是否为"我的主页"规则：顶部 tabs 暂不展示它（HikerHome 未实现）。 */
+    private static boolean isHomePageRule(HkRule r) {
+        return r != null && "我的主页".equals(r.getTitle());
+    }
+
+    /** 切规则：新页打开目标规则、关掉本页（新架构的开页导航语义）。 */
+    private void switchRule(HkRule target) {
+        if (target == null) return;
+        startRule(this, target, target.getTitle());
+        finish();
+    }
+
+    /**
+     * 小程序切换：顶部 tabs 栏最右「全部」按钮弹窗。
+     * 星辰风格：毛玻璃底 + 独立选项卡片。8.83 内容页无此功能。
+     */
+    private void showMiniappSwitchDialog() {
+        if (miniappRules.size() <= 1) return;
+        final String curTitle = rule == null ? null : rule.getTitle();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.xc_dialog_light);
+        int pad = dp(16);
+        card.setPadding(pad, pad, pad, pad);
+
+        TextView title = new TextView(this);
+        title.setText("选择小程序");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        card.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        RecyclerView rv = new RecyclerView(this);
+        rv.setLayoutManager(new GridLayoutManager(this, 2));
+        rv.setClipToPadding(false);
+        int rows = (miniappRules.size() + 1) / 2;
+        int gridH = Math.min(rows * dp(66), dp(360));
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, gridH);
+        rlp.topMargin = dp(12);
+        card.addView(rv, rlp);
+
+        final AlertDialog[] holder = new AlertDialog[1];
+        rv.setAdapter(new MiniappSwitchAdapter(miniappRules, curTitle, target -> {
+            if (holder[0] != null) holder[0].dismiss();
+            if (target != null && (rule == null || !target.getTitle().equals(rule.getTitle()))) {
+                switchRule(target);
+            }
+        }));
+
+        FrameLayout outer = new FrameLayout(this);
+        int m = dp(24);
+        outer.setPadding(m, 0, m, 0);
+        outer.addView(card, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(outer).create();
+        holder[0] = dialog;
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /** 小程序切换 tabs 的横向 pill 适配器（旧内容页 ChipAdapter 的金色模式原样）。 */
+    private static class MiniappChipAdapter extends RecyclerView.Adapter<MiniappChipAdapter.Holder> {
+        interface OnPick {
+            void onPick(String value);
+        }
+
+        private final java.util.List<String[]> pairs;
+        private int selected;
+        private final OnPick listener;
+
+        MiniappChipAdapter(java.util.List<String[]> pairs, int selected, OnPick listener) {
+            this.pairs = pairs;
+            this.selected = selected;
+            this.listener = listener;
+        }
+
+        static class Holder extends RecyclerView.ViewHolder {
+            TextView chip;
+            com.google.android.material.card.MaterialCardView card;
+
+            Holder(View v) {
+                super(v);
+                chip = v.findViewById(R.id.tv_chip);
+                android.view.View p = (android.view.View) chip.getParent();
+                card = p instanceof com.google.android.material.card.MaterialCardView
+                        ? (com.google.android.material.card.MaterialCardView) p : null;
+            }
+        }
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_hk_chip, parent, false);
+            RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) v.getLayoutParams();
+            lp.rightMargin = (int) (8 * parent.getContext().getResources().getDisplayMetrics().density + 0.5f);
+            v.setLayoutParams(lp);
+            return new Holder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            String[] pair = pairs.get(position);
+            h.chip.setText(pair[0]);
+            boolean sel = position == selected;
+            h.chip.setSelected(sel);
+            // 金色主题：小程序切换 tabs 在圆角框内，透明底 + 金色系文字，与分类 pills 区分
+            if (h.card != null) {
+                h.card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
+                h.card.setStrokeWidth(0);
+            }
+            h.chip.setBackgroundResource(0);
+            h.chip.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            h.chip.setTextColor(sel ? 0xFF8A6D00 : 0xFF8A8F98);
+            h.chip.setOnClickListener(v -> {
+                int pos = h.getBindingAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION) return;
+                selected = pos;
+                notifyDataSetChanged();
+                if (listener != null) listener.onPick(pairs.get(pos)[1]);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return pairs.size();
+        }
+    }
+
+    /** 「全部」弹窗的 2 列选项卡片适配器：独立卡片框、有间距，当前选中高亮（旧内容页原样）。 */
+    private static class MiniappSwitchAdapter extends RecyclerView.Adapter<MiniappSwitchAdapter.Holder> {
+        interface OnPick {
+            void onPick(HkRule rule);
+        }
+
+        private final java.util.List<HkRule> rules;
+        private final String curTitle;
+        private final OnPick listener;
+
+        MiniappSwitchAdapter(java.util.List<HkRule> rules, String curTitle, OnPick listener) {
+            this.rules = rules;
+            this.curTitle = curTitle;
+            this.listener = listener;
+        }
+
+        static class Holder extends RecyclerView.ViewHolder {
+            TextView name;
+
+            Holder(View v) {
+                super(v);
+                name = (TextView) v;
+            }
+        }
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            android.content.Context ctx = parent.getContext();
+            float d = ctx.getResources().getDisplayMetrics().density;
+            TextView tv = new TextView(ctx);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setGravity(Gravity.CENTER);
+            tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tv.setTextSize(15);
+            int p = (int) (14 * d + 0.5f);
+            tv.setPadding(p, p, p, p);
+            GridLayoutManager.LayoutParams lp = new GridLayoutManager.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            int mg = (int) (6 * d + 0.5f);
+            lp.setMargins(mg, mg, mg, mg);
+            tv.setLayoutParams(lp);
+            return new Holder(tv);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            HkRule r = rules.get(position);
+            h.name.setText(r.getTitle());
+            boolean sel = curTitle != null && curTitle.equals(r.getTitle());
+            h.name.setTextColor(sel ? 0xFFD4A017 : 0xFF1A1D24);
+            h.name.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            h.name.setOnClickListener(v -> {
+                if (listener != null) listener.onPick(r);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return rules.size();
+        }
     }
 }

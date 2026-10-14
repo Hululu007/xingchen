@@ -65,7 +65,7 @@
         android:layout_height="wrap_content"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:padding="8dp"
-        android:text="AI·本地"
+        android:text="AI实时字幕"
         android:textColor="#B3000000"
         android:textSize="13sp"
         android:textStyle="bold" />

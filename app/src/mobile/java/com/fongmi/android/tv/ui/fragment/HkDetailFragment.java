@@ -605,6 +605,30 @@ public class HkDetailFragment extends Fragment {
     }
 
     /**
+     * 列表点磁力/电驴进自家播放器（用户拍板，相对原版有意分叉）：
+     * 把被点的这一条目当作单集传给播放器，走海阔播放链（SiteApi.hkPlayerContent →
+     * HkRouter.play 透传 → 迅雷引擎），与详情选集磁力同一条路；标题用条目自带名字。
+     */
+    private void playP2pInApp(HkItem item, String url) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("name", stripHtml(item.getTitle()));
+            o.put("url", url);
+            o.put("pic", item.getPic() == null ? "" : item.getPic());
+            arr.put(o);
+            HkRule rule = hostRule();
+            VideoActivity.startHkPlay(requireActivity(),
+                    rule == null ? "" : rule.getTitle(), "默认",
+                    url, item.getTitle(), item.getTitle(),
+                    item.getPic() == null ? "" : item.getPic(),
+                    arr.toString(), 0);
+        } catch (Throwable e) {
+            Toast.makeText(requireContext(), "无法播放此链接", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
      * dealWithUrl 分流处理（官方 ArticleListFragment.dealWithUrl）：
      * pics=漫画图片列表 / x5=webview规则 / web=网页 / image=图片查看 / magnet=分享。
      */
@@ -652,6 +676,13 @@ public class HkDetailFragment extends Fragment {
                     return;
                 }
                 case "magnet": {
+                    if (HkRouter.isP2pPlayLink(url)) {
+                        // 用户拍板（相对原版的有意分叉）：列表点磁力/电驴进自家播放器播，
+                        // 走迅雷引擎；标题用条目自带名字，不做文件名清理。
+                        playP2pInApp(item, url);
+                        return;
+                    }
+                    // thunder://、ftp:// 保持原版：系统选应用
                     android.content.Intent it2 = new android.content.Intent(android.content.Intent.ACTION_VIEW,
                             android.net.Uri.parse(url));
                     try {

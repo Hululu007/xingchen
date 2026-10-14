@@ -128,6 +128,20 @@
         if (input == null) return new Data([]);
         if (typeof input === 'string') return new Data(utf8Encode(input));
         if (input.bytes) return new Data(input.bytes);
+        // Java InputStream（图片 @js= 求值时宿主以 Java 流传入 input；Rhino 下直调 read 读完。
+        // 原版 FileUtil.toBytes(stream) 同款语义；此前无此分支直接返回空导致解密出空图）
+        try {
+            if (input && typeof input.read === 'function' && typeof input.available === 'function') {
+                var bytes = [];
+                var buf = java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE, 8192);
+                var n = input.read(buf, 0, 8192);
+                while (n !== -1) {
+                    for (var i = 0; i < n; i++) bytes.push(buf[i] & 255);
+                    n = input.read(buf, 0, 8192);
+                }
+                return new Data(bytes);
+            }
+        } catch (e0) {}
         if (typeof input.length === 'number') return new Data(input);
         return new Data([]);
     };

@@ -83,7 +83,9 @@ public class HkHttp {
      * 在补了 charset 头后依然被 Connection reset，真机 dns 被动记录确认取数
      * 走了这里的 DoH，而同机同网原版（无自定义 Dns）能取到——解析路径分叉
      * 是唯一未排除的嫌疑；用户其余部位（PY/JS/主站）的 DoH 设置不受影响。
-     * HK_DNS 现仅 imageClient 使用。</p>
+     * 图片 client 曾误装 HK_DNS（恒走 DoH、无回退）致零封面，已换 HK_IMAGE_DNS
+     * （默认系统解析，仅 haikuoshijie 类地址在开 DoH 时走 DoH）；HK_DNS 保留，
+     * 现无链使用，不要动它的行为。</p>
      */
     private static final Dns HK_DNS = new Dns() {
         @Override
@@ -108,6 +110,51 @@ public class HkHttp {
         }
     };
     private static volatile DnsOverHttps hkDoh;
+
+    /**
+     * 图片 client 专用 DNS（照 8.83 OkHttpUrlLoader.buildLoadData 口径）：
+     * 默认系统解析；仅 host 含 "haikuoshijie" 的地址（原版
+     * DohProvidersKt.shouldUseAutoDNS 口径）在用户开了 DoH 时走 hkDoh，
+     * 其余一律系统解析。
+     *
+     * <p>8.83 的图片 client 在 builder 上不装自定义 Dns（loadDns 默认"智能"
+     * 不装任何东西），按地址加 DoH 是逐请求在 buildLoadData 里判的；此前
+     * 移植误把恒走 DoH 的 HK_DNS 装到整个图片 client 上，用户开 DoH 后所有
+     * 图片域名无回退地走 DoH，picx.drleao.cn 查不到即 UnknownHostException
+     * → 解密拿到空 → 封面全白（确定性零封面）。</p>
+     *
+     * <p>10 秒解析封顶保留（非 8.83 原有、防污染域名干挂的既有保护）。</p>
+     */
+    private static final Dns HK_IMAGE_DNS = new Dns() {
+        @Override
+        public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+            DnsOverHttps doh = hkDoh;
+            Dns delegate = (doh != null && isAutoDnsHost(hostname)) ? doh : Dns.SYSTEM;
+            java.util.concurrent.Future<List<InetAddress>> f =
+                    DNS_POOL.submit(() -> delegate.lookup(hostname));
+            try {
+                return f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                f.cancel(true);
+                throw new UnknownHostException("dns timeout: " + hostname);
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable c = e.getCause();
+                if (c instanceof UnknownHostException) throw (UnknownHostException) c;
+                throw new UnknownHostException(String.valueOf(c));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UnknownHostException("dns interrupted: " + hostname);
+            }
+        }
+    };
+
+    /**
+     * 照原版 DohProvidersKt.shouldUseAutoDNS：host 含 haikuoshijie 即走自动 DNS。
+     * 原版另有远端下发的 autoDomain 名单一并参与，星辰未移植该名单，按任务口径只保留 haikuoshijie 一类。
+     */
+    private static boolean isAutoDnsHost(String hostname) {
+        return hostname != null && hostname.toLowerCase(java.util.Locale.US).contains("haikuoshijie");
+    }
 
     /**
      * 应用 DoH 设置到海阔客户端（对应 8.83 MoreSettingOfficer.loadDns）。
@@ -137,7 +184,8 @@ public class HkHttp {
      * 海阔图片专用 OkHttpClient，移植自 8.83 OkHttpUrlLoader.Factory 内建 client：
      * - BrotliInterceptor
      * - 信任所有证书 SSL（UnSafeTrustManager + UnSafeHostnameVerifier）
-     * - loadDns（DoH）
+     * - DNS：HK_IMAGE_DNS——默认系统解析，仅 haikuoshijie 类地址在用户开 DoH 时走 DoH
+     *   （照 8.83 buildLoadData 逐地址判定口径；此前误装恒走 DoH 的 HK_DNS 致零封面）
      * - 超时 + CookieJar
      * 不含 ContentType 拦截器（8.83 图片 client 同样不加）。
      */
@@ -148,7 +196,7 @@ public class HkHttp {
                     OkHttpClient.Builder b = new OkHttpClient.Builder()
                             .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
                             .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
-                            .dns(HK_DNS)
+                            .dns(HK_IMAGE_DNS)
                             .connectTimeout(15, TimeUnit.SECONDS)
                             // 8.83 OkHttpUrlLoader.Factory 内建 client：read/write 各 15 秒
                             .readTimeout(15, TimeUnit.SECONDS)
@@ -181,14 +229,15 @@ public class HkHttp {
      * 构建 OkHttpClient，移植自 8.83 HttpHelper.buildOkHttpClient(int, boolean)：
      * - 信任所有证书 SSL（HttpsUtils.getSslSocketFactory + UnSafeHostnameVerifier）
      * - DNS：系统默认（照 8.83 原文，HttpHelper.buildOkHttpClient 未设置 Dns；
-     *   图片 client 仍走 HK_DNS/DoH，不在此列）
+     *   图片 client 用 HK_IMAGE_DNS：默认系统解析，仅 haikuoshijie 类地址在开 DoH 时走 DoH）
      * - ContentTypePreInterceptor + ContentTypeAfterInterceptor（network）
      * - CookieJar 持久化
      * - 统一超时
      */
     // 8.83 HttpHelper.buildOkHttpClient 移植：公开供 HkJsRuntime 等调用方使用，
     // 使海阔 JS 请求与 HkHttp 同走 CookieJar / 内容类型拦截器配置；
-    // DNS 走系统默认（照 8.83 原文；DoH 只保留在图片 client 的 HK_DNS 上）。
+    // DNS 走系统默认（照 8.83 原文；图片 client 用 HK_IMAGE_DNS：默认系统解析，
+    // 仅 haikuoshijie 类地址在开 DoH 时走 DoH）。
     public static OkHttpClient client() {
         if (client == null) {
             synchronized (HkHttp.class) {

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.hk;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.fongmi.android.tv.api.hk.util.HkCodeUtil;
 import com.google.gson.Gson;
 
 import java.io.IOException;
@@ -30,7 +31,7 @@ import okhttp3.Response;
  * <ul>
  * <li>fastjson → Gson</li>
  * <li>okgo HttpParams → 内置 {@link HttpParams}</li>
- * <li>CodeUtil.get/post → OkHttp（经 {@link HkHttp#client()}）</li>
+ * <li>CodeUtil.get/post → {@link HkCodeUtil}（含 hiker:// / file:// 本地分发，与 8.83 同款）</li>
  * <li>Timber → android.util.Log</li>
  * <li>JSEngine.getInstance() → {@link JsBridge}（由宿主注入）</li>
  * <li>StringUtil/CollectionUtil/StringUtils → {@link HkParserKit}</li>
@@ -477,29 +478,15 @@ public class HkHttpParser {
                 });
                 return;
             }
-            Request.Builder rb = new Request.Builder().url(decodedUrl).get();
-            if (headers != null) {
-                for (Map.Entry<String, String> e : headers.entrySet()) {
-                    rb.header(e.getKey(), e.getValue());
-                }
-            }
-            HkHttp.client().newCall(rb.build()).enqueue(new Callback() {
+            HkCodeUtil.get(decodedUrl, charset, headers, new HkCodeUtil.OnCodeGetListener() {
                 @Override
-                public void onFailure(Call call, IOException e) {
-                    callBack.onFailure(500, e.toString());
+                public void onSuccess(String result) {
+                    callBack.onSuccess(decodedUrl, result);
                 }
 
                 @Override
-                public void onResponse(Call call, Response response) {
-                    try {
-                        String body = response.body() != null ? response.body().string() : "";
-                        // 8.83 CodeUtil 按 charset 解码；OkHttp 已处理，此处透传
-                        callBack.onSuccess(decodedUrl, body);
-                    } catch (Exception e) {
-                        callBack.onFailure(500, e.toString());
-                    } finally {
-                        response.close();
-                    }
+                public void onFailure(int code, String msg) {
+                    callBack.onFailure(code, msg);
                 }
             });
         } catch (Exception e) {
@@ -508,35 +495,22 @@ public class HkHttpParser {
         }
     }
 
-    /** 8.83 CodeUtil.post 语义。 */
+    /** 8.83 HttpParser.post 语义：内部委托 CodeUtil.post（HttpParser$2 包装同款）。 */
     public static void post(String url, String charset, Map<String, String> headers, HttpParams params, final OnSearchCallBack callBack) {
         try {
             final String decodedUrl = HkParserKit.decodeConflictStr(url);
-            Request.Builder rb = new Request.Builder().url(decodedUrl)
-                    .post(params != null ? params.toFormBody() : new FormBody.Builder().build());
-            if (headers != null) {
-                for (Map.Entry<String, String> e : headers.entrySet()) {
-                    rb.header(e.getKey(), e.getValue());
-                }
-            }
-            HkHttp.client().newCall(rb.build()).enqueue(new Callback() {
-                @Override
-                public void onFailure(Call call, IOException e) {
-                    callBack.onFailure(111, e.toString());
-                }
+            HkCodeUtil.post(decodedUrl, params != null ? params.getMap() : null, charset, headers,
+                    new HkCodeUtil.OnCodeGetListener() {
+                        @Override
+                        public void onSuccess(String result) {
+                            callBack.onSuccess(decodedUrl, result);
+                        }
 
-                @Override
-                public void onResponse(Call call, Response response) {
-                    try {
-                        String body = response.body() != null ? response.body().string() : "";
-                        callBack.onSuccess(decodedUrl, body);
-                    } catch (Exception e) {
-                        callBack.onFailure(111, e.toString());
-                    } finally {
-                        response.close();
-                    }
-                }
-            });
+                        @Override
+                        public void onFailure(int code, String msg) {
+                            callBack.onFailure(code, msg);
+                        }
+                    });
         } catch (Exception e) {
             Log.e(TAG, "post", e);
             callBack.onFailure(500, e.toString());

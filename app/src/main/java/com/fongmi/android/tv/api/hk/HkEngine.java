@@ -5,6 +5,7 @@ import android.text.TextUtils;
 import com.github.catvod.crawler.SpiderDebug;
 import com.orhanobut.logger.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,9 +63,14 @@ public class HkEngine {
                 String preFetched = "";
                 if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://")) {
                     try {
-                        preFetched = HkHttp.get(fetchUrl, rule.resolvedUa());
+                        // 8.83 对齐：预抓失败走失败路径——真因进引擎错误通道供空态展示，
+                        // 绝不在空正文上照常求值（自创的"吞失败"行为，已删）
+                        preFetched = prefetchBody(fetchUrl);
                     } catch (Throwable t) {
-                        Logger.t(TAG).d("R1 pre-fetch failed: %s", t.getMessage());
+                        String msg = String.valueOf(t);
+                        SpiderDebug.log("hk", "home prefetch failed rule=%s err=%s", rule.getTitle(), msg);
+                        jsRuntime.noteFetchFailure(msg);
+                        return new ArrayList<>();
                     }
                 }
                 jsRuntime.setEvalResCodeBody(preFetched);
@@ -103,9 +109,13 @@ public class HkEngine {
                 String preFetched = "";
                 if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://")) {
                     try {
-                        preFetched = HkHttp.get(fetchUrl, rule.resolvedUa());
+                        // 8.83 对齐：预抓失败走失败路径，绝不在空正文上照常求值（自创行为，已删）
+                        preFetched = prefetchBody(fetchUrl);
                     } catch (Throwable t) {
-                        Logger.t(TAG).d("R1 pre-fetch failed: %s", t.getMessage());
+                        String msg = String.valueOf(t);
+                        SpiderDebug.log("hk", "search prefetch failed rule=%s err=%s", rule.getTitle(), msg);
+                        jsRuntime.noteFetchFailure(msg);
+                        return new ArrayList<>();
                     }
                 }
                 jsRuntime.setEvalResCodeBody(preFetched);
@@ -139,6 +149,19 @@ public class HkEngine {
 
     public String getError() {
         return jsRuntime.getError();
+    }
+
+    /**
+     * R1 预抓取数（8.83 JSEngine.parseHomeCallBack 同款语义）：成功返回正文；
+     * 失败或正文为空直接抛异常——调用方按现有失败路径处理，绝不在空正文上求值。
+     */
+    private String prefetchBody(String fetchUrl) throws IOException {
+        String body = HkHttp.get(fetchUrl, rule.resolvedUa());
+        if (body == null || body.isEmpty()) {
+            // 加固：预抓路径下正文为空直接按取数失败处理，避免次生 TypeError 盖住真因
+            throw new IOException("取数失败：正文为空");
+        }
+        return body;
     }
 
     /**

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Result;
@@ -13,7 +14,9 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -31,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -213,7 +217,11 @@ public class SiteViewModel extends ViewModel {
                     if (taskId.get() != currentId) return;
                     if (error instanceof CancellationException) return;
                     if (onError != null) onError.accept(error);
+                    // 失败原因必须留痕：以前非 ExtractException 一律吞成空结果，界面只剩通用
+                    // 提示、调试日志里也没有原文，推送磁力/ed2k 的超时就是这样一直查不到
+                    SpiderDebug.log("viewmodel", "execute failed type=%s error=%s", type, error);
                     if (error instanceof ExtractException) liveData.postValue(Result.error(error.getMessage()));
+                    else if (type == TaskType.PLAYER && error instanceof TimeoutException) liveData.postValue(Result.error(ResUtil.getString(R.string.error_play_timeout)));
                     else liveData.postValue(Result.empty());
                     error.printStackTrace();
                 }

@@ -322,6 +322,9 @@ public class Proxy115 extends NanoHTTPD {
 
         // 115 m3u8 接口返回的是 JSON（含 video_url），不是清单本身：先解析拿真地址
         // 注意：body 一旦用 string() 消费就不可再读；response 关闭后后面不再碰它
+        // 非JSON 清单（清单正文或错误页）首轮已读出放 prefetchedBody，后面直接用它验清单，
+        // 不再同址同头盲重取（两会话实证：重取拿回同一份坏响应，只加延迟）
+        String prefetchedBody = null;
         if (isPlaylist && result.response != null) {
             try {
                 okhttp3.ResponseBody _b = result.response.body();
@@ -355,9 +358,9 @@ public class Proxy115 extends NanoHTTPD {
                         return upstreamError(_t);
                     }
                 } else {
-                    // 清单或未知内容：body 已消费，重新取一次
-                    SpiderDebug.log("proxy115", "115取流 api=%d 非JSON 重取一次", _apiCode);
-                    result = fetchWithWatchdog(target, headers, 90);
+                    // 清单或未知内容：首轮正文已读出，不再同址同头盲重取
+                    SpiderDebug.log("proxy115", "115取流 api=%d 非JSON 单次取数进验清单", _apiCode);
+                    prefetchedBody = _t;
                 }
             } catch (Exception _e) {
                 Log.d(TAG, "115 JSON 解析失败: " + _e.getMessage());
@@ -367,8 +370,9 @@ public class Proxy115 extends NanoHTTPD {
         }
 
         // 上面可能重取替换了 result，resp 跟上最新的（旧 resp 已关闭，不可再读）
+        // 非JSON 清单分支不再重取：正文已预读进 prefetchedBody，直接用它验清单
         resp = result.response;
-        if (resp == null) {
+        if (resp == null && prefetchedBody == null) {
             return newFixedLengthResponse(BAD_GATEWAY, "text/plain", "upstream error");
         }
 
@@ -385,19 +389,38 @@ public class Proxy115 extends NanoHTTPD {
         }
 
         if (isPlaylist) {
-            // m3u8：全文读出 → 验明真是清单 → 改写清单 → 返回
-            // 清单必须真是清单：115 有些口子回 200 但内容是错误页/网关挑战页（对照 PY _probe_url：
-            // m3u8 必须真出现 #EXTM3U）。以前只要 target 含 .m3u8 就按清单 200 发出去，
-            // 播放器拿到错误页报 MANIFEST_MALFORMED（18:12 日志实证）。非清单一律诚实 502。
+            // m3u8：全文读出 → 结构验明真是清单 → 改写清单 → 返回
+            // 结构验明（对照 115 插件 _probe_url）：正文必须含 #EXTINF 或 #EXT-X-STREAM-INF。
+            // 光看 #EXTM3U 开头不够——上游确定性回一份以 #EXTM3U 开头、814 字节、不可解析的
+            // 假清单，前缀检查被骗过，播放器拿到报 MANIFEST_MALFORMED（19:03 日志实证）。
+            // 验不过的一律诚实 502，不再下发给播放器。
             try {
-                ResponseBody body = resp.body();
-                String text = body != null ? body.string() : "";
-                resp.close();
+                String text;
+                if (prefetchedBody != null) {
+                    text = prefetchedBody; // 非JSON 分支首轮已读出，单次取数
+                } else {
+                    ResponseBody body = resp.body();
+                    text = body != null ? body.string() : "";
+                    resp.close();
+                }
                 String trim = text.trim();
-                boolean looksPlaylist = trim.startsWith("#EXTM3U") || trim.startsWith("\uFEFF#EXTM3U");
-                if (!looksPlaylist) {
-                    Log.d(TAG, "上游清单内容非m3u8，诚实502");
-                    SpiderDebug.log("proxy115", "上游清单非m3u8 诚实502 code=%d", result.code);
+                boolean hasExtinf = trim.contains("#EXTINF");
+                boolean hasStreamInf = trim.contains("#EXT-X-STREAM-INF");
+                boolean realPlaylist = hasExtinf || hasStreamInf;
+                int totalBytes = text.getBytes(StandardCharsets.UTF_8).length;
+                int lineCount = trim.isEmpty() ? 0 : trim.split("\r\n|\r|\n").length;
+                if (realPlaylist) {
+                    // 成功路径记简版
+                    SpiderDebug.log("proxy115", "清单验明通过 code=%d 字节=%d 行=%d",
+                            result.code, totalBytes, lineCount);
+                } else {
+                    // 失败路径记结构诊断（进可导出日志，为定性毒清单留证）
+                    String head = trim.length() > 200 ? trim.substring(0, 200) : trim;
+                    head = head.replace("\r", "\\r").replace("\n", "\\n");
+                    SpiderDebug.log("proxy115",
+                            "清单验明失败 诚实502 code=%d 字节=%d 行=%d 含EXTINF=%b 含STREAMINF=%b 首200=%s",
+                            result.code, totalBytes, lineCount, hasExtinf, hasStreamInf, head);
+                    Log.d(TAG, "上游清单结构不实（毒清单），诚实502");
                     return newFixedLengthResponse(BAD_GATEWAY, "text/plain", "upstream not playlist");
                 }
                 text = rewritePlaylist(text, target, token, getListeningPort());

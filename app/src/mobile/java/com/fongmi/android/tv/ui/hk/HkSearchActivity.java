@@ -114,7 +114,7 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
                         return;
                     }
                 }
-                startGlobalSearch(activity, keyword);
+                HkSearchActivity.startGlobalSearch(activity, keyword);
             }
 
             @Override

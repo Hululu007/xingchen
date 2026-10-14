@@ -586,8 +586,12 @@ public class HkRuleManager {
                 if (!resp.isSuccessful() || resp.body() == null)
                     throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
                 String b64 = resp.body().string().trim();
-                String json = safeBase64Decode(b64);
-                if (json == null) throw new IllegalArgumentException("云端内容不是有效的 base64 规则");
+                // 原版 NetCutImporter.fromSafeBase64：解开外层只要求是合法 base64，不校验是否为规则原文；
+                // 分享内容可能是「说明文本＋base64://@标题@真规则」包装，剥壳走 unwrapShareText（原版分发器同款）。
+                String outer = decodeBase64Loose(b64);
+                if (outer == null) throw new IllegalArgumentException("云端内容不是有效的 base64 规则");
+                String json = unwrapShareText(outer);
+                if (json == null || json.isEmpty()) throw new IllegalArgumentException("云端内容不是有效的 base64 规则");
                 return json;
             }
         }
@@ -813,6 +817,13 @@ public class HkRuleManager {
 
     /** 兼容标准 / URL 安全两种 base64 的解码，失败返回 null。 */
     private String safeBase64Decode(String b64) {
+        String decoded = decodeBase64Loose(b64);
+        if (decoded != null && decoded.contains("{") && decoded.contains("}")) return decoded;
+        return null;
+    }
+
+    /** base64 解码（宽松版）：只要求是合法 base64，不校验解码后是否为规则原文；原版 fromSafeBase64 同款。 */
+    private String decodeBase64Loose(String b64) {
         if (b64 == null) return null;
         String s = b64.trim().replaceAll("\\s+", "");
         // 补齐 padding
@@ -823,8 +834,7 @@ public class HkRuleManager {
         for (int flag : flags) {
             try {
                 byte[] bytes = Base64.decode(padded, flag);
-                String decoded = new String(bytes, StandardCharsets.UTF_8);
-                if (decoded.contains("{") && decoded.contains("}")) return decoded;
+                return new String(bytes, StandardCharsets.UTF_8);
             } catch (Exception ignored) {
             }
         }

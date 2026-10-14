@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.api;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -174,6 +175,22 @@ public class SiteApi {
         }
     }
 
+    // 推送标题：ed2k/磁力整串当标题会把协议头、大小、哈希全露出来（用户点名），标题应取
+    // 链接里自带的文件名（ed2k 的文件名段 / 磁力的 dn 参数）；取不到才回退原串
+    private static String pushTitle(String id) {
+        try {
+            if (id.startsWith("ed2k://")) {
+                String[] parts = id.split("\\|");
+                if (parts.length > 2 && !parts[2].isEmpty()) return java.net.URLDecoder.decode(parts[2], "UTF-8");
+            } else if (id.startsWith("magnet:")) {
+                String dn = Uri.parse(id).getQueryParameter("dn");
+                if (dn != null && !dn.isEmpty()) return dn;
+            }
+        } catch (Exception ignored) {
+        }
+        return id;
+    }
+
     @NonNull
     public static Result detailContent(@NonNull String key, @NonNull String id) throws Exception {
         return detailContent(key, id, false);
@@ -187,7 +204,7 @@ public class SiteApi {
         if (site.isEmpty() && PUSH.equals(key)) {
             Vod vod = new Vod();
             vod.setId(id);
-            vod.setName(id);
+            vod.setName(pushTitle(id));
             vod.setPlayUrl(id);
             vod.setPlayFrom(ResUtil.getString(R.string.push));
             vod.setPic(ResUtil.getString(R.string.push_image));

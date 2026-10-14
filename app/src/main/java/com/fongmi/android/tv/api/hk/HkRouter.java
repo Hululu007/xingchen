@@ -443,7 +443,8 @@ public class HkRouter {
 
     /**
      * 解析多线路/字幕 JSON：{@code {urls:[], names:[], headers:[], subtitle:'...'}}。
-     * headers 元素形如 {@code "Cookie@xxx"}。P1：同时解析 audioUrls（音视频分离）。
+     * headers 元素两种形态都认：{@code "Cookie@xxx"} 字符串，或 8.83 PlayData 的
+     * {@code {"Referer":"..."}} 对象。P1：同时解析 audioUrls（音视频分离）。
      */
     private boolean parsePlayJson(String u, HkPlay out) {
         try {
@@ -457,9 +458,21 @@ public class HkRouter {
             JSONArray headers = o.optJSONArray("headers");
             if (headers != null) {
                 for (int i = 0; i < headers.length(); i++) {
-                    String kv = headers.optString(i, "");
-                    int at = kv.indexOf('@');
-                    if (at > 0) out.putHeader(kv.substring(0, at).trim(), kv.substring(at + 1).trim());
+                    Object el = headers.opt(i);
+                    if (el instanceof JSONObject) {
+                        // 8.83 PlayData.headers 是 List<Map>：元素是 {名:值} 对象（摸鱼日报即此式）
+                        JSONObject ho = (JSONObject) el;
+                        java.util.Iterator<String> keys = ho.keys();
+                        while (keys.hasNext()) {
+                            String k = keys.next();
+                            String v = ho.optString(k, "").trim();
+                            if (!k.trim().isEmpty() && !v.isEmpty()) out.putHeader(k.trim(), v);
+                        }
+                    } else {
+                        String kv = headers.optString(i, "");
+                        int at = kv.indexOf('@');
+                        if (at > 0) out.putHeader(kv.substring(0, at).trim(), kv.substring(at + 1).trim());
+                    }
                 }
             }
             String sub = o.optString("subtitle", "").trim();

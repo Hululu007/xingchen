@@ -47,9 +47,57 @@ jobs:
         with:
           name: XingChen-APK
           path: app/build/outputs/apk/**/*.apk
+      - name: Collect dist for OCI
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          test -n "$APK"
+          cp "$APK" dist/mobile-arm64_v8a.apk
+          ls -lh dist/
+      - name: Set up ORAS
+        id: oras
+        continue-on-error: true
+        uses: oras-project/setup-oras@v1
+        with:
+          url: https://github.com/oras-project/oras/releases/download/v1.3.4/oras_1.3.4_linux_amd64.tar.gz
+          checksum: f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454
+      - name: Publish APK to OCI Registry
+        id: oci
+        if: ${{ steps.oras.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          DIST_DIR: dist
+          OCI_METADATA_FILE: build/oci-metadata.json
+          RELEASE_TAG: ${{ env.WEBHTV_RELEASE_TAG }}
+          OCI_REPOSITORY: xiaosa1996/xingchen-apk
+          OCI_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          OCI_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: bash .github/scripts/publish-oci-apks.sh
+      - name: Report OCI publish failure
+        if: ${{ steps.oras.outcome == 'failure' || steps.oci.outcome == 'failure' }}
+        run: echo "::warning title=OCI publish unavailable::GitHub release will continue without OCI metadata."
+      - name: Clean old OCI tags (keep only latest)
+        if: ${{ steps.oci.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          KEEP="${WEBHTV_RELEASE_TAG#v}-mobile-arm64_v8a"
+          JWT=$(curl -fsSL -X POST -H "Content-Type: application/json" -d "{\"username\":\"$DH_USER\",\"password\":\"$DH_TOKEN\"}" https://hub.docker.com/v2/users/login/ | python3 -c "import sys,json;print(json.load(sys.stdin).get('token',''))") || JWT=""
+          if [ -n "$JWT" ]; then
+            curl -fsSL -H "Authorization: JWT $JWT" "https://hub.docker.com/v2/repositories/xiaosa1996/xingchen-apk/tags?page_size=100" | python3 -c "import sys,json; [print(t['name']) for t in json.load(sys.stdin).get('results',[])]" | while read -r t; do
+              if [ "$t" != "$KEEP" ]; then
+                curl -fsSL -X DELETE -H "Authorization: JWT $JWT" "https://hub.docker.com/v2/repositories/xiaosa1996/xingchen-apk/tags/$t/" || true
+              fi
+            done
+          fi
       - name: Publish release for in-app update
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OCI_PUBLISH_OUTCOME: ${{ steps.oci.outcome }}
         run: |
           set -euo pipefail
           APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
@@ -79,7 +127,7 @@ jobs:
           DL=$(echo "$ASSET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['browser_download_url'])")
           test -n "$STORED" && test -n "$DL"
           python3 - "$VNAME" "$VCODE" "$TAG" "$STORED" "$SIZE" "$SHA" "$DL" <<'PYEOF'
-          import json, sys
+          import json, os, sys
           vname, vcode, tag, asset, size, sha, dl = sys.argv[1:8]
           manifest = {
               "name": tag,
@@ -93,6 +141,15 @@ jobs:
               "notes": "星辰 " + vname + " 更新发布。",
               "downloads": {"github": {"url": dl}},
           }
+          # 备用线路：发备用站成功时把描述写进清单（与默影视同款校验：大小与校验值必须对得上）
+          if os.environ.get("OCI_PUBLISH_OUTCOME") == "success" and os.path.isfile("build/oci-metadata.json"):
+              with open("build/oci-metadata.json", encoding="utf-8") as fh:
+                  oci = json.load(fh)
+              descriptor = oci.get("mobile-arm64_v8a")
+              if descriptor is not None:
+                  if descriptor.get("size") != int(size) or descriptor.get("layerDigest") != "sha256:" + sha:
+                      raise SystemExit("OCI descriptor does not match the release APK")
+                  manifest["downloads"]["oci"] = descriptor
           with open("mobile-arm64_v8a.json", "w", encoding="utf-8") as f:
               json.dump(manifest, f, ensure_ascii=False, indent=2)
           PYEOF

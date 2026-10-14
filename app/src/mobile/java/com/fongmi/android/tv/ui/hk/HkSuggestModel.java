@@ -15,7 +15,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.function.Consumer;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 SuggestModel 的远程建议词部分转写（ui/search/model/SuggestModel.smali）：
@@ -25,6 +25,7 @@ import timber.log.Timber;
  * 本类只承接适配器 SuggestLoader 钩子的远程一路（原版同名 loadFromRemote 语义）。
  */
 public class HkSuggestModel {
+    private static final String TAG = "HkSuggestModel";
 
     private HkSuggestModel() {
     }
@@ -37,11 +38,11 @@ public class HkSuggestModel {
                 String url = "http://suggestion.baidu.com/su?wd="
                         + HkHttpParser.encodeUrl(query)
                         + "&p=1&t=" + new Date().getTime();
-                Timber.d("getRecommands: %s", url);
+                Log.d(TAG, String.format("getRecommands: %s", url));
                 String body = httpGet(url);
                 if (body != null) result = parseRecommands(body);
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
             if (consumer != null) consumer.accept(result);
         }, "hk-suggest").start();
@@ -60,7 +61,7 @@ public class HkSuggestModel {
                 }
             }
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
         return list;
     }

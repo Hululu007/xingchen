@@ -191,9 +191,8 @@ public class HkListActivity extends AppCompatActivity
                 }
                 String selName = !TextUtils.isEmpty(sel.memoryTitle) ? sel.memoryTitle
                         : (sel.title == null ? "" : sel.title);
-                // 8.83 播放器标题取选中集的标题；只有详情页（mTitle 传空）才用影片名
-                String name = !TextUtils.isEmpty(mTitle) ? selName
-                        : (!TextUtils.isEmpty(film) ? film : selName);
+                // 播放器标题取选中集标题；mTitle 传空的是列表页一级路（film 为活动标题=规则名，不能用）
+                String name = selName;
                 // 多线路展开：章节地址是播放数据（urls/names/headers）时按 names 展开成线路，
                 // 与 8.83 播放器内按集解析、线路序号对所有集统一的语义一致；普通集走原扁平载荷不变
                 java.util.List<HkPlayData> playDatas = new java.util.ArrayList<>();

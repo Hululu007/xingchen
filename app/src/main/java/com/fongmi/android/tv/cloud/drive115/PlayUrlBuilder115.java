@@ -207,7 +207,9 @@ public class PlayUrlBuilder115 {
         String token = proxy.put(headers);
         // 登记 m3u8 标记：播放器拿到代理地址时首轮即按清单解析（走 Result.format 既有链）
         proxy.markM3u8(token, isM3u8);
-        if (!TextUtils.isEmpty(pc)) {
+        // 照插件样板：m3u8 路不绑目标（u= 按次生效，变体/分片各取各的）；
+        // 只有原画直链路才绑目标（403 重铸用）
+        if (!isM3u8 && !TextUtils.isEmpty(pc)) {
             proxy.bindTarget(token, url, pc);
             // 设置 403 重铸回调
             proxy.setRemintCallback(pickcode -> {

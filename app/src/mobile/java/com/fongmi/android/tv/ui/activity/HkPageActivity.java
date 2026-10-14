@@ -464,6 +464,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         android.R.anim.fade_in, android.R.anim.fade_out)
                 .replace(R.id.view_content, contentFragment)
                 .commit();
+        // commit() 是异步的：紧接着的 onRuleChanged/loadContent 调用会因 Fragment 尚未
+        // attach 被判空丢弃（第一次进入小程序必现"假失败+转圈"，第二次才正常）。
+        // 同步落位，让后续调用落在已就绪的 Fragment 上。
+        try {
+            getSupportFragmentManager().executePendingTransactions();
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 旧方法存根：已迁移到 Fragment，保留以兼容旧调用 */
@@ -511,6 +518,11 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         android.R.anim.fade_in, android.R.anim.fade_out)
                 .replace(R.id.view_search, searchFragment)
                 .commit();
+        // 同 showContentFragment：同步落位，避免第一次打开搜索时调用被未就绪丢弃
+        try {
+            getSupportFragmentManager().executePendingTransactions();
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 显示详情页 Fragment */
@@ -523,6 +535,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         android.R.anim.fade_in, android.R.anim.fade_out)
                 .replace(R.id.view_detail, detailFragment)
                 .commit();
+        // 同 showContentFragment：同步落位。hostOpenDetail 的注释曾假设"未就绪会排队到
+        // onViewCreated"，实际 openDetail 未就绪时直接 return 丢弃——第一次进详情必现假失败。
+        try {
+            getSupportFragmentManager().executePendingTransactions();
+        } catch (Throwable ignored) {
+        }
     }
 
     // ================= HkPageHost 接口实现 =================
@@ -553,8 +571,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     public void hostOnContentItemClick(com.fongmi.android.tv.api.hk.HkItem item) {
-        // 内容页条目点击 → 打开详情（Fragment 内部已处理 URL 分流，这里只做导航）
-        hostOpenDetail(item);
+        // 必须走完整的点击管线 onContentItemClick（8.83 clickItem 分流：动作协议/
+        // 子页面/@rule= 子列表/详情页内可播 URL 直接播放/无 detail 规则直达播放器/
+        // 其余才进详情）。此前这里被写成只调 hostOpenDetail——详情页里的播放地址
+        // 被当详情链接重新解析，点了毫无反应（用户实测）；列表页带 @lazyRule=
+        // 的封面同样丢了预检。管线本体与播放函数一直都在，只是没人接进来。
+        onContentItemClick(item);
     }
 
     @Override
@@ -581,11 +603,18 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     @Override
     public void hostOpenDetail(com.fongmi.android.tv.api.hk.HkItem item) {
-        // 先显示详情页 Fragment（showView 会创建并 attach），再让 Fragment 打开详情
-        showView(V_DETAIL);
+        // 进详情必须入栈（与 openRule 进内容页同款）：此前只 showView 不 push，
+        // 栈顶仍是 V_CONTENT，详情页返回时 onBackInvoked 弹掉的是内容页，
+        // 直接落到小程序首页而不是回列表页（用户实测）。
+        // 已在详情页时（lazy 补推重入）不重复入栈，避免返回两次。
+        if (stack.isEmpty() || stack.peek() != V_DETAIL) {
+            pushView(V_DETAIL);
+        } else {
+            showView(V_DETAIL);
+        }
         if (detailFragment != null) {
-            // openDetail(item, fromSearch)：fromSearch=false 为普通打开
-            // Fragment 内部有 isAdded/binding 判空，未就绪时调用安全（会排队到 onViewCreated）
+            // openDetail(item, fromSearch)：fromSearch=false 为普通打开。
+            // showDetailFragment 已同步落位（executePendingTransactions），此处 Fragment 必已 attach。
             detailFragment.openDetail(item, false);
         }
     }
@@ -2862,13 +2891,37 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 hkLoadingText.setText(text);
             }
             if (!hkLoadingDialog.isShowing() && !isFinishing()) hkLoadingDialog.show();
+            // 转圈互斥：弹窗转圈出现时压掉页面内转圈，一个页面只许一个转圈（用户点名）
+            syncInlineSpinner(true);
+            // 兜底：弹窗转圈最长 60 秒自动关（脚本中途死掉没人关时，不许它永远转）
+            hkLoadingWatchdog.removeCallbacks(hkLoadingWatchdogRun);
+            hkLoadingWatchdog.postDelayed(hkLoadingWatchdogRun, 60000);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private final android.os.Handler hkLoadingWatchdog =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable hkLoadingWatchdogRun = this::hideHkLoading;
+
+    /** 弹窗转圈与页面内转圈互斥：弹窗在时页面转圈藏起；弹窗关时若页面仍在加载则恢复页面转圈 */
+    private void syncInlineSpinner(boolean dialogShowing) {
+        try {
+            if (binding.viewDetail.getVisibility() == View.VISIBLE && detailFragment != null) {
+                detailFragment.setInlineLoadingVisible(!dialogShowing && detailFragment.isPageLoading());
+            } else if (binding.viewContent.getVisibility() == View.VISIBLE && contentFragment != null) {
+                // 内容页有自己的转圈状态机（下拉圈/金圈/弹窗三选一），只报状态、由它对账
+                contentFragment.onDialogSpinnerChanged(dialogShowing);
+            }
         } catch (Throwable ignored) {
         }
     }
 
     private void hideHkLoading() {
         try {
+            hkLoadingWatchdog.removeCallbacks(hkLoadingWatchdogRun);
             if (hkLoadingDialog != null && hkLoadingDialog.isShowing()) hkLoadingDialog.dismiss();
+            syncInlineSpinner(false);
         } catch (Throwable ignored) {
         }
     }
@@ -2879,6 +2932,14 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         if (isHomePageRule(rule)) {
             HkRule next = nextAvailableRule(rule);
             if (next != null) rule = next;
+        }
+        // 【重做切换】进规则改走 8.83 式新模块（HkListActivity 独立页，ui/hk）；
+        // 本页只保留小程序首页（V_RULES 规则列表，冻结不动）。下方旧内页流程不再可达，
+        // 旧 Fragment（HkContentFragment/HkDetailFragment/HkSearchFragment）的宿主回调
+        // 只由它们自身触发、随之成为死代码，待整体删除时一并清理。
+        if (rule != null) {
+            com.fongmi.android.tv.ui.hk.HkListActivity.startRule(this, rule, rule.getTitle());
+            return;
         }
         destroyRouterAsync();
         subStack.clear(); // 切规则时丢弃子列表栈
@@ -4826,7 +4887,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     }
 
     /** V2 内容多 viewType 适配器：视频卡片/小图标占 1 列，其余占满 3 列。 */
-    private class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.Holder> {
+    private class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.Holder>
+            implements HkContentFragment.ContentListAdapter {
         static final int T_VIDEO = 0;
         static final int T_TEXT = 1;
         static final int T_RICH = 2;
@@ -4921,7 +4983,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         /**
          * videos 增删后重算 poly 分组（对照 8.83 updatePolyList 调用点）。
          */
-        void refreshGroups() {
+        @Override
+        public void refreshGroups() {
             updatePolyList();
         }
 
@@ -4957,7 +5020,8 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
          * text_2/pic_2/icon_2(2/行)=30；text_3/pic_3/icon_3(3/行)=20；
          * text_4/icon_4(4/行)=15；text_5/icon_5(5/行)=12；其余全宽=60。
          */
-        int spanFor(int position) {
+        @Override
+        public int spanFor(int position) {
             if (position < 0 || position >= items.size()) return 60;
             HkItem it = items.get(position);
             int t = getItemViewType(position);
@@ -5089,12 +5153,14 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     case T_TEXT:
                     case T_TEXT_1:
                     case T_TEXT_CENTER_1:
-                    case T_LONG_TEXT:
                     case T_HEADER:
                     case T_FOOTER:
                     case T_RICH:
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_LONG_TEXT:
+                        title = v.findViewById(R.id.tv_title);
                         break;
                     case T_COLS:
                     case T_TEXT_2:
@@ -5269,11 +5335,14 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 case T_TEXT:
                 case T_TEXT_1:
                 case T_TEXT_CENTER_1:
-                case T_LONG_TEXT:
                 case T_HEADER:
                 case T_FOOTER:
                 case T_RICH:
                     layout = R.layout.item_hk_text;
+                    break;
+                case T_LONG_TEXT:
+                    // 8.83 item_long_text：裸文本无底板（同 HkDetailFragment 的修正）
+                    layout = R.layout.item_hk_text_long;
                     break;
                 case T_COLS:
                 case T_TEXT_2:
@@ -5334,7 +5403,10 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 case T_CARD_PIC_2_2_LEFT:
                 case T_CARD_PIC_3:
                 case T_CARD_PIC_3_CENTER:
-                    layout = R.layout.item_hk_card_rect;
+                    // 此前误用 item_hk_card_rect（集数 chip 布局，无 iv_cover/tv_title/tv_overlay），
+                    // Holder 取回 null，bindCard 一绑定就 NPE——用 card_pic 的规则一点就崩。
+                    // 改用控件齐全的 item_hk_video（封面+标题+角标），列宽仍由 spanFor 按类型给。
+                    layout = R.layout.item_hk_video;
                     break;
                 case T_MOVIE_LEFT_PIC:
                     layout = R.layout.item_hk_movie_left_pic;
@@ -5416,10 +5488,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 case T_TEXT:
                 case T_TEXT_1:
                 case T_TEXT_CENTER_1:
-                case T_LONG_TEXT:
                 case T_HEADER:
                 case T_FOOTER:
                     bindText(h, item);
+                    break;
+                case T_LONG_TEXT:
+                    bindLongText(h, item);
                     break;
                 case T_RICH:
                     bindRich(h, item);
@@ -5577,6 +5651,11 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         }
 
         /** 文本行：text_center_1 居中灰字；text_1 去标签标题+描述；long_text 多行。 */
+        /** 8.83 LongTextHolder：只设文本，样式全在布局（item_long_text）里 */
+        private void bindLongText(Holder h, HkItem item) {
+            if (h.title != null) h.title.setText(titleSpan(item.getTitle()));
+        }
+
         private void bindText(Holder h, HkItem item) {
             String ct = colTypeOf(item);
             if ("text_center_1".equals(ct)) {

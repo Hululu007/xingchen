@@ -47,6 +47,8 @@ public class Proxy115 extends NanoHTTPD {
 
     /** token -> {headers} */
     private final Map<String, Map<String, String>> ctx = new ConcurrentHashMap<>();
+    /** token -> 该地址是否为 m3u8（PlayUrlBuilder115 登记，供播放器初始格式判定） */
+    private final Map<String, Boolean> m3u8Tokens = new ConcurrentHashMap<>();
     /** token -> {url, pickcode}：原画令牌对应的直链（可被换新） */
     private final Map<String, TargetInfo> targets = new ConcurrentHashMap<>();
     /** token -> 创建时间（看门狗） */
@@ -81,6 +83,10 @@ public class Proxy115 extends NanoHTTPD {
         this.cleaner = Executors.newSingleThreadScheduledExecutor();
         // 定期清理过期 token
         this.cleaner.scheduleAtFixedRate(this::cleanExpired, 30, 30, TimeUnit.SECONDS);
+    }
+
+    public static Proxy115 peekInstance() {
+        return instance;
     }
 
     public static synchronized Proxy115 getInstance(OkHttpClient client, CookieJar115 cookieJar) {
@@ -148,6 +154,7 @@ public class Proxy115 extends NanoHTTPD {
                 ctx.remove(oldest);
                 targets.remove(oldest);
                 tokenTime.remove(oldest);
+                m3u8Tokens.remove(oldest);
             }
         }
         String token = seq.incrementAndGet() + "_" + System.currentTimeMillis();
@@ -161,6 +168,60 @@ public class Proxy115 extends NanoHTTPD {
         if (!TextUtils.isEmpty(token) && !TextUtils.isEmpty(pickcode)) {
             targets.put(token, new TargetInfo(url, pickcode));
         }
+    }
+
+    /**
+     * 登记该 token 对应的地址是否为 m3u8（PlayUrlBuilder115 构造地址时调用）。
+     * PlayRequest.isM3u8 的消费端：Source.fetch 里判地址命中后把 Result.format
+     * 定为 m3u8，经 PlaySpec.format -> MediaItem.mimeType 交给播放器，首轮即按
+     * 清单解析，不再走普通流嗅探误判。
+     */
+    public void markM3u8(String token, boolean isM3u8) {
+        if (!TextUtils.isEmpty(token)) m3u8Tokens.put(token, isM3u8);
+    }
+
+    /**
+     * 该地址是否为 115 本机代理的 m3u8 地址。两路判定：
+     * 1) token 在本代理登记过且记为 m3u8（Java 侧 PlayUrlBuilder115 登记，精确）；
+     * 2) 兜底：解出 u= 的上游目标地址，目标本身带 .m3u8 即认（py 侧代理地址无登记）。
+     * 非本机代理地址一律 false，不影响其他源的格式推断。
+     */
+    public static boolean isM3u8ProxyUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String low = url.toLowerCase(java.util.Locale.US);
+        if (!(low.contains("127.0.0.1") || low.contains("localhost"))) return false;
+        int vIdx = low.indexOf("/v?");
+        if (vIdx < 0) return false;
+        String query = url.substring(vIdx + 3);
+        String token = queryParam(query, "t");
+        String u = queryParam(query, "u");
+        if (token.isEmpty() || u.isEmpty()) return false;
+        Proxy115 inst = peekInstance();
+        if (inst != null) {
+            Boolean marked = inst.m3u8Tokens.get(token);
+            if (marked != null) return marked;
+        }
+        String target = b64d(u);
+        return target.toLowerCase(java.util.Locale.US).contains(".m3u8");
+    }
+
+    private static String queryParam(String query, String name) {
+        try {
+            for (String kv : query.split("&")) {
+                int eq = kv.indexOf('=');
+                if (eq <= 0) continue;
+                if (kv.substring(0, eq).equals(name)) {
+                    String v = kv.substring(eq + 1);
+                    try {
+                        return URLDecoder.decode(v, "UTF-8");
+                    } catch (Exception ignored) {
+                        return v;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     private void cleanExpired() {
@@ -410,9 +471,12 @@ public class Proxy115 extends NanoHTTPD {
                 int totalBytes = text.getBytes(StandardCharsets.UTF_8).length;
                 int lineCount = trim.isEmpty() ? 0 : trim.split("\r\n|\r|\n").length;
                 if (realPlaylist) {
-                    // 成功路径记简版
-                    SpiderDebug.log("proxy115", "清单验明通过 code=%d 字节=%d 行=%d",
-                            result.code, totalBytes, lineCount);
+                    // 成功路径也记正文前 500（毒清单定性用：上游 598 字节过了结构
+                    // 检查却不可解析时，下次点一次就能看清那份东西到底长什么样）
+                    String head500 = trim.length() > 500 ? trim.substring(0, 500) : trim;
+                    head500 = head500.replace("\r", "\\r").replace("\n", "\\n");
+                    SpiderDebug.log("proxy115", "清单验明通过 code=%d 字节=%d 行=%d 首500=%s",
+                            result.code, totalBytes, lineCount, head500);
                 } else {
                     // 失败路径记结构诊断（进可导出日志，为定性毒清单留证）
                     String head = trim.length() > 200 ? trim.substring(0, 200) : trim;
@@ -425,6 +489,10 @@ public class Proxy115 extends NanoHTTPD {
                 }
                 text = rewritePlaylist(text, target, token, getListeningPort());
                 byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+                // 改写后也记字节数与前 200，方便下次一次对清「上游给的 / 咱送的 / 播放器读的」三份
+                String rwHead = text.length() > 200 ? text.substring(0, 200) : text;
+                rwHead = rwHead.replace("\r", "\\r").replace("\n", "\\n");
+                SpiderDebug.log("proxy115", "清单改写下发 改写后字节=%d 首200=%s", bytes.length, rwHead);
                 Response r = newFixedLengthResponse(NanoHTTPD.Response.Status.OK,
                         "application/vnd.apple.mpegurl",
                         new java.io.ByteArrayInputStream(bytes), bytes.length);

@@ -17,6 +17,8 @@ public class HkItem {
     private String colType = "";
     /** 条目 extra 对象：pageTitle/newWindow/id/cls/lineVisible/textAlign 等（updateItem/deleteItem/findItemsByCls 用）。 */
     private Map<String, String> extra = new HashMap<>();
+    /** 8.83 ArticleList.sel：选中态（text_1 等行标题变色用）。 */
+    private boolean sel;
     /** 搜索多内容字段（官方 content）。 */
     private String content = "";
     /** 明细线路名（官方 line，详情页按 line 分组用；列表里一般为空）。 */
@@ -82,6 +84,15 @@ public class HkItem {
         this.colType = colType;
     }
 
+    /** 对应原版 ArticleList 的 type 字段，与 colType 同一字段（转写层统一用 getType/setType）。 */
+    public String getType() {
+        return getColType();
+    }
+
+    public void setType(String type) {
+        setColType(type);
+    }
+
     public Map<String, String> getExtra() {
         return extra;
     }
@@ -95,6 +106,14 @@ public class HkItem {
         if (extra == null || key == null) return "";
         String v = extra.get(key);
         return v == null ? "" : v;
+    }
+
+    public boolean isSel() {
+        return sel;
+    }
+
+    public void setSel(boolean sel) {
+        this.sel = sel;
     }
 
     public String getContent() {

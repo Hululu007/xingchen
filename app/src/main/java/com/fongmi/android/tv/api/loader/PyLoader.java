@@ -79,14 +79,16 @@ public class PyLoader {
     public Spider getSpider(String key, String api, String ext) {
         String resolvedApi = resolve(api);
         boolean localFile = !api.startsWith("http");
-        if (localFile && fileStamps.containsKey(key)) {
+        if (localFile) {
             File f = new File(resolvedApi);
             if (!f.exists()) {
-                // 文件已被删除：丢掉旧缓存，不再提供过期 Spider
+                // 脚本文件已不存在（被删/未导入）：静默给空蜘蛛，不走下面的加载失败弹窗。
+                // 此前只有登记过时间戳的 key 才有这条静默路径；时间戳被目录监听清掉后，
+                // 源还指着已删文件就会每次进首页都弹一遍“PY加载失败”的错误码。
                 remove(key);
                 return new SpiderNull();
             }
-            if (stampOf(f) != fileStamps.get(key)) {
+            if (fileStamps.containsKey(key) && stampOf(f) != fileStamps.get(key)) {
                 // 文件被替换：丢掉旧缓存，重新加载
                 remove(key);
             }

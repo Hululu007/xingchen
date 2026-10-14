@@ -193,8 +193,9 @@ public class HkListActivity extends AppCompatActivity
                 }
                 String selName = !TextUtils.isEmpty(sel.memoryTitle) ? sel.memoryTitle
                         : (sel.title == null ? "" : sel.title);
-                // 播放器标题取选中集标题；mTitle 传空的是列表页一级路（film 为活动标题=规则名，不能用）
-                String name = selName;
+                // 播放器标题用页面标题：子列表页的活动标题就是被点视频名（dealRule 经 req.title 传入），
+                // 原版 PlayerChooser 用的正是这个 MTitle；一级列表页活动标题与规则名相同、不可用，回退选中集标题
+                String name = !TextUtils.isEmpty(mTitle) && !mTitle.equals(ruleTitle) ? mTitle : selName;
                 // 多线路展开：章节地址是播放数据（urls/names/headers）时按 names 展开成线路，
                 // 与 8.83 播放器内按集解析、线路序号对所有集统一的语义一致；普通集走原扁平载荷不变
                 java.util.List<HkPlayData> playDatas = new java.util.ArrayList<>();
@@ -546,10 +547,13 @@ public class HkListActivity extends AppCompatActivity
      */
     @Override
     public void openPageUrl(HkRule rule, String pageUrl, int position) {
+        com.github.catvod.crawler.SpiderDebug.log("hk", "openPageUrl entry rule=%s pageUrl=%s pos=%d",
+                rule == null ? "" : rule.getTitle(), pageUrl, position);
         try {
             String paramsJson = fragment == null ? "" : fragment.getItemExtraJson(position);
             String title = fragment == null ? "" : fragment.getItemTitle(position);
             HkRule next = HkPageParser.getNextPage(rule, pageUrl, paramsJson);
+            com.github.catvod.crawler.SpiderDebug.log("hk", "openPageUrl next=%s", next != null);
             HkRule open = next != null ? next : rule;
             HkArticleFragment.SubListRequest req = new HkArticleFragment.SubListRequest();
             req.subRule = open;

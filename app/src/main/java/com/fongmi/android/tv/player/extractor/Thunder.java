@@ -87,14 +87,17 @@ public class Thunder implements Source.Extractor {
     }
 
     private synchronized String fetchInternal(String url) throws Exception {
-        // 有效任务复用：同链接且缓存地址仍对应活任务时直接复用
-        if (url != null && url.equals(lastKey) && lastLocal != null && isTaskAlive()) {
-            SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
+        // 同链接复用：旧任务未明确报错（原生状态非 3）就直接复用，禁止停删重建——
+        // 1.3.8 日志实证（00:32:20）：60ms 内三连 handed，播放器攥着第一份地址，
+        // 后到的 fetch 把先建任务当死任务杀掉重建，播放器对着已删任务的地址永远 0 字节。
+        // FongMi 原版无此清理层、从不杀同链接任务，故一直能播。
+        int ns = nativeStatus();
+        if (url != null && url.equals(lastKey) && lastLocal != null && taskId != null && ns != 3) {
+            SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
             return lastLocal;
         }
-        // 串行重试卫生：上轮同一链接失败后 taskId 仍指向旧原生任务（从未 stop/delete）。
-        // 旧任务已死/失效时先停删再建新任务，禁止两个原生任务同目录并存互抢。
-        if (taskId != null && !isTaskAlive()) cleanupStaleTask();
+        // 串行重试卫生：仅当原生状态明确为 3（出错）才停删旧任务再建新任务。
+        if (taskId != null && ns == 3) cleanupStaleTask();
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
                 : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
@@ -104,26 +107,28 @@ public class Thunder implements Source.Extractor {
         return local;
     }
 
-    // 任务是否还活着：0 等待 / 1 下载中 / 2 已完成都算活；3 出错、读不到信息都算死
+    // 原生任务状态：走 getNativeTaskInfo 绕开 getTaskInfo 的状态合成（存档文件存在即报 2，会误判）；
+    // 读不到返回 -1。0 等待 / 1 下载中 / 2 已完成 / 3 出错。
+    private int nativeStatus() {
+        if (taskId == null) return -1;
+        try {
+            XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(taskId);
+            return info == null ? -1 : info.getTaskStatus();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    // 任务是否还活着：原生状态 0/1/2 算活；-1 读不到不轻易判死（默认活，避免误杀在用任务）
     private boolean isTaskAlive() {
         if (taskId == null) return false;
-        try {
-            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
-            int status = info == null ? -1 : info.getTaskStatus();
-            return status == 0 || status == 1 || status == 2;
-        } catch (Exception e) {
-            return false;
-        }
+        int status = nativeStatus();
+        return status != 3;
     }
 
     // 清理死任务：stop + delete，不释放引擎（重建任务走热引擎，与上游每轮建任务一致）
     private void cleanupStaleTask() {
-        int status = -1;
-        try {
-            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
-            status = info == null ? -1 : info.getTaskStatus();
-        } catch (Exception ignored) {
-        }
+        int status = nativeStatus();
         try {
             XLTaskHelper.get().stopTask(taskId);
             XLTaskHelper.get().deleteTask(taskId);

@@ -854,6 +854,9 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
      * 非 fyAll 或 firstHeader 与当前条目 desc 相同只刷当前行，否则先刷"前 4 条里 desc==firstHeader 且 type==header"那行再刷当前行。
      */
     private void onHeaderItemClick(HeaderHolder holder, String[] urls, int idx, String[] titles, View view) {
+        com.github.catvod.crawler.SpiderDebug.log("hk", "headerClick entry idx=%d title=%s url=%s listener=%s",
+                idx, idx >= 0 && idx < titles.length ? titles[idx] : "",
+                idx >= 0 && idx < urls.length ? urls[idx] : "", onItemClickListener != null);
         if (onItemClickListener == null) return;
         int pos = holder.getAdapterPosition();
         if (pos < 0 || pos >= list.size()) return;

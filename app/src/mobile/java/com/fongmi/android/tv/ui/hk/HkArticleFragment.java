@@ -514,7 +514,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 smartRefreshLayout.finishRefresh(true);
                 smartRefreshLayout.finishLoadMore(true);
             }
-            if (!isPre && !isAfter) {
+            if (!isPre && !isAfter && !"ARTICLE_LIST".equals(key)) {
                 firstPageData = idStr;
                 boolean merged = false;
                 if (fromCache) {
@@ -1521,7 +1521,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         String codeAndHeader = detailBridge == null ? ""
                 : detailBridge.getCodeAndHeader(
                         HkHttpParser_getUrlAppendUA(articleListRule.getUrl(), articleListRule.getUa()), lazySplit);
-        if (recordHistory && TextUtils.isEmpty(codeAndHeader)) codeAndHeader = extraInput;
+        if (!recordHistory && TextUtils.isEmpty(codeAndHeader)) codeAndHeader = extraInput;
         if (lazySplit.length > 1) {
             dealLazyRule(view, position, lazySplit, codeAndHeader);
             return;
@@ -1548,7 +1548,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     articleListRule.getDetailColType(), itemTitle, position);
             return;
         }
-        if (!recordHistory) codeAndHeader = null;
+        if (recordHistory) codeAndHeader = null;
         dealWithUrl(view, decoded, position, codeAndHeader);
     }
 
@@ -1670,6 +1670,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版 toNextPage 入口：列表为空直接返回；解析与开页在后台经宿主接缝（原版 lambda 体随规则 pages 子系统在引擎阶段落码）。 */
     private void toNextPage(int position, String pageUrl) {
+        SpiderDebug.log("hk", "toNextPage entry pos=%d pageUrl=%s opener=%s", position, pageUrl,
+                pageOpener == null ? "null" : pageOpener.getClass().getSimpleName());
         if (adapter == null || adapter.getList().isEmpty()) return;
         Task.execute(() -> {
             if (pageOpener instanceof PageUrlOpener) {
@@ -2322,6 +2324,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版 $5.onClassClick：按 desc 把 url 写进 DTO 对应组并设 firstHeader，然后 page=1 整页重载（params 第二参 true、ARTICLE_LIST_NEW）。 */
     protected void onClassClick(View view, String url, String desc) {
+        SpiderDebug.log("hk", "classClick entry rule=%s desc=%s url=%s",
+                articleListRuleDTO == null ? "" : articleListRuleDTO.getTitle(), desc, url);
         if (articleListRuleDTO == null || desc == null) return;
         switch (desc) {
             case "area":

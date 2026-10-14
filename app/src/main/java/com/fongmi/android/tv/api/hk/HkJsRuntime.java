@@ -1030,6 +1030,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if ("xj_firstopen".equals(key)) {
                 com.github.catvod.crawler.SpiderDebug.log("hk", "getItem xj_firstopen hit=%s", v != null);
             }
+            // 毒值兜底：旧版 setItem 把 JS undefined 经 argStr 存成了字面量 "undefined" 字符串，
+            // 该值与 undefined 恒不等、口令门永远判假；按缺键处理，老装机自动解毒。
+            if ("undefined".equals(v)) v = null;
             return v != null ? v : def;
         });
 
@@ -2006,7 +2009,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
         try {
-            evalJs(
+            evalJsInSharedScope(
                 "var _base64 = {\n" +
                 "  DEFAULT: 0,\n" +
                 "  NO_PADDING: 1,\n" +

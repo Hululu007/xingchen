@@ -3780,7 +3780,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String inputVal = nextInputOverride != null ? nextInputOverride : (pageUrl == null ? "" : pageUrl);
             nextInputOverride = null;
             ScriptableObject.putProperty(scope, "input", inputVal);
-            Object r = evalJs(stripJsPrefix(jsCode));
+            Object r;
+            try {
+                r = evalJs(stripJsPrefix(jsCode));
+            } catch (Exception e) {
+                logEvalError("evalLazy", jsCode, e);
+                throw e;
+            }
             // 同 eval()：用 argStr() 处理数字/布尔返回值
             String s = argStr(r);
             s = s.trim();
@@ -4907,6 +4913,7 @@ public String evalJS(String p1, String p2, boolean p3) {
         Context.exit();
         return s;
     } catch (Exception e) {
+        logEvalError("evalJS", v8, e);
         String err = errPrefix + e.getMessage();
         Context.exit();
         return err;
@@ -4914,6 +4921,24 @@ public String evalJS(String p1, String p2, boolean p3) {
         // smali :catchall_0 — exit then rethrow (NOT a finally: normal paths exit explicitly)
         Context.exit();
         throw t;
+    }
+}
+
+/** 求值失败落盘日志：带行号与出错行原文，供导出调试日志定位（原先异常只回字符串不落盘，无从查起）。 */
+private static void logEvalError(String where, String script, Throwable e) {
+    try {
+        int line = -1;
+        if (e instanceof org.mozilla.javascript.RhinoException) {
+            line = ((org.mozilla.javascript.RhinoException) e).lineNumber();
+        }
+        String excerpt = "";
+        if (script != null && line > 0) {
+            String[] ls = script.split("\n", -1);
+            if (line <= ls.length) excerpt = ls[line - 1].trim();
+            if (excerpt.length() > 200) excerpt = excerpt.substring(0, 200);
+        }
+        Logger.t(TAG).e("eval fail [%s] line=%d >> %s | %s", where, line, excerpt, String.valueOf(e));
+    } catch (Throwable ignored) {
     }
 }
 
@@ -4962,6 +4987,7 @@ public Object evalJSForObj(String p1, Object p2) {
         Context.exit();
         return p1res;
     } catch (Exception e) {
+        logEvalError("evalJSForObj", v5, e);
         Context.exit();
         return null;
     } catch (Throwable t) {
@@ -5225,6 +5251,7 @@ private void runScript(String script, String key, boolean throwOnError) {
         }
         cx.evaluateString(scope, replaced, clazz.getSimpleName(), 1, null);
     } catch (Exception e) {
+        logEvalError("runScript", replaced, e);
         if (!throwOnError) {
             setError("JS编译出错：" + e.getMessage(), key, new HashMap<String, Object>());
         } else {

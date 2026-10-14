@@ -81,28 +81,20 @@ public class HkLazyRuleParser {
         StringBuilder sb = new StringBuilder(s.length() + 16);
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            switch (c) {
-                case '\\':
-                    sb.append("\\\\");
-                    break;
-                case '\'':
-                    sb.append("\\'");
-                    break;
-                case '"':
-                    sb.append("\\\"");
-                    break;
-                case '\n':
-                    sb.append("\\n");
-                    break;
-                case '\r':
-                    sb.append("\\r");
-                    break;
-                case '\t':
-                    sb.append("\\t");
-                    break;
-                default:
-                    sb.append(c);
+            if (c == '\n') {
+                sb.append("\\n");
+            } else if (c == '\r') {
+                sb.append("\\r");
+            } else if (c == '"' || c == '\'' || c == '\\') {
+                sb.append('\\');
+                sb.append(c);
+            } else {
+                sb.append(c);
             }
+        }
+        String r = sb.toString();
+        r = r.replace(" ", "\\u2028").replace(" ", "\\u2029");
+        return r;
         }
         return sb.toString();
     }
@@ -146,7 +138,7 @@ public class HkLazyRuleParser {
                 final String result = rt.evalLazyRule(ruleObj,
                         generateMY("MY_URL", escapeJavaScriptString(myUrl))
                                 + generateMY("MY_POSITION", position)
-                                + HkParserKit.replaceOnce(lazyRule[1], lazyTag, ""),
+                                + HkParserKit.replaceOnce(lazyRule[1], prefix, ""),
                         lazyRule[0]);
                 // 本链里 refreshPage 的刷新已由事件兑现，清掉标记防残留被别处误读
                 rt.consumeRefreshRequest();
@@ -182,7 +174,7 @@ public class HkLazyRuleParser {
                         rt.getMyRule(ruleObj) + HkParserKit.decodeConflictStr(
                                 generateMY("MY_URL", escapeJavaScriptString(myUrl))
                                         + generateMY("MY_POSITION", position)
-                                        + HkParserKit.replaceOnce(lazyRule[1], lazyTag, "")),
+                                        + HkParserKit.replaceOnce(lazyRule[1], prefix, "")),
                         lazyRule[0]);
                 rt.consumeRefreshRequest();
                 if (isFinishing(activity)) {

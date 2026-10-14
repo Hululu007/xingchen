@@ -259,6 +259,17 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     /**
+     * 照抄原版 onRefreshPage(OnRefreshPageEvent)：脚本调 refreshPage() 发来的刷新事件；
+     * 本页可见时按事件的 scrollTop 回顶并整页重取（宿主暂停/不可见时忽略，同原版）。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshPage(com.fongmi.android.tv.api.hk.event.home.OnRefreshPageEvent event) {
+        if (event == null || getActivity() == null || getActivity().isFinishing()) return;
+        if (!isResumed() || !getUserVisibleHint()) return;
+        refreshFromHost(event.isScrollTop());
+    }
+
+    /**
      * 照抄原版 onRefreshWebView(OnRefreshWebViewEvent)：行内 WebView 在场时 setUrl + loadUrl 刷新目标页；
      * http 链接再显示顶部进度（原版看 X5Extra.showProgress，星辰按 HkX5Extra 默认 true 处理）。
      */

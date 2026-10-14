@@ -95,8 +95,6 @@ public class HkLazyRuleParser {
         String r = sb.toString();
         r = r.replace(" ", "\\u2028").replace(" ", "\\u2029");
         return r;
-        }
-        return sb.toString();
     }
 
     private static void clearLazyTag(String[] lazyRule) {

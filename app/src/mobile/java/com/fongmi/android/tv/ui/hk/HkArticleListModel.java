@@ -145,6 +145,9 @@ public class HkArticleListModel {
             wrap.error("参数错误", e.getMessage(), "404", e);
             return;
         }
+        // 诊断：新链加载入口（旧 load start 已不可达），只记日志不改行为
+        if (bridge != null) bridge.log("hk: load start rule=" + rule.getTitle()
+                + " page=" + page + " key=" + key, rule);
         if (page == 1 && mParams.length >= 4
                 && Boolean.FALSE.toString().equals(String.valueOf(mParams[3]))
                 && !TextUtils.isEmpty(rule.getPreRule())) {

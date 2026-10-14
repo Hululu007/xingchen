@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 import com.fongmi.android.tv.ui.hk.view.MyWebProgress;
 import com.fongmi.android.tv.ui.hk.view.RecyclerFastScroller;
@@ -1152,6 +1153,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             loadingPage = -1;
             page = maxLoadedPage > 0 ? maxLoadedPage : 1;
             String ruleTitle = articleListRuleDTO == null ? "" : articleListRuleDTO.getTitle();
+            // 诊断：新链空列表弹错处（旧 page empty 已不可达，字段口径与旧链对齐）
+            SpiderDebug.log("hk", "page empty rule=%s err=%s fetch=%s",
+                    ruleTitle, title,
+                    com.fongmi.android.tv.api.hk.HkJsRuntime.getLastFetchDiag());
             com.fongmi.android.tv.api.hk.HkErrorUtil.showErrorMsg(getActivity(),
                     "规则执行过程中出现错误", "home@" + ruleTitle, title, e);
         } finally {

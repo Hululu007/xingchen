@@ -55,6 +55,14 @@ public class BaseLoader {
         });
     }
 
+    public void clearPy() {
+        pyLoader.clear();
+    }
+
+    public void clearJs() {
+        jsLoader.clear();
+    }
+
     public void removePySpider(String key) {
         pyLoader.remove(key);
     }

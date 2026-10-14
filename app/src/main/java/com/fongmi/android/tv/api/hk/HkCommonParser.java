@@ -370,6 +370,88 @@ public class HkCommonParser {
         return joinUrl(baseUrl, attr);
     }
 
+    /**
+     * 照抄 8.83 CommonParser.parsePageClassUrl(url, page, rule, options)：
+     * 四组 url 为 null 时回填 ""（原版会改规则本体）；options 非空时灌 MY_*_NAME/URL；
+     * [firstPage=...] 仅 page==1 时生效；fypage@ 算式以 page 为初值顺序运算；
+     * fyAll 按 firstHeader 取一组、否则分别替换 fyclass/fyyear/fyarea/fysort；";" 后段原样拼回。
+     */
+    public static String parsePageClassUrl(String url, int page, HkRule rule, java.util.Map<String, Object> options) {
+        if (url == null || url.length() == 0) return url;
+        if (rule == null) rule = new HkRule();
+        if (rule.getClassUrl() == null) rule.setClassUrl("");
+        if (rule.getYearUrl() == null) rule.setYearUrl("");
+        if (rule.getAreaUrl() == null) rule.setAreaUrl("");
+        if (rule.getSortUrl() == null) rule.setSortUrl("");
+        if (options != null) {
+            if (rule.getClassUrl().length() > 0) {
+                options.put("MY_CLASS_NAME", rule.getClassName());
+                options.put("MY_CLASS_URL", rule.getClassUrl());
+            }
+            if (rule.getYearUrl().length() > 0) {
+                options.put("MY_YEAR_NAME", rule.getYearName());
+                options.put("MY_YEAR_URL", rule.getYearUrl());
+            }
+            if (rule.getAreaUrl().length() > 0) {
+                options.put("MY_AREA_NAME", rule.getAreaName());
+                options.put("MY_AREA_URL", rule.getAreaUrl());
+            }
+            if (rule.getSortUrl().length() > 0) {
+                options.put("MY_SORT_NAME", rule.getSortName());
+                options.put("MY_SORT_URL", rule.getSortUrl());
+            }
+        }
+        String[] urlParts = url.split(";");
+        String[] fp = urlParts[0].split("\\[firstPage=");
+        String result;
+        if (page == 1 && fp.length > 1) {
+            result = fp[1].split("]")[0];
+        } else if (fp[0].contains("fypage@")) {
+            String[] parts = fp[0].split("fypage@");
+            String[] expr = parts[1].split("@");
+            int p = page;
+            for (int i = 0; i < expr.length - 1; i++) {
+                String t = expr[i];
+                if (t.startsWith("-")) {
+                    p -= Integer.parseInt(t.replace("-", ""));
+                } else if (t.startsWith("+")) {
+                    p += Integer.parseInt(t.replace("+", ""));
+                } else if (t.startsWith("*")) {
+                    p *= Integer.parseInt(t.replace("*", ""));
+                } else if (t.startsWith("/")) {
+                    p /= Integer.parseInt(t.replace("/", ""));
+                }
+            }
+            result = parts[0] + p + expr[expr.length - 1];
+        } else {
+            result = fp[0].replace("fypage", String.valueOf(page));
+        }
+        if (result.contains("fyAll")) {
+            String fh = rule.getFirstHeader();
+            if ("class".equals(fh)) {
+                result = result.replace("fyAll", rule.getClassUrl());
+            } else if ("area".equals(fh)) {
+                result = result.replace("fyAll", rule.getAreaUrl());
+            } else if ("year".equals(fh)) {
+                result = result.replace("fyAll", rule.getYearUrl());
+            } else if ("sort".equals(fh)) {
+                result = result.replace("fyAll", rule.getSortUrl());
+            } else {
+                result = result.replace("fyAll", rule.getClassUrl());
+            }
+        } else {
+            result = result.replace("fyclass", rule.getClassUrl());
+            result = result.replace("fyyear", rule.getYearUrl());
+            result = result.replace("fyarea", rule.getAreaUrl());
+            result = result.replace("fysort", rule.getSortUrl());
+        }
+        StringBuilder sb = new StringBuilder(result);
+        for (int i = 1; i < urlParts.length; i++) {
+            sb.append(";").append(urlParts[i]);
+        }
+        return sb.toString();
+    }
+
     public static String joinUrl(String baseUrl, String relative) {
         if (HkParserKit.isEmpty(baseUrl)) {
             return relative;

@@ -20,6 +20,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.setting.PlayerSetting;
+import com.fongmi.android.tv.utils.PushNameClean;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.Task;
@@ -204,11 +205,12 @@ public class SiteApi {
         if (site.isEmpty() && PUSH.equals(key)) {
             Vod vod = new Vod();
             vod.setId(id);
-            vod.setName(pushTitle(id));
+            vod.setName(PushNameClean.cleanPushTitle(pushTitle(id), id));
             vod.setPlayUrl(id);
             vod.setPlayFrom(ResUtil.getString(R.string.push));
             vod.setPic(ResUtil.getString(R.string.push_image));
             Source.get().parse(vod.setFlags());
+            PushNameClean.applyEpisodeDisplayNames(vod);
             return Result.vod(vod);
         } else if (isSpider(key, site)) {
             String cacheKey = key + "_" + id;

@@ -842,13 +842,13 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
     // select:// 的模型与弹窗群（SelectExtra / SelectOption 照 detail/model 转写）
     // ------------------------------------------------------------------
 
-    /** 照抄 detail/model/InputExtra（字段 hint/js/value）+ fastjson 解析语义。 */
-    static final class InputExtra {
-        String hint;
-        String js;
-        String value;
+    /** 照抄 detail/model/InputExtra（字段 hint/js/value）+ fastjson 解析语义。列表页亦复用，故公开。 */
+    public static final class InputExtra {
+        public String hint;
+        public String js;
+        public String value;
 
-        static InputExtra parseJson(String body) {
+        public static InputExtra parseJson(String body) {
             InputExtra extra = new InputExtra();
             try {
                 JsonObject obj = JsonParser.parseString(body).getAsJsonObject();
@@ -862,27 +862,27 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         }
     }
 
-    /** 照抄 detail/model/SelectOption（字段 icon/title）。 */
-    static final class SelectOption {
-        String icon;
-        String title;
+    /** 照抄 detail/model/SelectOption（字段 icon/title）。列表页亦复用，故公开。 */
+    public static final class SelectOption {
+        public String icon;
+        public String title;
     }
 
     /**
      * 照抄 detail/model/SelectExtra：默认值 col=3、selectedIndex=-1、attachView/bottom=false；
      * toSelectExtra 语义：options 数组首项为对象时整组转入 options2。
      */
-    static final class SelectExtra {
-        boolean attachView;
-        boolean bottom;
-        int col = 3;
-        String js;
-        List<String> options;
-        List<SelectOption> options2;
-        int selectedIndex = -1;
-        String title;
+    public static final class SelectExtra {
+        public boolean attachView;
+        public boolean bottom;
+        public int col = 3;
+        public String js;
+        public List<String> options;
+        public List<SelectOption> options2;
+        public int selectedIndex = -1;
+        public String title;
 
-        static SelectExtra parse(String json) {
+        public static SelectExtra parse(String json) {
             SelectExtra extra = new SelectExtra();
             JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
             JsonArray optionsArr = obj.has("options") && obj.get("options").isJsonArray()

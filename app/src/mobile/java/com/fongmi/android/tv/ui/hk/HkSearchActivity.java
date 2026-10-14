@@ -133,7 +133,7 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
             public void openSearchInOneRule(Activity activity, String kw, String ruleName) {
                 HkRule rule = findRuleByTitle(ruleName);
                 if (rule != null) startSearchInOneRule(activity, rule, kw);
-                else startGlobalSearch(activity, kw);
+                else HkSearchActivity.startGlobalSearch(activity, kw);
             }
 
             @Override

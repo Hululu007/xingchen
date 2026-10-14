@@ -204,6 +204,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String lastChapterRule = "";
     /** setStrResult/setLastChapterResult：官方 JS 回调字符串结果，宿主存字段供上层取用。 */
     private volatile String strResult = "";
+    /** 8.83 confirm 弹框接缝：宿主（webview 上下文）设置后，规则调 confirm() 弹框走回调。 */
+    public interface ConfirmHandler {
+        void onConfirm(String title, String content, String confirmJs, String cancelJs);
+    }
+
+    private volatile ConfirmHandler confirmHandler;
+
+    public void setConfirmHandler(ConfirmHandler h) {
+        this.confirmHandler = h;
+    }
+
+    /** 求值 confirm 回调 JS（8.83 ArticleListIsland.lambda$confirm$1 同款：evalJS 回调串，结果走路由）。 */
+    public String evalConfirmJs(String js) {
+        try {
+            if (js == null) return "";
+            return evalJS(js, "", true);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
     /** 当前页码（MY_PAGE 注入用）。 */
     private int page = 1;
     /** 列表页上下文（MY_TYPE/MY_CLASS_URL/MY_CLASS_NAME/MY_PARAMS/MY_AREA/MY_YEAR/MY_SORT 注入用）。 */
@@ -980,11 +1000,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
+        // 8.83 JSEngine.getItem/getItemNow 原样：缺键时返回传入的 defaultValue，
+        // 未传默认时 getString(null) 为 null（不是 ""）。星集口令门 `getItem("xj_firstopen")==MY_RULE.version`
+        // 在缺 version 的规则下靠 `null==undefined` 直接放行；之前回 "" 导致 `""==undefined` 为假，
+        // 口令输对也永远进不去（setItem 存的是 "undefined" 字符串）。
         putFunction("getItem", args -> {
-            if (args == null || args.length == 0) return "";
-            String v = kv.get(argStr(args[0]));
-            if (v == null && args.length > 1) v = argStr(args[1]);
-            return v == null ? "" : v;
+            if (args == null || args.length == 0) return null;
+            String key = getString(args[0]);
+            String def = args.length > 1 ? getString(args[1]) : null;
+            if (key == null || key.isEmpty()) return def;
+            String v = kv.get(key);
+            return v != null ? v : def;
         });
 
         // ---- 调试 ----
@@ -1005,10 +1031,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
         // ---- 交互/配置（海阔规则常用，preRule 里调） ----
         putFunction("confirm", args -> {
-            // 官方弹确认框；我们无 UI，直接走 confirm 回调（若有）并返回 true
+            // 8.83 JSEngine.confirm 同款：弹确认框；确定走 confirm 回调、取消走 cancel 回调
             try {
                 if (args != null && args.length > 0 && args[0] != null) {
                     String json = stringifyArg(args[0]);
+                    if (!TextUtils.isEmpty(json) && json.startsWith("{")) {
+                        org.json.JSONObject o = new org.json.JSONObject(json);
+                        String title = o.optString("title");
+                        String content = o.optString("content");
+                        String confirmJs = o.optString("confirm");
+                        String cancelJs = o.optString("cancel");
+                        ConfirmHandler h = confirmHandler;
+                        if (h != null && (!TextUtils.isEmpty(title) || !TextUtils.isEmpty(content))) {
+                            h.onConfirm(title, content, confirmJs, cancelJs);
+                            return true;
+                        }
+                    }
                     Logger.t(TAG).d("confirm: %s", json);
                 }
             } catch (Throwable ignored) {
@@ -3563,7 +3601,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
                     }
                     ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
-                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + ensureDollarShim() + wrapImageJs(jsCode);
+                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode) + ensureDollarShim() + wrapImageJs(jsCode);
                     Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
                     return coerceImageStream(r, input);
                 } catch (Throwable t) {
@@ -3651,6 +3689,28 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    /**
+     * 图片 @js= 求值补裸全局 MY_TITLE。
+     *
+     * <p>规则 {@code $().image(fn)} 生成的代码体引用裸 {@code MY_TITLE}
+     *（如 {@code $.require("data?rule=" + MY_TITLE)}），图片求值作用域若无此全局则报
+     * ReferenceError，被 try/catch 吞掉后返回加密原字节，Glide 解码失败、封面空白。
+     * 取值：优先从代码体 {@code $.hiker.MY_TITLE = "..."} 提取，取不到时用当前规则标题。</p>
+     */
+    private String getMyTitleJs(String jsCode) {
+        String title = null;
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\$\\.hiker\\.MY_TITLE\\s*=\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+                    .matcher(jsCode == null ? "" : jsCode);
+            if (m.find()) title = m.group(1).replace("\\\"", "\"").replace("\\\\", "\\");
+        } catch (Throwable ignored) {
+        }
+        if (android.text.TextUtils.isEmpty(title) && rule != null) title = rule.getTitle();
+        if (android.text.TextUtils.isEmpty(title)) return "";
+        return "var MY_TITLE = '" + escapeJsString(title) + "';\n";
     }
 
     /** JS 单引号字符串转义（adblockplus Utils.escapeJavaScriptString 同款语义）。 */

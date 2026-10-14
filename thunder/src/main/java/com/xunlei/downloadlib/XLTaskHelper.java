@@ -152,6 +152,13 @@ public class XLTaskHelper {
         return taskInfo;
     }
 
+    // 绕开 getTaskInfo 的状态合成，始终取原生任务信息（真实已下载字节/总大小/状态）
+    public synchronized XLTaskInfo getNativeTaskInfo(GetTaskId taskId) {
+        XLTaskInfo taskInfo = new XLTaskInfo();
+        getManager().getTaskInfo(taskId.getTaskId(), 1, taskInfo);
+        return taskInfo;
+    }
+
     public synchronized BtSubTaskDetail getBtSubTaskInfo(GetTaskId taskId, int index) {
         BtSubTaskDetail subTaskDetail = new BtSubTaskDetail();
         getManager().getBtSubTaskInfo(taskId.getTaskId(), index, subTaskDetail);

@@ -22,6 +22,10 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 public class Thunder implements Source.Extractor {
@@ -38,8 +42,49 @@ public class Thunder implements Source.Extractor {
     private String lastKey;
     private String lastLocal;
 
+    // 进行中的 fetch 合流：推送每次播放都会触发两路并发解析（18:02 日志实证两路相隔 20ms，
+    // 共用 Source 单例里的同一个 Thunder 实例）。后到的一路如果另建 native 任务，会写同一
+    // 目录互抢、覆盖 taskId 字段、随后 stop() 删掉的也是后建的任务，先建的反而泄漏。
+    // 所以同 URL 正在 fetch 时后到者直接等先到者的结果，不建第二个任务。
+    private final java.util.concurrent.ConcurrentHashMap<String, CompletableFuture<String>> inflight = new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
-    public synchronized String fetch(String url) throws Exception {
+    public String fetch(String url) throws Exception {
+        if (url == null) return fetchInternal(url);
+        synchronized (this) {
+            if (url.equals(lastKey) && lastLocal != null && taskId != null) {
+                SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
+                return lastLocal;
+            }
+        }
+        CompletableFuture<String> mine = new CompletableFuture<>();
+        CompletableFuture<String> first = inflight.putIfAbsent(url, mine);
+        if (first != null) {
+            SpiderDebug.log("thunder", "join in-flight fetch, wait for first result");
+            try {
+                return first.get(70, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception) throw (Exception) cause;
+                throw new Exception(cause);
+            } catch (TimeoutException | InterruptedException e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
+            }
+        }
+        try {
+            String local = fetchInternal(url);
+            mine.complete(local);
+            return local;
+        } catch (Throwable t) {
+            mine.completeExceptionally(t);
+            throw t;
+        } finally {
+            inflight.remove(url, mine);
+        }
+    }
+
+    private synchronized String fetchInternal(String url) throws Exception {
         if (url != null && url.equals(lastKey) && lastLocal != null && taskId != null) {
             SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
             return lastLocal;

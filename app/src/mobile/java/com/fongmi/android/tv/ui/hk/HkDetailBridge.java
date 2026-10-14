@@ -744,7 +744,8 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         if (hint != null) edit.setHint(hint);
         if (value != null) edit.setText(value);
         int pad = (int) (20 * activity.getResources().getDisplayMetrics().density);
-        edit.setPadding(pad, pad / 4, pad, 0);
+        // 原先底部内边距为 0，下划线直接压在文字上（潇洒哥 1.3.1 真机截图）；上下都留足间距
+        edit.setPadding(pad, pad / 2, pad, pad / 2);
         new AlertDialog.Builder(activity)
                 .setTitle("请输入")
                 .setView(edit)

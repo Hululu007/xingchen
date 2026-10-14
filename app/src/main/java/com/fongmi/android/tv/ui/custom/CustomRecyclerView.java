@@ -3,9 +3,7 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.util.AttributeSet;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -19,9 +17,6 @@ public class CustomRecyclerView extends RecyclerView {
     private int minHeight;
     private int maxWidth;
     private int maxHeight;
-    private int touchSlop;
-    private float x1;
-    private float y1;
 
     public CustomRecyclerView(@NonNull Context context) {
         super(context);
@@ -39,7 +34,6 @@ public class CustomRecyclerView extends RecyclerView {
     }
 
     private void init(Context context, @Nullable AttributeSet attrs) {
-        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         if (attrs != null) setAttrs(context, attrs);
         setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
@@ -106,28 +100,10 @@ public class CustomRecyclerView extends RecyclerView {
         postDelayed(() -> focus(position), 50);
     }
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event) {
-        if (event.getPointerCount() != 1) return false;
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_UP:
-                x1 = y1 = 0;
-                break;
-            case MotionEvent.ACTION_DOWN:
-                x1 = event.getX();
-                y1 = event.getY();
-                getParent().requestDisallowInterceptTouchEvent(true);
-                break;
-            case MotionEvent.ACTION_MOVE:
-                float x2 = event.getX();
-                float y2 = event.getY();
-                float offsetX = Math.abs(x2 - x1);
-                float offsetY = Math.abs(y2 - y1);
-                if (offsetX > offsetY && offsetX > touchSlop) getParent().requestDisallowInterceptTouchEvent(false);
-                else if (offsetY > touchSlop && (y2 - y1) > 0 && !canScrollVertically(-1))
-                    getParent().requestDisallowInterceptTouchEvent(false);
-                break;
-        }
-        return super.dispatchTouchEvent(event);
-    }
+    // 下拉刷新失效的根子在这里，此前的实现已删除：
+    // 旧实现在 ACTION_DOWN 就 requestDisallowInterceptTouchEvent(true) 锁死所有祖先的拦截，
+    // 再在 MOVE 里按方向“放行”——10月11日加的竖直放行分支在真机上仍救不活：
+    // 放行时手势流已过半，SwipeRefreshLayout 接不上，下拉连转圈都不出现（用户两次实证）。
+    // 删除整段自创握手后，ViewPager（横滑翻页）、SwipeRefreshLayout（顶部下拉刷新）、
+    // RecyclerView（竖滑列表）走安卓标准仲裁，不再依赖放行时序。
 }

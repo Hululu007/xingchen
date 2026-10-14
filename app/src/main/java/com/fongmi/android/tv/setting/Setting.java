@@ -673,7 +673,7 @@ public class Setting {
     }
 
     public static String getUpdateSource() {
-        return UpdateSource.normalize(Prefers.getString("update_source", UpdateSource.GITHUB));
+        return UpdateSource.normalize(Prefers.getString("update_source", UpdateSource.OCI));
     }
 
     public static void putUpdateSource(String source) {

@@ -4,6 +4,7 @@ import android.util.Log;
 
 import com.fongmi.android.tv.api.hk.HkHttp;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
+import com.fongmi.android.tv.api.hk.HkParserKit;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -88,14 +89,19 @@ public final class HkCodeUtil {
     public static void get(String url, String charset, Map<String, String> headers, OnCodeGetListener listener) {
         final long start = System.currentTimeMillis();
         url = clearTag(url);
-        // 8.83：headers 每个 value 过 decodeConflictStr（此处透传，OkHttp 已处理编码）
+        url = HkParserKit.decodeConflictStr(url);
+        if (headers != null) {
+            for (Map.Entry<String, String> e : headers.entrySet()) {
+                e.setValue(HkParserKit.decodeConflictStr(e.getValue()));
+            }
+        }
         if (url.startsWith("hiker://files/")) {
             String name = trimBlanks(url.replace("hiker://files/", ""));
             File f = new File(HkJsRuntime.getFilePath(name));
             if (f.exists()) {
                 listener.onSuccess(readFile(f));
             } else {
-                listener.onFailure(400, url + "文件不存在");
+                listener.onFailure(404, url + "文件不存在");
             }
             return;
         }
@@ -151,6 +157,12 @@ public final class HkCodeUtil {
     public static void post(String url, Map<String, String> params, String charset,
                             Map<String, String> headers, OnCodeGetListener listener) {
         url = clearTag(url);
+        url = HkParserKit.decodeConflictStr(url);
+        if (headers != null) {
+            for (Map.Entry<String, String> e : headers.entrySet()) {
+                e.setValue(HkParserKit.decodeConflictStr(e.getValue()));
+            }
+        }
         if (url.startsWith("hiker://files/") || url.startsWith("file://")
                 || url.startsWith("/") || url.startsWith("hiker://")) {
             // 8.83 post 同样先走文件分支（与 get 同款判断）
@@ -296,11 +308,7 @@ public final class HkCodeUtil {
             listener.onSuccess(HkHikerRuleUtil.getAssetsFileByHiker(url));
             return;
         }
-        try {
-            listener.onSuccess(HkHikerRuleUtil.getRulesByHiker(url));
-        } catch (Exception e) {
-            listener.onFailure(-1, e.getMessage());
-        }
+        HkHikerRuleUtil.getRulesByHiker(url, listener);
     }
 
     /** 8.83 dealFileByPath：file:// 去前缀读本地文件。 */
@@ -310,16 +318,15 @@ public final class HkCodeUtil {
         if (f.exists()) {
             listener.onSuccess(readFile(f));
         } else {
-            listener.onFailure(400, path + "文件不存在");
+            listener.onFailure(404, path + "文件不存在");
         }
     }
 
     // ---- 小工具 ----
 
     private static String clearTag(String url) {
-        // 8.83 UrlDetector.clearTag：去掉 url 上的 #tag 标记；此处做最小实现
-        int i = url.indexOf('#');
-        return i >= 0 ? url.substring(0, i) : url;
+        // 8.83 UrlDetector.clearTag 原样（HkParserKit 逐行移植版）
+        return url == null ? null : HkParserKit.clearTag(url);
     }
 
     private static String trimBlanks(String s) {

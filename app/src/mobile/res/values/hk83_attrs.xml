@@ -10,13 +10,7 @@
     <attr name="text" format="string" />
     <attr name="textSize" format="dimension" />
     <attr name="textTop" format="dimension" />
-    <attr name="operateType" format="integer">
-        <enum name="changeLines" value="1" />
-        <enum name="changeLineHeight" value="2" />
-        <enum name="changeLinesAndHeight" value="3" />
-    </attr>
     <attr name="lineNumLowerLimit" format="integer" />
-    <attr name="lineSpaceLowerLimit" format="dimension" />
     <declare-styleable name="DrawableTextView">
         <attr name="center" />
         <attr name="drawableSrc" />

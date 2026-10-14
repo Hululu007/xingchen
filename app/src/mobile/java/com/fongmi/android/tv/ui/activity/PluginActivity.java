@@ -6,7 +6,9 @@ import android.os.Bundle;
 import android.view.View;
 import androidx.viewbinding.ViewBinding;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.databinding.ActivityPluginBinding;
+import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.ui.adapter.PluginAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.bean.Plugin;
@@ -85,7 +87,18 @@ public class PluginActivity extends BaseActivity {
         for (Plugin p : toDelete) {
             new File(p.getPath()).delete();
         }
+        invalidatePlugins();
         loadPlugins();
+    }
+
+    // 插件文件被删/覆盖后：清掉内存里的旧 Spider 并让首页立刻重载，
+    // 否则首页还挂着已删插件的旧内容、覆盖的新版也不生效。
+    private void invalidatePlugins() {
+        try {
+            if (isPy) BaseLoader.get().clearPy();
+            else BaseLoader.get().clearJs();
+        } catch (Throwable ignored) {}
+        RefreshEvent.home();
     }
 
     private void onPluginChanged() {
@@ -108,6 +121,7 @@ public class PluginActivity extends BaseActivity {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+            invalidatePlugins();
             loadPlugins();
         }
     }

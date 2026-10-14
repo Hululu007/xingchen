@@ -24,8 +24,8 @@ import android.util.Log;
  * 文件中以 ":" 开头的行是屏蔽域名，汇入 blockDoms（原版 ArticleListRuleEditActivity.blockDoms，规则编辑页未移植，
  * 此处保留同一静态表供宿主阶段接入）。
  * 加载时机照原版：SettingConfig 初始化时 loadList()——星辰由宿主在启动接线时调用 loadList()。
- * goWeb 的目标页打开走 WebUtil.goWeb(context, url, false)（原版内置浏览器页），星辰默认实现为系统浏览器，
- * 宿主可经 goWebHook 换成内置 WebView 页。
+ * goWeb 的目标页打开走 WebUtil.goWeb(context, url, false)（原版内置浏览器页），星辰默认实现已对齐为应用内 x5 页
+ *（HostHooks.goWeb 默认：Activity 上下文走 HkListActivity.openX5PlayPage，非 Activity 才回退系统浏览器）。
  */
 public class HkFuck {
     private static final String TAG = "HkFuck";
@@ -39,6 +39,14 @@ public class HkFuck {
     }
 
     public static volatile GoWebHook goWebHook = (context, url) -> {
+        // 原版 WebUtil.goWeb 开应用内置浏览器页；星辰对齐为应用内 x5 页，非 Activity 才回退系统浏览器。
+        try {
+            if (context instanceof Activity) {
+                HkListActivity.openX5PlayPage((Activity) context, "", url);
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

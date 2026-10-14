@@ -8,6 +8,7 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.cloud.drive115.Proxy115;
 import com.fongmi.android.tv.player.extractor.Force;
 import com.fongmi.android.tv.player.extractor.JianPian;
 import com.fongmi.android.tv.player.extractor.MpdEdlResolver;
@@ -130,6 +131,15 @@ public class Source {
             return url;
         }
         String sanitized = MpdSanitizer.sanitize(fetched);
+        // 115 本机代理的 m3u8 地址：初始格式直接定 m3u8，省掉播放器首轮按普通流
+        // 嗅探的一轮误判。走既有格式传递链：Result.format -> PlaySpec.format ->
+        // MediaItem.mimeType（与 ExoUtil.getMimeType / MpvPlayerEngine.retryFormat
+        // 用的同一 m3u8 标记）。只认本机代理地址形态，其他源的格式推断不动。
+        if ((result.getFormat() == null || result.getFormat().isEmpty())
+                && Proxy115.isM3u8ProxyUrl(sanitized)) {
+            result.setFormat(MimeTypes.APPLICATION_M3U8);
+            SpiderDebug.log("player", "115代理地址初始格式定m3u8");
+        }
         if (MpdSanitizer.hasLimitedYoutubeAudio(sanitized)) {
             String referer = getHeader(result.getHeader(), "Referer");
             if (referer.contains("youtube.com/watch")) {

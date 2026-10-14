@@ -541,7 +541,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                         }
                     }
                     cur.addAll(list);
-                    adapter.notifyItemRangeChanged(insertBase, list.size());
+                    adapter.notifyRangeChanged(insertBase, list.size());
                 }
                 if (isPre) firstPageData = idStr;
                 else lastPageData = idStr;
@@ -571,16 +571,16 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 boolean hasFlex = adapter.hasFlex(lastMatch + 1, count);
                 for (int j = cur.size() - 1; j > lastMatch; j--) cur.remove(j);
                 if (hasFlex) adapter.notifyDataChanged();
-                else adapter.notifyItemRangeRemoved(lastMatch + 1, count);
+                else adapter.notifyRangeRemoved(lastMatch + 1, count);
             }
             List<HkItem> sub = new ArrayList<>(list.subList(lastMatch + 1, list.size()));
             int insertPos = cur.size();
             cur.addAll(sub);
-            adapter.notifyItemRangeInserted(insertPos, sub.size());
+            adapter.notifyRangeInserted(insertPos, sub.size());
         } else if (cur.size() > lastMatch + 1) {
             int count = cur.size() - lastMatch - 1;
             for (int j = cur.size() - 1; j > lastMatch; j--) cur.remove(j);
-            adapter.notifyItemRangeRemoved(lastMatch + 1, count);
+            adapter.notifyRangeRemoved(lastMatch + 1, count);
         }
         return true;
     }
@@ -603,7 +603,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         adapter.notifyDataChanged();
         int pos = cur.size() - 1;
         cur.addAll(list);
-        adapter.notifyItemRangeChanged(pos, list.size());
+        adapter.notifyRangeChanged(pos, list.size());
     }
 
     /** 照抄原版 initHeaders：非沉浸且非子页面宿主时先垫一个 blank_block；四组分类各生成一个 header 条目。 */
@@ -737,7 +737,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             HkItem item = adapter.getList().get(pos);
             if (!item.isSel()) {
                 item.setSel(true);
-                adapter.notifyItemChanged(pos);
+                adapter.notifyChanged(pos);
             }
         }
     }
@@ -811,7 +811,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             HkItem item = adapter.getList().get(pos);
             if (!item.isSel()) {
                 item.setSel(true);
-                adapter.notifyItemChanged(pos);
+                adapter.notifyChanged(pos);
             }
         }
     }

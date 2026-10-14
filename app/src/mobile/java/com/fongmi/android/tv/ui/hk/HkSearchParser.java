@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 SearchParser（service/parser/SearchParser.smali，666 行）转写：
@@ -29,6 +29,7 @@ import timber.log.Timber;
  * developerMode 时单字段失败置 ""，否则整条跳过；整体异常 → showErr("findList，msg：" + e)。
  */
 public final class HkSearchParser {
+    private static final String TAG = "HkSearchParser";
 
     /** 对应 SearchJsCallBack（showData/showErr/onUpdate）。 */
     public interface SearchCallback {
@@ -92,7 +93,7 @@ public final class HkSearchParser {
             try {
                 callBackSuccess(callback, parser.parseSearch(url, engine, html, options));
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
                 callBackError(callback, e.getMessage() != null ? e.getMessage() : e.toString());
             }
             return;
@@ -159,11 +160,11 @@ public final class HkSearchParser {
                     item.setType("video");
                     list.add(item);
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
             }
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             callBackError(callback, "findList，msg：" + e.toString());
             BiConsumer<String, HkRule> logger = errorLogger;
             if (logger != null) logger.accept(e.getMessage(), rule);

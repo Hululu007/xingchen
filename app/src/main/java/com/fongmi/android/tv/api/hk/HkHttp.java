@@ -61,12 +61,43 @@ public class HkHttp {
     private static volatile OkHttpClient client;
     /** 海阔图片专用 client（8.83 OkHttpUrlLoader.Factory 内建 client 配置） */
     private static volatile OkHttpClient imageClient;
-    /** 海阔专用的 DNS（含 DoH），移植自 8.83 MoreSettingOfficer.loadDns 逻辑 */
+    /** DNS 解析封顶（秒）：见 HK_DNS 注释 */
+    private static final long DNS_TIMEOUT_SEC = 10;
+    private static final java.util.concurrent.ExecutorService DNS_POOL =
+            java.util.concurrent.Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "hk-dns");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /**
+     * 海阔专用的 DNS（含 DoH），移植自 8.83 MoreSettingOfficer.loadDns 逻辑。
+     * 外加一层解析封顶（兜底、非 8.83 原有）：本地实测（OkHttp 5.4.0 与 4.9.3 两代一致）
+     * callTimeout/connect/read/write 全部管不到 DNS 解析阶段——被污染域名让系统解析器
+     * 干挂时，execute() 既不返回也不抛错（1.2.7 真机日志：tjasak 的 POST 发出后 50 秒+
+     * 无下文）。故把 lookup 放到达守护线程池、10 秒未回就按解析失败处理，让请求走
+     * 正常的失败/重试路径，而不是无限静默。成功路径行为不变。
+     */
     private static final Dns HK_DNS = new Dns() {
         @Override
         public List<InetAddress> lookup(String hostname) throws UnknownHostException {
             DnsOverHttps doh = hkDoh;
-            return (doh != null ? doh : Dns.SYSTEM).lookup(hostname);
+            Dns delegate = doh != null ? doh : Dns.SYSTEM;
+            java.util.concurrent.Future<List<InetAddress>> f =
+                    DNS_POOL.submit(() -> delegate.lookup(hostname));
+            try {
+                return f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                f.cancel(true);
+                throw new UnknownHostException("dns timeout: " + hostname);
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable c = e.getCause();
+                if (c instanceof UnknownHostException) throw (UnknownHostException) c;
+                throw new UnknownHostException(String.valueOf(c));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UnknownHostException("dns interrupted: " + hostname);
+            }
         }
     };
     private static volatile DnsOverHttps hkDoh;
@@ -112,15 +143,15 @@ public class HkHttp {
                             .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
                             .dns(HK_DNS)
                             .connectTimeout(15, TimeUnit.SECONDS)
-                            .readTimeout(30, TimeUnit.SECONDS)
-                            .writeTimeout(30, TimeUnit.SECONDS)
+                            // 8.83 OkHttpUrlLoader.Factory 内建 client：read/write 各 15 秒
+                            .readTimeout(15, TimeUnit.SECONDS)
+                            .writeTimeout(15, TimeUnit.SECONDS)
                             // 总超时必须有：connect/read/write 都管不住 DNS 解析阶段，
                             // 域名被污染时解析能无限挂起，图片请求整批死等（真机封面全白同因）
                             .callTimeout(45, TimeUnit.SECONDS);
-                    // 封面多为同 host（127.0.0.1 本地代理或单图床），默认 maxRequestsPerHost=5
-                    // 会 5 个 5 个波次出来；放到 12，并行感明显改善
+                    // 8.83 图片 client dispatcher maxRequestsPerHost = 48
                     okhttp3.Dispatcher d = new okhttp3.Dispatcher();
-                    d.setMaxRequestsPerHost(12);
+                    d.setMaxRequestsPerHost(48);
                     b.dispatcher(d);
                     try {
                         Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");

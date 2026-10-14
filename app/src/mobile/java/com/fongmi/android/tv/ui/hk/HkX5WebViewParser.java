@@ -10,7 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 com.example.hikerview.service.parser.X5WebViewParser 转写（单例 + ticket 校验 + parse/finishParseInner）。
@@ -22,6 +22,7 @@ import timber.log.Timber;
  * parse 内 setX5Extra 的调用顺序照 X5 原版（在 setWebView/initWebView 之前）。
  */
 public class HkX5WebViewParser extends HkIWebViewParser {
+    private static final String TAG = "HkX5WebViewParser";
 
     private static volatile HkX5WebViewParser instance;
 
@@ -41,10 +42,10 @@ public class HkX5WebViewParser extends HkIWebViewParser {
     public static synchronized boolean finishParse(Context context, String url, String ticket) {
         if (instance != null) {
             if (ticket.equals(String.valueOf(instance.hashCode()))) {
-                Timber.d("finishParse, ticket: %s", ticket);
+                Log.d(TAG, String.format("finishParse, ticket: %s", ticket));
                 return instance.finishParseInner(context, url);
             }
-            Timber.d("ticket已失效: %s, new: %s", ticket, String.valueOf(instance.hashCode()));
+            Log.d(TAG, String.format("ticket已失效: %s, new: %s", ticket, String.valueOf(instance.hashCode())));
         }
         return false;
     }

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔：对照 8.83 tab_item_selected（选中态：白底 + 淡黄圆角） -->
 <layer-list
   xmlns:android="http://schemas.android.com/apk/res/android">
     <item>

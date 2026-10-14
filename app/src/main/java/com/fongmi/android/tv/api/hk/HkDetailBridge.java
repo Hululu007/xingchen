@@ -45,7 +45,10 @@ public class HkDetailBridge {
             if (low.startsWith("copy://") || low.startsWith("toast://")
                     || low.startsWith("download://") || low.startsWith("video://")) continue;
             boolean playable = low.startsWith("http") || url.contains("@lazyRule=")
-                    || url.contains("@rule=") || url.startsWith("js:");
+                    || url.contains("@rule=") || url.startsWith("js:")
+                    // 磁力/电驴轻修配套：裸 magnet:/ed2k:// 条目此前被过滤掉、连点都没得点；
+                    // 放进来，点后走迅雷引擎（thunder://、ftp:// 维持原版行为，不放行）。
+                    || low.startsWith("magnet:") || low.startsWith("ed2k://");
             if (!playable) continue;
             String lineName = di.getLine() == null || di.getLine().isEmpty() ? "默认" : di.getLine();
             Flag flag = flagMap.get(lineName);

@@ -1,0 +1,6 @@
+-proc:none
+-d
+/tmp/hkcheck
+-sourcepath
+app/src/main/java
+app/src/main/java/com/fongmi/android/tv/api/hk/HkJsRuntime.java

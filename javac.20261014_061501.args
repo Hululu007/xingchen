@@ -1,0 +1,11 @@
+-d
+/tmp/hkparse/out2
+-cp
+/home/hatch/Android/Sdk/platforms/android-36/android.jar
+-sourcepath
+app/src/mobile/java:app/src/main/java
+-Xmaxerrs
+100000
+app/src/mobile/java/com/fongmi/android/tv/ui/hk/HkArticleFragment.java
+app/src/mobile/java/com/fongmi/android/tv/ui/hk/HkDetailBridge.java
+app/src/mobile/java/com/fongmi/android/tv/ui/hk/HkStringUtil.java

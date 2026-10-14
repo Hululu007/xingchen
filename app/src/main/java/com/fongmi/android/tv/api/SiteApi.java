@@ -281,7 +281,7 @@ public class SiteApi {
         SpiderDebug.log("player", "key=%s,flag=%s,id=%s", key, flag, id);
         Source.get().stop();
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.player(flag, id);
-        if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id);
+        if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id, playerType);
         Site site = VodConfig.get().getSite(key);
         if (isSpider(key, site)) {
             String playerContent = site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags());
@@ -461,7 +461,7 @@ public class SiteApi {
      * 因此选集、下一集、历史续播都会先经过海阔分流链。</p>
      */
     @NonNull
-    private static Result hkPlayerContent(@NonNull String key, @NonNull String flag, @NonNull String id) throws Exception {
+    private static Result hkPlayerContent(@NonNull String key, @NonNull String flag, @NonNull String id, int playerType) throws Exception {
         String title = key.substring(HkDetailBridge.KEY_PREFIX.length());
         // 路由缓存复用：不再每次播放重建 QuickJS 上下文+跑 preRule（之前点封面等几秒的主因）
         HkRouter router = acquireHkRouter(title);
@@ -472,7 +472,13 @@ public class SiteApi {
         result.setFlag(flag);
         if (!play.getHeaders().isEmpty()) result.setHeader(play.getHeaders());
         result.setKey(key);
-        SpiderDebug.log("player", "hk play resolved: %s", play.getUrl());
+        // 磁力/电驴轻修：播放器不认这两种协议，直塞就是黑屏 0 KB/s。
+        // 只拦这两类（HkRouter.isP2pPlayLink），走壳子已有的迅雷引擎边下边播；
+        // 其余地址（http/m3u8 等）原样不动。失败时迅雷抛中文真错，不再黑屏无下文。
+        if (HkRouter.isP2pPlayLink(play.getUrl())) {
+            result.setUrl(Source.get().fetch(result, playerType));
+        }
+        SpiderDebug.log("player", "hk play resolved: %s", result.getUrl());
         return result;
     }
 

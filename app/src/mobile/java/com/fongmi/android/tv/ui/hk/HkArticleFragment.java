@@ -266,7 +266,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
     public void onRefreshPage(com.fongmi.android.tv.api.hk.event.home.OnRefreshPageEvent event) {
         if (event == null || getActivity() == null || getActivity().isFinishing()) return;
-        if (!isResumed() || !getUserVisibleHint()) return;
+        if (!isResumed() || !getUserVisibleHint()) {
+            SpiderDebug.log("hk", "onRefreshPage 守卫拦截 rule=%s resumed=%s visible=%s",
+                    articleListRule == null ? "" : articleListRule.getTitle(), isResumed(), getUserVisibleHint());
+            return;
+        }
         refreshFromHost(event.isScrollTop());
     }
 
@@ -1605,6 +1609,9 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版 dealLazyRule + $13 回调：解析前弹"动态解析规则中，请稍候"（#noLoading# 除外），成功以 recordHistory=false 回灌 clickItem，失败仅关弹窗（错误原文由解析器侧弹）。 */
     private void dealLazyRule(View view, int position, String[] lazySplit, String codeAndHeader) {
+        SpiderDebug.log("hk", "lazy click entry rule=%s pos=%d url=%s",
+                articleListRule == null ? "" : articleListRule.getTitle(), position,
+                lazySplit == null || lazySplit.length == 0 ? "" : lazySplit[0]);
         // 照原版：FuckKt.inList(activity) 命中且 goWeb 打开成功则不再走内置解析（FuckKt 为 Fragment 直调，不经 DetailBridge）
         if (HkFuck.inList(getActivity()) && HkFuck.goWeb(getContext(), myUrl, lazySplit[0])) return;
         HkArticleListModel.EngineBridge bridge = HkArticleListModel.getEngineBridge();
@@ -1631,6 +1638,9 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     @Override
                     public void error(String msg) {
                         dismissLoadingPopup();
+                        toastBottom(msg);
+                        SpiderDebug.log("hk", "lazy click error rule=%s pos=%d msg=%s",
+                                articleListRule == null ? "" : articleListRule.getTitle(), position, msg);
                     }
                 });
     }
@@ -1674,12 +1684,18 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     /** 照抄原版 getItemTitle：extra.pageTitle 优先，其次条目标题（inheritTitle 细则见施工图待复核项）。 */
-    private String getItemTitle(int position) {
+    public String getItemTitle(int position) {
         if (adapter == null || position < 0 || position >= adapter.getList().size()) return "";
         HkItem item = adapter.getList().get(position);
         String pageTitle = item.getExtra("pageTitle");
         if (!TextUtils.isEmpty(pageTitle)) return pageTitle;
         return item.getTitle();
+    }
+
+    /** 宿主 hiker://page/ 开页用：被点条目的 extra 整份 JSON（作 PageParser.getNextPage 的 paramsJson）。 */
+    public String getItemExtraJson(int position) {
+        if (adapter == null || position < 0 || position >= adapter.getList().size()) return "";
+        return extraJson(adapter.getList().get(position));
     }
 
     /** 照抄原版 getFilm：宿主标题（等于应用名时视为无，返回 null）。 */

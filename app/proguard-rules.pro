@@ -106,6 +106,10 @@
 -keep class com.fongmi.android.tv.api.hk.HkJsRuntime { *; }
 -keep class com.fongmi.android.tv.api.hk.HkJsRuntime$* { *; }
 
+# 图片解密桥：crypto-java.js 按名调 FileUtil.toBytes（即本类），R8 改名后真机
+# TypeError 找不到函数、封面空流（1.3.7 真机日志实锤）。整类保名。
+-keep class com.fongmi.android.tv.api.hk.HkCryptoFileUtil { *; }
+
 # 海阔模型：Gson 按字段名序列化/反序列化（MY_RULE、hiker://page 规则体），字段名不能改
 -keep class com.fongmi.android.tv.api.hk.HkRule { *; }
 -keep class com.fongmi.android.tv.api.hk.HkPageRule { *; }

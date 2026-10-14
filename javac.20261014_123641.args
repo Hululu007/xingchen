@@ -1,0 +1,13 @@
+-proc:none
+-nowarn
+-Xmaxerrs
+100000
+-cp
+/home/hatch/Android/Sdk/platforms/android-36/android.jar:/tmp/hklib/gson.jar:/tmp/hklib/jsoup.jar:/tmp/hklib/okhttp-4.12.0.jar:/tmp/hklib/okio-jvm-3.6.0.jar:/tmp/hklib/kotlin-stdlib-1.9.10.jar:/tmp/hklib/annotations-13.0.jar
+-sourcepath
+app/src/main/java:app/src/mobile/java
+-d
+/tmp/hkout15
+app/src/main/java/com/fongmi/android/tv/api/hk/HkHttpParser.java
+app/src/main/java/com/fongmi/android/tv/api/hk/util/HkCodeUtil.java
+app/src/main/java/com/fongmi/android/tv/api/hk/util/HkHikerRuleUtil.java

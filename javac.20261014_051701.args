@@ -1,0 +1,7 @@
+-cp
+/home/hatch/Android/Sdk/platforms/android-36/android.jar
+-d
+/tmp/javac_out
+-sourcepath
+app/src/mobile/java:app/src/main/java
+app/src/mobile/java/com/fongmi/android/tv/ui/hk/HkEngineBridge.java

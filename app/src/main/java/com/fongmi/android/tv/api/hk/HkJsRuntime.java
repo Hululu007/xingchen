@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -6467,6 +6468,7 @@ private void batchExecuteImpl(Object[] args) {
         Object tasksArg = args != null && args.length > 0 ? argsNativeObjectAdjust(args[0], true) : null;
         if (!(tasksArg instanceof List)) {
             Logger.t(TAG).d("be: tasks not a list");
+            SpiderDebug.log("hk", "be: tasks not a list");
             return;
         }
         List<Object> tasks = (List<Object>) tasksArg;
@@ -6500,6 +6502,9 @@ private void batchExecuteImpl(Object[] args) {
                 TimeUnit.SECONDS, new LinkedBlockingDeque<>(4096));
         CountDownLatch latch = new CountDownLatch(tasks.size());
         AtomicInteger counter = new AtomicInteger(0);
+        // 8.83 JSEngine.batchExecute: String tag = UUIDUtil.genUUID()（本机无 UUIDUtil，等价替代）
+        final String beTag = UUID.randomUUID().toString();
+        SpiderDebug.log("hk", "be: start tasks=%d success=%d", tasks.size(), successLimit);
 
         for (Object t : tasks) {
             if (!(t instanceof Map)) {
@@ -6516,6 +6521,8 @@ private void batchExecuteImpl(Object[] args) {
             final Object taskParam = task.get("param");
             final String taskId = task.get("id") == null ? "" : String.valueOf(task.get("id"));
             pool.execute(() -> {
+                // 8.83: jsExecutorService.execute 先 HttpHelper.addTagForThread(tag)
+                HkHttpHelper.addTagForThread(beTag);
                 // 8.83: latch.getCount()>0 且 counter < successLimit 才执行，否则直接 countDown
                 if (latch.getCount() <= 0 || counter.get() >= successLimit) {
                     latch.countDown();
@@ -6523,13 +6530,19 @@ private void batchExecuteImpl(Object[] args) {
                 }
                 Context cx = Context.enter();
                 try {
+                    // 8.83 JSEngine.initRhino 同款：池线程 Context 初始化（原版: setOptimizationLevel(-1) + setLanguageVersion(200)）
                     cx.setOptimizationLevel(-1);
+                    cx.setLanguageVersion(200);
                     Object result = null;
+                    // 8.83 JSEngine.batchExecute 同款：error 传给 listener（成功 null，失败为异常信息）
+                    String error = null;
                     try {
                         Scriptable taskScope = taskFunc.getParentScope();
                         result = taskFunc.call(cx, taskScope, taskScope, new Object[]{taskParam});
                     } catch (Throwable e) {
+                        error = e.getMessage();
                         Logger.t(TAG).e(e, "be task failed: %s", taskId);
+                        SpiderDebug.log("hk", "be: task failed id=%s err=%s", taskId, e);
                     }
                     counter.incrementAndGet();
                     // 8.83: synchronized(latch) 回调 listener
@@ -6539,13 +6552,14 @@ private void batchExecuteImpl(Object[] args) {
                                 try {
                                     Scriptable ls = finalListenerFunc.getParentScope();
                                     Object r = finalListenerFunc.call(cx, ls, ls,
-                                            new Object[]{finalListenerParam, taskId, false, result});
+                                            new Object[]{finalListenerParam, taskId, error, result});
                                     Object adjusted = argsNativeObjectAdjust(r);
                                     if ("break".equals(adjusted)) {
                                         counter.getAndSet(successLimit);
                                     }
                                 } catch (Throwable e) {
                                     Logger.t(TAG).e(e, "be listener failed");
+                                    SpiderDebug.log("hk", "be: listener failed id=%s err=%s", taskId, e);
                                 }
                             }
                         }
@@ -6566,15 +6580,20 @@ private void batchExecuteImpl(Object[] args) {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        // 8.83: await 后 HttpHelper.cancelByTag(tag)，超时未回的本批请求一并取消
+        HkHttpHelper.cancelByTag(beTag);
         try {
             if (!pool.isShutdown()) pool.shutdownNow();
         } catch (Throwable e) {
             Logger.t(TAG).e(e, "be pool shutdown failed");
+            SpiderDebug.log("hk", "be: pool shutdown failed err=%s", e);
         }
         BATCH_EXECUTE_READY = true;
         Logger.t(TAG).d("be: done, %d tasks", tasks.size());
+        SpiderDebug.log("hk", "be: done tasks=%d", tasks.size());
     } catch (Throwable e) {
         Logger.t(TAG).e(e, "batchExecute failed");
+        SpiderDebug.log("hk", "be: batchExecute failed err=%s", e);
     }
 }
 

@@ -28,6 +28,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.api.hk.HkPageParser;
 import com.fongmi.android.tv.api.hk.HkPlayData;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
@@ -58,6 +59,7 @@ import android.util.Log;
  */
 public class HkListActivity extends AppCompatActivity
         implements HkArticleFragment.HostListener, HkArticleFragment.PageOpener,
+        HkArticleFragment.PageUrlOpener,
         HkDetailBridge.FileEditCallbackHost {
     private static final String TAG = "HkListActivity";
 
@@ -534,6 +536,31 @@ public class HkListActivity extends AppCompatActivity
             startActivity(intent);
         } else {
             startActivityForResult(intent, 2);
+        }
+    }
+
+    /**
+     * Fragment.toNextPage 的开页接缝（摸鱼日报分类 lazy 返回 hiker://page/type1?fypage 走这里）。
+     * 组装语义照 HkSearchFragment.toNextPage：HkPageParser.getNextPage(rule, pageUrl, paramsJson)
+     * 组子规则（失败回落原规则）；开页经 openSubList 标准子页通道（返回栈/标题与现树一致）。
+     */
+    @Override
+    public void openPageUrl(HkRule rule, String pageUrl, int position) {
+        try {
+            String paramsJson = fragment == null ? "" : fragment.getItemExtraJson(position);
+            String title = fragment == null ? "" : fragment.getItemTitle(position);
+            HkRule next = HkPageParser.getNextPage(rule, pageUrl, paramsJson);
+            HkRule open = next != null ? next : rule;
+            HkArticleFragment.SubListRequest req = new HkArticleFragment.SubListRequest();
+            req.subRule = open;
+            req.title = title;
+            req.parentTitle = pageTitle;
+            req.parentUrl = rule == null ? "" : rule.getUrl();
+            req.fromActivity = hashCode();
+            runOnUiThread(() -> openSubList(req));
+        } catch (Exception e) {
+            Log.e(TAG, "openPageUrl", e);
+            runOnUiThread(() -> HkRouteBlocker.toastShortBottom(this, String.valueOf(e.getMessage())));
         }
     }
 

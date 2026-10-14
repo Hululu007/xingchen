@@ -333,6 +333,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     @Override
     public void onConfirm(View view) {
+        if (downloading) return;
         if (selected == null || !selected.hasUpdate()) {
             Notify.show(R.string.update_latest);
             return;
@@ -373,6 +374,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private boolean retryFallback() {
         if (canceled || selected == null || routes == null || routeIndex >= routes.size()) return false;
+        Notify.show(R.string.update_route_switch);
         Path.clear(getFile());
         resetProgress();
         setDialogProgress(0, 0, selected.size, 0, 0);
@@ -434,7 +436,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         lastSpeed = speed;
         lastElapsed = elapsed;
         if (dialog == null) return;
-        if (!dialog.setProgress(progress, bytes, total, speed, elapsed)) dialog = null;
+        // 弹窗尚未 attach 时仅记录进度、不丢引用，由 restoreDialog 的 App.post 补填
+        dialog.setProgress(progress, bytes, total, speed, elapsed);
     }
 
     @Override
@@ -480,7 +483,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private void restoreDialog(FragmentActivity activity) {
         if (!downloading || selected == null) return;
         show(activity);
-        setDialogProgress(lastProgress, lastBytes, lastTotal, lastSpeed, lastElapsed);
+        // 等弹窗 attach 后再填进度，避开先建后填的异步竞态
+        App.post(() -> setDialogProgress(lastProgress, lastBytes, lastTotal, lastSpeed, lastElapsed));
     }
 
     private String validate(File file, Update update) {

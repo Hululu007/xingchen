@@ -876,6 +876,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     }
                 }
                 if (adapter != null) adapter.setWebViewHolder(webViewHolder);
+                wireWebViewInterception(articleListRuleDTO);
             } else if (type == HkColType.VIDEO) {
                 ensureWebViewHolder();
                 webViewHolder.setVideoUrl(item.getUrl());
@@ -900,6 +901,160 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         if (webViewHolder != null) return;
         webViewHolder = new HkWebViewHolder();
         webViewHolder.setLazyRuleConsumer(this::consumeLazyRuleForWebView);
+    }
+
+    /**
+     * 行内 WebView 的拦截链接线（8.83 ArticleWebViewHolder.shouldOverrideUrlLoading 同款）：
+     * 1) x5Extra.urlInterceptor 求值（JSEngine.evalJS(code, url)，input=拦截到的 URL）；
+     * 2) 规则 confirm() 弹确认框，确定/取消分别求值回调串，结果走 dealUrlSimply；
+     * 3) 网页桥 fy_bridge_app.open({title,url}) 打开规则子页面。
+     */
+    private void wireWebViewInterception(com.fongmi.android.tv.api.hk.HkRule rule) {
+        if (rule == null || webViewHolder == null) return;
+        final com.fongmi.android.tv.api.hk.HkJsRuntime rt;
+        try {
+            rt = com.fongmi.android.tv.ui.hk.HkEngineManager.runtimeFor(rule);
+        } catch (Throwable t) {
+            return;
+        }
+        if (rt == null) return;
+        final com.fongmi.android.tv.api.hk.HkRule r = rule;
+        webViewHolder.setUrlInterceptorEvaluator((code, url) -> {
+            try {
+                return rt.evalJS(code, url, true);
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        rt.setConfirmHandler((title, content, confirmJs, cancelJs) ->
+                showRuleConfirm(title, content, confirmJs, cancelJs, rt, r));
+        webViewHolder.setBridgeOpenHandler((title, url) -> openBridgePage(title, url, r));
+    }
+
+    /** 8.83 ArticleListIsland.confirm 同款确认框（深色底）：确定/取消求值回调串后走路由。 */
+    private void showRuleConfirm(String title, String content, String confirmJs, String cancelJs,
+                                 com.fongmi.android.tv.api.hk.HkJsRuntime rt,
+                                 com.fongmi.android.tv.api.hk.HkRule rule) {
+        android.app.Activity act = getActivity();
+        if (act == null || act.isFinishing()) return;
+        act.runOnUiThread(() -> {
+            android.app.Activity a = getActivity();
+            if (a == null || a.isFinishing()) return;
+            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(a)
+                    .setTitle(title == null ? "" : title)
+                    .setMessage(content == null ? "" : content)
+                    .setPositiveButton("确定", (d, w) -> routeConfirmResult(rt, rule, confirmJs))
+                    .setNegativeButton("取消", (d, w) -> routeConfirmResult(rt, rule, cancelJs))
+                    .create();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(
+                        new android.graphics.drawable.ColorDrawable(0xFF2B2B2B));
+            }
+            dialog.setOnShowListener(d -> {
+                android.widget.TextView tvTitle = dialog.findViewById(android.R.id.title);
+                if (tvTitle != null) tvTitle.setTextColor(0xFFFFFFFF);
+                android.widget.TextView tvMsg = dialog.findViewById(android.R.id.message);
+                if (tvMsg != null) tvMsg.setTextColor(0xFFFFFFFF);
+                android.widget.Button b1 = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+                if (b1 != null) b1.setTextColor(0xFFFFD54F);
+                android.widget.Button b2 = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+                if (b2 != null) b2.setTextColor(0xFFBBBBBB);
+            });
+            dialog.show();
+        });
+    }
+
+    /** 8.83 ArticleListIsland.lambda$confirm$1 同款：求值回调串，结果非空且非 undefined 走 dealUrlSimply。 */
+    private void routeConfirmResult(com.fongmi.android.tv.api.hk.HkJsRuntime rt,
+                                    com.fongmi.android.tv.api.hk.HkRule rule, String js) {
+        if (js == null || js.isEmpty()) return;
+        com.fongmi.android.tv.utils.Task.execute(() -> {
+            String result = rt.evalConfirmJs(js);
+            if (result == null || result.isEmpty() || "undefined".equalsIgnoreCase(result)
+                    || "null".equalsIgnoreCase(result) || "false".equalsIgnoreCase(result)
+                    || "hiker://empty".equalsIgnoreCase(result)) return;
+            android.app.Activity act = getActivity();
+            if (act == null) return;
+            final String url = result;
+            act.runOnUiThread(() -> {
+                DetailBridge bridge = detailBridge();
+                if (bridge != null && getActivity() != null) {
+                    bridge.dealUrlSimply(getActivity(), null, rule, null, url, null, null);
+                }
+            });
+        });
+    }
+
+    /** 原版 VideoInterface.open 同款：{title,url} 打开规则子页面（本规则或别规则的 pages）。 */
+    private void openBridgePage(String title, String url, com.fongmi.android.tv.api.hk.HkRule rule) {
+        if (TextUtils.isEmpty(url)) return;
+        String u = url.trim();
+        if (!u.startsWith("hiker://page/")) {
+            android.app.Activity act = getActivity();
+            if (act != null) HkRouteBlocker.isRoute(act, u);
+            return;
+        }
+        try {
+            String path = u.substring("hiker://page/".length());
+            String query = "";
+            int qi = path.indexOf('?');
+            if (qi >= 0) {
+                query = path.substring(qi + 1);
+                path = path.substring(0, qi);
+            }
+            int hi = path.indexOf('#');
+            if (hi >= 0) path = path.substring(0, hi);
+            path = path.trim();
+            if (path.isEmpty()) return;
+            com.fongmi.android.tv.api.hk.HkRule target = rule;
+            String ruleTitle = queryParam(query, "rule");
+            if (!TextUtils.isEmpty(ruleTitle) && !ruleTitle.equals(rule.getTitle())) {
+                String json = com.fongmi.android.tv.api.hk.HkRuleManager.get().loadRuleJson(ruleTitle);
+                if (!TextUtils.isEmpty(json)) {
+                    target = new com.google.gson.Gson().fromJson(json,
+                            com.fongmi.android.tv.api.hk.HkRule.class);
+                }
+            }
+            if (target == null) return;
+            String pagesJson = target.getPages();
+            if (TextUtils.isEmpty(pagesJson)) return;
+            org.json.JSONArray pages = new org.json.JSONArray(pagesJson);
+            String pageRule = null;
+            String colType = null;
+            for (int i = 0; i < pages.length(); i++) {
+                org.json.JSONObject p = pages.optJSONObject(i);
+                if (p != null && path.equals(p.optString("path"))) {
+                    pageRule = p.optString("rule");
+                    colType = p.optString("col_type");
+                    break;
+                }
+            }
+            if (TextUtils.isEmpty(pageRule)) return;
+            if (TextUtils.isEmpty(colType)) colType = target.getColType();
+            com.fongmi.android.tv.api.hk.HkRule sub = target.deriveSubRule(u, pageRule, colType);
+            SubListRequest req = new SubListRequest();
+            req.subRule = sub;
+            req.title = TextUtils.isEmpty(title) ? target.getTitle() : title;
+            req.parentTitle = activityTitle();
+            req.parentUrl = rule.getUrl();
+            if (pageOpener != null) pageOpener.openSubList(req);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private String queryParam(String query, String key) {
+        if (query == null || key == null) return "";
+        for (String kv : query.split("&")) {
+            int eq = kv.indexOf('=');
+            if (eq > 0 && key.equals(kv.substring(0, eq).trim())) {
+                try {
+                    return java.net.URLDecoder.decode(kv.substring(eq + 1).trim(), "UTF-8");
+                } catch (Throwable ignored) {
+                    return kv.substring(eq + 1).trim();
+                }
+            }
+        }
+        return "";
     }
 
     /** 照抄原版 updateModeByDesc（:21142）：先 setExtra(desc)，desc 非空时按 "&&" 分段匹配 Mode 名写回 holder。 */

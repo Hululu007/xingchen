@@ -10,7 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 com.example.hikerview.service.parser.WebkitParser 转写（单例 + ticket 校验 + parse/finishParseInner）。
@@ -18,6 +18,7 @@ import timber.log.Timber;
  * 结果由 fy_bridge_app.finishParse → HkDestroyEvent → HkArticleFragment.finishParse 回到 finishParse。
  */
 public class HkWebkitParser extends HkIWebViewParser {
+    private static final String TAG = "HkWebkitParser";
 
     private static HkWebkitParser instance;
 
@@ -37,10 +38,10 @@ public class HkWebkitParser extends HkIWebViewParser {
     public static synchronized boolean finishParse(Context context, String url, String ticket) {
         if (instance != null) {
             if (ticket.equals(String.valueOf(instance.hashCode()))) {
-                Timber.d("finishParse, ticket: %s", ticket);
+                Log.d(TAG, String.format("finishParse, ticket: %s", ticket));
                 return instance.finishParseInner(context, url);
             }
-            Timber.d("ticket已失效: %s, new: %s", ticket, String.valueOf(instance.hashCode()));
+            Log.d(TAG, String.format("ticket已失效: %s, new: %s", ticket, String.valueOf(instance.hashCode())));
         }
         return false;
     }

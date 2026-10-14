@@ -325,7 +325,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 HkEngineManager.ensureInit(rt);
                 rt.evalJS(com.fongmi.android.tv.api.hk.HkJsRuntime.getMyRule(r) + onChangeJs, text);
             } catch (Exception e) {
-                timber.log.Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         });
         adapter.setSuggestLoader(HkSuggestModel::loadFromRemote);
@@ -764,7 +764,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             try {
                 if (parts.length > 1) parsed = Integer.parseInt(parts[1]);
             } catch (NumberFormatException e) {
-                timber.log.Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         }
         java.util.List<HkItem> list = adapter.getList();
@@ -2351,7 +2351,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 try {
                     showPosDetail(position);
                 } catch (Exception e) {
-                    timber.log.Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
                 break;
             case "访问链接": {
@@ -2702,7 +2702,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             loading(false);
             page--;
             toastBottom("出错：" + e.getMessage());
-            timber.log.Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 

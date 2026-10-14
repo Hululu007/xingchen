@@ -1403,7 +1403,9 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 String result = bridge == null ? "" : bridge.evalWithRule(articleListRule, js, text);
                 if (getActivity() != null) {
                     getActivity().runOnUiThread(() -> {
-                        if (result != null && !result.isEmpty()) clickItem(view, position, result);
+                        // 照原版：结果为 undefined 时不回灌点击（原版 !"undefined".equalsIgnoreCase(result)）
+                        if (result != null && !result.isEmpty() && !"undefined".equalsIgnoreCase(result))
+                            clickItem(view, position, result);
                     });
                 }
             });

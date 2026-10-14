@@ -42,7 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 IArticleWebHolder + ArticleWebkitHolder（含内部类 $1 WebChromeClient / $2 WebViewClient /
@@ -56,6 +56,7 @@ import timber.log.Timber;
  * （home.haikuoshijie.cn→159.75.120.248），星辰无此资源与场景，未转写（见 setUrl 注释）。
  */
 public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor {
+    private static final String TAG = "HkWebkitHolder";
 
     // —— 子系统接缝 ——
 
@@ -188,18 +189,18 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             String adjustUa = hook == null ? null : hook.getAdjustUa(url);
             if (!TextUtils.isEmpty(adjustUa)) {
                 if (!adjustUa.equals(getUserAgentString())) {
-                    Timber.d("onPageStarted: getAdjustUa");
+                    Log.d(TAG, "onPageStarted: getAdjustUa");
                     setUserAgentString(adjustUa);
                 }
             } else {
                 String useUa = hook == null ? "" : hook.getUseUa();
                 if (!TextUtils.isEmpty(useUa)) {
                     if (!useUa.equals(getUserAgentString())) {
-                        Timber.d("onPageStarted: getUseUa");
+                        Log.d(TAG, "onPageStarted: getUseUa");
                         setUserAgentString(useUa);
                     }
                 } else if (HkStringUtil.isNotEmpty(systemUA) && !systemUA.equals(getUserAgentString())) {
-                    Timber.d("onPageStarted: systemUA");
+                    Log.d(TAG, "onPageStarted: systemUA");
                     setUserAgentString(systemUA);
                 }
             }
@@ -367,7 +368,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
                 }
             }
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
         BrowserProxyHook hook = browserProxyHook;
         return hook == null ? null : hook.proxy(myUrl, request, requestHeaderMap);
@@ -581,7 +582,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             try {
                 return CookieManager.getInstance().getCookie(url);
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
                 return null;
             }
         }

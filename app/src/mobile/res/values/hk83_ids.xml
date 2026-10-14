@@ -39,4 +39,15 @@
     <item type="id" name="notify_bg" />
     <item type="id" name="notify_queue" />
     <item type="id" name="notify_text" />
+    <item type="id" name="choose_item_all_desc_more" />
+    <item type="id" name="choose_item_all_notice" />
+    <item type="id" name="chooseitem_all_RelativeLayout" />
+    <item type="id" name="chooseitem_all_desc" />
+    <item type="id" name="chooseitem_all_img" />
+    <item type="id" name="chooseitem_all_img_bg" />
+    <item type="id" name="chooseitem_all_title" />
+    <item type="id" name="loadmre_footer" />
+    <item type="id" name="res_header_item_expand" />
+    <item type="id" name="res_header_linearlayout" />
+    <item type="id" name="search_all_content" />
 </resources>

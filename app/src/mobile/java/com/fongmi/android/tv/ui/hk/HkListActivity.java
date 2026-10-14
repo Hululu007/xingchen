@@ -33,7 +33,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 FilmListActivity 的宿主职责转写（星辰等价）：每开一级子列表/详情就新开一个本活动实例
@@ -46,6 +46,7 @@ import timber.log.Timber;
 public class HkListActivity extends AppCompatActivity
         implements HkArticleFragment.HostListener, HkArticleFragment.PageOpener,
         HkDetailBridge.FileEditCallbackHost {
+    private static final String TAG = "HkListActivity";
 
     private static final int TEMP_RULE_LIMIT = 0x32000;
     private static final String PREF_LAST_CLICK = "hk_last_click";
@@ -86,7 +87,7 @@ public class HkListActivity extends AppCompatActivity
             return;
         }
         int length = ruleJson.getBytes(StandardCharsets.UTF_8).length;
-        Timber.d("变量传递, length: %s", length);
+        Log.d(TAG, String.format("变量传递, length: %s", length));
         if (length > TEMP_RULE_LIMIT) {
             tempRuleData = ruleJson;
             writeTempRuleCache(ruleJson);
@@ -279,7 +280,7 @@ public class HkListActivity extends AppCompatActivity
         try {
             rule = new Gson().fromJson(data, HkRule.class);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
         if (rule == null) {
             showRecycledAndExit();
@@ -402,7 +403,7 @@ public class HkListActivity extends AppCompatActivity
                             HkEngineManager.ensureInit(rt);
                             rt.evalJS(com.fongmi.android.tv.api.hk.HkJsRuntime.getMyRule(currentRule) + js, "");
                         } catch (Exception e) {
-                            Timber.e(e);
+                            Log.e(TAG, "hk error", e);
                         }
                     }
                 }, "hk-file-edit-callback").start();
@@ -453,7 +454,7 @@ public class HkListActivity extends AppCompatActivity
         try {
             content = readFileText(new File(path));
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             HkRouteBlocker.toastShortBottom(this, "无法打开文件：" + path);
             return;
         }
@@ -472,7 +473,7 @@ public class HkListActivity extends AppCompatActivity
                     try (java.io.FileOutputStream out = new java.io.FileOutputStream(path)) {
                         out.write(edit.getText().toString().getBytes(StandardCharsets.UTF_8));
                     } catch (Exception e) {
-                        Timber.e(e);
+                        Log.e(TAG, "hk error", e);
                         HkRouteBlocker.toastShortBottom(this, "保存失败：" + e.getMessage());
                         return;
                     }

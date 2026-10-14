@@ -15,7 +15,7 @@ import com.fongmi.android.tv.api.hk.HkRule;
 import java.net.URLDecoder;
 import java.util.function.Consumer;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照抄 8.83 RouteBlocker（smali_classes2/ui/home/model/RouteBlocker.smali）：
@@ -24,6 +24,7 @@ import timber.log.Timber;
  * webdav / webRule 两支按既定决策不移植（WebDAV 与远程编辑子系统不搬），命中仍返回 true。
  */
 public final class HkRouteBlocker {
+    private static final String TAG = "HkRouteBlocker";
 
     private HkRouteBlocker() {
     }
@@ -191,7 +192,7 @@ public final class HkRouteBlocker {
                 try {
                     h.showRulesGroup(activity, group);
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
             }, "hk-rulesGroup").start();
             return true;
@@ -256,7 +257,7 @@ public final class HkRouteBlocker {
                 try {
                     search = URLDecoder.decode(param, "utf-8");
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                     search = param;
                 }
             }
@@ -306,7 +307,7 @@ public final class HkRouteBlocker {
         try {
             return URLDecoder.decode(value, "utf-8");
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return value;
         }
     }
@@ -348,14 +349,14 @@ public final class HkRouteBlocker {
                             sp.edit().putString("searchEngine", ruleName).apply();
                             if (HkStringUtil.isNotEmpty(found.getGroup())) group = found.getGroup();
                         } catch (Exception e) {
-                            Timber.e(e);
+                            Log.e(TAG, "hk error", e);
                         }
                     } else {
                         ruleName = engine;
                     }
                 } catch (Exception e) {
                     ruleName = engine;
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
                 engine = ruleName;
             }

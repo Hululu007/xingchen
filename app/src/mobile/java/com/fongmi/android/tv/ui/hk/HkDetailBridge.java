@@ -32,6 +32,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkLazyRuleParser;
 import com.fongmi.android.tv.api.hk.HkParserKit;
@@ -102,8 +103,19 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             return false;
         }
 
-        /** WebUtil.goWeb。 */
+        /**
+         * WebUtil.goWeb：原版开应用内置浏览器页（WebViewActivity + WebUpdateUrlEvent），
+         * 不是系统浏览器。星辰走新链行内 x5 页（HkListActivity.openX5PlayPage 同构）；
+         * 非 Activity 上下文才回退系统浏览器。
+         */
         default void goWeb(Context context, String url) {
+            try {
+                if (context instanceof Activity) {
+                    HkListActivity.openX5PlayPage((Activity) context, "", url);
+                    return;
+                }
+            } catch (Exception ignored) {
+            }
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -537,6 +549,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             return true;
         }
         if (url.startsWith("input://")) {
+            SpiderDebug.log("hk", "itemClick scheme=input:// urlLen=%d", url.length());
             dealInput(activity, view, rule, item, url, resultConsumer);
             return true;
         }
@@ -752,6 +765,9 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
                 .setPositiveButton("确定", (dialog, which) -> {
                     String input = edit.getText().toString();
                     BG.execute(() -> {
+                        // 诊断：只记长度，不记口令值
+                        SpiderDebug.log("hk", "listInput submit jsLen=%d inputLen=%d",
+                                js == null ? -1 : js.length(), input == null ? -1 : input.length());
                         String result = evalRuleJs(rule, js, input);
                         if (!activity.isFinishing()) {
                             activity.runOnUiThread(() ->
@@ -781,11 +797,18 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
     private static String evalRuleJs(HkRule rule, String js, String input) {
         try {
             HkJsRuntime rt = HkEngineManager.runtimeFor(rule);
-            if (rt == null) return null;
+            if (rt == null) {
+                SpiderDebug.log("hk", "listInput eval abort: runtime null");
+                return null;
+            }
             HkEngineManager.ensureInit(rt);
-            return rt.evalJS(HkJsRuntime.getMyRule(rule) + js, input);
+            String result = rt.evalJS(HkJsRuntime.getMyRule(rule) + js, input);
+            String head = result == null ? "null" : (result.length() > 80 ? result.substring(0, 80) : result);
+            SpiderDebug.log("hk", "listInput eval done resultHead=%s refresh=%s", head, rt.isRefreshRequested());
+            return result;
         } catch (Exception e) {
             Log.e(TAG, "hk error", e);
+            SpiderDebug.log("hk", "listInput eval error: %s", String.valueOf(e));
             return null;
         }
     }

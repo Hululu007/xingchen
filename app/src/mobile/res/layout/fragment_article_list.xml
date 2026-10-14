@@ -9,6 +9,7 @@
         <com.scwang.smart.refresh.layout.SmartRefreshLayout android:id="@id/refresh_layout" android:layout_width="fill_parent" android:layout_height="fill_parent" app:srlEnableOverScrollBounce="true" app:srlEnableOverScrollDrag="true">
             <com.scwang.smart.refresh.header.ClassicsHeader android:layout_width="fill_parent" android:layout_height="wrap_content" />
             <androidx.recyclerview.widget.RecyclerView android:id="@id/frag_article_list_recycler_view" android:layout_width="fill_parent" android:layout_height="fill_parent" />
+            <com.scwang.smart.refresh.footer.ClassicsFooter android:layout_width="fill_parent" android:layout_height="wrap_content" />
         </com.scwang.smart.refresh.layout.SmartRefreshLayout>
         <com.fongmi.android.tv.ui.hk.view.RecyclerFastScroller android:layout_gravity="end" android:id="@id/frag_article_list_recycler_scroller" android:layout_width="wrap_content" android:layout_height="wrap_content" app:rfs_handleNormalColor="@color/transparent" app:rfs_handlePressedColor="@color/greenAction" />
     </FrameLayout>

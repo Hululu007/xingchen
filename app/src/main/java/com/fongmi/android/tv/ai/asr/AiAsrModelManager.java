@@ -22,8 +22,16 @@ public class AiAsrModelManager {
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
             "sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01.tar.bz2";
 
-    /** 国内镜像地址（jsDelivr CDN） */
+    /**
+     * 主下载地址（raw.githubusercontent.com；无 jsDelivr 的 20MB 单文件上限）。
+     * App 内实际走此地址下载模型 zip。
+     */
     public static final String MODEL_URL_MIRROR =
+            "https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/" +
+            "model-zh.zip";
+
+    /** 备用下载地址（jsDelivr CDN；模型 zip 20,146,260 字节已贴近其 20MB 上限，主源失败时兜底重试） */
+    public static final String MODEL_URL_BACKUP =
             "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-asr@main/" +
             "model-zh.zip";
 
@@ -140,7 +148,33 @@ public class AiAsrModelManager {
 
     // --- 内部实现 ---
 
+    /** 下载单个文件（主源失败自动切备用源重试一次，带 SHA-256 校验） */
     private static void downloadFile(String url, File dest, String expectedSha, ProgressListener listener) throws Exception {
+        Exception primaryError = null;
+        try {
+            attemptDownload(url, dest, listener);
+        } catch (Exception e) {
+            primaryError = e;
+        }
+        if (primaryError != null) {
+            // 主源失败，切备用源重试一次
+            if (dest.exists()) dest.delete();
+            try {
+                attemptDownload(MODEL_URL_BACKUP, dest, listener);
+            } catch (Exception e) {
+                throw new Exception("下载失败（主源：" + shortMsg(primaryError) +
+                        "；备用源：" + shortMsg(e) + "）");
+            }
+        }
+        // SHA-256 校验
+        if (!TextUtils.isEmpty(expectedSha) && !verifySha256(dest, expectedSha)) {
+            dest.delete();
+            throw new Exception("文件校验失败，可能已损坏");
+        }
+    }
+
+    /** 单次下载尝试（15 分钟超时），失败抛异常 */
+    private static void attemptDownload(String url, File dest, ProgressListener listener) throws Exception {
         if (dest.exists()) dest.delete();
         final Exception[] error = new Exception[1];
         final boolean[] done = new boolean[1];
@@ -176,11 +210,12 @@ public class AiAsrModelManager {
         }
         if (error[0] != null) throw error[0];
         if (!done[0]) throw new Exception("下载超时");
-        // SHA-256 校验
-        if (!TextUtils.isEmpty(expectedSha) && !verifySha256(dest, expectedSha)) {
-            dest.delete();
-            throw new Exception("文件校验失败，可能已损坏");
-        }
+    }
+
+    /** 异常信息摘要（避免超长堆栈污染提示文案） */
+    private static String shortMsg(Exception e) {
+        String m = e == null || e.getMessage() == null ? "未知错误" : e.getMessage();
+        return m.length() > 60 ? m.substring(0, 60) + "…" : m;
     }
 
     private static boolean verifySha256(File file, String expected) {

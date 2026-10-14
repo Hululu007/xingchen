@@ -41,7 +41,13 @@ public class Update {
 
     public boolean hasUpdate() {
         if (!hasManifest()) return false;
-        return code != BuildConfig.VERSION_CODE || !AppVersion.isCurrent(name);
+        // 只按版本号/版本名判断：清单 name 是发布标签（如 v1.3.1），与本机
+        // 「版本名-构建时间」形式的 fullName 永远对不上，原判断会把同版本误报为可更新，
+        // 且版本号更低时还会误报降级。一律以 code 为准，code 相同再比 versionName。
+        if (code > BuildConfig.VERSION_CODE) return true;
+        if (code < BuildConfig.VERSION_CODE) return false;
+        if (!TextUtils.isEmpty(versionName)) return !versionName.equals(BuildConfig.VERSION_NAME);
+        return !AppVersion.isCurrent(name);
     }
 
     public String getText() {

@@ -165,6 +165,7 @@ androidComponents {
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.aar", "*.jar"])
     implementation "io.github.scwang90:refresh-layout-kernel:2.0.5"
+    implementation "com.jakewharton.timber:timber:5.0.1"
     implementation "io.github.scwang90:refresh-header-classics:2.0.5"
     implementation "io.github.scwang90:refresh-footer-classics:2.0.5"
     // sherpa-onnx: compileOnly，运行时通过插件动态加载，不打包进 APK

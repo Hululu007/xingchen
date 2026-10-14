@@ -14,11 +14,13 @@ import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -45,7 +47,7 @@ import okhttp3.Response;
 /**
  * 115 分享链接解析与播放。
  * <p>
- * 支持 https://115.com/s/xxxx / https://115cdn.com/s/xxxx（提取码可放在 ?password= 或 #fragment）。
+ * 支持 https://115.com/s/xxxx / https://115cdn.com/s/xxxx / https://anxia.com/s/xxxx（提取码可放在 ?password= 或 #fragment）。
  * 详情页的分享链接会被 {@link Parser} 展开成选集（每个视频文件一集），点击后由本 extractor 取直链播放。
  * 取直链需要 115 登录态：优先读应用偏好 pan115_cookie，其次复用 115 网盘爬虫的 115_cookie.json。
  */
@@ -55,13 +57,19 @@ public class Pan115 implements Source.Extractor {
     private static final String UA_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
     private static final String API_SNAP = "https://webapi.115.com/share/snap";
     private static final String API_DOWNURL = "https://proapi.115.com/app/chrome/downurl";
-    private static final Pattern SHARE_URL = Pattern.compile("https?://(?:www\\.)?(?:115\\.com|115cdn\\.com)/s/([a-zA-Z0-9]+)");
+    private static final Pattern SHARE_URL = Pattern.compile("https?://(?:www\\.)?(?:115\\.com|115cdn\\.com|anxia\\.com)/s/([^/?#\\s]+)");
     private static final List<String> VIDEO_EXT = Arrays.asList(
             "mp4", "mkv", "avi", "rmvb", "rm", "mov", "wmv", "flv", "webm",
             "m3u8", "ts", "m2ts", "mpg", "mpeg", "3gp", "f4v", "asf", "vob");
     private static final Pattern SHARE_CODE_TEXT =
             Pattern.compile("(?:提取码|访问码|密码)\\s*(?:[:：]\\s*)?([A-Za-z0-9]{4})(?![A-Za-z0-9])");
     private static final int MAX_SHARE_DEPTH = 8;
+
+    // 分享错误文案四象限：需要访问码 / 访问码错误 / 分享已失效 / 检测失败（不确定）
+    private static final String MSG_NEED_CODE = "该 115 分享需要访问码（请在链接后添加 ?password=访问码）";
+    private static final String MSG_BAD_CODE = "115 访问码错误或已失效";
+    private static final String MSG_BAD_SHARE = "该 115 分享已失效或被取消";
+    private static final String MSG_UNCERTAIN = "115 分享检测失败，请稍后重试";
 
     public static boolean isShareUrl(String url) {
         return url != null && SHARE_URL.matcher(url).find();
@@ -73,7 +81,8 @@ public class Pan115 implements Source.Extractor {
         String scheme = uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return false;
         String host = String.valueOf(uri.getHost()).toLowerCase(Locale.US);
-        if (!host.equals("115.com") && !host.equals("www.115.com") && !host.equals("115cdn.com")) return false;
+        if (!host.equals("115.com") && !host.equals("www.115.com") && !host.equals("115cdn.com")
+                && !host.equals("anxia.com") && !host.equals("www.anxia.com")) return false;
         return String.valueOf(uri.getPath()).startsWith("/s/");
     }
 
@@ -194,19 +203,24 @@ public class Pan115 implements Source.Extractor {
             headers.put("X-Requested-With", "XMLHttpRequest");
             headers.put("Accept", "application/json, text/plain, */*");
             String body;
+            int httpCode;
             try (Response res = OkHttp.newCall(api, headers).execute()) {
-                body = res.body().string();
+                httpCode = res.code();
+                body = res.body() == null ? "" : res.body().string();
+            } catch (IOException e) {
+                throw new ExtractException(MSG_UNCERTAIN);
             }
-            JSONObject obj = new JSONObject(body);
+            if (httpCode < 200 || httpCode >= 300) throw new ExtractException(MSG_UNCERTAIN);
+            JSONObject obj;
+            try {
+                obj = new JSONObject(body);
+            } catch (JSONException e) {
+                throw new ExtractException(MSG_UNCERTAIN);
+            }
             if (!obj.optBoolean("state", false)) {
                 String error = obj.optString("error", "");
                 int errno = obj.optInt("errno", obj.optInt("code", 0));
-                if (isPasswordError(error, errno)) {
-                    throw new ExtractException(receiveCode.isEmpty()
-                            ? "该 115 分享需要提取码（请在链接后添加 ?password=提取码）"
-                            : "115 提取码错误或已失效");
-                }
-                throw new ExtractException("115 分享无效或已失效" + (error.isEmpty() ? "" : "：" + error));
+                throw new ExtractException(shareErrorMessage(error, errno, receiveCode.isEmpty()));
             }
             JSONObject data = obj.optJSONObject("data");
             if (data == null) break;
@@ -227,6 +241,15 @@ public class Pan115 implements Source.Extractor {
             if (list.length() < limit) break;
             offset += limit;
         }
+    }
+
+    /**
+     * 分享错误文案四象限：需要访问码 / 访问码错误 / 分享已失效 / 检测失败（不确定）。
+     * 判定口径= lanmo 的文本判定（error 含「访问码」）＋我们的 errno 判定（4100012/4100008）合并。
+     */
+    static String shareErrorMessage(String error, int errno, boolean needCode) {
+        if (isPasswordError(error, errno)) return needCode ? MSG_NEED_CODE : MSG_BAD_CODE;
+        return MSG_BAD_SHARE + (error.isEmpty() ? "" : "：" + error);
     }
 
     private static boolean isPasswordError(String error, int errno) {
@@ -310,16 +333,18 @@ public class Pan115 implements Source.Extractor {
             f.pickcode = first(o, "pickcode", "pc");
             f.name = first(o, "file_name", "fn", "n", "name");
             f.size = o.optLong("file_size", o.optLong("fs", o.optLong("s", 0)));
-            if (o.optInt("is_dir", o.optInt("isdir", 0)) == 1) return null;
+            if (isDir(o)) return null;
             return f.name.isEmpty() ? null : f;
         }
 
         static boolean isDir(JSONObject o) {
-            return o != null && o.optInt("is_dir", o.optInt("isdir", 0)) == 1;
+            if (o == null) return false;
+            if (o.optInt("fc", 1) != 0) return false;
+            return first(o, "fid", "file_id", "id").isEmpty();
         }
 
         static String dirFid(JSONObject o) {
-            return o == null ? "" : first(o, "fid", "file_id", "id");
+            return o == null ? "" : first(o, "cid", "folder_id", "dir_id");
         }
 
         private static String first(JSONObject o, String... keys) {

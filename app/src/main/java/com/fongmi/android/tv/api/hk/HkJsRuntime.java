@@ -617,6 +617,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
+     * 照 8.83 JSEngine.refreshPage (smali:22071-22140)：只有真正的 Boolean false 才不回顶，
+     * 缺参/null/undefined/非布尔一律回顶（原版 :cond_1 默认 0x1）。
+     */
+    private static boolean refreshScrollTop(Object[] args) {
+        if (args != null && args.length > 0 && args[0] instanceof Boolean) return (Boolean) args[0];
+        return true;
+    }
+
+    /**
      * 8.83 StringUtil.searchContains 等价实现：
      * text 为空返回 false，keyword 为空返回 true；
      * ignoreCase 为 true 时转小写；keyword 按空格切分，多词需在 text 中按序包含。
@@ -1334,6 +1343,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction(storage0, "getPublicItem", args -> storage0Get(publicKv, args));
         ScriptableObject.putProperty(apiRegTarget != null ? apiRegTarget : scope, "storage0", storage0);
+        // 8.83 crypto-java.js 原生 AES 接线（规则作用域也可用，如文本加签场景）。
+        ScriptableObject.putProperty(apiRegTarget != null ? apiRegTarget : scope, "__cryptoFileUtil",
+                Context.javaToJS(new HkCryptoFileUtil(), apiRegTarget != null ? apiRegTarget : scope));
+        injectAndroidPackage(apiRegTarget != null ? apiRegTarget : scope);
 
         // ---- 当前结果列表的动态修改（官方经 EventBus 改 UI 列表；本宿主直接改 results） ----
         putFunction("updateItem", args -> {
@@ -2152,7 +2165,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 此前只有标记、新列表模块无人消费，脚本调了等于没调）。
         putFunction("refreshPage", args -> {
             refreshRequested = true;
-            refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
+            refreshToTop = refreshScrollTop(args);
             long now = System.currentTimeMillis();
             if (now - lastRefreshPageAt >= 200) {
                 lastRefreshPageAt = now;
@@ -2392,8 +2405,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // text 为空返回 "false"，keyword 为空返回 "true"，否则按 ignoreCase 做包含匹配（keyword 按空格切分，多词需按序包含）。
         putFunction("searchContains", args -> {
             try {
-                String text = args != null && args.length > 0 ? argStr(args[0]) : "";
-                String keyword = args != null && args.length > 1 ? argStr(args[1]) : "";
+                String text = args != null && args.length > 0 ? getString(args[0]) : null;
+                String keyword = args != null && args.length > 1 ? getString(args[1]) : null;
                 boolean ignoreCase = false;
                 if (args != null && args.length > 2) {
                     Object o = argsNativeObjectAdjust(args[2]);
@@ -2405,11 +2418,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return "false";
             }
         });
-        // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine.smali:22071），之前被 stub 为空函数
+        // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine @JSAnnotation(alias="refresh")，
+        // 调 refresh 即调 refreshPage 本体，同样发事件）。之前只置标记不发事件，规则调 refresh() 时页面不刷。
         putFunction("refresh", args -> {
             refreshRequested = true;
-            refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
-            Logger.t(TAG).d("refresh(%s) requested (alias of refreshPage)", refreshToTop);
+            refreshToTop = refreshScrollTop(args);
+            long now = System.currentTimeMillis();
+            if (now - lastRefreshPageAt >= 200) {
+                lastRefreshPageAt = now;
+                org.greenrobot.eventbus.EventBus.getDefault().post(
+                        new com.fongmi.android.tv.api.hk.event.home.OnRefreshPageEvent(refreshToTop));
+            }
+            Logger.t(TAG).d("refreshPage(%s) requested", refreshToTop);
             return null;
         });
         // setPageParams：8.83 JSEngine.setPageParams(2779)：post SetPageParamsEvent(t) 经 EventBus，FilmListActivity.onSetParams 接收后更新 rule params
@@ -2604,9 +2624,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        // 搜索/隐私（getSearchMode 有 2351 行真实现，不在此处设桩覆盖）
-        stub("setSearchMode", null);
-        stub("searchContains", false);
+        // 搜索/隐私（setSearchMode/searchContains 真实现在 2371/2393 行，此处不再设桩覆盖）
         stub("checkPrivacyPassword", false);
         stub("getPrivacyPasswordLen", 0);
         // 规则管理（官方：LitePal 规则表；宿主：HkRuleManager 落盘目录）
@@ -2757,7 +2775,38 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("getMyCallbackKey", "");
         stub("getMyInput", "");
         stub("getMyJs", "");
-        stub("syncExecute", null);
+        // syncExecute(task)：8.83 JSEngine.syncExecute（smali 26009-26128）真实现。
+        // 同步方法；task 为 null/undefined 时 json 为空；argsNativeObjectAdjust(task, true)
+        // 转 Map（原版 fastjson JSONObject，本项目等价 Map），取 "func"（BaseFunction）与
+        // "param"，在当前 Context 下用 func 的父 scope 调 func.call(cx, parentScope, func,
+        // new Object[]{param}) 并返回结果；异常经 catchall 原样重抛（原版不吞）。
+        putFunction("syncExecute", args -> {
+            synchronized (HkJsRuntime.this) {
+                Object task = (args != null && args.length > 0) ? args[0] : null;
+                try {
+                    Map<?, ?> json = null;
+                    if (task != null) {
+                        Object adj = argsNativeObjectAdjust(task, true);
+                        json = (Map<?, ?>) adj;
+                    }
+                    BaseFunction func = null;
+                    if (json != null && json.containsKey("func")) {
+                        func = (BaseFunction) json.get("func");
+                    }
+                    Object param = null;
+                    if (json != null) {
+                        param = json.get("param");
+                    }
+                    Scriptable parentScope = func.getParentScope();
+                    Context cx = Context.getCurrentContext();
+                    return func.call(cx, parentScope, func, new Object[]{param});
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable t) {
+                    throw new RuntimeException(t);
+                }
+            }
+        });
         // 首页子模块：8.83 JSEngine.getHomeSub/hasHomeSub (JSEngine.smali:17037/18002)
         // 8.83 语义：getHomeSub() 返回订阅记录 JSON 数组；hasHomeSub(url) 返回 "true"/"false" 字符串。
         // 移植：HkHomeSubService.getSubRecords()（SharedPreferences 存，语义与 8.83 BigTextDO.getHomeSub() 一致）
@@ -3492,7 +3541,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             this.page = Math.max(1, page);
             setContext(myUrl);
             try {
-                evalJs(stripJsPrefix(jsCode));
+                // 8.83 parseHome 同款：每次求值注入 fresh CALLBACK_KEY 并登记正文表
+                //（正文=预抓正文，HkEngine.home() 经 setEvalResCodeBody 传入）
+                String cbKey = armCallbackKey(evalResCodeBody);
+                evalJs(getMyCallbackKey(cbKey) + stripJsPrefix(jsCode));
             } catch (Throwable e) {
                 // 之前异常直接上抛到 HkEngine.home() 被吞掉只剩 debug 日志，
                 // UI 永远只显示"加载失败"。先把根因记下来，供 getError()/空态展示。
@@ -3527,7 +3579,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             setContext(myUrl);
             ScriptableObject.putProperty(scope, "MY_KEYWORD", keyword == null ? "" : keyword);
             try {
-                evalJs(stripJsPrefix(jsCode));
+                // 8.83 parseSearch 同款：每次求值注入 fresh CALLBACK_KEY 并登记正文表
+                //（正文=搜索预抓正文，调用方经 setEvalResCodeBody 传入）
+                String cbKey = armCallbackKey(evalResCodeBody);
+                evalJs(getMyCallbackKey(cbKey) + stripJsPrefix(jsCode));
             } catch (Throwable e) {
                 error = jsErrorMsg(e);
                 throw e;
@@ -3599,6 +3654,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 Scriptable imageScope = rhinoCx.newObject(scope);
                 imageScope.setPrototype(scope);
                 imageScope.setParentScope(null);
+                // 8.83 crypto-java.js 原生 AES 接线：原版直引海阔包内 FileUtil，星辰注入宿主实现。
+                ScriptableObject.putProperty(imageScope, "__cryptoFileUtil",
+                        Context.javaToJS(new HkCryptoFileUtil(), imageScope));
+                injectAndroidPackage(imageScope);
+                // wrapImageJs 的 JS 侧 catch 走此函数记可导出日志（原 log() 只进 logcat）。
+                ScriptableObject.putProperty(imageScope, "__hkImageLog", new org.mozilla.javascript.BaseFunction() {
+                    @Override
+                    public Object call(org.mozilla.javascript.Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                        SpiderDebug.log("hkimage", "图片解密JS内报错 host=%s 信息=%s",
+                                hostOfUrl(urlString), args != null && args.length > 0 ? String.valueOf(args[0]) : "");
+                        return null;
+                    }
+                });
+                long t0 = android.os.SystemClock.elapsedRealtime();
                 try {
                     // 重求值 Hikerurl.js，确保 $ 完整可用
                     try {
@@ -3612,7 +3681,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
                     String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode) + ensureDollarShim() + wrapImageJs(jsCode);
                     Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
-                    return coerceImageStream(r, input);
+                    InputStream out = coerceImageStream(r, input, urlString);
+                    SpiderDebug.log("hkimage", "图片解密完成 host=%s 耗时=%dms 结果=%s",
+                            hostOfUrl(urlString), android.os.SystemClock.elapsedRealtime() - t0,
+                            out == null ? "null" : out.getClass().getSimpleName() + (out == input ? "(回退原字节)" : ""));
+                    return out;
                 } catch (Throwable t) {
                     // 图片解密求值失败：记进可导出日志（此前静默吞掉，真机断点不可见）
                     String cls = t.getClass().getSimpleName();
@@ -3671,9 +3744,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
-    /** 8.83 wrapJS：@js= 体包 try/catch，异常记 log 后按"非流"处理（返回原 input）。 */
+    /** 8.83 wrapJS：@js= 体包 try/catch，异常记可导出日志后按"非流"处理（返回原 input）。 */
     private static String wrapImageJs(String jsCode) {
-        return "try{\n" + jsCode + "\n}catch(e){\nlog(e.toString());\n}";
+        return "try{\n" + jsCode + "\n}catch(e){\ntry{__hkImageLog(String(e));}catch(_){}\ntry{log(e.toString());}catch(_){}\n}";
+    }
+
+    /**
+     * 8.83 运行环境还原：原版 crypto-java.js 直写 {@code android.util.Base64}（裸包名）。
+     * Rhino 默认只导入 java/javax/org/com/edu/net，裸 {@code android} 解析不到——原版宿主
+     * 实际放行了 android.*（其 ClassShutter 只拉黑危险类）。此处显式注入 android 包，
+     * 使资产库文件能与原版逐字节一致地跑在我们的 Rhino 里。
+     */
+    private static void injectAndroidPackage(Scriptable target) {
+        try {
+            org.mozilla.javascript.NativeJavaPackage pkg =
+                    new org.mozilla.javascript.NativeJavaPackage("android", HkJsRuntime.class.getClassLoader());
+            pkg.setParentScope(target);
+            pkg.setPrototype(org.mozilla.javascript.ScriptableObject.getObjectPrototype(target));
+            ScriptableObject.putProperty(target, "android", pkg);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 8.83 JSEngine.generateMY("MY_HEADERS", multimap) 语义。 */
@@ -3731,26 +3821,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         return "var MY_TITLE = '" + escapeJsString(title) + "';\n";
     }
 
-    /** JS 单引号字符串转义（adblockplus Utils.escapeJavaScriptString 同款语义）。 */
+    /** JS 单引号字符串转义（adblockplus Utils.escapeJavaScriptString 原样：\n \r \" \' \\ 转义 + U+2028/U+2029）。 */
     private static String escapeJsString(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length() + 16);
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            switch (c) {
-                case '\\': sb.append("\\\\"); break;
-                case '\'': sb.append("\\'"); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
-                case '\b': sb.append("\\b"); break;
-                case '\f': sb.append("\\f"); break;
-                default:
-                    if (c < 0x20) sb.append(String.format(java.util.Locale.ROOT, "\\u%04x", (int) c));
-                    else sb.append(c);
+            if (c == '\n') {
+                sb.append("\\n");
+            } else if (c == '\r') {
+                sb.append("\\r");
+            } else if (c == '"' || c == '\'' || c == '\\') {
+                sb.append('\\');
+                sb.append(c);
+            } else {
+                sb.append(c);
             }
         }
-        return sb.toString();
+        String r = sb.toString();
+        r = r.replace(" ", "\\u2028").replace(" ", "\\u2029");
+        return r;
     }
 
     /** 8.83 StringUtil.getRealUrl 简化版：去 @lazyRule=/@rule= 后缀与 hiker://empty 前缀。 */
@@ -3797,7 +3887,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      *  JS 数字数组（bytes.slice()），不是 Java 流；原版靠 Rhino 互操作直接返回真流。
      *  这里补上数组 → 字节流的转换，否则解密结果会被丢弃、回退成加密原字节，
      *  图片解码失败（「一个APP」首页大图无封面即此因，本机用真实数据复现定案）。 */
-    private static InputStream coerceImageStream(Object r, InputStream input) {
+    private static InputStream coerceImageStream(Object r, InputStream input, String urlString) {
         try {
             Object v = r;
             if (v instanceof NativeJavaObject) v = ((NativeJavaObject) v).unwrap();
@@ -3838,6 +3928,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
                 return new ByteArrayInputStream(bytes);
             }
+            // 真回退：记原因进可导出日志（此前静默回原字节，真机断点不可见）
+            String rt = r == null ? "null" : r.getClass().getSimpleName();
+            if (r != null) {
+                try {
+                    String rs = String.valueOf(org.mozilla.javascript.Context.toString(r));
+                    rt += ":" + rs.substring(0, Math.min(80, rs.length()));
+                } catch (Throwable ignored) {
+                }
+            }
+            SpiderDebug.log("hkimage", "图片解密结果非流，回退原字节 host=%s 结果类型=%s", hostOfUrl(urlString), rt);
         } catch (Throwable ignored) {
         }
         return input;
@@ -3895,6 +3995,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     public String getError() {
         return error;
+    }
+
+    /**
+     * 8.83 对齐（JSEngine.parseHomeCallBack 失败回调语义）：预抓取数失败时把真因
+     * 记进引擎错误通道，供调用方空态/错误展示；求值不会再跑，error 不会被次生错误覆盖。
+     */
+    public void noteFetchFailure(String msg) {
+        error = msg == null || msg.isEmpty() ? "取数失败" : msg;
     }
 
     /**
@@ -4768,6 +4876,34 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         return UUID.randomUUID().toString().replaceAll("-", "");
     }
 
+    /**
+     * 8.83 每次求值的 CALLBACK_KEY 装配（JSEngine source 213/233/245/264）：
+     * fresh UUID → 登记回调表与正文表 → 返回 uuid，调用方把 getMyCallbackKey(uuid) 拼进脚本文本。
+     * resBody 为本次求值对应的响应正文（列表/搜索路=预抓正文，input 回调路=输入串），
+     * 规则 getResCode()/getCode() 凭 CALLBACK_KEY 查表即得。
+     */
+    private String armCallbackKey(String resBody) {
+        String uuid = genUuid();
+        callbackMap.put(uuid, callbackKeySink());
+        if (resBody != null) resCodeMap.put(uuid, resBody);
+        return uuid;
+    }
+
+    /** 与无回调时的宿主 Toast 回退同行为（setErrorImpl 原有分支），仅保证键存在、可按原版移除。 */
+    private JSEngineCallback<?> callbackKeySink() {
+        return new JSEngineCallback<Object>() {
+            @Override public void onSuccess(String key, Object result) {}
+            @Override public void onUpdate(String key, String value) {}
+            @Override public void showErr(String err) {
+                try {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                            android.widget.Toast.makeText(App.get(), err == null ? "" : err,
+                                    android.widget.Toast.LENGTH_LONG).show());
+                } catch (Throwable ignored) {}
+            }
+        };
+    }
+
     /** 8.83 JSEngine.generateTicket (smali 2998-3045): title -> stable ticket uuid. */
     private static String generateTicket(String title) {
         if (TextUtils.isEmpty(title)) return title;
@@ -4939,12 +5075,20 @@ public String evalJS(String p1, String p2, boolean p3) {
     } else {
         v4 = getMyRule(null); // MISSING (8.83 static)
     }
-    String v4b = new StringBuilder()
-            .append(getMyInput(p2)) // MISSING
-            .append(v4)
-            .append(getMyType("eval")) // MISSING
-            .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
-            .toString();
+    String v4b;
+    {
+        // 8.83 evalJS 同款：每次求值 fresh CALLBACK_KEY；登记回调表与正文表（正文=输入串 p2），
+        // 脚本文本注入 var CALLBACK_KEY（原先只注入未登记，getResCode 查表 miss）。
+        String cbUuid = genUuid();
+        callbackMap.put(cbUuid, callbackKeySink());
+        if (p2 != null) resCodeMap.put(cbUuid, p2);
+        v4b = new StringBuilder()
+                .append(getMyInput(p2))
+                .append(v4)
+                .append(getMyType("eval"))
+                .append(getMyCallbackKey(cbUuid))
+                .toString();
+    }
     String v0;
     if (p3) {
         v0 = v4b + decodeConflictStr(p1); // 8.83 external

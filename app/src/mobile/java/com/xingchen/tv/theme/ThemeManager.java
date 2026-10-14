@@ -110,11 +110,13 @@ public class ThemeManager {
             flog("doApply: activity=" + activity.getClass().getSimpleName());
             // 海阔浅色页（列表页/搜索页）不跟主 App 主题走：不铺星辰壁纸，
             // 窗口底与状态栏保持浅色不透明，避免状态栏透出壁纸。
+            // 窗口底照 8.83：AppCompat 浅色主题的窗口底 = material_grey_50（#FAFAFA）；
+            // 此前用 #F5F6F8 偏灰偏蓝，衬得原版自带的白色按钮（ripple_white 等）全显形成框。
             String actName = activity.getClass().getName();
             if (actName.endsWith(".ui.hk.HkListActivity") || actName.endsWith(".ui.hk.HkSearchActivity")) {
                 try {
                     activity.getWindow().setBackgroundDrawable(
-                            new android.graphics.drawable.ColorDrawable(0xFFF5F6F8));
+                            new android.graphics.drawable.ColorDrawable(0xFFFAFAFA));
                     activity.getWindow().setStatusBarColor(0xFFFFFFFF);
                 } catch (Exception ignored) {}
                 return;

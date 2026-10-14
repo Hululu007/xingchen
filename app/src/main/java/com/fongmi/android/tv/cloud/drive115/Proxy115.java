@@ -163,14 +163,9 @@ public class Proxy115 extends NanoHTTPD {
     }
 
     private void cleanExpired() {
-        long now = System.currentTimeMillis();
-        for (Map.Entry<String, Long> e : new HashMap<>(tokenTime).entrySet()) {
-            if (now - e.getValue() > TOKEN_TTL_MS) {
-                ctx.remove(e.getKey());
-                targets.remove(e.getKey());
-                tokenTime.remove(e.getKey());
-            }
-        }
+        // 对照 PY 版：token 不按时过期，只靠 put() 的 LRU(400) 淘汰。
+        // 此前 90 秒 TTL 会把 m3u8 播放中（分片共用一个 token）和详情页停留
+        // 超过 90 秒再点播的 token 误杀，播放器收到 404 报媒体解析失败。
     }
 
     /** URL 安全的 Base64 编码（对照 PY _b64e） */
@@ -369,6 +364,18 @@ public class Proxy115 extends NanoHTTPD {
         resp = result.response;
         if (resp == null) {
             return newFixedLengthResponse(BAD_GATEWAY, "text/plain", "upstream error");
+        }
+
+        // 上游失败必须诚实回错（对照 PY 版 send_response 原样透传上游状态码）：
+        // 此前二进制分支非 206 一律按 200 发，403 等错误正文被当成媒体递给播放器，
+        // 播放器报"媒体解析失败或没有有效音视频轨道"。非 200/206 一律 502 回错。
+        if (result.code != 200 && result.code != 206) {
+            int badCode = result.code;
+            try {
+                resp.close();
+            } catch (Exception ignored) {
+            }
+            return newFixedLengthResponse(BAD_GATEWAY, "text/plain", "upstream " + badCode);
         }
 
         if (isPlaylist) {

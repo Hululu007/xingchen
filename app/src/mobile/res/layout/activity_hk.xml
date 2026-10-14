@@ -96,6 +96,53 @@
                             android:textSize="14sp"
                             android:visibility="gone" />
 
+
+                        <!-- 多选模式才显示：全选 / 删除 / 完成 -->
+                        <TextView
+                            android:id="@+id/btn_select_all_rules"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="56dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="全选"
+                            android:textColor="#101216"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/btn_delete_selected_rules"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="56dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="删除"
+                            android:textColor="#B3261E"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/btn_select_done"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="56dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="完成"
+                            android:textColor="#101216"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
                         <Space
                             android:layout_width="0dp"
                             android:layout_height="1dp"

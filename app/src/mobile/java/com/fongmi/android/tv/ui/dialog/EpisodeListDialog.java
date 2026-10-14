@@ -47,9 +47,15 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     private List<Flag> flags;
     private int episodeSpanCount = 4;
     private boolean reverse;
+    private boolean shortDrama;
 
     public static EpisodeListDialog create() {
         return new EpisodeListDialog();
+    }
+
+    public EpisodeListDialog shortDrama(boolean shortDrama) {
+        this.shortDrama = shortDrama;
+        return this;
     }
 
     public EpisodeListDialog flags(List<Flag> flags) {
@@ -90,7 +96,12 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         overlay.setBackgroundColor(Color.TRANSPARENT);
         overlay.setOnClickListener(view -> dismiss());
         binding.getRoot().setClickable(true);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+        FrameLayout.LayoutParams params;
+        if (shortDrama) {
+            params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.getScreenHeight(requireContext()) / 2, Gravity.BOTTOM);
+        } else {
+            params = new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+        }
         overlay.addView(binding.getRoot(), params);
         return overlay;
     }
@@ -130,9 +141,14 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         binding.flag.setHasFixedSize(true);
         binding.flag.setItemAnimator(null);
         binding.flag.setAdapter(flagAdapter = new FlagAdapter(this));
-        binding.group.setHasFixedSize(true);
-        binding.group.setItemAnimator(null);
-        binding.group.setAdapter(groupAdapter = new EpisodeGroupAdapter(this));
+        if (shortDrama) {
+            ViewGroup parent = (ViewGroup) binding.group.getParent();
+            if (parent != null) parent.removeView(binding.group);
+        } else {
+            binding.group.setHasFixedSize(true);
+            binding.group.setItemAnimator(null);
+            binding.group.setAdapter(groupAdapter = new EpisodeGroupAdapter(this));
+        }
         binding.episode.setHasFixedSize(true);
         binding.episode.setItemAnimator(null);
         binding.episode.setLayoutManager(new GridLayoutManager(requireContext(), episodeSpanCount));
@@ -154,6 +170,11 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     private void setGroups(Flag flag) {
         if (flag == null) return;
         List<Episode> episodes = flag.getEpisodes();
+        if (groupAdapter == null) {
+            setEpisodes(episodes);
+            binding.episode.scrollToPosition(episodeAdapter.getPosition());
+            return;
+        }
         groupAdapter.addAll(EpisodeGroupAdapter.build(episodes.size(), getSelectedEpisodePosition(episodes), reverse));
         setEpisodes(episodes);
         binding.group.scrollToPosition(groupAdapter.getPosition());

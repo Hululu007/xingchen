@@ -41,7 +41,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 SearchFragment（ui/search/SearchFragment.smali，6233 行）转写：
@@ -51,6 +51,7 @@ import timber.log.Timber;
  * 条目为 SearchResult）；宿主经 SearchHost 打开详情规则页。
  */
 public class HkSearchFragment extends Fragment implements HkSearchModel.Callback {
+    private static final String TAG = "HkSearchFragment";
 
     /** 宿主接缝：详情规则页打开（原版直接 start FilmListActivity）与单规则宿主判定（自动打开唯一结果）。 */
     public interface SearchHost {
@@ -188,7 +189,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
                 progressView1.setVisibility(View.INVISIBLE);
             }
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 
@@ -205,7 +206,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             String json = new Gson().toJson(list);
             activity.runOnUiThread(() -> bindArrayOnUi(list, json, smode));
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 
@@ -580,7 +581,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
                     });
                 }
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
                 Activity activity = getActivity();
                 if (activity != null && !activity.isFinishing()) {
                     activity.runOnUiThread(() ->

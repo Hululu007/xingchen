@@ -2594,8 +2594,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        // 搜索/隐私
-        stub("getSearchMode", "");
+        // 搜索/隐私（getSearchMode 有 2351 行真实现，不在此处设桩覆盖）
         stub("setSearchMode", null);
         stub("searchContains", false);
         stub("checkPrivacyPassword", false);

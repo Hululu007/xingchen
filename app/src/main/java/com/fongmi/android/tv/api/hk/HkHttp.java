@@ -77,6 +77,13 @@ public class HkHttp {
      * 干挂时，execute() 既不返回也不抛错（1.2.7 真机日志：tjasak 的 POST 发出后 50 秒+
      * 无下文）。故把 lookup 放到达守护线程池、10 秒未回就按解析失败处理，让请求走
      * 正常的失败/重试路径，而不是无限静默。成功路径行为不变。
+     *
+     * <p>2026-10-14：取数 client() 改回系统默认解析（照 8.83
+     * HttpHelper.buildOkHttpClient 原文，未设置 Dns）。漫小肆 www.jjmhw5.top
+     * 在补了 charset 头后依然被 Connection reset，真机 dns 被动记录确认取数
+     * 走了这里的 DoH，而同机同网原版（无自定义 Dns）能取到——解析路径分叉
+     * 是唯一未排除的嫌疑；用户其余部位（PY/JS/主站）的 DoH 设置不受影响。
+     * HK_DNS 现仅 imageClient 使用。</p>
      */
     private static final Dns HK_DNS = new Dns() {
         @Override
@@ -173,13 +180,15 @@ public class HkHttp {
     /**
      * 构建 OkHttpClient，移植自 8.83 HttpHelper.buildOkHttpClient(int, boolean)：
      * - 信任所有证书 SSL（HttpsUtils.getSslSocketFactory + UnSafeHostnameVerifier）
-     * - loadDns（DoH）
+     * - DNS：系统默认（照 8.83 原文，HttpHelper.buildOkHttpClient 未设置 Dns；
+     *   图片 client 仍走 HK_DNS/DoH，不在此列）
      * - ContentTypePreInterceptor + ContentTypeAfterInterceptor（network）
      * - CookieJar 持久化
      * - 统一超时
      */
     // 8.83 HttpHelper.buildOkHttpClient 移植：公开供 HkJsRuntime 等调用方使用，
-    // 使海阔 JS 请求与 HkHttp 同走 DoH / CookieJar / 内容类型拦截器配置。
+    // 使海阔 JS 请求与 HkHttp 同走 CookieJar / 内容类型拦截器配置；
+    // DNS 走系统默认（照 8.83 原文；DoH 只保留在图片 client 的 HK_DNS 上）。
     public static OkHttpClient client() {
         if (client == null) {
             synchronized (HkHttp.class) {
@@ -187,7 +196,6 @@ public class HkHttp {
                     OkHttpClient.Builder b = new OkHttpClient.Builder()
                             .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
                             .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
-                            .dns(HK_DNS)
                             // 8.83 原版：Application.onCreate 里 OkGo.getInstance().addCommonHeaders
                             // 加了公共头 charset=UTF-8，每个规则请求都带；此前移植漏了，补上
                             .addInterceptor(chain -> {

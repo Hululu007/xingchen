@@ -289,6 +289,30 @@ public class HkRule {
         return classUrl == null ? "" : classUrl;
     }
 
+    public String getAreaName() {
+        return areaName == null ? "" : areaName;
+    }
+
+    public String getAreaUrl() {
+        return areaUrl == null ? "" : areaUrl;
+    }
+
+    public String getYearName() {
+        return yearName == null ? "" : yearName;
+    }
+
+    public String getYearUrl() {
+        return yearUrl == null ? "" : yearUrl;
+    }
+
+    public String getSortName() {
+        return sortName == null ? "" : sortName;
+    }
+
+    public String getSortUrl() {
+        return sortUrl == null ? "" : sortUrl;
+    }
+
     public String getFindRule() {
         return findRule == null ? "" : findRule;
     }
@@ -367,12 +391,41 @@ public class HkRule {
         return r;
     }
 
+    /** 全字段克隆（对应原版 ArticleListRule.clone()）：字段复制与 deriveSubRule 共用同一份清单。 */
+    public HkRule copyRule() {
+        return deriveSubRule(this.url, this.findRule, this.colType);
+    }
+
+    public void setClassUrl(String classUrl) {
+        this.classUrl = classUrl;
+    }
+
+    public void setAreaUrl(String areaUrl) {
+        this.areaUrl = areaUrl;
+    }
+
+    public void setYearUrl(String yearUrl) {
+        this.yearUrl = yearUrl;
+    }
+
+    public void setSortUrl(String sortUrl) {
+        this.sortUrl = sortUrl;
+    }
+
     public String getSearchUrl() {
         return searchUrl == null ? "" : searchUrl;
     }
 
+    public void setSearchUrl(String searchUrl) {
+        this.searchUrl = searchUrl;
+    }
+
     public String getSearchFind() {
         return searchFind == null ? "" : searchFind;
+    }
+
+    public void setSearchFind(String searchFind) {
+        this.searchFind = searchFind;
     }
 
     public String getDetailFindRule() {

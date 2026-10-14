@@ -34,6 +34,8 @@ jobs:
           EOF
       - name: Build APK
         run: |
+          VNAME=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -1)
+          echo "WEBHTV_RELEASE_TAG=v$VNAME" >> "$GITHUB_ENV"
           chmod +x gradlew
           ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon
       - name: Find APK

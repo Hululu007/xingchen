@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import fi.iki.elonen.NanoHTTPD;
 import okhttp3.OkHttpClient;
+import com.github.catvod.crawler.SpiderDebug;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -325,6 +326,7 @@ public class Proxy115 extends NanoHTTPD {
             try {
                 okhttp3.ResponseBody _b = result.response.body();
                 String _t = _b != null ? _b.string() : "";
+                int _apiCode = result.code;
                 result.response.close();
                 result.response = null; // 已消费、已关闭，后面不再用
                 String _trim = _t.trim();
@@ -334,6 +336,8 @@ public class Proxy115 extends NanoHTTPD {
                     if (!_vu.isEmpty()) {
                         Log.d(TAG, "115 API 返回 JSON，提取 video_url 重取");
                         FetchResult _r2 = fetchWithWatchdog(_vu, headers, 90);
+                        SpiderDebug.log("proxy115", "115取流 api=%d 有video_url 重取=%d", _apiCode,
+                                _r2.code);
                         if (_r2.response != null) {
                             result = _r2;
                             target = _vu;
@@ -347,10 +351,12 @@ public class Proxy115 extends NanoHTTPD {
                     } else {
                         // 上游返回错误 JSON（如 {"state":false}）：直接 502 透传，不再 500 "read error"
                         Log.d(TAG, "115 API 未返回 video_url: " + _trim.substring(0, Math.min(200, _trim.length())));
+                        SpiderDebug.log("proxy115", "115取流 api=%d 无video_url 诚实502", _apiCode);
                         return upstreamError(_t);
                     }
                 } else {
                     // 清单或未知内容：body 已消费，重新取一次
+                    SpiderDebug.log("proxy115", "115取流 api=%d 非JSON 重取一次", _apiCode);
                     result = fetchWithWatchdog(target, headers, 90);
                 }
             } catch (Exception _e) {
@@ -379,14 +385,22 @@ public class Proxy115 extends NanoHTTPD {
         }
 
         if (isPlaylist) {
-            // m3u8：全文读出 → 改写清单 → 返回
+            // m3u8：全文读出 → 验明真是清单 → 改写清单 → 返回
+            // 清单必须真是清单：115 有些口子回 200 但内容是错误页/网关挑战页（对照 PY _probe_url：
+            // m3u8 必须真出现 #EXTM3U）。以前只要 target 含 .m3u8 就按清单 200 发出去，
+            // 播放器拿到错误页报 MANIFEST_MALFORMED（18:12 日志实证）。非清单一律诚实 502。
             try {
                 ResponseBody body = resp.body();
                 String text = body != null ? body.string() : "";
                 resp.close();
-                if (text.trim().startsWith("#EXTM3U") || target.toLowerCase().contains(".m3u8")) {
-                    text = rewritePlaylist(text, target, token, getListeningPort());
+                String trim = text.trim();
+                boolean looksPlaylist = trim.startsWith("#EXTM3U") || trim.startsWith("\uFEFF#EXTM3U");
+                if (!looksPlaylist) {
+                    Log.d(TAG, "上游清单内容非m3u8，诚实502");
+                    SpiderDebug.log("proxy115", "上游清单非m3u8 诚实502 code=%d", result.code);
+                    return newFixedLengthResponse(BAD_GATEWAY, "text/plain", "upstream not playlist");
                 }
+                text = rewritePlaylist(text, target, token, getListeningPort());
                 byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
                 Response r = newFixedLengthResponse(NanoHTTPD.Response.Status.OK,
                         "application/vnd.apple.mpegurl",

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.hk;
 import android.graphics.drawable.Animatable;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -20,10 +21,11 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 import com.fongmi.android.tv.ui.hk.view.MyWebProgress;
 import com.fongmi.android.tv.ui.hk.view.RecyclerFastScroller;
 import com.fongmi.android.tv.utils.Task;
-import com.scwang.smartrefresh.layout.SmartRefreshLayout;
+import com.scwang.smart.refresh.layout.SmartRefreshLayout;
 
 import org.greenrobot.eventbus.EventBus;
 
@@ -2149,7 +2151,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         page = 1;
         loading(true);
         loadingPage = page;
-        model.params(getContext(), page, true, articleListRuleDTO, notLoadPreRule(), isFromHistory())
+        articleListModel.params(getContext(), page, true, articleListRuleDTO, notLoadPreRule(), isFromHistory())
                 .process("ARTICLE_LIST_NEW", this);
     }
 
@@ -2170,7 +2172,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         page++;
         loading(true);
         loadingPage = page;
-        model.params(getContext(), page, false, articleListRuleDTO, notLoadPreRule(), isFromHistory())
+        articleListModel.params(getContext(), page, false, articleListRuleDTO, notLoadPreRule(), isFromHistory())
                 .process("ARTICLE_LIST", this);
     }
 
@@ -2691,7 +2693,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             }
             dto.setParams(extraJson(next));
             loadingPage = page;
-            model.params(getContext(), page, false, dto, notLoadPreRule(), isFromHistory())
+            articleListModel.params(getContext(), page, false, dto, notLoadPreRule(), isFromHistory())
                     .process("ARTICLE_LIST", this);
             if (!data.noRecordHistory && recordHistory && page <= data.nextData.size()) {
                 if (hostListener != null) {

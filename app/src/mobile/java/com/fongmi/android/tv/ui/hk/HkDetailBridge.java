@@ -55,7 +55,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * DetailUIHelper（smali_classes2/ui/detail/DetailUIHelper.smali）的星辰实现：
@@ -64,6 +64,7 @@ import timber.log.Timber;
  * 规则导入、网页、播放器、迅雷、下载对话框等宿主子系统走 HostHooks，宿主阶段绑定真实现。
  */
 public class HkDetailBridge implements HkArticleFragment.DetailBridge {
+    private static final String TAG = "HkDetailBridge";
 
     /** 原版 HeavyTaskUtil.executeNewTask 的等价后台池。 */
     private static final ExecutorService BG = Executors.newCachedThreadPool(r -> {
@@ -108,7 +109,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 context.startActivity(intent);
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         }
 
@@ -416,7 +417,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(Intent.createChooser(intent, null));
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 
@@ -505,7 +506,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             hooks().checkText(activity, body);
             return true;
         }
-        Timber.d("dealWithUrl: %s", url);
+        Log.d(TAG, String.format("dealWithUrl: %s", url));
         String lower = url.toLowerCase();
         if (lower.startsWith("toast://")) {
             HkRouteBlocker.toastShortBottom(activity,
@@ -671,7 +672,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             }
             showSelect(activity, view, rule, item, extra, resultConsumer);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             if (activity != null) {
                 HkRouteBlocker.toastShortCenter(activity, "出错：" + e.getMessage());
             }
@@ -783,7 +784,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             HkEngineManager.ensureInit(rt);
             return rt.evalJS(HkJsRuntime.getMyRule(rule) + js, input);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return null;
         }
     }
@@ -799,7 +800,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
                     if (cs != null) text = cs.toString();
                 }
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
             consumer.accept(text);
         }, delayMs);
@@ -812,7 +813,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText(null, text));
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 
@@ -854,7 +855,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
                 extra.js = jsonStr(obj, "js");
                 extra.value = jsonStr(obj, "value");
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
             return extra;
         }

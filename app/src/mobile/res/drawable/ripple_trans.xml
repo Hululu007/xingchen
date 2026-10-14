@@ -1,4 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔：对照 8.83 ripple_trans（透明底 + 按压波纹） -->
-<ripple android:color="#ffdfdfdf"
+<ripple android:color="@color/grey_black"
   xmlns:android="http://schemas.android.com/apk/res/android" />

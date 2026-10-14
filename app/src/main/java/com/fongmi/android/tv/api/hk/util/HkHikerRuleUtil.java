@@ -3,6 +3,8 @@ package com.fongmi.android.tv.api.hk.util;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.hk.HkParserKit;
+import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 
 import java.io.ByteArrayOutputStream;
@@ -58,29 +60,63 @@ public final class HkHikerRuleUtil {
         if (TextUtils.isEmpty(url) || !url.startsWith("hiker://")) return "";
         String p0 = url.replace("hiker://", "");
         if (p0.startsWith("home")) {
-            // 8.83：split("@") 取 parts[1] 为标题查库
+            // 8.83：split("@") 取 parts[1] 为标题查库；无标题返回全部规则（已排序）
             String[] parts = p0.split("@");
             if (parts.length > 1) {
                 String json = HkRuleManager.get().loadRuleJson(parts[1]);
                 return json == null ? "" : json;
             }
-            return "";
+            return allRulesJson();
         }
-        // 8.83 其余分支（bookmark 等）暂返回 ""
+        if (p0.startsWith("bookmark") || p0.startsWith("download")
+                || p0.startsWith("collection") || p0.startsWith("history")) {
+            // 8.83 返回对应库（书签/下载记录/收藏/历史）的记录 JSON；
+            // 星辰无 hk 侧对应存储，等价于空库返回 []
+            return "[]";
+        }
         return "";
     }
 
     /**
      * 8.83 HikerRuleUtil.getRulesByHiker(String, OnCodeGetListener) 异步版语义移植（smali 591-848）。
-     * 8.83 原文在子线程查库后回调；此处直接同步查库后回调 onSuccess（调用方自行决定线程）。
+     * 分支顺序与原文一致：empty → page → home → bookmark/download/collection/history → ""。
      */
     public static void getRulesByHiker(String url, HkCodeUtil.OnCodeGetListener listener) {
         try {
-            String result = getRulesByHiker(url);
-            listener.onSuccess(result);
+            if (TextUtils.isEmpty(url) || !url.startsWith("hiker://")) {
+                listener.onFailure(404, url + "格式有误");
+                return;
+            }
+            String p0 = url.replace("hiker://", "");
+            if (p0.startsWith("empty")) {
+                listener.onSuccess(HkParserKit.replaceOnce(p0, "empty", ""));
+                return;
+            }
+            if (p0.startsWith("page")) {
+                listener.onSuccess(p0);
+                return;
+            }
+            listener.onSuccess(getRulesByHiker(url));
         } catch (Exception e) {
-            listener.onFailure(500, e.getMessage());
+            listener.onFailure(500, "获取数据失败：" + e.getMessage());
         }
+    }
+
+    /** 全部已安装规则的原始 JSON 数组（对应 8.83 home 无标题时 findAll + sort + share 过滤序列化）。 */
+    private static String allRulesJson() {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        try {
+            for (HkRule r : HkRuleManager.get().getRules()) {
+                String json = HkRuleManager.get().loadRuleJson(r.getTitle());
+                if (json == null) continue;
+                if (!first) sb.append(",");
+                sb.append(json);
+                first = false;
+            }
+        } catch (Exception ignored) {
+        }
+        return sb.append("]").toString();
     }
 
     private static String loadAsset(String assetPath) {

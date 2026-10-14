@@ -79,6 +79,21 @@ public class HkDetailFragment extends Fragment {
     private HkItem detailItem;
     private boolean detailFromSearch;
     private boolean detailLoading;
+    /** openDetail 在 Fragment 未就绪被调用时暂存的 lazy 标志，就绪后由 initDetailView 重放 */
+    private boolean pendingLazyPrecheck;
+
+    /** 详情页是否正在加载（供 Activity 做转圈互斥判断） */
+    public boolean isPageLoading() {
+        return detailLoading;
+    }
+
+    /** 只切换详情页转圈的可见性（不动 detailLoading 状态）：弹窗转圈出现时由 Activity 压掉本转圈 */
+    public void setInlineLoadingVisible(boolean visible) {
+        try {
+            if (binding != null) binding.progressDetailTop.setVisibility(visible ? View.VISIBLE : View.GONE);
+        } catch (Throwable ignored) {
+        }
+    }
     /** 点击管线往返保护：hiker://page/ 与 @rule= 交给 Activity 消费，管线回调用 openDetail 时不再二次分流。 */
     private boolean inHostClick;
     private Toast loadingHint;
@@ -398,6 +413,12 @@ public class HkDetailFragment extends Fragment {
         binding.tvDetailEmpty.setOnClickListener(v -> {
             if (detailItem != null) openDetail(detailItem, detailFromSearch);
         });
+        // 重放未就绪时被暂存的打开请求（openDetail 在 attach 前被调用的那次）
+        if (detailItem != null && !detailLoading) {
+            boolean lp = pendingLazyPrecheck;
+            pendingLazyPrecheck = false;
+            openDetail(detailItem, detailFromSearch, lp);
+        }
     }
 
     public void openDetail(HkItem item, boolean fromSearch) {
@@ -412,7 +433,15 @@ public class HkDetailFragment extends Fragment {
      *                     避免详情 loading 闪一下。非直接播放时再补推展示（复用已算出的结果）。
      */
     public void openDetail(HkItem item, boolean fromSearch, boolean lazyPrecheck) {
-        if (!isAdded() || binding == null) return;
+        if (!isAdded() || binding == null) {
+            // 未就绪不丢弃：暂存请求，initDetailView 末尾会凭 detailItem 重放。
+            // 此前这里直接 return 且无人重放——第一次进详情的调用就这样被吞掉，
+            // 页面停在布局初始状态（假"加载失败"+转圈），第二次点才正常。
+            detailItem = item;
+            detailFromSearch = fromSearch;
+            pendingLazyPrecheck = lazyPrecheck;
+            return;
+        }
         if (item != null && !TextUtils.isEmpty(item.getUrl())) {
             String u = item.getUrl().trim();
             // 官方 clickItem：@rule= 条目进子列表页（dealRule），hiker://page/ 走子页面，均不进详情。
@@ -443,7 +472,13 @@ public class HkDetailFragment extends Fragment {
             binding.tvDetailTitle.setText(item.getTitle());
             binding.rvDetailContent.setVisibility(View.GONE);
             binding.tvDetailEmpty.setVisibility(View.GONE);
-            binding.tvDetailLoading.setVisibility(View.VISIBLE);
+            binding.progressDetailTop.setVisibility(View.VISIBLE);
+            // 页面转圈接管：关掉弹窗转圈，一个页面只许一个转圈
+            try {
+                HkPageHost h = host();
+                if (h != null) h.hostHideLoading();
+            } catch (Throwable ignored) {
+            }
         } else {
             // 直接播放预检（条目 URL 自带 @lazyRule=）：后台求值，下方小字"加载中"提示
             // （海阔原版 toast 风格，不挡封面）；求值完成后直接进播放器
@@ -471,7 +506,7 @@ public class HkDetailFragment extends Fragment {
                 hideLoadingHint();
                 if (!isAdded() || binding == null) return;
                 if (lazyPrecheck) host().hostHideLoading();
-                else binding.tvDetailLoading.setVisibility(View.GONE);
+                else binding.progressDetailTop.setVisibility(View.GONE);
                 // 纯文本结果（文本按钮的 js: 求值返回文本）：弹窗显示，不进详情/播放
                 String textResult = result == null ? "" : result.getTextResult();
                 if (!TextUtils.isEmpty(textResult)) {
@@ -521,7 +556,7 @@ public class HkDetailFragment extends Fragment {
                     binding.tvDetailTitle.setText(item.getTitle());
                     binding.rvDetailContent.setVisibility(View.GONE);
                     binding.tvDetailEmpty.setVisibility(View.GONE);
-                    binding.tvDetailLoading.setVisibility(View.GONE);
+                    binding.progressDetailTop.setVisibility(View.GONE);
                     host().hostOpenDetail(item);
                 }
                 showDetailResult(result);
@@ -1259,12 +1294,14 @@ public class HkDetailFragment extends Fragment {
                     case T_TEXT:
                     case T_TEXT_1:
                     case T_TEXT_CENTER_1:
-                    case T_LONG_TEXT:
                     case T_HEADER:
                     case T_FOOTER:
                     case T_RICH:
                         title = v.findViewById(R.id.tv_title);
                         desc = v.findViewById(R.id.tv_desc);
+                        break;
+                    case T_LONG_TEXT:
+                        title = v.findViewById(R.id.tv_title);
                         break;
                     case T_COLS:
                     case T_TEXT_2:
@@ -1540,11 +1577,15 @@ public class HkDetailFragment extends Fragment {
                 case T_TEXT:
                 case T_TEXT_1:
                 case T_TEXT_CENTER_1:
-                case T_LONG_TEXT:
                 case T_HEADER:
                 case T_FOOTER:
                 case T_RICH:
                     layout = R.layout.item_hk_text;
+                    break;
+                case T_LONG_TEXT:
+                    // 8.83 item_long_text：裸文本（无底板、16.5sp、两端对齐），与 text_1 的白行完全不同。
+                    // 此前混进 item_hk_text 组，详情页的长文本被套上白底板（用户点名"字后面的底框"）。
+                    layout = R.layout.item_hk_text_long;
                     break;
                 case T_COLS:
                 case T_TEXT_2:
@@ -1687,10 +1728,12 @@ public class HkDetailFragment extends Fragment {
                 case T_TEXT:
                 case T_TEXT_1:
                 case T_TEXT_CENTER_1:
-                case T_LONG_TEXT:
                 case T_HEADER:
                 case T_FOOTER:
                     bindText(h, item);
+                    break;
+                case T_LONG_TEXT:
+                    bindLongText(h, item);
                     break;
                 case T_RICH:
                     bindRich(h, item);
@@ -1848,6 +1891,11 @@ public class HkDetailFragment extends Fragment {
         }
 
         /** 文本行：text_center_1 居中灰字；text_1 去标签标题+描述；long_text 多行。 */
+        /** 8.83 LongTextHolder：只设文本，字号/行距/对齐全在布局（item_long_text）里，不做任何覆盖 */
+        private void bindLongText(Holder h, HkItem item) {
+            if (h.title != null) h.title.setText(titleSpan(item.getTitle()));
+        }
+
         private void bindText(Holder h, HkItem item) {
             String ct = colTypeOf(item);
             if ("text_center_1".equals(ct)) {

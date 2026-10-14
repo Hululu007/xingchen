@@ -513,6 +513,11 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
                     @Override
                     public void success(String result) {
                         dismissLoadingDialog();
+                        if (result != null && result.startsWith("error:")) {
+                            // 引擎真实错误（含行号），直接弹原文，不走 URL 兜底
+                            HkRouteBlocker.toastShortBottom(getContext(), result);
+                            return;
+                        }
                         dealWithUrl(view, result, position, codeAndHeader);
                     }
 

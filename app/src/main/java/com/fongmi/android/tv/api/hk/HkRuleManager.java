@@ -574,7 +574,7 @@ public class HkRuleManager {
     /** 按口令 path 从云端拉取 rule.json 文本（通道按官方 App 逆向结果路由）。 */
     private String fetchCloudJson(String path, String version) throws Exception {
         // 8.83 BailanImporter 用 DohProvidersKt.buildAutoClient(url)：走 App 的 DoH 客户端。
-        // 裸 OkHttpClient 在用户 DoH 环境下请求不可靠，改走 HkHttp.client()（DoH/CookieJar/拦截器）。
+        // 裸 OkHttpClient 与海阔配置不一致，改走 HkHttp.client()（CookieJar/拦截器；DNS 系统默认照原版）。
         OkHttpClient client = HkHttp.client();
         // 1) /apidb/{key} → textdb.online（官方云2分享通道，已验证可用）
         if (path.startsWith("/apidb/")) {

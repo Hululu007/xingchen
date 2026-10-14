@@ -90,13 +90,9 @@ public class Thunder implements Source.Extractor {
     private String addThunderTask(String url) throws Exception {
         File folder = Path.thunder(Util.md5(url));
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
-        // 就绪门（见 waitDataReady）：helper 的 status 是合成值不可信，真实进度看下载文件长度
-        waitDataReady(() -> {
-            XLTaskInfo info = new XLTaskInfo();
-            File f = taskId.getSaveFile();
-            info.mDownloadSize = f.exists() ? f.length() : 0;
-            return info;
-        });
+        // 就绪门（见 waitDataReady）：进度必须读原生任务信息的已下载字节——保存文件在建任务
+        // 瞬间就被预分配成全长，读文件长度等于没等数据就放行（真机实证磁力/ed2k 双 0% 黑屏）
+        waitDataReady(() -> XLTaskHelper.get().getNativeTaskInfo(taskId));
         String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
         SpiderDebug.log("thunder", "task ready local=%s", local);
         return local;
@@ -106,51 +102,48 @@ public class Thunder implements Source.Extractor {
         XLTaskInfo get();
     }
 
-    // 就绪门：XLTaskHelper.getTaskInfo 的 status=2 是"文件已存在"的合成值（SDK 建任务即预建
-    // 文件），此前两条路径都在 0 字节时就把本地地址交给播放器；SDK 本地服务对未下载到的区间
-    // 只挂起不吐数据，播放器 30 秒读超时必死（1.2.4 日志实证：任务 50ms 内报 ready、播放器
-    // 30975ms 零字节 SocketTimeout；下载本身 4.9MB/s 正常，只是喂不到播放器）。
-    // 1.2.5 第一版门槛定高了（2MB/90 秒且不留痕）：ed2k 冷启动时用户盯着加载页等了 84 秒、
-    // 日志里一条迅雷记录都没有。改为：≥512KB 立即放行；已有数据且在持续增长也放行（源活着，
-    // 播放器自己会缓冲）；有数据但 3 秒不涨（下完/小文件）放行；最长 60 秒，到时已有数据
-    // 就先交地址试播，一字节没有才抛超时。等待期间每 5 秒留一行进度，日志里看得见卡在哪。
+    // 就绪门：SDK 本地服务对未下载到的区间只挂起不吐数据，地址交早了播放器就是黑屏干等，
+    // 所以放行必须建立在真实已下载字节上（信号来源见 addTorrentTask/addThunderTask，两条
+    // 都读原生任务信息；保存文件长度是预分配全长，绝不能当进度）。
+    // 放行条件：下完（size≥total）；或 ≥512KB 且最近 2 秒还在涨（源是活的，播放器自己会
+    // 缓冲）；或 ≥4MB（缓冲已够起播）。旧版的"两次见涨就放行/3 秒不涨就放行"会被几 KB 的
+    // 握手流量骗开门，对端一掉光就是 0KB/s 黑屏，已删。
+    // 上限 25 秒：外层播放解析只给 30 秒（SiteViewModel.withTimeout），门必须在被掐之前
+    // 自己收尾——到时已有 ≥512KB 就交地址试播，不足则抛"连接超时"真错误上屏，不留假象。
     // 任务真失败（status==3）立即抛真错误，不把死地址交给播放器。
     private void waitDataReady(InfoSource source) throws Exception {
         long lastSize = -1;
-        int stable = 0;
-        for (int i = 0; i < 600; i++) {
+        long size = 0;
+        long total = 0;
+        long lastGrow = SystemClock.elapsedRealtime();
+        for (int i = 0; i < 250; i++) {
             XLTaskInfo info = source.get();
             if (info != null && info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
-            long size = info == null ? 0 : info.mDownloadSize;
-            if (size >= 512_000) {
-                SpiderDebug.log("thunder", "data ready size=%d", size);
+            size = info == null ? 0 : info.mDownloadSize;
+            total = info == null ? 0 : info.mFileSize;
+            long now = SystemClock.elapsedRealtime();
+            if (size > lastSize) lastGrow = now;
+            if (total > 0 && size >= total) {
+                SpiderDebug.log("thunder", "data complete size=%d", size);
                 return;
             }
-            if (size > 0) {
-                if (size > lastSize && lastSize > 0) {
-                    SpiderDebug.log("thunder", "data growing size=%d", size);
-                    return;
-                }
-                if (size == lastSize) {
-                    if (++stable >= 30) {
-                        SpiderDebug.log("thunder", "data stable size=%d", size);
-                        return;
-                    }
-                } else stable = 0;
+            if (size >= 512_000 && (size >= 4_000_000 || now - lastGrow <= 2000)) {
+                SpiderDebug.log("thunder", "data ready size=%d total=%d", size, total);
+                return;
             }
             lastSize = size;
-            if (i % 50 == 49) SpiderDebug.log("thunder", "waiting data size=%d", size);
+            if (i % 50 == 49) SpiderDebug.log("thunder", "waiting data size=%d total=%d status=%d", size, total, info == null ? -1 : info.mTaskStatus);
             SystemClock.sleep(100);
         }
-        if (lastSize > 0) {
-            SpiderDebug.log("thunder", "data slow size=%d, hand url anyway", lastSize);
+        if (size >= 512_000) {
+            SpiderDebug.log("thunder", "data slow size=%d total=%d, hand url anyway", size, total);
             return;
         }
         throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
     }
 
     @Override
-    public void stop() {
+    public synchronized void stop() {
         lastKey = null;
         lastLocal = null;
         if (taskId == null) return;

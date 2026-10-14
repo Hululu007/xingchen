@@ -121,6 +121,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.choose.setOnClickListener(this::onChoose);
         binding.subtitle.setOnClickListener(this::onSubtitle);
         binding.search.setOnClickListener(this::onSearch);
+        binding.aiRealtime.setOnClickListener(this::onAiRealtime);
         binding.aiTranslate.setOnClickListener(this::onAiTranslate);
     }
 
@@ -137,6 +138,9 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.subtitle.setVisibility(hasText() ? View.VISIBLE : View.GONE);
         binding.search.setVisibility(hasChoose() ? View.VISIBLE : View.GONE);
         binding.aiTranslate.setVisibility(hasText() && AiStore.hasAny(App.get()) ? View.VISIBLE : View.GONE);
+        // AI 实时字幕：只在字幕轨框显示（音轨/视频轨不显示；第二字幕模式不显示）
+        binding.aiRealtime.setVisibility(type == C.TRACK_TYPE_TEXT && !secondarySubtitle ? View.VISIBLE : View.GONE);
+        refreshAiRealtime();
         // 已翻译状态：高亮按钮提示可恢复
         binding.aiTranslate.setAlpha(AiSubtitleTranslator.isTranslatedActive() ? 1.0f : 0.7f);
     }
@@ -171,6 +175,52 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         if (activity == null) return;
         dismissAllowingStateLoss();
         SubtitleSearchDialog.create().player(player).restoreParent(true).show(activity);
+    }
+
+    // ---------------- AI 实时字幕 ----------------
+
+    private void onAiRealtime(View view) {
+        if (getActivity() == null) return;
+        // 只在支持的设备上开启
+        if (!com.fongmi.android.tv.ai.asr.AiAsrPluginManager.isSupported()) {
+            com.fongmi.android.tv.utils.Notify.show("当前设备不支持本地语音识别");
+            return;
+        }
+        com.fongmi.android.tv.ai.asr.AiAsrController.get().toggle(getActivity(),
+                new com.fongmi.android.tv.ai.asr.AiAsrController.ToggleCallback() {
+                    @Override
+                    public void onPreparing(String msg) {
+                        com.fongmi.android.tv.utils.Notify.show(msg);
+                    }
+
+                    @Override
+                    public void onEnabled() {
+                        com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已开启");
+                        refreshAiRealtime();
+                    }
+
+                    @Override
+                    public void onDisabled() {
+                        com.fongmi.android.tv.utils.Notify.show("AI 本地字幕已关闭");
+                        refreshAiRealtime();
+                    }
+
+                    @Override
+                    public void onError(String msg) {
+                        com.fongmi.android.tv.utils.Notify.show(msg);
+                    }
+                });
+    }
+
+    private void refreshAiRealtime() {
+        if (getActivity() == null || binding.aiRealtime == null) return;
+        try {
+            boolean enabled = com.fongmi.android.tv.ai.asr.AiAsrController.get()
+                    .isEnabled(getActivity());
+            binding.aiRealtime.setText(enabled ? "AI实时字幕·开" : "AI实时字幕");
+            binding.aiRealtime.setTextColor(enabled ? 0xFFE8A33D : 0xB3000000);
+        } catch (Exception ignored) {
+        }
     }
 
     // ---------------- AI 字幕翻译 ----------------

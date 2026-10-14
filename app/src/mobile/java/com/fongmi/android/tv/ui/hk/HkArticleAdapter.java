@@ -2131,6 +2131,48 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         notifyDataSetChanged();
     }
 
+    /**
+     * 照抄原版整套通知重写（ArticleListAdapter.smali:13012-13280）：
+     * 原版每个通知入口都先 updatePolyList() 重算分组再调父类——少了这一步，
+     * 分组表永远停在旧数据，flex_button/scroll_button 组条目绑定时查不到组、
+     * bindForFlexButtonHolder/bindForScrollButtonHolder 直接返回，整行空白不显示。
+     * notifyChanged：目标条目是 scroll_button/flex_button 时改走整表刷新。
+     */
+    public void notifyChanged(int position) {
+        updatePolyList();
+        String type = list.get(position).getType();
+        if (HkColType.SCROLL_BUTTON.code.equals(type) || HkColType.FLEX_BUTTON.code.equals(type)) {
+            notifyDataSetChanged();
+        } else {
+            super.notifyItemChanged(position);
+        }
+    }
+
+    public void notifyInserted(int position) {
+        updatePolyList();
+        super.notifyItemInserted(position);
+    }
+
+    public void notifyRangeChanged(int start, int count) {
+        updatePolyList();
+        super.notifyItemRangeChanged(start, count);
+    }
+
+    public void notifyRangeInserted(int start, int count) {
+        updatePolyList();
+        super.notifyItemRangeInserted(start, count);
+    }
+
+    public void notifyRangeRemoved(int start, int count) {
+        updatePolyList();
+        super.notifyItemRangeRemoved(start, count);
+    }
+
+    public void notifyRemoved(HkItem item, int position) {
+        updatePolyList();
+        super.notifyItemRemoved(position);
+    }
+
     /** 照抄原版 hasFlex(int, int)：区间内任一条目是 scroll_button/flex_button 即 true（逐条 try/catch）。 */
     public boolean hasFlex(int start, int count) {
         for (int i = start; i < start + count; i++) {

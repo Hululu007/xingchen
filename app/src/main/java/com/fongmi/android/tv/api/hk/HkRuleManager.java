@@ -422,6 +422,23 @@ public class HkRuleManager {
     public List<ParsedRule> parseJsonList(String json) throws Exception {
         if (json == null || json.trim().isEmpty()) throw new IllegalArgumentException("规则内容为空");
         String t = json.trim();
+        // 原版 RuleImporterManager 中央分发同款：粘贴文本先识别云口令与分享包装。
+        // 用户常把「云Noooole/… 小程序：xxx」整段粘进粘贴导入框；此前直接送 Gson 解析，
+        // 报 "Expected BEGIN_OBJECT but was STRING"。只对非 JSON 文本做分发，规则原文不受影响。
+        if (!t.startsWith("{") && !t.startsWith("[")) {
+            // 1) 云口令（云1~云10）：走云通道（各 Importer.canParse 同款识别，兼容前后缀/多行）
+            if (isCloudCode(t)) {
+                List<ParsedRule> single = new ArrayList<>();
+                single.add(parseByCloudCode(t));
+                return single;
+            }
+            // 2) 分享包装：￥home_rule￥/￥home_rule_v2￥ 明文口令、base64:// 壳
+            //    （原版 checkAutoText / importRuleByRuleText 同款）
+            String unwrapped = unwrapShareText(t);
+            if (unwrapped != null && !unwrapped.equals(t)) {
+                t = unwrapped.trim();
+            }
+        }
         if (!t.startsWith("[")) {
             List<ParsedRule> single = new ArrayList<>();
             HkRule rule = parseJson(t);

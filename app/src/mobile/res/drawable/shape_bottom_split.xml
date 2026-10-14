@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ripple_white" />
+    <item android:left="15.0dip" android:right="15.0dip">
+        <shape>
+            <solid android:color="#fff2f4f9" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/ripple_white" android:bottom="1.1999817dip" />
+</layer-list>

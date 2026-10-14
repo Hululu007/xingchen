@@ -4,7 +4,7 @@ import android.text.TextUtils;
 
 import java.net.URLDecoder;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照抄 8.83 StringUtil / HttpParser 的 URL 工具批：
@@ -12,6 +12,7 @@ import timber.log.Timber;
  * 怪癖照抄（getDom0 对 thunder/magnet/ftp/ed2k/file 前缀原样返回整串、异常回 null 等）。
  */
 public final class HkStringUtil {
+    private static final String TAG = "HkStringUtil";
 
     private HkStringUtil() {
     }
@@ -97,7 +98,7 @@ public final class HkStringUtil {
             s = s.replaceAll("\\+", "%2B");
             return URLDecoder.decode(s, charset);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return s;
         }
     }
@@ -227,7 +228,7 @@ public final class HkStringUtil {
             if (isNotEmpty(m)) return m;
             return p0;
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return p0;
         }
     }
@@ -298,7 +299,7 @@ public final class HkStringUtil {
             p0 = p0.replace("-", "_");
             return p0;
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return p0;
         }
     }
@@ -310,7 +311,7 @@ public final class HkStringUtil {
             try {
                 obj = com.google.gson.JsonParser.parseString(extra).getAsJsonObject();
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         }
         if (obj != null && obj.has("url")) {
@@ -318,7 +319,7 @@ public final class HkStringUtil {
                 String u = obj.get("url").getAsString();
                 if (u != null) return u;
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         }
         return url;
@@ -376,7 +377,7 @@ public final class HkStringUtil {
             }
             return seg.replace("fypage", "1");
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return p0;
         }
     }

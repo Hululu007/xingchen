@@ -226,6 +226,44 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         com.bumptech.glide.Glide.with(context).asDrawable()
                 .load(HkGlideUtil.getGlideUrl(pageUrl, item.getPic()))
                 .apply(options)
+                .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                    @Override
+                    public boolean onLoadFailed(@Nullable com.bumptech.glide.load.engine.GlideException e,
+                                                Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                boolean isFirstResource) {
+                        com.github.catvod.crawler.SpiderDebug.log("hkimage", "封面解码失败 host=%s 错=%s",
+                                hostOf(tag), e == null ? "" : String.valueOf(e.getMessage()));
+                        return false;
+                    }
+
+                    @Override
+                    public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
+                                                  com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                  com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                        int bytes = 0;
+                        if (resource instanceof android.graphics.drawable.BitmapDrawable) {
+                            android.graphics.Bitmap b = ((android.graphics.drawable.BitmapDrawable) resource).getBitmap();
+                            if (b != null) bytes = b.getByteCount();
+                        }
+                        com.github.catvod.crawler.SpiderDebug.log("hkimage", "封面解码成功 host=%s 字节=%d 来源=%s",
+                                hostOf(tag), bytes, dataSource);
+                        return false;
+                    }
+
+                    private String hostOf(String url) {
+                        try {
+                            String u = url == null ? "" : url;
+                            int p = u.indexOf("://");
+                            if (p >= 0) u = u.substring(p + 3);
+                            int q = u.indexOf('/');
+                            String h = q >= 0 ? u.substring(0, q) : u;
+                            int at = h.indexOf('@');
+                            return at >= 0 ? h.substring(0, at) : h;
+                        } catch (Throwable t) {
+                            return "";
+                        }
+                    }
+                })
                 .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.drawable.Drawable>() {
                     @Override
                     public void onResourceReady(@NonNull android.graphics.drawable.Drawable resource,

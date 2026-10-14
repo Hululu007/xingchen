@@ -27,11 +27,12 @@ import com.fongmi.android.tv.api.hk.HkParserKit;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkSearchEngine;
 import com.fongmi.android.tv.api.hk.SearchResult;
+import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 import com.fongmi.android.tv.utils.Task;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.scwang.smartrefresh.layout.SmartRefreshLayout;
+import com.scwang.smart.refresh.layout.SmartRefreshLayout;
 
 import org.greenrobot.eventbus.EventBus;
 

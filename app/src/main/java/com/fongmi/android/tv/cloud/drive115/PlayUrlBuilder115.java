@@ -119,8 +119,8 @@ public class PlayUrlBuilder115 {
             throw new Exception("取播放地址失败");
         }
 
-        // 包成代理地址（对照 PY _via_proxy）
-        String proxyUrl = viaProxy(url, pc);
+        // 包成代理地址（对照 PY _via_proxy）；isM3u8 登记进代理，供播放器初始格式判定
+        String proxyUrl = viaProxy(url, pc, isM3u8);
         if (TextUtils.isEmpty(proxyUrl)) {
             throw new Exception("代理启动失败");
         }
@@ -189,7 +189,7 @@ public class PlayUrlBuilder115 {
     /**
      * 包成代理地址（对照 PY _via_proxy）
      */
-    private String viaProxy(String url, String pc) {
+    private String viaProxy(String url, String pc, boolean isM3u8) {
         Proxy115 proxy = Proxy115.getInstance(client, cookieJar);
         int port = proxy.startProxy();
         if (port <= 0) return "";
@@ -205,6 +205,8 @@ public class PlayUrlBuilder115 {
         }
 
         String token = proxy.put(headers);
+        // 登记 m3u8 标记：播放器拿到代理地址时首轮即按清单解析（走 Result.format 既有链）
+        proxy.markM3u8(token, isM3u8);
         if (!TextUtils.isEmpty(pc)) {
             proxy.bindTarget(token, url, pc);
             // 设置 403 重铸回调

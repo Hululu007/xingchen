@@ -24,8 +24,14 @@ import dalvik.system.DexClassLoader;
  */
 public class AiAsrPluginManager {
 
-    /** 插件托管基础地址（TODO：替换为实际托管地址，需支持国内直连） */
-    public static final String PLUGIN_BASE_URL = "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-asr@main/";
+    /**
+     * 插件托管主地址：raw.githubusercontent.com（无 jsDelivr 的 20MB 单文件上限，
+     * 23MB 的 arm64 .so 在 jsDelivr 会回 403「File size exceeded the configured limit of 20 MB」）。
+     */
+    public static final String PLUGIN_BASE_URL = "https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/";
+
+    /** 备用地址（jsDelivr CDN；超 20MB 的文件在此不可用，仅作小文件兜底） */
+    public static final String PLUGIN_MIRROR_URL = "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-asr@main/";
 
     private static final String DEX_NAME = "sherpa-plugin.dex";
     private static final String SO_NAME = "libsherpa-onnx-jni.so";
@@ -134,7 +140,7 @@ public class AiAsrPluginManager {
         // 1. 下载 dex（小，先下）
         runOnMain(() -> callback.onProgress("下载识别引擎 (1/2)", 5));
         File dex = dexFile(context);
-        downloadFile(PLUGIN_BASE_URL + DEX_NAME, dex, SHA_DEX,
+        downloadFile(DEX_NAME, dex, SHA_DEX,
                 p -> runOnMain(() -> callback.onProgress("下载识别引擎 (1/2)", 5 + p * 25 / 100)));
 
         // 2. 下载 so（大）
@@ -144,12 +150,15 @@ public class AiAsrPluginManager {
         if (!soDir.exists()) soDir.mkdirs();
         File so = soFile(context);
         String sha = "arm64-v8a".equals(abi) ? SHA_SO_ARM64 : SHA_SO_ARMV7;
-        downloadFile(PLUGIN_BASE_URL + "libsherpa-onnx-jni-" + abi + ".so", so, sha,
+        downloadFile("libsherpa-onnx-jni-" + abi + ".so", so, sha,
                 p -> runOnMain(() -> callback.onProgress("下载本地库 (2/2)", 30 + p * 60 / 100)));
     }
 
-    /** 下载单个文件（带 SHA-256 校验） */
-    private static void downloadFile(String url, File dest, String expectedSha, ProgressListener listener) throws Exception {
+    /**
+     * 下载单个文件（带 SHA-256 校验；主源失败自动切备用源重试一次）。
+     * relPath 为相对文件名（如 sherpa-plugin.dex），主备地址分别拼接。
+     */
+    private static void downloadFile(String relPath, File dest, String expectedSha, ProgressListener listener) throws Exception {
         // 已存在且校验通过则跳过（断点续传简化：直接复用）
         if (dest.exists() && verifySha256(dest, expectedSha)) {
             listener.onProgress(100);
@@ -159,6 +168,32 @@ public class AiAsrPluginManager {
         File tmp = new File(dest.getParent(), dest.getName() + ".tmp");
         if (tmp.exists()) tmp.delete();
 
+        Exception primaryError = null;
+        try {
+            attemptDownload(PLUGIN_BASE_URL + relPath, tmp, listener);
+        } catch (Exception e) {
+            primaryError = e;
+        }
+        if (primaryError != null) {
+            // 主源失败，切备用源重试一次
+            if (tmp.exists()) tmp.delete();
+            try {
+                attemptDownload(PLUGIN_MIRROR_URL + relPath, tmp, listener);
+            } catch (Exception e) {
+                throw new Exception("下载失败（主源：" + shortMsg(primaryError) +
+                        "；备用源：" + shortMsg(e) + "）");
+            }
+        }
+
+        if (!verifySha256(tmp, expectedSha)) {
+            tmp.delete();
+            throw new Exception("文件校验失败，可能已损坏");
+        }
+        if (!tmp.renameTo(dest)) throw new Exception("文件保存失败");
+    }
+
+    /** 单次下载尝试（10 分钟超时），失败抛异常 */
+    private static void attemptDownload(String url, File tmp, ProgressListener listener) throws Exception {
         final Exception[] error = new Exception[1];
         final boolean[] done = new boolean[1];
         Download.create(url, tmp).start(new Download.Callback() {
@@ -194,11 +229,12 @@ public class AiAsrPluginManager {
         }
         if (error[0] != null) throw error[0];
         if (!done[0]) throw new Exception("下载超时");
-        if (!verifySha256(tmp, expectedSha)) {
-            tmp.delete();
-            throw new Exception("文件校验失败，可能已损坏");
-        }
-        if (!tmp.renameTo(dest)) throw new Exception("文件保存失败");
+    }
+
+    /** 异常信息摘要（避免超长堆栈污染提示文案） */
+    private static String shortMsg(Exception e) {
+        String m = e == null || e.getMessage() == null ? "未知错误" : e.getMessage();
+        return m.length() > 60 ? m.substring(0, 60) + "…" : m;
     }
 
     /** 加载插件：先 so，后 dex */

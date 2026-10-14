@@ -30,6 +30,10 @@ public final class AboutDialog {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(binding.getRoot());
         binding.confirm.setOnClickListener(v -> dialog.dismiss());
+        binding.checkUpdate.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (updateAction != null) updateAction.run();
+        });
         dialog.setCanceledOnTouchOutside(false);
         dialog.show();
         configureWindow(activity, dialog);

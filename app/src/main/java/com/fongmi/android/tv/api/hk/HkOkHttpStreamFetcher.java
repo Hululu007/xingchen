@@ -110,6 +110,8 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
             InputStream s = evalImageJs(js, null, Collections.emptyMap());
             if (s != null) {
                 stream = s;
+                SpiderDebug.log("hkimage", "图片就绪(失败自救) host=%s 流=%s", hostOf(),
+                        s.getClass().getSimpleName());
                 callback.onDataReady(s);
                 return;
             }
@@ -134,12 +136,16 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
                     InputStream input = responseBody.byteStream();
                     InputStream s = evalImageJs(js, input, response.headers().toMultimap());
                     stream = s;
+                    SpiderDebug.log("hkimage", "图片就绪 host=%s 流=%s", hostOf(),
+                            s == null ? "null" : s.getClass().getSimpleName());
                     callback.onDataReady(s);
                     return;
                 }
                 InputStream s = responseBody == null ? null
                         : ContentLengthInputStream.obtain(responseBody.byteStream(), responseBody.contentLength());
                 stream = s;
+                SpiderDebug.log("hkimage", "图片就绪(无解密) host=%s 流=%s", hostOf(),
+                        s == null ? "null" : s.getClass().getSimpleName());
                 callback.onDataReady(s);
                 return;
             }

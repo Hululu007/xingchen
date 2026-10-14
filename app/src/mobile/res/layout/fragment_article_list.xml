@@ -6,10 +6,10 @@
     </FrameLayout>
     <com.fongmi.android.tv.ui.hk.view.MyWebProgress android:id="@id/progress_bar" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="3.0dip" />
     <FrameLayout android:id="@id/bodyContainer" android:layout_width="fill_parent" android:layout_height="fill_parent" android:layout_marginTop="2.0dip" android:layout_below="@id/float_container">
-        <com.scwang.smartrefresh.layout.SmartRefreshLayout android:id="@id/refresh_layout" android:layout_width="fill_parent" android:layout_height="fill_parent" app:srlEnableOverScrollBounce="true" app:srlEnableOverScrollDrag="true">
-            <com.scwang.smartrefresh.layout.header.ClassicsHeader android:layout_width="fill_parent" android:layout_height="wrap_content" />
+        <com.scwang.smart.refresh.layout.SmartRefreshLayout android:id="@id/refresh_layout" android:layout_width="fill_parent" android:layout_height="fill_parent" app:srlEnableOverScrollBounce="true" app:srlEnableOverScrollDrag="true">
+            <com.scwang.smart.refresh.header.ClassicsHeader android:layout_width="fill_parent" android:layout_height="wrap_content" />
             <androidx.recyclerview.widget.RecyclerView android:id="@id/frag_article_list_recycler_view" android:layout_width="fill_parent" android:layout_height="fill_parent" />
-        </com.scwang.smartrefresh.layout.SmartRefreshLayout>
+        </com.scwang.smart.refresh.layout.SmartRefreshLayout>
         <com.fongmi.android.tv.ui.hk.view.RecyclerFastScroller android:layout_gravity="end" android:id="@id/frag_article_list_recycler_scroller" android:layout_width="wrap_content" android:layout_height="wrap_content" app:rfs_handleNormalColor="@color/transparent" app:rfs_handlePressedColor="@color/greenAction" />
     </FrameLayout>
     <ViewStub android:layout_gravity="bottom" android:id="@id/read_layout" android:layout="@layout/view_read_bottom" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_alignParentBottom="true" />

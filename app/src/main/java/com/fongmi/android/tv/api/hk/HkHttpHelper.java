@@ -782,9 +782,9 @@ public class HkHttpHelper {
      * 派生 client 与本体共享连接池 / dispatcher / CookieJar / 拦截器
      * （okhttp3 {@code newBuilder()} 语义；DNS 系统默认）。
      *
-     * <p>8.83 的 DoH 分支（{@code DohProvidersKt.buildAutoDNSClient / shouldUseAutoDNS}）
-     * 未移植：该 Kotlin 文件不在反编译树内；取数路径 DNS 改回系统默认（照原版，
-     * DoH 仅保留在图片 client 的 HK_DNS）。见 notes。</p>
+     * <p>8.83 的 DoH 分支（{@code DohProvidersKt.buildAutoDNSClient / shouldUseAutoDNS}）：
+     * 图片路径已按原版口径移植为 HkHttp.HK_IMAGE_DNS（默认系统解析，仅 haikuoshijie
+     * 类地址在开 DoH 时走 DoH）；取数路径 DNS 为系统默认（照原版）。见 notes。</p>
      */
     private static OkHttpClient resolveClient(OkHttpClient client, boolean redirect, int timeout) {
         if (client != null) {

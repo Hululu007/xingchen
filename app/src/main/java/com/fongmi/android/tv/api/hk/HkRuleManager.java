@@ -204,9 +204,16 @@ public class HkRuleManager {
      */
     public HkRule parseJson(String json) throws Exception {
         if (json == null || json.trim().isEmpty()) throw new IllegalArgumentException("规则内容为空");
+        String t = json.trim();
+        // 形态预检：非对象开头的直接给人话错误，不把 Gson 原文（Expected BEGIN_OBJECT but was STRING…）抛给用户
+        if (!t.startsWith("{")) {
+            if (t.startsWith("[")) throw new IllegalArgumentException("内容是规则数组，请用批量导入");
+            String head = t.length() > 30 ? t.substring(0, 30) + "…" : t;
+            throw new IllegalArgumentException("内容不是规则 JSON（开头为：" + head + "），可能是口令已失效或云端内容已更换");
+        }
         HkRule rule;
         try {
-            rule = new Gson().fromJson(json, HkRule.class);
+            rule = new Gson().fromJson(t, HkRule.class);
         } catch (Exception e) {
             throw new IllegalArgumentException("规则 JSON 解析失败：" + e.getMessage());
         }
@@ -839,10 +846,16 @@ public class HkRuleManager {
         return null;
     }
 
-    /** base64 解码（宽松版）：只要求是合法 base64，不校验解码后是否为规则原文；原版 fromSafeBase64 同款。 */
+    /** base64 解码（宽松版）：只要求是合法 base64，不校验解码后是否为规则原文；原版 fromSafeBase64 用 URL_SAFE|NO_WRAP。 */
     private String decodeBase64Loose(String b64) {
         if (b64 == null) return null;
         String s = b64.trim().replaceAll("\\s+", "");
+        // URL 安全字符集（-/_）先归一化为标准字符集（+/）：安卓 Base64.DEFAULT 是宽松解码，
+        // 遇到 -/_ 不抛异常而是静默跳过，会产出垃圾字符串且不再尝试 URL_SAFE（云2/apidb 的 seeduck 回包即此坑）。
+        // 归一化后标准/URL安全/混用三种都能吃，比原版更宽。
+        if (s.indexOf('-') >= 0 || s.indexOf('_') >= 0) {
+            s = s.replace('-', '+').replace('_', '/');
+        }
         // 补齐 padding
         int mod = s.length() % 4;
         if (mod == 1) return null;

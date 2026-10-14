@@ -168,6 +168,21 @@
             android:screenOrientation="fullUser" />
 
         <activity
+            android:name=".ui.hk.HkListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:screenOrientation="fullUser" />
+
+        <activity
+            android:name=".ui.hk.HkSearchActivity"
+            android:exported="false"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:screenOrientation="fullUser"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.activity.HkPageActivity"
             android:exported="true"
             android:theme="@style/Theme.XingChen.HkPage"

@@ -21,6 +21,7 @@ import androidx.viewbinding.ViewBinding;
 
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
@@ -209,7 +210,8 @@ public class CloudDriveActivity extends BaseActivity {
                 String url = drive.getPlayUrl(file);
                 runOnUiThread(() -> {
                     if (!TextUtils.isEmpty(url)) {
-                        VideoActivity.start(this, url);
+                        // 带上文件名做标题：此前只传 url，详情标题只能拿代理 URL 本身充数
+                        VideoActivity.start(this, SiteApi.PUSH, url, file.getName());
                     } else {
                         Notify.show("获取播放地址失败");
                     }

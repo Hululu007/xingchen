@@ -43,7 +43,7 @@ import okhttp3.ResponseBody;
  * getContentLength/getTagFromThread/buildParamStr/arrayToString）→ 私有静态方法原样移植</li>
  * </ul>
  *
- * <p>HTTP 客户端：{@link HkHttp#client()}（8.83 buildOkHttpClient 移植版，DoH / CookieJar / 拦截器）。
+ * <p>HTTP 客户端：{@link HkHttp#client()}（8.83 buildOkHttpClient 移植版，CookieJar / 拦截器；DNS 系统默认）。
  * 需要 per-request 禁止重定向或自定义超时时，用 {@code HkHttp.client().newBuilder()} 派生
  * （见 {@link #resolveClient(OkHttpClient, boolean, int)}）。</p>
  */
@@ -779,12 +779,12 @@ public class HkHttpHelper {
      * 同样派生，仅关重定向</li>
      * <li>其余 → {@code HkHttp.client()} 本体</li>
      * </ul>
-     * 派生 client 与本体共享连接池 / dispatcher / CookieJar / DoH / 拦截器
-     * （okhttp3 {@code newBuilder()} 语义）。
+     * 派生 client 与本体共享连接池 / dispatcher / CookieJar / 拦截器
+     * （okhttp3 {@code newBuilder()} 语义；DNS 系统默认）。
      *
      * <p>8.83 的 DoH 分支（{@code DohProvidersKt.buildAutoDNSClient / shouldUseAutoDNS}）
-     * 未移植：该 Kotlin 文件不在反编译树内，且 {@code HkHttp.client()} 已全局应用 DoH
-     *（HK_DNS）。见 notes。</p>
+     * 未移植：该 Kotlin 文件不在反编译树内；取数路径 DNS 改回系统默认（照原版，
+     * DoH 仅保留在图片 client 的 HK_DNS）。见 notes。</p>
      */
     private static OkHttpClient resolveClient(OkHttpClient client, boolean redirect, int timeout) {
         if (client != null) {

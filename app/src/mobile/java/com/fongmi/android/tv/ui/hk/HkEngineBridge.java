@@ -125,8 +125,9 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
     private static void parseHomeJs(String key, String colType, HkRule rule, String findRule,
                                     Map<String, Object> options, String html, String url,
                                     HkHomeParser.Callback callback) {
+        HkJsRuntime rt = null;
         try {
-            HkJsRuntime rt = HkEngineManager.runtimeFor(rule);
+            rt = HkEngineManager.runtimeFor(rule);
             HkEngineManager.ensureInit(rt);
             int page = 1;
             Object myPage = options == null ? null : options.get("MY_PAGE");
@@ -136,6 +137,12 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
             List<HkItem> list = rt.parseList(findRule, url, page);
             callback.bindArrayToView(key, list);
         } catch (Exception e) {
+            // 诊断：新链 findList 内层求值失败（旧 home failed 已不可达），只记日志不改行为；
+            // getError 带来源/代码行/详情口径，与旧链对齐
+            String detail = rt != null ? rt.getError() : null;
+            SpiderDebug.log("hk", "hk: home findList failed rule=%s err=%s",
+                    rule.getTitle(),
+                    detail != null && !detail.isEmpty() ? detail : String.valueOf(e));
             Log.e(TAG, "hk error", e);
             callback.error("解析失败", e.toString(), "404", e);
         }

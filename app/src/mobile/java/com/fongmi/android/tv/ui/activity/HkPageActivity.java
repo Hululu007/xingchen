@@ -63,6 +63,7 @@ import com.fongmi.android.tv.api.hk.HkDetailItem;
 import com.fongmi.android.tv.api.hk.HkErrorUtil;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
+import com.fongmi.android.tv.api.hk.HkLazyRuleParser;
 import com.fongmi.android.tv.api.hk.HkLoading;
 import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
@@ -99,6 +100,8 @@ import com.fongmi.android.tv.ui.fragment.HkContentFragment;
 import com.fongmi.android.tv.ui.fragment.HkDetailFragment;
 import com.fongmi.android.tv.ui.fragment.HkPageHost;
 import com.fongmi.android.tv.ui.fragment.HkSearchFragment;
+import com.fongmi.android.tv.ui.hk.HkDetailBridge;
+import java.util.Arrays;
 
 /**
  * 海阔小程序单页（M3）：V1 规则列表 / V2 分类+列表 / V3 搜索结果 / V4 详情，三视图栈式切换。
@@ -4823,7 +4826,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
      * <ul>
      *   <li>{@code toast://文本} → Toast 显示</li>
      *   <li>{@code copy://文本} → 复制到剪贴板</li>
-     *   <li>{@code input://...}/{@code select://...}/{@code confirm://...} → 对应对话框（基本处理）</li>
+     *   <li>{@code input://...} → 输入框（解析规则的 hint/js，提交后求值，见 handleListInput）</li>
+     *   <li>{@code select://...} → 单选框（解析规则的 options/js，选中后求值，见 handleListSelect）</li>
+     *   <li>{@code confirm://...} → 对应对话框（基本处理）</li>
      *   <li>{@code msg@confirmRule=js:...} → $().confirm 序列化：弹确认框，确认后求值 JS</li>
      *   <li>{@code @inputRule=.js:...} → $().input 序列化：弹输入框，输入后求值 JS（input 为输入值）</li>
      *   <li>{@code @x5Rule=js:...} → $().x5Rule 序列化：求值取 URL，用 WebView 打开</li>
@@ -4866,13 +4871,16 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         .show();
                 return true;
             }
-            if (url.startsWith("input://") || url.startsWith("select://")) {
-                boolean isInput = url.startsWith("input://");
-                showSimpleInputDialog(isInput ? "输入" : "选择", "", input -> {
-                    android.widget.Toast.makeText(this,
-                            input.isEmpty() ? "已取消" : "输入：" + input,
-                            android.widget.Toast.LENGTH_SHORT).show();
-                });
+            if (url.startsWith("input://")) {
+                // 原版 DetailUIHelper.dealInput 同语义：解析 JSON/传统两种形态，弹框用规则的 hint，
+                // 提交后求值规则 js（input=输入值），走既有动作分发（toast://、refresh 等）
+                handleListInput(url);
+                return true;
+            }
+            if (url.startsWith("select://")) {
+                // 原版 DetailUIHelper.dealSelect 同语义（简化为单选对话框）：解析选项，
+                // 选中后求值规则 js（input=选中项标题，MY_INDEX=序号），走既有动作分发
+                handleListSelect(url);
                 return true;
             }
             int ci = url.indexOf("@confirmRule=");
@@ -5010,10 +5018,81 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         return low.startsWith("js:");
     }
 
+    /**
+     * 列表页 input://（原版 DetailUIHelper.dealInput 同语义）。
+     * 两种形态：JSON {"value","hint","js"}；传统 value////hint.js:js。
+     * 弹框用规则的 hint 与预填值，提交后走 evalActionJs(js, 输入值)，动作分发与其它分支一致。
+     */
+    private void handleListInput(String url) {
+        String body = url.substring("input://".length());
+        HkDetailBridge.InputExtra extra;
+        if (body.startsWith("{") && body.endsWith("}")
+                && (body.contains("\"js\"") || body.contains("'js'"))) {
+            extra = HkDetailBridge.InputExtra.parseJson(body);
+        } else {
+            String[] parts = body.split("\\.js:");
+            extra = new HkDetailBridge.InputExtra();
+            extra.js = com.fongmi.android.tv.api.hk.HkParserKit.arrayToString(parts, 1, ".js:");
+            String[] head = parts[0].split("////");
+            extra.hint = head.length > 1 ? head[head.length - 1] : null;
+            extra.value = com.fongmi.android.tv.api.hk.HkParserKit.arrayToString(head, 0, head.length - 1, "////");
+        }
+        final String js = extra.js == null ? "" : extra.js;
+        showSimpleInputDialog("请输入", extra.hint, extra.value, input -> evalActionJs(js, input));
+    }
+
+    /**
+     * 列表页 select://（原版 DetailUIHelper.dealSelect 同语义，简化为单选对话框；
+     * 原版的 attachView/bottom/宫格等展示形态在列表页不展开）。
+     * 两种形态：JSON {"options","options2","title","selectedIndex","js"}；传统 opt1&&opt2.js:js。
+     * 选中后走 evalActionJs(MY_INDEX 注入 + js, 选中项标题)，动作分发与其它分支一致。
+     */
+    private void handleListSelect(String url) {
+        String body = url.substring("select://".length());
+        HkDetailBridge.SelectExtra extra;
+        try {
+            if (body.startsWith("{") && body.endsWith("}") && body.contains("options")) {
+                extra = HkDetailBridge.SelectExtra.parse(body);
+            } else {
+                String[] parts = body.split("\\.js:");
+                extra = new HkDetailBridge.SelectExtra();
+                extra.js = com.fongmi.android.tv.api.hk.HkParserKit.arrayToString(parts, 1, ".js:");
+                extra.options = new ArrayList<>(Arrays.asList(parts[0].split("&&")));
+            }
+        } catch (Throwable e) {
+            android.util.Log.d("HkPage", "handleListSelect parse failed: " + e.getMessage());
+            return;
+        }
+        final java.util.List<String> titles = new ArrayList<>();
+        if (extra.options2 != null && !extra.options2.isEmpty()) {
+            for (HkDetailBridge.SelectOption o : extra.options2) titles.add(o.title);
+        } else if (extra.options != null && !extra.options.isEmpty()) {
+            titles.addAll(extra.options);
+        }
+        if (titles.isEmpty()) return;
+        final String js = extra.js == null ? "" : extra.js;
+        String dlgTitle = extra.title != null && !extra.title.isEmpty() ? extra.title : "请选择";
+        new AlertDialog.Builder(this)
+                .setTitle(dlgTitle)
+                .setSingleChoiceItems(titles.toArray(new String[0]), extra.selectedIndex,
+                        (d, which) -> {
+                            d.dismiss();
+                            String code = HkLazyRuleParser.generateMY("MY_INDEX", which) + js;
+                            evalActionJs(code, titles.get(which));
+                        })
+                .setNegativeButton("取消", (d, w) -> d.dismiss())
+                .show();
+    }
+
     /** 简单输入对话框（input:// 与 @inputRule= 共用）。 */
     private void showSimpleInputDialog(String title, String def, java.util.function.Consumer<String> cb) {
+        showSimpleInputDialog(title, null, def, cb);
+    }
+
+    /** 简单输入对话框（带规则 hint）。 */
+    private void showSimpleInputDialog(String title, String hint, String def, java.util.function.Consumer<String> cb) {
         final EditText et = new EditText(this);
-        et.setHint("请输入");
+        et.setHint(TextUtils.isEmpty(hint) ? "请输入" : hint);
         if (!TextUtils.isEmpty(def)) et.setText(def);
         et.setTextColor(0xFF1A1D24);
         int pad = dp(16);

@@ -27,6 +27,18 @@ public class HkWebViewHolder {
     private java.util.Map<String, String> videoHeaders;
     private java.util.function.Consumer<String> lazyRuleConsumer;
     private HkWebkitHolder webkitHolder;
+    private HkWebkitHolder.UrlInterceptorEvaluator urlInterceptorEvaluator;
+    private HkWebkitHolder.BridgeOpenHandler bridgeOpenHandler;
+
+    public void setUrlInterceptorEvaluator(HkWebkitHolder.UrlInterceptorEvaluator e) {
+        this.urlInterceptorEvaluator = e;
+        if (webkitHolder != null) webkitHolder.setUrlInterceptorEvaluator(e);
+    }
+
+    public void setBridgeOpenHandler(HkWebkitHolder.BridgeOpenHandler h) {
+        this.bridgeOpenHandler = h;
+        if (webkitHolder != null) webkitHolder.setBridgeOpenHandler(h);
+    }
 
     public Mode getMode() {
         return mode;
@@ -120,6 +132,8 @@ public class HkWebViewHolder {
         webkitHolder = new HkWebkitHolder(wv);
         webkitHolder.setX5Extra(x5Extra);
         webkitHolder.setLazyRuleConsumer(lazyRuleConsumer);
+        if (urlInterceptorEvaluator != null) webkitHolder.setUrlInterceptorEvaluator(urlInterceptorEvaluator);
+        if (bridgeOpenHandler != null) webkitHolder.setBridgeOpenHandler(bridgeOpenHandler);
         webkitHolder.setUrl(url);
         webkitHolder.initWebView(activity);
         if (isVideoItem() && videoUrl != null && !videoUrl.isEmpty()) {

@@ -188,6 +188,15 @@ public class HkHttp {
                             .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
                             .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
                             .dns(HK_DNS)
+                            // 8.83 原版：Application.onCreate 里 OkGo.getInstance().addCommonHeaders
+                            // 加了公共头 charset=UTF-8，每个规则请求都带；此前移植漏了，补上
+                            .addInterceptor(chain -> {
+                                Request req = chain.request();
+                                if (req.header("charset") == null) {
+                                    req = req.newBuilder().header("charset", "UTF-8").build();
+                                }
+                                return chain.proceed(req);
+                            })
                             .addInterceptor(HkContentTypePreInterceptor.INSTANCE)
                             .addNetworkInterceptor(HkContentTypeAfterInterceptor.INSTANCE)
                             .connectTimeout(15, TimeUnit.SECONDS)
@@ -199,7 +208,25 @@ public class HkHttp {
                             // callTimeout 把整条调用（含解析）封顶，超时后正常抛错走失败路径。
                             .callTimeout(45, TimeUnit.SECONDS)
                             .followRedirects(true)
-                            .followSslRedirects(true);
+                            .followSslRedirects(true)
+                            // 诊断用：只记解析结果（域名→IP 列表），不改变任何行为。
+                            // 漫小肆取数被重置的排查需要知道每次实际连的是哪个 IP
+                            .eventListener(new okhttp3.EventListener() {
+                                @Override
+                                public void dnsEnd(okhttp3.Call call, String domainName, List<InetAddress> inetAddressList) {
+                                    try {
+                                        StringBuilder sb = new StringBuilder();
+                                        if (inetAddressList != null) {
+                                            for (InetAddress a : inetAddressList) {
+                                                if (sb.length() > 0) sb.append(',');
+                                                sb.append(a.getHostAddress());
+                                            }
+                                        }
+                                        com.github.catvod.crawler.SpiderDebug.log("hk", "dns %s -> %s", domainName, sb);
+                                    } catch (Throwable ignored) {
+                                    }
+                                }
+                            });
                             // retryOnConnectionFailure 不显式关闭：8.83 HttpHelper 原文未设置
                             // （OkHttp 默认 true，多地址时可换路由重试），此前被仿写版写成 false
                     // Brotli（8.83 标配）：反射加载，缺失则跳过

@@ -28,10 +28,12 @@ import java.security.spec.RSAPublicKeySpec;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -57,6 +59,9 @@ public class Pan115 implements Source.Extractor {
     private static final List<String> VIDEO_EXT = Arrays.asList(
             "mp4", "mkv", "avi", "rmvb", "rm", "mov", "wmv", "flv", "webm",
             "m3u8", "ts", "m2ts", "mpg", "mpeg", "3gp", "f4v", "asf", "vob");
+    private static final Pattern SHARE_CODE_TEXT =
+            Pattern.compile("(?:提取码|访问码|密码)\\s*(?:[:：]\\s*)?([A-Za-z0-9]{4})(?![A-Za-z0-9])");
+    private static final int MAX_SHARE_DEPTH = 8;
 
     public static boolean isShareUrl(String url) {
         return url != null && SHARE_URL.matcher(url).find();
@@ -129,8 +134,14 @@ public class Pan115 implements Source.Extractor {
                 String frag = url.substring(hash + 1);
                 int amp = frag.indexOf('&');
                 if (amp >= 0) frag = frag.substring(0, amp);
+                int sp = indexOfSpace(frag);
+                if (sp >= 0) frag = frag.substring(0, sp);
                 if (frag.matches("[A-Za-z0-9]{4}")) info.receiveCode = frag;
             }
+        }
+        if (info.receiveCode.isEmpty()) {
+            Matcher pm = SHARE_CODE_TEXT.matcher(url);
+            if (pm.find()) info.receiveCode = pm.group(1);
         }
         return info;
     }
@@ -144,7 +155,9 @@ public class Pan115 implements Source.Extractor {
             for (String part : query.split("&")) {
                 int eq = part.indexOf('=');
                 if (eq > 0 && part.substring(0, eq).equals(key)) {
-                    return Uri.decode(part.substring(eq + 1));
+                    String v = Uri.decode(part.substring(eq + 1));
+                    int sp = indexOfSpace(v);
+                    return sp >= 0 ? v.substring(0, sp) : v;
                 }
             }
         } catch (Throwable ignored) {
@@ -152,14 +165,29 @@ public class Pan115 implements Source.Extractor {
         return "";
     }
 
+    private static int indexOfSpace(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') return i;
+        }
+        return -1;
+    }
+
     static List<ShareFile> listFiles(String shareCode, String receiveCode) throws Exception {
         List<ShareFile> files = new ArrayList<>();
+        listDir(shareCode, receiveCode, "", files, new HashSet<String>(), 0);
+        SpiderDebug.log("pan115", "share %s files=%s", shareCode, files.size());
+        return files;
+    }
+
+    private static void listDir(String shareCode, String receiveCode, String cid, List<ShareFile> files, Set<String> visited, int depth) throws Exception {
+        if (depth > MAX_SHARE_DEPTH || !visited.add(cid)) return;
         int offset = 0;
         int limit = 100;
         while (files.size() < 500) {
             String api = API_SNAP + "?share_code=" + Uri.encode(shareCode)
                     + "&receive_code=" + Uri.encode(receiveCode)
-                    + "&offset=" + offset + "&limit=" + limit + "&cid=";
+                    + "&offset=" + offset + "&limit=" + limit + "&cid=" + Uri.encode(cid);
             Map<String, String> headers = new HashMap<>();
             headers.put("User-Agent", UA_WEB);
             headers.put("Referer", "https://115cdn.com/s/" + shareCode + "?password=" + receiveCode + "&");
@@ -172,7 +200,8 @@ public class Pan115 implements Source.Extractor {
             JSONObject obj = new JSONObject(body);
             if (!obj.optBoolean("state", false)) {
                 String error = obj.optString("error", "");
-                if (isPasswordError(error)) {
+                int errno = obj.optInt("errno", obj.optInt("code", 0));
+                if (isPasswordError(error, errno)) {
                     throw new ExtractException(receiveCode.isEmpty()
                             ? "该 115 分享需要提取码（请在链接后添加 ?password=提取码）"
                             : "115 提取码错误或已失效");
@@ -184,19 +213,27 @@ public class Pan115 implements Source.Extractor {
             JSONArray list = data.optJSONArray("list");
             if (list == null || list.length() == 0) break;
             for (int i = 0; i < list.length(); i++) {
-                ShareFile f = ShareFile.from(list.optJSONObject(i));
+                JSONObject o = list.optJSONObject(i);
+                if (o == null) continue;
+                if (ShareFile.isDir(o)) {
+                    if (depth < MAX_SHARE_DEPTH) {
+                        listDir(shareCode, receiveCode, ShareFile.dirFid(o), files, visited, depth + 1);
+                    }
+                    continue;
+                }
+                ShareFile f = ShareFile.from(o);
                 if (f != null && f.isVideo()) files.add(f);
             }
             if (list.length() < limit) break;
             offset += limit;
         }
-        SpiderDebug.log("pan115", "share %s files=%s", shareCode, files.size());
-        return files;
     }
 
-    private static boolean isPasswordError(String error) {
+    private static boolean isPasswordError(String error, int errno) {
+        if (errno == 4100012 || errno == 4100008) return true;
         String lower = error.toLowerCase(Locale.US);
-        return error.contains("密码") || error.contains("提取码") || lower.contains("receive_code") || lower.contains("password");
+        return error.contains("密码") || error.contains("提取码") || error.contains("访问码")
+                || lower.contains("receive_code") || lower.contains("password");
     }
 
     static String downloadUrl(String pickcode) throws Exception {
@@ -275,6 +312,14 @@ public class Pan115 implements Source.Extractor {
             f.size = o.optLong("file_size", o.optLong("fs", o.optLong("s", 0)));
             if (o.optInt("is_dir", o.optInt("isdir", 0)) == 1) return null;
             return f.name.isEmpty() ? null : f;
+        }
+
+        static boolean isDir(JSONObject o) {
+            return o != null && o.optInt("is_dir", o.optInt("isdir", 0)) == 1;
+        }
+
+        static String dirFid(JSONObject o) {
+            return o == null ? "" : first(o, "fid", "file_id", "id");
         }
 
         private static String first(JSONObject o, String... keys) {

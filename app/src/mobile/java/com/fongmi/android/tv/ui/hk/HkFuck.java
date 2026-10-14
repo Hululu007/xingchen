@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 com.example.hikerview.ui.rules.service.FuckKt 转写（Kotlin 顶层函数 → 静态类）。
@@ -28,6 +28,7 @@ import timber.log.Timber;
  * 宿主可经 goWebHook 换成内置 WebView 页。
  */
 public class HkFuck {
+    private static final String TAG = "HkFuck";
 
     private static final List<String> list = new ArrayList<>();
     public static final List<String> blockDoms = new ArrayList<>();
@@ -44,7 +45,7 @@ public class HkFuck {
             context.startActivity(intent);
             return true;
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return false;
         }
     };
@@ -83,7 +84,7 @@ public class HkFuck {
                     loadFromText(text);
                 }
             } catch (Exception e) {
-                Timber.e(e);
+                Log.e(TAG, "hk error", e);
             }
         }, "hk-fuck-load").start();
     }
@@ -110,7 +111,7 @@ public class HkFuck {
             File file = fuckListFile(context);
             if (file != null && file.exists()) file.delete();
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
         list.clear();
     }

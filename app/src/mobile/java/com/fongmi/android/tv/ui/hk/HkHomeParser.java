@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照抄 8.83 HomeParser.findList：
@@ -31,6 +31,7 @@ import timber.log.Timber;
  * 整体异常 → error("解析失败", e.toString(), "404", e) 并记引擎日志。
  */
 public final class HkHomeParser {
+    private static final String TAG = "HkHomeParser";
 
     /** 对应 BaseCallback&lt;ArticleList&gt; 的两法（桥适配到 Model 的 Callback）。 */
     public interface Callback {
@@ -145,13 +146,13 @@ public final class HkHomeParser {
                     }
                     if (canAdd(item.getTitle())) out.add(item);
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
                 index++;
             }
             callback.bindArrayToView(key, out);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             callback.error("解析失败", e.toString(), "404", e);
             if (errorLogger != null) errorLogger.accept(e.getMessage(), rule);
         }

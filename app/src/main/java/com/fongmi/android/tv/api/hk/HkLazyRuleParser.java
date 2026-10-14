@@ -50,6 +50,11 @@ public class HkLazyRuleParser {
         Object evalJSForObj(String script, Object input);
 
         String getMyRule(Object rule);
+
+        /** 取走 refreshPage 标记（读后清零）；默认无标记，运行时实现覆盖。 */
+        default boolean consumeRefreshRequest() {
+            return false;
+        }
     }
 
     private static volatile JsRuntime jsRuntime;
@@ -137,11 +142,14 @@ public class HkLazyRuleParser {
                 if (rt == null) {
                     throw new IllegalStateException("JsRuntime not set");
                 }
+                rt.consumeRefreshRequest();
                 final String result = rt.evalLazyRule(ruleObj,
                         generateMY("MY_URL", escapeJavaScriptString(myUrl))
                                 + generateMY("MY_POSITION", position)
                                 + HkParserKit.replaceOnce(lazyRule[1], lazyTag, ""),
                         lazyRule[0]);
+                // 本链里 refreshPage 的刷新已由事件兑现，清掉标记防残留被别处误读
+                rt.consumeRefreshRequest();
                 if (isFinishing(activity)) {
                     return;
                 }
@@ -169,12 +177,14 @@ public class HkLazyRuleParser {
                 if (rt == null) {
                     throw new IllegalStateException("JsRuntime not set");
                 }
+                rt.consumeRefreshRequest();
                 final Object result = rt.evalJSForObj(
                         rt.getMyRule(ruleObj) + HkParserKit.decodeConflictStr(
                                 generateMY("MY_URL", escapeJavaScriptString(myUrl))
                                         + generateMY("MY_POSITION", position)
                                         + HkParserKit.replaceOnce(lazyRule[1], lazyTag, "")),
                         lazyRule[0]);
+                rt.consumeRefreshRequest();
                 if (isFinishing(activity)) {
                     return;
                 }

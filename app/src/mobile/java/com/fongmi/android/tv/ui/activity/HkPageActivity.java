@@ -484,9 +484,19 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         }
     }
 
-    /** 旧方法存根：已迁移到 Fragment，保留以兼容旧调用 */
+    /**
+     * 真重刷：新链列表数据在 HkContentFragment.loadContent 里重取（重跑 find_rule）。
+     * 之前这里只调 showContentFragment（fragment 已在屏时是空操作），导致口令正确、
+     * 记号已存、refreshPage 标记也到了，但列表不重跑、门还不过——用户看到"进不去"。
+     */
     private void loadContent(boolean refresh) {
-        showContentFragment();
+        com.github.catvod.crawler.SpiderDebug.log("hk", "activity loadContent delegate reset=%s hasFrag=%s",
+                refresh, contentFragment != null);
+        if (contentFragment != null && contentFragment.isAdded()) {
+            contentFragment.loadContent(refresh);
+        } else {
+            showContentFragment();
+        }
     }
 
     /**
@@ -4293,6 +4303,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     private void onContentItemClick(HkItem it) {
         if (it == null || currentRule == null) return;
         String url = it.getUrl() == null ? "" : it.getUrl().trim();
+        // 诊断：点击落点（只记协议头，不记正文）
+        String scheme = url;
+        int pi = url.indexOf("://");
+        if (pi > 0) scheme = url.substring(0, pi + 3);
+        else if (scheme.length() > 24) scheme = scheme.substring(0, 24);
+        com.github.catvod.crawler.SpiderDebug.log("hk", "itemClick title=%s scheme=%s len=%d",
+                it.getTitle(), scheme, url.length());
         // 8.83 ArticleListFragment.clickItem(src 2917)：空链接 toast"链接为空，规则有误！"，不静默吞掉
         if (url.isEmpty()) {
             android.widget.Toast.makeText(this, "链接为空，规则有误！", android.widget.Toast.LENGTH_SHORT).show();
@@ -4961,6 +4978,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             final String em = errMsg;
             final boolean refresh = needRefresh;
             final boolean scrollTop = toTop;
+            String rHead = r.length() > 40 ? r.substring(0, 40) : r;
+            com.github.catvod.crawler.SpiderDebug.log("hk", "evalActionJs done resultHead=%s refresh=%s err=%s",
+                    rHead, refresh, em == null ? "" : em);
             App.post(() -> {
                 // 8.83 refreshPage(true) 回顶辅助
                 final Runnable doScrollTop = () -> {
@@ -5038,7 +5058,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             extra.value = com.fongmi.android.tv.api.hk.HkParserKit.arrayToString(head, 0, head.length - 1, "////");
         }
         final String js = extra.js == null ? "" : extra.js;
-        showSimpleInputDialog("请输入", extra.hint, extra.value, input -> evalActionJs(js, input));
+        boolean isJson = body.startsWith("{");
+        com.github.catvod.crawler.SpiderDebug.log("hk", "listInput dialog hint=%s jsLen=%d json=%s",
+                extra.hint, js.length(), isJson);
+        showSimpleInputDialog("请输入", extra.hint, extra.value, input -> {
+            com.github.catvod.crawler.SpiderDebug.log("hk", "listInput submit inputLen=%d", input == null ? -1 : input.length());
+            evalActionJs(js, input);
+        });
     }
 
     /**

@@ -187,6 +187,8 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         HkListActivity.ensureStatics();
         wireRouteHooks();
         setContentView(R.layout.activity_hk_search);
+        // 海阔浅色页状态栏：不透出星辰壁纸（ThemeManager 的 resume 重刷同义处理）
+        getWindow().setStatusBarColor(0xFFFFFFFF);
 
         Intent intent = getIntent();
         oneRule = intent != null && intent.getBooleanExtra("oneRule", false);

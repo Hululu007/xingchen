@@ -116,6 +116,7 @@ public class HkWebViewHolder {
     public void ensureWebView(Activity activity) {
         if (webkitHolder != null || activity == null) return;
         WebView wv = new WebView(activity);
+        wv.setBackgroundColor(0xFFFFFFFF);
         webkitHolder = new HkWebkitHolder(wv);
         webkitHolder.setX5Extra(x5Extra);
         webkitHolder.setLazyRuleConsumer(lazyRuleConsumer);

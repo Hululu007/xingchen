@@ -1442,20 +1442,53 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     /**
-     * 直接播放的选集 UI：intent 的 episodesJson（[{name,url,pic}]）转为单线路 Vod，
+     * 直接播放的选集 UI：intent 的 episodesJson 转为 Vod。
+     * 两种载荷：扁平 [{name,url,pic}] → 单线路；{flags:[{name,episodes:[...]}]} → 多线路
+     * （海阔播放数据按 names 展开的线路，集名各线路一致、切线路保持集序）。
      * 当前集按 idx 选中。海阔走 playerContent → HkRouter.play 解析；txt 走 playerContent(PUSH)。
      */
     private void setupDirectEpisodes(String jsonKey, String idxKey) {
         try {
             String json = getIntent().getStringExtra(jsonKey);
             if (TextUtils.isEmpty(json)) return;
-            org.json.JSONArray arr = new org.json.JSONArray(json);
-            if (arr.length() == 0) return;
             int selIdx = getIntent().getIntExtra(idxKey, 0);
             Vod vod = new Vod();
             vod.setName(getName());
             vod.setPic(getPic());
             java.util.List<Flag> flags = new java.util.ArrayList<>();
+            if (json.trim().startsWith("{")) {
+                org.json.JSONObject root = new org.json.JSONObject(json);
+                org.json.JSONArray flagArr = root.optJSONArray("flags");
+                if (flagArr == null || flagArr.length() == 0) return;
+                for (int fi = 0; fi < flagArr.length(); fi++) {
+                    org.json.JSONObject fo = flagArr.optJSONObject(fi);
+                    if (fo == null) continue;
+                    String fname = fo.optString("name", "");
+                    if (TextUtils.isEmpty(fname)) fname = "线路" + (fi + 1);
+                    Flag flag = Flag.create(fname);
+                    org.json.JSONArray eps = fo.optJSONArray("episodes");
+                    if (eps != null) {
+                        for (int i = 0; i < eps.length(); i++) {
+                            org.json.JSONObject o = eps.optJSONObject(i);
+                            if (o == null) continue;
+                            String url = o.optString("url", "");
+                            if (TextUtils.isEmpty(url)) continue;
+                            String nm = o.optString("name", "");
+                            if (TextUtils.isEmpty(nm)) nm = "第" + (flag.getEpisodes().size() + 1) + "集";
+                            Episode ep = Episode.create(nm, url);
+                            if (fi == 0 && i == selIdx) ep.setSelected(true);
+                            flag.getEpisodes().add(ep);
+                        }
+                    }
+                    if (!flag.getEpisodes().isEmpty()) flags.add(flag);
+                }
+                if (flags.isEmpty()) return;
+                vod.setFlags(flags);
+                setDetail(vod);
+                return;
+            }
+            org.json.JSONArray arr = new org.json.JSONArray(json);
+            if (arr.length() == 0) return;
             Flag flag = Flag.create("默认");
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject o = arr.optJSONObject(i);
@@ -1733,10 +1766,23 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         try {
             Episode next = getAdjacentEpisode(1);
             if (next == null || next.isSelected() || TextUtils.isEmpty(next.getUrl())) return;
+            Episode current = getEpisode();
+            // 单集时 getAdjacentEpisode 会钳位回当前集自己，预加载自己毫无意义（还白跑一遍解析）
+            if (current != null && next.getUrl().equals(current.getUrl())) return;
+            // 磁力/ed2k/迅雷类走迅雷提取器：同一时刻只养一个任务，后台预加载解析会经
+            // playerContent 的 Source.stop() 把正在播的任务删掉并释放整个引擎，播放器手里
+            // 的本地地址瞬间死亡（真机实证：推送磁力开播约 80KB/s 后流量归零直至失败）
+            if (isThunderUrl(next.getUrl()) || (current != null && isThunderUrl(current.getUrl()))) return;
             String playFlag = getEpisodePlayFlag(getFlag(), next);
             mNextPreloader.preload(getKey(), playFlag, next);
         } catch (Throwable ignored) {
         }
+    }
+
+    private boolean isThunderUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(Locale.ROOT);
+        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:");
     }
 
     private boolean consumePendingPlaybackResult() {

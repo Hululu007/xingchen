@@ -10,6 +10,7 @@ import com.bumptech.glide.load.HttpException;
 import com.bumptech.glide.load.data.DataFetcher;
 import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.util.ContentLengthInputStream;
+import com.github.catvod.crawler.SpiderDebug;
 import com.orhanobut.logger.Logger;
 
 import java.io.IOException;
@@ -61,6 +62,7 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
         Request request = builder.build();
         this.callback = callback;
         call = client.newCall(request);
+        SpiderDebug.log("hkimage", "图片请求发出 host=%s 带解密头=%s", hostOf(), jsBody() != null);
         call.enqueue(this);
     }
 
@@ -70,13 +72,29 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
         return TextUtils.isEmpty(js) ? null : js;
     }
 
+    /** 只记元信息（主机名等），不记内容：用于可导出日志断链。 */
+    private String hostOf() {
+        try {
+            okhttp3.HttpUrl u = okhttp3.HttpUrl.parse(url.toStringUrl());
+            return u != null ? u.host() : "";
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     /** 调规则当前 HkJsRuntime 求值；拿不到 runtime 时退化为原 input（8.83 无此分支，宿主多规则所需）。 */
     private InputStream evalImageJs(String jsBody, InputStream input, Map<String, List<String>> headers) {
         try {
             HkJsRuntime rt = HkImage.currentRuntime();
-            if (rt == null) return input;
+            if (rt == null) {
+                SpiderDebug.log("hkimage", "图片求值无可用脚本环境 host=%s（退化为原流）", hostOf());
+                return input;
+            }
             return rt.evalImageJs(jsBody, input, headers, url.toString());
         } catch (Throwable t) {
+            String cls = t.getClass().getSimpleName();
+            String msg = t.getMessage();
+            SpiderDebug.log("hkimage", "图片求值异常 host=%s 类型=%s 信息=%s", hostOf(), cls, msg == null ? "" : msg);
             Logger.t(TAG).d("evalImageJs failed: %s", t.getMessage());
             return input;
         }
@@ -84,6 +102,9 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
 
     @Override
     public void onFailure(@NonNull Call call, @NonNull IOException e) {
+        String cls = e.getClass().getSimpleName();
+        String msg = e.getMessage();
+        SpiderDebug.log("hkimage", "图片请求失败 host=%s 类型=%s 信息=%s", hostOf(), cls, msg == null ? "" : msg);
         String js = jsBody();
         if (js != null) {
             InputStream s = evalImageJs(js, null, Collections.emptyMap());
@@ -99,6 +120,13 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
     @Override
     public void onResponse(@NonNull Call call, @NonNull Response response) {
         responseBody = response.body();
+        long len = -1;
+        try {
+            if (responseBody != null) len = responseBody.contentLength();
+        } catch (Throwable ignored) {
+        }
+        SpiderDebug.log("hkimage", "图片响应 host=%s 状态=%d 声明字节=%d 带解密头=%s",
+                hostOf(), response.code(), len, jsBody() != null);
         String js = jsBody();
         try {
             if (response.isSuccessful()) {

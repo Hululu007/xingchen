@@ -68,13 +68,15 @@ jobs:
           gh api repos/XingChenApp/xingchen/tags --paginate -q '.[].name' | while read -r t; do
             case "$t" in v*) gh api -X DELETE "repos/XingChenApp/xingchen/git/refs/tags/$t" || true ;; esac
           done
-          # 先建新发布并传安装包
-          gh release create "$TAG" --title "星辰 $VNAME" --notes "星辰 $VNAME 更新发布。"
+          # 先建新发布并传安装包（标签指向本分支）
+          gh release create "$TAG" --target batch-20261012 --title "星辰 $VNAME" --notes "星辰 $VNAME 更新发布。"
           gh release upload "$TAG" "$ASSET"
-          # 拿到安装包的真实直链后，再生成内部更新清单并上传
-          DL=$(gh api "repos/XingChenApp/xingchen/releases/tags/$TAG" -q '.assets[] | select(.name=="'"$ASSET"'") | .browser_download_url')
-          test -n "$DL"
-          python3 - "$VNAME" "$VCODE" "$TAG" "$ASSET" "$SIZE" "$SHA" "$DL" <<'PYEOF'
+          # 网站会把资产名里的中文自动去掉，不能按原名找；按 .apk 后缀取回真实存名与直链
+          ASSET_JSON=$(gh api "repos/XingChenApp/xingchen/releases/tags/$TAG" -q '.assets[] | select(.name | endswith(".apk"))')
+          STORED=$(echo "$ASSET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+          DL=$(echo "$ASSET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['browser_download_url'])")
+          test -n "$STORED" && test -n "$DL"
+          python3 - "$VNAME" "$VCODE" "$TAG" "$STORED" "$SIZE" "$SHA" "$DL" <<'PYEOF'
           import json, sys
           vname, vcode, tag, asset, size, sha, dl = sys.argv[1:8]
           manifest = {

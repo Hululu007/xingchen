@@ -3798,6 +3798,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     return;
                 }
                 case "magnet": {
+                    if (HkRouter.isP2pPlayLink(url)) {
+                        // 用户拍板（相对原版的有意分叉）：列表点磁力/电驴进自家播放器播，
+                        // 走迅雷引擎；标题用条目自带名字，不做文件名清理。
+                        playP2pInApp(item, url);
+                        return;
+                    }
+                    // thunder://、ftp:// 保持原版：系统选应用
                     android.content.Intent it2 = new android.content.Intent(android.content.Intent.ACTION_VIEW,
                             android.net.Uri.parse(url));
                     try {
@@ -4402,6 +4409,30 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 }
             });
         }).start();
+    }
+
+    /**
+     * 列表点磁力/电驴进自家播放器（用户拍板，相对原版有意分叉）：
+     * 把被点的这一条目当作单集传给播放器，走海阔播放链（SiteApi.hkPlayerContent →
+     * HkRouter.play 透传 → 迅雷引擎），与详情选集磁力同一条路；标题用条目自带名字。
+     */
+    private void playP2pInApp(HkItem it, String url) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("name", stripHtml(it.getTitle()));
+            o.put("url", url);
+            o.put("pic", it.getPic() == null ? "" : it.getPic());
+            arr.put(o);
+            String lineName = it.getLine() == null || it.getLine().isEmpty() ? "默认" : it.getLine();
+            VideoActivity.startHkPlay(HkPageActivity.this,
+                    currentRule == null ? "" : currentRule.getTitle(), lineName,
+                    url, it.getTitle(), it.getTitle(),
+                    it.getPic() == null ? "" : it.getPic(),
+                    arr.toString(), 0);
+        } catch (Throwable e) {
+            android.widget.Toast.makeText(HkPageActivity.this, "无法播放此链接", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 子列表状态（@rule= 进子列表时压栈，返回时恢复）。 */

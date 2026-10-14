@@ -45,3 +45,52 @@ jobs:
         with:
           name: XingChen-APK
           path: app/build/outputs/apk/**/*.apk
+      - name: Publish release for in-app update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          test -n "$APK"
+          GRADLE=$(curl -fsSL "https://raw.githubusercontent.com/XingChenApp/xingchen/batch-20261012/app/build.gradle")
+          VNAME=$(echo "$GRADLE" | grep -oP 'versionName\s+"\K[^"]+' | head -1)
+          VCODE=$(echo "$GRADLE" | grep -oP 'versionCode\s+\K[0-9]+' | head -1)
+          test -n "$VNAME" && test -n "$VCODE"
+          TAG="v$VNAME"
+          ASSET="星辰$VNAME.apk"
+          cp "$APK" "$ASSET"
+          SIZE=$(stat -c%s "$ASSET")
+          SHA=$(sha256sum "$ASSET" | cut -d' ' -f1)
+          # 发布区只留最新一版：先删掉所有旧发布（含草稿）和它们的标签
+          gh api repos/XingChenApp/xingchen/releases --paginate -q '.[].id' | while read -r rid; do
+            gh api -X DELETE "repos/XingChenApp/xingchen/releases/$rid" || true
+          done
+          gh api repos/XingChenApp/xingchen/tags --paginate -q '.[].name' | while read -r t; do
+            case "$t" in v*) gh api -X DELETE "repos/XingChenApp/xingchen/git/refs/tags/$t" || true ;; esac
+          done
+          # 先建新发布并传安装包
+          gh release create "$TAG" --title "星辰 $VNAME" --notes "星辰 $VNAME 更新发布。"
+          gh release upload "$TAG" "$ASSET"
+          # 拿到安装包的真实直链后，再生成内部更新清单并上传
+          DL=$(gh api "repos/XingChenApp/xingchen/releases/tags/$TAG" -q '.assets[] | select(.name=="'"$ASSET"'") | .browser_download_url')
+          test -n "$DL"
+          python3 - "$VNAME" "$VCODE" "$TAG" "$ASSET" "$SIZE" "$SHA" "$DL" <<'PYEOF'
+          import json, sys
+          vname, vcode, tag, asset, size, sha, dl = sys.argv[1:8]
+          manifest = {
+              "name": tag,
+              "versionName": vname,
+              "code": int(vcode),
+              "channel": "stable",
+              "apk": asset,
+              "size": int(size),
+              "sha256": sha,
+              "desc": "星辰 " + vname,
+              "notes": "星辰 " + vname + " 更新发布。",
+              "downloads": {"github": {"url": dl}},
+          }
+          with open("mobile-arm64_v8a.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PYEOF
+          gh release upload "$TAG" mobile-arm64_v8a.json
+          gh release view "$TAG"

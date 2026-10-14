@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.hk;
 
+import com.fongmi.android.tv.api.hk.HkImage;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkRule;
 
@@ -40,6 +41,9 @@ public final class HkEngineManager {
             rt = prev == null ? created : prev;
         }
         CURRENT_RULE.set(rule);
+        // 图片 @js= 求值靠 HkImage 找当前规则运行时（8.83 是引擎单例天然可用）；
+        // 新模块此前从未登记，抓取器拿不到运行时只能把加密原流交回，图全部解码失败
+        HkImage.setCurrentRuntime(rt);
         return rt;
     }
 

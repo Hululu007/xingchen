@@ -108,6 +108,17 @@ public class ThemeManager {
     private void doApply(Activity activity) {
         try {
             flog("doApply: activity=" + activity.getClass().getSimpleName());
+            // 海阔浅色页（列表页/搜索页）不跟主 App 主题走：不铺星辰壁纸，
+            // 窗口底与状态栏保持浅色不透明，避免状态栏透出壁纸。
+            String actName = activity.getClass().getName();
+            if (actName.endsWith(".ui.hk.HkListActivity") || actName.endsWith(".ui.hk.HkSearchActivity")) {
+                try {
+                    activity.getWindow().setBackgroundDrawable(
+                            new android.graphics.drawable.ColorDrawable(0xFFF5F6F8));
+                    activity.getWindow().setStatusBarColor(0xFFFFFFFF);
+                } catch (Exception ignored) {}
+                return;
+            }
             if (theme == null) theme = XingChenTheme.load(activity);
             android.graphics.drawable.Drawable dw = getWallpaperDrawable(activity);
             flog("doApply: setting window background, drawable=" + (dw != null));

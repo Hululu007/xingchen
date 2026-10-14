@@ -1563,6 +1563,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         sub.setGroup(parentRule.getGroup());
         sub.setPreRule(parentRule.getPreRule());
         sub.setTitle(parentRule.getTitle());
+        sub.setVersionRaw(parentRule.getVersionRaw());
         sub.setLastChapterRule(parentRule.getLastChapterRule());
         sub.setPages(parentRule.getPages());
         HkItem item = adapter.getList().get(position);
@@ -1618,8 +1619,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
                     @Override
                     public void success(String result) {
-                        clickItem(view, position, result, false, codeAndHeader);
                         dismissLoadingPopup();
+                        if (result != null && result.startsWith("error:")) {
+                            // 引擎真实错误（含行号），直接弹原文，不走 URL 兜底（否则被 dealWithUrl 当成"未知链接"掩盖）
+                            toastBottom(result);
+                            return;
+                        }
+                        clickItem(view, position, result, false, codeAndHeader);
                     }
 
                     @Override

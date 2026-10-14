@@ -118,7 +118,7 @@ public final class SubtitleDialog extends BaseBottomSheetDialog {
         try {
             boolean enabled = com.fongmi.android.tv.ai.asr.AiAsrController.get()
                     .isEnabled(getActivity());
-            binding.aiSubtitle.setText(enabled ? "AI·开" : "AI·本地");
+            binding.aiSubtitle.setText(enabled ? "AI实时字幕·开" : "AI实时字幕");
             binding.aiSubtitle.setTextColor(enabled ? 0xFFE8A33D : 0xB3000000);
         } catch (Exception ignored) {}
     }

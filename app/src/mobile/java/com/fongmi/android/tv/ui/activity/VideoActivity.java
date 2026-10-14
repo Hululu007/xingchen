@@ -632,7 +632,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String getOsdTitle() {
         String name = getName();
         if (mEpisodeAdapter == null || mEpisodeAdapter.isEmpty()) return name;
-        String episode = Objects.toString(getEpisode().getName(), "");
+        String episode = Objects.toString(getEpisode().getDisplayName(), "");
         if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
         return TextUtils.isEmpty(name) ? episode : name + " " + episode;
     }
@@ -1664,7 +1664,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
-        mBinding.control.title.setText(episode.getName());
+        mBinding.control.title.setText(episode.getDisplayName());
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         String playFlag = getEpisodePlayFlag(flag, episode);

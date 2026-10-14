@@ -1,262 +1,289 @@
 (function() {
-    // 8.83 官方 crypto-java.js 的 QuickJS 兼容实现
-    // 原版依赖 Rhino Java 互操作（java.lang.String/javax.crypto.Cipher/android.util.Base64），
-    // 宿主为 QuickJS 无 Java 互操作，故用纯 JS + 全局 CryptoJS（aes.js 已注入）实现相同 API。
-    // API 对照 8.83 decompiled/assets/crypto-java.js：Data/Digest/AES/DES/DESede，$.exports 导出。
+    //by LoyDgIk
+    const jvString = java.lang.String;
+    const jvArray = java.lang.reflect.Array;
+    const Byte = java.lang.Byte;
+    const Integer = java.lang.Integer;
 
-    function toBytes(arr) {
-        var r = [];
-        for (var i = 0; i < arr.length; i++) r.push(arr[i] & 255);
-        return r;
-    }
+    const StandardCharsets = java.nio.charset.StandardCharsets;
+    const MessageDigest = java.security.MessageDigest;
+    const Base64 = android.util.Base64;
+    const StringBuffer = java.lang.StringBuffer;
 
-    // ---- UTF-8 编解码（纯 JS） ----
-    function utf8Encode(str) {
-        var bytes = [];
-        for (var i = 0; i < str.length; i++) {
-            var c = str.charCodeAt(i);
-            if (c < 0x80) {
-                bytes.push(c);
-            } else if (c < 0x800) {
-                bytes.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F));
-            } else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
-                var c2 = str.charCodeAt(i + 1);
-                if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
-                    var cp = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00);
-                    bytes.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
-                    i++;
-                } else {
-                    bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
-                }
-            } else {
-                bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
-            }
-        }
-        return bytes;
-    }
+    const Cipher = javax.crypto.Cipher;
+    const IvParameterSpec = javax.crypto.spec.IvParameterSpec;
+    const SecretKeySpec = javax.crypto.spec.SecretKeySpec;
+    // 宿主适配：原版此处直引海阔包内的 FileUtil；星辰由宿主在求值作用域注入 __cryptoFileUtil（toBytes/toInputStream 同签名）。
+    const FileUtil = (typeof __cryptoFileUtil !== 'undefined') ? __cryptoFileUtil : com.example.hikerview.utils.FileUtil;
 
-    function utf8Decode(bytes) {
-        var str = '';
-        for (var i = 0; i < bytes.length; i++) {
-            var b = bytes[i];
-            if (b < 0x80) {
-                str += String.fromCharCode(b);
-            } else if ((b & 0xE0) === 0xC0) {
-                str += String.fromCharCode(((b & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
-                i++;
-            } else if ((b & 0xF0) === 0xE0) {
-                str += String.fromCharCode(((b & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
-                i += 2;
-            } else if ((b & 0xF8) === 0xF0) {
-                var cp = ((b & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F);
-                cp -= 0x10000;
-                str += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
-                i += 3;
-            }
-        }
-        return str;
-    }
-
-    // ---- Base64（纯 JS） ----
-    var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    function base64Encode(bytes) {
-        var s = '';
-        for (var i = 0; i < bytes.length; i += 3) {
-            var b0 = bytes[i], b1 = i + 1 < bytes.length ? bytes[i + 1] : 0, b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
-            s += B64_CHARS[b0 >> 2] + B64_CHARS[((b0 & 3) << 4) | (b1 >> 4)];
-            s += i + 1 < bytes.length ? B64_CHARS[((b1 & 15) << 2) | (b2 >> 6)] : '=';
-            s += i + 2 < bytes.length ? B64_CHARS[b2 & 63] : '=';
-        }
-        return s;
-    }
-    function base64Decode(str) {
-        str = String(str).replace(/[^A-Za-z0-9+/=]/g, '');
-        var bytes = [];
-        for (var i = 0; i < str.length; i += 4) {
-            var c0 = B64_CHARS.indexOf(str[i]), c1 = B64_CHARS.indexOf(str[i + 1]);
-            var c2 = str[i + 2] === '=' ? 0 : B64_CHARS.indexOf(str[i + 2]);
-            var c3 = str[i + 3] === '=' ? 0 : B64_CHARS.indexOf(str[i + 3]);
-            bytes.push((c0 << 2) | (c1 >> 4));
-            if (str[i + 2] !== '=') bytes.push(((c1 & 15) << 4) | (c2 >> 2));
-            if (str[i + 3] !== '=') bytes.push(((c2 & 3) << 6) | c3);
-        }
-        return bytes;
-    }
-
-    function hexEncode(bytes) {
-        var s = '';
-        for (var i = 0; i < bytes.length; i++) {
-            var h = bytes[i].toString(16);
-            s += h.length < 2 ? '0' + h : h;
-        }
-        return s;
-    }
-    function hexDecode(str) {
-        str = String(str).toLowerCase();
-        var bytes = [];
-        for (var i = 0; i < str.length; i += 2) {
-            bytes.push(parseInt(str.substr(i, 2), 16));
-        }
-        return bytes;
-    }
-
-    // ---- Data ----
+    //CryptoUtil
+    //互转类
     function Data(bytes) {
-        this.bytes = toBytes(bytes || []);
+        this.bytes = bytes;
+        //this.length = bytes.length;
     }
-    Data.parseStr = function(str) { return new Data(utf8Encode(String(str))); };
-    Data.parseUTF8 = function(str) { return Data.parseStr(str); };
-    Data.parseUTF16 = function(str) {
-        str = String(str);
-        var bytes = [];
-        for (var i = 0; i < str.length; i++) {
-            var c = str.charCodeAt(i);
-            bytes.push(c & 255, (c >> 8) & 255);
+
+    Object.assign(Data, {
+        parseStr(str, charset) {
+            return new Data(toJvString(str).getBytes(charset));
+        },
+        parseUTF8(str) {
+            return Data.parseStr(str, StandardCharsets.UTF_8);
+        },
+        parseUTF16(str) {
+            return Data.parseStr(str, StandardCharsets.UTF_16);
+        },
+        parseHex(str) {
+            return new Data(hexDecodeToByteArray(str));
+        },
+        parseBase64(str, flags) {
+            return new Data(base64DecodeToByteArray(str, flags));
+        },
+        parseLatin1(str) {
+            return Data.parseStr(str, StandardCharsets.ISO_8859_1);
+        },
+        parseUTF16LE(str) {
+            return Data.parseStr(str, StandardCharsets.UTF_16LE);
+        },
+        parseInputStream(stream) {
+            return new Data(FileUtil.toBytes(stream));
         }
-        return new Data(bytes);
-    };
-    Data.parseHex = function(str) { return new Data(hexDecode(str)); };
-    Data.parseBase64 = function(str) { return new Data(base64Decode(str)); };
-    Data.parseLatin1 = function(str) {
-        str = String(str);
-        var bytes = [];
-        for (var i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i) & 255);
-        return new Data(bytes);
-    };
-    Data.parseUTF16LE = Data.parseUTF16;
-    Data.parseInputStream = function(input) {
-        if (input == null) return new Data([]);
-        if (typeof input === 'string') return new Data(utf8Encode(input));
-        if (input.bytes) return new Data(input.bytes);
-        // Java InputStream（图片 @js= 求值时宿主以 Java 流传入 input；Rhino 下直调 read 读完。
-        // 原版 FileUtil.toBytes(stream) 同款语义；此前无此分支直接返回空导致解密出空图）
-        try {
-            if (input && typeof input.read === 'function' && typeof input.available === 'function') {
-                var bytes = [];
-                var buf = java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE, 8192);
-                var n = input.read(buf, 0, 8192);
-                while (n !== -1) {
-                    for (var i = 0; i < n; i++) bytes.push(buf[i] & 255);
-                    n = input.read(buf, 0, 8192);
-                }
-                return new Data(bytes);
+    });
+    Object.assign(Data.prototype, {
+        toHex() {
+            return bytesToHex(this.bytes);
+        },
+        toBytes() {
+            return this.bytes;
+        },
+        toString(charset) {
+            return bytesToString(this.bytes, charset);
+        },
+        toLatin1() {
+            return this.toString(StandardCharsets.ISO_8859_1);
+        },
+        toUTF16LE() {
+            return this.toString(StandardCharsets.UTF_16LE);
+        },
+        toUTF16() {
+            return this.toString(StandardCharsets.UTF_16);
+        },
+        toBase64(flags) {
+            return String(Base64.encodeToString(this.bytes, flags || Base64.DEFAULT));
+        },
+        toDigest() {
+            return new Digest(this);
+        },
+        toInputStream() {
+            return FileUtil.toInputStream(this.bytes);
+        },
+        toUint8Array() {
+            let length = this.bytes.length;
+            let u8Arr = new Uint8Array(length);
+            for (let i = 0; i < length; i++) {
+                u8Arr[i] = this.bytes[i];
             }
-        } catch (e0) {}
-        if (typeof input.length === 'number') return new Data(input);
-        return new Data([]);
-    };
-
-    Data.prototype.toHex = function() { return hexEncode(this.bytes); };
-    Data.prototype.toBytes = function() { return this.bytes.slice(); };
-    Data.prototype.toString = function() { return utf8Decode(this.bytes); };
-    Data.prototype.toLatin1 = function() {
-        var s = '';
-        for (var i = 0; i < this.bytes.length; i++) s += String.fromCharCode(this.bytes[i]);
-        return s;
-    };
-    Data.prototype.toUTF16LE = function() {
-        var s = '';
-        for (var i = 0; i + 1 < this.bytes.length; i += 2) s += String.fromCharCode(this.bytes[i] | (this.bytes[i + 1] << 8));
-        return s;
-    };
-    Data.prototype.toUTF16 = Data.prototype.toUTF16LE;
-    Data.prototype.toBase64 = function() { return base64Encode(this.bytes); };
-    Data.prototype.toDigest = function() { return new Digest(this); };
-    Data.prototype.toInputStream = function() { return this.bytes.slice(); };
-    Data.prototype.toUint8Array = function() { return this.bytes.slice(); };
-    Data.prototype.base64Decode = function() { this.bytes = base64Decode(utf8Decode(this.bytes)); return this; };
-    Data.prototype.base64Encode = function() { this.bytes = utf8Encode(base64Encode(this.bytes)); return this; };
-    Data.prototype.length = function() { return this.bytes.length; };
-
-    // ---- Digest（经 CryptoJS） ----
-    function Digest(data) { this.data = data; }
-    Digest.digest = function(data, algo) {
-        var b = toBytes(data.toBytes());
-        var words = [];
-        for (var i = 0; i < b.length; i += 4) {
-            words.push(((b[i] << 24) | ((b[i + 1] || 0) << 16) | ((b[i + 2] || 0) << 8) | (b[i + 3] || 0)) | 0);
+            return u8Arr;
+        },
+        base64Decode(flags) {
+            this.bytes = base64DecodeToByteArray(this.toString(), flags);
+            return this;
+        },
+        base64Encode(flags) {
+            this.bytes = base64EncodeToByteArray(this.bytes, flags);
+            return this;
+        },
+        length() {
+            return this.bytes.length;
         }
-        var wa = CryptoJS.lib.WordArray.create(words, b.length);
-        var h;
-        switch (algo) {
-            case 'MD5': h = CryptoJS.MD5(wa); break;
-            case 'SHA-1': h = CryptoJS.SHA1(wa); break;
-            case 'SHA-256': h = CryptoJS.SHA256(wa); break;
-            case 'SHA-384': h = CryptoJS.SHA384(wa); break;
-            case 'SHA-512': h = CryptoJS.SHA512(wa); break;
-            default: throw new Error('Unsupported digest: ' + algo);
+    });
+    //摘要类
+    function Digest(data) {
+        this.data = data;
+    }
+    Digest.digest = function(data, algorithm) {
+        try {
+            let md = MessageDigest.getInstance(algorithm);
+            md.update(data.toBytes());
+            let hashInBytes = md.digest();
+            return String(bytesToHex(hashInBytes));
+        } catch (e) {
+            throw (e);
         }
-        return h.toString(CryptoJS.enc.Hex);
-    };
-    Digest.prototype.md5 = function() { return Digest.digest(this.data, 'MD5'); };
-    Digest.prototype.sha1 = function() { return Digest.digest(this.data, 'SHA-1'); };
-    Digest.prototype.sha256 = function() { return Digest.digest(this.data, 'SHA-256'); };
-    Digest.prototype.sha384 = function() { return Digest.digest(this.data, 'SHA-384'); };
-    Digest.prototype.sha512 = function() { return Digest.digest(this.data, 'SHA-512'); };
-    Digest.prototype.md2 = function() { throw new Error('MD2 not supported'); };
+    }
+    Object.assign(Digest.prototype, {
+        md5() {
+            return Digest.digest(this.data, "MD5");
+        },
+        sha256() {
+            return Digest.digest(this.data, "SHA-256");
+        },
+        md2() {
+            return Digest.digest(this.data, "MD2");
+        },
+        sha1() {
+            return Digest.digest(this.data, "SHA-1");
+        },
+        sha512() {
+            return Digest.digest(this.data, "SHA-512");
+        },
+        sha384() {
+            return Digest.digest(this.data, "SHA-384");
+        }
+    });
 
-    // ---- 对称加解密（经 CryptoJS） ----
-    function toWordArray(data) {
-        if (typeof data === 'string') return CryptoJS.enc.Utf8.parse(data);
-        var b = toBytes(data.bytes || data);
-        // CryptoJS WordArray.words 是 32 位大端字数组，需手动打包（create(byte[]) 会误把每字节当一字）
-        var words = [];
-        for (var i = 0; i < b.length; i += 4) {
-            words.push(((b[i] << 24) | ((b[i + 1] || 0) << 16) | ((b[i + 2] || 0) << 8) | (b[i + 3] || 0)) | 0);
-        }
-        return CryptoJS.lib.WordArray.create(words, b.length);
-    }
-    function parseMode(modeStr) {
-        var m = String(modeStr || '').toUpperCase();
-        if (m.indexOf('/ECB/') >= 0) return CryptoJS.mode.ECB;
-        if (m.indexOf('/CTR/') >= 0) return CryptoJS.mode.CTR;
-        if (m.indexOf('/CFB/') >= 0) return CryptoJS.mode.CFB;
-        if (m.indexOf('/OFB/') >= 0) return CryptoJS.mode.OFB;
-        return CryptoJS.mode.CBC;
-    }
-    function parsePadding(modeStr) {
-        var m = String(modeStr || '').toUpperCase();
-        if (m.indexOf('NOPADDING') >= 0) return CryptoJS.pad.NoPadding;
-        return CryptoJS.pad.Pkcs7;
-    }
-    function cipherProcess(isEncrypt, algo, input, key, option) {
+
+    function process(operation, cipherType, input, key, option) {
         option = option || {};
-        var keyWa = toWordArray(key);
-        var ivWa = option.iv != null ? toWordArray(option.iv) : undefined;
-        var cfg = { mode: parseMode(option.mode), padding: parsePadding(option.mode) };
-        if (ivWa) cfg.iv = ivWa;
-        var inWa;
-        if (typeof input === 'string') {
-            inWa = isEncrypt ? CryptoJS.enc.Utf8.parse(input) : CryptoJS.enc.Base64.parse(input);
-        } else {
-            inWa = toWordArray(input);
+        validate(key, option.mode, cipherType);
+        if (typeof input === "string") {
+            input = operation === Cipher.ENCRYPT_MODE ? Data.parseUTF8(input) : Data.parseBase64(input);
         }
-        var out;
-        if (algo === 'AES') {
-            out = isEncrypt ? CryptoJS.AES.encrypt(inWa, keyWa, cfg) : CryptoJS.AES.decrypt({ ciphertext: inWa }, keyWa, cfg);
-        } else if (algo === 'DES') {
-            out = isEncrypt ? CryptoJS.DES.encrypt(inWa, keyWa, cfg) : CryptoJS.DES.decrypt({ ciphertext: inWa }, keyWa, cfg);
+        let secretKey = new SecretKeySpec(key.toBytes(), cipherType);
+        let cipher = Cipher.getInstance(option.mode || cipherType);
+        if (option.iv != null) {
+            cipher.init(operation, secretKey, new IvParameterSpec(option.iv.toBytes()));
         } else {
-            out = isEncrypt ? CryptoJS.TripleDES.encrypt(inWa, keyWa, cfg) : CryptoJS.TripleDES.decrypt({ ciphertext: inWa }, keyWa, cfg);
+            cipher.init(operation, secretKey);
         }
-        var words = out.words || (out.ciphertext && out.ciphertext.words);
-        var sigBytes = out.sigBytes != null ? out.sigBytes : (out.ciphertext ? out.ciphertext.sigBytes : 0);
-        var bytes = [];
-        for (var i = 0; i < sigBytes; i++) bytes.push((words[i >>> 2] >>> (24 - (i % 4) * 8)) & 255);
-        return new Data(bytes);
-    }
-    function makeCipher(algo) {
-        return {
-            encrypt: function(data, key, option) { return cipherProcess(true, algo, data, key, option); },
-            decrypt: function(data, key, option) { return cipherProcess(false, algo, data, key, option); }
-        };
+        return new Data(cipher.doFinal(input.toBytes()));
     }
 
+    const AES = {
+        encrypt(data, key, option) {
+            return process(Cipher.ENCRYPT_MODE, "AES", data, key, option);
+
+        },
+        decrypt(data, key, option) {
+            return process(Cipher.DECRYPT_MODE, "AES", data, key, option);
+        }
+    }
+
+    const DES = {
+        encrypt(data, key, option) {
+            return process(Cipher.ENCRYPT_MODE, "DES", data, key, option);
+        },
+        decrypt(data, key, option) {
+            return process(Cipher.DECRYPT_MODE, "DES", data, key, option);
+        }
+    }
+
+    const DESede = {
+        encrypt(data, key, option) {
+            return process(Cipher.ENCRYPT_MODE, "DESede", data, key, option);
+        },
+        decrypt(data, key, option) {
+            return process(Cipher.DECRYPT_MODE, "DESede", data, key, option);
+        }
+    }
+
+    function validate(key, mode, cipherType) {
+        if (key == null) {
+            throw new Error("Key must not be null or empty.");
+        }
+        if (mode && !mode.startsWith(cipherType)) {
+            throw new Error("Invalid mode.");
+        }
+        let expectedKeyLength = [];
+        switch (cipherType) {
+            case "AES":
+                expectedKeyLength = [16, 24, 32];
+                break;
+            case "DESede":
+                expectedKeyLength = [24];
+                break;
+            case "DES":
+                expectedKeyLength = [8];
+                break;
+            default:
+                throw new Error("Invalid cipher type.");
+        }
+        if (!expectedKeyLength.includes(key.length())) {
+            throw new Error("Invalid key length. Key length must be " + expectedKeyLength.join(" or ") + " bytes for " + cipherType + ".");
+        }
+    }
+
+
+    /*mode
+    AES/CBC/PKCS5Padding
+    AES/CBC/NoPadding
+    AES/ECB/PKCS5Padding
+    AES/ECB/NoPadding
+    AES/CFB/NoPadding
+    AES/CFB/PKCS5Padding
+    AES/OFB/NoPadding
+    AES/OFB/PKCS5Padding
+    AES/CTR/NoPadding
+    AES/CTR/PKCS5Padding
+
+    DES/CBC/PKCS5Padding
+    DES/CBC/NoPadding
+    DES/ECB/PKCS5Padding
+    DES/ECB/NoPadding
+    DES/CFB/NoPadding
+    DES/CFB/PKCS5Padding
+    DES/OFB/NoPadding
+    DES/OFB/PKCS5Padding
+    DES/CTR/NoPadding
+    DES/CTR/PKCS5Padding
+
+    */
+    function bytesToString(bytes, charset) {
+        return String(new jvString(bytes, charset || StandardCharsets.UTF_8));
+    }
+
+    function base64EncodeToByteArray(bytes, flags) {
+        return Base64.encode(bytes, flags || Base64.DEFAULT);
+    }
+
+    function base64DecodeToByteArray(str, flags) {
+        if (str == null) {
+            return null;
+        }
+        return Base64.decode(str, flags || Base64.DEFAULT);
+    }
+
+    function hexDecodeToByteArray(cipherText) {
+        cipherText = String(cipherText);
+        let str = cipherText.toLowerCase();
+        let length = str.length;
+        let bArr = java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE, length / 2);
+        for (let i = 0, o = 0; i < length; i += 2, o++) {
+            let a = str[i + 1],
+                b = str[i];
+            if (b != "0") {
+                a = b + a;
+            }
+            let hexInt = Integer.parseInt(new jvString(a), 16);
+            let inty = hexInt > 127 ? hexInt - 255 - 1 : hexInt;
+            bArr[o] = inty;
+        }
+        return bArr;
+    }
+
+
+    function bytesToHex(data) {
+        let strBuffer = new StringBuffer();
+        for (let i = 0; i < data.length; i++) {
+            //strBuffer.append(Integer.toHexString(0xff & data[i]));
+            strBuffer.append(jvString.format("%02x", Byte(data[i])));
+        }
+        return String(strBuffer.toString());
+    }
+
+
+    function toJvString(str) {
+        if (typeof str === "string") {
+            return new jvString(str);
+        } else {
+            return str;
+        }
+    }
     $.exports = {
-        Data: Data,
-        Digest: Digest,
-        AES: makeCipher('AES'),
-        DES: makeCipher('DES'),
-        DESede: makeCipher('DESede')
+        Data,
+        Digest,
+        AES,
+        DES,
+        DESede
     };
 })()

@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.hk;
 
 import android.content.Context;
+import android.util.Log;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 

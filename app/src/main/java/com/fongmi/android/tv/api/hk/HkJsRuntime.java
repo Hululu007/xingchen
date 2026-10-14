@@ -9,6 +9,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Crypto;
 import com.fongmi.quickjs.utils.Parser;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
 import com.github.catvod.utils.Util;
 import com.google.gson.Gson;
@@ -995,8 +996,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction("setItem", args -> {
             if (args != null && args.length > 1) {
-                kv.put(argStr(args[0]), argStr(args[1]));
+                String k = argStr(args[0]);
+                kv.put(k, argStr(args[1]));
                 saveKv();
+                // 诊断：口令记号存（星集使用前须知门）。只记键名与是否写入，不记值。
+                if ("xj_firstopen".equals(k)) {
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "setItem xj_firstopen saved");
+                }
             }
             return null;
         });
@@ -1010,6 +1016,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String def = args.length > 1 ? getString(args[1]) : null;
             if (key == null || key.isEmpty()) return def;
             String v = kv.get(key);
+            // 诊断：口令记号读（星集使用前须知门）。只记命中与否，不记值。
+            if ("xj_firstopen".equals(key)) {
+                com.github.catvod.crawler.SpiderDebug.log("hk", "getItem xj_firstopen hit=%s", v != null);
+            }
             return v != null ? v : def;
         });
 
@@ -3604,10 +3614,19 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
                     return coerceImageStream(r, input);
                 } catch (Throwable t) {
+                    // 图片解密求值失败：记进可导出日志（此前静默吞掉，真机断点不可见）
+                    String cls = t.getClass().getSimpleName();
+                    String msg = t.getMessage();
+                    SpiderDebug.log("hkimage", "图片解密求值失败 url=%s 类型=%s 信息=%s",
+                            urlString, cls, msg == null ? "" : msg);
                     return input;
                 }
             }).get();
         } catch (Throwable t) {
+            String cls = t.getClass().getSimpleName();
+            String msg = t.getMessage();
+            SpiderDebug.log("hkimage", "图片解密调度失败 url=%s 类型=%s 信息=%s",
+                    urlString, cls, msg == null ? "" : msg);
             return input;
         }
     }

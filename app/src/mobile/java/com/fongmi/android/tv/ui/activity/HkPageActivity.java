@@ -155,6 +155,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     private boolean ruleSortByName = false;
     private String ruleKeyword = "";
     private boolean ruleManageMode = false;
+    /** 多选模式（长按「小程序」标题进入）：勾选卡片批量删除。 */
+    private boolean ruleSelectMode = false;
+    private final java.util.Set<String> ruleSelectedTitles = new java.util.HashSet<>();
     private String ruleGroup = "";
     /** 自定义分组（本地 prefs，不改 rule.json）：有序分组名 / 标题→分组覆盖 / 自定义顺序（null=未自定义） */
     private final List<String> customGroups = new ArrayList<>();
@@ -282,6 +285,11 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         if (stack.size() == 1 && stack.peek() == V_RULES
                 && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
             closeInlineSearch();
+            return;
+        }
+        // 多选模式中按返回：先退出多选模式，不退出页面
+        if (stack.size() == 1 && stack.peek() == V_RULES && ruleSelectMode) {
+            exitRuleSelectMode();
             return;
         }
         // 编辑模式中按返回：先退出编辑模式（已即时保存），不退出页面
@@ -668,6 +676,13 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         ruleAdapter = new RuleAdapter();
         binding.rvRules.setAdapter(ruleAdapter);
         binding.tvTitleRule.setOnClickListener(v -> showColumnSwitchPopup());
+        binding.tvTitleRule.setOnLongClickListener(v -> {
+            enterRuleSelectMode();
+            return true;
+        });
+        binding.btnSelectAllRules.setOnClickListener(v -> toggleSelectAllRules());
+        binding.btnDeleteSelectedRules.setOnClickListener(v -> showDeleteSelectedConfirm());
+        binding.btnSelectDone.setOnClickListener(v -> exitRuleSelectMode());
         // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：选择搜内容/搜规则
         binding.btnSearchRule.setOnClickListener(v -> toggleInlineSearch());
         binding.btnSearchRule.setOnLongClickListener(v -> {
@@ -683,9 +698,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 顶栏已改实色底，不再需要 blur（之前半透明导致跟滚动内容混在一起像一起滚）
-        // 首页 inline 搜索条：磨砂风格，输入实时过滤小程序卡片
-        FrostedGlass.blurBackground(binding.inlineSearchBar);
+        // 顶栏已改实色底，不再需要 blur（之前半透明导致跟滚动内容混在一起像一起滚）。
+        // 搜索条不再打 blur：FrostedGlass 的契约是只糊独立背景层，糊在装输入框的容器上
+        // 会把文字和按钮一起糊成毛玻璃（真机表现为搜索框像被一层白盖住）。
         binding.etInlineSearch.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -829,6 +844,129 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         }
         ruleAdapter.rebuildSections();
         ruleAdapter.notifyDataSetChanged();
+    }
+
+    /** 长按「小程序」标题进入多选模式：卡片点按改为勾选，顶栏换成 全选/删除/完成。 */
+    private void enterRuleSelectMode() {
+        if (ruleSelectMode) return;
+        if (rules.isEmpty()) {
+            Notify.show("暂无小程序");
+            return;
+        }
+        if (ruleManageMode) toggleRuleManageMode();
+        if (binding.inlineSearchBar.getVisibility() == View.VISIBLE) closeInlineSearch();
+        ruleSelectMode = true;
+        ruleSelectedTitles.clear();
+        binding.btnSearchRule.setVisibility(View.GONE);
+        binding.btnSortRule.setVisibility(View.GONE);
+        binding.btnEditRule.setVisibility(View.GONE);
+        binding.btnSelectAllRules.setVisibility(View.VISIBLE);
+        binding.btnDeleteSelectedRules.setVisibility(View.VISIBLE);
+        binding.btnSelectDone.setVisibility(View.VISIBLE);
+        updateSelectBar();
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    private void exitRuleSelectMode() {
+        if (!ruleSelectMode) return;
+        ruleSelectMode = false;
+        ruleSelectedTitles.clear();
+        binding.btnSearchRule.setVisibility(View.VISIBLE);
+        binding.btnSortRule.setVisibility(View.VISIBLE);
+        binding.btnEditRule.setVisibility(View.VISIBLE);
+        binding.btnSelectAllRules.setVisibility(View.GONE);
+        binding.btnDeleteSelectedRules.setVisibility(View.GONE);
+        binding.btnSelectDone.setVisibility(View.GONE);
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    private void updateSelectBar() {
+        int n = ruleSelectedTitles.size();
+        binding.btnDeleteSelectedRules.setText(n > 0 ? "删除（" + n + "）" : "删除");
+        boolean all = n > 0 && n == rules.size();
+        binding.btnSelectAllRules.setText(all ? "取消全选" : "全选");
+    }
+
+    private void toggleRuleSelect(HkRule rule) {
+        String t = rule.getTitle();
+        if (!ruleSelectedTitles.remove(t)) ruleSelectedTitles.add(t);
+        updateSelectBar();
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    private void toggleSelectAllRules() {
+        if (ruleSelectedTitles.size() == rules.size()) {
+            ruleSelectedTitles.clear();
+        } else {
+            for (HkRule r : rules) ruleSelectedTitles.add(r.getTitle());
+        }
+        updateSelectBar();
+        ruleAdapter.notifyDataSetChanged();
+    }
+
+    private void showDeleteSelectedConfirm() {
+        if (ruleSelectedTitles.isEmpty()) {
+            Notify.show("先选要删的小程序");
+            return;
+        }
+        final List<String> targets = new ArrayList<>(ruleSelectedTitles);
+        new AlertDialog.Builder(this)
+                .setTitle("删除小程序")
+                .setMessage("确定删除选中的 " + targets.size() + " 个小程序吗？删了要重新导入。")
+                .setPositiveButton("删除", (d, w) -> new Thread(() -> {
+                    for (String t : targets) HkRuleManager.get().delete(t);
+                    ruleGroupMap.keySet().removeAll(targets);
+                    saveRuleGroupMap();
+                    if (customOrder != null) {
+                        customOrder.removeAll(targets);
+                        saveCustomOrder();
+                    }
+                    App.post(() -> {
+                        exitRuleSelectMode();
+                        refreshRules();
+                        Notify.show("已删除 " + targets.size() + " 个小程序");
+                    });
+                }).start())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 多选模式下卡片右上角的勾选标记（代码添加，不改卡片布局）：未选空心圈、已选黄底白勾。 */
+    private void bindSelectBadge(View itemView, HkRule rule) {
+        if (!(itemView instanceof ViewGroup)) return;
+        ViewGroup root = (ViewGroup) itemView;
+        android.widget.TextView badge =
+                (android.widget.TextView) root.findViewWithTag("hk_select_badge");
+        if (!ruleSelectMode) {
+            if (badge != null) badge.setVisibility(View.GONE);
+            return;
+        }
+        if (badge == null) {
+            badge = new android.widget.TextView(this);
+            badge.setTag("hk_select_badge");
+            badge.setGravity(Gravity.CENTER);
+            badge.setTextSize(13);
+            android.widget.FrameLayout.LayoutParams lp =
+                    new android.widget.FrameLayout.LayoutParams(dp(22), dp(22));
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.topMargin = dp(6);
+            lp.setMarginEnd(dp(6));
+            root.addView(badge, lp);
+        }
+        boolean checked = ruleSelectedTitles.contains(rule.getTitle());
+        badge.setVisibility(View.VISIBLE);
+        badge.setText(checked ? "✓" : "");
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        if (checked) {
+            gd.setColor(0xFFF5C518);
+            gd.setStroke(dp(1), 0xFFF5C518);
+        } else {
+            gd.setColor(0xFFFFFFFF);
+            gd.setStroke(dp(1), 0xFFB9BEC7);
+        }
+        badge.setTextColor(0xFFFFFFFF);
+        badge.setBackground(gd);
     }
 
     // ================= 编辑模式：拖拽卡片到分组 pills 分配分组 =================
@@ -2355,8 +2493,16 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 HkRuleManager.get().setEnabled(r.getTitle(), checked);
                 notifyItemChanged(pos);
             });
-            // 编辑模式：点卡片分配分组（长按拖拽排序）；普通模式：点卡片打开小程序，长按弹出菜单（编辑/分享/删除）
-            if (ruleManageMode) {
+            bindSelectBadge(h.itemView, rule);
+            // 多选模式：点/长按卡片都改为勾选；编辑模式：点卡片分配分组（长按拖拽排序）；
+            // 普通模式：点卡片打开小程序，长按弹出菜单（编辑/分享/删除）
+            if (ruleSelectMode) {
+                h.itemView.setOnClickListener(v -> toggleRuleSelect(rule));
+                h.itemView.setOnLongClickListener(v -> {
+                    toggleRuleSelect(rule);
+                    return true;
+                });
+            } else if (ruleManageMode) {
                 h.itemView.setOnClickListener(v -> showGroupPicker(rule));
                 h.itemView.setOnLongClickListener(null);
             } else {

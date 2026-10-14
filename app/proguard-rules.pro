@@ -113,3 +113,7 @@
 # 海阔模型：Gson 按字段名序列化/反序列化（MY_RULE、hiker://page 规则体），字段名不能改
 -keep class com.fongmi.android.tv.api.hk.HkRule { *; }
 -keep class com.fongmi.android.tv.api.hk.HkPageRule { *; }
+-keep class com.fongmi.android.tv.api.hk.HkPageParser$HkPage { *; }
+-keep class com.fongmi.android.tv.api.hk.HkViewCollection { *; }
+-keep class com.fongmi.android.tv.api.hk.HkSubscribeRecord { *; }
+-keep class com.fongmi.android.tv.api.hk.HkPlayData { *; }

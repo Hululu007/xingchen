@@ -27,12 +27,16 @@ public class HkPageParser {
 
     /** 8.83 ArticleListPageRule 的最小移植（HkRule.pages JSON 数组的元素类型）。 */
     public static class HkPage {
+        @com.google.gson.annotations.SerializedName("col_type")
         private String col_type;
+        @com.google.gson.annotations.SerializedName("name")
         private String name;
         private Map<String, String> params;
         private transient String parent;
         private transient HkRule parentRule;
+        @com.google.gson.annotations.SerializedName("path")
         private String path;
+        @com.google.gson.annotations.SerializedName("rule")
         private String rule;
 
         public String getCol_type() {

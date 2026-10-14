@@ -134,7 +134,16 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
             if (myPage instanceof Number) page = ((Number) myPage).intValue();
             rt.setListContext("home", rule.getClassUrl(), rule.getClassName(), rule.getParams(),
                     rule.getAreaUrl(), rule.getYearUrl(), rule.getSortUrl());
-            List<HkItem> list = rt.parseList(findRule, url, page);
+            // 预抓正文必须递进运行时：getResCode() 靠它取首页 HTML。搜索路（parseSearchJs）
+            // 与 HkEngine.home 都设了，唯独首页这条漏了——靠 getResCode 的规则（如漫小肆）
+            // 拿到的恒是空正文，列表解析全空、轮播类脚本直接崩（item.img of undefined）。
+            rt.setEvalResCodeBody(html);
+            List<HkItem> list;
+            try {
+                list = rt.parseList(findRule, url, page);
+            } finally {
+                rt.setEvalResCodeBody(null);
+            }
             callback.bindArrayToView(key, list);
         } catch (Exception e) {
             // 诊断：新链 findList 内层求值失败（旧 home failed 已不可达），只记日志不改行为；

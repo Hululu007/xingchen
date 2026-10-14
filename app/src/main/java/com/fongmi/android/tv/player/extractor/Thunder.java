@@ -98,6 +98,9 @@ public class Thunder implements Source.Extractor {
         }
         // 串行重试卫生：仅当原生状态明确为 3（出错）才停删旧任务再建新任务。
         if (taskId != null && ns == 3) cleanupStaleTask();
+        // 换链接：旧任务先停删再建新的，避免多任务并存抢带宽与目录
+        // （同链接的 stop 保护靠这里兜底，任务不会一直攒着）。
+        if (taskId != null && url != null && !url.equals(lastKey)) cleanupStaleTask();
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
                 : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
@@ -175,6 +178,7 @@ public class Thunder implements Source.Extractor {
             if (info.mTaskStatus != 0) {
                 String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
                 SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                startProgressLog(taskId);
                 return local;
             }
             if (i % 50 == 49) SpiderDebug.log("thunder", "bt waiting status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
@@ -194,15 +198,46 @@ public class Thunder implements Source.Extractor {
         } catch (Exception e) {
             SpiderDebug.log("thunder", "task handed local=%s (info unreadable)", local);
         }
+        startProgressLog(taskId);
         return local;
+    }
+
+    // 交接后任务进度日志：每 5 秒记一次状态/速度/已下量，最长 2 分钟；
+    // 任务被换掉、完成或出错即停。用来分清「任务被自己人杀掉」和「资源本身没速度」。
+    private void startProgressLog(GetTaskId id) {
+        if (id == null) return;
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 24; i++) {
+                SystemClock.sleep(5000);
+                if (taskId != id) return;
+                try {
+                    XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(id);
+                    if (info == null) return;
+                    SpiderDebug.log("thunder", "progress status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                    if (info.mTaskStatus == 2 || info.mTaskStatus == 3) return;
+                } catch (Exception e) {
+                    return;
+                }
+            }
+        });
+        t.setDaemon(true);
+        t.start();
     }
 
     @Override
     public synchronized void stop() {
+        // 播放链每次 playerContent 都先 Source.stop()，推送播一个磁力会连调多次：
+        // 若照旧删任务+删文件，最后交给播放器的地址立刻成死地址——先有点流量、
+        // 然后 0 速、最后超时（1.3.9 真机两例）。同链接任务还活着时 stop 不杀，
+        // 真正的清理放到下一次 fetch 换链接时（fetchInternal）与 exit 时做。
+        int ns = nativeStatus();
+        if (taskId != null && lastLocal != null && (ns == 0 || ns == 1)) {
+            SpiderDebug.log("thunder", "stop skipped: task alive status=%d", ns);
+            return;
+        }
         lastKey = null;
         lastLocal = null;
         if (taskId == null) return;
-        // 回到 FongMi 原版语义：删任务 + 释放 SDK（下次 fetch 会重新 init）；不再额外删下载目录，避免与重播同一链接的新任务抢目录
         XLTaskHelper.get().deleteTask(taskId);
         XLTaskHelper.get().release();
         taskId = null;
@@ -210,6 +245,13 @@ public class Thunder implements Source.Extractor {
 
     @Override
     public void exit() {
+        if (taskId != null) {
+            try {
+                XLTaskHelper.get().deleteTask(taskId);
+            } catch (Exception ignored) {
+            }
+            taskId = null;
+        }
         XLTaskHelper.get().release();
     }
 

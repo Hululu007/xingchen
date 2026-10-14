@@ -516,10 +516,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** JSON 解析（替代 ctx.parse，即 JSON.parse 语义）：非法 JSON 返回带原型的空对象，不抛异常。
      * 8.83 做法：Java 侧不造裸 NativeObject（无原型会导致 JS 拼字符串时抛"未找到对象默认值"），
      * 一律用 cx.newObject(scope) 创建带原型链的对象。 */
+    // Rhino 1.7.15 的 NativeJSON.parse 传 null reviver 会抛 NullPointerException（walk 里直接调 reviver.call），
+    // 旧实现把异常吞掉恒返回空对象，导致 config/存储对象永远读不到值（真机 18J、久久漫画实证）。
+    // 8.83 走 JS 侧 JSON.parse 无此问题；这里传一个原样返回的 reviver 等价于 JS 的 JSON.parse(text)。
+    private static final org.mozilla.javascript.Callable JSON_REVIVER =
+            (cx, sc, thisObj, args) -> args != null && args.length > 1 ? args[1] : null;
+
     private Object parseJson(String json) {
         if (TextUtils.isEmpty(json)) return rhinoCx.newObject(scope);
         try {
-            Object r = NativeJSON.parse(rhinoCx, scope, json, null);
+            Object r = NativeJSON.parse(rhinoCx, scope, json, JSON_REVIVER);
             return r == null ? rhinoCx.newObject(scope) : r;
         } catch (Throwable e) {
             return rhinoCx.newObject(scope);
@@ -593,6 +599,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (o instanceof ConsString) return o.toString();
         if (o instanceof NativeJavaObject) o = ((NativeJavaObject) o).unwrap();
         return o;
+    }
+
+    /** JS 侧传来的参数对象转 Java Map：必须走 argsNativeObjectAdjust（NativeObject→Map）；
+     *  直接判 instanceof Map 永远不命中，fetchCodeByWebView 的 timeout/blockRules 曾因此全丢。 */
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> jsOptions(Object[] args, int idx) {
+        if (args == null || args.length <= idx || args[idx] == null) return null;
+        Object adj = argsNativeObjectAdjust(args[idx]);
+        return adj instanceof java.util.Map ? (java.util.Map<String, Object>) adj : null;
     }
 
     /**
@@ -1009,9 +1024,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 String k = argStr(args[0]);
                 kv.put(k, argStr(args[1]));
                 saveKv();
-                // 诊断：口令记号存（星集使用前须知门）。只记键名与是否写入，不记值。
+                // 诊断：口令记号存（星集使用前须知门）。只记键名与长度，不记值本身。
                 if ("xj_firstopen".equals(k)) {
-                    com.github.catvod.crawler.SpiderDebug.log("hk", "setItem xj_firstopen saved");
+                    String stored = kv.get(k);
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "setItem xj_firstopen saved len=%d ruleVerLen=%d",
+                            stored == null ? -1 : stored.length(),
+                            rule == null ? -1 : rule.getVersionRaw().length());
                 }
             }
             return null;
@@ -1026,9 +1044,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String def = args.length > 1 ? getString(args[1]) : null;
             if (key == null || key.isEmpty()) return def;
             String v = kv.get(key);
-            // 诊断：口令记号读（星集使用前须知门）。只记命中与否，不记值。
+            // 诊断：口令记号读（星集使用前须知门）。只记命中与长度，不记值本身。
             if ("xj_firstopen".equals(key)) {
-                com.github.catvod.crawler.SpiderDebug.log("hk", "getItem xj_firstopen hit=%s", v != null);
+                com.github.catvod.crawler.SpiderDebug.log("hk", "getItem xj_firstopen hit=%s len=%d ruleVerLen=%d",
+                        v != null, v == null ? -1 : v.length(),
+                        rule == null ? -1 : rule.getVersionRaw().length());
             }
             // 毒值兜底：旧版 setItem 把 JS undefined 经 argStr 存成了字面量 "undefined" 字符串，
             // 该值与 undefined 恒不等、口令门永远判假；按缺键处理，老装机自动解毒。
@@ -1688,12 +1708,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try {
                 String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
                 if (url.isEmpty()) return "";
-                java.util.Map<String, Object> options = null;
-                if (args.length > 1 && args[1] instanceof java.util.Map) {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[1];
-                    options = m;
-                }
+                java.util.Map<String, Object> options = jsOptions(args, 1);
                 return HkWebkitFetcher.fetchCodeByWebView(url, options);
             } catch (Throwable t) {
                 return "";
@@ -1703,12 +1718,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try {
                 String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
                 if (url.isEmpty()) return "";
-                java.util.Map<String, Object> options = null;
-                if (args.length > 1 && args[1] instanceof java.util.Map) {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[1];
-                    options = m;
-                }
+                java.util.Map<String, Object> options = jsOptions(args, 1);
                 return HkWebkitFetcher.fetchCodeByWebView(url, options);
             } catch (Throwable t) {
                 return "";
@@ -1719,12 +1729,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
                 String rule = args != null && args.length > 1 && args[1] != null ? String.valueOf(args[1]) : "";
                 if (url.isEmpty()) return "";
-                java.util.Map<String, Object> options = null;
-                if (args.length > 2 && args[2] instanceof java.util.Map) {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[2];
-                    options = m;
-                }
+                java.util.Map<String, Object> options = jsOptions(args, 2);
                 return HkWebkitFetcher.executeWebRule(url, rule, options);
             } catch (Throwable t) {
                 return "";
@@ -1735,12 +1740,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
                 String rule = args != null && args.length > 1 && args[1] != null ? String.valueOf(args[1]) : "";
                 if (url.isEmpty()) return "";
-                java.util.Map<String, Object> options = null;
-                if (args.length > 2 && args[2] instanceof java.util.Map) {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> m = (java.util.Map<String, Object>) args[2];
-                    options = m;
-                }
+                java.util.Map<String, Object> options = jsOptions(args, 2);
                 return HkWebkitFetcher.executeWebRule(url, rule, options);
             } catch (Throwable t) {
                 return "";
@@ -2285,9 +2285,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         "设置自定义 DNS", () -> {
                             try {
                                 if (args != null && args.length > 0 && args[0] != null) {
-                                    String json = argStr(args[0]);
+                                    // 8.83 JSEngine.registerDNS → DohProvidersKt.registerDNS：
+                                    // {网址或域名: DoH 地址 / 空格分隔 IP} 批量写进 autoDomain 表，
+                                    // 取数 client 解析命中域名时走注册方式（HkHttp.HK_AUTO_DNS）。
+                                    // 此前是只记日志的空壳，靠它绕污染解析的规则（如花都影视）全挂。
+                                    String json = stringifyArg(args[0]);
                                     Logger.t(TAG).d("registerDNS: %s", json);
-                                    // 简化版：记录日志，完整 DNS 注册待实现
+                                    if (json != null && json.startsWith("{")) {
+                                        org.json.JSONObject o = new org.json.JSONObject(json);
+                                        java.util.Map<String, String> map = new java.util.HashMap<>();
+                                        java.util.Iterator<String> it = o.keys();
+                                        while (it.hasNext()) {
+                                            String k = it.next();
+                                            Object v = o.opt(k);
+                                            if (v instanceof String) map.put(k, (String) v);
+                                        }
+                                        HkHttp.registerAutoDomain(map);
+                                    }
                                 }
                             } catch (Throwable e) {
                                 Logger.t(TAG).d("registerDNS apply failed: %s", e.getMessage());
@@ -3241,9 +3255,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String resolveHikerPath(String p) {
         try {
             if (TextUtils.isEmpty(p)) return "";
-            File base = App.get().getFilesDir();
             if (p.startsWith("hiker://files/")) {
-                return new File(base, p.substring("hiker://files/".length())).getAbsolutePath();
+                // 8.83 writeFile/readFile 与 fetch 同走 JSEngine.getFilePath（外部 Documents 根目录）；
+                // 此前这里误用内部 filesDir，规则自己 writeFile 写下的数据文件 fetch 永远读不到
+                // （真机游戏集 eval(fetch('hiker://files/rules/Hood/yxj.json')) 后 list 未定义实证）。
+                return getFilePath(p);
             }
             if (p.startsWith("file://")) p = p.substring("file://".length());
             File f = new File(p);
@@ -4244,6 +4260,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // 之前静默吞掉，动态域名类规则（如 18AV）拿不到域名时用户只能看到"加载失败"。
             // 记下来供排障/UI 展示；不抛异常，保持原有"失败也继续加载"的行为。
             preRuleError = jsErrorMsg(e);
+            // 规则在 preRule 里 showLoading 后异常退出时 hideLoading 不会再被调到，
+            // 不兜底关掉的话加载框会永远挂在页面上（18AV 真机截图）
+            try {
+                HkLoading.hide(rule.getTitle());
+            } catch (Throwable ignored) {
+            }
         }
     }
 

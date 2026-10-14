@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -13,6 +17,7 @@ import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -28,6 +33,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.api.hk.HkLoading;
 import com.fongmi.android.tv.api.hk.HkPageParser;
 import com.fongmi.android.tv.api.hk.HkPlayData;
 import com.fongmi.android.tv.api.hk.HkRule;
@@ -81,6 +87,96 @@ public class HkListActivity extends AppCompatActivity
     private boolean childHasWebView;
     /** editFile:// 支登记的保存后回调 JS（原版宿主同名字段族），编辑页以 0x4e16 回流后逐个求值。 */
     private final java.util.List<String> fileEditCallbackJs = new java.util.ArrayList<>();
+
+    /** 规则 showLoading/hideLoading 弹窗（8.83 LoadingEvent 等价）：此前只有旧内页
+     * HkPageActivity 注册过监听，而打开规则早已改走本页，监听从未注册、弹窗从未出现
+     * （18AV「正在获取域名」在星辰里看不到就是这个原因）。 */
+    private android.app.Dialog hkLoadingDialog;
+    private TextView hkLoadingText;
+    private final Handler hkLoadingWatchdog = new Handler(Looper.getMainLooper());
+    private final Runnable hkLoadingWatchdogRun = this::hideHkLoading;
+    private final HkLoading.Listener hkLoadingListener = new HkLoading.Listener() {
+        @Override
+        public void onShowLoading(String ruleTitle, String text) {
+            if (isFinishing()) return;
+            if (rule == null || ruleTitle == null || !ruleTitle.equals(rule.getTitle())) return;
+            showHkLoading(text);
+        }
+
+        @Override
+        public void onHideLoading(String ruleTitle) {
+            if (rule == null || ruleTitle == null || !ruleTitle.equals(rule.getTitle())) return;
+            hideHkLoading();
+        }
+    };
+
+    /** 与旧内页同款：深色小盒（#212121/圆角16）+ 菊花 + 文案，60 秒看门狗兜底关。 */
+    private void showHkLoading(String text) {
+        try {
+            if (hkLoadingDialog == null) {
+                LinearLayout root = new LinearLayout(this);
+                root.setOrientation(LinearLayout.VERTICAL);
+                root.setGravity(Gravity.CENTER);
+                LinearLayout box = new LinearLayout(this);
+                box.setOrientation(LinearLayout.VERTICAL);
+                box.setGravity(Gravity.CENTER);
+                int pad = dp(22);
+                box.setPadding(pad, pad, pad, pad);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setShape(GradientDrawable.RECTANGLE);
+                bg.setColor(0xFF212121);
+                bg.setCornerRadius(dp(16));
+                box.setBackground(bg);
+
+                ProgressBar bar = new ProgressBar(this);
+                LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(28), dp(28));
+                barLp.gravity = Gravity.CENTER_HORIZONTAL;
+                box.addView(bar, barLp);
+
+                hkLoadingText = new TextView(this);
+                hkLoadingText.setTextColor(0xFFEEEEEE);
+                hkLoadingText.setTextSize(14);
+                hkLoadingText.setGravity(Gravity.CENTER);
+                hkLoadingText.setMaxLines(1);
+                hkLoadingText.setEllipsize(TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                tvLp.gravity = Gravity.CENTER_HORIZONTAL;
+                tvLp.topMargin = dp(8);
+                box.addView(hkLoadingText, tvLp);
+
+                root.addView(box, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                hkLoadingDialog = new android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar);
+                hkLoadingDialog.setContentView(root);
+                hkLoadingDialog.setCancelable(true);
+                hkLoadingDialog.setCanceledOnTouchOutside(true);
+                if (hkLoadingDialog.getWindow() != null) {
+                    hkLoadingDialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+                    hkLoadingDialog.getWindow().setDimAmount(0.5f);
+                }
+            }
+            if (TextUtils.isEmpty(text)) {
+                hkLoadingText.setVisibility(View.GONE);
+            } else {
+                hkLoadingText.setVisibility(View.VISIBLE);
+                hkLoadingText.setText(text);
+            }
+            if (!hkLoadingDialog.isShowing() && !isFinishing()) hkLoadingDialog.show();
+            hkLoadingWatchdog.removeCallbacks(hkLoadingWatchdogRun);
+            hkLoadingWatchdog.postDelayed(hkLoadingWatchdogRun, 60000);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void hideHkLoading() {
+        try {
+            hkLoadingWatchdog.removeCallbacks(hkLoadingWatchdogRun);
+            if (hkLoadingDialog != null && hkLoadingDialog.isShowing()) hkLoadingDialog.dismiss();
+        } catch (Throwable ignored) {
+        }
+    }
 
     @Override
     public void addFileEditCallbackJs(String js) {
@@ -466,6 +562,8 @@ public class HkListActivity extends AppCompatActivity
         tempParentData = null;
         pageTitle = getIntent().getStringExtra("title");
         if (TextUtils.isEmpty(pageTitle)) pageTitle = rule.getTitle();
+        // 赶在列表加载触发引擎 init（跑 preRule）之前注册，否则第一声 showLoading 会漏掉
+        HkLoading.setListener(hkLoadingListener);
         // 活动标题必须真实设置：HkFuck.inList(Activity) 与 Fragment.activityTitle() 都读它
         setTitle(pageTitle == null ? "" : pageTitle);
         setContentView(R.layout.activity_hk_list);
@@ -495,12 +593,22 @@ public class HkListActivity extends AppCompatActivity
     protected void onResume() {
         super.onResume();
         currentRef = new WeakReference<>(this);
+        HkLoading.setListener(hkLoadingListener);
     }
 
     @Override
     protected void onPause() {
         if (currentActivity() == this) currentRef = null;
+        HkLoading.clearListener(hkLoadingListener);
+        hideHkLoading();
         super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        HkLoading.clearListener(hkLoadingListener);
+        hideHkLoading();
+        super.onDestroy();
     }
 
     /** 照原版 initView 数据全丢分支：温馨提示「页面数据被系统回收，即将退出该页面。」确认后退出。 */

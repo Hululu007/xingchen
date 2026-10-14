@@ -1625,24 +1625,56 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         dialog.show();
     }
 
-    /** 云口令导入对话框（支持 云1~云10 开头，如 云6oooole/apidb/xxxx）。 */
+    /** 导入带密码分享时是否自动再问一次密码（可关，默认开）。 */
+    private static final String PREF_IMPORT_PWD_PROMPT = "hk_import_pwd_prompt";
+
+    private boolean importPwdPromptEnabled() {
+        return getSharedPreferences("hk_page", MODE_PRIVATE).getBoolean(PREF_IMPORT_PWD_PROMPT, true);
+    }
+
+    private void setImportPwdPromptEnabled(boolean on) {
+        getSharedPreferences("hk_page", MODE_PRIVATE).edit().putBoolean(PREF_IMPORT_PWD_PROMPT, on).apply();
+    }
+
+    /** 云口令导入对话框（支持 云1~云10 开头，如 云6oooole/apidb/xxxx）。带密码的分享在第二个格里填密码。 */
     private void showCloudCodeDialog(String preset) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
         EditText et = new EditText(this);
         et.setHint("粘贴云口令，如：云6oooole/apidb/xxxx");
         et.setSingleLine(true);
         et.setTextColor(0xFF1A1D24);
         et.setHintTextColor(0xFF9AA1B0);
         if (!TextUtils.isEmpty(preset)) et.setText(preset);
+        box.addView(et);
+        EditText etPwd = new EditText(this);
+        etPwd.setHint("密码（分享人设了密码才填，没有可不填）");
+        etPwd.setSingleLine(true);
+        etPwd.setTextColor(0xFF1A1D24);
+        etPwd.setHintTextColor(0xFF9AA1B0);
+        etPwd.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(etPwd);
+        CheckBox cb = new CheckBox(this);
+        cb.setText("导入失败时，再问我一次密码");
+        cb.setTextColor(0xFF1A1D24);
+        cb.setChecked(importPwdPromptEnabled());
+        cb.setOnCheckedChangeListener((v, checked) -> setImportPwdPromptEnabled(checked));
+        box.addView(cb);
         new AlertDialog.Builder(this)
                 .setTitle("从云口令导入")
-                .setView(et)
-                .setPositiveButton("导入", (d, w) -> importByCloudCode(et.getText().toString()))
+                .setView(box)
+                .setPositiveButton("导入", (d, w) -> importByCloudCode(et.getText().toString(), etPwd.getText().toString().trim(), false))
                 .setNegativeButton("取消", null)
                 .show();
     }
 
     /** 云口令导入：云端解析 → 弹分组选择器 → 落盘（忽略规则自带的野分组名）。 */
     private void importByCloudCode(String code) {
+        importByCloudCode(code, "", false);
+    }
+
+    private void importByCloudCode(String code, String password, boolean prompted) {
         if (TextUtils.isEmpty(code)) {
             Notify.show("口令为空");
             return;
@@ -1650,12 +1682,34 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         Notify.show("正在从云端获取规则…");
         new Thread(() -> {
             try {
-                HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code);
+                HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code, password);
                 App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group)));
             } catch (Exception e) {
-                App.post(() -> Notify.show("导入失败：" + e.getMessage()));
+                // 没带密码、还没问过、开关开着：多半是分享设了密码，再问一次
+                if (TextUtils.isEmpty(password) && !prompted && importPwdPromptEnabled()) {
+                    App.post(() -> showImportPasswordDialog(code));
+                } else {
+                    App.post(() -> Notify.show("导入失败：" + e.getMessage()));
+                }
             }
         }).start();
+    }
+
+    /** 带密码分享的补问框：输了密码带着重试。 */
+    private void showImportPasswordDialog(String code) {
+        EditText et = new EditText(this);
+        et.setHint("输入分享人给的密码");
+        et.setSingleLine(true);
+        et.setTextColor(0xFF1A1D24);
+        et.setHintTextColor(0xFF9AA1B0);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        new AlertDialog.Builder(this)
+                .setTitle("这个分享可能设了密码")
+                .setMessage("没填密码导入失败了。分享人要是给了密码，填这里再试一次。")
+                .setView(et)
+                .setPositiveButton("导入", (d, w) -> importByCloudCode(code, et.getText().toString().trim(), true))
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     /** 云口令导入：分组选择后的落盘（后台线程）。 */

@@ -112,6 +112,120 @@ public class HkHttp {
     private static volatile DnsOverHttps hkDoh;
 
     /**
+     * 规则自带 DNS 注册表（8.83 DohProvidersKt.autoDomain 同款）：规则在 preRule 里调
+     * registerDNS({网址前缀: DoH 地址或空格分隔的 IP 列表})，之后取数 client 解析命中
+     * 的域名走注册的方式，不再走系统解析。原版默认种子 pasteme.tyrantg.com→阿里 DoH。
+     * 此前星辰 registerDNS 只是记日志的空壳：靠它绕开污染解析的规则（如花都影视
+     * d4.huadudm.net）只能走系统 DNS，解析到坏地址后连接挨个超时、首页无限转圈。
+     */
+    private static final java.util.Map<String, String> AUTO_DOMAIN = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Map<String, DnsOverHttps> AUTO_DOH = new java.util.concurrent.ConcurrentHashMap<>();
+
+    static {
+        AUTO_DOMAIN.put("pasteme.tyrantg.com", "https://dns.alidns.com/dns-query");
+    }
+
+    /** registerDNS 落地：批量注册/覆盖域名→解析方式。 */
+    public static void registerAutoDomain(java.util.Map<String, String> map) {
+        if (map == null) return;
+        for (java.util.Map.Entry<String, String> e : map.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null) AUTO_DOMAIN.put(e.getKey(), e.getValue());
+        }
+    }
+
+    /** 命中注册表返回其值：键可为纯域名或网址（取其 host 比对），按原版 endsWith 口径。 */
+    private static String autoDomainValue(String hostname) {
+        if (hostname == null || AUTO_DOMAIN.isEmpty()) return null;
+        for (java.util.Map.Entry<String, String> e : AUTO_DOMAIN.entrySet()) {
+            String key = e.getKey();
+            String keyHost = key;
+            if (key.contains("://")) {
+                HttpUrl u = HttpUrl.parse(key);
+                if (u != null) keyHost = u.host();
+            }
+            if (hostname.equals(keyHost) || hostname.endsWith(keyHost)) return e.getValue();
+        }
+        return null;
+    }
+
+    private static DnsOverHttps autoDoh(String dohUrl) {
+        DnsOverHttps d = AUTO_DOH.get(dohUrl);
+        if (d != null) return d;
+        HttpUrl url = HttpUrl.parse(dohUrl);
+        if (url == null) return null;
+        d = new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).build();
+        AUTO_DOH.put(dohUrl, d);
+        return d;
+    }
+
+    /**
+     * 取数 client 专用 DNS：命中注册表的域名走注册的 DoH / 静态 IP，其余系统解析
+     * （与改前行为一致，不影响未注册域名）。10 秒解析封顶沿用 HK_DNS 的兜底。
+     */
+    private static final Dns HK_AUTO_DNS = new Dns() {
+        @Override
+        public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+            java.util.concurrent.Future<List<InetAddress>> f =
+                    DNS_POOL.submit(() -> lookupAuto(hostname));
+            try {
+                return f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                f.cancel(true);
+                throw new UnknownHostException("dns timeout: " + hostname);
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable c = e.getCause();
+                if (c instanceof UnknownHostException) throw (UnknownHostException) c;
+                throw new UnknownHostException(String.valueOf(c));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UnknownHostException("dns interrupted: " + hostname);
+            }
+        }
+    };
+
+    private static List<InetAddress> lookupAuto(String hostname) throws UnknownHostException {
+        String v = autoDomainValue(hostname);
+        if (v != null) {
+            String value = v.trim();
+            if (value.startsWith("http://") || value.startsWith("https://")) {
+                DnsOverHttps doh = autoDoh(value);
+                if (doh != null) return doh.lookup(hostname);
+            } else if (!value.isEmpty()) {
+                // 空格分隔的 IP 列表，直接当静态地址用
+                List<InetAddress> out = new java.util.ArrayList<>();
+                for (String ip : value.split("\\s+")) {
+                    try {
+                        out.add(InetAddress.getByName(ip));
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (!out.isEmpty()) return out;
+            }
+        }
+        List<InetAddress> sys = Dns.SYSTEM.lookup(hostname);
+        if (hasUsableAddress(sys)) return sys;
+        // 系统解析只回空地址（[::] 这类坏记录，真机 huangseb.com、91crdjai.com 实证）：
+        // 换阿里 DoH 再试一次，有可用地址就用它；都没有维持原结果走原失败路径。
+        try {
+            DnsOverHttps doh = autoDoh("https://dns.alidns.com/dns-query");
+            if (doh != null) {
+                List<InetAddress> alt = doh.lookup(hostname);
+                if (hasUsableAddress(alt)) return alt;
+            }
+        } catch (Throwable ignored) {
+        }
+        return sys;
+    }
+
+    private static boolean hasUsableAddress(List<InetAddress> list) {
+        if (list == null) return false;
+        for (InetAddress a : list) {
+            if (a != null && !a.isAnyLocalAddress()) return true;
+        }
+        return false;
+    }
+
+    /**
      * 图片 client 专用 DNS（照 8.83 OkHttpUrlLoader.buildLoadData 口径）：
      * 默认系统解析；仅 host 含 "haikuoshijie" 的地址（原版
      * DohProvidersKt.shouldUseAutoDNS 口径）在用户开了 DoH 时走 hkDoh，
@@ -236,13 +350,15 @@ public class HkHttp {
      */
     // 8.83 HttpHelper.buildOkHttpClient 移植：公开供 HkJsRuntime 等调用方使用，
     // 使海阔 JS 请求与 HkHttp 同走 CookieJar / 内容类型拦截器配置；
-    // DNS 走系统默认（照 8.83 原文；图片 client 用 HK_IMAGE_DNS：默认系统解析，
-    // 仅 haikuoshijie 类地址在开 DoH 时走 DoH）。
+    // DNS 走 HK_AUTO_DNS：未注册域名=系统解析（与原版默认一致），规则 registerDNS
+    // 注册过的域名走其 DoH/IP（原版 DohProvidersKt.autoDomain 机制；图片 client
+    // 另用 HK_IMAGE_DNS，口径不变）。
     public static OkHttpClient client() {
         if (client == null) {
             synchronized (HkHttp.class) {
                 if (client == null) {
                     OkHttpClient.Builder b = new OkHttpClient.Builder()
+                            .dns(HK_AUTO_DNS)
                             .sslSocketFactory(HkSsl.getSocketFactory(), HkSsl.TRUST_MANAGER)
                             .hostnameVerifier(HkSsl.HOSTNAME_VERIFIER)
                             // 8.83 原版：Application.onCreate 里 OkGo.getInstance().addCommonHeaders

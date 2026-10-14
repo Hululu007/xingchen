@@ -568,6 +568,14 @@ public class HkRuleManager {
      * @throws Exception 口令格式错误 / 网络失败 / 内容不是合法规则时抛出
      */
     public ParsedRule parseByCloudCode(String code) throws Exception {
+        return parseByCloudCode(code, null);
+    }
+
+    /**
+     * 带密码版：分享人给云剪贴板设了访问密码时，接收方要把密码带上才能取到内容。
+     * password 为空时，若粘贴文本在口令后面还跟了一段（空格分隔），按海阔原版习惯把它当密码用。
+     */
+    public ParsedRule parseByCloudCode(String code, String password) throws Exception {
         if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("口令为空");
         // 先从文本中提取口令子串（兼容"云6oooole/xxxxxx/xxx 小程序：yyy"这类带后缀的输入）
         Matcher f = CLOUD_CODE_FIND.matcher(code);
@@ -577,7 +585,16 @@ public class HkRuleManager {
         if (!m.matches()) throw new IllegalArgumentException("不是有效的云口令（需云1~云10开头）");
         String version = m.group(1);
         String path = m.group(2); // 如 /p/xxxx、/apidb/yyyy、/xxxxxx/pppp、/f7c6
-        String json = fetchCloudJson(path, version);
+        String pwd = password;
+        if ((pwd == null || pwd.isEmpty()) && f.end() < code.length()) {
+            // 口令后空格跟的一段当密码（海阔 PastemeImporter 同款切法）；"小程序：xxx"这类说明后缀不算
+            String tail = code.substring(f.end()).trim();
+            if (!tail.isEmpty() && !tail.startsWith("小程序")) {
+                String token = tail.split("\\s+")[0];
+                if (!token.isEmpty() && !token.startsWith("http")) pwd = token;
+            }
+        }
+        String json = fetchCloudJson(path, version, pwd);
         if (json == null || json.trim().isEmpty()) throw new IllegalArgumentException("云端返回内容为空");
         String t = json.trim();
         return new ParsedRule(parseJson(t), t);
@@ -596,7 +613,19 @@ public class HkRuleManager {
     }
 
     /** 按口令 path 从云端拉取 rule.json 文本（通道按官方 App 逆向结果路由）。 */
-    private String fetchCloudJson(String path, String version) throws Exception {
+    /** 云6 tyrantg 剪贴板取一次：成功返回规则 JSON，失败（不存在/需密码/密码错）返回 null。 */
+    private String fetchPasteme(OkHttpClient client, String rest) throws Exception {
+        Request req = new Request.Builder().url(PASTEME_API + rest)
+                .header("referer", PASTEME_REFERER)
+                .header("cookie", "")
+                .header("User-Agent", "Mozilla/5.0").build();
+        try (Response resp = client.newCall(req).execute()) {
+            if (!resp.isSuccessful() || resp.body() == null) return null;
+            return extractRuleJsonFromPasteme(resp.body().string());
+        }
+    }
+
+    private String fetchCloudJson(String path, String version, String password) throws Exception {
         // 8.83 BailanImporter 用 DohProvidersKt.buildAutoClient(url)：走 App 的 DoH 客户端。
         // 裸 OkHttpClient 与海阔配置不一致，改走 HkHttp.client()（CookieJar/拦截器；DNS 系统默认照原版）。
         OkHttpClient client = HkHttp.client();
@@ -623,17 +652,13 @@ public class HkRuleManager {
         if (path.startsWith("/xxxxxx/")) {
             String rest = path.substring("/xxxxxx/".length()).split("\\s")[0];
             if (rest.isEmpty()) throw new IllegalArgumentException("口令中缺少便签ID");
-            Request req = new Request.Builder().url(PASTEME_API + rest)
-                    .header("referer", PASTEME_REFERER)
-                    .header("cookie", "")
-                    .header("User-Agent", "Mozilla/5.0").build();
-            try (Response resp = client.newCall(req).execute()) {
-                if (!resp.isSuccessful() || resp.body() == null)
-                    throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
-                String json = extractRuleJsonFromPasteme(resp.body().string());
-                if (json == null) throw new IllegalArgumentException("云端未返回有效规则（便签不存在或密码错误）");
-                return json;
+            String json = fetchPasteme(client, rest);
+            if (json == null && password != null && !password.isEmpty() && !rest.contains("(@")) {
+                // 分享人设了访问密码：按 (@密码) 后缀再取一次
+                json = fetchPasteme(client, rest + "(@" + password + ")");
             }
+            if (json == null) throw new IllegalArgumentException("云端未返回有效规则（便签不存在或密码错误）");
+            return json;
         }
         // 3) 云5 → cmd.im（官方云5通道，已验证可用）
         if ("5".equals(version)) {

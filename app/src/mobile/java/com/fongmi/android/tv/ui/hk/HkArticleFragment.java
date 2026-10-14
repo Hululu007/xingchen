@@ -537,6 +537,20 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 if (headerSize == -1) headerSize = initHeaders().size();
                 List<HkItem> cur = adapter.getList();
                 if (cur.isEmpty()) list.addAll(0, initHeaders());
+                if (!cur.isEmpty() && list != null && !list.isEmpty()) {
+                    List<HkItem> fresh = new ArrayList<>();
+                    for (HkItem it : list) {
+                        boolean dup = false;
+                        for (HkItem old : cur) {
+                            if (itemsEqual(old, it)) {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (!dup) fresh.add(it);
+                    }
+                    list = fresh;
+                }
                 int insertBase = cur.size() - 1;
                 boolean canInsert = list != null && !list.isEmpty() && idStr != null
                         && !idStr.equals(firstPageData) && !idStr.equals(lastPageData);
@@ -1685,13 +1699,28 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         void openPageUrl(HkRule rule, String pageUrl, int position);
     }
 
-    /** 照抄原版 getItemTitle：extra.pageTitle 优先，其次条目标题（inheritTitle 细则见施工图待复核项）。 */
+    /**
+     * 照抄原版 getItemTitle（ArticleListFragment 源行 3159-3170）：
+     * 越界返空 → extra.pageTitle 非空用它 → inheritTitle 为真走 DetailUIHelper.getItemTitle
+     * （活动标题非空时拼「活动标题-」+条目标题文本，异常回退活动标题）→ 否则只取条目标题文本。
+     * 旧简化版漏了后两段：带 inheritTitle 的集名条目被原样当播放器标题（真机：标题只剩集名）。
+     * 注：原版 extra 为 null 也走 DetailUIHelper 段；星辰 HkItem 的 extra 恒为 Map、读不到
+     * inheritTitle 键时按未设处理（影视条目基本都带 extra，此近似影响面最小）。
+     */
     public String getItemTitle(int position) {
         if (adapter == null || position < 0 || position >= adapter.getList().size()) return "";
         HkItem item = adapter.getList().get(position);
         String pageTitle = item.getExtra("pageTitle");
         if (!TextUtils.isEmpty(pageTitle)) return pageTitle;
-        return item.getTitle();
+        if ("true".equals(item.getExtra("inheritTitle"))) {
+            try {
+                String at = activityTitle();
+                return (TextUtils.isEmpty(at) ? "" : at + "-") + HkStringUtil.getTitleText(item.getTitle());
+            } catch (Exception e) {
+                return activityTitle();
+            }
+        }
+        return HkStringUtil.getTitleText(item.getTitle());
     }
 
     /** 宿主 hiker://page/ 开页用：被点条目的 extra 整份 JSON（作 PageParser.getNextPage 的 paramsJson）。 */

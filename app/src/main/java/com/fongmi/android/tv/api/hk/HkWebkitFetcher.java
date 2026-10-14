@@ -2,15 +2,20 @@ package com.fongmi.android.tv.api.hk;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 import com.fongmi.android.tv.App;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
  * WebView 后台抓取（8.83 WebkitFetcher/WebkitExecutor 的简化移植）。
@@ -41,8 +46,19 @@ public class HkWebkitFetcher {
                 webView.getSettings().setJavaScriptEnabled(true);
                 webView.getSettings().setDomStorageEnabled(true);
                 webView.getSettings().setBlockNetworkImage(true);
+                applyUa(webView, options);
+                List<?> rules = blockRulesOf(options);
                 WebView finalWv = webView;
                 webView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        if (rules != null && request != null && request.getUrl() != null
+                                && blocked(request.getUrl().toString(), rules)) {
+                            return new WebResourceResponse(null, null, null);
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+
                     @Override
                     public void onPageFinished(WebView view, String url) {
                         // 等 JS 渲染完成，延迟 1 秒后取源码
@@ -78,7 +94,8 @@ public class HkWebkitFetcher {
                         try { finalWv.destroy(); } catch (Throwable ignored) {}
                     }
                 });
-                webView.loadUrl(url);
+                Map<String, String> hdrs = headersOf(options);
+                if (hdrs != null) webView.loadUrl(url, hdrs); else webView.loadUrl(url);
             } catch (Throwable t) {
                 latch.countDown();
                 if (webView != null) {
@@ -109,8 +126,19 @@ public class HkWebkitFetcher {
                 webView = new WebView(App.get());
                 webView.getSettings().setJavaScriptEnabled(true);
                 webView.getSettings().setDomStorageEnabled(true);
+                applyUa(webView, options);
+                List<?> rules = blockRulesOf(options);
                 WebView finalWv = webView;
                 webView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        if (rules != null && request != null && request.getUrl() != null
+                                && blocked(request.getUrl().toString(), rules)) {
+                            return new WebResourceResponse(null, null, null);
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+
                     @Override
                     public void onPageFinished(WebView view, String url) {
                         view.postDelayed(() -> {
@@ -133,7 +161,8 @@ public class HkWebkitFetcher {
                         try { finalWv.destroy(); } catch (Throwable ignored) {}
                     }
                 });
-                webView.loadUrl(url);
+                Map<String, String> hdrs = headersOf(options);
+                if (hdrs != null) webView.loadUrl(url, hdrs); else webView.loadUrl(url);
             } catch (Throwable t) {
                 latch.countDown();
                 if (webView != null) {
@@ -156,7 +185,8 @@ public class HkWebkitFetcher {
             try {
                 Object t = options.get("timeout");
                 if (t != null) {
-                    int timeout = Integer.parseInt(String.valueOf(t));
+                    // JS 数字到 Java 是 Double（"5000.0"），Integer.parseInt 会失败掉回默认 30 秒
+                    int timeout = (int) Double.parseDouble(String.valueOf(t));
                     if (timeout < MIN_TIMEOUT) return MIN_TIMEOUT;
                     if (timeout > MAX_TIMEOUT) return MAX_TIMEOUT;
                     return timeout;
@@ -165,5 +195,49 @@ public class HkWebkitFetcher {
             }
         }
         return DEFAULT_TIMEOUT;
+    }
+
+    /** 8.83 X5Extra.blockRules：命中任一条（正则 find，编译失败退化为包含匹配）即拦截、回空响应。 */
+    private static boolean blocked(String url, List<?> rules) {
+        if (url == null || rules == null) return false;
+        for (Object r : rules) {
+            if (r == null) continue;
+            String rule = String.valueOf(r);
+            if (rule.isEmpty()) continue;
+            try {
+                if (Pattern.compile(rule).matcher(url).find()) return true;
+            } catch (Throwable e) {
+                if (url.contains(rule)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<?> blockRulesOf(Map<String, Object> options) {
+        if (options == null) return null;
+        Object b = options.get("blockRules");
+        return b instanceof List ? (List<?>) b : null;
+    }
+
+    private static Map<String, String> headersOf(Map<String, Object> options) {
+        if (options == null) return null;
+        Map<String, String> out = new HashMap<>();
+        Object h = options.get("headers");
+        if (h instanceof Map) {
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) h).entrySet()) {
+                if (e.getKey() != null && e.getValue() != null) out.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+            }
+        }
+        Object ua = options.get("ua");
+        if (ua != null && !String.valueOf(ua).isEmpty()) out.put("User-Agent", String.valueOf(ua));
+        return out.isEmpty() ? null : out;
+    }
+
+    private static void applyUa(WebView webView, Map<String, Object> options) {
+        if (options == null) return;
+        Object ua = options.get("ua");
+        if (ua != null && !String.valueOf(ua).isEmpty()) {
+            webView.getSettings().setUserAgentString(String.valueOf(ua));
+        }
     }
 }

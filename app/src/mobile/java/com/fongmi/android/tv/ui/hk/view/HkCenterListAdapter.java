@@ -86,9 +86,9 @@ public class HkCenterListAdapter extends RecyclerView.Adapter<HkCenterListAdapte
     }
 
     @Override
-    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
-        if (holder instanceof ArticleListRuleHolder) {
-            ArticleListRuleHolder h = (ArticleListRuleHolder) holder;
+    public void onBindViewHolder(@NonNull ArticleListRuleHolder holder, int position) {
+        {
+            ArticleListRuleHolder h = holder;
             String item = list.get(position);
             HkTextViewUtils.setSpanText(h.item_rect_text, item);
             if (selectIndex >= 0) {

@@ -104,6 +104,8 @@ public class HkContentFragment extends BaseFragment {
     /** 内容页标题（顶栏已删除，用字段保存，子列表栈恢复用）。 */
     private String contentTitle = "";
     private int contentGen = 0;
+    /** onRuleChanged 在 Fragment 未就绪时不丢弃：置位，就绪后在 onViewCreated 末尾重放 */
+    private boolean pendingRuleChanged;
     private final List<HkRule> miniappRules = new ArrayList<>();
     /** 实际抓取的页面 URL（图片自动 Referer 用）。volatile：后台线程写、UI 线程读。 */
     private volatile String hkPageUrl;
@@ -271,6 +273,45 @@ public class HkContentFragment extends BaseFragment {
         }
     }
 
+    /** 页面是否正在加载（供 Activity 做转圈互斥判断） */
+    public boolean isPageLoading() {
+        return loading;
+    }
+
+    // ===== 转圈单一状态机：同一时刻整个页面只许一个转圈 =====
+    // 三个候选：下拉刷新圈（用户下拉触发的加载用它）、顶部进度线（程序触发的整页加载用它，8.83 原版样式）、
+    // 弹窗转圈（规则脚本 showLoading 时用它，在 Activity 手里，本类只记状态）。
+    // 以前三者各行其是，用户实测同屏出现两个甚至三个转圈。此后所有开关都过 reconcile。
+    private boolean pullRefreshInFlight;
+    private boolean inlineSpinnerWanted;
+    private boolean dialogSpinnerUp;
+
+    /** 弹窗转圈状态变化（Activity 调用）：弹窗在时顶部进度线让位 */
+    public void onDialogSpinnerChanged(boolean showing) {
+        dialogSpinnerUp = showing;
+        reconcileLoadingUi();
+    }
+
+    private void reconcileLoadingUi() {
+        try {
+            if (binding == null) return;
+            if (!loading) {
+                binding.swipeContent.setRefreshing(false);
+                binding.progressTop.setVisibility(View.GONE);
+                return;
+            }
+            if (pullRefreshInFlight) {
+                binding.swipeContent.setRefreshing(true);
+                binding.progressTop.setVisibility(View.GONE);
+            } else {
+                binding.swipeContent.setRefreshing(false);
+                binding.progressTop.setVisibility(
+                        inlineSpinnerWanted && !dialogSpinnerUp ? View.VISIBLE : View.GONE);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ================= 对外 API（Activity 调用） =================
 
     /**
@@ -362,6 +403,11 @@ public class HkContentFragment extends BaseFragment {
      * scrollMem 恢复由 Activity 在调用后用 {@link #scrollToPosition(int)} 完成。
      */
     public void onRuleChanged() {
+        if (!isAdded() || binding == null) {
+            // 未就绪不丢弃（第一次进入时调用方与 attach 存在竞态，丢了就永远不加载）
+            pendingRuleChanged = true;
+            return;
+        }
         hkPageUrl = null; // 切规则：实际抓取页 URL 失效，下次 loadContent 重记
         // preRule loading 桥：切规则时旧弹窗先关，避免残留
         hideHkLoading();
@@ -511,7 +557,11 @@ public class HkContentFragment extends BaseFragment {
         rv.addItemDecoration(new GridSpace());
         if (contentAdapter != null) rv.setAdapter(contentAdapter);
         binding.swipeContent.setColorSchemeColors(0xFFD4A017);
-        binding.swipeContent.setOnRefreshListener(() -> loadContent(true));
+        binding.swipeContent.setOnRefreshListener(() -> {
+            // 下拉触发的加载只用下拉圈当指示器，不再叠加页面金圈
+            pullRefreshInFlight = true;
+            loadContent(true);
+        });
         binding.btnMiniappAll.setOnClickListener(v -> showMiniappSwitchDialog());
         binding.tvContentEmpty.setOnClickListener(v -> loadContent(true));
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -528,6 +578,11 @@ public class HkContentFragment extends BaseFragment {
         buildCategoryRow();
         buildFilterRows();
         buildContentSearchBar();
+        // 重放未就绪时被暂存的切规则请求（第一次进入小程序时与 attach 竞态的那次）
+        if (pendingRuleChanged) {
+            pendingRuleChanged = false;
+            onRuleChanged();
+        }
     }
 
     // ================= 内容加载 =================
@@ -539,13 +594,10 @@ public class HkContentFragment extends BaseFragment {
     public void loadContent(boolean reset) {
         HkRule rule = currentRule();
         if (loading || rule == null) {
-            // 早退也要关下拉刷新圈：加载卡住时用户下拉刷新走到这里直接 return，
-            // 刷新圈没人关会永远转（用户实测两个转圈同屏的第二个就是它）。
-            // 本次调用不会产生完成回调，关掉是安全的；真正在途的那次完成后仍会再关一次（幂等）。
-            try {
-                if (binding != null) binding.swipeContent.setRefreshing(false);
-            } catch (Throwable ignored) {
-            }
+            // 早退不产生完成回调：按当前真实状态对一次账，保证在途加载有且只有一个转圈、
+            // 没有在途加载时一个都不剩（以前这里只关下拉圈，页面金圈会残留成双圈同屏）。
+            if (rule == null) pullRefreshInFlight = false;
+            reconcileLoadingUi();
             return;
         }
         if (!reset && !canAutoPage()) {
@@ -554,6 +606,7 @@ public class HkContentFragment extends BaseFragment {
             return;
         }
         loading = true;
+        inlineSpinnerWanted = reset;
         final int gen = ++contentGen;
         if (reset) {
             page = 1;
@@ -564,7 +617,9 @@ public class HkContentFragment extends BaseFragment {
             if (binding != null) {
                 binding.tvContentEmpty.setVisibility(View.GONE);
                 binding.rvVideos.setVisibility(View.GONE);
-                binding.loadingContent.setVisibility(View.VISIBLE);
+                reconcileLoadingUi();
+                // 页面转圈接管：关掉弹窗转圈，一个页面只许一个转圈
+                hideHkLoading();
             }
         }
         updateFooter();
@@ -589,14 +644,12 @@ public class HkContentFragment extends BaseFragment {
                 // 先释放 loading：过期回调也不能把标记卡死，否则滚动翻页/下拉刷新永久失效
                 //（翻页请求在途时用户点了别的导致 contentGen 自增，就会走到这里）。
                 loading = false;
+                pullRefreshInFlight = false;
                 // 加载视觉的清理必须排在过期检查前面：以前过期回调直接 return，
                 // 全屏转圈/下拉刷新/preRule 弹窗全没人关——页面已经显示"加载失败"，
-                // 底部还在转圈（用户实测）。清理是幂等的，先做永远安全；只有内容
-                // 应用才需要被 gen 拦住。
-                if (binding != null) {
-                    binding.swipeContent.setRefreshing(false);
-                    binding.loadingContent.setVisibility(View.GONE);
-                }
+                // 底部还在转圈（用户实测）。reconcile 按当前真实状态对账（若已有新加载
+                // 在途，它会给新加载留对的那个转圈），过期回调调它也安全。
+                reconcileLoadingUi();
                 // preRule 的 showLoading 兜底关闭：规则若没调 hideLoading，内容加载完也不残留弹窗。
                 hideHkLoading();
                 if (gen != contentGen) return; // 规则已切换/被更新的加载覆盖，丢弃过期结果

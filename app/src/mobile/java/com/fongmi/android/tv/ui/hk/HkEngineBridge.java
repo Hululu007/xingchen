@@ -17,7 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * HkArticleListModel.EngineBridge 的真绑定（引擎阶段）：
@@ -27,6 +27,7 @@ import timber.log.Timber;
  * #memoryPage# 存 SharedPreferences（原版为引擎内记忆，等价实现）。
  */
 public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
+    private static final String TAG = "HkEngineBridge";
 
     /** HkLazyRuleParser.parse 需要 Activity（错误弹窗/加载弹窗），由宿主注入当前列表页。 */
     public static volatile Supplier<Activity> activityProvider;
@@ -68,7 +69,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
                 try {
                     HkEngineManager.ensureInit(rt);
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                 }
                 return rt.evalLazyRule(rule, myCode, jsRule);
             }
@@ -81,7 +82,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
                 try {
                     HkEngineManager.ensureInit(rt);
                 } catch (Exception e) {
-                    Timber.e(e);
+                    Log.e(TAG, "hk error", e);
                     return null;
                 }
                 return rt.evalJSForObj(script, input);
@@ -135,7 +136,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
             List<HkItem> list = rt.parseList(findRule, url, page);
             callback.bindArrayToView(key, list);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             callback.error("解析失败", e.toString(), "404", e);
         }
     }
@@ -216,7 +217,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
             HkEngineManager.ensureInit(rt);
             return rt.evalJS(HkJsRuntime.getMyRule(rule) + js, input);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return null;
         }
     }
@@ -232,7 +233,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
                     + js;
             return rt.evalJS(script, input);
         } catch (Exception e) {
-            Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return null;
         }
     }

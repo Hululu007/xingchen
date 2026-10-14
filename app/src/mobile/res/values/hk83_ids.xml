@@ -22,13 +22,11 @@
     <item type="id" name="shortcut_icon" />
     <item type="id" name="shortcut_icon_bg" />
     <item type="id" name="shortcut_text" />
-    <item type="id" name="item_rect_text" />
     <item type="id" name="menu_icon" />
     <item type="id" name="recyclerView" />
     <item type="id" name="title" />
     <item type="id" name="res_header_scroll" />
     <item type="id" name="custom_tag" />
-    <item type="id" name="bg" />
     <item type="id" name="float_container" />
     <item type="id" name="webview_container" />
     <item type="id" name="progress_bar" />

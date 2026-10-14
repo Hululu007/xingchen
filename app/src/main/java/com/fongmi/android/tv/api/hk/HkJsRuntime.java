@@ -21,12 +21,14 @@ import org.mozilla.javascript.ContextFactory;
 import org.mozilla.javascript.ConsString;
 import org.mozilla.javascript.NativeArray;
 import org.mozilla.javascript.NativeJSON;
+import org.mozilla.javascript.NativeJavaArray;
 import org.mozilla.javascript.NativeJavaObject;
 import org.mozilla.javascript.NativeObject;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -190,6 +192,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** refreshPage 请求标记（JS 线程写，宿主线程读后清零）。 */
     private volatile boolean refreshRequested;
     private volatile boolean refreshToTop;
+    /** refreshPage 节流（照官方 canTouchUI 的 200ms）：上次发刷新事件的时间。 */
+    private volatile long lastRefreshPageAt;
     /** goTo(url) 导航请求（JS 线程写，宿主线程读后清零）。规则如 xhotvideo 用 goTo('hiker://page/detail?...') 跳 V4。 */
     private volatile String goToUrl;
     /** setPageTitle/getPageTitle 的页标题状态。 */
@@ -231,6 +235,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     private Context rhinoCx;
     private ScriptableObject scope;
+    // 新鲜作用域补注册用：非空时 putFunction 改写到该作用域（见 registerApiInto）。
+    private ScriptableObject apiRegTarget;
+    private final Object apiRegisterLock = new Object();
+    // storage0 壳只建一次（数据在 vars/myVars/kv 里），各作用域共用同一壳。
+    private ScriptableObject sharedStorage0;
     private Map<String, String> kv;
     private String error;
     /** preRule 执行失败的根因（动态域名类规则排障用）；parseList 会清 error，本字段独立保留。 */
@@ -325,7 +334,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 与官方 STRING/OBJECT 模板的 null 语义一致），不转 undefined。
      */
     private void putFunction(String name, JsFunc fn) {
-        putFunction(scope, name, fn);
+        putFunction(apiRegTarget != null ? apiRegTarget : scope, name, fn);
     }
 
     private void putFunction(ScriptableObject target, String name, JsFunc fn) {
@@ -744,6 +753,25 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     // ================= API 注册 =================
+
+    /**
+     * 把整套 API 函数注册进一个新鲜作用域。
+     * 原版每个作用域都自带全部 159 个函数（反射预置段）；我方函数是 registerApi
+     * 的 lambda 集、原本只注册进共享作用域，四条新鲜路径（runScript 与三个 evalJS）
+     * 因此缺 getJsPlugin 等全部函数，规则一调就报未定义。在锁内临时切换注册目标，
+     * 避免并发求值把函数注册错作用域。
+     */
+    private void registerApiInto(ScriptableObject target) {
+        synchronized (apiRegisterLock) {
+            ScriptableObject prev = apiRegTarget;
+            apiRegTarget = target;
+            try {
+                registerApi();
+            } finally {
+                apiRegTarget = prev;
+            }
+        }
+    }
 
     private void registerApi() {
         // 8.83 原版 JSON.parse：空串/非法 JSON 抛 SyntaxError（"Empty JSON string"），不吞错。
@@ -1228,7 +1256,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
         // ---- storage0 对象（官方：支持存储 JSON 对象的存储封装） ----
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
-        ScriptableObject storage0 = (ScriptableObject) rhinoCx.newObject(scope);
+        // 壳只建一次存进 sharedStorage0：新鲜作用域补注册时直接共用，避免跨 Context 重建与重复挂载。
+        if (sharedStorage0 == null) sharedStorage0 = (ScriptableObject) rhinoCx.newObject(scope);
+        ScriptableObject storage0 = sharedStorage0;
         putFunction(storage0, "putVar", args -> {
             if (args != null && args.length > 1) vars.put(argStr(args[0]), stringifyArg(args[1]));
             return null;
@@ -1255,7 +1285,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction(storage0, "getPublicItem", args -> storage0Get(publicKv, args));
-        ScriptableObject.putProperty(scope, "storage0", storage0);
+        ScriptableObject.putProperty(apiRegTarget != null ? apiRegTarget : scope, "storage0", storage0);
 
         // ---- 当前结果列表的动态修改（官方经 EventBus 改 UI 列表；本宿主直接改 results） ----
         putFunction("updateItem", args -> {
@@ -2069,12 +2099,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 官方全名：xpathArray 即 xpa
         putFunction("xpathArray", args -> xpathArrayImpl(args));
 
-        // ---- refreshPage：官方刷新当前页（bool 为 true 时回顶）。宿主实现为"刷新请求"
-        // 标记：lazyRule 回调（如 tab 切换 setItem 后调 refreshPage(true)）经 evalLazy 求值，
-        // HkRouter.evalTab 消费该标记后由上层 loadContent(true) 重刷，语义与官方一致。
+        // ---- refreshPage：照官方 JSEngine.refreshPage——置标记（供 HkRouter 的变化检测读）
+        // 之外，直接发 OnRefreshPageEvent 事件让当前列表页重刷（官方就是事件驱动；
+        // 此前只有标记、新列表模块无人消费，脚本调了等于没调）。
         putFunction("refreshPage", args -> {
             refreshRequested = true;
             refreshToTop = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
+            long now = System.currentTimeMillis();
+            if (now - lastRefreshPageAt >= 200) {
+                lastRefreshPageAt = now;
+                org.greenrobot.eventbus.EventBus.getDefault().post(
+                        new com.fongmi.android.tv.api.hk.event.home.OnRefreshPageEvent(refreshToTop));
+            }
             Logger.t(TAG).d("refreshPage(%s) requested", refreshToTop);
             return null;
         });
@@ -3678,11 +3714,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
-    /** 求值结果 → 流：是流则采用（与原流不同时关原流），否则返回原 input。 */
+    /** 求值结果 → 流：是流则采用（与原流不同时关原流），否则返回原 input。
+     *  我方 crypto-java.js 是纯 JS 重写版，解密函数的 toInputStream() 返回的是
+     *  JS 数字数组（bytes.slice()），不是 Java 流；原版靠 Rhino 互操作直接返回真流。
+     *  这里补上数组 → 字节流的转换，否则解密结果会被丢弃、回退成加密原字节，
+     *  图片解码失败（「一个APP」首页大图无封面即此因，本机用真实数据复现定案）。 */
     private static InputStream coerceImageStream(Object r, InputStream input) {
         try {
             Object v = r;
             if (v instanceof NativeJavaObject) v = ((NativeJavaObject) v).unwrap();
+            if (v instanceof NativeJavaArray) v = ((NativeJavaArray) v).unwrap();
             if (v instanceof InputStream) {
                 if (v != input && input != null) {
                     try {
@@ -3691,6 +3732,33 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     }
                 }
                 return (InputStream) v;
+            }
+            byte[] bytes = null;
+            if (v instanceof byte[]) {
+                bytes = (byte[]) v;
+            } else if (v instanceof NativeArray) {
+                NativeArray arr = (NativeArray) v;
+                int len = (int) arr.getLength();
+                bytes = new byte[len];
+                for (int i = 0; i < len; i++) {
+                    Object e = arr.get(i, arr);
+                    bytes[i] = (byte) (e instanceof Number ? ((Number) e).intValue() : 0);
+                }
+            } else if (v instanceof Object[]) {
+                Object[] arr = (Object[]) v;
+                bytes = new byte[arr.length];
+                for (int i = 0; i < arr.length; i++) {
+                    bytes[i] = (byte) (arr[i] instanceof Number ? ((Number) arr[i]).intValue() : 0);
+                }
+            }
+            if (bytes != null) {
+                if (input != null) {
+                    try {
+                        input.close();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                return new ByteArrayInputStream(bytes);
             }
         } catch (Throwable ignored) {
         }
@@ -4040,7 +4108,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 if (collectRaw) {
                     Map<String, String> raw = new HashMap<>();
                     for (Map.Entry<String, Object> e : m.entrySet()) {
-                        raw.put(e.getKey(), e.getValue() == null ? "" : String.valueOf(e.getValue()));
+                        raw.put(e.getKey(), e.getValue() == null ? "" : stringifyValue(e.getValue()));
                     }
                     rawResults.add(raw);
                     continue;
@@ -4082,7 +4150,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     Map<String, String> extra = new HashMap<>();
                     for (Map.Entry<?, ?> e : ((Map<?, ?>) extraObj).entrySet()) {
                         extra.put(String.valueOf(e.getKey()),
-                                e.getValue() == null ? "" : String.valueOf(e.getValue()));
+                                e.getValue() == null ? "" : stringifyValue(e.getValue()));
                     }
                     item.setExtra(extra);
                 } else {
@@ -4131,7 +4199,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     private static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
-        return v == null ? "" : String.valueOf(v);
+        return v == null ? "" : stringifyValue(v);
+    }
+
+    /** 对照原版 fastjson 的 getString：嵌套对象/数组取标准 JSON 文本，不取 Java 的 toString。 */
+    private static String stringifyValue(Object v) {
+        if (v instanceof Map || v instanceof List) return GSON.toJson(v);
+        return String.valueOf(v);
     }
 
     private List<HkItem> drainResults() {
@@ -4714,6 +4788,7 @@ public InputStream evalJS(String p1, InputStream p2) {
         ScriptableObject.putProperty(v2, "_base64", Context.javaToJS(myBase64, v2)); // field MISSING
         ScriptableObject.putProperty(v2, "javaContext", Context.javaToJS(this, v2));
         ScriptableObject.putProperty(v2, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v2)); // field MISSING
+        registerApiInto(v2);
         if (!v3.contains("eval(getJsPlugin());\n")) {
             v1cx.evaluateString(v2, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
         } else {
@@ -4805,6 +4880,7 @@ public String evalJS(String p1, String p2, boolean p3) {
         ScriptableObject.putProperty(v7, "_base64", Context.javaToJS(myBase64, v7)); // field MISSING
         ScriptableObject.putProperty(v7, "javaContext", Context.javaToJS(this, v7));
         ScriptableObject.putProperty(v7, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v7)); // field MISSING
+        registerApiInto(v7);
         if (!v8.contains("eval(getJsPlugin());\n")) {
             v6.evaluateString(v7, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
         } else {
@@ -4872,6 +4948,7 @@ public Object evalJSForObj(String p1, Object p2) {
         ScriptableObject.putProperty(v4, "_base64", Context.javaToJS(myBase64, v4)); // field MISSING
         ScriptableObject.putProperty(v4, "javaContext", Context.javaToJS(this, v4));
         ScriptableObject.putProperty(v4, "javaLoader", Context.javaToJS(clazz.getClassLoader(), v4)); // field MISSING
+        registerApiInto(v4);
         if (!v5.contains("eval(getJsPlugin());\n")) {
             v3.evaluateString(v4, allFunctions + "\neval(getJsPlugin());\n", clazz.getSimpleName(), 1, null); // field MISSING
         } else {
@@ -5139,6 +5216,7 @@ private void runScript(String script, String key, boolean throwOnError) {
                 Context.javaToJS(this, scope));
         ScriptableObject.putProperty(scope, "javaLoader",
                 Context.javaToJS(clazz.getClassLoader(), scope));
+        registerApiInto(scope);
         if (!script.contains("eval(getJsPlugin());\n")) {
             cx.evaluateString(scope, allFunctions + "\neval(getJsPlugin());\n",
                     clazz.getSimpleName(), 1, null);

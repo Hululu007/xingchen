@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -38,7 +39,8 @@ public class Thunder implements Source.Extractor {
     }
 
     // 同一 URL 的本地地址缓存：播放链会对同一链接并发多次 fetch（1.2.4 日志实证 50ms 内
-    // 建了 4 个 native 任务写同一文件互抢），复用已建任务的地址，不再重复建任务
+    // 建了 4 个 native 任务写同一文件互抢），复用已建任务的地址，不再重复建任务。
+    // 复用前提是旧任务仍活着（状态 0/1/2），死任务不复用，走下面的串行重试卫生。
     private String lastKey;
     private String lastLocal;
 
@@ -46,13 +48,13 @@ public class Thunder implements Source.Extractor {
     // 共用 Source 单例里的同一个 Thunder 实例）。后到的一路如果另建 native 任务，会写同一
     // 目录互抢、覆盖 taskId 字段、随后 stop() 删掉的也是后建的任务，先建的反而泄漏。
     // 所以同 URL 正在 fetch 时后到者直接等先到者的结果，不建第二个任务。
-    private final java.util.concurrent.ConcurrentHashMap<String, CompletableFuture<String>> inflight = new java.util.concurrent.ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<String>> inflight = new ConcurrentHashMap<>();
 
     @Override
     public String fetch(String url) throws Exception {
         if (url == null) return fetchInternal(url);
         synchronized (this) {
-            if (url.equals(lastKey) && lastLocal != null && taskId != null) {
+            if (url.equals(lastKey) && lastLocal != null && isTaskAlive()) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
                 return lastLocal;
             }
@@ -85,10 +87,14 @@ public class Thunder implements Source.Extractor {
     }
 
     private synchronized String fetchInternal(String url) throws Exception {
-        if (url != null && url.equals(lastKey) && lastLocal != null && taskId != null) {
+        // 有效任务复用：同链接且缓存地址仍对应活任务时直接复用
+        if (url != null && url.equals(lastKey) && lastLocal != null && isTaskAlive()) {
             SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
             return lastLocal;
         }
+        // 串行重试卫生：上轮同一链接失败后 taskId 仍指向旧原生任务（从未 stop/delete）。
+        // 旧任务已死/失效时先停删再建新任务，禁止两个原生任务同目录并存互抢。
+        if (taskId != null && !isTaskAlive()) cleanupStaleTask();
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
                 : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
@@ -96,6 +102,38 @@ public class Thunder implements Source.Extractor {
             lastLocal = local;
         }
         return local;
+    }
+
+    // 任务是否还活着：0 等待 / 1 下载中 / 2 已完成都算活；3 出错、读不到信息都算死
+    private boolean isTaskAlive() {
+        if (taskId == null) return false;
+        try {
+            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
+            int status = info == null ? -1 : info.getTaskStatus();
+            return status == 0 || status == 1 || status == 2;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // 清理死任务：stop + delete，不释放引擎（重建任务走热引擎，与上游每轮建任务一致）
+    private void cleanupStaleTask() {
+        int status = -1;
+        try {
+            XLTaskInfo info = XLTaskHelper.get().getTaskInfo(taskId);
+            status = info == null ? -1 : info.getTaskStatus();
+        } catch (Exception ignored) {
+        }
+        try {
+            XLTaskHelper.get().stopTask(taskId);
+            XLTaskHelper.get().deleteTask(taskId);
+        } catch (Exception e) {
+            SpiderDebug.log("thunder", "cleanup stale task err=%s", String.valueOf(e.getMessage()));
+        }
+        taskId = null;
+        lastKey = null;
+        lastLocal = null;
+        SpiderDebug.log("thunder", "cleaned stale task before rebuild status=%d", status);
     }
 
     /**
@@ -119,72 +157,39 @@ public class Thunder implements Source.Extractor {
         return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed)) : parsed;
     }
 
+    // 照上游：状态 3 抛真错；状态非 0 即交本地地址，播放器自己拉流边下边播，不等字节
     private String addTorrentTask(Uri uri) throws Exception {
         File torrent = new File(uri.getPath());
         File parent = torrent.getParentFile();
         String name = uri.getQueryParameter("name");
         int index = Integer.parseInt(uri.getQueryParameter("index"));
         taskId = XLTaskHelper.get().addTorrentTask(torrent, parent, index);
-        // 就绪门（见 waitDataReady）：等子任务真实已下载字节，不再状态非 0 就交地址
-        waitDataReady(() -> XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo);
-        String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
-        SpiderDebug.log("thunder", "bt task ready local=%s", local);
-        return local;
-    }
-
-    private String addThunderTask(String url) throws Exception {
-        File folder = Path.thunder(Util.md5(url));
-        taskId = XLTaskHelper.get().addThunderTask(url, folder);
-        // 就绪门（见 waitDataReady）：进度必须读原生任务信息的已下载字节——保存文件在建任务
-        // 瞬间就被预分配成全长，读文件长度等于没等数据就放行（真机实证磁力/ed2k 双 0% 黑屏）
-        waitDataReady(() -> XLTaskHelper.get().getNativeTaskInfo(taskId));
-        String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
-        SpiderDebug.log("thunder", "task ready local=%s", local);
-        return local;
-    }
-
-    private interface InfoSource {
-        XLTaskInfo get();
-    }
-
-    // 就绪门：SDK 本地服务对未下载到的区间只挂起不吐数据，地址交早了播放器就是黑屏干等，
-    // 所以放行必须建立在真实已下载字节上（信号来源见 addTorrentTask/addThunderTask，两条
-    // 都读原生任务信息；保存文件长度是预分配全长，绝不能当进度）。
-    // 放行条件：下完（size≥total）；或 ≥512KB 且最近 2 秒还在涨（源是活的，播放器自己会
-    // 缓冲）；或 ≥4MB（缓冲已够起播）。旧版的"两次见涨就放行/3 秒不涨就放行"会被几 KB 的
-    // 握手流量骗开门，对端一掉光就是 0KB/s 黑屏，已删。
-    // 上限 25 秒：外层播放解析只给 30 秒（SiteViewModel.withTimeout），门必须在被掐之前
-    // 自己收尾——到时已有 ≥512KB 就交地址试播，不足则抛"连接超时"真错误上屏，不留假象。
-    // 任务真失败（status==3）立即抛真错误，不把死地址交给播放器。
-    private void waitDataReady(InfoSource source) throws Exception {
-        long lastSize = -1;
-        long size = 0;
-        long total = 0;
-        long lastGrow = SystemClock.elapsedRealtime();
-        for (int i = 0; i < 250; i++) {
-            XLTaskInfo info = source.get();
-            if (info != null && info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
-            size = info == null ? 0 : info.mDownloadSize;
-            total = info == null ? 0 : info.mFileSize;
-            long now = SystemClock.elapsedRealtime();
-            if (size > lastSize) lastGrow = now;
-            if (total > 0 && size >= total) {
-                SpiderDebug.log("thunder", "data complete size=%d", size);
-                return;
+        for (int i = 0; i < 100; i++) {
+            XLTaskInfo info = XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo;
+            if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
+            if (info.mTaskStatus != 0) {
+                String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
+                SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                return local;
             }
-            if (size >= 512_000 && (size >= 4_000_000 || now - lastGrow <= 2000)) {
-                SpiderDebug.log("thunder", "data ready size=%d total=%d", size, total);
-                return;
-            }
-            lastSize = size;
-            if (i % 50 == 49) SpiderDebug.log("thunder", "waiting data size=%d total=%d status=%d", size, total, info == null ? -1 : info.mTaskStatus);
+            if (i % 50 == 49) SpiderDebug.log("thunder", "bt waiting status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
             SystemClock.sleep(100);
         }
-        if (size >= 512_000) {
-            SpiderDebug.log("thunder", "data slow size=%d total=%d, hand url anyway", size, total);
-            return;
-        }
         throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
+    }
+
+    // 照上游：ed2k/thunder 零等待，直接交本地地址
+    private String addThunderTask(String url) {
+        File folder = Path.thunder(Util.md5(url));
+        taskId = XLTaskHelper.get().addThunderTask(url, folder);
+        String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
+        try {
+            XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(taskId);
+            SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info == null ? -1 : info.mTaskStatus, info == null ? 0 : info.mDownloadSpeed, info == null ? 0 : info.mDownloadSize);
+        } catch (Exception e) {
+            SpiderDebug.log("thunder", "task handed local=%s (info unreadable)", local);
+        }
+        return local;
     }
 
     @Override

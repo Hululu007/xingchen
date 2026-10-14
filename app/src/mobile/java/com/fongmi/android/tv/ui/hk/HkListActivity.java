@@ -26,7 +26,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.api.hk.HkPlayData;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
@@ -187,24 +189,55 @@ public class HkListActivity extends AppCompatActivity
                     openX5PlayPage(activity, sel.memoryTitle, selUrl.substring("x5Play://".length()));
                     return;
                 }
-                JSONArray arr = new JSONArray();
-                for (HkArticleFragment.HkChapter ch : chapters) {
-                    try {
-                        JSONObject o = new JSONObject();
-                        o.put("name", !TextUtils.isEmpty(ch.memoryTitle) ? ch.memoryTitle
-                                : (ch.title == null ? "" : ch.title));
-                        o.put("url", playUrlForChapter(ch));
-                        o.put("pic", ch.pic == null ? "" : ch.pic);
-                        arr.put(o);
-                    } catch (Exception ignored) {
-                    }
-                }
                 String selName = !TextUtils.isEmpty(sel.memoryTitle) ? sel.memoryTitle
                         : (sel.title == null ? "" : sel.title);
-                String name = !TextUtils.isEmpty(mTitle) ? mTitle
+                // 8.83 播放器标题取选中集的标题；只有详情页（mTitle 传空）才用影片名
+                String name = !TextUtils.isEmpty(mTitle) ? selName
                         : (!TextUtils.isEmpty(film) ? film : selName);
-                VideoActivity.startHkPlay(activity, ruleTitle, "默认", selUrl, selName, name,
-                        sel.pic == null ? "" : sel.pic, arr.toString(), selIdx);
+                // 多线路展开：章节地址是播放数据（urls/names/headers）时按 names 展开成线路，
+                // 与 8.83 播放器内按集解析、线路序号对所有集统一的语义一致；普通集走原扁平载荷不变
+                java.util.List<HkPlayData> playDatas = new java.util.ArrayList<>();
+                java.util.List<String> rawUrls = new java.util.ArrayList<>();
+                for (HkArticleFragment.HkChapter ch : chapters) {
+                    String raw = playUrlForChapter(ch);
+                    rawUrls.add(raw);
+                    playDatas.add(playDataOf(raw));
+                }
+                java.util.List<String> lineNames = lineNamesOf(playDatas, selIdx);
+                String payload;
+                String firstLineUrl;
+                if (lineNames.size() <= 1) {
+                    JSONArray arr = new JSONArray();
+                    for (int i = 0; i < chapters.size(); i++) {
+                        try {
+                            JSONObject o = new JSONObject();
+                            HkArticleFragment.HkChapter ch = chapters.get(i);
+                            o.put("name", !TextUtils.isEmpty(ch.memoryTitle) ? ch.memoryTitle
+                                    : (ch.title == null ? "" : ch.title));
+                            o.put("url", rawUrls.get(i));
+                            o.put("pic", ch.pic == null ? "" : ch.pic);
+                            arr.put(o);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    payload = arr.toString();
+                    firstLineUrl = selUrl;
+                } else {
+                    JSONObject flagsRoot = buildFlagsPayload(chapters, rawUrls, playDatas, lineNames);
+                    payload = flagsRoot == null ? "[]" : flagsRoot.toString();
+                    String fromPayload = "";
+                    if (flagsRoot != null) {
+                        try {
+                            fromPayload = flagsRoot.getJSONArray("flags").getJSONObject(0)
+                                    .getJSONArray("episodes").getJSONObject(selIdx).optString("url", "");
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    firstLineUrl = !TextUtils.isEmpty(fromPayload) ? fromPayload
+                            : expandedUrl(playDatas.get(selIdx), rawUrls.get(selIdx), 0);
+                }
+                VideoActivity.startHkPlay(activity, ruleTitle, lineNames.get(0), firstLineUrl, selName, name,
+                        sel.pic == null ? "" : sel.pic, payload, selIdx);
             }
 
             @Override
@@ -265,6 +298,133 @@ public class HkListActivity extends AppCompatActivity
         return url;
     }
 
+    /** 地址是 8.83 播放数据（{urls,...} 的 JSON 串）时返回解析结果（走已移植的 HttpParser.getPlayData），否则返回空。 */
+    static HkPlayData playDataOf(String url) {
+        if (url == null) return null;
+        String t = url.trim();
+        if (!t.startsWith("{")) return null;
+        HkPlayData pd = HkHttpParser.getPlayData(t);
+        return pd != null && pd.getUrls() != null && !pd.getUrls().isEmpty() ? pd : null;
+    }
+
+    private static java.util.List<String> namesOf(HkPlayData pd) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (pd == null || pd.getNames() == null) return out;
+        java.util.Set<String> used = new java.util.HashSet<>();
+        java.util.List<String> names = pd.getNames();
+        for (int i = 0; i < names.size(); i++) {
+            String n = names.get(i) == null ? "" : names.get(i).trim();
+            if (n.isEmpty()) n = "线路" + (i + 1);
+            if (!used.add(n)) n = n + " " + (i + 1);
+            used.add(n);
+            out.add(n);
+        }
+        return out;
+    }
+
+    /** 线路名：选中集的 names 有多条就用它；否则找任一集多条的；全是单地址回单个「默认」。 */
+    static java.util.List<String> lineNamesOf(java.util.List<HkPlayData> playDatas, int selIdx) {
+        java.util.List<String> names = namesOf(playDatas.get(selIdx));
+        if (names.size() > 1) return names;
+        for (HkPlayData pd : playDatas) {
+            java.util.List<String> ns = namesOf(pd);
+            if (ns.size() > 1) return ns;
+        }
+        java.util.List<String> out = new java.util.ArrayList<>();
+        out.add("默认");
+        return out;
+    }
+
+    /** 某集在某条线路下的实际地址：取 urls[线路]（越界回 urls[0]），该线路的请求头/字幕/分离音频随址打包。 */
+    static String expandedUrl(HkPlayData pd, String rawUrl, int line) {
+        if (pd == null) return rawUrl;
+        java.util.List<String> urls = pd.getUrls();
+        if (urls == null || urls.isEmpty()) return rawUrl;
+        String u = urls.get(line < urls.size() ? line : 0);
+        u = u == null ? "" : u.trim();
+        if (u.isEmpty()) return rawUrl;
+        java.util.List<String> kvs = new java.util.ArrayList<>();
+        java.util.List<Map<String, String>> headers = pd.getHeaders();
+        if (headers != null && line < headers.size() && headers.get(line) != null) {
+            for (Map.Entry<String, String> e : headers.get(line).entrySet()) {
+                String k = e.getKey() == null ? "" : e.getKey().trim();
+                String v = e.getValue() == null ? "" : e.getValue().trim();
+                if (!k.isEmpty() && !v.isEmpty()) kvs.add(k + "@" + v);
+            }
+        }
+        if (pd.getHeader() != null && line == 0) {
+            for (Map.Entry<String, String> e : pd.getHeader().entrySet()) {
+                String k = e.getKey() == null ? "" : e.getKey().trim();
+                String v = e.getValue() == null ? "" : e.getValue().trim();
+                if (!k.isEmpty() && !v.isEmpty()) kvs.add(k + "@" + v);
+            }
+        }
+        // HkPlayData 未含 subtitle/audioUrls 字段，从原始串补读（8.83 PlayData 有这两项）
+        String subtitle = "";
+        String audio = "";
+        try {
+            JSONObject raw = new JSONObject(rawUrl.trim());
+            subtitle = raw.optString("subtitle", "").trim();
+            JSONArray audioUrls = raw.optJSONArray("audioUrls");
+            if (audioUrls != null && audioUrls.length() > 0) {
+                audio = audioUrls.optString(line < audioUrls.length() ? line : 0, "").trim();
+            }
+        } catch (Exception ignored) {
+        }
+        if (kvs.isEmpty() && subtitle.isEmpty() && audio.isEmpty()) return u;
+        try {
+            JSONObject mini = new JSONObject();
+            JSONArray mu = new JSONArray();
+            mu.put(u);
+            mini.put("urls", mu);
+            if (!kvs.isEmpty()) {
+                JSONArray mh = new JSONArray();
+                for (String kv : kvs) mh.put(kv);
+                mini.put("headers", mh);
+            }
+            if (!subtitle.isEmpty()) mini.put("subtitle", subtitle);
+            if (!audio.isEmpty()) {
+                JSONArray ma = new JSONArray();
+                ma.put(audio);
+                mini.put("audioUrls", ma);
+            }
+            return mini.toString();
+        } catch (Exception e) {
+            return u;
+        }
+    }
+
+    /** 多线路载荷：{flags:[{name, episodes:[{name,url,pic}]}]}，播放页据此展开线路与选集。 */
+    static JSONObject buildFlagsPayload(java.util.List<HkArticleFragment.HkChapter> chapters,
+                                        java.util.List<String> rawUrls,
+                                        java.util.List<HkPlayData> playDatas,
+                                        java.util.List<String> lineNames) {
+        try {
+            JSONObject root = new JSONObject();
+            JSONArray flags = new JSONArray();
+            for (int line = 0; line < lineNames.size(); line++) {
+                JSONObject f = new JSONObject();
+                f.put("name", lineNames.get(line));
+                JSONArray eps = new JSONArray();
+                for (int i = 0; i < chapters.size(); i++) {
+                    HkArticleFragment.HkChapter ch = chapters.get(i);
+                    JSONObject o = new JSONObject();
+                    o.put("name", !TextUtils.isEmpty(ch.memoryTitle) ? ch.memoryTitle
+                            : (ch.title == null ? "" : ch.title));
+                    o.put("url", expandedUrl(playDatas.get(i), rawUrls.get(i), line));
+                    o.put("pic", ch.pic == null ? "" : ch.pic);
+                    eps.put(o);
+                }
+                f.put("episodes", eps);
+                flags.put(f);
+            }
+            root.put("flags", flags);
+            return root;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** x5Play:// 承载页（F3）：合成 x5_webview_single 规则开行内 WebView 页（与列表/搜索页 x5:// 支同构）。 */
     static void openX5PlayPage(Activity activity, String title, String target) {
         HkRule rule = new HkRule();
@@ -307,12 +467,8 @@ public class HkListActivity extends AppCompatActivity
         // 活动标题必须真实设置：HkFuck.inList(Activity) 与 Fragment.activityTitle() 都读它
         setTitle(pageTitle == null ? "" : pageTitle);
         setContentView(R.layout.activity_hk_list);
-        // 海阔浅色页状态栏：不透出星辰壁纸，用与标题栏一致的白色（ThemeManager 的 resume 重刷同义处理）
+        // 海阔浅色页状态栏：不透出星辰壁纸，用白色不透明（ThemeManager 的 resume 重刷同义处理）
         getWindow().setStatusBarColor(0xFFFFFFFF);
-        TextView titleView = findViewById(R.id.hk_list_title);
-        if (titleView != null) titleView.setText(pageTitle);
-        android.view.View back = findViewById(R.id.hk_list_back);
-        if (back != null) back.setOnClickListener(v -> finish());
         buildMiniappTabs();
         if (savedInstanceState != null) {
             androidx.fragment.app.Fragment restored =

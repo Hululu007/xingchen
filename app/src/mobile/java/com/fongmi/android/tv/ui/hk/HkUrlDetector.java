@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
  * videoRules 的持久化：原版存 LitePal BigTextDO(key=video_rules)，星辰等价存 SharedPreferences。
  */
 public final class HkUrlDetector {
+    private static final String TAG = "HkUrlDetector";
 
     private static final List<String> APPS = Arrays.asList(
             ".css", ".html", ".js", ".apk", ".apks", ".apk.1", ".exe", ".zip", ".rar", ".7z", ".hap", ".mtz");
@@ -242,7 +243,7 @@ public final class HkUrlDetector {
                 }
             }
         } catch (Exception e) {
-            timber.log.Timber.e(e);
+            Log.e(TAG, "hk error", e);
         }
     }
 
@@ -361,7 +362,7 @@ public final class HkUrlDetector {
             try {
                 matched = Pattern.matches(pattern, check);
             } catch (Exception e) {
-                timber.log.Timber.e(e);
+                Log.e(TAG, "hk error", e);
                 continue;
             }
             if (matched) return !negated;
@@ -397,7 +398,7 @@ public final class HkUrlDetector {
             }
             return sb.toString();
         } catch (Exception e) {
-            timber.log.Timber.e(e);
+            Log.e(TAG, "hk error", e);
             return url;
         }
     }

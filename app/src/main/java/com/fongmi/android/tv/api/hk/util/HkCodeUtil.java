@@ -24,7 +24,7 @@ import okhttp3.Response;
  * 移植自 8.83 {@code com.example.hikerview.service.http.CodeUtil}（smali 1724 行）。
  * <p>
  * 8.83 原文基于 OkGo；星辰无 OkGo 依赖，此处按相同语义用 OkHttp（{@link HkHttp#client()}，
- * DoH/CookieJar/拦截器均生效）重写：
+ * CookieJar/拦截器均生效、DNS 系统默认）重写：
  * <ul>
  *   <li>{@code hiker://files/} / {@code file://} / {@code /} 开头 → 本地文件逻辑（8.83 同款）</li>
  *   <li>{@code hiker://}（非 files）→ 走 {@link HkHikerRuleUtil}（8.83 dealFileByHiker 同款）</li>

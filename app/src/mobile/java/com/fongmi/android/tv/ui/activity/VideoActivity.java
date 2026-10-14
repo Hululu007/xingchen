@@ -1591,7 +1591,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             return;
         }
         mAiVod = item; // P3：记录当前影片，供 AI 剧情问答
-        if (mShortDramaMode) mShortDramaMode = isShortDramaType(item.getTypeName());
+        if (!mShortDramaMode) mShortDramaMode = isShortDramaType(item.getTypeName());
         item.checkPic(getPic());
         item.checkName(getName());
         item.checkContent(getContent());
@@ -4363,7 +4363,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void onEpisodes() {
         syncSelectedEpisode(getFlag());
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).reverse(mHistory.isRevSort()).show(this);
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).reverse(mHistory.isRevSort()).shortDrama(mShortDramaMode).show(this);
     }
 
     private void onChoose() {

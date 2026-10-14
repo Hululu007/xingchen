@@ -20,7 +20,8 @@ import java.io.InputStream;
 @GlideModule
 public class OkGlideModule extends AppGlideModule {
 
-    private static final long DISK_CACHE_SIZE = 1024L * 1024L * 1024L; // 1GB
+    // 对齐 8.83/Glide 默认磁盘缓存上限 250MB
+    private static final long DISK_CACHE_SIZE = 250L * 1024L * 1024L;
 
     @Override
     public void applyOptions(@NonNull Context context, @NonNull GlideBuilder builder) {

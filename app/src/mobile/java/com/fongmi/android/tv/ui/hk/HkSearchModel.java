@@ -10,7 +10,7 @@ import com.google.gson.Gson;
 
 import java.util.List;
 
-import timber.log.Timber;
+import android.util.Log;
 
 /**
  * 照 8.83 SearchModel（ui/search/model/SearchModel.smali，292 行）转写：
@@ -24,6 +24,7 @@ import timber.log.Timber;
  * 引擎触点（parsePreRule/proxyUrl/log）经 SearchBridge 接缝由 HkEngineBridge 绑定。
  */
 public class HkSearchModel {
+    private static final String TAG = "HkSearchModel";
 
     public static final String SEARCH_BY_RULE = "SEARCH_BY_RULE";
 
@@ -125,7 +126,7 @@ public class HkSearchModel {
 
             @Override
             public void onFailure(int code, String msg) {
-                Timber.d("SearchModel-HttpRequestError-msg：%s", msg);
+                Log.d(TAG, String.format("SearchModel-HttpRequestError-msg：%s", msg));
                 callback.error(msg, "SearchModel-HttpRequestError-msg：" + msg,
                         String.valueOf(code), new Exception(msg));
                 SearchBridge br = bridge;

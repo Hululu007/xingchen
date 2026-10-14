@@ -259,11 +259,10 @@ public class HkHttp {
                             .connectTimeout(15, TimeUnit.SECONDS)
                             .readTimeout(30, TimeUnit.SECONDS)
                             .writeTimeout(30, TimeUnit.SECONDS)
-                            // 总超时必须有（2026-10-13 真机+本地复现定案）：connect/read/write
-                            // 都覆盖不到 DNS 解析阶段，摸鱼日报的接口域名被污染后解析无限挂起，
-                            // execute() 既不返回也不抛错，加载线程死等、转圈永转、日志无下文。
-                            // callTimeout 把整条调用（含解析）封顶，超时后正常抛错走失败路径。
-                            .callTimeout(45, TimeUnit.SECONDS)
+                            // 8.83 原版无总超时截断（HttpHelper.buildOkHttpClient 全 10s、无 callTimeout）：
+                            // 规则设 timeout 时 connect/read/write 三项随规则走（见 to()），整条调用
+                            // 不得再被固定 45s 掐断。此前加的 callTimeout(45s) 会把 timeout=120000
+                            // 的规则请求在 45s 掐掉，属确定性 bug，已移除（P0-A1）。
                             .followRedirects(true)
                             .followSslRedirects(true)
                             // 诊断用：只记解析结果（域名→IP 列表），不改变任何行为。

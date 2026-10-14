@@ -117,6 +117,29 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
     protected String systemUA = "";
     protected HkX5Extra x5Extra;
 
+    /** 8.83 shouldOverrideUrlLoading 同款：x5Extra.urlInterceptor 的求值器（JSEngine.evalJS(code, url)）。 */
+    public interface UrlInterceptorEvaluator {
+        String eval(String code, String url);
+    }
+
+    private UrlInterceptorEvaluator urlInterceptorEvaluator;
+
+    public void setUrlInterceptorEvaluator(UrlInterceptorEvaluator e) {
+        this.urlInterceptorEvaluator = e;
+    }
+
+    /** 原版 BridgeListener.open 同款：fy_bridge_app.open({title,url}) 的页面打开接缝。 */
+    public interface BridgeOpenHandler {
+        void openBridgePage(String title, String url);
+    }
+
+    private BridgeOpenHandler bridgeOpenHandler;
+
+    public void setBridgeOpenHandler(BridgeOpenHandler h) {
+        this.bridgeOpenHandler = h;
+        if (jsBridgeHolder != null) jsBridgeHolder.setOpenHandler(h);
+    }
+
     // —— ArticleWebkitHolder 字段 ——
     private final AtomicBoolean hasLoadJsOnPageEnd = new AtomicBoolean(false);
     private int height;
@@ -315,6 +338,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
         webView.setWebChromeClient(new ChromeClient());
         webView.setWebViewClient(new Client());
         jsBridgeHolder = new FyBridge(reference, new Wrapper());
+        if (bridgeOpenHandler != null) jsBridgeHolder.setOpenHandler(bridgeOpenHandler);
     }
 
     public void onDestroy() {
@@ -474,8 +498,29 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request.getUrl().toString();
+            // 8.83 ArticleWebViewHolder.shouldOverrideUrlLoading：x5Extra.urlInterceptor 优先
+            String x5Code = x5Extra != null ? x5Extra.getUrlInterceptor() : null;
+            if (x5Code != null && !x5Code.isEmpty()) {
+                String result = "";
+                try {
+                    if (urlInterceptorEvaluator != null) result = urlInterceptorEvaluator.eval(x5Code, url);
+                } catch (Throwable ignored) {
+                }
+                if (result != null && !result.isEmpty() && !"null".equals(result)
+                        && !"undefined".equals(result) && !"false".equals(result)) {
+                    if (!"true".equals(result)) {
+                        // 有代码执行
+                        view.evaluateJavascript(result, null);
+                    }
+                    return true;
+                }
+            }
             if (url.startsWith("http")) {
                 if (request.isRedirect() && x5Extra != null && !x5Extra.isRedirect()) {
+                    return true;
+                }
+                if (Build.VERSION.SDK_INT < 26) {
+                    view.loadUrl(url);
                     return true;
                 }
                 return false;
@@ -707,11 +752,16 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         private final WeakReference<Activity> reference;
         private final HkWebViewWrapper wrapper;
+        private BridgeOpenHandler openHandler;
 
         public FyBridge(WeakReference<Activity> reference, HkWebViewWrapper wrapper) {
             this.reference = reference;
             this.wrapper = wrapper;
             wrapper.addJavascriptInterface(new BridgeObject(), "fy_bridge_app");
+        }
+
+        public void setOpenHandler(BridgeOpenHandler h) {
+            this.openHandler = h;
         }
 
         public HkWebViewWrapper getWrapper() {
@@ -727,6 +777,43 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             @JavascriptInterface
             public void finishParse(String url, String type, String ticket) {
                 EventBus.getDefault().post(new HkDestroyEvent(url, type, ticket));
+            }
+
+            /** 原版 VideoInterface.log 同款。 */
+            @JavascriptInterface
+            public void log(String msg) {
+                android.util.Log.d("HkJs", msg == null ? "" : msg);
+            }
+
+            /** 原版 VideoInterface.openThirdApp 同款：唤起第三方应用。 */
+            @JavascriptInterface
+            public void openThirdApp(String url) {
+                try {
+                    Activity act = reference.get();
+                    if (act == null || TextUtils.isEmpty(url)) return;
+                    android.content.Intent intent = new android.content.Intent(
+                            android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    act.startActivity(intent);
+                } catch (Throwable ignored) {
+                }
+            }
+
+            /** 原版 VideoInterface.open 同款：{title,url} 打开规则页面。 */
+            @JavascriptInterface
+            public void open(String json) {
+                try {
+                    if (TextUtils.isEmpty(json) || openHandler == null) return;
+                    org.json.JSONObject o = new org.json.JSONObject(json);
+                    String url = o.optString("url");
+                    if (TextUtils.isEmpty(url)) return;
+                    String title = o.optString("title");
+                    final BridgeOpenHandler h = openHandler;
+                    Activity act = reference.get();
+                    if (act == null) return;
+                    act.runOnUiThread(() -> h.openBridgePage(title, url));
+                } catch (Throwable ignored) {
+                }
             }
         }
     }

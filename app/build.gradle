@@ -34,6 +34,9 @@ android {
             // 内核 libmihomo.so 要被执行：必须装机时解到可执行目录（AGP9 的正规开关，
             // 清单里显式写 extractNativeLibs 会被打包任务拒绝）
             useLegacyPackaging = true
+            // 内核是可执行程序不是普通库：禁止打包时裁剪，保证与验过哈希的原件逐字节一致
+            // （首版 1.3.16 被裁了 8 字节、一个可加载段内容变了，没交付，重编）
+            keepDebugSymbols += '**/libmihomo.so'
         }
         resources {
             excludes += '**/wl.webp'
@@ -51,6 +54,8 @@ android {
         versionCode 39
         versionName "1.3.16"
         buildConfigField "String", "BUILD_TIME", "\"${buildTime}\""
+        // 不检测更新版开关：构建时传 -PxcNoUpdate=true 则彻底关掉检测更新（默认开）
+        buildConfigField "boolean", "UPDATE_ENABLED", (project.findProperty("xcNoUpdate") == "true" ? "false" : "true")
         buildConfigField "String", "BUILD_TAG", "\"${releaseTag}\""
         buildConfigField "String", "GIT_REVISION", "\"${gitRevision}\""
         buildConfigField "String", "GIT_STATE", "\"${gitState}\""

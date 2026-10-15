@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.ViewGroup;
@@ -30,6 +31,7 @@ public final class AboutDialog {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(binding.getRoot());
         binding.confirm.setOnClickListener(v -> dialog.dismiss());
+        if (!BuildConfig.UPDATE_ENABLED) binding.checkUpdate.setVisibility(View.GONE);
         binding.checkUpdate.setOnClickListener(v -> {
             dialog.dismiss();
             if (updateAction != null) updateAction.run();

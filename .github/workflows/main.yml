@@ -1,6 +1,11 @@
 name: Build XingChen APK
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: 'normal=正式版；noupdate=不检测更新版（跳过一切发布）'
+        required: false
+        default: 'normal'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -44,7 +49,8 @@ jobs:
           VNAME=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -1)
           echo "WEBHTV_RELEASE_TAG=v$VNAME" >> "$GITHUB_ENV"
           chmod +x gradlew
-          ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon
+          if [ "${{ inputs.variant }}" = "noupdate" ]; then EXTRA_PROPS="-PxcNoUpdate=true"; else EXTRA_PROPS=""; fi
+          ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon $EXTRA_PROPS
       - name: Find APK
         run: |
           find app/build/outputs -name "*.apk" 2>/dev/null | head -20
@@ -55,6 +61,7 @@ jobs:
           name: XingChen-APK
           path: app/build/outputs/apk/**/*.apk
       - name: Collect dist for OCI
+        if: ${{ inputs.variant != 'noupdate' }}
         run: |
           rm -rf dist
           mkdir -p dist
@@ -63,6 +70,7 @@ jobs:
           cp "$APK" dist/mobile-arm64_v8a.apk
           ls -lh dist/
       - name: Set up ORAS
+        if: ${{ inputs.variant != 'noupdate' }}
         id: oras
         continue-on-error: true
         uses: oras-project/setup-oras@v1
@@ -71,7 +79,7 @@ jobs:
           checksum: f27adb935022d94df8dc77719c322dda592c78a0d57a6f7dcdd8d900b248c454
       - name: Publish APK to OCI Registry
         id: oci
-        if: ${{ steps.oras.outcome == 'success' }}
+        if: ${{ inputs.variant != 'noupdate' && steps.oras.outcome == 'success' }}
         continue-on-error: true
         env:
           DIST_DIR: dist
@@ -82,10 +90,10 @@ jobs:
           OCI_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: bash .github/scripts/publish-oci-apks.sh
       - name: Report OCI publish failure
-        if: ${{ steps.oras.outcome == 'failure' || steps.oci.outcome == 'failure' }}
+        if: ${{ inputs.variant != 'noupdate' && (steps.oras.outcome == 'failure' || steps.oci.outcome == 'failure') }}
         run: echo "::warning title=OCI publish unavailable::GitHub release will continue without OCI metadata."
       - name: Clean old OCI tags (keep only latest)
-        if: ${{ steps.oci.outcome == 'success' }}
+        if: ${{ inputs.variant != 'noupdate' && steps.oci.outcome == 'success' }}
         continue-on-error: true
         env:
           DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -102,6 +110,7 @@ jobs:
             done
           fi
       - name: Publish release for in-app update
+        if: ${{ inputs.variant != 'noupdate' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OCI_PUBLISH_OUTCOME: ${{ steps.oci.outcome }}

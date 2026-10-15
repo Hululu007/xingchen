@@ -93,6 +93,7 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_PLAYER_SET = "nav_player_set";
     public static final String ACTION_NAV_UI_SET = "nav_ui_set";
     public static final String ACTION_NAV_NODE = "nav_node";
+    public static final String ACTION_NAV_NODE_TEST = "nav_node_test";
 
     // ---- 全局开关 ----
     public static final String ACTION_DOH_NEXT = "doh_next";
@@ -302,6 +303,11 @@ public class AiVoiceCommand {
         }
         if (t.contains("个性功能")) {
             return new Command(ACTION_NAV_FEATURES, "已打开个性功能");
+        }
+        // 测延迟（2026-10-15 他要求节点列表加闪电测延迟，口令同步）：先进节点列表页自动开测，
+        // 要放在代理开关判定之前，避免"测节点"类说法被其它分支吞掉。
+        if (t.contains("测延迟") || t.contains("节点测速") || t.contains("测节点")) {
+            return new Command(ACTION_NAV_NODE_TEST, "正在测延迟");
         }
         // 代理（原名节点，2026-10-15 他把入口改名"代理"；新旧说法都认。
         // 先判管理页，再判开关，避免"打开代理管理"被"打开代理"吞掉）

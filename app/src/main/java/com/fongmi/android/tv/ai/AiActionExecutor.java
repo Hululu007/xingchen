@@ -84,6 +84,11 @@ public class AiActionExecutor {
                     cls = pkg + "NodeManageActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                case AiVoiceCommand.ACTION_NAV_NODE_TEST:
+                    cls = pkg + "NodeListActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    intent.putExtra("autotest", true);
+                    break;
                 case AiVoiceCommand.ACTION_NAV_AI_SETTINGS:
                     cls = pkg + "AiSettingsActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -343,6 +348,8 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开界面设置");
                 case AiVoiceCommand.ACTION_NAV_NODE:
                     return new AiVoiceCommand.Command(action, "已打开节点管理");
+                case AiVoiceCommand.ACTION_NAV_NODE_TEST:
+                    return new AiVoiceCommand.Command(action, "已打开节点列表，正在测延迟");
                 case AiVoiceCommand.ACTION_NAV_SEARCH: {
                     if (TextUtils.isEmpty(text)) return null;
                     return new AiVoiceCommand.Command(action, text, "正在搜索 " + text);

@@ -2349,8 +2349,16 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         String url = item.getUrl();
         if (TextUtils.isEmpty(url)) return false;
         if (isEmptyPlaceholder(url)) return false;
-        if (url.contains("ignoreVideo") || url.contains("ignoreMusic")) return false;
+        // ignoreVideo/ignoreMusic 是给通用嗅探看的标记，挂了 @lazyRule= 的条目由
+        // 懒函数自己解析播放、正是真选集（91短剧全部 18 集都是
+        // hiker://empty#ignoreVideo=true#@lazyRule= 形态，此前被这条误杀光、
+        // 只剩误入的封面条和被点的那集，他 2026-10-15 真机实证）。无懒函数的才排除。
+        if (!url.contains("@lazyRule=")
+                && (url.contains("ignoreVideo") || url.contains("ignoreMusic"))) return false;
         if (url.contains("@rule=")) return false;
+        // 详情页头部条：地址就是它自己的封面图（91短剧头部条 url=pic），不是能播的集
+        String pic = item.getPic();
+        if (!TextUtils.isEmpty(pic) && url.equals(pic)) return false;
         if (playList && !isSamePlayList(playListCls, item)) return false;
         return true;
     }

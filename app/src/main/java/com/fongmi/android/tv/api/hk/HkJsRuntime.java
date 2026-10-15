@@ -10,6 +10,7 @@ import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Crypto;
 import com.fongmi.quickjs.utils.Parser;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Json;
 import com.github.catvod.utils.Util;
 import com.google.gson.Gson;
@@ -373,15 +374,30 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /** 求值（替代 ctx.evaluate）。每次用新 scope，避免规则顶层 const 污染共享 scope。 */
+    // 按源定向打点：JS 求值期间，本线程发出的请求归属当前规则（kind=hk、id=规则名），
+    // HkHttp 的选择器链会据此查 SourceProxyPolicy。求值可嵌套，进出按栈恢复。
+    private SourceGate.Mark swapHkMark() {
+        SourceGate.Mark prev = SourceGate.current();
+        if (rule != null) SourceGate.mark("hk", rule.getTitle());
+        return prev;
+    }
+
+    private void restoreMark(SourceGate.Mark prev) {
+        if (prev != null) SourceGate.mark(prev.kind, prev.id);
+        else SourceGate.clear();
+    }
+
     private Object evalJs(String js) {
         // 新 scope 以共享 scope 为原型，API 函数经原型链可访问，但顶层 const/let 声明隔离在新 scope 内
         Scriptable newScope = rhinoCx.newObject(scope);
         newScope.setPrototype(scope);
         newScope.setParentScope(null);
         Object oldDeadline = armEvalDeadline();
+        SourceGate.Mark prevMark = swapHkMark();
         try {
             return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
         } finally {
+            restoreMark(prevMark);
             restoreEvalDeadline(oldDeadline);
         }
     }
@@ -389,9 +405,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** 在共享 scope 上直接求值（用于插件 JS 如 Hikerurl.js，需将 $ 等挂到共享 scope 供规则经原型链访问）。 */
     private Object evalJsInSharedScope(String js) {
         Object oldDeadline = armEvalDeadline();
+        SourceGate.Mark prevMark = swapHkMark();
         try {
             return rhinoCx.evaluateString(scope, js, "hk-plugin", 1, null);
         } finally {
+            restoreMark(prevMark);
             restoreEvalDeadline(oldDeadline);
         }
     }

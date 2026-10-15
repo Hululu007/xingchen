@@ -44,8 +44,11 @@ public class HkDetailBridge {
             if (low.startsWith("javascript:") || low.equals("hiker://empty")) continue;
             if (low.startsWith("copy://") || low.startsWith("toast://")
                     || low.startsWith("download://") || low.startsWith("video://")) continue;
+            // @rule= 条目不进选集：它是「点开新页面」的导航卡（相关推荐等），
+            // 不是能播的集——8.83 原版里它也只是列表卡片。此前误放行，
+            // 黄色仓库详情页的相关推荐卡全漏进选集（他真机截图实证）。
             boolean playable = low.startsWith("http") || url.contains("@lazyRule=")
-                    || url.contains("@rule=") || url.startsWith("js:")
+                    || url.startsWith("js:")
                     // 磁力/电驴轻修配套：裸 magnet:/ed2k:// 条目此前被过滤掉、连点都没得点；
                     // 放进来，点后走迅雷引擎（thunder://、ftp:// 维持原版行为，不放行）。
                     || low.startsWith("magnet:") || low.startsWith("ed2k://");

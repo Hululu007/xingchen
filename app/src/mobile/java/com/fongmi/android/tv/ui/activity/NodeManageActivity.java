@@ -160,7 +160,8 @@ public class NodeManageActivity extends BaseActivity {
                 }
                 List<NodeStore.Node> nodes = new ArrayList<>();
                 for (SubParser.NodeDraft d : drafts) nodes.add(NodeStore.fromDraft(d, NodeStore.SRC_SUB));
-                NodeStore.get(this).addAll(nodes);
+                // 整批替换订阅节点：优选订阅每次 IP 不同，只累加会每次多出一批重复
+                NodeStore.get(this).replaceSource(this, NodeStore.SRC_SUB, nodes);
                 int count = drafts.size();
                 int stored = NodeStore.get(this).size();
                 com.github.catvod.crawler.SpiderDebug.log("clash", "sub parse total=%d ok=%d failed=%d schemes=%s stored=%d",

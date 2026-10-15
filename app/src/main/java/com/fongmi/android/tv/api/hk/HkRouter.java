@@ -2,7 +2,11 @@ package com.fongmi.android.tv.api.hk;
 
 import android.text.TextUtils;
 
+import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.orhanobut.logger.Logger;
+
+import java.io.IOException;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -200,7 +204,7 @@ public class HkRouter {
                 if (item != null) engine.getJsRuntime().setDetailParams(item.getExtra());
                 items = fromJsDetail(ruleText, rawUrl);
             } else {
-                String html = HkHttp.get(url, rule.resolvedUa());
+                String html = getMarked(url);
                 items = engine.getSelector().parseDetail(html, ruleText, url);
                 // 选择器解析的条目若无 col_type，回退到规则的 detail_col_type（官方 dealRule 语义）
                 String defaultColType = rule.getDetailColType();
@@ -237,7 +241,7 @@ public class HkRouter {
                 js = true;
             }
             if (js) return engine.getJsRuntime().evalLazy(r, pageUrl);
-            String html = HkHttp.get(pageUrl, rule.resolvedUa());
+            String html = getMarked(pageUrl);
             return engine.getSelector().evalField(html, r, pageUrl);
         } catch (Throwable e) {
             Logger.t(TAG).d("entry lazyRule eval failed: %s", e.getMessage());
@@ -432,7 +436,7 @@ public class HkRouter {
             if (js) {
                 v = engine.getJsRuntime().evalLazy(r, pageUrl);
             } else {
-                String html = HkHttp.get(pageUrl, rule.resolvedUa());
+                String html = getMarked(pageUrl);
                 v = engine.getSelector().evalField(html, r, pageUrl);
             }
             if (!TextUtils.isEmpty(v)) {
@@ -440,9 +444,24 @@ public class HkRouter {
                 // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
                 if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
                 out.setUrl(v);
+            } else {
+                // 空结果也留痕到文件日志：规则解析失败（如福建兄妹抠不到 playUrl 时
+                // 懒函数抛错/回空）此前只进 logcat，他发来的日志里看不见、定不了案。
+                SpiderDebug.log("hk", "lazy play empty rule=%s host=%s", rule.getTitle(), hostOf(pageUrl));
             }
         } catch (Throwable e) {
             Logger.t(TAG).d("lazyRule failed: %s", e.getMessage());
+            SpiderDebug.log("hk", "lazy play failed rule=%s host=%s err=%s", rule.getTitle(), hostOf(pageUrl), String.valueOf(e));
+        }
+    }
+
+    private static String hostOf(String url) {
+        if (url == null) return "";
+        try {
+            String h = java.net.URI.create(url.trim()).getHost();
+            return h == null ? "" : h;
+        } catch (Throwable e) {
+            return "";
         }
     }
 
@@ -451,6 +470,7 @@ public class HkRouter {
             return engine.getJsRuntime().evalLazy(code, pageUrl);
         } catch (Throwable e) {
             Logger.t(TAG).d("js play failed: %s", e.getMessage());
+            SpiderDebug.log("hk", "js play failed rule=%s host=%s err=%s", rule.getTitle(), hostOf(pageUrl), String.valueOf(e));
             return "";
         }
     }
@@ -627,12 +647,24 @@ public class HkRouter {
         return u;
     }
 
+    /** 带按源定向打点的取数：请求归属当前规则（kind=hk、id=规则名），进出恢复旧标记。 */
+    private String getMarked(String url) throws IOException {
+        SourceGate.Mark prev = SourceGate.current();
+        SourceGate.mark("hk", rule.getTitle());
+        try {
+            return HkHttp.get(url, rule.resolvedUa());
+        } finally {
+            if (prev != null) SourceGate.mark(prev.kind, prev.id);
+            else SourceGate.clear();
+        }
+    }
+
     private List<HkDetailItem> fromJsDetail(String jsCode, String url) throws Exception {
         // R2：8.83 详情 JS 求值前先抓详情 HTML，getResCode()/getCode() 可取正文
         String fetchUrl = cleanDetailUrl(url);
         if (!fetchUrl.isEmpty() && (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://"))) {
             try {
-                String body = HkHttp.get(fetchUrl, rule.resolvedUa());
+                String body = getMarked(fetchUrl);
                 if (body != null && !body.isEmpty()) engine.getJsRuntime().setEvalResCodeBody(body);
             } catch (Throwable ignored) {
             }

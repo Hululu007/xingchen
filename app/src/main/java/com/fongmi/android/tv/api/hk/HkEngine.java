@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.hk;
 import android.text.TextUtils;
 
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.orhanobut.logger.Logger;
 
 import java.io.IOException;
@@ -80,7 +81,7 @@ public class HkEngine {
                     jsRuntime.setEvalResCodeBody(null);
                 }
             }
-            String html = HkHttp.get(url, rule.resolvedUa());
+            String html = getMarked(url);
             return selector.parseList(html, findRule, url);
         } catch (Throwable e) {
             Logger.t(TAG).d("home failed: %s", e.getMessage());
@@ -125,7 +126,7 @@ public class HkEngine {
                     jsRuntime.setEvalResCodeBody(null);
                 }
             }
-            String html = HkHttp.get(url, rule.resolvedUa());
+            String html = getMarked(url);
             return selector.parseSearch(html, searchFind, url);
         } catch (Throwable e) {
             Logger.t(TAG).d("search failed: %s", e.getMessage());
@@ -155,8 +156,20 @@ public class HkEngine {
      * R1 预抓取数（8.83 JSEngine.parseHomeCallBack 同款语义）：成功返回正文；
      * 失败或正文为空直接抛异常——调用方按现有失败路径处理，绝不在空正文上求值。
      */
+    /** 带按源定向打点的取数：请求归属当前规则（kind=hk、id=规则名），进出恢复旧标记。 */
+    private String getMarked(String url) throws IOException {
+        SourceGate.Mark prev = SourceGate.current();
+        SourceGate.mark("hk", rule.getTitle());
+        try {
+            return HkHttp.get(url, rule.resolvedUa());
+        } finally {
+            if (prev != null) SourceGate.mark(prev.kind, prev.id);
+            else SourceGate.clear();
+        }
+    }
+
     private String prefetchBody(String fetchUrl) throws IOException {
-        String body = HkHttp.get(fetchUrl, rule.resolvedUa());
+        String body = getMarked(fetchUrl);
         if (body == null || body.isEmpty()) {
             // 加固：预抓路径下正文为空直接按取数失败处理，避免次生 TypeError 盖住真因
             throw new IOException("取数失败：正文为空");

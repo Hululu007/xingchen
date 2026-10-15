@@ -58,13 +58,30 @@ public final class KernelDownloader {
         return dir;
     }
 
-    /** 内核二进制路径：<filesDir>/clash/mihomo。 */
+    /** 内核二进制路径：<filesDir>/clash/mihomo（下载版；安卓 10+ 在私有目录不让执行，只作兜底）。 */
     public static File binaryFile(Context context) {
         return new File(workDir(context), "mihomo");
     }
 
-    /** 内核是否可用：文件存在、可执行、版本与记录一致。 */
+    /**
+     * 随包内置的内核（2026-10-15 他拍板「塞」）：以 libmihomo.so 放 jniLibs，
+     * 系统装包时解到 nativeLibraryDir——那是安卓唯一允许执行自带程序的目录。
+     * 不存在（老包/异架构）返回 null。
+     */
+    public static File bundledBinary(Context context) {
+        try {
+            String dir = context.getApplicationContext().getApplicationInfo().nativeLibraryDir;
+            if (dir == null) return null;
+            File f = new File(dir, "libmihomo.so");
+            return f.exists() && f.length() > 1024 * 1024 ? f : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 内核是否可用：内置版在就算就绪；否则看下载版（存在、可执行、版本与记录一致）。 */
     public static boolean isReady(Context context) {
+        if (bundledBinary(context) != null) return true;
         File bin = binaryFile(context);
         if (!bin.exists() || !bin.canExecute() || bin.length() < 1024 * 1024) return false;
         String want = wantVersion(context);
@@ -88,7 +105,8 @@ public final class KernelDownloader {
     public static void ensure(final Context context, final Listener listener) {
         final Context app = context.getApplicationContext();
         if (isReady(app)) {
-            listener.onDone(binaryFile(app));
+            File bundled = bundledBinary(app);
+            listener.onDone(bundled != null ? bundled : binaryFile(app));
             return;
         }
         new Thread(() -> {

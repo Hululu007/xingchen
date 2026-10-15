@@ -90,6 +90,9 @@ try {
 startSync(app);
 } catch (Throwable t) {
 Log.w(TAG, "boot restore failed, degrade to direct: " + t.getMessage());
+// 失败必须留痕到文件日志：此前静默把开关置回关，他那边定向开关还亮着、
+// 流量却全直连，只会得出「定向不生效」（2026-10-15 晚他实证）。
+com.github.catvod.crawler.SpiderDebug.log("clash", "kernel boot-restore FAILED, switch set OFF: %s", String.valueOf(t));
 try {
 stopSync();
 } catch (Throwable ignored) {
@@ -105,6 +108,7 @@ try {
 startSync(app);
 fireStarted();
 } catch (Throwable t) {
+com.github.catvod.crawler.SpiderDebug.log("clash", "kernel start FAILED: %s", String.valueOf(t));
 fireError(t.getMessage() == null? "内核启动失败": t.getMessage());
 }
 return;
@@ -120,6 +124,7 @@ try {
 startSync(app);
 fireStarted();
 } catch (Throwable t) {
+com.github.catvod.crawler.SpiderDebug.log("clash", "kernel start after download FAILED: %s", String.valueOf(t));
 fireError(t.getMessage() == null? "内核启动失败": t.getMessage());
 }
 }
@@ -137,7 +142,8 @@ fireError(msg);
 public synchronized void startSync(Context context) throws Exception {
 Context app = context.getApplicationContext();
 if (isRunning()) return;
-File bin = KernelDownloader.binaryFile(app);
+File bin = KernelDownloader.bundledBinary(app);
+if (bin == null) bin = KernelDownloader.binaryFile(app);
 if (!bin.exists() ||!bin.canExecute()) throw new IllegalStateException("内核未下载");
 File cfg = ConfigBuilder.write(app);
 File dir = KernelDownloader.workDir(app);
@@ -152,6 +158,7 @@ stopSync();
 throw new IllegalStateException("内核健康检查超时");
 }
 Log.i(TAG, "mihomo started, mixed-port=" + port);
+com.github.catvod.crawler.SpiderDebug.log("clash", "kernel started port=%d", port);
 }
 
 /** 同步停止：杀进程并清理。 */

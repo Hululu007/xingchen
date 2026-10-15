@@ -234,7 +234,11 @@ public class HkLazyRuleParser {
                     runBg(executor, () -> {
                         try {
                             Element doc = Jsoup.parse(html);
-                            String[] chain = finalRule[1].split("&&");
+                            // 冲突字符必须先解码再切分：黄色仓库123 的懒规则体是全角
+                            // body＆＆＆＆#video_img＆＆＆＆src，不解码 split("&&") 切不开、
+                            // 整串当字段名取空 → 点击没反应（他 18:49 真机日志实证）。
+                            // 8.83 的选择器口径本就先 decodeConflictStr（HkSelector 同款）。
+                            String[] chain = HkParserKit.decodeConflictStr(finalRule[1]).split("&&");
                             Element el = doc;
                             if (chain.length != 1) {
                                 el = HkCommonParser.getTrueElement(chain[0], doc);

@@ -7,6 +7,7 @@ import java.net.ProxySelector;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 按源代理决策层：catvod 侧的中立挂载点。
@@ -74,6 +75,20 @@ public final class SourceGate {
         return HOLDER.get();
     }
 
+    /** 决策留痕节流：同一键 30 秒内只记一条（他发来的日志里此前没有任何定向决策记录，定不了案）。 */
+    private static final ConcurrentHashMap<String, Long> LOG_AT = new ConcurrentHashMap<>();
+
+    private static void logDecision(String key, String msg) {
+        long now = System.currentTimeMillis();
+        Long last = LOG_AT.get(key);
+        if (last != null && now - last < 30_000) return;
+        LOG_AT.put(key, now);
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("clash", "%s", msg);
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 把原选择器包在外面：命中策略 → 本地口；否则透传原链。回环永远直连。 */
     public static ProxySelector wrapSelector(ProxySelector inner) {
         final ProxySelector shell = inner != null ? inner : ProxySelector.getDefault();
@@ -81,15 +96,30 @@ public final class SourceGate {
             @Override
             public List<Proxy> select(URI uri) {
                 Provider p = provider;
-                if (p == null || !p.enabled()) return shell.select(uri);
-                if (isLoopback(uri)) return List.of(Proxy.NO_PROXY);
                 Mark m = HOLDER.get();
+                if (p == null) {
+                    if (m != null) logDecision("noprov|" + m.kind + "|" + m.id,
+                            "gate direct reason=no-provider kind=" + m.kind + " id=" + m.id);
+                    return shell.select(uri);
+                }
+                if (!p.enabled()) {
+                    if (m != null) logDecision("disabled|" + m.kind + "|" + m.id,
+                            "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id);
+                    return shell.select(uri);
+                }
+                if (isLoopback(uri)) return List.of(Proxy.NO_PROXY);
                 boolean hit = (m != null) ? p.shouldProxy(m.kind, m.id) : p.globalMode();
                 if (hit) {
                     int port = p.port();
                     if (port > 0 && port <= 65535) {
+                        logDecision("proxy|" + (m == null ? "global" : m.kind + "|" + m.id),
+                                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port);
                         return List.of(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", port)));
                     }
+                    logDecision("badport", "gate direct reason=bad-port port=" + port);
+                } else if (m != null) {
+                    logDecision("notenabled|" + m.kind + "|" + m.id,
+                            "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id);
                 }
                 return shell.select(uri);
             }

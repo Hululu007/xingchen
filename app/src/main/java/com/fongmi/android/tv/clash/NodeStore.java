@@ -10,6 +10,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,6 +117,54 @@ public final class NodeStore {
 
     public synchronized void addAll(List<Node> list) {
         for (Node n : list) addOrUpdate(n);
+    }
+
+    /**
+     * 订阅刷新：同来源节点整批替换，不靠 id 累加。
+     * 优选类订阅每次下发的服务器地址都不同、按地址算的 id 全变，只靠 id 去重
+     * 会每次多出一整批重复（他真机实证：每刷新一次多 16 个）。
+     * 改名继承先按 id、再按名字接（改过名的 YAML 节点无稳定键，接不上不强求）；
+     * 选中节点被替换时按名字接续，接不上顺延第一个剩余节点。
+     */
+    public synchronized void replaceSource(Context context, String source, List<Node> fresh) {
+        String selected = ClashSettings.getSelectedNode(context);
+        Node oldSelected = get(selected);
+        Map<String, Node> oldById = new HashMap<>();
+        Map<String, Node> oldByName = new HashMap<>();
+        for (Node n : nodes) {
+            if (source.equals(n.source)) {
+                oldById.put(n.id, n);
+                if (!oldByName.containsKey(n.name)) oldByName.put(n.name, n);
+            }
+        }
+        nodes.removeIf(n -> source.equals(n.source));
+        Set<String> seen = new HashSet<>();
+        for (Node n : fresh) {
+            if (n == null || n.id.isEmpty() || !seen.add(n.id)) continue;
+            Node old = oldById.get(n.id);
+            if (old == null) old = oldByName.get(n.name);
+            if (old != null && old.nameCustomized && !old.name.isEmpty()) {
+                n.name = old.name;
+                n.nameCustomized = true;
+            }
+            n.updatedAt = System.currentTimeMillis();
+            nodes.add(n);
+        }
+        if (oldSelected != null && source.equals(oldSelected.source)) {
+            String next = "";
+            for (Node n : nodes) {
+                if (source.equals(n.source) && n.name.equals(oldSelected.name)) {
+                    next = n.id;
+                    break;
+                }
+            }
+            if (next.isEmpty()) next = nodes.isEmpty() ? "" : nodes.get(0).id;
+            ClashSettings.setSelectedNode(context, next);
+        }
+        Set<String> alive = new HashSet<>();
+        for (Node n : nodes) alive.add(n.id);
+        checked.retainAll(alive);
+        save();
     }
 
     /** 单个删除；删的是当前选中节点时，选中顺延给第一个剩余节点或清空。 */

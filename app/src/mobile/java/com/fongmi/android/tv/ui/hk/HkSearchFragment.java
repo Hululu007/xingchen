@@ -694,7 +694,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             String cleared = bridge.clearTag(url);
             String itemCleared = bridge.clearTag(result.getUrl());
             if (!cleared.equals(itemCleared) && !TextUtils.isEmpty(codeAndHeader)
-                    && !bridge.canParseX5(result.getUrl()) && !bridge.canParseWebkit(result.getUrl())) {
+                    && !bridge.canParseX5(result.getUrl()) && !bridge.canParseWebkit(result.getUrl())
+                    && HkListActivity.playDataOf(url) == null) {
                 bridge.startPlayerSingle(getActivity(), getItemTitle(position), url);
                 return;
             }

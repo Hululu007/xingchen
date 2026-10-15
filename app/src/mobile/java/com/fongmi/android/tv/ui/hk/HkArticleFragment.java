@@ -2103,7 +2103,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             String cleared = detailBridge.clearTag(url);
             String itemCleared = detailBridge.clearTag(item.getUrl());
             if (!cleared.equals(itemCleared) && !TextUtils.isEmpty(codeAndHeader)
-                    && !detailBridge.canParseX5(item.getUrl()) && !detailBridge.canParseWebkit(item.getUrl())) {
+                    && !detailBridge.canParseX5(item.getUrl()) && !detailBridge.canParseWebkit(item.getUrl())
+                    && HkListActivity.playDataOf(url) == null) {
                 detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
                 return;
             }

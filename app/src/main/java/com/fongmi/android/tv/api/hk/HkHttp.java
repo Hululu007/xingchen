@@ -203,18 +203,32 @@ public class HkHttp {
             }
         }
         List<InetAddress> sys = Dns.SYSTEM.lookup(hostname);
-        if (hasUsableAddress(sys)) return sys;
+        // 结果里混着 [::] 这类空地址时先剔掉：它永远连不上，留在列表里会被
+        // 当成一条路由白试甚至拖死整批连接（18J.TV、Cloudfront 封面图实证）
+        List<InetAddress> clean = stripAnyLocal(sys);
+        if (!clean.isEmpty()) return clean;
         // 系统解析只回空地址（[::] 这类坏记录，真机 huangseb.com、91crdjai.com 实证）：
         // 换阿里 DoH 再试一次，有可用地址就用它；都没有维持原结果走原失败路径。
         try {
             DnsOverHttps doh = autoDoh("https://dns.alidns.com/dns-query");
             if (doh != null) {
                 List<InetAddress> alt = doh.lookup(hostname);
-                if (hasUsableAddress(alt)) return alt;
+                if (hasUsableAddress(alt)) return stripAnyLocal(alt);
             }
         } catch (Throwable ignored) {
         }
         return sys;
+    }
+
+    /** 剔除空地址（:: / 0.0.0.0）；全是空地址时返回空表，交给调用方走兜底。 */
+    private static List<InetAddress> stripAnyLocal(List<InetAddress> list) {
+        List<InetAddress> out = new java.util.ArrayList<>();
+        if (list != null) {
+            for (InetAddress a : list) {
+                if (a != null && !a.isAnyLocalAddress()) out.add(a);
+            }
+        }
+        return out;
     }
 
     private static boolean hasUsableAddress(List<InetAddress> list) {
@@ -247,7 +261,10 @@ public class HkHttp {
             java.util.concurrent.Future<List<InetAddress>> f =
                     DNS_POOL.submit(() -> delegate.lookup(hostname));
             try {
-                return f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+                List<InetAddress> r = f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+                // 同取数侧：混着的 [::] 空地址先剔掉（有真地址时），免得图片连接白试死路由
+                List<InetAddress> clean = stripAnyLocal(r);
+                return clean.isEmpty() ? r : clean;
             } catch (java.util.concurrent.TimeoutException e) {
                 f.cancel(true);
                 throw new UnknownHostException("dns timeout: " + hostname);
@@ -372,9 +389,9 @@ public class HkHttp {
                             })
                             .addInterceptor(HkContentTypePreInterceptor.INSTANCE)
                             .addNetworkInterceptor(HkContentTypeAfterInterceptor.INSTANCE)
-                            .connectTimeout(15, TimeUnit.SECONDS)
-                            .readTimeout(30, TimeUnit.SECONDS)
-                            .writeTimeout(30, TimeUnit.SECONDS)
+                            .connectTimeout(10, TimeUnit.SECONDS)
+                            .readTimeout(10, TimeUnit.SECONDS)
+                            .writeTimeout(10, TimeUnit.SECONDS)
                             // 8.83 原版无总超时截断（HttpHelper.buildOkHttpClient 全 10s、无 callTimeout）：
                             // 规则设 timeout 时 connect/read/write 三项随规则走（见 to()），整条调用
                             // 不得再被固定 45s 掐断。此前加的 callTimeout(45s) 会把 timeout=120000

@@ -283,6 +283,11 @@ public class HkRouter {
             lazyRuleText = decodeConflict(u.substring(lr0 + 10).trim());
             u = lazyPageUrl;
         }
+        // 0.1 播放数据 JSON 必须最先认：urls 里的地址常带 #isVideo=true# 等标记，
+        // 若先走下面第 1 步按 # 切串，JSON 会被拦腰截断、解析失败后整串塞给播放器（白屏）
+        if (lazyRuleText == null && u.startsWith("{") && u.contains("\"urls\"")) {
+            if (parsePlayJson(u, out)) return out;
+        }
         // 0.5 P1：页面标识里的播放标记（剥 # 之前先提取）
         // #isM3u8# 强制 m3u8；#concat# 多段拼接；#fastPlayMode#/#threads=N# 极速模式
         if (u.contains("#isM3u8#")) out.setForceM3u8(true);
@@ -332,6 +337,8 @@ public class HkRouter {
             if (ruleText.startsWith("js:")) {
                 String real = evalJsPlay(ruleText.substring(3), pageUrl);
                 if (!real.isEmpty()) {
+                    real = real.trim();
+                    if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
                     out.setUrl(real);
                     return out;
                 }
@@ -342,6 +349,8 @@ public class HkRouter {
         if (u.startsWith("js:")) {
             String real = evalJsPlay(u.substring(3), u);
             if (!real.isEmpty()) {
+                real = real.trim();
+                if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
                 out.setUrl(real);
                 return out;
             }
@@ -426,7 +435,12 @@ public class HkRouter {
                 String html = HkHttp.get(pageUrl, rule.resolvedUa());
                 v = engine.getSelector().evalField(html, r, pageUrl);
             }
-            if (!TextUtils.isEmpty(v)) out.setUrl(v.trim());
+            if (!TextUtils.isEmpty(v)) {
+                v = v.trim();
+                // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
+                if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
+                out.setUrl(v);
+            }
         } catch (Throwable e) {
             Logger.t(TAG).d("lazyRule failed: %s", e.getMessage());
         }

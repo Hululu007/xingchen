@@ -31,6 +31,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.hk.HkCommonParser;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkLoading;
@@ -76,6 +77,9 @@ public class HkListActivity extends AppCompatActivity
     private static volatile String tempRuleData;
     /** 原版 FilmListActivity.tempParentData 等价：#autoPage# 子页的父页续页数据静态槽（消费后清空）。 */
     private static volatile HkArticleFragment.AutoPageData tempParentData;
+    /** hiker://page/ 子页参数静态槽：pageParams 在 HkRule 里是 transient、过不了规则 JSON 序列化，
+     * 仿 tempRuleData/tempParentData 走静态槽交接（消费后清空），否则子页 MY_PARAMS 恒空。 */
+    private static volatile String tempPageParams;
     private static final AtomicBoolean STATICS_READY = new AtomicBoolean(false);
     private static volatile WeakReference<Activity> currentRef;
 
@@ -211,6 +215,7 @@ public class HkListActivity extends AppCompatActivity
 
     /** 规则第一页入口（主页型宿主，listHost=false）：供规则列表/搜索等开页方调用。 */
     public static void startRule(Context context, HkRule rule, String title) {
+        tempPageParams = null;
         Intent intent = new Intent(context, HkListActivity.class);
         putTempRule(intent, new Gson().toJson(rule));
         intent.putExtra("title", !TextUtils.isEmpty(title) ? title : rule.getTitle());
@@ -223,7 +228,12 @@ public class HkListActivity extends AppCompatActivity
     static void ensureStatics() {
         if (!STATICS_READY.compareAndSet(false, true)) return;
         Context app = App.get();
-        HkArticleListModel.setEngineBridge(new HkEngineBridge(app));
+        HkEngineBridge engineBridge = new HkEngineBridge(app);
+        HkArticleListModel.setEngineBridge(engineBridge);
+        HkCommonParser.setJsEval((rule, js, input) -> {
+            HkRule effective = rule != null ? rule : HkEngineManager.currentRule();
+            return effective != null ? engineBridge.evalWithRule(effective, js, input) : input;
+        });
         HkArticleFragment.setDetailBridge(new HkDetailBridge());
         HkEngineBridge.activityProvider = HkListActivity::currentActivity;
         HkDetailBridge.activityProvider = HkListActivity::currentActivity;
@@ -310,8 +320,8 @@ public class HkListActivity extends AppCompatActivity
                         try {
                             JSONObject o = new JSONObject();
                             HkArticleFragment.HkChapter ch = chapters.get(i);
-                            o.put("name", !TextUtils.isEmpty(ch.memoryTitle) ? ch.memoryTitle
-                                    : (ch.title == null ? "" : ch.title));
+                            o.put("name", !TextUtils.isEmpty(ch.title) ? ch.title
+                                    : (ch.memoryTitle == null ? "" : ch.memoryTitle));
                             o.put("url", rawUrls.get(i));
                             o.put("pic", ch.pic == null ? "" : ch.pic);
                             arr.put(o);
@@ -507,8 +517,8 @@ public class HkListActivity extends AppCompatActivity
                 for (int i = 0; i < chapters.size(); i++) {
                     HkArticleFragment.HkChapter ch = chapters.get(i);
                     JSONObject o = new JSONObject();
-                    o.put("name", !TextUtils.isEmpty(ch.memoryTitle) ? ch.memoryTitle
-                            : (ch.title == null ? "" : ch.title));
+                    o.put("name", !TextUtils.isEmpty(ch.title) ? ch.title
+                            : (ch.memoryTitle == null ? "" : ch.memoryTitle));
                     o.put("url", expandedUrl(playDatas.get(i), rawUrls.get(i), line));
                     o.put("pic", ch.pic == null ? "" : ch.pic);
                     eps.put(o);
@@ -560,6 +570,10 @@ public class HkListActivity extends AppCompatActivity
         // 照原版 initData：消费 tempParentData 静态槽（取走后清空）
         HkArticleFragment.AutoPageData parentData = tempParentData;
         tempParentData = null;
+        // 消费子页参数静态槽：补回序列化时丢掉的 pageParams（子页 MY_PARAMS 的来源）
+        String pp = tempPageParams;
+        tempPageParams = null;
+        if (pp != null && !pp.isEmpty()) rule.setPageParams(pp);
         pageTitle = getIntent().getStringExtra("title");
         if (TextUtils.isEmpty(pageTitle)) pageTitle = rule.getTitle();
         // 赶在列表加载触发引擎 init（跑 preRule）之前注册，否则第一声 showLoading 会漏掉
@@ -636,6 +650,10 @@ public class HkListActivity extends AppCompatActivity
         intent.putExtra("fromLastClick", req.fromLastClick);
         intent.putExtra("listHost", true);
         if (req.autoPageData != null) tempParentData = req.autoPageData;
+        // 子规则带 pageParams（hiker://page/ 页参数）时走静态槽交接，序列化会丢 transient 字段；
+        // 不带参数的子页必须清槽，防止上一次的参数漏给下一个页面
+        String subPp = req.subRule.getPageParams();
+        tempPageParams = subPp != null && !subPp.isEmpty() ? subPp : null;
         // 新窗口条目：原版以 NEW_TASK 独立任务打开（func://background 的退后台判定正读此标志）
         if (req.newWindow) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // req.windowId 是原版多窗口管理器的窗口号，星辰无多窗口管理器，仅透传不消费

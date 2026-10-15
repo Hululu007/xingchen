@@ -25,9 +25,9 @@ public class HkCommonParser {
 
     private static final String[] NORMAL_ATTRS = {"href", "src", "class", "title", "alt"};
 
-    /** JS 求值钩子（对应 8.83 JSEngine.getInstance().evalJS）。 */
+    /** JS 求值钩子（对应 8.83 JSEngine.getInstance().evalJS，按当前规则的运行时求值）。 */
     public interface JsEval {
-        String evalJs(String js, String input);
+        String evalJs(HkRule rule, String js, String input);
     }
 
     private static volatile JsEval jsEval;
@@ -265,7 +265,8 @@ public class HkCommonParser {
         }
         try {
             JsEval eval = jsEval;
-            return eval != null ? eval.evalJs(js, attr) : attr;
+            String evaluated = eval != null ? eval.evalJs(null, js, attr) : attr;
+            return evaluated != null ? evaluated : attr;
         } catch (Exception unused) {
             return attr;
         }
@@ -330,7 +331,7 @@ public class HkCommonParser {
             try {
                 JsEval eval = jsEval;
                 if (eval != null) {
-                    attr = eval.evalJs(js, attr);
+                    attr = eval.evalJs(hkRule, js, attr);
                 }
                 if (attr.toLowerCase().trim().startsWith("http") || attr.toLowerCase().trim().startsWith("x5://")) {
                     return attr.trim();

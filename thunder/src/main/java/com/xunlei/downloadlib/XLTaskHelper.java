@@ -16,6 +16,7 @@ import com.xunlei.downloadlib.parameter.XLTaskLocalUrl;
 
 import java.io.File;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -51,7 +52,17 @@ public class XLTaskHelper {
         if (file.isFile() && !file.getAbsolutePath().endsWith(".torrent")) Path.clear(file);
     }
 
+    // 只归一 scheme 段（trim ＋ scheme 小写），冒号后内容不动（哈希大小写敏感）。
+    // 下面的 "magnet:?"/"thunder://" 门限是精确前缀，粘贴变体不归一会被静默跳过。
+    private static String normalizeScheme(String raw) {
+        String u = raw == null ? "" : raw.trim();
+        int colon = u.indexOf(':');
+        if (colon > 0) u = u.substring(0, colon).toLowerCase(Locale.ROOT) + u.substring(colon);
+        return u;
+    }
+
     public synchronized GetTaskId parse(String url, File savePath) {
+        url = normalizeScheme(url);
         if (url.startsWith("file://")) return new GetTaskId(url, savePath);
         if (url.startsWith("thunder://")) url = getManager().parserThunderUrl(url);
         String fileName = getManager().getFileNameFromUrl(url);

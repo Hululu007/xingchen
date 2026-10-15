@@ -1034,15 +1034,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        // 8.83 JSEngine.getItem/getItemNow 原样：缺键时返回传入的 defaultValue，
-        // 未传默认时 getString(null) 为 null（不是 ""）。星集口令门 `getItem("xj_firstopen")==MY_RULE.version`
-        // 在缺 version 的规则下靠 `null==undefined` 直接放行；之前回 "" 导致 `""==undefined` 为假，
-        // 口令输对也永远进不去（setItem 存的是 "undefined" 字符串）。
+        // 8.83 JSEngine.getItem（源码+smali 复核）：Java 层缺键回默认（未传默认即 null），
+        // 但其脚本桥对 STRING 返回把 null 归一为空串，规则侧实际拿到 ""；
+        // GithubApp 这类规则直接 getItem('v').split(...) 靠的就是这个（回 null 必崩，实证）。
+        // 星集口令门比较的是已存值，不受缺键归一影响。
         putFunction("getItem", args -> {
-            if (args == null || args.length == 0) return null;
+            if (args == null || args.length == 0) return "";
             String key = getString(args[0]);
             String def = args.length > 1 ? getString(args[1]) : null;
-            if (key == null || key.isEmpty()) return def;
+            if (key == null || key.isEmpty()) return def != null ? def : "";
             String v = kv.get(key);
             // 诊断：口令记号读（星集使用前须知门）。只记命中与长度，不记值本身。
             if ("xj_firstopen".equals(key)) {
@@ -1053,7 +1053,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // 毒值兜底：旧版 setItem 把 JS undefined 经 argStr 存成了字面量 "undefined" 字符串，
             // 该值与 undefined 恒不等、口令门永远判假；按缺键处理，老装机自动解毒。
             if ("undefined".equals(v)) v = null;
-            return v != null ? v : def;
+            return v != null ? v : (def != null ? def : "");
         });
 
         // ---- 调试 ----
@@ -4159,7 +4159,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 官方 generateMyParams：MY_PARAMS 是 JSON 对象不是字符串（空时为 {}）
         try {
             String mp = myParams == null || myParams.isEmpty() ? "{}" : myParams;
-            ScriptableObject.putProperty(scope, "MY_PARAMS", parseJson(mp));
+            Object paramsObj = parseJson(mp);
+            // 8.83 的 extra 是带类型的 JSON 对象，嵌套对象（如子规则 RULE）到 MY_PARAMS 里仍是对象；
+            // 星辰条目 extra 早期把值压成了字符串，这里把形似 JSON 对象/数组的字符串值还原成对象
+            if (paramsObj instanceof org.mozilla.javascript.Scriptable) {
+                org.mozilla.javascript.Scriptable ps = (org.mozilla.javascript.Scriptable) paramsObj;
+                for (Object id : ps.getIds()) {
+                    String key = String.valueOf(id);
+                    Object val = org.mozilla.javascript.ScriptableObject.getProperty(ps, key);
+                    if (val instanceof String) {
+                        String vs = ((String) val).trim();
+                        if ((vs.startsWith("{") && vs.endsWith("}")) || (vs.startsWith("[") && vs.endsWith("]"))) {
+                            try {
+                                org.mozilla.javascript.ScriptableObject.putProperty(ps, key, parseJson(vs));
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }
+                }
+            }
+            ScriptableObject.putProperty(scope, "MY_PARAMS", paramsObj);
         } catch (Throwable ignored) {
             ScriptableObject.putProperty(scope, "MY_PARAMS", rhinoCx.newObject(scope));
         }
@@ -4415,14 +4434,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
-    private static String str(Map<String, Object> m, String key) {
+    private String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v == null ? "" : stringifyValue(v);
     }
 
     /** 对照原版 fastjson 的 getString：嵌套对象/数组取标准 JSON 文本，不取 Java 的 toString。 */
-    private static String stringifyValue(Object v) {
+    private String stringifyValue(Object v) {
         if (v instanceof Map || v instanceof List) return GSON.toJson(v);
+        // extra 里嵌套的 JS 对象/数组（如子规则 RULE）是 Rhino 对象，不是 Java Map：
+        // 以前 String.valueOf 只剩 "[object Object]"，子页 MY_PARAMS 里整个丢了
+        if (v instanceof org.mozilla.javascript.Scriptable) return jsStringify(v);
         return String.valueOf(v);
     }
 

@@ -21,6 +21,7 @@ import com.xunlei.downloadlib.parameter.XLTaskInfo;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -257,7 +258,18 @@ public class Thunder implements Source.Extractor {
 
     public record Parser(String url) implements Callable<List<Episode>> {
 
-        private static final Pattern PATTERN = Pattern.compile("(magnet|thunder|ed2k):.*");
+        private static final Pattern PATTERN = Pattern.compile("(?i)(magnet|thunder|ed2k):.*");
+
+        // 粘贴来的磁力常带首尾空白或 scheme 大小写变体（Magnet:/MAGNET:），而下游
+        // XLTaskHelper.parse 的 "magnet:?" 门限是大小写敏感的精确前缀：不变体归一
+        // 就会被静默拦下、回退成单集原样（看起来像普通推送）。只归一 scheme 段，
+        // 不动冒号后的内容（btih 的 base32 哈希大小写敏感）。
+        private static String normalizeScheme(String raw) {
+            String u = raw == null ? "" : raw.trim();
+            int colon = u.indexOf(':');
+            if (colon > 0) u = u.substring(0, colon).toLowerCase(Locale.ROOT) + u.substring(colon);
+            return u;
+        }
 
         public static boolean match(String url) {
             return PATTERN.matcher(url).find() || isTorrent(url);
@@ -281,18 +293,22 @@ public class Thunder implements Source.Extractor {
 
         @Override
         public List<Episode> call() throws Exception {
-            boolean torrent = isTorrent(url);
-            if (url.startsWith("ed2k:")) {
-                return Arrays.asList(Episode.create(parseEd2kName(url), url));
+            String u = normalizeScheme(url);
+            boolean torrent = isTorrent(u);
+            if (u.startsWith("ed2k:")) {
+                return Arrays.asList(Episode.create(parseEd2kName(u), u));
             }
             GetTaskId taskId;
             try {
-                taskId = XLTaskHelper.get().parse(url, Path.thunder(Util.md5(url)));
+                taskId = XLTaskHelper.get().parse(u, Path.thunder(Util.md5(u)));
             } catch (Exception e) {
                 throw new ExtractException("磁力解析超时，请检查网络后重试");
             }
-            if (!torrent && !taskId.getRealUrl().startsWith("magnet")) return Arrays.asList(create(taskId));
-            if (torrent && url.startsWith("http")) Download.create(url, taskId.getSaveFile()).get();
+            if (!torrent && !taskId.getRealUrl().startsWith("magnet")) {
+                SpiderDebug.log("thunder", "种子未解析出文件列表，回退单集 scheme=%s", u.contains(":") ? u.substring(0, u.indexOf(':')) : "");
+                return Arrays.asList(create(taskId));
+            }
+            if (torrent && u.startsWith("http")) Download.create(u, taskId.getSaveFile()).get();
             if (!torrent) waitDone(taskId);
             try {
                 return XLTaskHelper.get().getTorrentInfo(taskId.getSaveFile()).getMedias().stream().map(this::create).toList();

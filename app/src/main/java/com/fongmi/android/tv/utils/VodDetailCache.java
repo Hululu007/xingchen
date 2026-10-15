@@ -3,6 +3,8 @@ package com.fongmi.android.tv.utils;
 import android.content.Context;
 import android.os.Parcel;
 
+import com.fongmi.android.tv.bean.Episode;
+import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Vod;
 
 import java.io.File;
@@ -44,6 +46,16 @@ public final class VodDetailCache {
 
     public static void put(Context context, String key, String id, Vod vod) {
         if (vod == null || vod.getFlags().isEmpty()) return;
+        // 选集里还留着裸磁力/电驴原链 = 种子解析这次没产出（回退单集或未完成），
+        // 不写缓存：否则 7 天内每次打开同一条都先吃这份单链结果，重试不了解析。
+        for (Flag flag : vod.getFlags()) {
+            for (Episode episode : flag.getEpisodes()) {
+                String url = episode.getUrl();
+                if (url == null) continue;
+                String lower = url.trim().toLowerCase(java.util.Locale.ROOT);
+                if (lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:")) return;
+            }
+        }
         String cacheKey = key;
         String cacheId = id;
         Task.execute(() -> {

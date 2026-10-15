@@ -12,6 +12,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
+import com.fongmi.android.tv.player.extractor.Thunder;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -138,7 +139,11 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void detailContent(String key, String id, boolean forceRefresh) {
-        execute(TaskType.RESULT, result, () -> SiteApi.detailContent(key, id, forceRefresh));
+        // 推送/磁力详情要在 Source.parse 里拉种子元数据（parse 侧上限 60 秒），
+        // 外层沿用 30 秒会先把任务掐掉——首次粘贴、DHT 稍慢必失败。对齐到 75 秒。
+        boolean p2p = SiteApi.PUSH.equals(key) || (id != null && Thunder.Parser.match(id));
+        execute(TaskType.RESULT, result, () -> SiteApi.detailContent(key, id, forceRefresh), null, null,
+                p2p ? Constant.TIMEOUT_PUSH_DETAIL : Constant.TIMEOUT_VOD);
     }
 
     public void playerContent(String key, String flag, String id) {
@@ -200,12 +205,16 @@ public class SiteViewModel extends ViewModel {
     }
 
     private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError) {
+        execute(type, liveData, callable, onSuccess, onError, Constant.TIMEOUT_VOD);
+    }
+
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs) {
         AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
         int currentId = taskId.incrementAndGet();
         ListenableFuture<?> old = futures.get(type);
         if (old != null) old.cancel(true);
         ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
-        FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+        FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
         futures.put(type, future);
         future.addCallback(Task.callback(
                 result -> {

@@ -514,26 +514,27 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 smartRefreshLayout.finishRefresh(true);
                 smartRefreshLayout.finishLoadMore(true);
             }
+            // 照 8.83 原版 bindArrayToView：收完刷新圈后无条件调一次 updateWebView()，
+            // 不分 key、不分缓存状态（原版该方法无任何开关参数）。此前本类自创了
+            // show 门：普通新数据（非缓存）路径传 false 直接返回，WebView 永远不建、
+            // 不挂、不加载——魔曰首页、游戏集详情这类整页只有一个网页条目的页面，
+            // 数据明明到了却整页纯白（1.3.13 真机实证仍白），根子就在这道门。
+            updateWebView();
             if (!isPre && !isAfter && !"ARTICLE_LIST".equals(key)) {
                 firstPageData = idStr;
                 boolean merged = false;
                 if (fromCache) {
                     cacheMergeState = 1;
                     clearGlideMemory();
-                    updateWebView(false);
                 } else if (cacheMergeState == 1) {
-                    updateWebView(true);
                     list.addAll(0, initHeaders());
                     if (mainHost) list.add(initFooter());
                     merged = mergeCachedList(list);
                     cacheMergeState = 2;
-                } else {
-                    updateWebView(false);
                 }
                 if (cacheMergeState <= 0) clearGlideMemory();
                 if (!merged) replaceListWith(list);
             } else if ("ARTICLE_LIST".equals(key) || isAfter) {
-                updateWebView(true);
                 if (headerSize == -1) headerSize = initHeaders().size();
                 List<HkItem> cur = adapter.getList();
                 if (cur.isEmpty()) list.addAll(0, initHeaders());
@@ -1111,13 +1112,12 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     /**
-     * 照原版 updateWebView（:21968）的创建点语义：holder 在场且 WebView 未建时才建并加载；
-     * show=false（缓存预演）阶段不建，等合并/最终数据（show=true）再建。
+     * 照 8.83 原版 updateWebView（ArticleListFragment:1926）：无参数、无开关门——
+     * holder 在场且 WebView 未建时建并加载，已建则按地址同步加载/刷新。
      * WebView 的设置/桥/拦截由 HkWebkitHolder.initWebView 承担（原版 holder.initWebView 等价面）。
      */
-    private void updateWebView(boolean show) {
+    private void updateWebView() {
         if (getActivity() == null || getActivity().isFinishing() || webViewHolder == null) return;
-        if (!show) return;
         if (webViewHolder.getWebView() == null) {
             webViewHolder.ensureWebView(getActivity());
         }
@@ -2336,15 +2336,29 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         }
     }
 
-    /** getChapters 的条目过滤（原版三段循环共用）：非 header、url 非空、不含 ignoreVideo/ignoreMusic/@rule=、playlist 时 cls 相同。 */
+    /**
+     * getChapters 的条目过滤（原版三段循环共用）：非 header、url 非空、不含 ignoreVideo/ignoreMusic/@rule=、playlist 时 cls 相同。
+     * 星辰加一条（他 2026-10-15 拍板，原版不滤）：裸占位地址 hiker://empty 不进选集——
+     * 这类条目是详情页的标题条/分节头/页脚（如黄色仓库 videoParse 的标题、相关推荐头、
+     * 我是有底线的），本身没有播放目标、也没挂 lazy（挂了 lazy 的地址带 @lazyRule= 后缀、
+     * 不是裸占位），进选集纯属杂条。能播的集只有三种形态：直链、@lazyRule=、磁力/ed2k，
+     * 都不会是裸占位，不误伤。
+     */
     private boolean chapterCandidate(HkItem item, boolean playList, String playListCls) {
         if ("header".equals(item.getType())) return false;
         String url = item.getUrl();
         if (TextUtils.isEmpty(url)) return false;
+        if (isEmptyPlaceholder(url)) return false;
         if (url.contains("ignoreVideo") || url.contains("ignoreMusic")) return false;
         if (url.contains("@rule=")) return false;
         if (playList && !isSamePlayList(playListCls, item)) return false;
         return true;
+    }
+
+    /** 裸占位地址：hiker://empty 本体或只带 #/? 尾巴的变体。 */
+    private static boolean isEmptyPlaceholder(String url) {
+        String u = url.trim();
+        return u.equals("hiker://empty") || u.startsWith("hiker://empty#") || u.startsWith("hiker://empty?");
     }
 
     private HkChapter buildChapter(HkItem item, int pos, String titlePrefix, String codeAndHeader, boolean use) {

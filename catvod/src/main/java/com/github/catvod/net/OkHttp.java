@@ -260,7 +260,8 @@ public class OkHttp {
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY);
         //builder.addNetworkInterceptor(logging);
         // 全局代理包装走壳代理：开启时接管全部流量（回环除外），关闭时行为与原来一致
-        builder.proxySelector(GlobalProxy.wrapSelector(selector()));
+        // 按源定向选择器包在最外层：命中策略的流量先走 127.0.0.1:混合口，其余透传原链
+        builder.proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(selector())));
         builder.proxyAuthenticator(GlobalProxy.wrapAuthenticator(authenticator()));
         return builder;
     }

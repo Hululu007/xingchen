@@ -54,6 +54,14 @@ public class Thunder implements Source.Extractor {
     @Override
     public String fetch(String url) throws Exception {
         if (url == null) return fetchInternal(url);
+        // 入口先归一（与 Parser.normalizeScheme 同款：去首尾空白、scheme 段小写）。
+        // match() 认 scheme 时是大小写不敏感的，但下面所有分流判断都是大小写敏感的
+        // 精确前缀：推送粘贴来的 Magnet:/ED2K: 变体能骗过 match、却落不进任何一条
+        // 建任务的路，最后掉进 addThunderTask——那里只认 ftp/ed2k 小写前缀，
+        // 磁力根本不建原生任务，却照样交出本地地址，播放器对着空任务永远 0 字节
+        // （1.3.13 真机日志实证：四次尝试全是 status=1 speed=0 size=0；
+        // 同种子走正规 magnet:// 播放地址那条路当场出速度）。
+        url = normalizeScheme(url);
         synchronized (this) {
             if (sameContent(url, lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists()) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
@@ -155,6 +163,14 @@ public class Thunder implements Source.Extractor {
         lastKey = null;
         lastLocal = null;
         SpiderDebug.log("thunder", "cleaned stale task before rebuild status=%d", status);
+    }
+
+    // 与 Parser.normalizeScheme 同款：只归一 scheme 段，不动冒号后的内容
+    private static String normalizeScheme(String raw) {
+        String u = raw == null ? "" : raw.trim();
+        int colon = u.indexOf(':');
+        if (colon > 0) u = u.substring(0, colon).toLowerCase(Locale.ROOT) + u.substring(colon);
+        return u;
     }
 
     /**

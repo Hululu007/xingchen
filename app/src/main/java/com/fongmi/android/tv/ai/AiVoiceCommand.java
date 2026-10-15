@@ -92,12 +92,15 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_AI_SETTINGS = "nav_ai_settings";
     public static final String ACTION_NAV_PLAYER_SET = "nav_player_set";
     public static final String ACTION_NAV_UI_SET = "nav_ui_set";
+    public static final String ACTION_NAV_NODE = "nav_node";
 
     // ---- 全局开关 ----
     public static final String ACTION_DOH_NEXT = "doh_next";
     public static final String ACTION_FLOAT_ON = "float_on";
     public static final String ACTION_FLOAT_OFF = "float_off";
     public static final String ACTION_PY_REFRESH = "py_refresh";
+    public static final String ACTION_NODE_ON = "node_on";
+    public static final String ACTION_NODE_OFF = "node_off";
 
     private static final Pattern SEEK_PATTERN = Pattern.compile("(快进|快退|前进|后退)\\s*(\\d+)\\s*秒");
     private static final Pattern SEEK_PATTERN2 = Pattern.compile("(\\d+)\\s*秒.*(快进|前进)");
@@ -299,6 +302,17 @@ public class AiVoiceCommand {
         }
         if (t.contains("个性功能")) {
             return new Command(ACTION_NAV_FEATURES, "已打开个性功能");
+        }
+        // 节点（先判管理页，再判开关，避免"打开节点管理"被"打开节点"吞掉）
+        if (t.contains("节点管理") || t.contains("节点设置")) {
+            return new Command(ACTION_NAV_NODE, "已打开节点管理");
+        }
+        if (t.contains("关闭节点") || t.contains("关节点") || t.contains("停掉节点")) {
+            return new Command(ACTION_NODE_OFF, "节点已关闭");
+        }
+        if (t.contains("打开节点") || t.contains("开启节点") || t.contains("开节点")
+                || t.contains("启动节点")) {
+            return new Command(ACTION_NODE_ON, "正在开启节点");
         }
         if (t.contains("插件管理") || t.contains("打开插件")) {
             return new Command(ACTION_NAV_PLUGIN, "已打开插件管理");

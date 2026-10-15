@@ -35,6 +35,8 @@ public class Startup implements Initializer<Void> {
         }
         XingChenDoh.apply(context);
         XingChenProxy.apply(context);
+        // 节点按源定向：把 ClashSettings/策略表注册进 catvod 决策层
+        com.fongmi.android.tv.clash.ClashGate.register(context);
         return null;
     }
 

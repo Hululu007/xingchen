@@ -9,9 +9,16 @@ import android.view.View;
 
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.clash.ClashSettings;
+import com.fongmi.android.tv.clash.KernelDownloader;
+import com.fongmi.android.tv.clash.NodeStore;
 import com.fongmi.android.tv.databinding.ActivityFeaturesBinding;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.GlobalProxyDialog;
+import com.fongmi.android.tv.ui.dialog.ProxyDialog;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.XingChenProxy;
 
 public class FeaturesActivity extends BaseActivity {
 
@@ -37,6 +44,9 @@ public class FeaturesActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         refreshAdBlock();
+        refreshNode();
+        refreshProxy();
+        refreshGlobalProxy();
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
@@ -47,6 +57,9 @@ public class FeaturesActivity extends BaseActivity {
             Notify.show(checked ? "小程序已启用" : "小程序已关闭");
         });
         binding.cardAdblock.setOnClickListener(v -> AdBlockActivity.start(this));
+        binding.cardNode.setOnClickListener(v -> NodeManageActivity.start(this));
+        binding.cardProxy.setOnClickListener(v -> ProxyDialog.create().show(this));
+        binding.cardGlobalProxy.setOnClickListener(v -> GlobalProxyDialog.create().show(this));
         binding.cardTmdb.setOnClickListener(v -> TmdbActivity.start(this));
         binding.cardPanlogin.setOnClickListener(v -> PanLoginActivity.start(this));
         binding.cardAi.setOnClickListener(v -> AiSettingsActivity.start(this));
@@ -64,6 +77,9 @@ public class FeaturesActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         refreshAdBlock();
+        refreshNode();
+        refreshProxy();
+        refreshGlobalProxy();
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
@@ -77,6 +93,28 @@ public class FeaturesActivity extends BaseActivity {
     private void refreshAdBlock() {
         boolean enabled = AdBlockActivity.isEnabled(this);
         binding.tvAdblockSub.setText(enabled ? "已启用" : "未启用");
+    }
+
+    private void refreshNode() {
+        boolean on = ClashSettings.isEnabled(this);
+        if (!on) {
+            binding.tvNodeSub.setText("未启用");
+            return;
+        }
+        if (!KernelDownloader.isReady(this)) {
+            binding.tvNodeSub.setText("开·内核未下载");
+            return;
+        }
+        NodeStore.Node n = NodeStore.get(this).getSelected(this);
+        binding.tvNodeSub.setText("开·" + (n == null || n.name == null || n.name.isEmpty() ? "未选节点" : n.name));
+    }
+
+    private void refreshProxy() {
+        binding.tvProxySub.setText(Setting.isShellProxy() ? "已启用" : "未启用");
+    }
+
+    private void refreshGlobalProxy() {
+        binding.tvGlobalProxySub.setText(XingChenProxy.summary(this));
     }
 
     private void refreshTmdb() {

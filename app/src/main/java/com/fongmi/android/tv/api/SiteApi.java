@@ -14,6 +14,7 @@ import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.api.loader.BaseLoader;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
@@ -28,6 +29,7 @@ import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
+import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Prefers;
 import com.github.catvod.utils.Util;
 
@@ -38,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -62,6 +65,28 @@ public class SiteApi {
 
     private static boolean isSpider(@NonNull String key, @NonNull Site site) {
         return site.getType() == 3 || key.startsWith("py_");
+    }
+
+    /** 源归属打点口径：按 site 的 api 后缀判 py/js，id 用 site key。判不出的不打点（返回 null）。 */
+    private static String proxyKindOf(Site site) {
+        String api = site == null ? null : site.getApi();
+        if (api == null) return null;
+        String a = api.toLowerCase();
+        if (a.endsWith(".py")) return SourceProxyPolicy.KIND_PY;
+        if (a.endsWith(".js")) return SourceProxyPolicy.KIND_JS;
+        return null;
+    }
+
+    /** 包一层源归属打点：当前线程的 spider 同步请求走按源定向决策，finally 里清掉。 */
+    private static String marked(Site site, Callable<String> call) throws Exception {
+        String kind = proxyKindOf(site);
+        if (kind == null) return call.call();
+        SourceGate.mark(kind, site.getKey());
+        try {
+            return call.call();
+        } finally {
+            SourceGate.clear();
+        }
     }
 
 
@@ -117,8 +142,8 @@ public class SiteApi {
                 home = "";
                 video = "";
             } else {
-                Future<String> fHome = Task.executor().submit(() -> spider.homeContent(true));
-                Future<String> fVideo = Task.executor().submit(spider::homeVideoContent);
+                Future<String> fHome = Task.executor().submit(() -> marked(site, () -> spider.homeContent(true)));
+                Future<String> fVideo = Task.executor().submit(() -> marked(site, spider::homeVideoContent));
                 try {
                     home = fHome.get();
                     video = fVideo.get();
@@ -160,7 +185,7 @@ public class SiteApi {
         SpiderDebug.log("category", "key=%s,tid=%s,page=%s,filter=%s,extend=%s", key, tid, page, filter, extend);
         Site site = VodConfig.get().getSite(key);
         if (isSpider(key, site)) {
-            String categoryContent = site.recent().spider().categoryContent(tid, page, filter, extend);
+            String categoryContent = marked(site, () -> site.recent().spider().categoryContent(tid, page, filter, extend));
             SpiderDebug.log("category", categoryContent);
             return Result.fromJson(categoryContent);
         } else {
@@ -222,7 +247,7 @@ public class SiteApi {
                     return result;
                 }
             }
-            String detailContent = site.recent().spider().detailContent(Arrays.asList(id));
+            String detailContent = marked(site, () -> site.recent().spider().detailContent(Arrays.asList(id)));
             SpiderDebug.log("detail", detailContent);
             Result result = Result.fromJson(detailContent);
             Vod vod = result.getVod();
@@ -284,7 +309,7 @@ public class SiteApi {
         if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id, playerType);
         Site site = VodConfig.get().getSite(key);
         if (isSpider(key, site)) {
-            String playerContent = site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags());
+            String playerContent = marked(site, () -> site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags()));
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);
             if (result.getFlag().isEmpty()) result.setFlag(flag);
@@ -487,7 +512,7 @@ public class SiteApi {
         SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s", site.getName(), keyword, quick, page);
         boolean hasPage = !page.equals("1");
         if (isSpider(site.getKey(), site)) {
-            String searchContent = hasPage ? site.spider().searchContent(keyword, quick, page) : site.spider().searchContent(keyword, quick);
+            String searchContent = marked(site, () -> hasPage ? site.spider().searchContent(keyword, quick, page) : site.spider().searchContent(keyword, quick));
             SpiderDebug.log("search", searchContent);
             Result result = Result.fromJson(searchContent);
             for (Vod vod : result.getList()) vod.setSite(site);
@@ -509,7 +534,7 @@ public class SiteApi {
     @NonNull
     public static Result action(@NonNull String key, @NonNull String action) throws Exception {
         Site site = VodConfig.get().getSite(key);
-        if (isSpider(key, site)) return Result.fromJson(site.recent().spider().action(action));
+        if (isSpider(key, site)) return Result.fromJson(marked(site, () -> site.recent().spider().action(action)));
         if (site.getType() == 4) return Result.fromJson(OkHttp.string(action));
         return Result.empty();
     }

@@ -6,6 +6,8 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.XingChenDoh;
 import com.fongmi.quickjs.bean.Req;
 import com.github.catvod.bean.Doh;
+import com.github.catvod.net.GlobalProxy;
+import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Json;
 import com.google.common.net.HttpHeaders;
 
@@ -334,7 +336,10 @@ public class HkHttp {
                             .writeTimeout(15, TimeUnit.SECONDS)
                             // 总超时必须有：connect/read/write 都管不住 DNS 解析阶段，
                             // 域名被污染时解析能无限挂起，图片请求整批死等（真机封面全白同因）
-                            .callTimeout(45, TimeUnit.SECONDS);
+                            .callTimeout(45, TimeUnit.SECONDS)
+                            // 按源定向：与壳子同套选择器链（SourceGate 包在 GlobalProxy 外）。
+                            // to()/取数 client 由 client().newBuilder() 派生，选择器自动继承。
+                            .proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())));
                     // 8.83 图片 client dispatcher maxRequestsPerHost = 48
                     okhttp3.Dispatcher d = new okhttp3.Dispatcher();
                     d.setMaxRequestsPerHost(48);
@@ -429,6 +434,8 @@ public class HkHttp {
                         b.cookieJar(HkCookieJar.get(App.get()));
                     } catch (Throwable ignored) {
                     }
+                    // 按源定向：与图片 client 同套选择器链
+                    b.proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())));
                     client = b.build();
                 }
             }

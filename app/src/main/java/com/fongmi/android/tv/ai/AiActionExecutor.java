@@ -57,6 +57,8 @@ public class AiActionExecutor {
         return a.equals(AiVoiceCommand.ACTION_DOH_NEXT)
                 || a.equals(AiVoiceCommand.ACTION_FLOAT_ON)
                 || a.equals(AiVoiceCommand.ACTION_FLOAT_OFF)
+                || a.equals(AiVoiceCommand.ACTION_NODE_ON)
+                || a.equals(AiVoiceCommand.ACTION_NODE_OFF)
                 || a.equals(AiVoiceCommand.ACTION_PY_REFRESH);
     }
 
@@ -76,6 +78,10 @@ public class AiActionExecutor {
                     break;
                 case AiVoiceCommand.ACTION_NAV_FEATURES:
                     cls = pkg + "FeaturesActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    break;
+                case AiVoiceCommand.ACTION_NAV_NODE:
+                    cls = pkg + "NodeManageActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
                 case AiVoiceCommand.ACTION_NAV_AI_SETTINGS:
@@ -171,6 +177,14 @@ public class AiActionExecutor {
                 case AiVoiceCommand.ACTION_PY_REFRESH: {
                     com.fongmi.android.tv.event.RefreshEvent.home();
                     return "正在刷新首页";
+                }
+                case AiVoiceCommand.ACTION_NODE_ON: {
+                    com.fongmi.android.tv.clash.MihomoManager.get().setEnabled(context, true);
+                    return "正在开启节点，内核启动需要几秒";
+                }
+                case AiVoiceCommand.ACTION_NODE_OFF: {
+                    com.fongmi.android.tv.clash.MihomoManager.get().setEnabled(context, false);
+                    return "节点已关闭";
                 }
                 default:
                     return "不支持的操作";
@@ -327,6 +341,8 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开播放器设置");
                 case AiVoiceCommand.ACTION_NAV_UI_SET:
                     return new AiVoiceCommand.Command(action, "已打开界面设置");
+                case AiVoiceCommand.ACTION_NAV_NODE:
+                    return new AiVoiceCommand.Command(action, "已打开节点管理");
                 case AiVoiceCommand.ACTION_NAV_SEARCH: {
                     if (TextUtils.isEmpty(text)) return null;
                     return new AiVoiceCommand.Command(action, text, "正在搜索 " + text);
@@ -340,6 +356,10 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "悬浮窗已关闭");
                 case AiVoiceCommand.ACTION_PY_REFRESH:
                     return new AiVoiceCommand.Command(action, "正在刷新首页");
+                case AiVoiceCommand.ACTION_NODE_ON:
+                    return new AiVoiceCommand.Command(action, "正在开启节点");
+                case AiVoiceCommand.ACTION_NODE_OFF:
+                    return new AiVoiceCommand.Command(action, "节点已关闭");
                 default:
                     return null;
             }

@@ -146,6 +146,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
                 new com.fongmi.chaquo.Loader();
             } catch (Throwable ignored) {}
         });
+        // 节点开关是长期设置：开着退出再进，后台自动把内核拉起来；
+        // 拉起失败静默降级为直连并把开关置回关，不卡启动。
+        Task.execute(() -> com.fongmi.android.tv.clash.MihomoManager.get().bootRestore(getApplicationContext()));
         SpiderDebug.log("startup", "background services ready cost=%sms", System.currentTimeMillis() - time);
     }
 

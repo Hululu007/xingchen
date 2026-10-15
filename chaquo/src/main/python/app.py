@@ -122,13 +122,13 @@ def str2json(content):
 
 
 def getDependence(ru):
-    result = ru.getDependence()
-    return result
+    fn = getattr(ru, "getDependence", None)
+    return fn() if callable(fn) else []
 
 
 def getName(ru):
-    result = ru.getName()
-    return result
+    fn = getattr(ru, "getName", None)
+    return fn() if callable(fn) else None
 
 
 def init(ru, extend):
@@ -218,7 +218,9 @@ def action(ru, action):
 
 
 def destroy(ru):
-    ru.destroy()
+    fn = getattr(ru, "destroy", None)
+    if callable(fn):
+        fn()
 
 
 def run():

@@ -45,7 +45,7 @@
                 android:maxLines="1"
                 android:singleLine="true"
                 android:textColor="#101216"
-                android:textColorHint="#8A8F98"
+                android:textColorHint="#4B5563"
                 android:textSize="15sp" />
 
             <ImageButton
@@ -68,7 +68,7 @@
         android:layout_marginLeft="16dp"
         android:layout_marginTop="12dp"
         android:text="搜索历史"
-        android:textColor="#8A8F98"
+        android:textColor="#374151"
         android:textSize="13sp" />
 
     <androidx.recyclerview.widget.RecyclerView
@@ -97,7 +97,7 @@
         android:layout_weight="1"
         android:gravity="center"
         android:text="无相关结果"
-        android:textColor="#8A8F98"
+        android:textColor="#4B5563"
         android:textSize="15sp"
         android:visibility="gone" />
 </LinearLayout>

@@ -67,13 +67,20 @@ public class SiteApi {
         return site.getType() == 3 || key.startsWith("py_");
     }
 
-    /** 源归属打点口径：按 site 的 api 后缀判 py/js，id 用 site key。判不出的不打点（返回 null）。 */
+    /**
+     * 源归属打点口径：与 BaseLoader.isPy/isJs 对齐用 contains 判（id 用 site key）。
+     * 旧实现用 endsWith：api 带参数/不以 .py 结尾的 PY 源判不出种类、根本不打点，
+     * py 侧问代理口时无归属、无日志、静默直连（真机日志 via=py 全天 0 条即此故）。
+     * 再兜一层：key 以 py_ 开头也算 py（与 isSpider 的口径一致）。
+     */
     private static String proxyKindOf(Site site) {
         String api = site == null ? null : site.getApi();
         if (api == null) return null;
         String a = api.toLowerCase();
-        if (a.endsWith(".py")) return SourceProxyPolicy.KIND_PY;
-        if (a.endsWith(".js")) return SourceProxyPolicy.KIND_JS;
+        if (a.contains(".py")) return SourceProxyPolicy.KIND_PY;
+        if (a.contains(".js") || a.contains(".wv")) return SourceProxyPolicy.KIND_JS;
+        String key = site.getKey();
+        if (key != null && key.startsWith("py_")) return SourceProxyPolicy.KIND_PY;
         return SourceProxyPolicy.KIND_VOD;
     }
 
@@ -491,11 +498,20 @@ public class SiteApi {
         // 路由缓存复用：不再每次播放重建 QuickJS 上下文+跑 preRule（之前点封面等几秒的主因）
         HkRouter router = acquireHkRouter(title);
         HkPlay play = router.play(id);
+        // P2 多线路：按 (规则名,剧集) 记忆的线路下标取线（默认首线），
+        // 该线路的地址+请求头按下标取、不跨线路合并（8.83 getPlayData/getHeaders 语义）
+        int line = HkRouter.lineIndex(title, id);
         Result result = new Result();
-        result.setUrl(play.getUrl());
+        result.setUrl(play.getUrl(line));
         result.setParse(0);
         result.setFlag(flag);
-        if (!play.getHeaders().isEmpty()) result.setHeader(play.getHeaders());
+        java.util.Map<String, String> lineHeaders = play.getHeaders(line);
+        if (!lineHeaders.isEmpty()) result.setHeader(lineHeaders);
+        // 规则解析出的字幕此前在 HkPlay 里带着、到这一步被丢掉（审计 P7）：
+        // 照 8.83 PlayerChooser 把 subtitle 传进播放器的做法接到 Result 上。
+        if (!play.getSubtitle().isEmpty()) {
+            result.setSubs(java.util.List.of(com.fongmi.android.tv.bean.Sub.from(play.getSubtitle())));
+        }
         result.setKey(key);
         // 磁力/电驴轻修：播放器不认这两种协议，直塞就是黑屏 0 KB/s。
         // 只拦这两类（HkRouter.isP2pPlayLink），走壳子已有的迅雷引擎边下边播；

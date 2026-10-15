@@ -278,6 +278,12 @@ public class HkRouter {
         HkPlay out = new HkPlay();
         if (episodeUrl == null) return out;
         String u = episodeUrl.trim();
+        // -1. webRule:// 网页嗅探（8.83 WebkitParser）：必须在 @lazyRule/普通分流之前判定，
+        // 否则伪协议串会被后续分流原样塞给播放器
+        if (u.regionMatches(true, 0, "webRule://", 0, 10)) {
+            resolveWebRule(u, out);
+            return out;
+        }
         // 0. @lazyRule= 优先提取（必须在 splitEnhancement 之前：JS 代码里含 {}/; 等字符）
         int lr0 = u.indexOf("@lazyRule=");
         String lazyRuleText = null;
@@ -305,15 +311,16 @@ public class HkRouter {
             } catch (Throwable ignored) {
             }
         }
-        // 1. # 页面标识
-        int hash = u.indexOf('#');
-        if (hash >= 0) u = u.substring(0, hash).trim();
         // 1.5 P1：pics:// 漫画多图模式（非视频，记入 pics 列表，UI 提示不支持但不崩）
         if (u.startsWith("pics://")) {
-            String rest = u.substring(7).trim();
-            for (String p : rest.split("[\\n&&]+")) {
-                String t = p.trim();
-                if (!t.isEmpty()) out.addPic(t);
+            String rest = HkParserKit.clearTag(u.substring(7).trim());
+            // 8.83 按字面 "&&" 分隔；旧写法 "[\\n&&]+" 是字符类，
+            // 图片地址查询参数里的 & 会被切碎。先按行拆、再按字面 && 拆。
+            for (String line : rest.split("\\n")) {
+                for (String p : line.split("&&")) {
+                    String t = p.trim();
+                    if (!t.isEmpty()) out.addPic(t);
+                }
             }
             return out;
         }
@@ -323,15 +330,20 @@ public class HkRouter {
         else if (low.startsWith("magnet:")) out.setPlayType("magnet");
         else if (low.startsWith("thunder://")) out.setPlayType("thunder");
         else if (low.startsWith("ftp://")) out.setPlayType("ftp");
-        // 2. ; URL 增强
+        // 2. ; URL 增强（必须在 # 截断之前：8.83 是先从完整串解析 ;{...} 请求头块、
+        // 再剥标记；旧顺序先按 # 一刀切，url#标记;{Referer@x} 的请求头块会被连带丢掉）
         u = splitEnhancement(u, out);
+        // 2.5 # 页面标识截断（#threads 等已在 0.5 提取完毕）
+        int hash = u.indexOf('#');
+        if (hash >= 0) u = u.substring(0, hash).trim();
         // 3. video://
         if (u.startsWith("video://")) u = u.substring(8).trim();
         // 4. @lazyRule=（已在步骤0提取）
         if (lazyRuleText != null) {
             resolveLazyRule(lazyPageUrl, lazyRuleText, out);
-            if (!out.isEmpty()) return out;
-            // lazyRule 未解析出地址时，继续用 pageUrl 走后续分流
+            // 照 8.83：懒解析没出地址就是失败、停住报错；
+            // 旧代码继续拿剧集页地址走兜底，最终把网页塞给播放器（白屏/解析失败）。
+            return out;
         }
         // 5. @rule=js:
         int ar = u.indexOf("@rule=");
@@ -343,6 +355,11 @@ public class HkRouter {
                 if (!real.isEmpty()) {
                     real = real.trim();
                     if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
+                    // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+                    if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
+                        resolveWebRule(real, out);
+                        return out;
+                    }
                     out.setUrl(real);
                     return out;
                 }
@@ -355,6 +372,11 @@ public class HkRouter {
             if (!real.isEmpty()) {
                 real = real.trim();
                 if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
+                // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+                if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
+                    resolveWebRule(real, out);
+                    return out;
+                }
                 out.setUrl(real);
                 return out;
             }
@@ -408,13 +430,45 @@ public class HkRouter {
             String inner = u.substring(brace + 1, braceEnd);
             for (String kv : inner.split("&&")) {
                 int at = kv.indexOf('@');
-                if (at > 0) out.putHeader(kv.substring(0, at).trim(), kv.substring(at + 1).trim());
+                // 请求头值照 8.83 过 decodeConflictStr（＆＆/；；等全角转义要还原），否则发错头
+                if (at > 0) out.putHeader(kv.substring(0, at).trim(), decodeConflict(kv.substring(at + 1).trim()));
             }
             u = (u.substring(0, brace) + u.substring(braceEnd + 1)).trim();
         }
         int semi = u.indexOf(';');
         if (semi >= 0) u = u.substring(0, semi).trim();
         return u;
+    }
+
+    /**
+     * webRule:// 分流（8.83 WebkitParser.parse）：拆「页@解析js」，后台 WebView
+     * 加载跑 js、经 fy_bridge_app.finishParse 回真实地址；失败/超时回空并留痕，
+     * 绝不把伪协议串原样塞给播放器。拿到真实地址后与 lazy 同口径：
+     * 先认 {urls} JSON，再当直链。
+     */
+    private boolean resolveWebRule(String webRuleUrl, HkPlay out) {
+        String body = webRuleUrl.substring(10).trim();
+        int at = body.indexOf('@');
+        if (at < 0) {
+            SpiderDebug.log("hk", "webRule invalid (no @) rule=%s", rule.getTitle());
+            return false;
+        }
+        String loadUrl = body.substring(0, at).trim();
+        String innerJs = body.substring(at + 1).trim();
+        String real = HkWebkitFetcher.parseWebRule(loadUrl, innerJs, null);
+        if (TextUtils.isEmpty(real)) {
+            SpiderDebug.log("hk", "webRule parse empty rule=%s host=%s", rule.getTitle(), hostOf(loadUrl));
+            return false;
+        }
+        real = real.trim();
+        if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
+            // 解析结果又是 webRule：不再递归嗅探，按空处理（防死循环）
+            SpiderDebug.log("hk", "webRule nested result rule=%s", rule.getTitle());
+            return false;
+        }
+        if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return true;
+        out.setUrl(real);
+        return true;
     }
 
     /**
@@ -443,6 +497,11 @@ public class HkRouter {
                 v = v.trim();
                 // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
                 if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
+                // 懒解析结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+                if (v.regionMatches(true, 0, "webRule://", 0, 10)) {
+                    resolveWebRule(v, out);
+                    return;
+                }
                 out.setUrl(v);
             } else {
                 // 空结果也留痕到文件日志：规则解析失败（如福建兄妹抠不到 playUrl 时
@@ -477,37 +536,59 @@ public class HkRouter {
 
     /**
      * 解析多线路/字幕 JSON：{@code {urls:[], names:[], headers:[], subtitle:'...'}}。
-     * headers 元素两种形态都认：{@code "Cookie@xxx"} 字符串，或 8.83 PlayData 的
-     * {@code {"Referer":"..."}} 对象。P1：同时解析 audioUrls（音视频分离）。
+     * 三列按 8.83 PlayData 语义逐下标对齐保全在 HkPlay：urls 全收、names 空补「线路1..N」、
+     * headers 元素两种形态都认（{@code "Cookie@xxx"} 字符串属同线路多对累积，
+     * {@code {"Referer":"..."}} 对象即 8.83 的单线路头表）——绝不跨线路合并。
+     * P1：同时解析 audioUrls（音视频分离，取首条）。
      */
     private boolean parsePlayJson(String u, HkPlay out) {
         try {
             JSONObject o = new JSONObject(u);
             JSONArray urls = o.optJSONArray("urls");
-            if (urls != null && urls.length() > 0) out.setUrl(urls.optString(0, "").trim());
+            if (urls != null) {
+                for (int i = 0; i < urls.length(); i++) out.addUrl(urls.optString(i, "").trim());
+                if (urls.length() > 0) out.setUrl(urls.optString(0, "").trim());
+            }
+            JSONArray names = o.optJSONArray("names");
+            if (names != null) {
+                for (int i = 0; i < names.length(); i++) out.addName(names.optString(i, "").trim());
+            }
+            // 8.83 HttpParser.getPlayData：names 为空补「线路1..N」；多于 urls 的截断
+            for (int i = out.getNames().size(); i < out.getUrls().size(); i++) out.addName("线路" + (i + 1));
+            while (out.getNames().size() > out.getUrls().size() && !out.getNames().isEmpty())
+                out.getNames().remove(out.getNames().size() - 1);
             // P1：音视频分离
             JSONArray audioUrls = o.optJSONArray("audioUrls");
             if (audioUrls != null && audioUrls.length() > 0)
                 out.setAudioUrl(audioUrls.optString(0, "").trim());
             JSONArray headers = o.optJSONArray("headers");
             if (headers != null) {
+                java.util.Map<String, String> cur = new java.util.LinkedHashMap<>();
                 for (int i = 0; i < headers.length(); i++) {
                     Object el = headers.opt(i);
                     if (el instanceof JSONObject) {
-                        // 8.83 PlayData.headers 是 List<Map>：元素是 {名:值} 对象（摸鱼日报即此式）
+                        // 一个对象 = 一条线路的头表：先结算之前累积的同线路多对，再单独成表
+                        if (!cur.isEmpty()) {
+                            out.addLineHeaders(cur);
+                            cur = new java.util.LinkedHashMap<>();
+                        }
                         JSONObject ho = (JSONObject) el;
+                        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
                         java.util.Iterator<String> keys = ho.keys();
                         while (keys.hasNext()) {
                             String k = keys.next();
-                            String v = ho.optString(k, "").trim();
-                            if (!k.trim().isEmpty() && !v.isEmpty()) out.putHeader(k.trim(), v);
+                            String v = decodeConflict(ho.optString(k, "").trim());
+                            if (!k.trim().isEmpty() && !v.isEmpty()) m.put(k.trim(), v);
                         }
+                        out.addLineHeaders(m);
                     } else {
+                        // 星辰内编码（expandedUrl）：同线路的 "K@V" 对分多条存，累积进当前表
                         String kv = headers.optString(i, "");
                         int at = kv.indexOf('@');
-                        if (at > 0) out.putHeader(kv.substring(0, at).trim(), kv.substring(at + 1).trim());
+                        if (at > 0) cur.put(kv.substring(0, at).trim(), decodeConflict(kv.substring(at + 1).trim()));
                     }
                 }
+                if (!cur.isEmpty()) out.addLineHeaders(cur);
             }
             String sub = o.optString("subtitle", "").trim();
             if (!sub.isEmpty()) out.setSubtitle(sub);
@@ -516,6 +597,24 @@ public class HkRouter {
             Logger.t(TAG).d("play json failed: %s", e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * P2 线路记忆（8.83 PlayerChooser.getSwitchIndex 语义）：键=规则名+剧集 id，
+     * 默认 0。供播放器内线路切换入口调用（当前桥路径暂无切换 UI，只记不换）。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Integer> LINE_INDEX =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static int lineIndex(String ruleTitle, String episodeId) {
+        if (ruleTitle == null || episodeId == null) return 0;
+        Integer i = LINE_INDEX.get(ruleTitle + "|" + episodeId);
+        return i == null ? 0 : Math.max(0, i);
+    }
+
+    public static void rememberLine(String ruleTitle, String episodeId, int index) {
+        if (ruleTitle == null || episodeId == null || index < 0) return;
+        LINE_INDEX.put(ruleTitle + "|" + episodeId, index);
     }
 
     /**

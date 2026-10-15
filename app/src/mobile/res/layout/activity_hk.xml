@@ -197,7 +197,7 @@
                             android:inputType="text"
                             android:maxLines="1"
                             android:textColor="#101216"
-                            android:textColorHint="#8A8F98"
+                            android:textColorHint="#4B5563"
                             android:textSize="15sp" />
 
                         <ImageButton

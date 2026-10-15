@@ -1293,7 +1293,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
         String getCodeAndHeader(String urlWithUa, String[] lazyParts);
 
-        void showDownloadDialog(android.app.Activity activity, String title, String url, String film);
+        void showDownloadDialog(android.app.Activity activity, String title, String url, String film, java.util.Map<String, String> headers);
 
         /** 批量快速下载（原版 fastDownload $9 尾段：按 defaultDownloader 偏好直接入队，不弹编辑框）。 */
         void startFastDownload(android.content.Context context, String title, String url, String film);
@@ -1543,9 +1543,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                 return;
             }
             if (decoded.startsWith("download://")) {
-                String real = decoded.replaceFirst("(?i)download://", "");
+                String full = decoded.replaceFirst("(?i)download://", "");
+                // 照 8.83 DetailUIHelper：先把地址尾 ;{...} 的请求头拆出来再弹下载框，
+                // 否则带防盗链请求头的下载链接会把 ;{...} 原样塞进下载任务、必然 403。
+                java.util.Map<String, String> headers = com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(full);
+                String real = com.fongmi.android.tv.api.hk.HkHttpParser.getRealUrlFilterHeaders(full);
                 if (detailBridge != null) {
-                    detailBridge.showDownloadDialog(getActivity(), getItemTitle(position), real, getFilm());
+                    detailBridge.showDownloadDialog(getActivity(), getItemTitle(position), real, getFilm(), headers);
                 }
                 return;
             }
@@ -1932,9 +1936,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     toastBottom(title + "非视频格式，不支持下载");
                     return;
                 }
-                String real = com.fongmi.android.tv.api.hk.HkHttpParser.getRealUrlFilterHeaders(
-                        detailBridge.clearTag(url));
-                detailBridge.showDownloadDialog(getActivity(), title, real, getFilm());
+                String tagged = detailBridge.clearTag(url);
+                java.util.Map<String, String> headers = com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(tagged);
+                String real = com.fongmi.android.tv.api.hk.HkHttpParser.getRealUrlFilterHeaders(tagged);
+                detailBridge.showDownloadDialog(getActivity(), title, real, getFilm(), headers);
             }
 
             @Override
@@ -2177,7 +2182,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (lower.startsWith("http") && "apk".equalsIgnoreCase(ext)) {
-            if (detailBridge != null) detailBridge.showDownloadDialog(getActivity(), item.getTitle(), url, null);
+            if (detailBridge != null) detailBridge.showDownloadDialog(getActivity(), item.getTitle(), url, null, com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(url));
             return;
         }
         if (lower.startsWith("http") || lower.startsWith("file://")) {

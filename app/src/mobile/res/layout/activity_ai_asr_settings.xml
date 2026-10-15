@@ -25,7 +25,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="本地语音识别，不消耗云端 API 额度"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="16dp" />
 
@@ -171,7 +171,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="提示：本地识别准确率约 85-90%，适合无字幕片源兜底使用。"
-            android:textColor="#9CA3AF"
+            android:textColor="#4B5563"
             android:textSize="14sp"
             android:layout_marginTop="8dp" />
 

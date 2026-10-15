@@ -180,6 +180,114 @@ public class HkWebkitFetcher {
         return r != null ? r : "";
     }
 
+    /**
+     * 8.83 WebkitParser.parse 语义（简化移植）：WebView 后台加载页，在页内轮询求值解析 js
+     * （最多约 30 秒，对齐 8.83 的 120 轮×250ms），解析 js 通过 fy_bridge_app.finishParse(url, mode, ticket)
+     * 回真实地址。空地址/超时/异常返回 ""（8.83 此时弹「解析失败，链接为空」，这里由调用方留痕）。
+     */
+    public static String parseWebRule(String loadUrl, String innerJs, Map<String, Object> options) {
+        if (loadUrl == null || loadUrl.isEmpty() || innerJs == null || innerJs.isEmpty()) return "";
+        int timeout = getTimeout(options);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>("");
+        String ticket = java.util.UUID.randomUUID().toString();
+        // 8.83 IWebViewParser.generateExtraJS 原样移植：eval 解析 js，非空即回调，最多 120 轮
+        String pollJs = "function __wrq(){try{return eval('" + escapeJsString(innerJs) + "');}catch(e){return null;}}\n"
+                + "var __wrc=0;\nfunction __wrcheck(){if(__wrc>120){fy_bridge_app.finishParse('','webkit','" + ticket + "');return;}\n"
+                + "__wrc++;setTimeout(function(){var u=__wrq();if(u!=null&&u!==''){fy_bridge_app.finishParse(u,'webkit','" + ticket + "');}else{__wrcheck();}},250);}\n__wrcheck();";
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        mainHandler.post(() -> {
+            WebView webView = null;
+            try {
+                webView = new WebView(App.get());
+                webView.getSettings().setJavaScriptEnabled(true);
+                webView.getSettings().setDomStorageEnabled(true);
+                webView.getSettings().setBlockNetworkImage(true);
+                applyUa(webView, options);
+                List<?> rules = blockRulesOf(options);
+                WebView finalWv = webView;
+                webView.addJavascriptInterface(new WebRuleBridge(ticket, result, latch), "fy_bridge_app");
+                webView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        if (rules != null && request != null && request.getUrl() != null
+                                && blocked(request.getUrl().toString(), rules)) {
+                            return new WebResourceResponse(null, null, null);
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        try {
+                            view.evaluateJavascript(pollJs, null);
+                        } catch (Throwable t) {
+                            latch.countDown();
+                            try { finalWv.destroy(); } catch (Throwable ignored) {}
+                        }
+                    }
+
+                    @Override
+                    public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                        latch.countDown();
+                        try { finalWv.destroy(); } catch (Throwable ignored) {}
+                    }
+                });
+                Map<String, String> hdrs = headersOf(options);
+                if (hdrs != null) webView.loadUrl(loadUrl, hdrs); else webView.loadUrl(loadUrl);
+            } catch (Throwable t) {
+                latch.countDown();
+                if (webView != null) {
+                    try { webView.destroy(); } catch (Throwable ignored) {}
+                }
+            }
+        });
+
+        try {
+            latch.await(timeout, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        String r = result.get();
+        return r != null ? r : "";
+    }
+
+    /** 8.83 finishParse(url, mode, ticket) 的桥：只认自己的 ticket，首个有效回调即定稿。 */
+    public static class WebRuleBridge {
+        private final String ticket;
+        private final AtomicReference<String> result;
+        private final CountDownLatch latch;
+
+        WebRuleBridge(String ticket, AtomicReference<String> result, CountDownLatch latch) {
+            this.ticket = ticket;
+            this.result = result;
+            this.latch = latch;
+        }
+
+        @android.webkit.JavascriptInterface
+        public void finishParse(String url, String mode, String ticket) {
+            if (ticket != null && ticket.equals(this.ticket)) {
+                if (result.compareAndSet("", url == null ? "" : url)) latch.countDown();
+            }
+        }
+    }
+
+    /** 嵌入 eval('...') 单引号串的转义（对齐 8.83 Utils.escapeJavaScriptString 的常用分支）。 */
+    private static String escapeJsString(String s) {
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '\'': sb.append("\\'"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     private static int getTimeout(Map<String, Object> options) {
         if (options != null) {
             try {

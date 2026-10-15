@@ -19,7 +19,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="在 assrt.net 注册后，从用户面板复制 API Token"
-        android:textColor="#80000000"
+        android:textColor="#B3000000"
         android:textSize="12sp" />
 
     <EditText
@@ -33,7 +33,7 @@
         android:padding="14dp"
         android:singleLine="true"
         android:textColor="#B3000000"
-        android:textColorHint="#80000000"
+        android:textColorHint="#B3000000"
         android:textSize="14sp" />
 
     <LinearLayout

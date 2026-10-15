@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.text.TextUtils;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.MenuItem;
@@ -64,8 +66,19 @@ public class FileActivity extends BaseActivity implements FileAdapter.OnClickLis
         });
     }
 
+    /** 文件浏览入口（hiker://explore 路由用）：path 可为空，空则从根目录开始。 */
+    public static void start(Activity activity, String path) {
+        Intent intent = new Intent(activity, FileActivity.class);
+        if (!TextUtils.isEmpty(path)) intent.putExtra("path", path);
+        activity.startActivity(intent);
+    }
+
     private void checkPermission() {
-        PermissionUtil.requestFile(this, allGranted -> update(Path.root()));
+        String startPath = getIntent().getStringExtra("path");
+        File startDir = !TextUtils.isEmpty(startPath) ? new File(startPath) : Path.root();
+        if (!startDir.isDirectory()) startDir = Path.root();
+        File finalStartDir = startDir;
+        PermissionUtil.requestFile(this, allGranted -> update(finalStartDir));
     }
 
     private void update(File dir) {

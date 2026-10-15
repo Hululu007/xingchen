@@ -142,8 +142,8 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         default void checkDownloadedFile(File file) {
         }
 
-        /** DownloadDialogUtil.showEditDialog（download:// 与 apk 支）。 */
-        default void showDownloadDialog(Activity activity, String title, String url, String film) {
+        /** DownloadDialogUtil.showEditDialog（download:// 与 apk 支）。headers 为地址 ;{...} 块解析出的请求头，可为 null。 */
+        default void showDownloadDialog(Activity activity, String title, String url, String film, java.util.Map<String, String> headers) {
         }
 
         /** 批量快速下载入队（原版按 defaultDownloader 偏好选下载器直接建任务）。 */
@@ -328,8 +328,8 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
     // ------------------------------------------------------------------
 
     @Override
-    public void showDownloadDialog(Activity activity, String title, String url, String film) {
-        hooks().showDownloadDialog(activity, title, url, film);
+    public void showDownloadDialog(Activity activity, String title, String url, String film, java.util.Map<String, String> headers) {
+        hooks().showDownloadDialog(activity, title, url, film, headers);
     }
 
     @Override

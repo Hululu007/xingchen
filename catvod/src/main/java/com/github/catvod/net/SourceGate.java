@@ -114,6 +114,7 @@ public final class SourceGate {
         if (!hit) {
             if (m != null) logDecision("notenabled|" + m.kind + "|" + m.id,
                     "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id + " via=py");
+            else logDecision("nomark", "gate direct reason=no-mark via=py (调用线程无源归属，查打点口径)");
             return 0;
         }
         int port = p.port();

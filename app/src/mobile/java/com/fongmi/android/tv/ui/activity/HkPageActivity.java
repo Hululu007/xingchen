@@ -140,6 +140,13 @@ public class HkPageActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, HkPageActivity.class));
     }
 
+    /** 带分组筛选的小程序管理页入口（hiker://rulesGroup@分组 路由用）。 */
+    public static void startWithGroup(Activity activity, String group) {
+        Intent intent = new Intent(activity, HkPageActivity.class);
+        if (!TextUtils.isEmpty(group)) intent.putExtra("rule_group", group);
+        activity.startActivity(intent);
+    }
+
     private ActivityHkBinding binding;
     private final Deque<Integer> stack = new ArrayDeque<>();
     private RuleAdapter ruleAdapter;
@@ -252,6 +259,8 @@ public class HkPageActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        String groupExtra = getIntent().getStringExtra("rule_group");
+        if (!TextUtils.isEmpty(groupExtra)) ruleGroup = groupExtra;
         initRulesView();
         stack.push(V_RULES);
         showView(V_RULES);

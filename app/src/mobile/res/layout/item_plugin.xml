@@ -41,7 +41,7 @@
                 android:focusable="true"
                 android:padding="4dp"
                 android:text="短剧"
-                android:textColor="#8A8F98"
+                android:textColor="#4B5563"
                 android:textSize="10sp"
                 android:visibility="gone" />
         </LinearLayout>

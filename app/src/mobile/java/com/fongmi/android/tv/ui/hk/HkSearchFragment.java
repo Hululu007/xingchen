@@ -831,8 +831,10 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             HkRouteBlocker.toastShortBottom(getContext(), title + "非视频格式，不支持下载");
             return;
         }
-        String real = HkHttpParser.getRealUrlFilterHeaders(bridge.clearTag(url));
-        bridge.showDownloadDialog(getActivity(), title, real, title);
+        String tagged = bridge.clearTag(url);
+        java.util.Map<String, String> headers = HkHttpParser.getHeaders(tagged);
+        String real = HkHttpParser.getRealUrlFilterHeaders(tagged);
+        bridge.showDownloadDialog(getActivity(), title, real, title, headers);
     }
 
     /** 照原版 showPosDetail：FileDetailPopup 等价（原生对话框列出调试字段，点行复制）。 */

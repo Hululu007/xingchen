@@ -102,81 +102,9 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         context.startActivity(intent);
     }
 
-    /** 把 RouteBlocker 的搜索相关钩子接到本宿主（HkListActivity.ensureStatics 与本页 onCreate 都会调，幂等）。 */
+    /** RouteBlocker 钩子统一装配入口（搜索 + 目标页全量，幂等）：逻辑在 HkRouteBlocker.wireAllHooks。 */
     public static void wireRouteHooks() {
-        HkRouteBlocker.hooks = new HkRouteBlocker.RouteHooks() {
-            @Override
-            public void startGlobalSearch(Activity activity, String engine, String keyword) {
-                if (engine != null && !engine.isEmpty()) {
-                    HkRule rule = HkRuleManager.get().getRule(engine);
-                    if (rule != null) {
-                        startSearchInOneRule(activity, rule, keyword);
-                        return;
-                    }
-                }
-                HkSearchActivity.startGlobalSearch(activity, keyword);
-            }
-
-            @Override
-            public HkRule findRuleByTitle(String title) {
-                if (title == null) return null;
-                HkRule rule = HkRuleManager.get().getRule(title);
-                return rule != null ? rule : HkRuleManager.get().getInstalledRule(title);
-            }
-
-            @Override
-            public boolean ruleExistsByTitle(String title) {
-                return findRuleByTitle(title) != null;
-            }
-
-            @Override
-            public void openSearchInOneRule(Activity activity, String kw, String ruleName) {
-                HkRule rule = findRuleByTitle(ruleName);
-                if (rule != null) startSearchInOneRule(activity, rule, kw);
-                else HkSearchActivity.startGlobalSearch(activity, kw);
-            }
-
-            @Override
-            public void loadSearchEngines(Activity activity, String ruleName, String kw) {
-                HkRule rule = findRuleByTitle(ruleName);
-                ArrayList<String> titles = new ArrayList<>();
-                if (rule != null) {
-                    String group = rule.getGroup() == null ? "" : rule.getGroup();
-                    for (HkRule r : HkRuleManager.get().getRules()) {
-                        if (r != null && r.hasSearch()
-                                && group.equals(r.getGroup() == null ? "" : r.getGroup())) {
-                            titles.add(r.getTitle());
-                        }
-                    }
-                    if (titles.isEmpty()) titles.add(rule.getTitle());
-                }
-                startWithEngines(activity, titles, kw, false);
-            }
-
-            @Override
-            public void startDelegateSearch(Activity activity, String kw, HkRule rule, String rules, boolean delegateOnly) {
-                LinkedHashSet<String> titles = new LinkedHashSet<>();
-                if (rule != null) titles.add(rule.getTitle());
-                if (rules != null && !rules.isEmpty()) {
-                    String trimmed = rules.trim();
-                    if (trimmed.startsWith("[")) {
-                        try {
-                            com.google.gson.JsonArray arr = com.google.gson.JsonParser
-                                    .parseString(trimmed).getAsJsonArray();
-                            for (com.google.gson.JsonElement el : arr) {
-                                if (el.isJsonPrimitive()) titles.add(el.getAsString());
-                            }
-                        } catch (Exception ignored) {
-                        }
-                    } else {
-                        for (String t : trimmed.split(",")) {
-                            if (!t.trim().isEmpty()) titles.add(t.trim());
-                        }
-                    }
-                }
-                startWithEngines(activity, new ArrayList<>(titles), kw, false);
-            }
-        };
+        HkRouteBlocker.wireAllHooks();
     }
 
     // ---------- 生命周期 ----------

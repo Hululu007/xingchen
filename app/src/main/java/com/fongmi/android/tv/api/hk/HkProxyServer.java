@@ -2,8 +2,10 @@ package com.fongmi.android.tv.api.hk;
 
 import com.google.gson.Gson;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -26,23 +28,38 @@ import fi.iki.elonen.NanoHTTPD;
 public class HkProxyServer extends NanoHTTPD {
 
     public static final int PORT = 0xcb34;
+    /** 端口占用时的递增上限（照 8.83 RemoteServerManager：52020 起、最大 52025）。 */
+    public static final int PORT_MAX = 0xcb39;
 
     private static volatile HkProxyServer sInstance;
 
     private volatile String proxyJS;
     private volatile HkJsRuntime evaluator;
+    /** 实际绑定成功的端口（可能因占用递增过）。 */
+    private final int boundPort;
 
     private static final Gson GSON = new Gson();
 
-    private HkProxyServer() {
-        super(PORT);
+    private HkProxyServer(int port) {
+        super(port);
+        this.boundPort = port;
     }
 
     public static HkProxyServer instance() {
-        if (sInstance == null) {
-            synchronized (HkProxyServer.class) {
-                if (sInstance == null) sInstance = new HkProxyServer();
+        return instance(PORT);
+    }
+
+    /** 从指定端口起找/建实例：单例已存在且端口不小于要求时直接复用。 */
+    public static synchronized HkProxyServer instance(int port) {
+        if (sInstance == null || sInstance.boundPort < port) {
+            if (sInstance != null) {
+                try {
+                    sInstance.destroyServer();
+                } catch (Throwable ignored) {
+                }
+                sInstance = null;
             }
+            sInstance = new HkProxyServer(port);
         }
         return sInstance;
     }
@@ -69,6 +86,31 @@ public class HkProxyServer extends NanoHTTPD {
         }
     }
 
+    /**
+     * 照 8.83 RemoteServerManager 的端口回退：从当前端口起启动，
+     * 遇绑定失败（多为端口被占用）就换下一个端口的新实例重试，最大到 PORT_MAX。
+     * 成功时单例已切换到实际端口的实例；全失败抛最后一个异常。
+     */
+    public static HkProxyServer startWithFallback() throws Exception {
+        Exception last = null;
+        for (int port = PORT; port <= PORT_MAX; port++) {
+            HkProxyServer server = instance(port);
+            if (server.isRunning()) return server;
+            try {
+                server.startServer();
+                return server;
+            } catch (Exception e) {
+                last = e;
+                // 端口被占用：销毁这个实例，下一轮 instance(port+1) 会建新的
+                synchronized (HkProxyServer.class) {
+                    if (sInstance == server) sInstance = null;
+                }
+            }
+        }
+        if (last != null) throw last;
+        throw new IllegalStateException("no port available");
+    }
+
     public synchronized void destroyServer() {
         if (isRunning()) stop();
         proxyJS = null;
@@ -78,7 +120,7 @@ public class HkProxyServer extends NanoHTTPD {
     public String getServerUrl() {
         String ip = getLocalIp();
         if (ip == null || ip.isEmpty()) return null;
-        return "http://" + ip + ":" + PORT;
+        return "http://" + ip + ":" + boundPort;
     }
 
     private static String getLocalIp() {
@@ -128,16 +170,16 @@ public class HkProxyServer extends NanoHTTPD {
         }
         try {
             Map<String, List<String>> params = session.getParameters();
-            Map<String, Object> flat = new HashMap<>();
+            // MY_PARAMS 形态照 8.83：参数恒为数组 {"k":["v"]}（fastjson 序列化 MultiValueMap）。
+            // 旧实现把单值压成字符串，规则按 MY_PARAMS.k[0] 取参会取到首字符。
+            Map<String, List<String>> shaped = new HashMap<>();
             if (params != null) {
                 for (Map.Entry<String, List<String>> e : params.entrySet()) {
                     List<String> v = e.getValue();
-                    if (v != null && !v.isEmpty()) {
-                        flat.put(e.getKey(), v.size() == 1 ? v.get(0) : new ArrayList<>(v));
-                    }
+                    if (v != null && !v.isEmpty()) shaped.put(e.getKey(), new ArrayList<>(v));
                 }
             }
-            String paramsJson = GSON.toJson(flat);
+            String paramsJson = GSON.toJson(shaped);
             String script = "var MY_PARAMS = JSON.parse('" + escapeJs(paramsJson) + "');\n" + js;
             String path = session.getUri();
             Object result = rt.evalJSForObj(script, path);
@@ -185,7 +227,9 @@ public class HkProxyServer extends NanoHTTPD {
                 try {
                     File f = new File(loc.replace("file://", ""));
                     if (f.exists() && f.isFile()) {
-                        return newFixedLengthResponse(Response.Status.OK, "application/octet-stream", new FileInputStream(f), f.length());
+                        // 8.83 FileBody 按文件扩展名定类型（如 .mp4 → video/mp4），别写死二进制流
+                        String mime = getMimeTypeForFile(loc);
+                        return newFixedLengthResponse(Response.Status.OK, mime != null ? mime : "application/octet-stream", new FileInputStream(f), f.length());
                     }
                 } catch (Throwable ignored) {
                 }
@@ -202,6 +246,14 @@ public class HkProxyServer extends NanoHTTPD {
         return resp;
     }
 
+    /**
+     * 照 8.83 DlanWebController.proxy 的 JSONObject 分支重写：
+     * headers 里 Location 以 file:// 开头 → 回整文件（FileBody）；
+     * body 是 InputStream → StreamBody（chunked 原样透传，绝不能 String.valueOf，
+     * 红果短剧的解密流就是这样被写成一行 toString 文本、播放器解不开）；
+     * body 是 byte[] → 包成流同 StreamBody；其余（String 等）按文本回。
+     * 响应类型以 headers 的 Content-Type 为准。
+     */
     private Response proxyResultMapResponse(Map<String, Object> map) {
         Response.Status status = Response.Status.OK;
         if (map.containsKey("statusCode")) {
@@ -212,31 +264,67 @@ public class HkProxyServer extends NanoHTTPD {
             } catch (Throwable ignored) {
             }
         }
-        Response resp = newFixedLengthResponse(status, MIME_PLAINTEXT, "");
+        Map<String, Object> hm = null;
         Object headers = map.get("headers");
         if (headers instanceof Map) {
             @SuppressWarnings("unchecked")
-            Map<String, Object> hm = (Map<String, Object>) headers;
+            Map<String, Object> casted = (Map<String, Object>) headers;
+            hm = casted;
+        }
+        String contentType = null;
+        if (hm != null) {
             for (Map.Entry<String, Object> e : hm.entrySet()) {
-                if (e.getKey() != null && e.getValue() != null) {
-                    resp.addHeader(e.getKey(), String.valueOf(e.getValue()));
+                if (e.getKey() != null && e.getValue() != null
+                        && "Content-Type".equalsIgnoreCase(e.getKey())) {
+                    contentType = String.valueOf(e.getValue());
+                }
+            }
+        }
+        // Location: file:// → 整文件回（明文已落盘的快路径）
+        if (hm != null && hm.containsKey("Location")) {
+            String loc = String.valueOf(hm.get("Location"));
+            if (loc != null && loc.startsWith("file://")) {
+                try {
+                    File f = new File(loc.replace("file://", ""));
+                    if (f.exists() && f.isFile()) {
+                        Response resp = newFixedLengthResponse(Response.Status.OK,
+                                contentType != null ? contentType : "video/mp4",
+                                new FileInputStream(f), f.length());
+                        addProxyHeaders(resp, hm, true);
+                        return resp;
+                    }
+                } catch (Throwable ignored) {
                 }
             }
         }
         Object body = map.get("body");
-        if (body != null) {
-            resp = newFixedLengthResponse(status, MIME_PLAINTEXT, String.valueOf(body));
-            if (headers instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> hm = (Map<String, Object>) headers;
-                for (Map.Entry<String, Object> e : hm.entrySet()) {
-                    if (e.getKey() != null && e.getValue() != null) {
-                        resp.addHeader(e.getKey(), String.valueOf(e.getValue()));
-                    }
-                }
-            }
+        Response resp;
+        if (body instanceof InputStream) {
+            resp = newChunkedResponse(status,
+                    contentType != null ? contentType : "application/octet-stream", (InputStream) body);
+        } else if (body instanceof byte[]) {
+            byte[] bytes = (byte[]) body;
+            resp = newChunkedResponse(status,
+                    contentType != null ? contentType : "application/octet-stream",
+                    new ByteArrayInputStream(bytes));
+        } else {
+            resp = newFixedLengthResponse(status,
+                    contentType != null ? contentType : MIME_PLAINTEXT,
+                    body == null ? "" : String.valueOf(body));
         }
+        addProxyHeaders(resp, hm, false);
         return resp;
+    }
+
+    /** 把规则 headers 逐项加上（Content-Type 已用作响应类型、被消费的 Location 不重复加）。 */
+    private void addProxyHeaders(Response resp, Map<String, Object> hm, boolean locationConsumed) {
+        if (hm == null) return;
+        for (Map.Entry<String, Object> e : hm.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) continue;
+            if ("Content-Type".equalsIgnoreCase(e.getKey())) continue;
+            if (locationConsumed && "Location".equals(e.getKey())) continue;
+            resp.addHeader(e.getKey(), String.valueOf(e.getValue()));
+        }
     }
 
     private static String escapeJs(String s) {

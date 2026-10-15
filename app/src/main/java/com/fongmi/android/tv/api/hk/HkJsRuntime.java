@@ -208,6 +208,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String lastChapterRule = "";
     /** setStrResult/setLastChapterResult：官方 JS 回调字符串结果，宿主存字段供上层取用。 */
     private volatile String strResult = "";
+    /**
+     * 当前求值入口的类型（与注入的 var MY_TYPE 一致）：parseHome→home、parseLastChapterRule→lastChapter、
+     * parseSearch/parseSearchRes→search、eval 系→eval、preEngine/preHome/string 同名。
+     * 供 setResult 的 1 参调用自动路由（8.83 语义），以及 JS 函数 getMyType() 取值。
+     * JS 求值走单线程串行，volatile 足够。
+     */
+    private volatile String currentMyType = "";
     /** 8.83 confirm 弹框接缝：宿主（webview 上下文）设置后，规则调 confirm() 弹框走回调。 */
     public interface ConfirmHandler {
         void onConfirm(String title, String content, String confirmJs, String cancelJs);
@@ -239,8 +246,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String myYear = "";
     private String mySort = "";
 
-    /** evalPrivateJS 的 AES 密钥（官方 AesUtil.decrypt 写死值）。 */
-    private static final String AES_PRIVATE_KEY = "hk6666666109";
+    /** 8.83 AES_DEFAULT_KEY（JSEngine.java:162）：getPrivateJS/evalPrivateJS 共用此密钥。 */
+    private static final String AES_DEFAULT_KEY = "1234567890kkkk";
     private static final String UA_MOBILE = "Mozilla/5.0 (Linux; Android 15; 2407FRK8EC Build/AP3A.240617.008; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36";
     private static final String UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
@@ -721,11 +728,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /** byte[] -> JS 数组（替代 JSUtil.toArray）。
-     * 8.83 做法：用 cx.newArray 创建带原型链的数组，不用裸 new NativeArray()。 */
+     * 8.83 做法：用 cx.newArray 创建带原型链的数组，不用裸 new NativeArray()。
+     * B33：8.83 smali:18148 在 JS 里 eval 出 Uint8Array（0-255 无符号），
+     * 此处按无符号存（& 0xFF），加密类规则逐字节运算结果才对。 */
     private NativeArray toJsArray(byte[] bytes) {
         NativeArray arr = (NativeArray) rhinoCx.newArray(scope, bytes == null ? 0 : bytes.length);
         if (bytes != null) {
-            for (int i = 0; i < bytes.length; i++) arr.put(i, arr, (int) bytes[i]);
+            for (int i = 0; i < bytes.length; i++) arr.put(i, arr, bytes[i] & 0xFF);
         }
         return arr;
     }
@@ -843,9 +852,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 之前宽容模式（返回空对象）导致规则 try/catch 降级失效，空对象往下传才在各处报 startsWith on undefined。
         // 已恢复原版行为。
         // ---- 结果返回 ----
+        // 8.83 setResult(o, callbackKey, ruleKey, typeKey)（JSEngine.java:1109-1118）按 typeKey 路由：
+        // "lastChapter"→setLastChapterResult（字符串结果）、"search"→callbackSearchResult、
+        // 其他→callbackHomeResult（条目列表）。规则实际都只传 1 参（官方文档明示），
+        // 类型由注入的 var MY_TYPE 决定（此处取 currentMyType，与注入口径一致）。
         putFunction("setResult", args -> {
-            beginResult();
-            collectResult(args);
+            String typeKey = (args != null && args.length > 3 && args[3] != null)
+                    ? argStr(args[3]) : currentMyType;
+            if ("lastChapter".equals(typeKey)) {
+                strResult = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "";
+                Logger.t(TAG).d("setResult(lastChapter): %d chars", strResult.length());
+            } else {
+                // search 与 home/searchRes 都是条目列表收集（官方文档：三者可混用、自动识别）
+                beginResult();
+                collectResult(args);
+            }
             return null;
         });
         putFunction("setHomeResult", args -> {
@@ -909,10 +930,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return r instanceof String ? (String) r : "";
             }
             String options = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
-            // 8.83 post0（JSEngine:1976-1999）：只走 generatePostOps（对象 body 转表单串、method=POST），
-            // 不走 generateRequestOptions——不补 UA（此前把 UA 补反到了 post 上、postRequest 反而没补）
+            // 8.83 post0（smali:8148，request=false）：generatePostOps 后走
+            // generateRequestOptions(op, true)——缺 UA 时补桌面端 UA。
+            // 此前的注释「post 不补 UA」写反了（postRequest 才是补移动端 UA 那支）。
             options = applyGeneratePostOps(options);
-            return fetchSync(url, options);
+            return fetchSync(url, mergeDesktopUa(options));
         });
         putFunction("request", args -> {
             if (args == null || args.length == 0) return "";
@@ -957,7 +979,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } catch (Throwable ignored) {}
             // 3. fallback: @rule= js: 预检时设置的正文
             if (evalResCodeBody != null) return evalResCodeBody;
-            return "";
+            // 8.83 JSEngine.java:537：resCodeMap.get(key) 直接返回，缺省 null（有值时的回退链保留）
+            return null;
         });
         // 官方别名：getCode 即 getResCode（8.83 smali alias="getCode"）
         putFunction("getCode", args -> {
@@ -977,7 +1000,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
             } catch (Throwable ignored) {}
             if (evalResCodeBody != null) return evalResCodeBody;
-            return "";
+            // 8.83 JSEngine.java:537：resCodeMap.get(key) 直接返回，缺省 null（getCode 为 getResCode 官方别名）
+            return null;
         });
         putFunction("getUrl", args -> lastUrl == null ? "" : lastUrl);
 
@@ -1014,8 +1038,19 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // ---- 存储 ----
         // 8.83 JSEngine.putVar：值非字符串时 JSON.toJSONString 后存入（原版做法），
         // 以前 argStr 对非字符串一律兜底空串，对象/数组存进去就丢了。
+        // 8.83 JSEngine.java:630：支持单对象参数 putVar({key, value})
         putFunction("putVar", args -> {
-            if (args == null || args.length < 2) return null;
+            if (args == null || args.length == 0) return null;
+            if (args.length < 2) {
+                java.util.Map<?, ?> m = toStringMap(args[0]);
+                if (m != null && m.get("key") != null) {
+                    Object val = m.get("value");
+                    String s = val instanceof String ? (String) val
+                            : (val == null ? "" : stringifyArg(val));
+                    vars.put(String.valueOf(m.get("key")), s);
+                }
+                return null;
+            }
             Object v = args[1];
             String s;
             if (v instanceof String) s = (String) v;
@@ -1048,18 +1083,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (v == null && args.length > 1 && args[1] != null) v = argStr(args[1]);
             return v == null ? "" : v;
         });
+        // 8.83 JSEngine.java:2450 setItem：key/value 经 tryGetString，非字符串抛错
         putFunction("setItem", args -> {
-            if (args != null && args.length > 1) {
-                String k = argStr(args[0]);
-                kv.put(k, argStr(args[1]));
-                saveKv();
-                // 诊断：口令记号存（星集使用前须知门）。只记键名与长度，不记值本身。
-                if ("xj_firstopen".equals(k)) {
-                    String stored = kv.get(k);
-                    com.github.catvod.crawler.SpiderDebug.log("hk", "setItem xj_firstopen saved len=%d ruleVerLen=%d",
-                            stored == null ? -1 : stored.length(),
-                            rule == null ? -1 : rule.getVersionRaw().length());
-                }
+            String k = mustBeString(args, 0);
+            String v = mustBeString(args, 1);
+            kv.put(k, v);
+            saveKv();
+            // 诊断：口令记号存（星集使用前须知门）。只记键名与长度，不记值本身。
+            if ("xj_firstopen".equals(k)) {
+                String stored = kv.get(k);
+                com.github.catvod.crawler.SpiderDebug.log("hk", "setItem xj_firstopen saved len=%d ruleVerLen=%d",
+                        stored == null ? -1 : stored.length(),
+                        rule == null ? -1 : rule.getVersionRaw().length());
             }
             return null;
         });
@@ -1145,26 +1180,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
+        // 8.83 JSEngine.java:547：getParam(key, defaultValue, urlKey)；未命中回 defaultValue（不传则 undefined）；
+        // 值经 decodeConflictStr（HkHttpParser.getParamsByUrl 内已做，与原版同口径）
         putFunction("getParam", args -> {
-            // getParam('word')：从 MY_URL 的 query 里取值（$('...').rule(fn) 场景）
-            if (args == null || args.length == 0) return "";
-            String key = argStr(args[0]);
-            try {
-                String u = lastUrl == null ? "" : lastUrl;
-                int q = u.indexOf('?');
-                if (q < 0) return "";
-                String query = u.substring(q + 1);
-                int h = query.indexOf('#');
-                if (h >= 0) query = query.substring(0, h);
-                for (String kv : query.split("&")) {
-                    int eq = kv.indexOf('=');
-                    if (eq > 0 && kv.substring(0, eq).equals(key)) {
-                        return java.net.URLDecoder.decode(kv.substring(eq + 1), "UTF-8");
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-            return "";
+            if (args == null || args.length == 0 || !(args[0] instanceof String)) return Undefined.instance;
+            String key = (String) args[0];
+            String urlKey = args.length > 2 && args[2] instanceof String
+                    ? (String) args[2] : (lastUrl == null ? "" : lastUrl);
+            Map<String, String> params = HkHttpParser.getParamsByUrl(urlKey);
+            if (params.containsKey(key)) return params.get(key);
+            if (args.length > 1 && args[1] != null) return args[1];
+            return Undefined.instance;
         });
 
         // ---- 编解码 ----
@@ -1180,50 +1206,106 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return "";
             }
         });
+        // ---- encodeStr/decodeStr：8.83 是 URL 编解码（JSEngine.java:701-741，
+        // HttpParser.encodeUrl/decodeUrl，带 charset 参数）。旧实现误写成 base64；
+        // base64 能力已有 base64Encode/base64Decode 专用函数，不丢。
         putFunction("encodeStr", args -> {
-            if (args == null || args.length == 0) return "";
+            if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
+            String str = String.valueOf(args[0]);
+            String code = String.valueOf(args[1]);
+            // 8.83 encodeUrl：code 为空/UTF-8/* 时原样返回，否则 URLEncoder.encode
+            if (code.isEmpty() || "UTF-8".equalsIgnoreCase(code) || "*".equals(code)) return str;
             try {
-                String charset = args.length > 1 ? argStr(args[1]) : "UTF-8";
-                return Util.base64(argStr(args[0]).getBytes(Charset.forName(charset)));
+                return java.net.URLEncoder.encode(str, code);
             } catch (Throwable e) {
-                return "";
+                return str;
             }
         });
         putFunction("decodeStr", args -> {
-            if (args == null || args.length == 0) return "";
+            if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
+            String str = String.valueOf(args[0]);
+            String code = String.valueOf(args[1]);
+            // 8.83 decodeUrl：先处理残 % 与 +，再 URLDecoder.decode
             try {
-                String charset = args.length > 1 ? argStr(args[1]) : "UTF-8";
-                return new String(Base64.decode(argStr(args[0]), Base64.DEFAULT), Charset.forName(charset));
+                String s = str.replaceAll("%(?![0-9a-fA-F]{2})", "%25").replaceAll("\\+", "%2B");
+                return java.net.URLDecoder.decode(s, code);
+            } catch (Throwable e) {
+                return str;
+            }
+        });
+        // ---- aesEncode/aesDecode：8.83（JSEngine.java:771-814，AesUtil.java:37-47）：
+        // 参数序 (key, data)；AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。
+        // 旧实现是 CBC + 原始 key 补零 16 字节 + base64 + 参数序 (data, key[, iv])，全错位。
+        putFunction("aesEncode", args -> {
+            if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
+            try {
+                return aesEcbHex(true, String.valueOf(args[0]), String.valueOf(args[1]));
             } catch (Throwable e) {
                 return "";
             }
         });
-        putFunction("aesEncode", args -> {
-            if (args == null || args.length < 2) return "";
-            String key = argStr(args[1]);
-            String iv = args.length > 2 ? argStr(args[2]) : "";
-            return Crypto.aes("AES/CBC/PKCS5Padding", true, argStr(args[0]), false, key, iv, true);
-        });
         putFunction("aesDecode", args -> {
-            if (args == null || args.length < 2) return "";
-            String key = argStr(args[1]);
-            String iv = args.length > 2 ? argStr(args[2]) : "";
-            return Crypto.aes("AES/CBC/PKCS5Padding", false, argStr(args[0]), true, key, iv, false);
+            if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
+            try {
+                return aesEcbHex(false, String.valueOf(args[0]), String.valueOf(args[1]));
+            } catch (Throwable e) {
+                return "";
+            }
         });
 
+    /** 8.83 AesUtil 同款：AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。 */
+    private String aesEcbHex(boolean encode, String key, String data) throws Exception {
+        javax.crypto.KeyGenerator kgen = javax.crypto.KeyGenerator.getInstance("AES");
+        java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
+        sr.setSeed(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        kgen.init(256, sr);
+        byte[] rawKey = kgen.generateKey().getEncoded();
+        javax.crypto.spec.SecretKeySpec spec = new javax.crypto.spec.SecretKeySpec(rawKey, "AES");
+        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES");
+        if (encode) {
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, spec);
+            byte[] out = cipher.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(out.length * 2);
+            for (byte b : out) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString().toUpperCase();
+        } else {
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, spec);
+            int n = data.length();
+            byte[] enc = new byte[n / 2];
+            for (int i = 0; i < n / 2; i++) {
+                enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
+            }
+            return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
         // ---- require：远程库加载（preRule 常用）；本地 libs/<md5(url)>.js 优先（.hkzip 自带库） ----
+        // 8.83 require0（JSEngine.require0，smali:8468）：eval 后返回模块执行结果
+        // （new Function(code) 的返回值），未命中/拉不到代码抛 Exception。
+        // 旧实现 eval 后恒 return null 且吞异常，在此对齐。
         putFunction("require", args -> {
             if (args == null || args.length == 0) return null;
-            try {
-                String libUrl = argStr(args[0]);
-                String code = loadLibLocal(libUrl);
-                if (code == null) code = fetchSync(libUrl, null);
-                if (!TextUtils.isEmpty(code)) evalJs(code);
-            } catch (Throwable e) {
-                Logger.t(TAG).d("require failed: %s", e.getMessage());
-            }
-            return null;
+            String libUrl = argStr(args[0]);
+            String code = loadLibLocal(libUrl);
+            if (code == null) code = fetchSync(libUrl, null);
+            if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + libUrl);
+            return evalJs(code);
         });
+
+    /** 8.83 require0 的 eval 分支（requireCache/rc，returnType=OBJECT）：返回模块执行结果；缺码抛错。 */
+    private Object requireCacheEval(Object[] args) {
+        if (args == null || args.length == 0) return null;
+        String url = argStr(args[0]);
+        double hours = args.length > 1 ? toDouble(args[1]) : 0;
+        String code = memCached("rc:" + url, hours, () -> {
+            String c = loadLibLocal(url);
+            return c == null ? fetchSync(url, null) : c;
+        });
+        if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + url);
+        return evalJs(stripJsPrefix(code));
+    }
 
         // ---- JS 定时器（setTimeout/setInterval/clearTimeout/clearInterval） ----
         // 规则"20秒后继续"倒计时等场景依赖；回调统一提交回 JS 单线程执行（Rhino Context 线程绑定）。
@@ -1325,9 +1407,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args != null && args.length > 1) myVars.put(myVarKey(argStr(args[0])), stringifyArg(args[1]));
             return null;
         });
+        // 8.83 JSEngine.java:594：key 非字符串直接回 ""（忽略默认值）
         putFunction("getMyVar", args -> {
             if (args == null || args.length == 0) return "";
-            String v = myVars.get(myVarKey(argStr(args[0])));
+            if (!(args[0] instanceof String)) return "";
+            String v = myVars.get(myVarKey((String) args[0]));
             if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });
@@ -1336,7 +1420,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args != null && args.length > 0) myVars.remove(myVarKey(argStr(args[0])));
             return null;
         });
-        putFunction("listMyVarKeys", args -> GSON.toJson(new ArrayList<>(myVars.keySet())));
+        // listMyVarKeys：8.83（smali:18947，lambda:7220）：按 getRuleTitle(ruleTitleKey)+"@"
+        // 过滤本规则的 key，strip 前缀（split("@")[1]）后序列化。旧实现全表裸 keySet。
+        putFunction("listMyVarKeys", args -> {
+            String title = "";
+            if (args != null && args.length > 0 && args[0] != null) title = argStr(args[0]);
+            if (title.isEmpty()) {
+                try {
+                    title = rule != null && rule.getTitle() != null ? rule.getTitle() : "";
+                } catch (Throwable ignored) {}
+            }
+            String prefix = title + "@";
+            List<String> out = new ArrayList<>();
+            for (String k : myVars.keySet()) {
+                if (k != null && k.startsWith(prefix)) {
+                    String[] parts = k.split("@");
+                    if (parts.length > 1) out.add(parts[1]);
+                }
+            }
+            return GSON.toJson(out);
+        });
         putFunction("clearVar", args -> {
             // 8.83 JSEngine.clearVar：只删指定键；无参时直接 return（无"清空全表"行为，
             // 与 clearMyVar 的 E8 注释同源）。以前无视参数全清，会误删其他规则的变量。
@@ -1345,25 +1448,31 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- 跨规则公共持久化（setPublicItem/getPublicItem/clearPublicItem） ----
+        // 8.83 smali:17688/24926/12255：key/value 须为字符串（缺参/undefined/非字符串抛"参数类型只能是字符串"）；
+        // getPublicItem 缺键回默认，无默认则抛（原版先转默认再查表）。
         putFunction("setPublicItem", args -> {
-            if (args != null && args.length > 1) {
-                publicKv.put(argStr(args[0]), argStr(args[1]));
-                savePublicKv();
-            }
-            return null;
-        });
-        putFunction("getPublicItem", args -> {
-            if (args == null || args.length == 0) return "";
-            String v = publicKv.get(argStr(args[0]));
-            if (v == null && args.length > 1) v = argStr(args[1]);
-            return v == null ? "" : v;
-        });
-        putFunction("clearPublicItem", args -> {
-            if (args != null && args.length > 0) publicKv.remove(argStr(args[0]));
-            else publicKv.clear();
+            publicKv.put(mustBeString(args, 0), mustBeString(args, 1));
             savePublicKv();
             return null;
         });
+        putFunction("getPublicItem", args -> {
+            String key = mustBeString(args, 0);
+            String def = mustBeString(args, 1);
+            String v = publicKv.get(key);
+            return v == null ? def : v;
+        });
+        putFunction("clearPublicItem", args -> {
+            publicKv.remove(mustBeString(args, 0));
+            savePublicKv();
+            return null;
+        });
+
+    /** 8.83 JSEngine.tryGetString 等价：非字符串（含缺参/undefined）抛错。 */
+    private static String mustBeString(Object[] args, int i) {
+        if (args == null || args.length <= i || !(args[i] instanceof String))
+            throw new RuntimeException("参数类型只能是字符串");
+        return (String) args[i];
+    }
 
         // ---- storage0 对象（官方：支持存储 JSON 对象的存储封装） ----
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
@@ -1405,24 +1514,28 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // ---- 当前结果列表的动态修改（官方经 EventBus 改 UI 列表；本宿主直接改 results） ----
         putFunction("updateItem", args -> {
             // updateItem(id, obj) 或 updateItem(obj)（obj.extra.id / obj.url 作 id）
-            try {
-                String id = null;
-                Object obj = null;
-                if (args != null && args.length >= 2) {
-                    id = argStr(args[0]);
-                    obj = args[1];
-                } else if (args != null && args.length == 1) {
-                    obj = args[0];
+            // 8.83 JSEngine.java:1167：obj 非 JSON 对象抛"updateItem：格式有误，只支持json"
+            String id = null;
+            Object obj = null;
+            if (args != null && args.length >= 2) {
+                Object idArg = args[0];
+                if (idArg instanceof String) id = (String) idArg;
+                else if (toStrMap(idArg) != null) obj = idArg;
+                if (obj == null) obj = args[1];
+            } else if (args != null && args.length == 1) {
+                obj = args[0];
+            }
+            if (obj == null) throw new RuntimeException("updateItem：格式有误，只支持json");
+            Map<String, Object> m = toStrMap(obj);
+            if (m == null) throw new RuntimeException("updateItem：格式有误，只支持json");
+            if (id == null) {
+                id = str(m, "url");
+                if (TextUtils.isEmpty(id)) {
+                    Object extra = m.get("extra");
+                    if (extra instanceof Map) id = str((Map<String, Object>) extra, "id");
                 }
-                Map<String, Object> m = toStrMap(obj);
-                if (id == null && m != null) {
-                    id = str(m, "url");
-                    if (TextUtils.isEmpty(id)) {
-                        Object extra = m.get("extra");
-                        if (extra instanceof Map) id = str((Map<String, Object>) extra, "id");
-                    }
-                }
-                if (!TextUtils.isEmpty(id) && m != null) {
+            }
+                if (!TextUtils.isEmpty(id)) {
                     int idx = findResultIndex(id);
                     if (idx >= 0) {
                         mergeItem(results.get(idx), m);
@@ -1442,9 +1555,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         }
                     }
                 }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("updateItem failed: %s", e.getMessage());
-            }
             return null;
         });
         putFunction("addItemAfter", args -> {
@@ -1455,9 +1565,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             addItemAt(args, false);
             return null;
         });
+        // 8.83 JSEngine.java:1258：id 非字符串抛"deleteItem：格式有误，请传入ID字符串"；支持 id 数组批量删。
         putFunction("deleteItem", args -> {
-            if (args != null && args.length > 0) {
-                String id = argStr(args[0]);
+            if (args == null || args.length == 0 || args[0] == null)
+                throw new RuntimeException("deleteItem：格式有误，请传入ID字符串");
+            List<String> ids = new ArrayList<>();
+            Object o = args[0];
+            if (o instanceof NativeArray) {
+                NativeArray na = (NativeArray) o;
+                for (int i = 0; i < na.size(); i++) {
+                    Object e = na.get(i);
+                    if (!(e instanceof String))
+                        throw new RuntimeException("deleteItem：格式有误，请传入ID字符串");
+                    ids.add((String) e);
+                }
+            } else if (o instanceof String) {
+                ids.add((String) o);
+            } else {
+                throw new RuntimeException("deleteItem：格式有误，请传入ID字符串");
+            }
+            for (String id : ids) {
                 int idx = findResultIndex(id);
                 HkItem removed = null;
                 if (idx >= 0) removed = results.remove(idx);
@@ -1471,16 +1598,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
+        // 8.83 JSEngine.java:1268：cls 非字符串抛"deleteItemByCls：格式有误，请传入cls字符串"
         putFunction("deleteItemByCls", args -> {
-            if (args != null && args.length > 0) {
-                String cls = argStr(args[0]);
-                results.removeIf(it -> cls.equals(it.getColType()));
-                if (collectRaw) rawResults.removeIf(r -> cls.equals(r.get("col_type")));
-                Logger.t(TAG).d("deleteItemByCls: %s", cls);
-                // 8.83 JSEngine.deleteItemByCls(13643)：post ItemModifyEvent(DELETE) + setCls 经 EventBus
-                postItemModifyEvent(null,
-                        com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.DELETE, cls);
-            }
+            if (args == null || args.length == 0 || !(args[0] instanceof String))
+                throw new RuntimeException("deleteItemByCls：格式有误，请传入cls字符串");
+            String cls = (String) args[0];
+            results.removeIf(it -> cls.equals(it.getColType()));
+            if (collectRaw) rawResults.removeIf(r -> cls.equals(r.get("col_type")));
+            Logger.t(TAG).d("deleteItemByCls: %s", cls);
+            // 8.83 JSEngine.deleteItemByCls(13643)：post ItemModifyEvent(DELETE) + setCls 经 EventBus
+            postItemModifyEvent(null,
+                    com.fongmi.android.tv.api.hk.event.rule.ItemModifyEvent.Action.DELETE, cls);
             return null;
         });
         // 官方 clearItem(key) 清的是规则持久化存储里的 key；本宿主 kv.json 即规则存储，对其删 key 等价。
@@ -1493,11 +1621,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
 
-        // ---- 私有加密 JS：AES/ECB/PKCS5Padding，key=hk6666666109 补 0 到 32 字节，base64 输入 ----
+        // ---- 私有加密 JS：8.83（JSEngine.java:2711）：AesUtil.decrypt(AES_DEFAULT_KEY, code) 后求值 ----
         putFunction("evalPrivateJS", args -> {
             if (args == null || args.length == 0) return null;
             try {
-                String plain = aesDecryptECB(argStr(args[0]).trim(), AES_PRIVATE_KEY);
+                String plain = aesEcbHex(false, AES_DEFAULT_KEY, argStr(args[0]));
                 if (TextUtils.isEmpty(plain)) return null;
                 return evalJs(plain);
             } catch (Throwable e) {
@@ -1507,50 +1635,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- 带缓存的网络（fc=fetchCache，rc=requireCache，key=url，hours 小时过期） ----
+        // 8.83 JSEngine.java:2814：未传 h 默认 24 小时，持久文件缓存（按 url 的 md5 落盘）。
         putFunction("fc", args -> {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 0;
-            return memCached("fc:" + url, hours, () -> fetchSync(url, null));
+            double hours = args.length > 1 ? toDouble(args[1]) : 24;
+            return fileCached(url, hours, () -> fetchSync(url, null));
         });
         // 官方全名：fetchCache 即 fc
         putFunction("fetchCache", args -> {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 0;
-            return memCached("fc:" + url, hours, () -> fetchSync(url, null));
+            double hours = args.length > 1 ? toDouble(args[1]) : 24;
+            return fileCached(url, hours, () -> fetchSync(url, null));
         });
-        putFunction("rc", args -> {
-            if (args == null || args.length == 0) return null;
-            String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 0;
-            String code = memCached("rc:" + url, hours, () -> {
-                String c = loadLibLocal(url);
-                return c == null ? fetchSync(url, null) : c;
-            });
-            try {
-                if (!TextUtils.isEmpty(code)) evalJs(stripJsPrefix(code));
-            } catch (Throwable e) {
-                Logger.t(TAG).d("rc evaluate failed: %s", e.getMessage());
-            }
-            return null;
-        });
+        putFunction("rc", args -> requireCacheEval(args));
         // 官方全名：requireCache 即 rc
-        putFunction("requireCache", args -> {
-            if (args == null || args.length == 0) return null;
-            String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 0;
-            String code = memCached("rc:" + url, hours, () -> {
-                String c = loadLibLocal(url);
-                return c == null ? fetchSync(url, null) : c;
-            });
-            try {
-                if (!TextUtils.isEmpty(code)) evalJs(stripJsPrefix(code));
-            } catch (Throwable e) {
-                Logger.t(TAG).d("requireCache evaluate failed: %s", e.getMessage());
-            }
-            return null;
-        });
+        putFunction("requireCache", args -> requireCacheEval(args));
         // ---- 批量（bf=batchFetch 并发取回 body 数组；be=batchExecute 预加载，宿主 no-op；bcm 返回原地址） ----
         putFunction("bf", args -> {
             if (args == null || args.length == 0) return "[]";
@@ -1659,17 +1760,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             batchExecuteImpl(args);
             return null;
         });
-        putFunction("bcm", args -> {
-            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
-            Logger.t(TAG).d("bcm: passthrough %s", url);
-            return url;
-        });
-        // 官方全名：batchCacheM3u8 即 bcm（返回原地址，宿主不做真实缓存）
-        putFunction("batchCacheM3u8", args -> {
-            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
-            Logger.t(TAG).d("batchCacheM3u8: passthrough %s", url);
-            return url;
-        });
+        putFunction("bcm", args -> batchCacheM3u8Impl(args));
+        // 官方全名：batchCacheM3u8 即 bcm（8.83 JSEngine.java:1943，returnType=JSON）
+        putFunction("batchCacheM3u8", args -> batchCacheM3u8Impl(args));
         // ---- PC 模式请求（桌面 UA）与 postRequest（即 post） ----
         putFunction("fetchPC", args -> {
             if (args == null || args.length == 0) return "";
@@ -1704,16 +1797,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 Object headers = map.get("headers");
                 if (!(headers instanceof Map)) return "";
                 Map<String, Object> hm = (Map<String, Object>) headers;
+                // 8.83（JSEngine.java:2033）：取 headers 的 set-cookie 全量值（三种大小写），
+                // 返回其 JSON 数组字符串；无 cookie / 失败返回 ""。旧实现截成"名=值; "拼接串是错的。
                 List<String> cookies = new ArrayList<>();
                 for (Map.Entry<String, Object> e : hm.entrySet()) {
                     if (e.getKey() != null && e.getKey().equalsIgnoreCase("set-cookie") && e.getValue() != null) {
-                        String v = String.valueOf(e.getValue());
-                        // 取 cookie 名值对（分号前）
-                        int semi = v.indexOf(';');
-                        cookies.add(semi > 0 ? v.substring(0, semi).trim() : v.trim());
+                        Object v = e.getValue();
+                        if (v instanceof List) {
+                            for (Object one : (List<?>) v) {
+                                if (one != null) cookies.add(String.valueOf(one));
+                            }
+                        } else {
+                            cookies.add(String.valueOf(v));
+                        }
                     }
                 }
-                return TextUtils.join("; ", cookies);
+                if (cookies.isEmpty()) return "";
+                return GSON.toJson(cookies);
             } catch (Throwable e) {
                 Logger.t(TAG).d("fetchCookie failed: %s", e.getMessage());
                 return "";
@@ -1797,9 +1897,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("readFile", args -> {
+            // 8.83 JSEngine.java:2132：第 2 参是 ruleTitleKey；含分隔符公开读，否则 basename+规则目录私有读。
+            // 兼容说明：星辰曾把第 2 参当 charset 用。双重解释——合法字符集名当 charset（兼容星辰旧规则），
+            // 否则当 ruleTitleKey（8.83 语义；规则标题不可能是字符集名，两边不冲突）。
             if (args == null || args.length == 0) return "";
-            String charset = args.length > 1 ? argStr(args[1]) : null;
-            return readFileContent(resolveHikerPath(argStr(args[0])), charset);
+            String p = argStr(args[0]);
+            String second = args.length > 1 && args[1] != null ? argStr(args[1]) : null;
+            String charset = null;
+            String rt = null;
+            if (second != null && !second.isEmpty()) {
+                if (isCharsetName(second)) charset = second;
+                else rt = second;
+            }
+            if (p.contains("/")) {
+                return readFileContent(resolveHikerPath(p), charset);
+            }
+            String base = p.substring(p.lastIndexOf('/') + 1);
+            if (base.isEmpty()) base = p;
+            return readFileContent(new File(ruleDirForTitle(rt), base).getAbsolutePath(), charset);
         });
         putFunction("fileExist", args -> {
             if (args == null || args.length == 0) return "false";
@@ -1815,46 +1930,68 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (new File(resolveHikerPath(p)).exists()) return "true";
             return resolvePerRuleLibFile(p) != null ? "true" : "false";
         });
+        // getPath(filePath)：8.83（JSEngine.java:2105）恒返回 "file://" + getFilePath(filePath)。
+        // 内部文件操作（writeFile/readFile/exists/delete/download）都直接调 resolveHikerPath，
+        // 不走 JS 可见的 getPath，故加前缀无连环影响。空输入仍回 ""。
         putFunction("getPath", args -> {
             if (args == null || args.length == 0) return "";
-            return resolveHikerPath(argStr(args[0]));
+            String p = resolveHikerPath(argStr(args[0]));
+            if (TextUtils.isEmpty(p)) return "";
+            return "file://" + p;
         });
         putFunction("saveFile", args -> {
-            // saveFile(name, content, mode)：存到规则数据目录
+            // 8.83 JSEngine.java:2120：hiker://files/ 走公开路径；否则取 basename 存入规则目录；第 3 参为 ruleTitleKey。
             if (args != null && args.length > 1) {
-                File f = new File(HkRuleManager.get().getDataDir(rule.getTitle()), argStr(args[0]));
-                writeFileContent(f.getAbsolutePath(), argStr(args[1]));
+                String p = argStr(args[0]);
+                String content = argStr(args[1]);
+                String rt = args.length > 2 && args[2] != null ? argStr(args[2]) : null;
+                if (p.startsWith("hiker://files/")) {
+                    writeFileContent(resolveHikerPath(p), content);
+                } else {
+                    String base = p.substring(p.lastIndexOf('/') + 1);
+                    if (base.isEmpty()) base = p;
+                    writeFileContent(new File(ruleDirForTitle(rt), base).getAbsolutePath(), content);
+                }
             }
             return null;
         });
+        // 8.83 JSEngine.java:2145：含分隔符公开删 + 私有删两份都删；无分隔符只删私有（basename+规则目录）。
         putFunction("deleteFile", args -> {
             try {
-                if (args != null && args.length > 0) new File(resolveHikerPath(argStr(args[0]))).delete();
+                if (args != null && args.length > 0) {
+                    String p = argStr(args[0]);
+                    String rt = args.length > 1 && args[1] != null ? argStr(args[1]) : null;
+                    if (p.contains("/")) {
+                        new File(resolveHikerPath(p)).delete();
+                    }
+                    String base = p.substring(p.lastIndexOf('/') + 1);
+                    if (!base.isEmpty()) new File(ruleDirForTitle(rt), base).delete();
+                }
             } catch (Throwable ignored) {}
             return null;
         });
+
+    /** 8.83 JSEngine.getRuleTitle(ruleTitleKey) 等价：空则取当前规则标题，否则按给定标题取规则数据目录。 */
+    private File ruleDirForTitle(String rt) {
+        String title = (rt == null || rt.isEmpty()) ? (rule != null ? rule.getTitle() : "") : rt;
+        return HkRuleManager.get().getDataDir(title);
+    }
+
+    /** 是否合法字符集名（readFile 第 2 参双重解释用）。 */
+    private static boolean isCharsetName(String s) {
+        try {
+            return java.nio.charset.Charset.isSupported(s.trim());
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+        // 8.83 JSEngine.java:2514 downloadFile：失败抛 Exception("下载文件失败：…")；第 3 参 headers。
         putFunction("downloadFile", args -> {
-            if (args == null || args.length < 2) return null;
-            try {
-                String url = argStr(args[0]);
-                String dest = resolveHikerPath(argStr(args[1]));
-                File f = new File(dest);
-                if (f.isDirectory() || dest.endsWith("/")) {
-                    String name = url.replaceAll("[?#].*$", "").replaceAll("^.*/", "");
-                    if (TextUtils.isEmpty(name)) name = "download.bin";
-                    f = new File(f, name);
-                }
-                if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                try (okhttp3.Response res = HkHttp.to(url,
-                        com.fongmi.quickjs.bean.Req.objectFrom("{}")).execute()) {
-                    if (res.isSuccessful() && res.body() != null) {
-                        java.nio.file.Files.write(f.toPath(), res.body().bytes());
-                        Logger.t(TAG).d("downloadFile ok: %s", f.getAbsolutePath());
-                    }
-                }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("downloadFile failed: %s", e.getMessage());
-            }
+            if (args == null || args.length < 2) throw new RuntimeException("下载文件失败：参数不足");
+            String url = argStr(args[0]);
+            String dest = resolveHikerPath(argStr(args[1]));
+            String headers = args.length > 2 && args[2] != null ? stringifyArg(args[2]) : "{}";
+            downloadToFile(url, dest, headers);
             return null;
         });
 
@@ -1902,11 +2039,195 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args == null || args.length < 2) return args != null && args.length > 0 ? argStr(args[0]) : "";
             return fixM3u8Content(argStr(args[0]), argStr(args[1]));
         });
+        // 8.83 JSEngine.java:1928 cacheM3u8：真下载索引文件到 hiker://files/cache/，返回 "file##url"；非 m3u8/等价时返原 url。
         putFunction("cacheM3u8", args -> {
             String url = args != null && args.length > 0 ? argStr(args[0]) : "";
-            Logger.t(TAG).d("cacheM3u8: passthrough %s", url);
-            return url;
+            String options = args != null && args.length > 1 && args[1] != null ? stringifyArg(args[1]) : null;
+            String fileName = args != null && args.length > 2 && args[2] != null && !TextUtils.isEmpty(argStr(args[2]))
+                    ? argStr(args[2]) : "video.m3u8";
+            String file = downloadM3u8File(url, fileName, options);
+            return file.equals(url) ? url : file + "##" + url;
         });
+
+    /**
+     * 8.83 M3u8Utils.downloadM3u8 等价：只缓存索引文件（片段不下载），相对路径改写为绝对地址，
+     * 嵌套子 m3u8 递归跟进；写到 hiker://files/cache/<fileName>，返回 "file://<绝对路径>"。
+     * 非 m3u8 地址（mp4/flv/m4a/mp3）直接回原 url。
+     */
+    private String downloadM3u8File(String url, String fileName, String optionsJson) {
+        if (TextUtils.isEmpty(url)) throw new RuntimeException("m3u8 地址为空");
+        if (isNotM3u8Url(url)) return url;
+        String result;
+        try {
+            result = fetchSync(url, withHeadersOpt(optionsJson));
+        } catch (Throwable e) {
+            throw new RuntimeException("m3u8 下载失败：" + e.getMessage());
+        }
+        String body = "";
+        String realUrl = url;
+        try {
+            Map<String, Object> map = GSON.fromJson(result,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+            if (map != null) {
+                Object b = map.get("body");
+                if (b != null) body = String.valueOf(b);
+                Object u = map.get("url");
+                if (u != null && !TextUtils.isEmpty(String.valueOf(u))) realUrl = String.valueOf(u);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (TextUtils.isEmpty(body)) throw new RuntimeException("m3u8 内容为空：" + url);
+        String content = convertM3u8Paths(body, realUrl, fileName, optionsJson);
+        String abs = resolveHikerPath("hiker://files/cache/" + fileName);
+        File f = new File(abs);
+        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+        writeFileContent(abs, content);
+        Logger.t(TAG).d("downloadM3u8File ok: %s", abs);
+        return "file://" + abs;
+    }
+
+    /** 8.83 M3u8Utils.isNotM3u8 等价。 */
+    private static boolean isNotM3u8Url(String url) {
+        if (url.contains(".flv") || url.contains(".m4a") || url.contains(".mp3")
+                || url.contains("mine_type=video_mp4")) return true;
+        return url.contains("mp4") && !url.contains("m3u8");
+    }
+
+    /** 8.83 M3u8Utils.convertPath 等价：EXT-X-KEY 的 URI 与相对片段路径改写为绝对地址。 */
+    private String convertM3u8Paths(String content, String baseUrl, String fileName, String optionsJson) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasTs = false;
+        for (String raw : content.split("\n")) {
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            if (line.startsWith("#EXT-X-KEY:")) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("URI=\"(.*?)\"").matcher(line);
+                if (m.find()) {
+                    String keyUri = m.group(1);
+                    String keyUrl = keyUri.startsWith("http://") || keyUri.startsWith("https://")
+                            ? keyUri : resolveUrl(baseUrl, keyUri.trim());
+                    sb.append(line.replace(keyUri, keyUrl)).append('\n');
+                } else {
+                    sb.append(raw).append('\n');
+                }
+            } else if (line.startsWith("/") || (!line.startsWith("#") && !line.startsWith("http") && !line.isEmpty())) {
+                String newUrl = resolveUrl(baseUrl, line);
+                if (!hasTs && line.endsWith(".m3u8") && !newUrl.equals(baseUrl)) {
+                    // 嵌套子索引：递归下载，内容写回同一 fileName（8.83 语义）
+                    return convertM3u8Paths(fetchM3u8Body(newUrl, optionsJson), newUrl, fileName, optionsJson);
+                }
+                sb.append(newUrl).append('\n');
+                hasTs = true;
+            } else {
+                sb.append(raw).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private String fetchM3u8Body(String url, String optionsJson) {
+        String result = fetchSync(url, withHeadersOpt(optionsJson));
+        try {
+            Map<String, Object> map = GSON.fromJson(result,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+            if (map != null && map.get("body") != null) return String.valueOf(map.get("body"));
+        } catch (Throwable ignored) {
+        }
+        throw new RuntimeException("m3u8 内容为空：" + url);
+    }
+
+    private static String resolveUrl(String base, String rel) {
+        try {
+            return new java.net.URL(new java.net.URL(base), rel).toString();
+        } catch (Throwable e) {
+            return rel;
+        }
+    }
+
+    /** options JSON 里强制 withHeaders=true（8.83 fetchWithHeaders 语义）。 */
+    private static String withHeadersOpt(String optionsJson) {
+        try {
+            com.google.gson.JsonObject obj;
+            if (TextUtils.isEmpty(optionsJson)) {
+                obj = new com.google.gson.JsonObject();
+            } else {
+                com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(optionsJson);
+                obj = el != null && el.isJsonObject() ? el.getAsJsonObject() : new com.google.gson.JsonObject();
+            }
+            obj.addProperty("withHeaders", true);
+            return GSON.toJson(obj);
+        } catch (Throwable e) {
+            return "{\"withHeaders\":true}";
+        }
+    }
+
+    /**
+     * 8.83 JSEngine.java:1943 batchCacheM3u8 等价：params 须为数组（元素 {url, options} 或裸字符串），
+     * 否则回 "[]"；每项下载索引文件，返回 "file##url"（失败/等价项回原 url，抛错项置 null），
+     * 整体 JSON 数组字符串。并发下载（最多 8 线）。
+     */
+    private String batchCacheM3u8Impl(Object[] args) {
+        if (args == null || args.length == 0 || args[0] == null) return "[]";
+        List<Object> items = new ArrayList<>();
+        try {
+            Object p0 = args[0];
+            if (p0 instanceof NativeArray) {
+                NativeArray na = (NativeArray) p0;
+                for (int i = 0; i < na.size(); i++) items.add(na.get(i));
+            } else {
+                String json = argStr(p0).trim();
+                if (!json.startsWith("[")) return "[]";
+                List<Object> list = GSON.fromJson(json,
+                        new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
+                if (list != null) items.addAll(list);
+            }
+        } catch (Throwable e) {
+            Logger.t(TAG).d("batchCacheM3u8 parse failed: %s", e.getMessage());
+            return "[]";
+        }
+        if (items.isEmpty()) return "[]";
+        int n = items.size();
+        int threads = Math.min(n, 8);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        List<String> out = new ArrayList<>(java.util.Collections.nCopies(n, null));
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                final int idx = i;
+                futures.add(pool.submit(() -> {
+                    Object o = items.get(idx);
+                    String u;
+                    String opt = null;
+                    java.util.Map<?, ?> m = toStringMap(o);
+                    if (m != null) {
+                        u = m.get("url") == null ? "" : String.valueOf(m.get("url"));
+                        if (m.get("options") != null) opt = GSON.toJson(m.get("options"));
+                    } else {
+                        u = String.valueOf(o);
+                    }
+                    try {
+                        if (TextUtils.isEmpty(u)) {
+                            out.set(idx, null);
+                            return;
+                        }
+                        String file = downloadM3u8File(u, "video" + idx + ".m3u8", opt);
+                        out.set(idx, file.equals(u) ? u : file + "##" + u);
+                    } catch (Throwable e) {
+                        // 8.83 batchExecute：单项抛错该槽留空（null）
+                        out.set(idx, null);
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : futures) {
+                try {
+                    f.get(90, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Throwable ignored) {
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        return GSON.toJson(out);
+    }
         // proxyClearM3u8：移植自 8.83 JSEngine.proxyClearM3u8 (JSEngine.smali:21401)。
         // 语义：proxyClearM3u8(u, h, r) 去 m3u8 广告片段。
         //   u: m3u8 URL；h: headers Map（可选，取 "headers"/"header" 子键）；r: 广告规则 JSONArray（可选）。
@@ -1983,33 +2304,49 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        putFunction("getPageTitle", args -> pageTitle);
+        // 8.83 smali:17466：取当前 Activity.getTitle()；拿不到/为空时回 setPageTitle 存的值
+        putFunction("getPageTitle", args -> {
+            try {
+                android.app.Activity a = App.activity();
+                if (a != null) {
+                    CharSequence t = a.getTitle();
+                    if (t != null && t.length() > 0) return t.toString();
+                }
+            } catch (Throwable ignored) {
+            }
+            return pageTitle;
+        });
         putFunction("getHome", args -> {
             if (args == null || args.length == 0) return "";
             return homeOf(argStr(args[0]));
         });
+        // 8.83 JSEngine.java:1966：不做 URL 编码（HttpHelper.buildParamStr：k=v&k2=v2，非字符串值 JSON 序列化）；
+        // url 为空只返回参数串（无前导 ?）
         putFunction("buildUrl", args -> {
             if (args == null || args.length == 0) return "";
             String url = argStr(args[0]);
-            if (args.length < 2 || args[1] == null) return url;
-            try {
-                String json = stringifyArg(args[1]);
-                Map<String, Object> map = GSON.fromJson(json, new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
-                if (map == null || map.isEmpty()) return url;
-                StringBuilder sb = new StringBuilder(url);
-                boolean hasQ = url.contains("?");
-                for (Map.Entry<String, Object> e : map.entrySet()) {
-                    if (e.getValue() == null) continue;
-                    sb.append(hasQ ? '&' : '?');
-                    hasQ = true;
-                    sb.append(java.net.URLEncoder.encode(e.getKey(), "UTF-8"));
-                    sb.append('=');
-                    sb.append(java.net.URLEncoder.encode(String.valueOf(e.getValue()), "UTF-8"));
+            String body = "";
+            if (args.length >= 2 && args[1] != null) {
+                try {
+                    String json = stringifyArg(args[1]);
+                    Map<String, Object> map = GSON.fromJson(json, new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+                    if (map != null && !map.isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (Map.Entry<String, Object> e : map.entrySet()) {
+                            if (e.getValue() == null) continue;
+                            if (sb.length() > 0) sb.append('&');
+                            Object v = e.getValue();
+                            sb.append(e.getKey()).append('=')
+                                    .append(v instanceof String ? (String) v : GSON.toJson(v));
+                        }
+                        body = sb.toString();
+                    }
+                } catch (Throwable ignored) {
                 }
-                return sb.toString();
-            } catch (Throwable ex) {
-                return url;
             }
+            if (url == null || url.isEmpty() || "undefined".equals(url)) return body;
+            if (url.contains("?")) return url + "&" + body;
+            return url + "?" + body;
         });
         putFunction("joinUrl", args -> {
             if (args == null || args.length < 2) return args != null && args.length > 0 ? argStr(args[0]) : "";
@@ -2019,7 +2356,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return argStr(args[1]);
             }
         });
-        putFunction("getColTypes", args -> GSON.toJson(COL_TYPES));
+        // getColTypes：8.83（JSEngine.java:2495）ReturnType.JSON（桥接层把 JSON 串转成真数组给 JS）。
+        // 星辰旧实现回 GSON 串，putFunction 经 Rhino 直接透传——JS 拿到的是字符串不是数组。
+        // 改为直接回真数组（toJsArray 原生对象通道），与 8.83 的 JS 可见形态一致。
+        putFunction("getColTypes", args -> toJsArray(COL_TYPES));
 
         // ---- 编解码补充 ----
         putFunction("md5", args -> {
@@ -2097,31 +2437,83 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return code;
         });
+        // B32：8.83 smali:26129 的入口守卫字面语义是反的——非 undefined 输入直接回 null，
+        // 规范化分支不可达（undefined 进去反而在 tryGetString 抛错），且该 APK 内无任何调用方，
+        // 疑似原版 bug。按函数本意实现 sane 语义：null/undefined→null；""→""；解析失败→"null"；
+        // 成功→规范化重序列化。原版中段（isEmpty→""、parse 失败→"null"、成功→toJSONString）逐字对齐。
         putFunction("toCorrectJSONString", args -> {
-            if (args == null || args.length == 0) return "";
-            String t = argStr(args[0]).trim();
+            if (args == null || args.length == 0 || args[0] == null) return null;
+            Object o = args[0];
+            if (!(o instanceof String)) throw new RuntimeException("参数类型只能是字符串");
+            String t = (String) o;
+            if (t.isEmpty()) return "";
             try {
-                GSON.fromJson(t, Object.class);
-                return t;
+                Object parsed = GSON.fromJson(t, Object.class);
+                if (parsed == null) return "null";
+                return GSON.toJson(parsed);
             } catch (Throwable e) {
+                return "null";
+            }
+        });
+        // 8.83 smali:18729 justTestSign(appId, devId, userId)：三参 tryGetString；
+        // 拼 "appId:devId:userId:0" 后用设备 AndroidKeyStore 的 EC 密钥做 SHA256withECDSA 签名，
+        // 返回 <签名hex后128位>01##04<公钥hex>（EcdsaSha256Kt.sign 等价）。
+        // 注：原版 catch 块疑似笔误（异常时回 devId），此处异常回 ""。
+        putFunction("justTestSign", args -> {
+            try {
+                String appId = mustBeString(args, 0);
+                String devId = mustBeString(args, 1);
+                String userId = mustBeString(args, 2);
+                return ecdsaSignDevice(appId + ":" + devId + ":" + userId + ":0");
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Throwable e) {
+                Logger.t(TAG).d("justTestSign failed: %s", e.getMessage());
                 return "";
             }
         });
-        putFunction("justTestSign", args -> {
-            Logger.t(TAG).d("justTestSign: no-op in host");
-            return "";
-        });
 
         // ---- 网络杂项 ----
+        // getCookie(url)：8.83（smali:16625 → CookieJarUtil.getCookie）：
+        // 取 Application 的 cookie 池 loadForRequest(httpUrl)，拼成 "name=value; name=value"，无则空串。
+        // 旧注记说宿主没维护池子是错的——HkCookieJar（照 8.83 CookieJarImpl 移植）早已接入 HkHttp 的 OkHttp。
         putFunction("getCookie", args -> {
-            // 宿主 fetch 未维护 cookie 池，返回空（规则多用 getCookie 做登录态判断，空即未登录）
-            Logger.t(TAG).d("getCookie: empty in host");
-            return "";
+            try {
+                String url = args != null && args.length > 0 ? argStr(args[0]) : "";
+                if (TextUtils.isEmpty(url)) return "";
+                okhttp3.HttpUrl httpUrl = okhttp3.HttpUrl.parse(url);
+                if (httpUrl == null) return "";
+                StringBuilder sb = new StringBuilder();
+                for (okhttp3.Cookie c : HkCookieJar.get(App.get()).loadForRequest(httpUrl)) {
+                    if (sb.length() > 0) sb.append("; ");
+                    sb.append(c.name()).append("=").append(c.value());
+                }
+                return sb.toString();
+            } catch (Throwable e) {
+                Logger.t(TAG).d("getCookie failed: %s", e.getMessage());
+                return "";
+            }
         });
         putFunction("getIP", args -> getLocalIp());
-        putFunction("ipping", args -> false);
+        // ipping(ip, h)：8.83（smali:18432，java:4008）：h 取整（缺省 3000）；
+        // InetAddress.getByName(ip).isReachable(timeout)，异常打日志回 false。
+        putFunction("ipping", args -> {
+            try {
+                String ip = args != null && args.length > 0 ? argStr(args[0]) : "";
+                int timeout = 3000;
+                if (args != null && args.length > 1) {
+                    Object h = argsNativeObjectAdjust(args[1]);
+                    if (h instanceof Number) timeout = ((Number) h).intValue();
+                }
+                return java.net.InetAddress.getByName(ip).isReachable(timeout);
+            } catch (Throwable e) {
+                Logger.t(TAG).d("ipping failed: %s", e.getMessage());
+                return false;
+            }
+        });
         // 8.83 JSEngine.isLogin：恒返回字符串 "true"（此前写反成 false，按登录态分流的规则全走错分支）
-        putFunction("isLogin", args -> "true");
+        // 8.83 smali:18539：returnType=BOOL，桥接把 "true" 转为真布尔；JS 可见为 boolean true
+        putFunction("isLogin", args -> Boolean.TRUE);
 
         // ---- 事件监听（官方 onClose 等；宿主仅记录，不触发） ----
         putFunction("addListener", args -> {
@@ -2148,9 +2540,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- 下划线内部别名（兼容老规则写法） ----
+        // _pd(html, rule, urlKey)：8.83（smali:10148）三参全透传 parseDomForUrl(html, rule, urlKey)，
+        // urlKey 用于拼绝对地址。旧实现第 3 参恒 ""。
         putFunction("_pd", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
+            String urlKey = args.length > 2 ? argStr(args[2]) : "";
+            return parser.pdfh(argStr(args[0]), sel(args[1]), urlKey);
         });
         putFunction("_pdfh", args -> {
             if (args == null || args.length < 2) return "";
@@ -2160,26 +2555,41 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
             return toJsArray(parser.pdfa(argStr(args[0]), sel(args[1])));
         });
+        // _pdfl(html, listRule, htmlRule, texts, urls)：8.83（HtmlParser.smali:569）：
+        // 每项 = parseDomForUrl(itemHtml, htmlRule, "").trim() + "$" + parseDomForUrl(itemHtml, texts, urls)，
+        // 返回 text$url 真数组。旧实现只调 pdfa 丢了 texts/urls（每项只剩裸 html）。
+        // quickjs.Parser.pdfl 的形参 (html, rule, texts, urls, urlKey) 已按此语义实现，直接透传。
         putFunction("_pdfl", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            return toJsArray(parser.pdfa(argStr(args[0]), sel(args[1])));
+            String htmlRule = args.length > 2 ? argStr(args[2]) : "";
+            String texts = args.length > 3 ? argStr(args[3]) : "";
+            String urls = args.length > 4 ? argStr(args[4]) : "";
+            return toJsArray(parser.pdfl(argStr(args[0]), sel(args[1]), htmlRule, texts, urls));
         });
-        putFunction("_findItem", args -> "");
+        // _findItem(id)：8.83（JSEngine.java:1280）按 id 查当前条目列表（ItemFindEvent 机制），
+        // 找到返回条目对象、找不到 null。星辰旧实现恒 ""。
+        // 条目来源用运行时现有的当前列表持有处 results（id 存 extra.id，见 _findItemsByCls 同源）。
+        putFunction("_findItem", args -> {
+            try {
+                String id = args != null && args.length > 0 ? argStr(args[0]) : "";
+                for (HkItem it : results) {
+                    if (id.equals(it.getExtra("id"))) {
+                        return itemToFullMap(it);
+                    }
+                }
+                return null;
+            } catch (Throwable e) {
+                return null;
+            }
+        });
         // findItemsByCls/deleteItemByCls：按条目 extra.cls 匹配当前已收集结果
+        // B35：8.83 _findItemsByCls 回 ArticleList 完整序列化（含 content/extra/type 等），此处按 HkItem 现有字段补齐
         putFunction("_findItemsByCls", args -> {
             try {
                 String cls = args != null && args.length > 0 ? argStr(args[0]) : "";
                 List<Map<String, Object>> out = new ArrayList<>();
                 for (HkItem it : results) {
-                    if (cls.equals(it.getExtra("cls"))) {
-                        Map<String, Object> m = new HashMap<>();
-                        m.put("title", it.getTitle());
-                        m.put("url", it.getUrl());
-                        m.put("pic", it.getPic());
-                        m.put("desc", it.getDesc());
-                        m.put("col_type", it.getColType());
-                        out.add(m);
-                    }
+                    if (cls.equals(it.getExtra("cls"))) out.add(itemToFullMap(it));
                 }
                 return GSON.toJson(out);
             } catch (Throwable e) {
@@ -2189,15 +2599,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
         // ---- xpath/xpathArray（xpa）：8.83 JSEngine 同款 javax.xml 真 XPath 求值 ----
         // 此前是空桩（借口宿主 Parser 不支持），XML/RSS 类规则必死
+        // 8.83 JSEngine.java:2971：失败 throws Exception（靠 try/catch 判失败的规则进 catch）
         putFunction("xpath", args -> {
-            if (args == null || args.length < 2) return "";
+            if (args == null || args.length < 2) throw new RuntimeException("xpath：参数不足");
             try {
                 javax.xml.xpath.XPath xp = javax.xml.xpath.XPathFactory.newInstance().newXPath();
                 Object r = xp.evaluate(argStr(args[1]), parseXmlDoc(argStr(args[0])));
                 return r == null ? "" : String.valueOf(r);
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Throwable e) {
-                Logger.t(TAG).d("xpath failed: %s", e.getMessage());
-                return "";
+                throw new RuntimeException("xpath 解析失败：" + e.getMessage());
             }
         });
         putFunction("xpa", args -> xpathArrayImpl(args));
@@ -2264,6 +2676,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         // openAppIntent(p, a, param, ruleTitleKey)：8.83 JSEngine.openAppIntent。
         // 敏感操作，需用户授权。授权后解析 Intent 并启动外部应用。
+        // 8.83 smali:20047：末尾 Boolean.toString，回 "true"/"false" 字符串
         putFunction("openAppIntent", args -> {
             try {
                 String ruleTitle = rule != null ? rule.getTitle() : "";
@@ -2291,10 +2704,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                                 Logger.t(TAG).d("openAppIntent failed: %s", e.getMessage());
                             }
                         });
-                return allowed && result[0];
+                return String.valueOf(allowed && result[0]);
             } catch (Throwable e) {
                 Logger.t(TAG).d("openAppIntent failed: %s", e.getMessage());
-                return false;
+                return "false";
             }
         });
         // publishRule(ruleJson, ruleTitleKey)：8.83 JSEngine.publishRule。
@@ -2459,8 +2872,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        // searchContains(text, keyword, ignoreCase)：8.83 JSEngine.searchContains：
-        // text 为空返回 "false"，keyword 为空返回 "true"，否则按 ignoreCase 做包含匹配（keyword 按空格切分，多词需按序包含）。
+        // searchContains(text, keyword, ignoreCase)：8.83 JSEngine.searchContains（smali:23905，
+        // returnType=BOOL）：原生方法回 String.valueOf(boolean)，桥接层按 BOOL 注解转成真布尔给 JS。
+        // 星辰的 putFunction 直接经 Rhino 透传——若回字符串 "false"，JS 里是 truthy，
+        // if(searchContains(...)) 恒真。故这里直接回真布尔（Boolean→JS boolean）。
+        // text 为空返回 false，keyword 为空返回 true，否则按 ignoreCase 做包含匹配
+        //（keyword 按空格切分，多词需按序包含）。
         putFunction("searchContains", args -> {
             try {
                 String text = args != null && args.length > 0 ? getString(args[0]) : null;
@@ -2470,10 +2887,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     Object o = argsNativeObjectAdjust(args[2]);
                     if (o instanceof Boolean) ignoreCase = (Boolean) o;
                 }
-                boolean result = hkSearchContains(text, keyword, ignoreCase);
-                return String.valueOf(result);
+                return hkSearchContains(text, keyword, ignoreCase);
             } catch (Throwable e) {
-                return "false";
+                return false;
             }
         });
         // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine @JSAnnotation(alias="refresh")，
@@ -2564,18 +2980,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("initChaquopy", null);
         // 文件/下载类（官方行为：saveImage 下载图片到 path；requireDownload 文件不存在才下载；
         // deleteCache(c) c=-1 清规则全部缓存否则按 url 清，宿主清内存缓存）
+        // 8.83 JSEngine.java:2505 requireDownload：文件已存在直接返回，否则 downloadFile；失败抛错。
         putFunction("requireDownload", args -> {
-            if (args == null || args.length < 2) return null;
-            try {
-                String url = argStr(args[0]);
-                String dest = resolveHikerPath(argStr(args[1]));
-                File f = new File(dest);
-                if (f.exists()) return null;
-                String headers = args.length > 2 && args[2] != null ? stringifyArg(args[2]) : "{}";
-                downloadToFile(url, dest, headers);
-            } catch (Throwable e) {
-                Logger.t(TAG).d("requireDownload failed: %s", e.getMessage());
-            }
+            if (args == null || args.length < 2) throw new RuntimeException("下载文件失败：参数不足");
+            String url = argStr(args[0]);
+            String dest = resolveHikerPath(argStr(args[1]));
+            if (new File(dest).exists()) return null;
+            String headers = args.length > 2 && args[2] != null ? stringifyArg(args[2]) : "{}";
+            downloadToFile(url, dest, headers);
             return null;
         });
         putFunction("saveImage", args -> {
@@ -2593,19 +3005,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         stub("copyFiles", null);
+        // 8.83 JSEngine.java:2772 deleteCache：c 经 tryGetString，非字符串抛错；缺省 "-1" 清规则缓存
         putFunction("deleteCache", args -> {
-            try {
-                String c = args != null && args.length > 0 && args[0] != null ? argStr(args[0]) : "-1";
-                if ("-1".equals(c) || TextUtils.isEmpty(c)) {
-                    memCache.clear();
-                    Logger.t(TAG).d("deleteCache: cleared all memCache");
-                } else {
-                    final String key = c;
-                    memCache.keySet().removeIf(k -> k.contains(key));
-                    Logger.t(TAG).d("deleteCache: cleared memCache for %s", key);
-                }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("deleteCache failed: %s", e.getMessage());
+            String c;
+            if (args == null || args.length == 0 || args[0] == null) {
+                c = "-1";
+            } else {
+                c = mustBeString(args, 0);
+            }
+            if ("-1".equals(c) || TextUtils.isEmpty(c)) {
+                memCache.clear();
+                Logger.t(TAG).d("deleteCache: cleared all memCache");
+            } else {
+                final String key = c;
+                memCache.keySet().removeIf(k -> k.contains(key));
+                Logger.t(TAG).d("deleteCache: cleared memCache for %s", key);
             }
             return null;
         });
@@ -2628,7 +3042,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     if (server.isRunning()) {
                         latch.countDown();
                     } else {
-                        server.startServer();
+                        // 端口被占用时照 8.83 递增重试（52020→52025），换到实际实例再回填 JS 与求值器
+                        server = HkProxyServer.startWithFallback();
+                        server.setProxyJS(js);
+                        server.setEvaluator(this);
                         latch.countDown();
                     }
                 } catch (Throwable t) {
@@ -2799,12 +3216,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         // Java 互操作（宿主不开放）
         stub("getCurrentActivity", null);
-        // 官方 getPrivateJS(c)：AES 加密（key=AES_DEFAULT_KEY="1234567890kkkk"）；
-        // 宿主用同 key 的 AES/ECB/PKCS5Padding 实现（base64 输出），保证宿主内确定性
+        // 官方 getPrivateJS(c)：AesUtil.encrypt(AES_DEFAULT_KEY, c)（JSEngine.java:2966）
         putFunction("getPrivateJS", args -> {
             if (args == null || args.length == 0 || args[0] == null) return "";
             try {
-                return aesEncryptECB(argStr(args[0]), "1234567890kkkk");
+                return aesEcbHex(true, AES_DEFAULT_KEY, argStr(args[0]));
             } catch (Throwable e) {
                 Logger.t(TAG).d("getPrivateJS failed: %s", e.getMessage());
                 return "";
@@ -2829,7 +3245,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return code;
         });
-        stub("getMyType", "");
+        // getMyType()：返回当前求值入口的类型（与 setResult 路由用的口径一致）。
+        // 注意与 Java 侧生成注入串的 getMyType(String) 同名异义——那个只拼 var MY_TYPE。
+        putFunction("getMyType", args -> currentMyType == null ? "" : currentMyType);
         stub("getMyCallbackKey", "");
         stub("getMyInput", "");
         stub("getMyJs", "");
@@ -3155,12 +3573,32 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /** addItemAfter/addItemBefore(id, obj)：在匹配 url 的条目之后/之前插入。 */
+    /**
+     * 8.83 JSEngine.java:1198/1240：id 非字符串抛"addItemAfter：格式有误，请传入ID字符串"；
+     * o 非 JSON 对象/数组抛"addItem：格式有误，只支持json"；数组逐条插入。
+     */
     private void addItemAt(Object[] args, boolean after) {
-        try {
-            if (args == null || args.length < 2) return;
-            String id = argStr(args[0]);
-            Map<String, Object> m = toStrMap(args[1]);
-            if (m == null) return;
+        String who = after ? "addItemAfter" : "addItemBefore";
+        if (args == null || args.length < 1 || !(args[0] instanceof String))
+            throw new RuntimeException(who + "：格式有误，请传入ID字符串");
+        String id = (String) args[0];
+        if (args.length < 2 || args[1] == null)
+            throw new RuntimeException("addItem：格式有误，只支持json");
+        List<Map<String, Object>> items = new ArrayList<>();
+        Object o = args[1];
+        if (o instanceof NativeArray) {
+            NativeArray na = (NativeArray) o;
+            for (int i = 0; i < na.size(); i++) {
+                Map<String, Object> m = toStrMap(na.get(i));
+                if (m == null) throw new RuntimeException("addItem：格式有误，只支持json");
+                items.add(m);
+            }
+        } else {
+            Map<String, Object> m = toStrMap(o);
+            if (m == null) throw new RuntimeException("addItem：格式有误，只支持json");
+            items.add(m);
+        }
+        for (Map<String, Object> m : items) {
             HkItem item = new HkItem();
             mergeItem(item, m);
             if (TextUtils.isEmpty(item.getUrl())) item.setUrl(id);
@@ -3170,42 +3608,49 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             } else {
                 results.add(after ? idx + 1 : idx, item);
             }
-            Logger.t(TAG).d("addItem%s: %s", after ? "After" : "Before", id);
-        } catch (Throwable e) {
-            Logger.t(TAG).d("addItemAt failed: %s", e.getMessage());
         }
+        Logger.t(TAG).d("addItem%s: %s x%d", after ? "After" : "Before", id, items.size());
     }
 
-    /** 官方 AesUtil.decrypt 同款：base64 → AES/ECB/PKCS5Padding，key 补 '0' 到 32 字节。 */
-    private static String aesDecryptECB(String b64, String key) {
-        try {
-            byte[] data = Base64.decode(b64, Base64.DEFAULT);
-            byte[] keyBytes = new byte[32];
-            byte[] kb = key.getBytes(Charset.forName("UTF-8"));
-            System.arraycopy(kb, 0, keyBytes, 0, Math.min(kb.length, 32));
-            for (int i = kb.length; i < 32; i++) keyBytes[i] = '0';
-            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/ECB/PKCS5Padding");
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, new javax.crypto.spec.SecretKeySpec(keyBytes, "AES"));
-            return new String(cipher.doFinal(data), Charset.forName("UTF-8"));
-        } catch (Throwable e) {
-            return "";
-        }
+    /** 条目完整序列化（8.83 ArticleList 字段口径）：_findItem/_findItemsByCls 共用。 */
+    private static Map<String, Object> itemToFullMap(HkItem it) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("title", it.getTitle());
+        m.put("url", it.getUrl());
+        m.put("pic", it.getPic());
+        m.put("desc", it.getDesc());
+        m.put("col_type", it.getColType());
+        m.put("type", it.getType());
+        m.put("content", it.getContent());
+        m.put("extra", it.getExtra());
+        m.put("line", it.getLine());
+        m.put("findRule", it.getFindRule());
+        m.put("group", it.getGroup());
+        return m;
     }
 
-    /**
-     * getPrivateJS 的加密 counterpart：AES/ECB/PKCS5Padding，key 补 0 到 32 字节，base64 输出。
-     * 官方用 AES_DEFAULT_KEY="1234567890kkkk"，宿主取同 key、ECB 模式实现，保证宿主内确定性。
-     */
-    private static String aesEncryptECB(String plain, String key) {
+    /** fc/fetchCache 的持久文件缓存：8.83 JSEngine.java:2814 语义——默认 24 小时，
+     * 按 url 的 md5 落盘（App cacheDir/hkfc/）；hour==0 强制刷新；空结果不落盘。 */
+    private String fileCached(String url, double hours, java.util.concurrent.Callable<String> loader) {
         try {
-            byte[] keyBytes = new byte[32];
-            byte[] kb = key.getBytes(Charset.forName("UTF-8"));
-            System.arraycopy(kb, 0, keyBytes, 0, Math.min(kb.length, 32));
-            for (int i = kb.length; i < 32; i++) keyBytes[i] = '0';
-            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/ECB/PKCS5Padding");
-            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, new javax.crypto.spec.SecretKeySpec(keyBytes, "AES"));
-            return Base64.encodeToString(cipher.doFinal(plain.getBytes(Charset.forName("UTF-8"))), Base64.NO_WRAP);
+            File dir = new File(App.get().getCacheDir(), "hkfc");
+            if (!dir.exists()) dir.mkdirs();
+            File f = new File(dir, md5(url) + ".txt");
+            // 8.83：hour==0 强制重新下载；未过期直接读盘
+            if (f.exists() && hours != 0
+                    && System.currentTimeMillis() - f.lastModified() <= (long) (hours * 3600_000)) {
+                String hit = readFileContent(f.getAbsolutePath());
+                if (!hit.isEmpty()) {
+                    Logger.t(TAG).d("fileCache hit: %s", url);
+                    return hit;
+                }
+            }
+            String data = loader.call();
+            if (data == null) data = "";
+            if (!data.isEmpty()) writeFileContent(f.getAbsolutePath(), data);
+            return data;
         } catch (Throwable e) {
+            Logger.t(TAG).d("fileCached failed: %s", e.getMessage());
             return "";
         }
     }
@@ -3600,11 +4045,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     java.nio.file.Files.write(f.toPath(), res.body().bytes());
                     Logger.t(TAG).d("downloadToFile ok: %s", f.getAbsolutePath());
                 } else {
-                    Logger.t(TAG).d("downloadToFile bad response: %s", url);
+                    throw new RuntimeException("下载文件失败：HTTP " + res.code());
                 }
             }
         } catch (Throwable e) {
-            Logger.t(TAG).d("downloadToFile failed %s: %s", url, e.getMessage());
+            if (e instanceof RuntimeException && String.valueOf(e.getMessage()).startsWith("下载文件失败")) throw (RuntimeException) e;
+            throw new RuntimeException("下载文件失败：" + e.getMessage());
         }
     }
 
@@ -3670,6 +4116,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 // 8.83 parseSearch 同款：每次求值注入 fresh CALLBACK_KEY 并登记正文表
                 //（正文=搜索预抓正文，调用方经 setEvalResCodeBody 传入）
                 String cbKey = armCallbackKey(evalResCodeBody);
+                currentMyType = "search";
                 evalJs(getMyCallbackKey(cbKey) + stripJsPrefix(jsCode));
             } catch (Throwable e) {
                 error = jsErrorMsg(e);
@@ -4588,8 +5035,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
-     * N1: 8.83 的 request/post 默认补移动端 UA（JSEngine.smali:22856/21353），裸 fetch 不补。
-     * 若 options 的 headers 里已有 User-Agent（不区分大小写）则不覆盖。
+     * N1: 8.83 的 request/postRequest 默认补移动端 UA（JSEngine.smali:22856），
+     * post/postPC 补桌面端 UA（post0 经 generateRequestOptions(op,true)，smali:8148/21369），
+     * 裸 fetch 不补。若 options 的 headers 里已有 User-Agent（不区分大小写）则不覆盖。
      */
     private static String injectMobileUa(String optionsJson) {
         try {
@@ -4655,17 +5103,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     private Object xpathArrayImpl(Object[] args) {
-        List<String> out = new ArrayList<>();
-        if (args == null || args.length < 2) return toJsArray(out);
+        // 8.83 JSEngine.java:2982：失败 throws Exception
+        if (args == null || args.length < 2) throw new RuntimeException("xpathArray：参数不足");
         try {
             javax.xml.xpath.XPath xp = javax.xml.xpath.XPathFactory.newInstance().newXPath();
             org.w3c.dom.NodeList nodes = (org.w3c.dom.NodeList) xp.evaluate(
                     argStr(args[1]), parseXmlDoc(argStr(args[0])), javax.xml.xpath.XPathConstants.NODESET);
+            List<String> out = new ArrayList<>();
             for (int i = 0; i < nodes.getLength(); i++) out.add(nodes.item(i).getNodeValue());
+            return toJsArray(out);
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Throwable e) {
-            Logger.t(TAG).d("xpathArray failed: %s", e.getMessage());
+            throw new RuntimeException("xpathArray 解析失败：" + e.getMessage());
         }
-        return toJsArray(out);
     }
 
     // 8.83 HttpHelper.generatePostOps：post/postRequest/postPC 共用——body 是对象转表单串
@@ -5087,6 +5538,7 @@ public InputStream evalJS(String p1, InputStream p2) {
             .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
             .append(p1)
             .toString();
+    currentMyType = "eval";
     String v3 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
     Context v1cx = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(v1cx); // MISSING
@@ -5181,6 +5633,7 @@ public String evalJS(String p1, String p2, boolean p3) {
                 .append(getMyType("eval"))
                 .append(getMyCallbackKey(cbUuid))
                 .toString();
+        currentMyType = "eval";
     }
     String v0;
     if (p3) {
@@ -5274,6 +5727,7 @@ public Object evalJSForObj(String p1, Object p2) {
             .append(getMyCallbackKey(genUuid())) // MISSING; 8.83 external
             .append(p1)
             .toString();
+    currentMyType = "eval";
     String v5 = getReplaceJS(appendLineVar(script)); // MISSING, MISSING
     Context v3 = Context.enter(); // 8.83 RhinoAndroidHelper 等价：Context.enter()
     initRhino(v3); // MISSING
@@ -5808,6 +6262,7 @@ private String wrapTryScript(String script) {
                     + getMyCallbackKey(uuid)
                     + getMyUrl(url)
                     + getMyJs(js);
+            currentMyType = "home";
             runScript(script, uuid);
         } catch (Exception e) {
             setError("运行出错：" + e.getMessage(), uuid, GSON.toJson(rule));
@@ -5837,6 +6292,7 @@ private String wrapTryScript(String script) {
                     + getMyCallbackKey(uuid)
                     + getMyUrl(url)
                     + getMyJs(js);
+            currentMyType = "lastChapter";
             runScript(script, uuid, true);
         } catch (Exception e) {
             callback.showErr(e.getMessage());
@@ -5859,6 +6315,7 @@ private String wrapTryScript(String script) {
                     + getMyType("preEngine")
                     + getMyRule(rule)
                     + rule.getPreRule();
+            currentMyType = "preEngine";
             runScript(script, uuid);
         } catch (Exception e) {
             setError("运行出错：" + e.toString(), uuid, GSON.toJson(rule));
@@ -5889,6 +6346,7 @@ private String wrapTryScript(String script) {
                     + getMyRule(rule)
                     + generateMyParams(myParams)
                     + rule.getPreRule();
+            currentMyType = "preHome";
             runScript(script, uuid, throwOnError);
         } catch (Exception e) {
             Logger.t(TAG).e(e, "parsePreRule: ");
@@ -5929,6 +6387,7 @@ private String wrapTryScript(String script) {
                     + getMyType("string")
                     + getMyRule(rule)
                     + getMyJs(js);
+            currentMyType = "string";
             runScript(script, uuid);
         } catch (Exception e) {
             setError("运行出错：" + e.getMessage(), uuid, GSON.toJson(rule));
@@ -5964,6 +6423,7 @@ private String wrapTryScript(String script) {
                     + getMyUrl(url)
                     + getMyType("search")
                     + getMyJs(rule.getSearchFind());
+            currentMyType = "search";
             runScript(script, uuid);
         } catch (Exception e) {
             Logger.t(TAG).e(e, "parseSearchRes: ");
@@ -7198,6 +7658,27 @@ private static class HkMyBase64 {
 
 
     // ---- D1 merge shims ----
+    /** 8.83 EcdsaSha256Kt.sign 等价：AndroidKeyStore 生成 EC 密钥对，SHA256withECDSA 签名。 */
+    private static String ecdsaSignDevice(String message) throws Exception {
+        java.security.KeyPairGenerator kpg =
+                java.security.KeyPairGenerator.getInstance("EC", "AndroidKeyStore");
+        android.security.keystore.KeyGenParameterSpec spec =
+                new android.security.keystore.KeyGenParameterSpec.Builder(
+                        "XC_ECDSA_KEY_PAIR", android.security.keystore.KeyProperties.PURPOSE_SIGN)
+                        .setDigests(android.security.keystore.KeyProperties.DIGEST_SHA256,
+                                android.security.keystore.KeyProperties.DIGEST_SHA512)
+                        .setKeySize(256)
+                        .build();
+        kpg.initialize(spec);
+        java.security.KeyPair kp = kpg.generateKeyPair();
+        java.security.Signature sig = java.security.Signature.getInstance("SHA256withECDSA");
+        sig.initSign(kp.getPrivate());
+        sig.update(message.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String sigHex = hkBytesToHexString(sig.sign());
+        String sigTail = sigHex.length() > 128 ? sigHex.substring(sigHex.length() - 128) : sigHex;
+        return sigTail + "01##04" + hkBytesToHexString(kp.getPublic().getEncoded());
+    }
+
     /** 8.83 HttpHelper.bytesToHexString (in HkHttpHelper as private; local copy for fetchByHiker). */
     private static String hkBytesToHexString(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);

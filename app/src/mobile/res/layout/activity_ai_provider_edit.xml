@@ -26,7 +26,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="名称"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -39,7 +39,7 @@
             android:padding="15dp"
             android:hint="例如：我的 DeepSeek"
             android:textColor="#0C0E12"
-            android:textColorHint="#9CA3AF"
+            android:textColorHint="#4B5563"
             android:textSize="15sp"
             android:singleLine="true" />
 
@@ -47,7 +47,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="协议"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -81,7 +81,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="一键模板"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -115,7 +115,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Base URL"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -128,7 +128,7 @@
             android:padding="15dp"
             android:hint="https://api.deepseek.com/v1"
             android:textColor="#0C0E12"
-            android:textColorHint="#9CA3AF"
+            android:textColorHint="#4B5563"
             android:textSize="15sp"
             android:singleLine="true"
             android:inputType="textUri" />
@@ -137,7 +137,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="API Key"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -150,7 +150,7 @@
             android:padding="15dp"
             android:hint="sk-..."
             android:textColor="#0C0E12"
-            android:textColorHint="#9CA3AF"
+            android:textColorHint="#4B5563"
             android:textSize="15sp"
             android:singleLine="true"
             android:inputType="textPassword" />
@@ -159,7 +159,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型"
-            android:textColor="#6B7280"
+            android:textColor="#374151"
             android:textSize="15sp"
             android:layout_marginBottom="6dp"
             android:paddingLeft="4dp" />
@@ -179,7 +179,7 @@
                 android:padding="15dp"
                 android:hint="deepseek-chat"
                 android:textColor="#0C0E12"
-                android:textColorHint="#9CA3AF"
+                android:textColorHint="#4B5563"
                 android:textSize="15sp"
                 android:singleLine="true" />
             <TextView
@@ -199,7 +199,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="填写 Base URL 和 Key 后点「获取」，从接口拉取可用模型列表选择"
-            android:textColor="#9CA3AF"
+            android:textColor="#4B5563"
             android:textSize="14sp"
             android:layout_marginBottom="14dp"
             android:paddingLeft="4dp" />
@@ -229,7 +229,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="测试将产生少量 token 调用"
-            android:textColor="#9CA3AF"
+            android:textColor="#4B5563"
             android:textSize="14sp"
             android:layout_marginBottom="14dp"
             android:paddingLeft="4dp" />
@@ -248,7 +248,7 @@
                 android:padding="15dp"
                 android:gravity="center"
                 android:text="取消"
-                android:textColor="#6B7280"
+                android:textColor="#374151"
                 android:textSize="16sp"
                 android:clickable="true"
                 android:focusable="true" />

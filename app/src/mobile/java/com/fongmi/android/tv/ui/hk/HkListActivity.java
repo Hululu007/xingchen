@@ -366,14 +366,14 @@ public class HkListActivity extends AppCompatActivity
             }
 
             @Override
-            public void showDownloadDialog(Activity activity, String title, String url, String film) {
+            public void showDownloadDialog(Activity activity, String title, String url, String film, java.util.Map<String, String> headers) {
                 if (activity == null || TextUtils.isEmpty(url)) return;
                 String name = !TextUtils.isEmpty(title) ? title : url;
                 new AlertDialog.Builder(activity)
                         .setTitle("下载资源")
                         .setMessage(name + "\n" + url)
                         .setPositiveButton("下载", (d, w) -> {
-                            DownloadManager.get().add(url, name);
+                            DownloadManager.get().add(url, name, headers);
                             HkRouteBlocker.toastShortBottom(activity, "已加入下载：" + name);
                         })
                         .setNegativeButton("取消", null)
@@ -391,6 +391,8 @@ public class HkListActivity extends AppCompatActivity
             }
         };
         HkFuck.loadList();
+        // hiker:// 目标页路由钩子（C1）：搜索 + 目标页全量装配，搜索页/列表页/小程序页共用
+        HkRouteBlocker.wireAllHooks();
     }
 
     /** 本页规则标题（播放交接取 siteKey 用）。 */

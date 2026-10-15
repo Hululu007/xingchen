@@ -2,7 +2,9 @@ package com.fongmi.android.tv.ui.hk;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.preference.PreferenceManager;
@@ -11,8 +13,18 @@ import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkPageParser;
 import com.fongmi.android.tv.api.hk.HkParserKit;
 import com.fongmi.android.tv.api.hk.HkRule;
+import com.fongmi.android.tv.api.hk.HkRuleManager;
+import com.fongmi.android.tv.ui.activity.AdBlockActivity;
+import com.fongmi.android.tv.ui.activity.DownloadActivity;
+import com.fongmi.android.tv.ui.activity.FileActivity;
+import com.fongmi.android.tv.ui.activity.HistoryActivity;
+import com.fongmi.android.tv.ui.activity.HkPageActivity;
+import com.fongmi.android.tv.ui.activity.KeepActivity;
 
 import java.net.URLDecoder;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.function.Consumer;
 
 import android.util.Log;
@@ -67,8 +79,8 @@ public final class HkRouteBlocker {
             return false;
         }
 
-        /** home@规则名：切换小程序首页到该规则（原版 OnHomePageChangedEvent）。 */
-        default void onHomePageChanged(String ruleTitle) {
+        /** home@规则名：切换小程序首页到该规则（原版 OnHomePageChangedEvent 就地切换；星辰新开规则页）。 */
+        default void onHomePageChanged(Activity activity, String ruleTitle) {
         }
 
         /** 当前活动是否为小程序主页（原版 MainActivity / RuleWindowActivity 型判断，决定 home 路由后是否 finish）。 */
@@ -133,6 +145,215 @@ public final class HkRouteBlocker {
     private static RouteHooks hooks() {
         RouteHooks h = hooks;
         return h != null ? h : new RouteHooks() {
+        };
+    }
+
+    /**
+     * 一次性装配全部 RouteHooks（搜索 + 目标页），供 HkListActivity.ensureStatics 调用；幂等。
+     * 搜索钩子逻辑与 HkSearchActivity 原 wireRouteHooks 同源；目标页钩子按 8.83 语义接到星辰现成页面；
+     * 星辰无对应页面的钩子给「该功能暂不支持」兜底、不再静默吞（webdav/webRule 按既定决策保持仅吞路由）。
+     */
+    public static void wireAllHooks() {
+        hooks = new RouteHooks() {
+            // ---------------- 目标页（8.83 RouteBlocker 各分支） ----------------
+
+            @Override
+            public void showBookmarks(Activity activity, String group, Consumer<String> onUrl) {
+                // 8.83 书签分组列表弹窗；星辰无浏览器书签存储
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void showTools(Activity activity) {
+                // 8.83 MoreSettingOfficer.showToolsView；星辰无对应工具视图
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void goWebHomeAndSearch(Activity activity) {
+                // 8.83 WebUtil.goWebHomeAndSearch（浏览器主页搜索）；星辰无浏览器主页
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void goWeb(Context context, String url) {
+                // 照 HkDetailBridge.goWeb 的既定语义：行内 x5 页；非 Activity 上下文回退系统浏览器
+                try {
+                    if (context instanceof Activity) {
+                        HkListActivity.openX5PlayPage((Activity) context, "", url);
+                        return;
+                    }
+                } catch (Exception ignored) {
+                }
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(intent);
+                } catch (Exception e) {
+                    Log.e(TAG, "hk error", e);
+                }
+            }
+
+            @Override
+            public void openFileBrowser(Activity activity, String path) {
+                FileActivity.start(activity, path);
+            }
+
+            @Override
+            public void openLocalMedia(Activity activity) {
+                // 8.83 本地媒体页；星辰以文件浏览页承接
+                FileActivity.start(activity, null);
+            }
+
+            @Override
+            public void showRulesGroup(Activity activity, String group) {
+                HkPageActivity.startWithGroup(activity, group);
+            }
+
+            @Override
+            public void openRuleManager(Activity activity) {
+                HkPageActivity.start(activity);
+            }
+
+            @Override
+            public boolean ruleExistsByTitle(String title) {
+                return findRuleByTitle(title) != null;
+            }
+
+            @Override
+            public void onHomePageChanged(Activity activity, String ruleTitle) {
+                // 8.83 发 OnHomePageChangedEvent 就地切换；星辰语义是新开规则页，
+                // 旧页由 isRoute 的 home 分支在 handled 后 finish（已在小程序列表时不关）
+                HkRule rule = findRuleByTitle(ruleTitle);
+                if (rule != null) HkListActivity.startRule(activity, rule, rule.getTitle());
+                else toastShortBottom(activity, "首页路由规则有误");
+            }
+
+            @Override
+            public boolean isHomeActivity(Activity activity) {
+                // 星辰的 hk 主页即小程序列表页（HkPageActivity）；「我的主页」规则未实现
+                return activity instanceof HkPageActivity;
+            }
+
+            @Override
+            public void openBookmarkPage(Activity activity) {
+                // 8.83 书签页；星辰无浏览器书签页
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void openJsList(Activity activity) {
+                // 8.83 js 列表页；星辰无对应页面（PluginActivity 管的是 py 插件）
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void openDownloadRecords(Activity activity) {
+                DownloadActivity.start(activity);
+            }
+
+            @Override
+            public void openHistory(Activity activity, int fromActivity, String search) {
+                HistoryActivity.start(activity);
+            }
+
+            @Override
+            public void openCollection(Activity activity, int fromActivity, String group, String search) {
+                KeepActivity.start(activity);
+            }
+
+            @Override
+            public void openAdUrlList(Activity activity) {
+                // 8.83 广告网址列表；星辰唯一的广告页
+                AdBlockActivity.start(activity);
+            }
+
+            @Override
+            public void openAdRuleList(Activity activity) {
+                // 8.83 广告规则列表；星辰唯一的广告页
+                AdBlockActivity.start(activity);
+            }
+
+            @Override
+            public void showSettingMenu(Activity activity) {
+                // 8.83 EventBus ShowSettingMenuEvent（小程序设置菜单）；星辰无 hk 设置菜单
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            @Override
+            public void showMoreSettingMenu(Activity activity) {
+                // 8.83 EventBus ShowMoreSettingMenuEvent（小程序更多设置）；星辰无 hk 设置菜单
+                toastShortBottom(activity, "该功能暂不支持");
+            }
+
+            // ---------------- 搜索（与 HkSearchActivity 原逻辑同源） ----------------
+
+            @Override
+            public void startGlobalSearch(Activity activity, String engine, String keyword) {
+                if (engine != null && !engine.isEmpty()) {
+                    HkRule rule = HkRuleManager.get().getRule(engine);
+                    if (rule != null) {
+                        HkSearchActivity.startSearchInOneRule(activity, rule, keyword);
+                        return;
+                    }
+                }
+                HkSearchActivity.startGlobalSearch(activity, keyword);
+            }
+
+            @Override
+            public HkRule findRuleByTitle(String title) {
+                if (title == null) return null;
+                HkRule rule = HkRuleManager.get().getRule(title);
+                return rule != null ? rule : HkRuleManager.get().getInstalledRule(title);
+            }
+
+            @Override
+            public void openSearchInOneRule(Activity activity, String kw, String ruleName) {
+                HkRule rule = findRuleByTitle(ruleName);
+                if (rule != null) HkSearchActivity.startSearchInOneRule(activity, rule, kw);
+                else HkSearchActivity.startGlobalSearch(activity, kw);
+            }
+
+            @Override
+            public void loadSearchEngines(Activity activity, String ruleName, String kw) {
+                HkRule rule = findRuleByTitle(ruleName);
+                ArrayList<String> titles = new ArrayList<>();
+                if (rule != null) {
+                    String group = rule.getGroup() == null ? "" : rule.getGroup();
+                    for (HkRule r : HkRuleManager.get().getRules()) {
+                        if (r != null && r.hasSearch()
+                                && group.equals(r.getGroup() == null ? "" : r.getGroup())) {
+                            titles.add(r.getTitle());
+                        }
+                    }
+                    if (titles.isEmpty()) titles.add(rule.getTitle());
+                }
+                HkSearchActivity.startWithEngines(activity, titles, kw, false);
+            }
+
+            @Override
+            public void startDelegateSearch(Activity activity, String kw, HkRule rule, String rules, boolean delegateOnly) {
+                LinkedHashSet<String> titles = new LinkedHashSet<>();
+                if (rule != null) titles.add(rule.getTitle());
+                if (rules != null && !rules.isEmpty()) {
+                    String trimmed = rules.trim();
+                    if (trimmed.startsWith("[")) {
+                        try {
+                            com.google.gson.JsonArray arr = com.google.gson.JsonParser
+                                    .parseString(trimmed).getAsJsonArray();
+                            for (com.google.gson.JsonElement el : arr) {
+                                if (el.isJsonPrimitive()) titles.add(el.getAsString());
+                            }
+                        } catch (Exception ignored) {
+                        }
+                    } else {
+                        for (String t : trimmed.split(",")) {
+                            if (!t.trim().isEmpty()) titles.add(t.trim());
+                        }
+                    }
+                }
+                HkSearchActivity.startWithEngines(activity, new ArrayList<>(titles), kw, false);
+            }
         };
     }
 
@@ -213,15 +434,25 @@ public final class HkRouteBlocker {
                                 break;
                             }
                             if (h.ruleExistsByTitle(candidate)) {
-                                h.onHomePageChanged(candidate);
+                                h.onHomePageChanged(activity, candidate);
                                 handled = true;
                                 break;
                             }
                         }
                     } else {
-                        h.onHomePageChanged(parts[1]);
+                        // 照 8.83：单候选也要逐个试（http→开网页；规则名命中规则库→切换），
+                        // 全不中 handled 保持 false 走下面的报错分支；
+                        // 旧代码无条件调 onHomePageChanged 且 handled=true，
+                        // 写错的 home@ 路由会静默关页面、原版是弹「首页路由规则有误」。
+                        String candidate = parts[1];
+                        if (candidate.startsWith("http")) {
+                            h.goWeb(activity, candidate);
+                            handled = true;
+                        } else if (h.ruleExistsByTitle(candidate)) {
+                            h.onHomePageChanged(activity, candidate);
+                            handled = true;
+                        }
                     }
-                    handled = true;
                 }
                 if (!handled) {
                     toastShortBottom(activity, "首页路由规则有误");

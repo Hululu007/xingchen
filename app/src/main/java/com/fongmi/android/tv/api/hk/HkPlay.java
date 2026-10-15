@@ -13,6 +13,58 @@ public class HkPlay {
 
     private String url = "";
     private final Map<String, String> headers = new HashMap<>();
+    /**
+     * P2 多线路 JSON 的三列保全（8.83 PlayData 语义：urls/names/headers 按下标对齐，
+     * 逐线路取、禁止跨线路合并）。单地址路径沿用 url/headers 旧字段。
+     */
+    private final java.util.List<String> urls = new java.util.ArrayList<>();
+    private final java.util.List<String> names = new java.util.ArrayList<>();
+    private final java.util.List<java.util.Map<String, String>> lineHeaders = new java.util.ArrayList<>();
+
+    public java.util.List<String> getUrls() {
+        return urls;
+    }
+
+    public void addUrl(String u) {
+        if (u != null && !u.isEmpty()) urls.add(u);
+    }
+
+    public java.util.List<String> getNames() {
+        return names;
+    }
+
+    public void addName(String n) {
+        names.add(n == null ? "" : n);
+    }
+
+    public java.util.List<java.util.Map<String, String>> getLineHeaders() {
+        return lineHeaders;
+    }
+
+    public void addLineHeaders(java.util.Map<String, String> h) {
+        lineHeaders.add(h == null ? new java.util.HashMap<>() : h);
+    }
+
+    /** 按下标取某条线路的地址（越界回首条；无多线时回 url 旧字段）。 */
+    public String getUrl(int line) {
+        if (urls.isEmpty()) return getUrl();
+        return urls.get(line >= 0 && line < urls.size() ? line : 0);
+    }
+
+    /** 按下标取某条线路的请求头（对齐 8.83 getHeaders(url,playData,i)；无多线时回旧字段）。 */
+    public java.util.Map<String, String> getHeaders(int line) {
+        if (!lineHeaders.isEmpty()) {
+            java.util.Map<String, String> m = lineHeaders.get(line >= 0 && line < lineHeaders.size() ? line : 0);
+            if (m != null && !m.isEmpty()) return m;
+        }
+        return getHeaders();
+    }
+
+    /** 按下标取某条线路的名称（越界回首条；无多线时回空）。 */
+    public String getName(int line) {
+        if (names.isEmpty()) return "";
+        return names.get(line >= 0 && line < names.size() ? line : 0);
+    }
     private String subtitle = "";
     /** P1：#isM3u8# 强制按 m3u8 处理。 */
     private boolean forceM3u8;

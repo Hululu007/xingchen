@@ -2355,9 +2355,14 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         return true;
     }
 
-    /** 裸占位地址：hiker://empty 本体或只带 #/? 尾巴的变体。 */
+    /**
+     * 裸占位地址：hiker://empty 本体或只带 #/? 尾巴、且没挂解析函数的变体。
+     * 挂了 @lazyRule= 的是真按钮（黄色仓库这类规则的选集按钮就是 $('hiker://empty#noLoading#').lazyRule(...) 形态，
+     * 1.3.14 首版没排除这种情况、多集按钮被误杀只剩一集，2026-10-15 他真机截图实证后修正）。
+     */
     private static boolean isEmptyPlaceholder(String url) {
         String u = url.trim();
+        if (u.contains("@lazyRule=")) return false;
         return u.equals("hiker://empty") || u.startsWith("hiker://empty#") || u.startsWith("hiker://empty?");
     }
 

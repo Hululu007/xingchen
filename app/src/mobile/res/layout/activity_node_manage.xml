@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="节点管理"
+            android:text="代理"
             android:textColor="#FFD700"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -179,71 +179,47 @@
             android:textColor="#0C0E12"
             android:textSize="14sp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="8dp"
-            android:text="节点列表"
-            android:textColor="#29B6F6"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:orientation="horizontal">
-            <Button
-                android:id="@+id/btn_check_all"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginRight="4dp"
-                android:background="@drawable/xc_cyber_card"
-                android:text="全选"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp" />
-            <Button
-                android:id="@+id/btn_uncheck_all"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginLeft="4dp"
-                android:layout_marginRight="4dp"
-                android:background="@drawable/xc_cyber_card"
-                android:text="取消全选"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp" />
-            <Button
-                android:id="@+id/btn_delete_checked"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginLeft="4dp"
-                android:background="@drawable/xc_cyber_card"
-                android:text="批量删除"
-                android:textColor="#FF6B6B"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tv_empty"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:gravity="center"
-            android:text="还没有节点，先订阅或粘贴导入"
-            android:textColor="#D7DEE8"
-            android:textSize="14sp"
-            android:padding="16dp" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_nodes"
+            android:id="@+id/card_node_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:nestedScrollingEnabled="false" />
+            android:background="@drawable/xc_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:minHeight="64dp"
+            android:orientation="horizontal"
+            android:padding="15dp">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="节点列表"
+                    android:textColor="#0C0E12"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/tv_node_list_sub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="还没有节点"
+                    android:textColor="#1B2431"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+            </LinearLayout>
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_chev_v2" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"

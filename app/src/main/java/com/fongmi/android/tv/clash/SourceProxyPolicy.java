@@ -22,6 +22,7 @@ import java.util.List;
  */
 public final class SourceProxyPolicy {
 
+    public static final String KIND_VOD = "vod";
     public static final String KIND_PY = "py";
     public static final String KIND_JS = "js";
     public static final String KIND_HK = "hk";

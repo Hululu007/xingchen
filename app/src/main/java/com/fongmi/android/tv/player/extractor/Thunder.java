@@ -103,6 +103,14 @@ public class Thunder implements Source.Extractor {
         // 同一个尸体，播放器对着本地地址永远超时。只在 fetch 入口、交地址之前清，
         // 不碰正在播的任务（有字节在走的任务监控会把标记撤掉）。
         if (url != null && !url.startsWith("magnet") && zeroMark(url).exists()) wipeZeroMarked(url);
+        // 磁力同理（此前被排除在外）：卡死在状态 1、0 字节的 BT 任务状态永远不变，
+        // 同链接复用会把尸体一直递给播放器。见标记先停删内存里的同内容任务再重建；
+        // 只删任务不删种子文件目录——addTorrentTask 要靠种子文件建任务。
+        if (url != null && url.startsWith("magnet") && zeroMark(url).exists()) {
+            if (sameContent(url, lastKey) && taskId != null) cleanupStaleTask();
+            zeroMark(url).delete();
+            SpiderDebug.log("thunder", "magnet zero-byte history wiped, rebuilding clean");
+        }
         // 同链接复用：旧任务未明确报错（原生状态非 3）就直接复用，禁止停删重建——
         // 1.3.8 日志实证（00:32:20）：60ms 内三连 handed，播放器攥着第一份地址，
         // 后到的 fetch 把先建任务当死任务杀掉重建，播放器对着已删任务的地址永远 0 字节。
@@ -123,7 +131,7 @@ public class Thunder implements Source.Extractor {
         // 否则正在下载的任务会被第二路 fetch 当「旧链接」停删（1.3.12 真机日志实证）。
         if (taskId != null && url != null && !sameContent(url, lastKey)) cleanupStaleTask();
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
-                : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
+                : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url), url) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
             lastKey = url;
             lastLocal = local;
@@ -191,11 +199,11 @@ public class Thunder implements Source.Extractor {
         List<Episode> episodes = Parser.get(url).call();
         if (episodes.isEmpty()) throw new ExtractException("磁力解析失败，请重试");
         String parsed = episodes.get(0).getUrl();
-        return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed)) : parsed;
+        return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed), url) : parsed;
     }
 
     // 照上游：状态 3 抛真错；状态非 0 即交本地地址，播放器自己拉流边下边播，不等字节
-    private String addTorrentTask(Uri uri) throws Exception {
+    private String addTorrentTask(Uri uri, String markUrl) throws Exception {
         File torrent = new File(uri.getPath());
         File parent = torrent.getParentFile();
         String name = uri.getQueryParameter("name");
@@ -207,7 +215,7 @@ public class Thunder implements Source.Extractor {
             if (info.mTaskStatus != 0) {
                 String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
                 SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
-                startProgressLog(taskId, null);
+                startProgressLog(taskId, markUrl, index);
                 return local;
             }
             if (i % 50 == 49) SpiderDebug.log("thunder", "bt waiting status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
@@ -326,13 +334,20 @@ public class Thunder implements Source.Extractor {
     // url 非空时（ed2k/thunder 直建任务）兼管零字节标记：有字节流动就撤标记；
     // 持续 30 秒 0 字节就落标记，供下次 fetch 干净重建。
     private void startProgressLog(GetTaskId id, String url) {
+        startProgressLog(id, url, -1);
+    }
+
+    // btIndex >= 0 时按 BT 子任务口径读状态/已下量（磁力记账用，与 addTorrentTask 的轮询同口径）
+    private void startProgressLog(GetTaskId id, String url, int btIndex) {
         if (id == null) return;
         Thread t = new Thread(() -> {
             for (int i = 0; i < 24; i++) {
                 SystemClock.sleep(5000);
                 if (taskId != id) return;
                 try {
-                    XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(id);
+                    XLTaskInfo info = btIndex >= 0
+                            ? XLTaskHelper.get().getBtSubTaskInfo(id, btIndex).mTaskInfo
+                            : XLTaskHelper.get().getNativeTaskInfo(id);
                     if (info == null) return;
                     SpiderDebug.log("thunder", "progress status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
                     if (url != null) {

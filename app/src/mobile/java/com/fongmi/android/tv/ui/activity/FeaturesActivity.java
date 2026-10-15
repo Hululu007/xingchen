@@ -13,12 +13,8 @@ import com.fongmi.android.tv.clash.ClashSettings;
 import com.fongmi.android.tv.clash.KernelDownloader;
 import com.fongmi.android.tv.clash.NodeStore;
 import com.fongmi.android.tv.databinding.ActivityFeaturesBinding;
-import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
-import com.fongmi.android.tv.ui.dialog.GlobalProxyDialog;
-import com.fongmi.android.tv.ui.dialog.ProxyDialog;
 import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.utils.XingChenProxy;
 
 public class FeaturesActivity extends BaseActivity {
 
@@ -45,8 +41,6 @@ public class FeaturesActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         refreshAdBlock();
         refreshNode();
-        refreshProxy();
-        refreshGlobalProxy();
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
@@ -58,8 +52,6 @@ public class FeaturesActivity extends BaseActivity {
         });
         binding.cardAdblock.setOnClickListener(v -> AdBlockActivity.start(this));
         binding.cardNode.setOnClickListener(v -> NodeManageActivity.start(this));
-        binding.cardProxy.setOnClickListener(v -> ProxyDialog.create().show(this));
-        binding.cardGlobalProxy.setOnClickListener(v -> GlobalProxyDialog.create().show(this));
         binding.cardTmdb.setOnClickListener(v -> TmdbActivity.start(this));
         binding.cardPanlogin.setOnClickListener(v -> PanLoginActivity.start(this));
         binding.cardAi.setOnClickListener(v -> AiSettingsActivity.start(this));
@@ -78,8 +70,6 @@ public class FeaturesActivity extends BaseActivity {
         super.onResume();
         refreshAdBlock();
         refreshNode();
-        refreshProxy();
-        refreshGlobalProxy();
         refreshTmdb();
         refreshPanLogin();
         refreshMiniApp();
@@ -107,14 +97,6 @@ public class FeaturesActivity extends BaseActivity {
         }
         NodeStore.Node n = NodeStore.get(this).getSelected(this);
         binding.tvNodeSub.setText("开·" + (n == null || n.name == null || n.name.isEmpty() ? "未选节点" : n.name));
-    }
-
-    private void refreshProxy() {
-        binding.tvProxySub.setText(Setting.isShellProxy() ? "已启用" : "未启用");
-    }
-
-    private void refreshGlobalProxy() {
-        binding.tvGlobalProxySub.setText(XingChenProxy.summary(this));
     }
 
     private void refreshTmdb() {

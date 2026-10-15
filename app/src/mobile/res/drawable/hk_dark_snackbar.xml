@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 导入/更新后"是否打开"深色 snackbar 横条 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#F21A1D24" />
-    <corners android:radius="12dp" />
-</shape>

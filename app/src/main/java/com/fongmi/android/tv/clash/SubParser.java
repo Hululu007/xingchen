@@ -18,6 +18,11 @@ public final class SubParser {
     private SubParser() {
     }
 
+    /** 最近一次解析的统计（供界面/日志定位丢节点丢在哪一步，不含任何节点内容）。 */
+    public static int lastTotal = 0;
+    public static int lastFailed = 0;
+    public static String lastFailedSchemes = "";
+
     /** 单条解析结果。link 为空表示来自 YAML（无原始链接）。 */
     public static class NodeDraft {
         public String link = "";
@@ -33,6 +38,9 @@ public final class SubParser {
 
     public static List<NodeDraft> parse(String content) {
         List<NodeDraft> out = new ArrayList<>();
+        lastTotal = 0;
+        lastFailed = 0;
+        lastFailedSchemes = "";
         if (content == null) return out;
         String text = content.trim();
         if (text.isEmpty()) return out;
@@ -45,11 +53,18 @@ public final class SubParser {
             String dec = LinkParser.b64(text);
             if (!dec.isEmpty()) links = dec;
         }
+        java.util.Set<String> failed = new java.util.TreeSet<>();
         for (String line : links.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
+            lastTotal++;
             Map<String, Object> cfg = LinkParser.parse(line);
-            if (cfg == null) continue;
+            if (cfg == null) {
+                lastFailed++;
+                int c = line.indexOf(':');
+                failed.add(c > 0 ? line.substring(0, c) : "?");
+                continue;
+            }
             NodeDraft d = new NodeDraft();
             d.link = line;
             d.config = cfg;
@@ -57,6 +72,7 @@ public final class SubParser {
             d.proto = String.valueOf(cfg.get("type"));
             out.add(d);
         }
+        lastFailedSchemes = String.join(",", failed);
         return out;
     }
 
@@ -79,11 +95,18 @@ public final class SubParser {
             Object proxies = root.get("proxies");
             if (!(proxies instanceof List)) return;
             for (Object o : (List<Object>) proxies) {
-                if (!(o instanceof Map)) continue;
+                lastTotal++;
+                if (!(o instanceof Map)) {
+                    lastFailed++;
+                    continue;
+                }
                 Map<String, Object> cfg = new LinkedHashMap<>((Map<String, Object>) o);
                 Object name = cfg.get("name");
                 Object type = cfg.get("type");
-                if (name == null || type == null) continue;
+                if (name == null || type == null) {
+                    lastFailed++;
+                    continue;
+                }
                 NodeDraft d = new NodeDraft();
                 d.link = "";
                 d.config = cfg;

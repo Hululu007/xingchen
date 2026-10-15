@@ -96,10 +96,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import com.fongmi.android.tv.ui.fragment.HkContentFragment;
-import com.fongmi.android.tv.ui.fragment.HkDetailFragment;
-import com.fongmi.android.tv.ui.fragment.HkPageHost;
-import com.fongmi.android.tv.ui.fragment.HkSearchFragment;
 import com.fongmi.android.tv.ui.hk.HkDetailBridge;
 import java.util.Arrays;
 
@@ -107,7 +103,7 @@ import java.util.Arrays;
  * 海阔小程序单页（M3）：V1 规则列表 / V2 分类+列表 / V3 搜索结果 / V4 详情，三视图栈式切换。
  * 点条目 → V4 海阔详情（标题/封面/简介/线路/选集）；点选集 → VideoActivity 直接播放。
  */
-public class HkPageActivity extends BaseActivity implements HkPageHost {
+public class HkPageActivity extends BaseActivity {
 
     private static final int V_RULES = 0;
     private static final int V_CONTENT = 1;
@@ -146,11 +142,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     private ActivityHkBinding binding;
     private final Deque<Integer> stack = new ArrayDeque<>();
-    /** 内页 Fragments（8.83 架构，V_RULES 不动） */
-    private HkContentFragment contentFragment;
-    private HkSearchFragment searchFragment;
-    private HkDetailFragment detailFragment;
-
     private RuleAdapter ruleAdapter;
     private GridLayoutManager ruleGrid;
     private final List<HkRule> rules = new ArrayList<>();
@@ -443,83 +434,18 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             binding.viewContent.setVisibility(View.VISIBLE);
             binding.viewSearch.setVisibility(View.GONE);
             binding.viewDetail.setVisibility(View.GONE);
-            showContentFragment();
         } else if (v == V_SEARCH) {
             binding.viewContent.setVisibility(View.GONE);
             binding.viewSearch.setVisibility(View.VISIBLE);
             binding.viewDetail.setVisibility(View.GONE);
-            showSearchFragment();
         } else if (v == V_DETAIL) {
             binding.viewContent.setVisibility(View.GONE);
             binding.viewSearch.setVisibility(View.GONE);
             binding.viewDetail.setVisibility(View.VISIBLE);
-            showDetailFragment();
         } else {
             binding.viewContent.setVisibility(View.GONE);
             binding.viewSearch.setVisibility(View.GONE);
             binding.viewDetail.setVisibility(View.GONE);
-        }
-    }
-
-    /** 显示内容页 Fragment（带淡入动画，网页级顺滑） */
-    private void showContentFragment() {
-        if (contentFragment == null) {
-            contentFragment = new HkContentFragment();
-            contentFragment.setContentAdapter(new ContentAdapter(contentFragment.getVideos()));
-            // 小程序 tabs/「全部」弹窗的切规则回调：此前从未注册，监听器恒为 null，
-            // 顶部 tab 点了没任何反应（用户实测"tab 是摆设"）；Fragment 注释里写明由 Activity 调 openRule
-            contentFragment.setOnRulePickListener(this::openRule);
-        }
-        getSupportFragmentManager().beginTransaction()
-                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
-                        android.R.anim.fade_in, android.R.anim.fade_out)
-                .replace(R.id.view_content, contentFragment)
-                .commit();
-        // commit() 是异步的：紧接着的 onRuleChanged/loadContent 调用会因 Fragment 尚未
-        // attach 被判空丢弃（第一次进入小程序必现"假失败+转圈"，第二次才正常）。
-        // 同步落位，让后续调用落在已就绪的 Fragment 上。
-        try {
-            getSupportFragmentManager().executePendingTransactions();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /**
-     * 真重刷：新链列表数据在 HkContentFragment.loadContent 里重取（重跑 find_rule）。
-     * 之前这里只调 showContentFragment（fragment 已在屏时是空操作），导致口令正确、
-     * 记号已存、refreshPage 标记也到了，但列表不重跑、门还不过——用户看到"进不去"。
-     */
-    private void loadContent(boolean refresh) {
-        com.github.catvod.crawler.SpiderDebug.log("hk", "activity loadContent delegate reset=%s hasFrag=%s",
-                refresh, contentFragment != null);
-        if (contentFragment != null && contentFragment.isAdded()) {
-            contentFragment.loadContent(refresh);
-        } else {
-            showContentFragment();
-        }
-    }
-
-    /**
-     * 8.83 refreshPage(scrollTop) 对齐：消费 JS 的刷新请求，重刷内容列表；
-     * 若规则要求回顶（refreshPage(true)），列表回到顶部。
-     */
-    private void refreshContentFromJs(com.fongmi.android.tv.api.hk.HkJsRuntime rt) {
-        if (rt == null) return;
-        boolean needRefresh = rt.consumeRefreshRequest();
-        boolean toTop = rt.isRefreshToTop();
-        if (needRefresh) {
-            App.post(() -> {
-                loadContent(true);
-                if (toTop && contentFragment != null) {
-                    // 延迟到列表重刷后执行，确保 adapter 已更新
-                    App.post(() -> {
-                        try {
-                            contentFragment.scrollContentToTop();
-                        } catch (Throwable ignored) {
-                        }
-                    });
-                }
-            });
         }
     }
 
@@ -527,151 +453,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     }
 
     private void buildFilterRows() {
-    }
-
-    /** 显示搜索页 Fragment */
-    private void showSearchFragment() {
-        if (searchFragment == null) {
-            searchFragment = new HkSearchFragment();
-        }
-        getSupportFragmentManager().beginTransaction()
-                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
-                        android.R.anim.fade_in, android.R.anim.fade_out)
-                .replace(R.id.view_search, searchFragment)
-                .commit();
-        // 同 showContentFragment：同步落位，避免第一次打开搜索时调用被未就绪丢弃
-        try {
-            getSupportFragmentManager().executePendingTransactions();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 显示详情页 Fragment */
-    private void showDetailFragment() {
-        if (detailFragment == null) {
-            detailFragment = new HkDetailFragment();
-        }
-        getSupportFragmentManager().beginTransaction()
-                .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out,
-                        android.R.anim.fade_in, android.R.anim.fade_out)
-                .replace(R.id.view_detail, detailFragment)
-                .commit();
-        // 同 showContentFragment：同步落位。hostOpenDetail 的注释曾假设"未就绪会排队到
-        // onViewCreated"，实际 openDetail 未就绪时直接 return 丢弃——第一次进详情必现假失败。
-        try {
-            getSupportFragmentManager().executePendingTransactions();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    // ================= HkPageHost 接口实现 =================
-    // Activity 作为协调者：提供共享资源（router/currentRule），导航由 showView 统一管理。
-    // 业务逻辑已移至各 Fragment，Activity 不再直接操作内页视图（V_RULES 相关代码保持原样）。
-    // 注意：Fragment 的 public API 以各 Fragment 实际定义为准（loadContent/openSearchWithKeyword/openDetail 等）。
-
-    @Override
-    public Object getHkRouter() {
-        try {
-            return getRouter();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    @Override
-    public com.fongmi.android.tv.api.hk.HkRule getCurrentRule() {
-        return currentRule;
-    }
-
-    @Override
-    public void hostLoadContent(boolean reset) {
-        if (contentFragment != null) {
-            contentFragment.loadContent(reset);
-        }
-    }
-
-    @Override
-    public void hostOnContentItemClick(com.fongmi.android.tv.api.hk.HkItem item) {
-        // 必须走完整的点击管线 onContentItemClick（8.83 clickItem 分流：动作协议/
-        // 子页面/@rule= 子列表/详情页内可播 URL 直接播放/无 detail 规则直达播放器/
-        // 其余才进详情）。此前这里被写成只调 hostOpenDetail——详情页里的播放地址
-        // 被当详情链接重新解析，点了毫无反应（用户实测）；列表页带 @lazyRule=
-        // 的封面同样丢了预检。管线本体与播放函数一直都在，只是没人接进来。
-        onContentItemClick(item);
-    }
-
-    @Override
-    public void hostPlayContentDirect(com.fongmi.android.tv.api.hk.HkItem item) {
-        // 直接播放由 HkContentFragment 内部处理（条目长按/播放按钮），Activity 不再持有该逻辑
-        // 保留接口以兼容，实际走 Fragment 内部点击链
-        hostOnContentItemClick(item);
-    }
-
-    @Override
-    public void hostDoSearch(String keyword) {
-        if (searchFragment != null) {
-            searchFragment.openSearchWithKeyword(keyword);
-        }
-    }
-
-    @Override
-    public void hostDoCrossSearch(String keyword) {
-        // 跨源搜索由 HkSearchFragment 内部触发（doCrossSearch 为 private），这里走统一入口
-        if (searchFragment != null) {
-            searchFragment.openSearchWithKeyword(keyword);
-        }
-    }
-
-    @Override
-    public void hostOpenDetail(com.fongmi.android.tv.api.hk.HkItem item) {
-        // 进详情必须入栈（与 openRule 进内容页同款）：此前只 showView 不 push，
-        // 栈顶仍是 V_CONTENT，详情页返回时 onBackInvoked 弹掉的是内容页，
-        // 直接落到小程序首页而不是回列表页（用户实测）。
-        // 已在详情页时（lazy 补推重入）不重复入栈，避免返回两次。
-        if (stack.isEmpty() || stack.peek() != V_DETAIL) {
-            pushView(V_DETAIL);
-        } else {
-            showView(V_DETAIL);
-        }
-        if (detailFragment != null) {
-            // openDetail(item, fromSearch)：fromSearch=false 为普通打开。
-            // showDetailFragment 已同步落位（executePendingTransactions），此处 Fragment 必已 attach。
-            detailFragment.openDetail(item, false);
-        }
-    }
-
-    @Override
-    public void hostPlayDetailEpisode(com.fongmi.android.tv.api.hk.HkItem item, int index) {
-        // 选集播放由 HkDetailFragment 内部处理（playDetailEpisode 为 private），这里确保详情页已打开
-        // Fragment 的选集列表点击会直接走内部播放链，无需 Activity 中转
-        if (detailFragment == null || !detailFragment.isAdded()) {
-            hostOpenDetail(item);
-        }
-        // 具体的 index 播放由 Fragment 内部选集点击触发
-    }
-
-    @Override
-    public void hostNavigateBack() {
-        onBackInvoked();
-    }
-
-    @Override
-    public void hostOpenSearch(String keyword) {
-        showView(V_SEARCH);
-        // 空 keyword 时只导航，不重置搜索模式（按 Fragment 约定：showSearchChooser 的"搜内容"分支依赖此约定）
-        if (keyword != null && !keyword.isEmpty() && searchFragment != null) {
-            searchFragment.openSearchWithKeyword(keyword);
-        }
-    }
-
-    @Override
-    public void hostShowLoading() {
-        showHkLoading("");
-    }
-
-    @Override
-    public void hostHideLoading() {
-        hideHkLoading();
     }
 
     private void pushView(int v) {
@@ -1819,7 +1600,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         HkJsRuntime rt = getRouter().getEngine().getJsRuntime();
                         rt.putMyVar(varName, uri.toString());
                         rt.eval(code, "");
-                        refreshContentFromJs(rt);
                     } catch (Throwable e) {
                         android.util.Log.d("HkPage", "fileSelect eval failed: " + e.getMessage());
                     }
@@ -3119,15 +2899,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
 
     /** 弹窗转圈与页面内转圈互斥：弹窗在时页面转圈藏起；弹窗关时若页面仍在加载则恢复页面转圈 */
     private void syncInlineSpinner(boolean dialogShowing) {
-        try {
-            if (binding.viewDetail.getVisibility() == View.VISIBLE && detailFragment != null) {
-                detailFragment.setInlineLoadingVisible(!dialogShowing && detailFragment.isPageLoading());
-            } else if (binding.viewContent.getVisibility() == View.VISIBLE && contentFragment != null) {
-                // 内容页有自己的转圈状态机（下拉圈/金圈/弹窗三选一），只报状态、由它对账
-                contentFragment.onDialogSpinnerChanged(dialogShowing);
-            }
-        } catch (Throwable ignored) {
-        }
+        // 旧内页已删：页面内转圈无宿主，保持空转（弹窗转圈不受影响）
     }
 
     private void hideHkLoading() {
@@ -3181,16 +2953,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             pushView(V_CONTENT);
         } else {
             showView(V_CONTENT);
-        }
-        // 真正的切规则通知：Fragment 的 onRuleChanged（重置筛选/分页/列表、重建 tabs、重载）
-        // 此前全工程无人调用——openRule 只改了 Activity 自己的状态字段，Fragment 从没收到
-        // 换规则的消息，一直显示旧规则的内容（用户实测：顶部 tab 点了永远停在原页面、
-        // 退出再进来还是它）。Fragment 注释里本就写明"Activity 的 openRule 中调用"。
-        try {
-            if (contentFragment != null && contentFragment.isAdded() && contentFragment.getView() != null) {
-                contentFragment.onRuleChanged();
-            }
-        } catch (Throwable ignored) {
         }
     }
 
@@ -3409,7 +3171,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         if (name.isEmpty() && !pairs.isEmpty()) name = pairs.get(0)[0];
         setValOf(kind, url);
         setNameOf(kind, name);
-        loadContent(true);
         buildCategoryRow();
     }
 
@@ -3788,11 +3549,9 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                 if (openSubList(item, u)) return;
             }
         }
-        // 旧视图已迁入 Fragment：委托给 hostOpenDetail，由 HkDetailFragment 处理详情加载
-        // lazyPrecheck 由 Fragment 内部处理
         detailItem = item;
         detailFromSearch = fromSearch;
-        hostOpenDetail(item);
+        // 旧详情页已删：详情由新链承载，此处仅保留状态
     }
 
     /**
@@ -4593,18 +4352,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                         if (!t.isEmpty()) {
                             handleGoToUrl(t, item);
                         } else if (refresh) {
-                            // 有 refresh 无 goTo：动作回调，直接刷新当前列表
-                            //（对齐 8.83 refreshPage EventBus 机制，跟走哪条点击链路无关）
-                            loadContent(true);
-                            // 8.83 refreshPage(true)：回顶
-                            if (scrollTop && contentFragment != null) {
-                                App.post(() -> {
-                                    try {
-                                        contentFragment.scrollContentToTop();
-                                    } catch (Throwable ignored) {
-                                    }
-                                });
-                            }
+                            // 旧内容页已删：刷新请求无处消费
                         } else if (act != null && act.size() > n0) {
                             // 规则自绘"加载更多"按钮：JS 用 addItemBefore 就地追加了条目，
                             // 8.83 同款就地更新当前列表，不进详情/子列表。
@@ -4660,7 +4408,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             // 已在列表页时直接替换内容，不重复压栈；从搜索等其他视图进入时才压栈
             if (st.fromView != V_CONTENT) pushView(V_CONTENT);
             else showView(V_CONTENT);
-            loadContent(true);
             return true;
         } catch (Throwable e) {
             return false;
@@ -4781,8 +4528,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         videos.clear();
         videos.addAll(st.videos);
         contentTitle = st.title;
-        // 旧视图已迁入 Fragment：用 replace 刷新 Fragment，由 Fragment 按 Activity 状态重渲染
-        showContentFragment();
         if (st.fromView != V_CONTENT && stack.size() > 1) {
             stack.pop();
             showView(stack.peek());
@@ -4885,7 +4630,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             buildFilterRows();
             if (st.fromView != V_CONTENT) pushView(V_CONTENT);
             else showView(V_CONTENT);
-            loadContent(true);
             return true;
         } catch (Throwable e) {
             return false;
@@ -5036,17 +4780,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
             com.github.catvod.crawler.SpiderDebug.log("hk", "evalActionJs done resultHead=%s refresh=%s err=%s",
                     rHead, refresh, em == null ? "" : em);
             App.post(() -> {
-                // 8.83 refreshPage(true) 回顶辅助
-                final Runnable doScrollTop = () -> {
-                    if (scrollTop && contentFragment != null) {
-                        App.post(() -> {
-                            try {
-                                contentFragment.scrollContentToTop();
-                            } catch (Throwable ignored) {
-                            }
-                        });
-                    }
-                };
                 if (em != null && !em.isEmpty()) {
                     android.widget.Toast.makeText(HkPageActivity.this,
                             "执行失败：" + em, android.widget.Toast.LENGTH_SHORT).show();
@@ -5060,16 +4793,12 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     if (handleActionUrl(r, nav)) {
                         // toast:// 等动作已消费，但规则若请求了 refreshPage（如口令正确），仍需刷新列表
                         if (refresh) {
-                            loadContent(true);
-                            doScrollTop.run();
                         }
                         return;
                     }
                     onContentItemClick(nav);
                     return;
                 }
-                loadContent(true);
-                doScrollTop.run();
             });
         }).start();
     }
@@ -5223,8 +4952,7 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
     }
 
     /** V2 内容多 viewType 适配器：视频卡片/小图标占 1 列，其余占满 3 列。 */
-    private class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.Holder>
-            implements HkContentFragment.ContentListAdapter {
+    private class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.Holder> {
         static final int T_VIDEO = 0;
         static final int T_TEXT = 1;
         static final int T_RICH = 2;
@@ -5319,7 +5047,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
         /**
          * videos 增删后重算 poly 分组（对照 8.83 updatePolyList 调用点）。
          */
-        @Override
         public void refreshGroups() {
             updatePolyList();
         }
@@ -5356,7 +5083,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
          * text_2/pic_2/icon_2(2/行)=30；text_3/pic_3/icon_3(3/行)=20；
          * text_4/icon_4(4/行)=15；text_5/icon_5(5/行)=12；其余全宽=60。
          */
-        @Override
         public int spanFor(int position) {
             if (position < 0 || position >= items.size()) return 60;
             HkItem it = items.get(position);
@@ -6313,7 +6039,6 @@ public class HkPageActivity extends BaseActivity implements HkPageHost {
                     getRouter().evalTab(tabUrl);
                 } catch (Throwable ignored) {
                 }
-                App.post(() -> loadContent(true));
             }).start();
         }
 

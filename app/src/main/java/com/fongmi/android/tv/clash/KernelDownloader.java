@@ -103,16 +103,17 @@ public final class KernelDownloader {
 
     /**
      * 候选下载地址（按顺序试）。占位 %s 为版本号。
-     * 顺序：自有仓库 raw 第一、jsDelivr 第二、官方第三——
-     * jsDelivr 的 gh 端点单文件上限 20MB，本包 21.9MB 必失败，不能放第一。
+     * 顺序：他的 Cloudflare（xingchen-dl.pages.dev，国内直连、文件在他自己账号下）第一，
+     * 自有仓库 raw 第二，官方第三。jsDelivr 单文件上限 20MB、本包 21.9MB 必失败，已剔除。
+     * 每个候选下完都验 SHA256，指纹不对就试下一个，来源不可信也下不到假内核。
      */
     static List<String> candidateUrls(String version) {
         String asset = String.format(ASSET_NAME, version);
         List<String> urls = new ArrayList<>();
-        // 1) 自有仓库 raw（XingChenApp/xingchen-asr 的 clash/ 目录）
+        // 1) 他的 Cloudflare Pages（xingchen-dl 项目 clash/ 目录，2026-10-15 他拍板放这里）
+        urls.add("https://xingchen-dl.pages.dev/clash/" + asset);
+        // 2) 自有仓库 raw（XingChenApp/xingchen-asr 的 clash/ 目录，国内多半下不动，兜底）
         urls.add("https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/clash/" + asset);
-        // 2) 自有仓库经 jsDelivr（包超 20MB 上限，失败会自动试下一个）
-        urls.add("https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-asr@main/clash/" + asset);
         // 3) 官方 release 直链（需境外网络时才通，兜底）
         urls.add("https://github.com/MetaCubeX/mihomo/releases/download/v" + version + "/" + asset);
         return urls;

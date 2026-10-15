@@ -303,16 +303,21 @@ public class AiVoiceCommand {
         if (t.contains("个性功能")) {
             return new Command(ACTION_NAV_FEATURES, "已打开个性功能");
         }
-        // 节点（先判管理页，再判开关，避免"打开节点管理"被"打开节点"吞掉）
-        if (t.contains("节点管理") || t.contains("节点设置")) {
-            return new Command(ACTION_NAV_NODE, "已打开节点管理");
+        // 代理（原名节点，2026-10-15 他把入口改名"代理"；新旧说法都认。
+        // 先判管理页，再判开关，避免"打开代理管理"被"打开代理"吞掉）
+        if (t.contains("节点管理") || t.contains("节点设置")
+                || t.contains("代理管理") || t.contains("代理设置")) {
+            return new Command(ACTION_NAV_NODE, "已打开代理");
         }
-        if (t.contains("关闭节点") || t.contains("关节点") || t.contains("停掉节点")) {
-            return new Command(ACTION_NODE_OFF, "节点已关闭");
+        if (t.contains("关闭节点") || t.contains("关节点") || t.contains("停掉节点")
+                || t.contains("关闭代理") || t.contains("关代理") || t.contains("停掉代理")) {
+            return new Command(ACTION_NODE_OFF, "代理已关闭");
         }
         if (t.contains("打开节点") || t.contains("开启节点") || t.contains("开节点")
-                || t.contains("启动节点")) {
-            return new Command(ACTION_NODE_ON, "正在开启节点");
+                || t.contains("启动节点")
+                || t.contains("打开代理") || t.contains("开启代理") || t.contains("开代理")
+                || t.contains("启动代理")) {
+            return new Command(ACTION_NODE_ON, "正在开启代理");
         }
         if (t.contains("插件管理") || t.contains("打开插件")) {
             return new Command(ACTION_NAV_PLUGIN, "已打开插件管理");

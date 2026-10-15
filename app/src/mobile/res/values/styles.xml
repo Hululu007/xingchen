@@ -220,10 +220,4 @@
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <!-- 底部滑出弹窗动画：对等 8.83 XPopup BottomPopupView -->
-    <style name="HkBottomDialogAnim">
-        <item name="android:windowEnterAnimation">@anim/hk_dialog_slide_in</item>
-        <item name="android:windowExitAnimation">@anim/hk_dialog_slide_out</item>
-    </style>
-
 </resources>

@@ -23,10 +23,15 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 按源定向：三组开关（海阔规则 / PY 源 / JS 源），默认全部直连。枚举不到的组整组不显示。 */
+/** 按源定向：顶部四切换（PY / JS / 点播 / 海阔），点哪个只看哪个；默认全部直连。 */
 public class SourcePolicyActivity extends BaseActivity {
 
     private ActivitySourcePolicyBinding binding;
+    private String currentTab = SourceProxyPolicy.KIND_PY;
+    private int countPy;
+    private int countJs;
+    private int countVod;
+    private int countHk;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SourcePolicyActivity.class));
@@ -40,11 +45,93 @@ public class SourcePolicyActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        int shown = 0;
-        shown += fillHk();
-        shown += fillSites(SourceProxyPolicy.KIND_PY, binding.groupPy, binding.tvTitlePy);
-        shown += fillSites(SourceProxyPolicy.KIND_JS, binding.groupJs, binding.tvTitleJs);
-        binding.tvNone.setVisibility(shown == 0 ? View.VISIBLE : View.GONE);
+        binding.tabPy.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_PY;
+            applyTab();
+        });
+        binding.tabJs.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_JS;
+            applyTab();
+        });
+        binding.tabVod.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_VOD;
+            applyTab();
+        });
+        binding.tabHk.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_HK;
+            applyTab();
+        });
+        countHk = fillHk();
+        countPy = fillSites(SourceProxyPolicy.KIND_PY, binding.groupPy, binding.tvTitlePy);
+        countJs = fillSites(SourceProxyPolicy.KIND_JS, binding.groupJs, binding.tvTitleJs);
+        countVod = fillVod();
+        // 默认看 PY；PY 一个都没有时落到第一个有货的组
+        if (countPy == 0) {
+            if (countJs > 0) currentTab = SourceProxyPolicy.KIND_JS;
+            else if (countVod > 0) currentTab = SourceProxyPolicy.KIND_VOD;
+            else if (countHk > 0) currentTab = SourceProxyPolicy.KIND_HK;
+        }
+        applyTab();
+    }
+
+    private void applyTab() {
+        boolean py = SourceProxyPolicy.KIND_PY.equals(currentTab);
+        boolean js = SourceProxyPolicy.KIND_JS.equals(currentTab);
+        boolean vod = SourceProxyPolicy.KIND_VOD.equals(currentTab);
+        boolean hk = !py && !js && !vod;
+        binding.tvTitlePy.setVisibility(py ? View.VISIBLE : View.GONE);
+        binding.groupPy.setVisibility(py ? View.VISIBLE : View.GONE);
+        binding.tvTitleJs.setVisibility(js ? View.VISIBLE : View.GONE);
+        binding.groupJs.setVisibility(js ? View.VISIBLE : View.GONE);
+        binding.tvTitleVod.setVisibility(vod ? View.VISIBLE : View.GONE);
+        binding.groupVod.setVisibility(vod ? View.VISIBLE : View.GONE);
+        binding.tvTitleHk.setVisibility(hk ? View.VISIBLE : View.GONE);
+        binding.groupHk.setVisibility(hk ? View.VISIBLE : View.GONE);
+        int count = py ? countPy : (js ? countJs : (vod ? countVod : countHk));
+        binding.tvNone.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
+        styleTab(binding.tabPy, py);
+        styleTab(binding.tabJs, js);
+        styleTab(binding.tabVod, vod);
+        styleTab(binding.tabHk, hk);
+    }
+
+    /** 点播源组：配置站点里 api 不是 .py/.js 的全部（jar 蜘蛛、接口站等），id=站点 key（与打点一致）。 */
+    private int fillVod() {
+        List<Site> sites;
+        try {
+            sites = VodConfig.get().getSites();
+        } catch (Throwable t) {
+            sites = new ArrayList<>();
+        }
+        int n = 0;
+        if (sites != null) {
+            for (Site s : sites) {
+                String api = s.getApi();
+                if (api == null) continue;
+                String a = api.toLowerCase();
+                if (a.endsWith(".py") || a.endsWith(".js")) continue;
+                String name = s.getName();
+                if (name == null || name.isEmpty()) name = s.getKey();
+                addRow(binding.groupVod, name, SourceProxyPolicy.KIND_VOD, s.getKey());
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private void styleTab(TextView tab, boolean selected) {
+        float d = getResources().getDisplayMetrics().density;
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(10 * d);
+        if (selected) {
+            bg.setColor(0xFFF0A400);
+            tab.setTextColor(0xFF1B2431);
+        } else {
+            bg.setColor(0xFF141A26);
+            bg.setStroke((int) d, 0xFF2A3242);
+            tab.setTextColor(0xFFD7DEE8);
+        }
+        tab.setBackground(bg);
     }
 
     private int fillHk() {
@@ -54,45 +141,57 @@ public class SourcePolicyActivity extends BaseActivity {
         } catch (Throwable t) {
             rules = new ArrayList<>();
         }
-        if (rules == null || rules.isEmpty()) {
-            binding.tvTitleHk.setVisibility(View.GONE);
-            binding.groupHk.setVisibility(View.GONE);
-            return 0;
-        }
+        if (rules == null || rules.isEmpty()) return 0;
+        int n = 0;
         for (HkRule rule : rules) {
             String title = rule.getTitle();
             if (title == null || title.isEmpty()) continue;
             addRow(binding.groupHk, title, SourceProxyPolicy.KIND_HK, title);
+            n++;
         }
-        return 1;
+        return n;
     }
 
     private int fillSites(String kind, LinearLayout group, TextView title) {
+        boolean isPy = SourceProxyPolicy.KIND_PY.equals(kind);
+        String suffix = isPy ? ".py" : ".js";
+        // 两路来源，id 口径与 SiteApi 打点一致（id=site key）：
+        // 一是配置里的站点（api 以 .py/.js 结尾）；二是插件目录里的脚本文件——
+        // 这类源不在配置站点表里（是动态站点，key 固定 py_/js_+文件名，见 VodFragment/CollectFragment），
+        // 只读配置表会整组漏掉（2026-10-15 他真机实证：PY/JS 两组都没上）。
+        java.util.LinkedHashMap<String, String> entries = new java.util.LinkedHashMap<>();
         List<Site> sites;
         try {
             sites = VodConfig.get().getSites();
         } catch (Throwable t) {
             sites = new ArrayList<>();
         }
-        String suffix = SourceProxyPolicy.KIND_PY.equals(kind) ? ".py" : ".js";
-        List<Site> match = new ArrayList<>();
         if (sites != null) {
             for (Site s : sites) {
                 String api = s.getApi();
-                if (api != null && api.toLowerCase().endsWith(suffix)) match.add(s);
+                if (api == null || !api.toLowerCase().endsWith(suffix)) continue;
+                String name = s.getName();
+                if (name == null || name.isEmpty()) name = s.getKey();
+                entries.put(s.getKey(), name);
             }
         }
-        if (match.isEmpty()) {
-            title.setVisibility(View.GONE);
-            group.setVisibility(View.GONE);
-            return 0;
+        try {
+            java.io.File dir = new java.io.File(getFilesDir(), isPy ? "plugins/py" : "plugins/js");
+            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(suffix));
+            if (files != null) {
+                java.util.Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+                for (java.io.File f : files) {
+                    String base = f.getName().substring(0, f.getName().length() - suffix.length());
+                    String id = (isPy ? "py_" : "js_") + base;
+                    if (!entries.containsKey(id)) entries.put(id, base);
+                }
+            }
+        } catch (Throwable ignored) {
         }
-        for (Site s : match) {
-            String name = s.getName();
-            if (name == null || name.isEmpty()) name = s.getKey();
-            addRow(group, name, kind, s.getKey());
+        for (java.util.Map.Entry<String, String> e : entries.entrySet()) {
+            addRow(group, e.getValue(), kind, e.getKey());
         }
-        return 1;
+        return entries.size();
     }
 
     private void addRow(LinearLayout group, String label, String kind, String id) {

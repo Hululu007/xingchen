@@ -74,7 +74,7 @@ public class SiteApi {
         String a = api.toLowerCase();
         if (a.endsWith(".py")) return SourceProxyPolicy.KIND_PY;
         if (a.endsWith(".js")) return SourceProxyPolicy.KIND_JS;
-        return null;
+        return SourceProxyPolicy.KIND_VOD;
     }
 
     /** 包一层源归属打点：当前线程的 spider 同步请求走按源定向决策，finally 里清掉。 */

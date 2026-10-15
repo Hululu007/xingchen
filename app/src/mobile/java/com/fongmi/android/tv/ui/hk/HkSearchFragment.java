@@ -353,7 +353,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
 
     // ---------------- 条目转换 ----------------
 
-    /** 照原版 toArticleList：SearchResult → HkItem（桥 dealUrlSimply 的条目入参；extra JSON 转 Map）。 */
+    /** 照原版 toArticleList：SearchResult → HkItem（桥 dealUrlSimply 的条目入参；extra 原始 JSON 串透传）。 */
     static HkItem toItem(SearchResult r) {
         HkItem item = new HkItem();
         if (r == null) return item;
@@ -363,18 +363,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         item.setDesc(r.getDesc());
         item.setContent(r.getContent());
         item.setType(r.getType());
-        if (r.getExtra() != null) {
-            try {
-                JsonObject obj = JsonParser.parseString(r.getExtra()).getAsJsonObject();
-                java.util.Map<String, String> map = new java.util.HashMap<>();
-                for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : obj.entrySet()) {
-                    map.put(e.getKey(), e.getValue().isJsonPrimitive()
-                            ? e.getValue().getAsString() : e.getValue().toString());
-                }
-                item.setExtra(map);
-            } catch (Exception ignored) {
-            }
-        }
+        // extra 已是 8.83 语义的原始 JSON 串（数字保持数字），直接透传，不再转 Map
+        if (r.getExtra() != null) item.setExtra(r.getExtra());
         return item;
     }
 

@@ -1660,7 +1660,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             sb.append(line3.toString().trim());
         }
         mBinding.meta.setVisibility(sb.length() == 0 ? View.GONE : View.VISIBLE);
-        mBinding.meta.setText(sb.toString());
+        // 导演/演员等字段可能带 [a=cr:{...}]名字[/a] 标记（源数据原样），照上游 setText 的做法过 buildClickable：
+        // 标记转成可点名字（点击按标记里的规则走搜索），不再把标记原文当纯文本显示。
+        mBinding.meta.setText(Sniffer.buildClickable(sb.toString(), this::clickableSpan), TextView.BufferType.SPANNABLE);
+        mBinding.meta.setLinkTextColor(Color.WHITE);
+        CustomMovement.bind(mBinding.meta);
     }
 
     private void getPlayer(Flag flag, Episode episode) {

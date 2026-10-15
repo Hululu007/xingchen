@@ -2266,17 +2266,26 @@ public class HkPageActivity extends BaseActivity {
         private void applyIconBg(Holder h, String iconDef) {
             TextView icon = h.icon;
             android.widget.ImageView ivIcon = h.ivIcon;
-            boolean isUrl = !TextUtils.isEmpty(iconDef)
-                    && (iconDef.startsWith("http://") || iconDef.startsWith("https://"));
-            if (isUrl) {
-                // URL 图标：显示图片，隐藏"海"字
+            // 图标形态：http(s) 地址、data: 内嵌图（很多规则的图标是 base64 内嵌，原先被当非图丢了）、
+            // hiker://files/ 本地文件（先按引擎同一映射解析成真实路径）。其余才走文字兜底。
+            String imgSrc = null;
+            if (!TextUtils.isEmpty(iconDef)) {
+                if (iconDef.startsWith("http://") || iconDef.startsWith("https://") || iconDef.startsWith("data:")) {
+                    imgSrc = iconDef;
+                } else if (iconDef.startsWith("hiker://files/")) {
+                    String p = com.fongmi.android.tv.api.hk.HkJsRuntime.getFilePath(iconDef);
+                    if (!TextUtils.isEmpty(p) && new java.io.File(p).exists()) imgSrc = p;
+                }
+            }
+            if (imgSrc != null) {
+                // 图片图标：显示图片，隐藏"海"字
                 icon.setVisibility(View.GONE);
                 ivIcon.setVisibility(View.VISIBLE);
                 // 圆角裁剪跟文字版一致
                 ivIcon.setClipToOutline(true);
                 ivIcon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
                 try {
-                    com.fongmi.android.tv.utils.ImgUtil.load("", iconDef, ivIcon);
+                    com.fongmi.android.tv.utils.ImgUtil.load("", imgSrc, ivIcon);
                 } catch (Exception ignored) {
                     // 加载失败回退到"海"字
                     ivIcon.setVisibility(View.GONE);
@@ -4595,16 +4604,10 @@ public class HkPageActivity extends BaseActivity {
             // 仅当 extra 非空且以 { 开头 } 结尾才 setParams）。URL query 不进 MY_PARAMS，
             // 而是随 pageRule params Map 由规则经 fetch('hiker://page/') 自取。#532 的合并做法已 revert。
             try {
-                String extraJson = "";
-                java.util.Map<String, String> extra = it.getExtra();
-                if (extra != null && !extra.isEmpty()) {
-                    org.json.JSONObject jo = new org.json.JSONObject();
-                    for (java.util.Map.Entry<String, String> e : extra.entrySet()) {
-                        jo.put(e.getKey(), e.getValue());
-                    }
-                    extraJson = jo.toString();
-                }
-                sub.setPageParams(extraJson);
+                // 8.83 PageParser.getNextPage：仅当 extra 是 {…} JSON 串才 setParams。
+                // HkItem.extra 已是原始 JSON 串（数字保持数字），直接透传。
+                String ex = it.getExtra();
+                sub.setPageParams(ex != null && ex.startsWith("{") && ex.endsWith("}") ? ex : "");
             } catch (Throwable ignored) {
                 sub.setPageParams("");
             }

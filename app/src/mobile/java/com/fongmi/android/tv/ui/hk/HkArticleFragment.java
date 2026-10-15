@@ -1628,7 +1628,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         sub.setPages(parentRule.getPages());
         HkItem item = adapter.getList().get(position);
         if (item.getExtra() != null && !item.getExtra().isEmpty()) {
-            sub.setParams(new com.google.gson.Gson().toJson(item.getExtra()));
+            // extra 已是原始 JSON 串，直接透传（以前 Map 需二次序列化）
+            sub.setParams(item.getExtra());
         }
         SubListRequest req = new SubListRequest();
         req.subRule = sub;
@@ -2241,8 +2242,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     private String extraJson(HkItem item) {
-        if (item.getExtra() == null || item.getExtra().isEmpty()) return "";
-        return new com.google.gson.Gson().toJson(item.getExtra());
+        // extra 已是原始 JSON 串，直接返回
+        return item.getExtra() == null ? "" : item.getExtra();
     }
 
     /**

@@ -639,12 +639,17 @@ public class HkHttp {
     public static class Enhancement {
         public String url = "";
         public String method = "GET";
-        public String charset = "UTF-8";
+        /**
+         * 8.83 HttpHelper.CharsetStringConvert 语义：空 = 未显式指定，解码时看响应
+         * Content-Type（OkHttp body.string() 行为）；非空 = 显式指定，强制用它解码。
+         * 以前默认 "UTF-8"，显式和未显式混为一谈，响应头 charset 被无视。
+         */
+        public String charset = "";
         public final Map<String, String> headers = new HashMap<>();
 
         /** 是否为"干净"请求（无增强，按原逻辑走即可）。 */
         public boolean isPlain() {
-            return "GET".equals(method) && "UTF-8".equalsIgnoreCase(charset) && headers.isEmpty();
+            return "GET".equals(method) && (charset == null || charset.isEmpty()) && headers.isEmpty();
         }
     }
 
@@ -776,12 +781,23 @@ public class HkHttp {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
             if (body == null) throw new IOException("空响应 " + url);
+            // 8.83 CharsetStringConvert：显式给了 charset 就强制用它；没给时按响应
+            // Content-Type 的 charset 解码（OkHttp ResponseBody.string() 的行为）。
             byte[] bytes = body.bytes();
-            try {
-                return new String(bytes, e.charset);
-            } catch (Throwable t) {
-                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            if (e.charset != null && !e.charset.isEmpty()) {
+                try {
+                    return new String(bytes, e.charset);
+                } catch (Throwable t) {
+                    return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                }
             }
+            java.nio.charset.Charset cs = java.nio.charset.StandardCharsets.UTF_8;
+            try {
+                okhttp3.MediaType ct = body.contentType();
+                if (ct != null && ct.charset() != null) cs = ct.charset();
+            } catch (Throwable ignored) {
+            }
+            return new String(bytes, cs);
         }
     }
 }

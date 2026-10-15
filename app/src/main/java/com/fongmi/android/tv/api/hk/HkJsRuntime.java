@@ -44,6 +44,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -1011,8 +1012,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- 存储 ----
+        // 8.83 JSEngine.putVar：值非字符串时 JSON.toJSONString 后存入（原版做法），
+        // 以前 argStr 对非字符串一律兜底空串，对象/数组存进去就丢了。
         putFunction("putVar", args -> {
-            if (args != null && args.length > 1) vars.put(argStr(args[0]), argStr(args[1]));
+            if (args == null || args.length < 2) return null;
+            Object v = args[1];
+            String s;
+            if (v instanceof String) s = (String) v;
+            else {
+                try { s = stringifyArg(v); }
+                catch (Throwable ignored) { s = ""; }
+            }
+            vars.put(argStr(args[0]), s);
             return null;
         });
         // 官方 putVar2：值非字符串时 JSON 序列化后存入（与 putVar 区别仅在此）
@@ -1327,7 +1338,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction("listMyVarKeys", args -> GSON.toJson(new ArrayList<>(myVars.keySet())));
         putFunction("clearVar", args -> {
-            vars.clear();
+            // 8.83 JSEngine.clearVar：只删指定键；无参时直接 return（无"清空全表"行为，
+            // 与 clearMyVar 的 E8 注释同源）。以前无视参数全清，会误删其他规则的变量。
+            if (args != null && args.length > 0) vars.remove(argStr(args[0]));
             return null;
         });
 
@@ -1790,13 +1803,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction("fileExist", args -> {
             if (args == null || args.length == 0) return "false";
-            // 官方返回 STRING "true"/"false"
-            return new File(resolveHikerPath(argStr(args[0]))).exists() ? "true" : "false";
+            // 官方返回 STRING "true"/"false"；全局 miss 时再查按规则 libs（$.require 门控）
+            String p = argStr(args[0]);
+            if (new File(resolveHikerPath(p)).exists()) return "true";
+            return resolvePerRuleLibFile(p) != null ? "true" : "false";
         });
         // 官方别名：exist 即 fileExist
         putFunction("exist", args -> {
             if (args == null || args.length == 0) return "false";
-            return new File(resolveHikerPath(argStr(args[0]))).exists() ? "true" : "false";
+            String p = argStr(args[0]);
+            if (new File(resolveHikerPath(p)).exists()) return "true";
+            return resolvePerRuleLibFile(p) != null ? "true" : "false";
         });
         putFunction("getPath", args -> {
             if (args == null || args.length == 0) return "";
@@ -1854,7 +1871,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("parsePaste", args -> {
-            // 解析分享文本：云口令则拉取规则 JSON 返回，否则原文返回
+            // 解析分享文本：云口令则拉取规则 JSON 返回；内容不是规则时（如聚合接口列表）
+            // 返回通道粘贴文本原文（8.83 RuleImporterManager.parseSync 语义）；非云口令返回原文
             if (args == null || args.length == 0) return "";
             String t = argStr(args[0]).trim();
             try {
@@ -1865,6 +1883,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
             } catch (Throwable e) {
                 Logger.t(TAG).d("parsePaste cloud failed: %s", e.getMessage());
+                try {
+                    String content = HkRuleManager.get().fetchPasteRawText(t);
+                    if (content != null && !content.isEmpty()) return content;
+                } catch (Throwable ignored) {
+                }
             }
             return t;
         });
@@ -3452,6 +3475,34 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     );
 
     /**
+     * hiker://files/libs/&lt;md5&gt;.js 全局 miss 时的按规则回退：.hkzip 导入的库落在
+     * 规则数据目录 data/&lt;规则名&gt;/libs/（与 loadLibLocal 同一位置）。$.require(http)
+     * 经 Hikerurl.js require.resolve 拼出的全局路径在全新导入、弱网下不存在，回退到
+     * 这里命中；命中即用，不走网络。只认 libs/ 下的单层 .js 文件名，防路径穿越。
+     *
+     * @return 命中返回绝对路径，否则 null
+     */
+    private String resolvePerRuleLibFile(String hikerPath) {
+        try {
+            if (hikerPath == null || rule == null) return null;
+            String p = hikerPath;
+            int q = p.indexOf('?');
+            if (q >= 0) p = p.substring(0, q);
+            int h = p.indexOf('#');
+            if (h >= 0) p = p.substring(0, h);
+            final String prefix = "hiker://files/libs/";
+            if (!p.startsWith(prefix) || !p.toLowerCase(Locale.ROOT).endsWith(".js")) return null;
+            String name = p.substring(prefix.length());
+            if (name.isEmpty() || name.contains("..") || name.contains("/") || name.contains("\\")) return null;
+            java.io.File f = new java.io.File(
+                    new java.io.File(HkRuleManager.get().getDataDir(rule.getTitle()), "libs"), name);
+            return f.exists() ? f.getAbsolutePath() : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
      * require() 本地库优先：找规则数据目录 data/&lt;规则名&gt;/libs/&lt;md5(url)&gt;.js，
      * 命中则直接加载（.hkzip 导入时已解压，无网络也能用）；未命中返回 null 走远程。
      */
@@ -4230,18 +4281,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /**
      * 设置详情页 params（官方 dealRule 把点击条目的 extra 设为新规则的 params，
-     * detail_find_rule 里通过 MY_PARAMS 取用）。extra 为 Map 时序列化为 JSON。
+     * detail_find_rule 里通过 MY_PARAMS 取用）。extra 是 8.83 语义的原始 JSON 串
+     * （ArticleList.extra），直接存，注入时 JSON.parse 一次，数字保持数字。
      */
-    public void setDetailParams(java.util.Map<String, String> extra) {
-        if (extra == null || extra.isEmpty()) {
-            this.myParams = "";
-        } else {
-            try {
-                this.myParams = GSON.toJson(extra);
-            } catch (Throwable ignored) {
-                this.myParams = "";
-            }
-        }
+    public void setDetailParams(String extraJson) {
+        this.myParams = extraJson == null ? "" : extraJson;
     }
 
     private static String homeOf(String url) {
@@ -4354,9 +4398,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 HkItem item = new HkItem();
                 item.setTitle(str(m, "title"));
                 item.setUrl(str(m, "url"));
-                String pic = str(m, "pic_url");
-                if (TextUtils.isEmpty(pic)) pic = str(m, "img");
-                if (TextUtils.isEmpty(pic)) pic = str(m, "pic");
+                // 8.83 JSEngine.convertToArticleList 顺序：img > pic > pic_url（按键存在判定）；
+                // 其余兼容字段只在三者都不存在时才兜底，不得改变只给单一字段的规则的现有结果。
+                String pic;
+                if (m.containsKey("img")) pic = str(m, "img");
+                else if (m.containsKey("pic")) pic = str(m, "pic");
+                else pic = str(m, "pic_url");
                 // 兼容更多封面字段名（规则写法不统一）
                 if (TextUtils.isEmpty(pic)) pic = str(m, "image");
                 if (TextUtils.isEmpty(pic)) pic = str(m, "cover");
@@ -4383,14 +4430,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 if (TextUtils.isEmpty(preRule)) preRule = str(m, "pre_rule");
                 item.setPreRule(preRule);
                 item.setRule(str(m, "rule"));
+                // 8.83 JSEngine.convertToArticleList 的 extra 语义：String 原样 / null 置空 /
+                // 其他 JSON.toJSONString——数字等保持 JSON 原始类型，不逐值 String.valueOf。
                 Object extraObj = m.get("extra");
-                if (extraObj instanceof Map) {
-                    Map<String, String> extra = new HashMap<>();
-                    for (Map.Entry<?, ?> e : ((Map<?, ?>) extraObj).entrySet()) {
-                        extra.put(String.valueOf(e.getKey()),
-                                e.getValue() == null ? "" : stringifyValue(e.getValue()));
-                    }
-                    item.setExtra(extra);
+                if (extraObj instanceof String) {
+                    item.setExtra((String) extraObj);
+                } else if (extraObj != null) {
+                    item.setExtra(GSON.toJson(extraObj));
                 } else {
                     // 兼容：id/cls 等顶层字段也并入 extra，保证按 id/url/cls 匹配可用
                     Map<String, String> extra = new HashMap<>();
@@ -4398,7 +4444,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         String v = str(m, k);
                         if (!v.isEmpty()) extra.put(k, v);
                     }
-                    if (!extra.isEmpty()) item.setExtra(extra);
+                    if (!extra.isEmpty()) item.setExtra(GSON.toJson(extra));
                 }
                 results.add(item);
             }
@@ -4472,10 +4518,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             sr.setContent(nz(it.getContent()));
             sr.setType("video");
             if (it.getExtra() != null && !it.getExtra().isEmpty()) {
-                try {
-                    sr.setExtra(GSON.toJson(it.getExtra()));
-                } catch (Throwable ignored) {
-                }
+                // extra 已是 8.83 语义的原始 JSON 串，直接透传，不再二次序列化。
+                sr.setExtra(it.getExtra());
             }
             out.add(sr);
         }
@@ -5975,7 +6019,15 @@ private Object fetchByHiker(String url, Object options, boolean toHex, boolean i
         // file branch
         String path = getFilePath(url);
         java.io.File f = new java.io.File(path);
-        if (!f.exists()) return "";
+        if (!f.exists()) {
+            // $.require(http) 全局 libs 缓存 miss 时回退按规则 libs（.hkzip 自带库）
+            String alt = resolvePerRuleLibFile(url);
+            if (alt != null) {
+                path = alt;
+                f = new java.io.File(path);
+            }
+            if (!f.exists()) return "";
+        }
         if (inputStream) {
             try {
                 return hkFileToInputStream(path);

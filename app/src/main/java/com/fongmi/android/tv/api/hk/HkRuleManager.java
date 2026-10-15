@@ -2,6 +2,7 @@ package com.fongmi.android.tv.api.hk;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Environment;
 import android.util.Base64;
 
 import com.fongmi.android.tv.App;
@@ -189,11 +190,25 @@ public class HkRuleManager {
         }
     }
 
-    /** .hkzip 包的解析结果：规则（未落盘）+ 附带资源（require.json / libs）。 */
+    /** .hkzip 包的解析结果：规则（未落盘）+ 附带资源（require.json / libs / data.zip 内条目）。 */
     public static class HkZipData {
         public final List<ParsedRule> rules = new ArrayList<>();
         public byte[] requireJson;
         public final Map<String, byte[]> libs = new LinkedHashMap<>();
+        /** data.zip 内条目：key 为包内相对路径（如 plugins/globalmap.js），原样带出 */
+        public final Map<String, byte[]> dataFiles = new LinkedHashMap<>();
+    }
+
+    /**
+     * 某规则在外部 Documents 下的数据目录（hiker://files/data/&lt;规则名&gt;/ 的落盘根，
+     * 与 HkJsRuntime.getFilePath("hiker://files/...") 的映射同根；8.83 往返语义）。
+     */
+    public File getExternalDataDir(String title) {
+        Context ctx = appContext();
+        File docs = ctx == null ? null : ctx.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        File dir = new File(docs == null ? new File("Documents") : docs, "data/" + safeFileName(title));
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
     }
 
     /**
@@ -348,6 +363,23 @@ public class HkRuleManager {
                         }
                     } catch (Exception ignored) {
                     }
+                } else if (lower.equals("data.zip")) {
+                    // 内层 zip：data/ 下的规则数据文件（plugins/、template/ 等），相对路径原样带出
+                    try (ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+                        ZipEntry e;
+                        while ((e = zin.getNextEntry()) != null) {
+                            if (!e.isDirectory()) {
+                                String en = e.getName().replace('\\', '/');
+                                String eb = en.substring(en.lastIndexOf('/') + 1);
+                                // 防路径穿越：跳过绝对路径、含 .. 与隐藏文件条目
+                                if (!en.startsWith("/") && !en.contains("..") && !eb.startsWith(".")) {
+                                    data.dataFiles.put(en, readStream(zin));
+                                }
+                            }
+                            zin.closeEntry();
+                        }
+                    } catch (Exception ignored) {
+                    }
                 } else if (lower.endsWith(".json")) {
                     try {
                         data.rules.addAll(parseJsonList(new String(bytes, StandardCharsets.UTF_8)));
@@ -366,7 +398,7 @@ public class HkRuleManager {
         return data;
     }
 
-    /** 把 .hkzip 的附带资源（require.json / libs）落盘到指定规则的数据目录，供 require() 本地加载。 */
+    /** 把 .hkzip 的附带资源（require.json / libs / data.zip）落盘，供 require() 本地加载与规则读文件。 */
     public void saveHkZipAssets(HkZipData data, List<HkRule> rules) {
         if (data == null || rules == null) return;
         for (HkRule rule : rules) {
@@ -387,13 +419,30 @@ public class HkRuleManager {
                     }
                 }
             }
+            if (!data.dataFiles.isEmpty()) {
+                // 8.83 往返：data.zip 内容按包内相对路径落到外部 Documents/data/<规则名>/，
+                // 与 hiker://files/data/<规则名>/ 的 getFilePath 映射同根
+                File extDataDir = getExternalDataDir(rule.getTitle());
+                for (Map.Entry<String, byte[]> e : data.dataFiles.entrySet()) {
+                    try {
+                        String rel = e.getKey().replace('\\', '/');
+                        if (rel.contains("..") || rel.startsWith("/")) continue;
+                        File out = new File(extDataDir, rel);
+                        File parent = out.getParentFile();
+                        if (parent != null) parent.mkdirs();
+                        Files.write(out.toPath(), e.getValue());
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
         }
     }
 
     /**
-     * 从 .hkzip 包导入：内容为 rule.json + require.json + libs.zip。
+     * 从 .hkzip 包导入：内容为 rule.json + require.json + libs.zip + data.zip。
      * rule.json 走导入；require.json 与 libs.zip 解压到规则数据目录（data/&lt;规则名&gt;/），
-     * 供 require() 本地优先加载（无网络时也能用）。
+     * 供 require() 本地优先加载（无网络时也能用）；data.zip 按包内相对路径解到
+     * 外部 Documents/data/&lt;规则名&gt;/（8.83 往返：hiker://files/data/&lt;规则名&gt;/ 可读回）。
      *
      * @return 导入成功的规则列表
      */
@@ -598,6 +647,44 @@ public class HkRuleManager {
         if (json == null || json.trim().isEmpty()) throw new IllegalArgumentException("云端返回内容为空");
         String t = json.trim();
         return new ParsedRule(parseJson(t), t);
+    }
+
+    /**
+     * 取云剪贴板粘贴文本原文（不做规则校验）：8.83 parsePaste →
+     * RuleImporterManager.parseSync 语义，返回通道里的原文内容。聚合类（聚阅）口令的
+     * 内容是接口列表文本而非规则 JSON，importByCloudCode 按规则解析失败后走这里把
+     * 原文还给 JS。取不到原文返回 null，调用方回退返回口令原文。
+     */
+    public String fetchPasteRawText(String code) {
+        try {
+            Matcher f = CLOUD_CODE_FIND.matcher(code);
+            if (!f.find()) return null;
+            Matcher m = CLOUD_CODE_PATTERN.matcher(f.group());
+            if (!m.matches()) return null;
+            String version = m.group(1);
+            String path = m.group(2);
+            // 云5 → cmd.im：取 test_box 便签原文（与 extractRuleJsonFromCmdIm 同款提取，不做规则剥壳）
+            if ("5".equals(version)) {
+                String id = path.substring(1).split("[\\s/]")[0];
+                if (id.isEmpty()) return null;
+                OkHttpClient client = HkHttp.client();
+                Request req = new Request.Builder().url(CMDIM_BASE + "/" + id)
+                        .header("User-Agent", "Mozilla/5.0").build();
+                try (Response resp = client.newCall(req).execute()) {
+                    if (!resp.isSuccessful() || resp.body() == null) return null;
+                    Matcher mm = Pattern.compile("class=\"test_box\"[^>]*>(.*?)</div>",
+                            Pattern.DOTALL).matcher(resp.body().string());
+                    if (!mm.find()) return null;
+                    String text = mm.group(1).replaceAll("<[^>]+>", "").trim()
+                            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                            .replace("&quot;", "\"").replace("&#39;", "'");
+                    return text.isEmpty() ? null : text;
+                }
+            }
+            // 其它通道暂不单独取原文：返回 null → 调用方回退口令原文
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /**

@@ -55,7 +55,6 @@
     <application
         android:name=".App"
         android:allowBackup="false"
-        android:extractNativeLibs="true"
         android:appCategory="video"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"

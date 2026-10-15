@@ -30,6 +30,11 @@ try {
 
 android {
     packaging {
+        jniLibs {
+            // 内核 libmihomo.so 要被执行：必须装机时解到可执行目录（AGP9 的正规开关，
+            // 清单里显式写 extractNativeLibs 会被打包任务拒绝）
+            useLegacyPackaging = true
+        }
         resources {
             excludes += '**/wl.webp'
         }

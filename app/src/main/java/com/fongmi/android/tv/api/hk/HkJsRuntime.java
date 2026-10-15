@@ -1034,15 +1034,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return null;
         });
-        // 8.83 JSEngine.getItem（源码+smali 复核）：Java 层缺键回默认（未传默认即 null），
-        // 但其脚本桥对 STRING 返回把 null 归一为空串，规则侧实际拿到 ""；
-        // GithubApp 这类规则直接 getItem('v').split(...) 靠的就是这个（回 null 必崩，实证）。
-        // 星集口令门比较的是已存值，不受缺键归一影响。
+        // 8.83 原样：缺键回传入的默认、未传默认即 null（不是空串）——8.83 的 STRING
+        // 返回桥是 retStr==null ? retStr : retStr+''，null 原样穿过（JSEngine.java:3110 亲核）。
+        // 按 null/undefined 分支的规则（口令门、tab 开关）靠这个语义；曾误改归一空串已回滚。
         putFunction("getItem", args -> {
-            if (args == null || args.length == 0) return "";
+            if (args == null || args.length == 0) return null;
             String key = getString(args[0]);
             String def = args.length > 1 ? getString(args[1]) : null;
-            if (key == null || key.isEmpty()) return def != null ? def : "";
+            if (key == null || key.isEmpty()) return def;
             String v = kv.get(key);
             // 诊断：口令记号读（星集使用前须知门）。只记命中与长度，不记值本身。
             if ("xj_firstopen".equals(key)) {
@@ -1053,7 +1052,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // 毒值兜底：旧版 setItem 把 JS undefined 经 argStr 存成了字面量 "undefined" 字符串，
             // 该值与 undefined 恒不等、口令门永远判假；按缺键处理，老装机自动解毒。
             if ("undefined".equals(v)) v = null;
-            return v != null ? v : (def != null ? def : "");
+            return v != null ? v : def;
         });
 
         // ---- 调试 ----
@@ -4159,26 +4158,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 官方 generateMyParams：MY_PARAMS 是 JSON 对象不是字符串（空时为 {}）
         try {
             String mp = myParams == null || myParams.isEmpty() ? "{}" : myParams;
-            Object paramsObj = parseJson(mp);
-            // 8.83 的 extra 是带类型的 JSON 对象，嵌套对象（如子规则 RULE）到 MY_PARAMS 里仍是对象；
-            // 星辰条目 extra 早期把值压成了字符串，这里把形似 JSON 对象/数组的字符串值还原成对象
-            if (paramsObj instanceof org.mozilla.javascript.Scriptable) {
-                org.mozilla.javascript.Scriptable ps = (org.mozilla.javascript.Scriptable) paramsObj;
-                for (Object id : ps.getIds()) {
-                    String key = String.valueOf(id);
-                    Object val = org.mozilla.javascript.ScriptableObject.getProperty(ps, key);
-                    if (val instanceof String) {
-                        String vs = ((String) val).trim();
-                        if ((vs.startsWith("{") && vs.endsWith("}")) || (vs.startsWith("[") && vs.endsWith("]"))) {
-                            try {
-                                org.mozilla.javascript.ScriptableObject.putProperty(ps, key, parseJson(vs));
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                    }
-                }
-            }
-            ScriptableObject.putProperty(scope, "MY_PARAMS", paramsObj);
+            // 照 8.83 generateMyParams：整串 JSON.parse 一次，字符串值永远保持字符串。
+            // 曾自加「形似 JSON 的字符串还原成对象」的启发式，会把合法字符串参数
+            // 误变成对象/数组污染全部规则，已撤（类型保真靠 extra 管道本身）。
+            ScriptableObject.putProperty(scope, "MY_PARAMS", parseJson(mp));
         } catch (Throwable ignored) {
             ScriptableObject.putProperty(scope, "MY_PARAMS", rhinoCx.newObject(scope));
         }

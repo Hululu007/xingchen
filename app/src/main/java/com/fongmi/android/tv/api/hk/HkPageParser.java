@@ -151,6 +151,10 @@ public class HkPageParser {
             next.setUrl(url);
         }
         if (HkParserKit.isNotEmpty(paramsJson) && paramsJson.startsWith("{") && paramsJson.endsWith("}")) {
+            // 照 8.83 PageParser 原文 rule.setParams(params)：写进可序列化字段，
+            // 子页规则过 Intent 的 JSON 往返后仍在，MY_PARAMS 从 getParams() 生成。
+            // pageParams 是 transient 只作内存副本保留，不再当跨页通道（静态槽已撤）。
+            next.setParams(paramsJson);
             next.setPageParams(paramsJson);
         }
         return next;

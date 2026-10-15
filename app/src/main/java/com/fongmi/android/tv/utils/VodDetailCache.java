@@ -38,6 +38,19 @@ public final class VodDetailCache {
             Vod vod = Vod.CREATOR.createFromParcel(parcel);
             parcel.recycle();
             if (vod.getFlags().isEmpty()) return null;
+            // 与 put 的守卫对称：旧版本写下的缓存里若还留着裸磁力/电驴原链，
+            // 说明那是解析没产出的单链结果，读时同样作废并删文件，逼这次重新解析。
+            for (Flag flag : vod.getFlags()) {
+                for (Episode episode : flag.getEpisodes()) {
+                    String url = episode.getUrl();
+                    if (url == null) continue;
+                    String lower = url.trim().toLowerCase(java.util.Locale.ROOT);
+                    if (lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:")) {
+                        file.delete();
+                        return null;
+                    }
+                }
+            }
             return vod;
         } catch (Throwable ignored) {
             return null;

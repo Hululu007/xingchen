@@ -55,7 +55,7 @@ public class Thunder implements Source.Extractor {
     public String fetch(String url) throws Exception {
         if (url == null) return fetchInternal(url);
         synchronized (this) {
-            if (url.equals(lastKey) && lastLocal != null && isTaskAlive()) {
+            if (url.equals(lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists()) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
                 return lastLocal;
             }
@@ -88,6 +88,12 @@ public class Thunder implements Source.Extractor {
     }
 
     private synchronized String fetchInternal(String url) throws Exception {
+        // 零字节卡死任务的干净重建：上一轮播放被进度监控记下「交地址后 30 秒仍 0 字节」
+        // 的链接（zeroMark），这次先把旧任务与它的目录整个清掉再重建——1.3.11 日志实证：
+        // 卡死的 ed2k 任务状态恒 1、速度恒 0，靠状态判断永远不会被清理，进程内外都复用
+        // 同一个尸体，播放器对着本地地址永远超时。只在 fetch 入口、交地址之前清，
+        // 不碰正在播的任务（有字节在走的任务监控会把标记撤掉）。
+        if (url != null && !url.startsWith("magnet") && zeroMark(url).exists()) wipeZeroMarked(url);
         // 同链接复用：旧任务未明确报错（原生状态非 3）就直接复用，禁止停删重建——
         // 1.3.8 日志实证（00:32:20）：60ms 内三连 handed，播放器攥着第一份地址，
         // 后到的 fetch 把先建任务当死任务杀掉重建，播放器对着已删任务的地址永远 0 字节。
@@ -179,7 +185,7 @@ public class Thunder implements Source.Extractor {
             if (info.mTaskStatus != 0) {
                 String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
                 SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
-                startProgressLog(taskId);
+                startProgressLog(taskId, null);
                 return local;
             }
             if (i % 50 == 49) SpiderDebug.log("thunder", "bt waiting status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
@@ -199,13 +205,54 @@ public class Thunder implements Source.Extractor {
         } catch (Exception e) {
             SpiderDebug.log("thunder", "task handed local=%s (info unreadable)", local);
         }
-        startProgressLog(taskId);
+        startProgressLog(taskId, url);
         return local;
+    }
+
+    // 零字节标记：交地址后持续 0 字节的链接在 thunder 根目录留一个标记文件，
+    // 下次 fetch 见标记先干净重建（见 fetchInternal 的 wipeZeroMarked）。
+    private static File zeroMark(String url) {
+        return new File(Path.thunder(), "zero-" + Util.md5(url));
+    }
+
+    private void wipeZeroMarked(String url) {
+        try {
+            zeroMark(url).delete();
+            // 先把引擎侧的旧任务停删（含跨进程残留的同链接任务记录），再删目录，
+            // 最后由调用方按原流程新建——保证新任务不挂任何旧状态。
+            // 内存里的任务只动属于这条链接的那个；不属于时用同链接探针任务去删引擎侧记录，
+            // 不碰可能正在播的别的链接。
+            boolean mine = url.equals(lastKey);
+            try {
+                GetTaskId stale = mine && taskId != null ? taskId : XLTaskHelper.get().addThunderTask(url, Path.thunder(Util.md5(url)));
+                XLTaskHelper.get().stopTask(stale);
+                XLTaskHelper.get().deleteTask(stale);
+            } catch (Exception ignored) {
+            }
+            if (mine) {
+                taskId = null;
+                lastKey = null;
+                lastLocal = null;
+            }
+            deleteRecursive(Path.thunder(Util.md5(url)));
+            SpiderDebug.log("thunder", "zero-byte history wiped, rebuilding clean");
+        } catch (Exception e) {
+            SpiderDebug.log("thunder", "zero-byte wipe err=%s", String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static void deleteRecursive(File file) {
+        if (file == null || !file.exists()) return;
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteRecursive(child);
+        file.delete();
     }
 
     // 交接后任务进度日志：每 5 秒记一次状态/速度/已下量，最长 2 分钟；
     // 任务被换掉、完成或出错即停。用来分清「任务被自己人杀掉」和「资源本身没速度」。
-    private void startProgressLog(GetTaskId id) {
+    // url 非空时（ed2k/thunder 直建任务）兼管零字节标记：有字节流动就撤标记；
+    // 持续 30 秒 0 字节就落标记，供下次 fetch 干净重建。
+    private void startProgressLog(GetTaskId id, String url) {
         if (id == null) return;
         Thread t = new Thread(() -> {
             for (int i = 0; i < 24; i++) {
@@ -215,6 +262,21 @@ public class Thunder implements Source.Extractor {
                     XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(id);
                     if (info == null) return;
                     SpiderDebug.log("thunder", "progress status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                    if (url != null) {
+                        if (info.mDownloadSize > 0) {
+                            File mark = zeroMark(url);
+                            if (mark.exists()) mark.delete();
+                        } else if (i >= 5 && (info.mTaskStatus == 0 || info.mTaskStatus == 1)) {
+                            File mark = zeroMark(url);
+                            if (!mark.exists()) {
+                                try {
+                                    mark.createNewFile();
+                                } catch (Exception ignored) {
+                                }
+                                SpiderDebug.log("thunder", "zero-byte task marked for clean rebuild");
+                            }
+                        }
+                    }
                     if (info.mTaskStatus == 2 || info.mTaskStatus == 3) return;
                 } catch (Exception e) {
                     return;

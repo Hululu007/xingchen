@@ -1993,7 +1993,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             String inner = url.replaceFirst("(?i)x5://", "");
             HkRule r = new HkRule();
             r.setUrl("hiker://empty");
-            r.setFindRule("js:setResult([{\n    url:\"" + inner + "\",\ndesc:\"100%&&float\",\nextra:{canBack: true}\n}]);");
+            r.setFindRule("js:setResult([{\n    url:\"" + inner + "\",\ncol_type:\"x5_webview_single\",\ndesc:\"100%&&float\",\nextra:{canBack: true}\n}]);");
             r.setColType(HkColType.X5_WEB_VIEW.code);
             r.setGroup(articleListRule.getGroup());
             r.setTitle(articleListRule.getTitle());
@@ -2102,9 +2102,15 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     && HkFuck.goWeb(getContext(), myUrl, url)) return;
             String cleared = detailBridge.clearTag(url);
             String itemCleared = detailBridge.clearTag(item.getUrl());
-            if (!cleared.equals(itemCleared) && !TextUtils.isEmpty(codeAndHeader)
-                    && !detailBridge.canParseX5(item.getUrl()) && !detailBridge.canParseWebkit(item.getUrl())
-                    && HkListActivity.playDataOf(url) == null) {
+            // 照 8.83 ArticleListFragment 的分发极性：地址未被改写、或解析带了代码头、
+            // 或网页解析器能接手——任一成立都走 getChapters 收全选集；三者皆否才单播。
+            // 此前星辰写反了：解析过的地址反而走单播捷径，标题成了链接文字、选集只剩一条
+            // （1.3.11 真机录屏实证）。playDataOf 是星辰的播放数据附加项，
+            // 带播放数据的同样归选集路径处理（与 120d44f4 的守卫同向）。
+            boolean collect = cleared.equals(itemCleared) || !TextUtils.isEmpty(codeAndHeader)
+                    || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl())
+                    || HkListActivity.playDataOf(url) != null;
+            if (!collect) {
                 detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
                 return;
             }
@@ -2202,19 +2208,12 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         java.util.List<HkChapter> chapters = new ArrayList<>();
         java.util.List<HkItem> list = adapter.getList();
         HkItem clicked = list.get(position);
-        String type = clicked.getType();
         boolean playList = isPlayList(clicked);
         String playListCls = getPlayListCls(clicked);
-        int start;
-        if (!playList) {
-            start = position;
-            for (int i = position - 1; i >= 0; i--) {
-                if (!TextUtils.equals(type, list.get(i).getType())) break;
-                start = i;
-            }
-        } else {
-            start = 0;
-        }
+        // 照 8.83 getChapters：前后都从全表收，只靠 chapterCandidate 过滤（跳 header 等），
+        // 没有「遇不同 type 就停」的窗口。此前星辰自加了同 type 窗口，详情页里
+        // 播放按钮与数字选集格 type 不同时，整排选集被窗口丢掉（1.3.11 录屏实证）。
+        int start = 0;
         for (int i = start; i < position; i++) {
             HkItem it = list.get(i);
             if (!chapterCandidate(it, playList, playListCls)) continue;
@@ -2235,7 +2234,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         chapters.add(cur);
         for (int i = position + 1; i < list.size(); i++) {
             HkItem it = list.get(i);
-            if (!playList && !TextUtils.equals(type, it.getType())) break;
             if (!chapterCandidate(it, playList, playListCls)) continue;
             chapters.add(buildChapter(it, i, titlePrefix, codeAndHeader, false));
         }

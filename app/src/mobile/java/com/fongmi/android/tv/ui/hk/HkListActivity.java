@@ -75,11 +75,12 @@ public class HkListActivity extends AppCompatActivity
 
     /** 原版 Application.tempRuleData 等价：大数据规则 JSON 的进程内静态槽。 */
     private static volatile String tempRuleData;
+    /** 静态槽/缓存文件里那份规则的指纹（putTempRule 写入、onCreate 回退消费时核对）：
+     * 没有指纹或对不上就绝不消费——此前无条件回退会把上一个大规则的 body
+     * 静默安到本次开页头上（标题对、内容全错的串页，1.3.11 花都影视实证）。 */
+    private static volatile String tempRuleKey;
     /** 原版 FilmListActivity.tempParentData 等价：#autoPage# 子页的父页续页数据静态槽（消费后清空）。 */
     private static volatile HkArticleFragment.AutoPageData tempParentData;
-    /** hiker://page/ 子页参数静态槽：pageParams 在 HkRule 里是 transient、过不了规则 JSON 序列化，
-     * 仿 tempRuleData/tempParentData 走静态槽交接（消费后清空），否则子页 MY_PARAMS 恒空。 */
-    private static volatile String tempPageParams;
     private static final AtomicBoolean STATICS_READY = new AtomicBoolean(false);
     private static volatile WeakReference<Activity> currentRef;
 
@@ -203,19 +204,35 @@ public class HkListActivity extends AppCompatActivity
             intent.putExtra("data", ruleJson);
             return;
         }
+        // 每次开页都给 Intent 带上规则指纹：走静态槽/缓存文件的大规则靠它认领，
+        // 别的开页（没经 putTempRule 的）没有指纹，永远认领不到残留（见 tempRuleKey）。
+        String key = md5Hex(ruleJson);
+        intent.putExtra("ruleKey", key);
         int length = ruleJson.getBytes(StandardCharsets.UTF_8).length;
         Log.d(TAG, String.format("变量传递, length: %s", length));
         if (length > TEMP_RULE_LIMIT) {
             tempRuleData = ruleJson;
-            writeTempRuleCache(ruleJson);
+            tempRuleKey = key;
+            writeTempRuleCache(key, ruleJson);
         } else {
             intent.putExtra("data", ruleJson);
         }
     }
 
+    private static String md5Hex(String text) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("MD5")
+                    .digest(text.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return String.valueOf(text.hashCode());
+        }
+    }
+
     /** 规则第一页入口（主页型宿主，listHost=false）：供规则列表/搜索等开页方调用。 */
     public static void startRule(Context context, HkRule rule, String title) {
-        tempPageParams = null;
         Intent intent = new Intent(context, HkListActivity.class);
         putTempRule(intent, new Gson().toJson(rule));
         intent.putExtra("title", !TextUtils.isEmpty(title) ? title : rule.getTitle());
@@ -538,7 +555,7 @@ public class HkListActivity extends AppCompatActivity
         HkRule rule = new HkRule();
         rule.setUrl("hiker://empty");
         rule.setFindRule("js:setResult([{\n    url:\"" + target
-                + "\",\ndesc:\"100%&&float\",\nextra:{canBack: true}\n}]);");
+                + "\",\ncol_type:\"x5_webview_single\",\ndesc:\"100%&&float\",\nextra:{canBack: true}\n}]);");
         rule.setColType(HkColType.X5_WEB_VIEW.code);
         rule.setTitle(title == null ? "" : title);
         startRule(activity, rule, title);
@@ -551,8 +568,11 @@ public class HkListActivity extends AppCompatActivity
         // 照原版 initView 的规则摄入顺序：Intent "data" → 静态槽 → 缓存文件，全空走回收提示退出
         String data = getIntent().getStringExtra("data");
         if (TextUtils.isEmpty(data)) {
-            data = tempRuleData;
-            if (data == null) data = readTempRuleCache();
+            // 回退消费必须凭 Intent 里的规则指纹认领，对不上就当没有（走回收提示），
+            // 绝不把上一个大规则静默安过来——那正是串页（花都影视出 MissAV 内容）的机制。
+            String key = getIntent().getStringExtra("ruleKey");
+            if (key != null && key.equals(tempRuleKey)) data = tempRuleData;
+            if (data == null && key != null) data = readTempRuleCache(key);
         }
         if (TextUtils.isEmpty(data)) {
             showRecycledAndExit();
@@ -570,10 +590,6 @@ public class HkListActivity extends AppCompatActivity
         // 照原版 initData：消费 tempParentData 静态槽（取走后清空）
         HkArticleFragment.AutoPageData parentData = tempParentData;
         tempParentData = null;
-        // 消费子页参数静态槽：补回序列化时丢掉的 pageParams（子页 MY_PARAMS 的来源）
-        String pp = tempPageParams;
-        tempPageParams = null;
-        if (pp != null && !pp.isEmpty()) rule.setPageParams(pp);
         pageTitle = getIntent().getStringExtra("title");
         if (TextUtils.isEmpty(pageTitle)) pageTitle = rule.getTitle();
         // 赶在列表加载触发引擎 init（跑 preRule）之前注册，否则第一声 showLoading 会漏掉
@@ -650,10 +666,8 @@ public class HkListActivity extends AppCompatActivity
         intent.putExtra("fromLastClick", req.fromLastClick);
         intent.putExtra("listHost", true);
         if (req.autoPageData != null) tempParentData = req.autoPageData;
-        // 子规则带 pageParams（hiker://page/ 页参数）时走静态槽交接，序列化会丢 transient 字段；
-        // 不带参数的子页必须清槽，防止上一次的参数漏给下一个页面
-        String subPp = req.subRule.getPageParams();
-        tempPageParams = subPp != null && !subPp.isEmpty() ? subPp : null;
+        // 子页参数已由 HkPageParser 写进子规则的 params 字段（可序列化），随规则 JSON 走，
+        // 不再走静态槽交接（槽竞态会把参数串给别的页面，1.3.11 审计定案已撤）。
         // 新窗口条目：原版以 NEW_TASK 独立任务打开（func://background 的退后台判定正读此标志）
         if (req.newWindow) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // req.windowId 是原版多窗口管理器的窗口号，星辰无多窗口管理器，仅透传不消费
@@ -939,19 +953,24 @@ public class HkListActivity extends AppCompatActivity
         return new File(App.get().getCacheDir(), "hk_temp_rule.txt");
     }
 
-    private static void writeTempRuleCache(String ruleJson) {
+    private static void writeTempRuleCache(String key, String ruleJson) {
         // 用流而非 java.nio.file.Files：minSdk 24 的设备上后者不存在（API 26 才有）
+        // 文件首行写规则指纹，读时核对，防跨规则认领（旧格式无指纹行自然核不上、作废一次自愈）
         try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempRuleCacheFile())) {
-            out.write(ruleJson.getBytes(StandardCharsets.UTF_8));
+            out.write((key + "\n" + ruleJson).getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
         }
     }
 
-    private static String readTempRuleCache() {
+    private static String readTempRuleCache(String expectedKey) {
         try {
             File file = tempRuleCacheFile();
-            if (!file.exists()) return null;
-            return readFileText(file);
+            if (!file.exists() || expectedKey == null) return null;
+            String text = readFileText(file);
+            int nl = text.indexOf('\n');
+            if (nl < 0) return null;
+            if (!expectedKey.equals(text.substring(0, nl).trim())) return null;
+            return text.substring(nl + 1);
         } catch (Exception ignored) {
             return null;
         }

@@ -55,8 +55,8 @@ public class HkEngine {
                     : HkHttp.expandUrl(rule.getUrl(), cls, area, year, sort, page);
             if (js) {
                 // P1：注入 MY_TYPE/MY_CLASS_URL/MY_CLASS_NAME 等官方变量
-                // pageParams：hiker://page/ 子页面由点击条目的 extra 注入 MY_PARAMS
-                jsRuntime.setListContext("home", safe(cls), classNameOf(cls), rule.getPageParams(), safe(area), safe(year), safe(sort));
+                // MY_PARAMS 照 8.83 统一取规则的 params 字段（子页参数由 PageParser 写进该字段）
+                jsRuntime.setListContext("home", safe(cls), classNameOf(cls), rule.getParams(), safe(area), safe(year), safe(sort));
                 // R1: 8.83 所有 js: 规则 Java 层先抓页（JSEngine.smali:20401），正文进 resCodeMap，
                 // getResCode()/getCode() 可取。星辰之前完全不预抓，依赖 getResCode() 的规则必空。
                 String fetchUrl = stripEmptyPrefix(url);

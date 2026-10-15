@@ -89,6 +89,43 @@ public final class SourceGate {
         }
     }
 
+    /**
+     * Python 取数口：py 蜘蛛在 chaquo 里用 requests 自己取数，不经 Java 网络栈，
+     * 选择器管不到它——这正是 py 定向从来没通过的原因（1.3.16 日志里 py 调用
+     * 一条 gate 决策记录都没有、超时形态与无内核时一模一样）。
+     * base/spider.py 的 fetch/post 在发请求前问这里：当前线程的源标记命中策略
+     * 就返回本地混合口，py 侧据此给 requests 传 proxies；否则返回 0 走直连。
+     * 标记由 SiteApi.marked 设在调用蜘蛛的线程上，py 回调 Java 仍在同一线程，可见。
+     */
+    public static int proxyPortForCurrent() {
+        Provider p = provider;
+        Mark m = HOLDER.get();
+        if (p == null) {
+            if (m != null) logDecision("noprov|" + m.kind + "|" + m.id,
+                    "gate direct reason=no-provider kind=" + m.kind + " id=" + m.id + " via=py");
+            return 0;
+        }
+        if (!p.enabled()) {
+            if (m != null) logDecision("disabled|" + m.kind + "|" + m.id,
+                    "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id + " via=py");
+            return 0;
+        }
+        boolean hit = (m != null) ? p.shouldProxy(m.kind, m.id) : p.globalMode();
+        if (!hit) {
+            if (m != null) logDecision("notenabled|" + m.kind + "|" + m.id,
+                    "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id + " via=py");
+            return 0;
+        }
+        int port = p.port();
+        if (port <= 0 || port > 65535) {
+            logDecision("badport", "gate direct reason=bad-port port=" + port + " via=py");
+            return 0;
+        }
+        logDecision("proxy|" + (m == null ? "global" : m.kind + "|" + m.id),
+                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + " via=py");
+        return port;
+    }
+
     /** 把原选择器包在外面：命中策略 → 本地口；否则透传原链。回环永远直连。 */
     public static ProxySelector wrapSelector(ProxySelector inner) {
         final ProxySelector shell = inner != null ? inner : ProxySelector.getDefault();

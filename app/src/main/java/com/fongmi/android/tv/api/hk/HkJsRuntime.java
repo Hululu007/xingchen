@@ -1253,34 +1253,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
 
-    /** 8.83 AesUtil 同款：AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。 */
-    private String aesEcbHex(boolean encode, String key, String data) throws Exception {
-        javax.crypto.KeyGenerator kgen = javax.crypto.KeyGenerator.getInstance("AES");
-        java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
-        sr.setSeed(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        kgen.init(256, sr);
-        byte[] rawKey = kgen.generateKey().getEncoded();
-        javax.crypto.spec.SecretKeySpec spec = new javax.crypto.spec.SecretKeySpec(rawKey, "AES");
-        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES");
-        if (encode) {
-            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, spec);
-            byte[] out = cipher.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(out.length * 2);
-            for (byte b : out) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString().toUpperCase();
-        } else {
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, spec);
-            int n = data.length();
-            byte[] enc = new byte[n / 2];
-            for (int i = 0; i < n / 2; i++) {
-                enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
-            }
-            return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
-        }
-    }
-
         // ---- require：远程库加载（preRule 常用）；本地 libs/<md5(url)>.js 优先（.hkzip 自带库） ----
         // 8.83 require0（JSEngine.require0，smali:8468）：eval 后返回模块执行结果
         // （new Function(code) 的返回值），未命中/拉不到代码抛 Exception。
@@ -1293,19 +1265,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + libUrl);
             return evalJs(code);
         });
-
-    /** 8.83 require0 的 eval 分支（requireCache/rc，returnType=OBJECT）：返回模块执行结果；缺码抛错。 */
-    private Object requireCacheEval(Object[] args) {
-        if (args == null || args.length == 0) return null;
-        String url = argStr(args[0]);
-        double hours = args.length > 1 ? toDouble(args[1]) : 0;
-        String code = memCached("rc:" + url, hours, () -> {
-            String c = loadLibLocal(url);
-            return c == null ? fetchSync(url, null) : c;
-        });
-        if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + url);
-        return evalJs(stripJsPrefix(code));
-    }
 
         // ---- JS 定时器（setTimeout/setInterval/clearTimeout/clearInterval） ----
         // 规则"20秒后继续"倒计时等场景依赖；回调统一提交回 JS 单线程执行（Rhino Context 线程绑定）。
@@ -1466,13 +1425,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             savePublicKv();
             return null;
         });
-
-    /** 8.83 JSEngine.tryGetString 等价：非字符串（含缺参/undefined）抛错。 */
-    private static String mustBeString(Object[] args, int i) {
-        if (args == null || args.length <= i || !(args[i] instanceof String))
-            throw new RuntimeException("参数类型只能是字符串");
-        return (String) args[i];
-    }
 
         // ---- storage0 对象（官方：支持存储 JSON 对象的存储封装） ----
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
@@ -1971,20 +1923,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
 
-    /** 8.83 JSEngine.getRuleTitle(ruleTitleKey) 等价：空则取当前规则标题，否则按给定标题取规则数据目录。 */
-    private File ruleDirForTitle(String rt) {
-        String title = (rt == null || rt.isEmpty()) ? (rule != null ? rule.getTitle() : "") : rt;
-        return HkRuleManager.get().getDataDir(title);
-    }
-
-    /** 是否合法字符集名（readFile 第 2 参双重解释用）。 */
-    private static boolean isCharsetName(String s) {
-        try {
-            return java.nio.charset.Charset.isSupported(s.trim());
-        } catch (Throwable e) {
-            return false;
-        }
-    }
         // 8.83 JSEngine.java:2514 downloadFile：失败抛 Exception("下载文件失败：…")；第 3 参 headers。
         putFunction("downloadFile", args -> {
             if (args == null || args.length < 2) throw new RuntimeException("下载文件失败：参数不足");
@@ -2049,185 +1987,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return file.equals(url) ? url : file + "##" + url;
         });
 
-    /**
-     * 8.83 M3u8Utils.downloadM3u8 等价：只缓存索引文件（片段不下载），相对路径改写为绝对地址，
-     * 嵌套子 m3u8 递归跟进；写到 hiker://files/cache/<fileName>，返回 "file://<绝对路径>"。
-     * 非 m3u8 地址（mp4/flv/m4a/mp3）直接回原 url。
-     */
-    private String downloadM3u8File(String url, String fileName, String optionsJson) {
-        if (TextUtils.isEmpty(url)) throw new RuntimeException("m3u8 地址为空");
-        if (isNotM3u8Url(url)) return url;
-        String result;
-        try {
-            result = fetchSync(url, withHeadersOpt(optionsJson));
-        } catch (Throwable e) {
-            throw new RuntimeException("m3u8 下载失败：" + e.getMessage());
-        }
-        String body = "";
-        String realUrl = url;
-        try {
-            Map<String, Object> map = GSON.fromJson(result,
-                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
-            if (map != null) {
-                Object b = map.get("body");
-                if (b != null) body = String.valueOf(b);
-                Object u = map.get("url");
-                if (u != null && !TextUtils.isEmpty(String.valueOf(u))) realUrl = String.valueOf(u);
-            }
-        } catch (Throwable ignored) {
-        }
-        if (TextUtils.isEmpty(body)) throw new RuntimeException("m3u8 内容为空：" + url);
-        String content = convertM3u8Paths(body, realUrl, fileName, optionsJson);
-        String abs = resolveHikerPath("hiker://files/cache/" + fileName);
-        File f = new File(abs);
-        if (f.getParentFile() != null) f.getParentFile().mkdirs();
-        writeFileContent(abs, content);
-        Logger.t(TAG).d("downloadM3u8File ok: %s", abs);
-        return "file://" + abs;
-    }
-
-    /** 8.83 M3u8Utils.isNotM3u8 等价。 */
-    private static boolean isNotM3u8Url(String url) {
-        if (url.contains(".flv") || url.contains(".m4a") || url.contains(".mp3")
-                || url.contains("mine_type=video_mp4")) return true;
-        return url.contains("mp4") && !url.contains("m3u8");
-    }
-
-    /** 8.83 M3u8Utils.convertPath 等价：EXT-X-KEY 的 URI 与相对片段路径改写为绝对地址。 */
-    private String convertM3u8Paths(String content, String baseUrl, String fileName, String optionsJson) {
-        StringBuilder sb = new StringBuilder();
-        boolean hasTs = false;
-        for (String raw : content.split("\n")) {
-            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
-            if (line.startsWith("#EXT-X-KEY:")) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("URI=\"(.*?)\"").matcher(line);
-                if (m.find()) {
-                    String keyUri = m.group(1);
-                    String keyUrl = keyUri.startsWith("http://") || keyUri.startsWith("https://")
-                            ? keyUri : resolveUrl(baseUrl, keyUri.trim());
-                    sb.append(line.replace(keyUri, keyUrl)).append('\n');
-                } else {
-                    sb.append(raw).append('\n');
-                }
-            } else if (line.startsWith("/") || (!line.startsWith("#") && !line.startsWith("http") && !line.isEmpty())) {
-                String newUrl = resolveUrl(baseUrl, line);
-                if (!hasTs && line.endsWith(".m3u8") && !newUrl.equals(baseUrl)) {
-                    // 嵌套子索引：递归下载，内容写回同一 fileName（8.83 语义）
-                    return convertM3u8Paths(fetchM3u8Body(newUrl, optionsJson), newUrl, fileName, optionsJson);
-                }
-                sb.append(newUrl).append('\n');
-                hasTs = true;
-            } else {
-                sb.append(raw).append('\n');
-            }
-        }
-        return sb.toString();
-    }
-
-    private String fetchM3u8Body(String url, String optionsJson) {
-        String result = fetchSync(url, withHeadersOpt(optionsJson));
-        try {
-            Map<String, Object> map = GSON.fromJson(result,
-                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
-            if (map != null && map.get("body") != null) return String.valueOf(map.get("body"));
-        } catch (Throwable ignored) {
-        }
-        throw new RuntimeException("m3u8 内容为空：" + url);
-    }
-
-    private static String resolveUrl(String base, String rel) {
-        try {
-            return new java.net.URL(new java.net.URL(base), rel).toString();
-        } catch (Throwable e) {
-            return rel;
-        }
-    }
-
-    /** options JSON 里强制 withHeaders=true（8.83 fetchWithHeaders 语义）。 */
-    private static String withHeadersOpt(String optionsJson) {
-        try {
-            com.google.gson.JsonObject obj;
-            if (TextUtils.isEmpty(optionsJson)) {
-                obj = new com.google.gson.JsonObject();
-            } else {
-                com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(optionsJson);
-                obj = el != null && el.isJsonObject() ? el.getAsJsonObject() : new com.google.gson.JsonObject();
-            }
-            obj.addProperty("withHeaders", true);
-            return GSON.toJson(obj);
-        } catch (Throwable e) {
-            return "{\"withHeaders\":true}";
-        }
-    }
-
-    /**
-     * 8.83 JSEngine.java:1943 batchCacheM3u8 等价：params 须为数组（元素 {url, options} 或裸字符串），
-     * 否则回 "[]"；每项下载索引文件，返回 "file##url"（失败/等价项回原 url，抛错项置 null），
-     * 整体 JSON 数组字符串。并发下载（最多 8 线）。
-     */
-    private String batchCacheM3u8Impl(Object[] args) {
-        if (args == null || args.length == 0 || args[0] == null) return "[]";
-        List<Object> items = new ArrayList<>();
-        try {
-            Object p0 = args[0];
-            if (p0 instanceof NativeArray) {
-                NativeArray na = (NativeArray) p0;
-                for (int i = 0; i < na.size(); i++) items.add(na.get(i));
-            } else {
-                String json = argStr(p0).trim();
-                if (!json.startsWith("[")) return "[]";
-                List<Object> list = GSON.fromJson(json,
-                        new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
-                if (list != null) items.addAll(list);
-            }
-        } catch (Throwable e) {
-            Logger.t(TAG).d("batchCacheM3u8 parse failed: %s", e.getMessage());
-            return "[]";
-        }
-        if (items.isEmpty()) return "[]";
-        int n = items.size();
-        int threads = Math.min(n, 8);
-        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
-        List<String> out = new ArrayList<>(java.util.Collections.nCopies(n, null));
-        try {
-            List<java.util.concurrent.Future<?>> futures = new ArrayList<>(n);
-            for (int i = 0; i < n; i++) {
-                final int idx = i;
-                futures.add(pool.submit(() -> {
-                    Object o = items.get(idx);
-                    String u;
-                    String opt = null;
-                    java.util.Map<?, ?> m = toStringMap(o);
-                    if (m != null) {
-                        u = m.get("url") == null ? "" : String.valueOf(m.get("url"));
-                        if (m.get("options") != null) opt = GSON.toJson(m.get("options"));
-                    } else {
-                        u = String.valueOf(o);
-                    }
-                    try {
-                        if (TextUtils.isEmpty(u)) {
-                            out.set(idx, null);
-                            return;
-                        }
-                        String file = downloadM3u8File(u, "video" + idx + ".m3u8", opt);
-                        out.set(idx, file.equals(u) ? u : file + "##" + u);
-                    } catch (Throwable e) {
-                        // 8.83 batchExecute：单项抛错该槽留空（null）
-                        out.set(idx, null);
-                    }
-                }));
-            }
-            for (java.util.concurrent.Future<?> f : futures) {
-                try {
-                    f.get(90, java.util.concurrent.TimeUnit.SECONDS);
-                } catch (Throwable ignored) {
-                }
-            }
-        } finally {
-            pool.shutdownNow();
-        }
-        return GSON.toJson(out);
-    }
         // proxyClearM3u8：移植自 8.83 JSEngine.proxyClearM3u8 (JSEngine.smali:21401)。
         // 语义：proxyClearM3u8(u, h, r) 去 m3u8 广告片段。
         //   u: m3u8 URL；h: headers Map（可选，取 "headers"/"header" 子键）；r: 广告规则 JSONArray（可选）。
@@ -3343,6 +3102,249 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } catch (Throwable e) {
             Logger.t(TAG).d("Uint8Array shim failed: %s", e.getMessage());
         }
+    }
+
+    /** 8.83 AesUtil 同款：AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。 */
+    private String aesEcbHex(boolean encode, String key, String data) throws Exception {
+        javax.crypto.KeyGenerator kgen = javax.crypto.KeyGenerator.getInstance("AES");
+        java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
+        sr.setSeed(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        kgen.init(256, sr);
+        byte[] rawKey = kgen.generateKey().getEncoded();
+        javax.crypto.spec.SecretKeySpec spec = new javax.crypto.spec.SecretKeySpec(rawKey, "AES");
+        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES");
+        if (encode) {
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, spec);
+            byte[] out = cipher.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(out.length * 2);
+            for (byte b : out) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString().toUpperCase();
+        } else {
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, spec);
+            int n = data.length();
+            byte[] enc = new byte[n / 2];
+            for (int i = 0; i < n / 2; i++) {
+                enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
+            }
+            return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    /** 8.83 require0 的 eval 分支（requireCache/rc，returnType=OBJECT）：返回模块执行结果；缺码抛错。 */
+    private Object requireCacheEval(Object[] args) {
+        if (args == null || args.length == 0) return null;
+        String url = argStr(args[0]);
+        double hours = args.length > 1 ? toDouble(args[1]) : 0;
+        String code = memCached("rc:" + url, hours, () -> {
+            String c = loadLibLocal(url);
+            return c == null ? fetchSync(url, null) : c;
+        });
+        if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + url);
+        return evalJs(stripJsPrefix(code));
+    }
+
+    /** 8.83 JSEngine.tryGetString 等价：非字符串（含缺参/undefined）抛错。 */
+    private static String mustBeString(Object[] args, int i) {
+        if (args == null || args.length <= i || !(args[i] instanceof String))
+            throw new RuntimeException("参数类型只能是字符串");
+        return (String) args[i];
+    }
+
+    /** 8.83 JSEngine.getRuleTitle(ruleTitleKey) 等价：空则取当前规则标题，否则按给定标题取规则数据目录。 */
+    private File ruleDirForTitle(String rt) {
+        String title = (rt == null || rt.isEmpty()) ? (rule != null ? rule.getTitle() : "") : rt;
+        return HkRuleManager.get().getDataDir(title);
+    }
+
+    /** 是否合法字符集名（readFile 第 2 参双重解释用）。 */
+    private static boolean isCharsetName(String s) {
+        try {
+            return java.nio.charset.Charset.isSupported(s.trim());
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    /**
+     * 8.83 M3u8Utils.downloadM3u8 等价：只缓存索引文件（片段不下载），相对路径改写为绝对地址，
+     * 嵌套子 m3u8 递归跟进；写到 hiker://files/cache/<fileName>，返回 "file://<绝对路径>"。
+     * 非 m3u8 地址（mp4/flv/m4a/mp3）直接回原 url。
+     */
+    private String downloadM3u8File(String url, String fileName, String optionsJson) {
+        if (TextUtils.isEmpty(url)) throw new RuntimeException("m3u8 地址为空");
+        if (isNotM3u8Url(url)) return url;
+        String result;
+        try {
+            result = fetchSync(url, withHeadersOpt(optionsJson));
+        } catch (Throwable e) {
+            throw new RuntimeException("m3u8 下载失败：" + e.getMessage());
+        }
+        String body = "";
+        String realUrl = url;
+        try {
+            Map<String, Object> map = GSON.fromJson(result,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+            if (map != null) {
+                Object b = map.get("body");
+                if (b != null) body = String.valueOf(b);
+                Object u = map.get("url");
+                if (u != null && !TextUtils.isEmpty(String.valueOf(u))) realUrl = String.valueOf(u);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (TextUtils.isEmpty(body)) throw new RuntimeException("m3u8 内容为空：" + url);
+        String content = convertM3u8Paths(body, realUrl, fileName, optionsJson);
+        String abs = resolveHikerPath("hiker://files/cache/" + fileName);
+        File f = new File(abs);
+        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+        writeFileContent(abs, content);
+        Logger.t(TAG).d("downloadM3u8File ok: %s", abs);
+        return "file://" + abs;
+    }
+
+    /** 8.83 M3u8Utils.isNotM3u8 等价。 */
+    private static boolean isNotM3u8Url(String url) {
+        if (url.contains(".flv") || url.contains(".m4a") || url.contains(".mp3")
+                || url.contains("mine_type=video_mp4")) return true;
+        return url.contains("mp4") && !url.contains("m3u8");
+    }
+
+    /** 8.83 M3u8Utils.convertPath 等价：EXT-X-KEY 的 URI 与相对片段路径改写为绝对地址。 */
+    private String convertM3u8Paths(String content, String baseUrl, String fileName, String optionsJson) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasTs = false;
+        for (String raw : content.split("\n")) {
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            if (line.startsWith("#EXT-X-KEY:")) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("URI=\"(.*?)\"").matcher(line);
+                if (m.find()) {
+                    String keyUri = m.group(1);
+                    String keyUrl = keyUri.startsWith("http://") || keyUri.startsWith("https://")
+                            ? keyUri : resolveUrl(baseUrl, keyUri.trim());
+                    sb.append(line.replace(keyUri, keyUrl)).append('\n');
+                } else {
+                    sb.append(raw).append('\n');
+                }
+            } else if (line.startsWith("/") || (!line.startsWith("#") && !line.startsWith("http") && !line.isEmpty())) {
+                String newUrl = resolveUrl(baseUrl, line);
+                if (!hasTs && line.endsWith(".m3u8") && !newUrl.equals(baseUrl)) {
+                    // 嵌套子索引：递归下载，内容写回同一 fileName（8.83 语义）
+                    return convertM3u8Paths(fetchM3u8Body(newUrl, optionsJson), newUrl, fileName, optionsJson);
+                }
+                sb.append(newUrl).append('\n');
+                hasTs = true;
+            } else {
+                sb.append(raw).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private String fetchM3u8Body(String url, String optionsJson) {
+        String result = fetchSync(url, withHeadersOpt(optionsJson));
+        try {
+            Map<String, Object> map = GSON.fromJson(result,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType());
+            if (map != null && map.get("body") != null) return String.valueOf(map.get("body"));
+        } catch (Throwable ignored) {
+        }
+        throw new RuntimeException("m3u8 内容为空：" + url);
+    }
+
+    private static String resolveUrl(String base, String rel) {
+        try {
+            return new java.net.URL(new java.net.URL(base), rel).toString();
+        } catch (Throwable e) {
+            return rel;
+        }
+    }
+
+    /** options JSON 里强制 withHeaders=true（8.83 fetchWithHeaders 语义）。 */
+    private static String withHeadersOpt(String optionsJson) {
+        try {
+            com.google.gson.JsonObject obj;
+            if (TextUtils.isEmpty(optionsJson)) {
+                obj = new com.google.gson.JsonObject();
+            } else {
+                com.google.gson.JsonElement el = com.google.gson.JsonParser.parseString(optionsJson);
+                obj = el != null && el.isJsonObject() ? el.getAsJsonObject() : new com.google.gson.JsonObject();
+            }
+            obj.addProperty("withHeaders", true);
+            return GSON.toJson(obj);
+        } catch (Throwable e) {
+            return "{\"withHeaders\":true}";
+        }
+    }
+
+    /**
+     * 8.83 JSEngine.java:1943 batchCacheM3u8 等价：params 须为数组（元素 {url, options} 或裸字符串），
+     * 否则回 "[]"；每项下载索引文件，返回 "file##url"（失败/等价项回原 url，抛错项置 null），
+     * 整体 JSON 数组字符串。并发下载（最多 8 线）。
+     */
+    private String batchCacheM3u8Impl(Object[] args) {
+        if (args == null || args.length == 0 || args[0] == null) return "[]";
+        List<Object> items = new ArrayList<>();
+        try {
+            Object p0 = args[0];
+            if (p0 instanceof NativeArray) {
+                NativeArray na = (NativeArray) p0;
+                for (int i = 0; i < na.size(); i++) items.add(na.get(i));
+            } else {
+                String json = argStr(p0).trim();
+                if (!json.startsWith("[")) return "[]";
+                List<Object> list = GSON.fromJson(json,
+                        new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
+                if (list != null) items.addAll(list);
+            }
+        } catch (Throwable e) {
+            Logger.t(TAG).d("batchCacheM3u8 parse failed: %s", e.getMessage());
+            return "[]";
+        }
+        if (items.isEmpty()) return "[]";
+        int n = items.size();
+        int threads = Math.min(n, 8);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        List<String> out = new ArrayList<>(java.util.Collections.nCopies(n, null));
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                final int idx = i;
+                futures.add(pool.submit(() -> {
+                    Object o = items.get(idx);
+                    String u;
+                    String opt = null;
+                    java.util.Map<?, ?> m = toStringMap(o);
+                    if (m != null) {
+                        u = m.get("url") == null ? "" : String.valueOf(m.get("url"));
+                        if (m.get("options") != null) opt = GSON.toJson(m.get("options"));
+                    } else {
+                        u = String.valueOf(o);
+                    }
+                    try {
+                        if (TextUtils.isEmpty(u)) {
+                            out.set(idx, null);
+                            return;
+                        }
+                        String file = downloadM3u8File(u, "video" + idx + ".m3u8", opt);
+                        out.set(idx, file.equals(u) ? u : file + "##" + u);
+                    } catch (Throwable e) {
+                        // 8.83 batchExecute：单项抛错该槽留空（null）
+                        out.set(idx, null);
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : futures) {
+                try {
+                    f.get(90, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Throwable ignored) {
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        return GSON.toJson(out);
     }
 
     /**

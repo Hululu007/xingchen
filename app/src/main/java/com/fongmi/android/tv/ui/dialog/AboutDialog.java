@@ -31,7 +31,7 @@ public final class AboutDialog {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(binding.getRoot());
         binding.confirm.setOnClickListener(v -> dialog.dismiss());
-        if (!BuildConfig.UPDATE_ENABLED) binding.checkUpdate.setVisibility(View.GONE);
+        if (updateAction == null) binding.checkUpdate.setVisibility(View.GONE);
         binding.checkUpdate.setOnClickListener(v -> {
             dialog.dismiss();
             if (updateAction != null) updateAction.run();

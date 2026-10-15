@@ -49,8 +49,8 @@ jobs:
           VNAME=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -1)
           echo "WEBHTV_RELEASE_TAG=v$VNAME" >> "$GITHUB_ENV"
           chmod +x gradlew
-          if [ "${{ inputs.variant }}" = "noupdate" ]; then EXTRA_PROPS="-PxcNoUpdate=true"; else EXTRA_PROPS=""; fi
-          ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon $EXTRA_PROPS
+          if [ "${{ inputs.variant }}" = "noupdate" ]; then bash .github/scripts/strip-updater.sh; fi
+          ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon
       - name: Find APK
         run: |
           find app/build/outputs -name "*.apk" 2>/dev/null | head -20

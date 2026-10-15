@@ -105,7 +105,6 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     }
 
     public void start(FragmentActivity activity) {
-        if (!BuildConfig.UPDATE_ENABLED) return;
         bind(activity);
         boolean forceCheck = force;
         force = false;
@@ -118,7 +117,6 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     }
 
     public void resume(FragmentActivity activity) {
-        if (!BuildConfig.UPDATE_ENABLED) return;
         bind(activity);
         restoreDialog(activity);
     }

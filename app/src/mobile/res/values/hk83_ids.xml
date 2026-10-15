@@ -50,4 +50,6 @@
     <item type="id" name="res_header_item_expand" />
     <item type="id" name="res_header_linearlayout" />
     <item type="id" name="search_all_content" />
+    <item type="id" name="item_button" />
+    <item type="id" name="desc_bg" />
 </resources>

@@ -33,8 +33,8 @@ def _install_dns_bridge():
             return _orig(host, port, family, type, proto, flags)
 
         _sock.getaddrinfo = _patched
-    except Exception:
-        pass
+    except Exception as e:
+        print('dns bridge failed: %s' % e)
 
 
 _install_dns_bridge()

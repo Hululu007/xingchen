@@ -98,8 +98,8 @@ class Spider(metaclass=ABCMeta):
             if port:
                 u = 'http://127.0.0.1:%d' % int(port)
                 return {'http': u, 'https': u}
-        except Exception:
-            pass
+        except Exception as e:
+            print('gate proxies failed: %s' % e)
         return None
 
     def fetch(self, url, params=None, cookies=None, headers=None, timeout=5, verify=True, stream=False, allow_redirects = True):

@@ -55,13 +55,14 @@ public class Thunder implements Source.Extractor {
     public String fetch(String url) throws Exception {
         if (url == null) return fetchInternal(url);
         synchronized (this) {
-            if (url.equals(lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists()) {
+            if (sameContent(url, lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists()) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
                 return lastLocal;
             }
         }
+        String inflightKey = contentKey(url);
         CompletableFuture<String> mine = new CompletableFuture<>();
-        CompletableFuture<String> first = inflight.putIfAbsent(url, mine);
+        CompletableFuture<String> first = inflight.putIfAbsent(inflightKey, mine);
         if (first != null) {
             SpiderDebug.log("thunder", "join in-flight fetch, wait for first result");
             try {
@@ -83,7 +84,7 @@ public class Thunder implements Source.Extractor {
             mine.completeExceptionally(t);
             throw t;
         } finally {
-            inflight.remove(url, mine);
+            inflight.remove(inflightKey, mine);
         }
     }
 
@@ -99,15 +100,20 @@ public class Thunder implements Source.Extractor {
         // 后到的 fetch 把先建任务当死任务杀掉重建，播放器对着已删任务的地址永远 0 字节。
         // FongMi 原版无此清理层、从不杀同链接任务，故一直能播。
         int ns = nativeStatus();
-        if (url != null && url.equals(lastKey) && lastLocal != null && taskId != null && ns != 3) {
+        // 状态单次读数偶发误报 3（出错）：任务已下出字节且没被零字节监控记账时，以字节为准
+        if (ns == 3 && downloadedSize() > 0 && (url == null || !zeroMark(url).exists())) ns = 1;
+        if (url != null && sameContent(url, lastKey) && lastLocal != null && taskId != null && ns != 3) {
             SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
+            lastKey = url;
             return lastLocal;
         }
         // 串行重试卫生：仅当原生状态明确为 3（出错）才停删旧任务再建新任务。
         if (taskId != null && ns == 3) cleanupStaleTask();
         // 换链接：旧任务先停删再建新的，避免多任务并存抢带宽与目录
         // （同链接的 stop 保护靠这里兜底，任务不会一直攒着）。
-        if (taskId != null && url != null && !url.equals(lastKey)) cleanupStaleTask();
+        // 换不换只认内容身份（磁力认 btih 指纹）：同磁力不同字符串写法不算换链接，
+        // 否则正在下载的任务会被第二路 fetch 当「旧链接」停删（1.3.12 真机日志实证）。
+        if (taskId != null && url != null && !sameContent(url, lastKey)) cleanupStaleTask();
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
                 : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url)) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
@@ -212,7 +218,58 @@ public class Thunder implements Source.Extractor {
     // 零字节标记：交地址后持续 0 字节的链接在 thunder 根目录留一个标记文件，
     // 下次 fetch 见标记先干净重建（见 fetchInternal 的 wipeZeroMarked）。
     private static File zeroMark(String url) {
-        return new File(Path.thunder(), "zero-" + Util.md5(url));
+        // 标记按内容身份记账：同磁力换个字符串写法进来也要能认出这笔账
+        return new File(Path.thunder(), "zero-" + Util.md5(contentKey(url)));
+    }
+
+    // —— 内容身份：同一条磁力从不同入口进来，字符串常不同（参数顺序、附加参数、编码），
+    // 按原文比对会把同内容误判成换链接。磁力认 btih 指纹、电驴认文件哈希，其余用原文。
+    private static String contentKey(String url) {
+        if (url == null) return "";
+        String hash = btihOf(url);
+        if (hash != null) return "btih:" + hash;
+        hash = ed2kHashOf(url);
+        if (hash != null) return "ed2k:" + hash;
+        return url;
+    }
+
+    private static boolean sameContent(String a, String b) {
+        if (a == null || b == null) return false;
+        return a.equals(b) || contentKey(a).equals(contentKey(b));
+    }
+
+    private static String btihOf(String url) {
+        String low = url.toLowerCase(java.util.Locale.ROOT);
+        int i = low.indexOf("xt=urn:btih:");
+        if (i < 0) return null;
+        int start = i + "xt=urn:btih:".length();
+        int end = start;
+        while (end < url.length()) {
+            char c = url.charAt(end);
+            if (c == '&' || c == '#' || c == ' ') break;
+            end++;
+        }
+        String hash = url.substring(start, end).trim().toLowerCase(java.util.Locale.ROOT);
+        return hash.isEmpty() ? null : hash;
+    }
+
+    private static String ed2kHashOf(String url) {
+        if (!url.startsWith("ed2k://")) return null;
+        String[] parts = url.split("\\|");
+        // ed2k://|file|名称|大小|哈希|.../ —— 第 5 段是文件哈希
+        return parts.length >= 5 && !parts[4].isEmpty()
+                ? parts[4].toLowerCase(java.util.Locale.ROOT) : null;
+    }
+
+    /** 当前任务已下载字节（走原生信息，与 nativeStatus 同源）；读不到按 0。 */
+    private long downloadedSize() {
+        if (taskId == null) return 0;
+        try {
+            XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(taskId);
+            return info == null ? 0 : info.mDownloadSize;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private void wipeZeroMarked(String url) {
@@ -222,7 +279,7 @@ public class Thunder implements Source.Extractor {
             // 最后由调用方按原流程新建——保证新任务不挂任何旧状态。
             // 内存里的任务只动属于这条链接的那个；不属于时用同链接探针任务去删引擎侧记录，
             // 不碰可能正在播的别的链接。
-            boolean mine = url.equals(lastKey);
+            boolean mine = sameContent(url, lastKey);
             try {
                 GetTaskId stale = mine && taskId != null ? taskId : XLTaskHelper.get().addThunderTask(url, Path.thunder(Util.md5(url)));
                 XLTaskHelper.get().stopTask(stale);

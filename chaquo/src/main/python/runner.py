@@ -3,10 +3,12 @@ class Runner():
         self.spider = spider
 
     def getDependence(self):
-        return self.spider.getDependence()
+        fn = getattr(self.spider, "getDependence", None)
+        return fn() if callable(fn) else []
 
     def getName(self):
-        return self.spider.getName()
+        fn = getattr(self.spider, "getName", None)
+        return fn() if callable(fn) else None
 
     def init(self, extend=""):
         self.spider.init(extend)
@@ -45,4 +47,6 @@ class Runner():
         return self.spider.action(action)
 
     def destroy(self):
-        self.spider.destroy()
+        fn = getattr(self.spider, "destroy", None)
+        if callable(fn):
+            fn()

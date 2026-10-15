@@ -1121,6 +1121,48 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         if (webViewHolder.getWebView() == null) {
             webViewHolder.ensureWebView(getActivity());
         }
+        android.webkit.WebView wv = webViewHolder.getWebView();
+        if (wv == null || webViewContainer == null) return;
+        // x5Extra 的 UA 在此统一应用（原版 updateWebView 同款位置）
+        HkX5Extra x5 = webViewHolder.getX5Extra();
+        if (x5 != null && !TextUtils.isEmpty(x5.getUa())) {
+            try {
+                wv.getSettings().setUserAgentString(x5.getUa());
+            } catch (Exception ignored) {
+            }
+        }
+        // FLOAT 模式：WebView 必须挂到页级容器 webViewContainer 才可见——此前本方法只建不挂，
+        // 行内 bind 对 FLOAT 又只清不挂，网页在不可见的 WebView 里加载（进度条爬完仍纯白，
+        // 凡需要 webview 的小程序全中招，真机录屏实证）。非 FLOAT 时容器清空、走行内挂载。
+        if (webViewHolder.getMode() == HkWebViewHolder.Mode.FLOAT) {
+            int heightDp = HkWebViewHolder.getHeightByExtra(getContext(),
+                    webViewHolder.getUrl(), webViewHolder.getExtra());
+            // 负数是布局哨兵（-1 全高/-2 自适应等），原样透传；正数才是 dp
+            int heightPx = heightDp < 0 ? heightDp : dpToPx(heightDp);
+            android.view.ViewGroup.LayoutParams lp = webViewContainer.getLayoutParams();
+            if (webViewContainer.getChildCount() <= 0) {
+                lp.height = heightPx;
+                webViewContainer.setLayoutParams(lp);
+                webViewHolder.setHeight(lp.height);
+                if (wv.getParent() != null) {
+                    ((android.view.ViewGroup) wv.getParent()).removeView(wv);
+                }
+                webViewContainer.addView(wv);
+            } else if (lp.height != heightPx) {
+                // 已挂载时只对齐高度（原版带 300ms 动画，此处直接设值、结果等价）
+                lp.height = heightPx;
+                webViewContainer.setLayoutParams(lp);
+                webViewHolder.setHeight(heightPx);
+            }
+        } else if (webViewContainer.getChildCount() > 0) {
+            webViewContainer.removeAllViews();
+        }
+        // 地址同步：变了加载新的，没变刷新一次（原版同款；变空的静音分支缺 mute 脚本资源，暂略）
+        String target = webViewHolder.getUrl();
+        if (!TextUtils.isEmpty(target)) {
+            if (!target.equals(wv.getUrl())) wv.loadUrl(target);
+            else wv.reload();
+        }
     }
 
     /** 照抄原版 bindObjectToView：updatePage 改页码；onRefresh/refresh 累积 onRefreshJS；onClose/close 累积 onCloseJS。 */
@@ -2105,16 +2147,20 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             // 照 8.83 ArticleListFragment 的分发极性：地址未被改写、或解析带了代码头、
             // 或网页解析器能接手——任一成立都走 getChapters 收全选集；三者皆否才单播。
             // 此前星辰写反了：解析过的地址反而走单播捷径，标题成了链接文字、选集只剩一条
-            // （1.3.11 真机录屏实证）。playDataOf 是星辰的播放数据附加项，
-            // 带播放数据的同样归选集路径处理（与 120d44f4 的守卫同向）。
+            // （1.3.11 真机录屏实证）。playDataOf 是星辰自加的第四条触发（8.83 没有）：
+            // 仅因带播放数据就收全页，会把帖子页的标题条/统计条/简介条等杂项一并收进
+            // 选集（1.3.12 真机截图实证）。改为：仅播放数据触发时只带被点这一条走
+            // 章节路径（播放数据的多线路展开仍在），不收全页。
             boolean collect = cleared.equals(itemCleared) || !TextUtils.isEmpty(codeAndHeader)
-                    || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl())
-                    || HkListActivity.playDataOf(url) != null;
-            if (!collect) {
+                    || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl());
+            boolean byPlayDataOnly = !collect && HkListActivity.playDataOf(url) != null;
+            if (!collect && !byPlayDataOnly) {
                 detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
                 return;
             }
-            java.util.List<HkChapter> chapters = getChapters(url, position, titlePrefix, codeAndHeader);
+            java.util.List<HkChapter> chapters = byPlayDataOnly
+                    ? singleChapter(url, position, titlePrefix, codeAndHeader)
+                    : getChapters(url, position, titlePrefix, codeAndHeader);
             android.os.Bundle bundle = new android.os.Bundle();
             String vc = detailBridge.getViewCollectionExtraData(getActivity(), articleListRule.getUrl());
             if (!TextUtils.isEmpty(vc)) bundle.putString("viewCollectionExtraData", vc);
@@ -2204,6 +2250,26 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
      * 非 playlist 时向前只到同 type 连续段开头、向后遇不同 type 即止；playlist 时按 extra.cls 分组、全表收集。
      * 过滤：header、空 url、含 ignoreVideo/ignoreMusic、含 @rule= 的条目；每集带 codeAndHeader 时另存 originalUrl。
      */
+    /** 只带被点这一条的章节表：构造与 getChapters 的当前集完全一致，不收同页其他条目。 */
+    private java.util.List<HkChapter> singleChapter(String url, int position, String titlePrefix, String codeAndHeader) {
+        java.util.List<HkChapter> chapters = new ArrayList<>();
+        HkItem clicked = adapter.getList().get(position);
+        HkChapter cur = new HkChapter();
+        cur.memoryTitle = clicked.getTitle();
+        cur.title = getResourceTitle(titlePrefix, position);
+        cur.url = url;
+        cur.use = true;
+        cur.realPos = position;
+        cur.extra = extraJson(clicked);
+        addChapterPic(cur, position);
+        if (!TextUtils.isEmpty(codeAndHeader)) {
+            cur.codeAndHeader = codeAndHeader;
+            cur.originalUrl = clicked.getUrl();
+        }
+        chapters.add(cur);
+        return chapters;
+    }
+
     private java.util.List<HkChapter> getChapters(String url, int position, String titlePrefix, String codeAndHeader) {
         java.util.List<HkChapter> chapters = new ArrayList<>();
         java.util.List<HkItem> list = adapter.getList();

@@ -78,20 +78,43 @@ public class OkDns implements Dns {
                 // 系统 DNS 失败，回退到内置腾讯 DoH
                 result = getFallbackDoh().lookup(target);
             }
+            result = sanitize(result);
+            if (result.isEmpty()) {
+                // 系统解析只回了 [::] 这类空地址（sanitize 后为空）：等同解析失败，
+                // 换腾讯 DoH 再试一次（真机 CloudFront 域名实证：系统回 [::]、
+                // 播放器直连空地址被拒、整场播放失败）
+                try {
+                    List<InetAddress> viaDoh = sanitize(getFallbackDoh().lookup(target));
+                    if (!viaDoh.isEmpty()) result = viaDoh;
+                } catch (UnknownHostException ignored) {
+                }
+            }
         } else {
-            result = doh.lookup(target);
+            result = sanitize(doh.lookup(target));
         }
-        // IPv4 优选过滤：有些网络的 DNS 会返回坏 IPv6（如 [::]）或劫持的回环地址（如 127.0.1.1），
-        // 直接拿去连会失败。优先用 IPv4，无 IPv4 时才回退原列表（保证纯 IPv6 站点可用）。
-        return preferIpv4(result);
+        // 清洗后仍为空就按解析失败抛错，绝不把空地址交给连接层
+        if (result.isEmpty()) throw new UnknownHostException(hostname);
+        return result;
     }
 
-    /** IPv4 优选：过滤坏 IPv6 和劫持回环，优先返回 IPv4 */
-    private List<InetAddress> preferIpv4(List<InetAddress> addresses) {
-        if (addresses == null || addresses.size() <= 1) return addresses;
+    /**
+     * 地址清洗（播放器与点播共用此层，小程序之外的源也全覆盖）：
+     * 先无条件剔除空地址（:: / 0.0.0.0）——它在任何组合下都不是可连接目标，
+     * 旧版只在「多地址且混有 IPv4」时才顺带滤掉，单条 [::] 或纯空地址列表会原样漏给
+     * 连接层（10-15 真机播放失败实证）。再做 IPv4 优选（剔劫持回环），
+     * 无 IPv4 时回退清洗后的原列表（保证纯 IPv6 站点可用）。
+     * 结果可为空表，由调用方决定兜底（换 DoH 或抛解析失败）。
+     */
+    private List<InetAddress> sanitize(List<InetAddress> addresses) {
+        List<InetAddress> usable = new ArrayList<>();
+        if (addresses != null) {
+            for (InetAddress addr : addresses) {
+                if (addr != null && !addr.isAnyLocalAddress()) usable.add(addr);
+            }
+        }
+        if (usable.size() <= 1) return usable;
         List<InetAddress> ipv4 = new ArrayList<>();
-        for (InetAddress addr : addresses) {
-            // 跳过坏 IPv6（如 ::）和回环/本地劫持地址
+        for (InetAddress addr : usable) {
             if (addr instanceof java.net.Inet6Address) continue;
             String host = addr.getHostAddress();
             if (host == null) continue;
@@ -99,8 +122,7 @@ public class OkDns implements Dns {
             if (host.startsWith("127.")) continue;
             ipv4.add(addr);
         }
-        // 有可用 IPv4 就用 IPv4，否则回退原列表（纯 IPv6 站点）
-        return ipv4.isEmpty() ? addresses : ipv4;
+        return ipv4.isEmpty() ? usable : ipv4;
     }
 
     private volatile Dns fallbackDoh;

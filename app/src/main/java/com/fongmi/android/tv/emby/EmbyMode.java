@@ -39,6 +39,9 @@ public class EmbyMode {
 
     /** 退出 Emby，切回点播首页。 */
     public static void exit() {
+        // 守卫：视图没在展示且无激活服时空转，保证每次 tab 点击都安全调用、
+        // 不会凭空创建隐藏视图写偏好；真正退出过一次后再次调用也是空转。
+        if (!EmbyHomeView.isShowing() && !isActive()) return;
         EmbyStore.setActive(null);
         App.post(() -> {
             // 兜底：前景页不是 HomeActivity 时 attach 找不到视图，这里直接保证 setActive(false)

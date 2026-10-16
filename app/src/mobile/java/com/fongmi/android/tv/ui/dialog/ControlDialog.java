@@ -51,6 +51,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     private PlayerManager player;
     private History history;
     private boolean parse;
+    /** Emby 播放中：二级页多一个「画质」入口（切画质/转码）。 */
+    private boolean embyPlayback;
     private boolean ready;
     private int scrollBasePaddingBottom;
 
@@ -79,6 +81,12 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     public ControlDialog player(PlayerManager player) {
         this.player = player;
+        return this;
+    }
+
+    /** Emby 播放中才显示「画质」入口（其它源不受影响）。 */
+    public ControlDialog embyPlayback(boolean embyPlayback) {
+        this.embyPlayback = embyPlayback;
         return this;
     }
 
@@ -174,6 +182,11 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.codecCapability.setOnClickListener(v -> ((Listener) requireActivity()).onCodecCapabilityPanel());
         binding.panDiagnostic.setOnClickListener(v -> onPanDiagnostic());
         binding.lut.setOnClickListener(v -> onLut());
+        binding.embyQuality.setVisibility(embyPlayback ? View.VISIBLE : View.GONE);
+        binding.embyQuality.setOnClickListener(v -> {
+            dismissAllowingStateLoss();
+            ((Listener) requireActivity()).onEmbyQualityPanel();
+        });
         binding.ending.setOnClickListener(v -> click(binding.ending, parent.control.action.ending));
         binding.opening.setOnClickListener(v -> click(binding.opening, parent.control.action.opening));
         binding.player.setOnLongClickListener(v -> longClick(binding.player, parent.control.action.player));
@@ -469,5 +482,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         void onCodecCapabilityPanel();
 
         void onPlayParamsPanel();
+
+        /** Emby 播放中「画质」入口：宿主弹 EmbyQualityDialog 换源（保进度）。 */
+        void onEmbyQualityPanel();
     }
 }

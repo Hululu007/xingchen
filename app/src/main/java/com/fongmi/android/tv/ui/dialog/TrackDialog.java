@@ -63,6 +63,8 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     private List<Sub> embySubs;
     private int embySelected = -1;
     private OnEmbySubListener embySubListener;
+    /** Emby 音轨元数据（EXTRA_TRACKS 的 json）：只给原生音轨换名用，不硬凑切换。 */
+    private String embyTracksJson;
 
     /** Emby 外挂字幕选择回调。 */
     public interface OnEmbySubListener {
@@ -74,6 +76,12 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         this.embySubs = subs;
         this.embySelected = selected;
         this.embySubListener = listener;
+        return this;
+    }
+
+    /** 附加 Emby 音轨元数据（仅音频轨：按数量对齐给原生音轨换 Emby 的名字）。 */
+    public TrackDialog embyTracks(String json) {
+        this.embyTracksJson = json;
         return this;
     }
 
@@ -453,8 +461,34 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     private List<Track> getTrack() {
         List<Track> items = new ArrayList<>();
         addTrack(items);
+        applyEmbyAudioNames(items);
         addEmbySubs(items);
         return items;
+    }
+
+    /**
+     * Emby 音轨元数据最小接入：播放器原生音轨的数量与 Emby MediaStreams 的非外挂音轨数
+     * 对得上时，把 Emby 的 DisplayTitle 换上去（名字准、默认轨可辨），切换仍走原生机制；
+     * 对不上（转码/外挂轨等）就不碰，不硬凑。
+     */
+    private void applyEmbyAudioNames(List<Track> items) {
+        if (type != C.TRACK_TYPE_AUDIO || items.isEmpty()
+                || embyTracksJson == null || embyTracksJson.isEmpty()) return;
+        try {
+            org.json.JSONObject root = new org.json.JSONObject(embyTracksJson);
+            org.json.JSONArray arr = root.optJSONArray("tracks");
+            if (arr == null || arr.length() == 0) return;
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject o = arr.optJSONObject(i);
+                if (o == null || o.optBoolean("external", false)) continue;
+                String n = o.optString("name", "");
+                if (!n.isEmpty()) names.add(n + (o.optBoolean("default", false) ? " · 默认" : ""));
+            }
+            if (names.size() != items.size()) return;
+            for (int i = 0; i < items.size(); i++) items.get(i).setName(names.get(i));
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Emby 外挂字幕追加进字幕轨列表（播放器原生轨不动）。 */

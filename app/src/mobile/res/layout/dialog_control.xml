@@ -116,6 +116,12 @@
                     android:contentDescription="@string/pan_diagnostic_title"
                     android:text="@string/pan_diagnostic_entry" />
 
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/embyQuality"
+                    style="@style/ControlSheetButtonLight"
+                    android:text="@string/emby_quality_panel"
+                    android:visibility="gone" />
+
             </androidx.appcompat.widget.LinearLayoutCompat>
 
             <com.google.android.material.textview.MaterialTextView

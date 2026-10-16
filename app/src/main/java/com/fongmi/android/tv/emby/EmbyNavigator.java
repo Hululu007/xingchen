@@ -128,23 +128,39 @@ public class EmbyNavigator {
                     return;
                 }
                 EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
-                EmbyApi.PlaybackCandidates cand = api.playbackCandidates(itemId, name);
+                EmbyItem target = api.getItem(itemId);
+                String playId = itemId;
+                String playName = name;
+                String episodesJson = null;
+                if (target != null && target.isSeries()) {
+                    // 剧集：拉全季集，选起始集（有续播点的第一集 → 没看过的第一集 → 第一集），配选集单
+                    List<EmbyItem> eps = allEpisodes(api, itemId);
+                    if (eps.isEmpty()) throw new Exception("这部剧没有可播的集");
+                    EmbyItem start = pickStartEpisode(eps);
+                    playId = start.id;
+                    playName = (target.name == null ? "" : target.name) + " " + (start.name == null ? "" : start.name);
+                    episodesJson = episodesJson(serverId, eps);
+                }
+                EmbyApi.PlaybackCandidates cand = api.playbackCandidates(playId, playName);
                 long resumeMs = 0;
                 try {
-                    EmbyItem it = api.getItem(itemId);
+                    EmbyItem it = api.getItem(playId);
                     if (it != null) resumeMs = it.resumeMs();
                 } catch (Throwable ignored) {
                 }
                 long resume = resumeMs;
+                String pid = playId;
+                String pname = playName;
+                String epJson = episodesJson;
                 App.post(() -> {
                     Activity act = toActivity(ctx);
                     if (act == null || act.isFinishing() || !(act instanceof FragmentActivity)) return;
                     FragmentActivity fa = (FragmentActivity) act;
                     if (cand.options.size() <= 1) {
-                        startPlayback(fa, s, itemId, name, cand.options.get(0).url, cand, resume);
+                        startPlayback(fa, s, pid, pname, cand.options.get(0).url, cand, resume, epJson);
                     } else {
                         EmbyQualityDialog.show(fa, cand.options, picked ->
-                                startPlayback(fa, s, itemId, name, picked.url, cand, resume));
+                                startPlayback(fa, s, pid, pname, picked.url, cand, resume, epJson));
                     }
                 });
             } catch (Exception e) {
@@ -154,7 +170,7 @@ public class EmbyNavigator {
     }
 
     private static void startPlayback(Activity act, EmbyStore.EmbyServer s, String itemId, String name,
-                                      String url, EmbyApi.PlaybackCandidates cand, long resumeMs) {
+                                      String url, EmbyApi.PlaybackCandidates cand, long resumeMs, String episodesJson) {
         if (TextUtils.isEmpty(url)) {
             Notify.show("没拿到播放地址");
             return;
@@ -171,7 +187,45 @@ public class EmbyNavigator {
         intent.putExtra(EXTRA_SUBTITLES, subtitlesJson(cand.subtitles));
         intent.putExtra(EXTRA_DEFAULT_SUB, defaultSubIndex(cand.subtitles));
         intent.putExtra(EXTRA_TRACKS, tracksJson(cand.audioTracks));
+        if (!TextUtils.isEmpty(episodesJson)) intent.putExtra(EXTRA_EPISODES, episodesJson);
         act.startActivity(intent);
+    }
+
+    /** intent 携带的选集单（剧集）：[{id:"emby:sid:epid", name:"集名"}]，VideoActivity 配选集/下一集。 */
+    public static final String EXTRA_EPISODES = "emby_episodes";
+
+    /** 全季集（按季拼齐，含集名与 UserData）。 */
+    private static List<EmbyItem> allEpisodes(EmbyApi api, String seriesId) throws Exception {
+        List<EmbyItem> out = new ArrayList<>();
+        for (EmbyItem season : api.seasons(seriesId)) {
+            for (EmbyItem ep : api.episodes(season.id)) {
+                if (ep != null && !TextUtils.isEmpty(ep.id)) out.add(ep);
+            }
+        }
+        return out;
+    }
+
+    /** 起始集：有续播点的第一集 → 没看过的第一集 → 第一集。 */
+    private static EmbyItem pickStartEpisode(List<EmbyItem> eps) {
+        for (EmbyItem e : eps) if (e.resumeMs() > 0) return e;
+        for (EmbyItem e : eps) if (!e.played) return e;
+        return eps.get(0);
+    }
+
+    /** 选集单 json。 */
+    private static String episodesJson(String serverId, List<EmbyItem> eps) {
+        try {
+            JSONArray arr = new JSONArray();
+            for (EmbyItem e : eps) {
+                JSONObject o = new JSONObject();
+                o.put("id", "emby:" + serverId + ":" + e.id);
+                o.put("name", e.name == null ? "" : e.name);
+                arr.put(o);
+            }
+            return arr.toString();
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static String subtitlesJson(List<EmbyApi.Subtitle> subs) {

@@ -81,7 +81,6 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkDetailBridge;
 import com.fongmi.android.tv.api.hk.HkItem;
-import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.bean.CastVideo;
@@ -304,6 +303,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mArtworkRequestUrl;
     private String mArtworkRequestOwner;
     private Vod mPendingDetailVod;
+    private boolean mPendingDetailDeferLists;
+    private long detailFinishTime;
+    private boolean markEpisodeRender;
     private Vod mAiVod; // P3：当前影片详情，供 AI 剧情问答取元数据
     private boolean mDetailCacheShown;
     private Result mPendingPlayerResult;
@@ -362,6 +364,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private long mEmbyLastProgressMs;
     private List<Sub> mEmbySubs;
     private int mEmbySubSelected = -1;
+    /** Emby 直链 410 自救：同一集重试计数（上限 2 次）＋归属键（换集自动清零）。 */
+    private int mEmby410Retry;
+    private String mEmby410Key = "";
+    /** 当前在播的 Emby 版本选项（410 重取时按"同一源→同分辨率档"优先匹配）。 */
+    private EmbyApi.PlayOption mEmbyCurrentOpt;
     /** 详情页 Emby 收藏按钮态：null=还没拉到，防详情切换串台用 gen。 */
     private Boolean mEmbyFavState;
     private String mEmbyFavSid;
@@ -1463,9 +1470,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     /**
      * 海阔分支：HkRouter.detail() 取数 → HkDetailBridge 转 Vod → 走现有详情渲染。
+     * 引擎走 SiteApi 的 hkRouterCache 复用（原版单例语义）：同规则同会话只初始化
+     * 一次，不再每次 new+destroy；详情结果会话内缓存，同一条目重复进出直接复用。
      * 播放拦截是 M4 内容，本期点选集走原有播放链（可能失败，属预期）。
      */
     private void getHkDetail() {
+        detailStartTime = System.currentTimeMillis();
         mBinding.swipeLayout.setRefreshing(true);
         new Thread(() -> {
             try {
@@ -1473,10 +1483,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 String itemUrl = getIntent().getStringExtra("hk_item_url");
                 HkRule rule = HkRuleManager.get().getRule(ruleTitle);
                 if (rule == null) throw new IllegalStateException("hk rule missing: " + ruleTitle);
-                HkRouter router = new HkRouter(rule);
                 HkItem item = new HkItem(getName(), itemUrl, getPic(), getContent());
-                HkDetail detail = router.detail(itemUrl, item, false);
-                router.destroy();
+                HkDetail detail = SiteApi.detailCached(ruleTitle, itemUrl,
+                        () -> SiteApi.getHkRouter(ruleTitle).detail(itemUrl, item, false));
                 Vod vod = HkDetailBridge.toVod(rule, getId(), detail);
                 App.post(() -> {
                     mBinding.swipeLayout.setRefreshing(false);
@@ -1484,6 +1493,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                         showError(getString(R.string.error_detail));
                         mBinding.progressLayout.showEmpty();
                     } else {
+                        long cost = System.currentTimeMillis() - detailStartTime;
+                        SpiderDebug.log("video-flow", "detail finish cost=%dms hk rule=%s", cost, ruleTitle);
+                        detailFinishTime = System.currentTimeMillis();
+                        markEpisodeRender = true;
                         setDetail(vod);
                     }
                 });
@@ -1640,6 +1653,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setDetail(Result result) {
         long cost = System.currentTimeMillis() - detailStartTime;
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
+        detailFinishTime = System.currentTimeMillis();
+        markEpisodeRender = true;
         recordDetailHealth(result, cost);
         mBinding.swipeLayout.setRefreshing(false);
         if (result.getList().isEmpty()) {
@@ -1671,8 +1686,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (seq != mDetailParseSeq || isFinishing() || isDestroyed()) return;
         VodDetailCache.put(this, getKey(), getId(), vod);
         if (deferred) {
-            mFlagAdapter.addAll(vod.getFlags());
-            checkFlag(vod);
+            // 后台展开返回空列表时保留现状：addAll 会先 clear 再加，空列表会把缓存渲染出的线路行清空，
+            // 造成"片在播、选集在"却建不了房（一起看误报），与 setDetail(Vod, deferLists) 注释的初衷相反。
+            if (vod.getFlags().isEmpty()) {
+                SpiderDebug.log("video-flow", "deferred parse empty flags, keep current lists key=%s", getKey());
+            } else {
+                mFlagAdapter.addAll(vod.getFlags());
+                checkFlag(vod);
+            }
             return;
         }
         if (!expanded) return;
@@ -1710,12 +1731,24 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * @param deferLists 为 true 时先不画线路/选集（缓存已展示过展开好的列表时用），
      *                   等后台展开完成再由 onSourceParseDone 整体换，避免列表先"缩水"再恢复。
      *                   标题/简介/历史/收藏等其余信息照常立即刷新。
+     *
+     * 渲染分两阶段：阶段一纯 UI 先画（不依赖 PlaybackService，数据一到就执行）；
+     * 阶段二需要播放器服务的（历史的播放器设置、自动播放启动）等服务连上再补。
+     * 服务已连上时两阶段紧挨着执行，与原来一次走完等价；自动播放语义、seamless、
+     * 410 自救均不碰。
      */
     private void setDetail(Vod item, boolean deferLists) {
+        renderDetailUi(item, deferLists);
         if (service() == null) {
             mPendingDetailVod = item;
+            mPendingDetailDeferLists = deferLists;
             return;
         }
+        bindDetailService(item, deferLists);
+    }
+
+    /** 阶段一：纯 UI 渲染。不碰 PlaybackService / Player，服务未连上时也可先画。 */
+    private void renderDetailUi(Vod item, boolean deferLists) {
         mAiVod = item; // P3：记录当前影片，供 AI 剧情问答
         if (!mShortDramaMode) mShortDramaMode = isShortDramaType(item.getTypeName());
         item.checkPic(getPic());
@@ -1724,18 +1757,42 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.name.setText(item.getName());
         if (!deferLists) mFlagAdapter.addAll(item.getFlags());
         App.removeCallbacks(mR4);
-        checkHistory(item);
+        checkHistoryUi(item);
         // 详情页背景：全局星辰壁纸，不铺海报墙
         mDetailWallOff = true;
         hideContextWall();
         setAudioStageVisible(shouldUseImmersiveAudio());
         mBinding.progressLayout.showContent();
-        if (!deferLists) checkFlag(item);
+        if (!deferLists) renderFlagSelection(item);
         checkKeepImg();
         setText(item);
         updateKeep();
         embyBindDetailExtras(item);
         bindEmbyAiEpisodes();
+    }
+
+    /** 阶段二：需要播放器服务的部分。服务连上后由 consumePendingPlaybackResult 补调。 */
+    private void bindDetailService(Vod item, boolean deferLists) {
+        checkHistoryPlayer(item);
+        if (deferLists) return;
+        boolean preservePlayback = mRestoringConfigurationPlayback && !player().isEmpty();
+        if (item.getFlags().isEmpty()) {
+            if (!preservePlayback) startFlow();
+        } else if (!preservePlayback) {
+            // 原 checkFlag→onItemClick 路径：History.getFlag() 每次返回新对象（isSelected 恒 false），
+            // 程序化调用恒走到 seamless；阶段一已做完纯渲染，这里只补播放动作。
+            seamless(mHistory.getFlag());
+        }
+        if (preservePlayback) SpiderDebug.log("karaoke-result", "configuration restore preserved playback key=%s episode=%s", player().getKey(), mHistory.getVodRemarks());
+        mRestoringConfigurationPlayback = false;
+    }
+
+    /** checkFlag 的纯渲染版：只画线路/选集 UI，不启动自动播放（播放动作等 bindDetailService）。 */
+    private void renderFlagSelection(Vod item) {
+        boolean empty = item.getFlags().isEmpty();
+        mBinding.flag.setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (empty) return;
+        restoreFlagSelectionWithoutPlayback();
     }
 
     private void setText(Vod item) {
@@ -1863,13 +1920,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setPlayer(Result result) {
+        setPlayer(result, false);
+    }
+
+    /**
+     * 打点说明：replay=true 只用于 onReclaim 重播旧解析结果。此时 playerStartTime 是过期
+     * 时间戳（上次 getPlayer 留的），不能再拿它算耗时——否则会算出几十秒的虚假 cost。
+     * 回放单独记一行 player replay，不复用 player finish。
+     */
+    private void setPlayer(Result result, boolean replay) {
         if (isFinishing() || isDestroyed()) return;
         mUserExitedFullscreenForThisVideo = false;
         if (service() == null) {
             mPendingPlayerResult = result;
             return;
         }
-        SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
+        if (replay) {
+            SpiderDebug.log("video-flow", "player replay (reclaim) key=%s", getKey());
+        } else {
+            SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
+        }
         mQualityAdapter.addAll(result);
         setUseParse(result.shouldUseParse());
         mBinding.swipeLayout.setRefreshing(false);
@@ -1927,7 +1997,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Vod detail = mPendingDetailVod;
         if (detail != null) {
             mPendingDetailVod = null;
-            setDetail(detail);
+            // 阶段一（纯 UI）已在数据到达时画过，这里只补阶段二（需要播放器服务的部分）
+            bindDetailService(detail, mPendingDetailDeferLists);
             consumed = true;
         }
         Result result = mPendingPlayerResult;
@@ -1975,6 +2046,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onItemClick(Episode item) {
+        if (item != null && item.getUrl() != null && item.getUrl().startsWith("emby:")) {
+            resetEmby410(EmbyNavigator.serverIdOf(item.getUrl()), EmbyNavigator.itemIdOf(item.getUrl()));
+        }
         if (switchEmbyAiEpisode(item)) return;
         if (startEmbyVersionPick(item)) return;
         clickEpisode(item);
@@ -1994,7 +2068,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     /**
      * Emby 多版本选集：同一条目有多个可直放版本（4K/1080 等）时，
-     * 点集后先弹版本选择（选哪个播哪个），不再只能进播放器后切。
+     * 点集后直接按默认规则选版本开播（分辨率最高优先，同分辨率比码率），不再弹框。
+     * 换版本走播放器二级菜单「画质」入口（onEmbyQualityPanel）。
      * 只看直放线路；转码线路走原画质机制；AI 链已在 EmbyNavigator 选过版本，不进这里。
      * 单版本/失败 → 回主线程走原点击流程。
      */
@@ -2022,13 +2097,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     App.post(() -> clickEpisode(item));
                     return;
                 }
-                App.post(() -> EmbyQualityDialog.show(this, direct,
-                        getString(R.string.emby_version_title),
-                        picked -> {
-                            if (picked != null && !TextUtils.isEmpty(picked.url)) {
-                                playPickedEmbyVersion(item, picked);
-                            }
-                        }));
+                EmbyApi.PlayOption best = EmbyApi.pickDefaultDirect(direct);
+                if (best == null || TextUtils.isEmpty(best.url)) {
+                    App.post(() -> clickEpisode(item));
+                    return;
+                }
+                final EmbyApi.PlayOption pick = best;
+                App.post(() -> playPickedEmbyVersion(item, pick));
             } catch (Exception e) {
                 App.post(() -> {
                     Notify.show("Emby 播放失败：" + e.getMessage());
@@ -2043,6 +2118,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void playPickedEmbyVersion(Episode item, EmbyApi.PlayOption opt) {
         if (shouldEnterFullscreen(item)) return;
         mDetailWallOff = false;
+        resetEmby410(EmbyNavigator.serverIdOf(item.getUrl()), EmbyNavigator.itemIdOf(item.getUrl()));
+        mEmbyCurrentOpt = opt;
         syncCurrentAudioPlaylistMetadata();
         Flag flag = getFlag();
         if (mFlagAdapter != null) mFlagAdapter.toggle(item);
@@ -2155,6 +2232,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setEpisodeAdapter(List<Episode> items) {
+        // 打点：detail 返回 → 首次选集渲染的耗时（video-flow 既有体系，真机对时序用）
+        if (markEpisodeRender) {
+            markEpisodeRender = false;
+            SpiderDebug.log("video-flow", "episode render delay=%dms size=%d", System.currentTimeMillis() - detailFinishTime, items.size());
+        }
         int size = items.size();
         mBinding.control.action.episodes.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.action.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
@@ -2273,6 +2355,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void seamless(Flag flag) {
+        // 直接播放流（海阔选集/txt/推送）已按用户点击集预选中，不吃历史回选；
+        // 否则点的第 N 集会被新剧默认历史（第 1 集）切回第 1 集（红果 1.3.30 真机日志实证）
+        for (Episode ep : flag.getEpisodes()) if (ep.isSelected()) return;
         Episode episode = getMark().isEmpty() ? flag.find(mHistory.getEpisode(), true) : flag.find(mHistory.getVodRemarks(), false);
         setQualityVisible(episode != null && episode.isSelected() && mQualityAdapter.getItemCount() > 1);
         if (episode == null || episode.isSelected()) return;
@@ -5148,7 +5233,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mHistory.isRevSort()) reverseEpisode(true);
     }
 
-    private void checkHistory(Vod item) {
+    /**
+     * checkHistory 里不碰播放器的部分：阶段一（纯 UI）可执行。
+     * 原 checkHistory 唯一调用方已改为两阶段拆分，此处保留拆分后的两半。
+     */
+    private void checkHistoryUi(Vod item) {
         mHistory = History.find(getHistoryKey());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
@@ -5156,12 +5245,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
-        mHistory.setSpeed(player().getSpeed());
         mHistory.setVodName(item.getName());
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
+    }
+
+    /** checkHistory 里必须碰播放器的部分：阶段二（服务连上后）执行。 */
+    private void checkHistoryPlayer(Vod item) {
+        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+        mHistory.setSpeed(player().getSpeed());
         preparseHistoryEpisode();
     }
 
@@ -6568,7 +6661,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onReclaim() {
         Result result = mViewModel.getPlayer().getValue();
-        if (result != null) setPlayer(result);
+        if (result != null) setPlayer(result, true);
     }
 
     @Override
@@ -7048,6 +7141,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         final String id = iid;
         EmbyQualityDialog.showForItem(this, s, id, getName(), opt -> {
             if (opt == null || TextUtils.isEmpty(opt.url)) return;
+            resetEmby410(s, id);
+            mEmbyCurrentOpt = opt;
             switchEmbySource(opt.url, opt.sessionId, s, id, -1);
         });
     }
@@ -7109,6 +7204,101 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     /**
+     * Emby 直链 410 自救：直链是短命链，播中途被服务器收回（HTTP 410 Gone）时，
+     * 重拉一次 PlaybackInfo 拿新鲜候选换链续播，而不是停播装死。
+     * 匹配顺序：同一 MediaSource → 同分辨率档（档内码率最高）→ 默认规则（分辨率优先）。
+     * 同一集上限 2 次，超了走原报错；进度保留（复用 switchEmbySource）。
+     * PlaySessionId：switchEmbySource 已把新链的 sessionId 写进 EXTRA_SESSION，
+     * 旧会话按原逻辑 Stopped 落盘、新会话 READY 后重新 Playing 上报，这里不另起一套。
+     */
+    @Override
+    protected boolean onHttpGoneRetry() {
+        return retryEmby410Gone();
+    }
+
+    /** 新起一部 Emby 播放时调用：410 重试计数清零并换归属键。 */
+    private void resetEmby410(String sid, String iid) {
+        mEmby410Key = sid + ":" + iid;
+        mEmby410Retry = 0;
+    }
+
+    private boolean retryEmby410Gone() {
+        String sid = null;
+        String iid = null;
+        if (isEmbyPlayback()) {
+            sid = getIntent().getStringExtra(EmbyNavigator.EXTRA_SERVER);
+            iid = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        }
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) {
+            Episode ep = getEpisode();
+            if (ep != null && ep.getUrl() != null && ep.getUrl().startsWith("emby:")) {
+                sid = EmbyNavigator.serverIdOf(ep.getUrl());
+                iid = EmbyNavigator.itemIdOf(ep.getUrl());
+            }
+        }
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) return false;
+        String key = sid + ":" + iid;
+        if (!key.equals(mEmby410Key)) {
+            mEmby410Key = key;
+            mEmby410Retry = 0;
+        }
+        if (mEmby410Retry >= 2) return false;
+        mEmby410Retry++;
+        final String s = sid;
+        final String id = iid;
+        final int attempt = mEmby410Retry;
+        Notify.show("直链已过期，正在换链续播…");
+        Task.execute(() -> {
+            try {
+                EmbyStore.EmbyServer server = EmbyStore.getServer(s);
+                if (server == null || !server.isLogin()) throw new Exception("未登录");
+                EmbyApi api = new EmbyApi(server.baseUrl, server.token, server.userId, server.id);
+                EmbyApi.PlaybackCandidates cand = api.playbackCandidates(id, getName());
+                List<EmbyApi.PlayOption> direct = new ArrayList<>();
+                for (EmbyApi.PlayOption o : cand.options) {
+                    if (o.direct && !TextUtils.isEmpty(o.url)) direct.add(o);
+                }
+                if (direct.isEmpty()) throw new Exception("没有可直放的版本");
+                EmbyApi.PlayOption pick = matchEmby410Option(direct, mEmbyCurrentOpt);
+                if (pick == null || TextUtils.isEmpty(pick.url)) throw new Exception("没有可用的版本");
+                final EmbyApi.PlayOption p = pick;
+                App.post(() -> {
+                    mEmbyCurrentOpt = p;
+                    if (SpiderDebug.isEnabled()) {
+                        SpiderDebug.log("emby-play", "410 retry attempt=%d pick=%s", attempt, p.label);
+                    }
+                    switchEmbySource(p.url, p.sessionId, s, id, -1);
+                });
+            } catch (Exception ex) {
+                App.post(() -> onError(getString(R.string.error_play_url)));
+            }
+        });
+        return true;
+    }
+
+    /** 410 重取后的版本匹配：同一 MediaSource → 同分辨率档内码率最高 → 默认规则。 */
+    private static EmbyApi.PlayOption matchEmby410Option(List<EmbyApi.PlayOption> direct, EmbyApi.PlayOption current) {
+        if (direct == null || direct.isEmpty()) return null;
+        if (current != null) {
+            if (!TextUtils.isEmpty(current.mediaSourceId)) {
+                for (EmbyApi.PlayOption o : direct) {
+                    if (current.mediaSourceId.equals(o.mediaSourceId)) return o;
+                }
+            }
+            if (current.width > 0 && current.height > 0) {
+                EmbyApi.PlayOption best = null;
+                for (EmbyApi.PlayOption o : direct) {
+                    if (o.width == current.width && o.height == current.height) {
+                        if (best == null || o.bitrate > best.bitrate) best = o;
+                    }
+                }
+                if (best != null) return best;
+            }
+        }
+        return EmbyApi.pickDefaultDirect(direct);
+    }
+
+    /**
      * AI 直播链的 Emby 集（emby: id）：经 EmbyApi 解析出直链再换源，选集/下一集可用。
      * 详情链的集走原有 spider playerContent，不进这里。
      */
@@ -7128,7 +7318,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
                 EmbyApi.PlaybackCandidates cand = api.playbackCandidates(iid, item.getName());
                 String url = cand.options.get(0).url;
-                App.post(() -> switchEmbySource(url, cand.playSessionId, sid, iid, 0));
+                final EmbyApi.PlayOption picked = cand.options.get(0);
+                App.post(() -> {
+                    resetEmby410(sid, iid);
+                    mEmbyCurrentOpt = picked;
+                    switchEmbySource(url, cand.playSessionId, sid, iid, 0);
+                });
             } catch (Exception e) {
                 App.post(() -> Notify.show("Emby 播放失败：" + e.getMessage()));
             }
@@ -7763,6 +7958,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return t;
     }
 
+    /** 一起看建房守卫：播放器已有播放地址也算"已选好片"（线路行为空但片在播的场景）。 */
+    private boolean watchHasPlayingUrl() {
+        try {
+            return player() != null && player().getUrl() != null && !player().getUrl().isEmpty();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private void showWatchStartDialog() {
         float d = getResources().getDisplayMetrics().density;
         LinearLayout box = new LinearLayout(this);
@@ -7831,14 +8035,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mWatchName = watchNameOrDefault(nameInput);
             Site site = getSite();
             Flag flag = getFlag();
-            if (site == null || flag == null || flag.getEpisodes().isEmpty()) {
+            // 放宽建房前置：不再只认"线路适配器有集"。线路有集、或选集格子非空、或播放器已有播放地址，
+            // 任一成立都算"已选好片"（修海阔直放等"有播无选"场景的误报）。三个都空才是真没加载，继续提示。
+            boolean flagReady = flag != null && !flag.getEpisodes().isEmpty();
+            boolean episodesReady = mEpisodeAdapter != null && !mEpisodeAdapter.isEmpty();
+            boolean playingReady = watchHasPlayingUrl();
+            if (site == null || (!flagReady && !episodesReady && !playingReady)) {
                 Notify.show("先选好要一起看的片");
                 return;
             }
+            List<Episode> roomEps = flagReady ? flag.getEpisodes()
+                    : (mEpisodeAdapter != null ? mEpisodeAdapter.getItems() : java.util.Collections.<Episode>emptyList());
             int startIndex = 0;
             Episode cur = getEpisode();
-            for (int idx = 0; idx < flag.getEpisodes().size(); idx++) {
-                if (flag.getEpisodes().get(idx) == cur) {
+            for (int idx = 0; idx < roomEps.size(); idx++) {
+                if (roomEps.get(idx) == cur) {
                     startIndex = idx;
                     break;
                 }
@@ -7854,7 +8065,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 }
             } catch (Throwable ignored) {
             }
-            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), site.getKey(), flag.getFlag(), getName(), getPic(), flag.getEpisodes(), startIndex, pos, curUrl, curHeaders);
+            // 房主切集走 SiteApi.playerContent(siteKey,...) 解析：海阔页/push 的 key 是 hk_规则名/push_agent
+            // 合成命名空间，未在 VodConfig 注册，site.getKey() 是空的会传空 key 进房间导致切集失败。
+            // 直接用 intent 原 key：普通源与 site.getKey() 等价，海阔走 isHkKey 分支，txt/磁力走 push_agent 分支。
+            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), getKey(), flagReady ? flag.getFlag() : "", getName(), getPic(), roomEps, startIndex, pos, curUrl, curHeaders);
             dialog.dismiss();
         });
         joinBtn.setOnClickListener(v -> {

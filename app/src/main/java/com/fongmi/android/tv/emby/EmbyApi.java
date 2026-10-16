@@ -130,6 +130,32 @@ public class EmbyApi {
         public long bitrate = 0;
         /** 同次 PlaybackInfo 响应的会话 id（会话一致性：一次调用即够）。 */
         public String sessionId = "";
+        /** 视频宽（MediaStreams 里 Video 流；0=未知）。 */
+        public int width = 0;
+        /** 视频高（MediaStreams 里 Video 流；0=未知）。 */
+        public int height = 0;
+        /** 同次 PlaybackInfo 里 MediaSource 的 Id（410 重取时按源匹配）。 */
+        public String mediaSourceId = "";
+    }
+
+    /**
+     * 默认直链：分辨率最高优先，同分辨率比码率。
+     * 宽高未知时退化为纯比码率；都比不出时取第一条。
+     */
+    public static PlayOption pickDefaultDirect(List<PlayOption> direct) {
+        PlayOption best = null;
+        if (direct == null) return null;
+        for (PlayOption o : direct) {
+            if (o == null || TextUtils.isEmpty(o.url)) continue;
+            if (best == null) {
+                best = o;
+                continue;
+            }
+            long a = (long) o.width * o.height;
+            long b = (long) best.width * best.height;
+            if (a != b ? a > b : o.bitrate > best.bitrate) best = o;
+        }
+        return best;
     }
 
     /** 一次 PlaybackInfo 的全部产出：画质候选 + 自动决策源的字幕/轨道 + 会话 id。 */
@@ -879,6 +905,26 @@ public class EmbyApi {
         return u;
     }
 
+    /**
+     * Yamby 实证：直链 URL 自带 StartTimeTicks=0&MaxStreamingBitrate=2147483647，
+     * 影桥前置认这个长相（play-dead-diagnosis.md P0②）。只加在直链拼装点，
+     * 转码 m3u8/字幕 DeliveryUrl 不动。续播是本地 seek（setPosition→EXTRA_START_MS），
+     * 不靠服务端起播点，StartTimeTicks=0 不会丢进度。
+     */
+    private static String streamParams(String url) {
+        if (TextUtils.isEmpty(url)) return url;
+        StringBuilder sb = new StringBuilder(url);
+        char sep = url.contains("?") ? '&' : '?';
+        if (!url.contains("StartTimeTicks=")) {
+            sb.append(sep).append("StartTimeTicks=0");
+            sep = '&';
+        }
+        if (!url.contains("MaxStreamingBitrate=")) {
+            sb.append(sep).append("MaxStreamingBitrate=2147483647");
+        }
+        return sb.toString();
+    }
+
     private static String originOf(String base) {
         String b = base == null ? "" : base;
         int p = b.indexOf("://");
@@ -998,7 +1044,7 @@ public class EmbyApi {
                 String direct = ms.optString("DirectStreamUrl", "");
                 if (!TextUtils.isEmpty(direct) && ms.optBoolean("SupportsDirectPlay", false)) {
                     collectTracks(t, ms, itemId);
-                    t.url = absolute(base, token, direct);
+                    t.url = streamParams(absolute(base, token, direct));
                     attempt = t.url;
                     logPlayOk("playback/direct", t.url);
                     return t;
@@ -1039,10 +1085,14 @@ public class EmbyApi {
                 o.bitrate = bitrate;
                 o.direct = canDirect;
                 o.sessionId = c.playSessionId;
+                o.mediaSourceId = msId;
+                int[] size = videoSize(ms);
+                o.width = size[0];
+                o.height = size[1];
                 String q = qualityLabel(ms);
                 if (canDirect) {
                     o.label = "直链" + (q.isEmpty() ? "" : " · " + q) + bitrateText(bitrate);
-                    o.url = absolute(base, token, direct);
+                    o.url = streamParams(absolute(base, token, direct));
                 } else {
                     o.label = "转码" + (q.isEmpty() ? "" : " · " + q) + bitrateText(bitrate);
                     o.url = absolute(base, token, transcodeUrl(itemId, msId, ms));
@@ -1090,15 +1140,21 @@ public class EmbyApi {
         c.audioTracks.addAll(tmp.audioTracks);
     }
 
-    private static String qualityLabel(JSONObject ms) {
+    /** MediaStreams 里第一个 Video 流的宽高；取不到返回 {0,0}。 */
+    private static int[] videoSize(JSONObject ms) {
         JSONArray streams = ms.optJSONArray("MediaStreams");
         if (streams != null) for (int i = 0; i < streams.length(); i++) {
             JSONObject s = streams.optJSONObject(i);
             if (s != null && "Video".equals(s.optString("Type", ""))) {
-                int w = s.optInt("Width", 0), h = s.optInt("Height", 0);
-                if (w > 0 && h > 0) return w + "x" + h;
+                return new int[]{s.optInt("Width", 0), s.optInt("Height", 0)};
             }
         }
+        return new int[]{0, 0};
+    }
+
+    private static String qualityLabel(JSONObject ms) {
+        int[] size = videoSize(ms);
+        if (size[0] > 0 && size[1] > 0) return size[0] + "x" + size[1];
         return "";
     }
 

@@ -4,6 +4,7 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -41,8 +42,14 @@ public class EmbyQualityDialog extends DialogFragment {
 
     /** 直接给选项列表（调用方已拉好）。 */
     public static void show(FragmentActivity activity, List<EmbyApi.PlayOption> options, OnPickListener listener) {
+        show(activity, options, null, listener);
+    }
+
+    /** 直接给选项列表，可覆盖标题（多版本选择用）。 */
+    public static void show(FragmentActivity activity, List<EmbyApi.PlayOption> options, String title, OnPickListener listener) {
         EmbyQualityDialog d = new EmbyQualityDialog();
         d.options = options;
+        d.title = title;
         d.listener = listener;
         d.show(activity.getSupportFragmentManager(), "emby_quality");
     }
@@ -60,6 +67,7 @@ public class EmbyQualityDialog extends DialogFragment {
     private DialogEmbyQualityBinding binding;
     private List<EmbyApi.PlayOption> options;
     private OnPickListener listener;
+    private String title;
     private String serverId;
     private String itemId;
     private String itemName;
@@ -82,6 +90,7 @@ public class EmbyQualityDialog extends DialogFragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         binding.btnCancel.setOnClickListener(v -> dismiss());
+        if (!TextUtils.isEmpty(title)) binding.tvTitle.setText(title);
         if (options != null) {
             render(options);
         } else {

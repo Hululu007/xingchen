@@ -3,10 +3,12 @@ class Runner():
         self.spider = spider
 
     def getDependence(self):
-        return self.spider.getDependence()
+        fn = getattr(self.spider, "getDependence", None)
+        return fn() if callable(fn) else []
 
     def getName(self):
-        return self.spider.getName()
+        fn = getattr(self.spider, "getName", None)
+        return fn() if callable(fn) else ""
 
     def init(self, extend=""):
         self.spider.init(extend)
@@ -15,7 +17,8 @@ class Runner():
         return self.spider.homeContent(filter)
 
     def homeVideoContent(self):
-        return self.spider.homeVideoContent()
+        fn = getattr(self.spider, "homeVideoContent", None)
+        return fn() if callable(fn) else {"list": []}
 
     def categoryContent(self, tid, pg, filter, extend):
         return self.spider.categoryContent(tid, pg, filter, extend)
@@ -30,19 +33,26 @@ class Runner():
         return self.spider.playerContent(flag, id, vipFlags)
 
     def liveContent(self, url):
-        return self.spider.liveContent(url)
+        fn = getattr(self.spider, "liveContent", None)
+        return fn(url) if callable(fn) else ""
 
     def localProxy(self, param):
-        return self.spider.localProxy(param)
+        fn = getattr(self.spider, "localProxy", None)
+        return fn(param) if callable(fn) else None
 
     def isVideoFormat(self, url):
-        return self.spider.isVideoFormat(url)
+        fn = getattr(self.spider, "isVideoFormat", None)
+        return fn(url) if callable(fn) else False
 
     def manualVideoCheck(self):
-        return self.spider.manualVideoCheck()
+        fn = getattr(self.spider, "manualVideoCheck", None)
+        return fn() if callable(fn) else False
 
     def action(self, action):
-        return self.spider.action(action)
+        fn = getattr(self.spider, "action", None)
+        return fn(action) if callable(fn) else {}
 
     def destroy(self):
-        self.spider.destroy()
+        fn = getattr(self.spider, "destroy", None)
+        if callable(fn):
+            fn()

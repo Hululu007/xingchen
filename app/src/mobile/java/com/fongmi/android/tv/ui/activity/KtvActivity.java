@@ -479,12 +479,12 @@ public class KtvActivity extends BaseActivity {
                         finishAutoOrder(songs.get(0));
                     } else if (t == Tab.VOD_RESULTS) {
                         KtvSong first = songs.get(0);
-                        Site site = vodSite();
-                        if (site != null) {
-                            Vod v = new Vod();
-                            v.setId(first.vodId);
-                            v.setName(first.name);
-                            openVod(v, site);
+                        Site autoSite = vodSite();
+                        if (autoSite != null) {
+                            Vod autoVod = new Vod();
+                            autoVod.setId(first.vodId);
+                            autoVod.setName(first.name);
+                            openVod(autoVod, autoSite);
                         } else {
                             autoOrderQuery = null;
                         }
@@ -686,10 +686,10 @@ public class KtvActivity extends BaseActivity {
                         toast("歌源没了，重新选一个");
                         return;
                     }
-                    Vod v = new Vod();
-                    v.setId(s.vodId);
-                    v.setName(s.name);
-                    openVod(v, site);
+                    Vod vod = new Vod();
+                    vod.setId(s.vodId);
+                    vod.setName(s.name);
+                    openVod(vod, site);
                 });
                 return;
             }

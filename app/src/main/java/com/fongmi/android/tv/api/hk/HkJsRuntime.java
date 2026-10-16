@@ -548,6 +548,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private static final org.mozilla.javascript.Callable JSON_REVIVER =
             (cx, sc, thisObj, args) -> args != null && args.length > 1 ? args[1] : null;
 
+    /** 严格版 parseJson：解析失败返回 null（不吞成空对象）。给存储读回用——
+     *  坏缓存（如旧版把数组压成 "[object Object]"）必须能被识别成解析失败。 */
+    private Object parseJsonStrict(String json) {
+        try {
+            return NativeJSON.parse(rhinoCx, scope, json, JSON_REVIVER);
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
     private Object parseJson(String json) {
         if (TextUtils.isEmpty(json)) return rhinoCx.newObject(scope);
         try {
@@ -768,6 +778,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             rhinoCx.setLanguageVersion(200);
             scope = rhinoCx.initStandardObjects();
             registerApi();
+            // 主作用域补挂（此前只有 D1 解析作用域有）：requirejs 按名字取组件
+            // （黄色仓库 require('crypto') 经 plugin.js 包装走 requirejs）必须在主作用域可用；
+            // JavaAdapter 垫片让红果这类懒流规则在 ART 上能跑（见 HkJavaAdapterFn）。
+            try { initRequire(rhinoCx, scope); } catch (Throwable t) { Logger.t(TAG).d("initRequire main: " + t.getMessage()); }
+            try { installJavaAdapterShim(scope); } catch (Throwable t) { Logger.t(TAG).d("JavaAdapterShim main: " + t.getMessage()); }
             com.github.catvod.crawler.SpiderDebug.log("hk", "init step=api rule=%s", rule.getTitle());
             // D1: build 8.83 allFunctions prelude (JSAnnotation-reflected stubs + MY_UA suffix).
             try {
@@ -1254,15 +1269,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
 
         // ---- require：远程库加载（preRule 常用）；本地 libs/<md5(url)>.js 优先（.hkzip 自带库） ----
-        // 8.83 require0（JSEngine.require0，smali:8468）：eval 后返回模块执行结果
-        // （new Function(code) 的返回值），未命中/拉不到代码抛 Exception。
-        // 旧实现 eval 后恒 return null 且吞异常，在此对齐。
+        // 8.83 require0：eval 后返回模块执行结果——此点保留（UU 的 require('tools') 靠它）。
+        // 但"未命中抛错"不能照搬：黄色仓库等规则会 require 一个本地没有的裸名（如 'crypto'），
+        // 1.3.19 及之前本实现是取不到就记日志回 null、规则照常跑；1.3.20 的 B1 改成抛错后
+        // 这类规则整个列表页全灭（2026-10-16 真机实证，"修好的又修坏了"）。按真机结论回软失败。
         putFunction("require", args -> {
             if (args == null || args.length == 0) return null;
             String libUrl = argStr(args[0]);
             String code = loadLibLocal(libUrl);
             if (code == null) code = fetchSync(libUrl, null);
-            if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + libUrl);
+            if (TextUtils.isEmpty(code)) {
+                Logger.t(TAG).d("require miss (soft): %s", libUrl);
+                com.github.catvod.crawler.SpiderDebug.log("hk", "require miss soft name=%s rule=%s",
+                        libUrl, rule == null ? "" : rule.getTitle());
+                return null;
+            }
             return evalJs(code);
         });
 
@@ -3144,7 +3165,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String c = loadLibLocal(url);
             return c == null ? fetchSync(url, null) : c;
         });
-        if (TextUtils.isEmpty(code)) throw new RuntimeException("获取远程依赖失败：" + url);
+        if (TextUtils.isEmpty(code)) {
+            // 同 require：取不到软失败，别把整页打死（B1 抛错的回归，见 require 处注释）。
+            Logger.t(TAG).d("requireCache miss (soft): %s", url);
+            return null;
+        }
         return evalJs(stripJsPrefix(code));
     }
 
@@ -5035,14 +5060,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
         String t = v.trim();
         if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) {
-            try {
-                return parseJson(v);
-            } catch (Throwable ignored) {
-                // 长得像 JSON 却解析不了 = 存量坏缓存（旧版数组被压成
-                // "[object Object]" 那批）。当未命中处理，让规则重建，
-                // 别把垃圾串回给规则（UU视频 setTabs 拿它当数组用直接崩）。
-                return args.length > 1 && args[1] != null ? args[1] : "";
-            }
+            Object parsed = parseJsonStrict(v);
+            if (parsed != null) return parsed;
+            // 长得像 JSON 却解析不了 = 存量坏缓存（旧版数组被压成 "[object Object]"
+            // 那批；parseJson 本身吞异常回空对象，靠它判断不了，必须走严格版）。
+            // 当未命中处理，让规则重建，别把垃圾回给规则（UU视频真机实证）。
+            return args.length > 1 && args[1] != null ? args[1] : "";
         }
         return v;
     }
@@ -5559,6 +5582,7 @@ public InputStream evalJS(String p1, InputStream p2) {
         ScriptableObject v2 = v1cx.initStandardObjects();
         org.mozilla.javascript.ImporterTopLevel.init(v1cx, v2, false);
         initRequire(v1cx, v2); // MISSING
+        installJavaAdapterShim(v2);
         ScriptableObject.putProperty(v2, "input", Context.javaToJS(p2, v2));
         ScriptableObject.putProperty(v2, "_globalMap", Context.javaToJS(globalMap, v2)); // field MISSING
         ScriptableObject.putProperty(v2, "globalMap0", Context.javaToJS(globalMap, v2)); // 8.83 _globalMap 别名（skill 文档名）
@@ -5661,6 +5685,7 @@ public String evalJS(String p1, String p2, boolean p3) {
         ScriptableObject v7 = v6.initStandardObjects();
         org.mozilla.javascript.ImporterTopLevel.init(v6, v7, false);
         initRequire(v6, v7); // MISSING
+        installJavaAdapterShim(v7);
         ScriptableObject.putProperty(v7, "_globalMap", Context.javaToJS(globalMap, v7)); // field MISSING
         ScriptableObject.putProperty(v7, "globalMap0", Context.javaToJS(globalMap, v7)); // 8.83 _globalMap 别名
         ScriptableObject.putProperty(v7, "rc4", Context.javaToJS(rc4, v7)); // field MISSING
@@ -5748,6 +5773,7 @@ public Object evalJSForObj(String p1, Object p2) {
         ScriptableObject v4 = v3.initStandardObjects();
         org.mozilla.javascript.ImporterTopLevel.init(v3, v4, false);
         initRequire(v3, v4); // MISSING
+        installJavaAdapterShim(v4);
         ScriptableObject.putProperty(v4, "input", Context.javaToJS(p2, v4));
         ScriptableObject.putProperty(v4, "_globalMap", Context.javaToJS(globalMap, v4)); // field MISSING
         ScriptableObject.putProperty(v4, "globalMap0", Context.javaToJS(globalMap, v4)); // 8.83 _globalMap 别名
@@ -6012,6 +6038,7 @@ private void runScript(String script, String key, boolean throwOnError) {
         ScriptableObject scope = cx.initStandardObjects();
         org.mozilla.javascript.ImporterTopLevel.init(cx, scope, false);
         initRequire(cx, scope);
+        installJavaAdapterShim(scope);
         ScriptableObject.putProperty(scope, "_globalMap",
                 Context.javaToJS(globalMap, scope));
         ScriptableObject.putProperty(scope, "globalMap0",
@@ -6154,8 +6181,10 @@ private String wrapTryScript(String script) {
             if (!jsFile.exists()) {
                 // :cond_f — 本地无文件：无内容校验，直接落盘
                 if (TextUtils.isEmpty(code)) {
-                    // :cond_11
-                    throw new Exception("获取远程依赖失败：" + url);
+                    // :cond_11 — 原版抛错；星辰按真机结论软失败（见 registerApi require 处注释：
+                    // 裸名取不到整页全灭的回归），记日志回 null。
+                    Logger.t(TAG).d("require0 miss (soft): %s", url);
+                    return null;
                 }
                 writeFileContent(jsPath, code);      // 8.83: FileUtil.stringToFile(code, jsPath)
                 updateDescription(jsonPath, desc, reqVersion);
@@ -6171,8 +6200,9 @@ private String wrapTryScript(String script) {
                 // :cond_9 + :cond_a — gitee 坏内容 → 回退本地
                 code = readFileContent(jsPath);      // goto :goto_1
             } else if (TextUtils.isEmpty(code)) {
-                // :cond_c — 空内容
-                throw new Exception("获取远程依赖失败：" + url);
+                // :cond_c — 空内容：原版抛错，星辰软失败回 null（同上）。
+                Logger.t(TAG).d("require0 miss (soft): %s", url);
+                return null;
             } else {
                 // :cond_c — 内容可用，落盘并更新版本描述
                 writeFileContent(jsPath, code);      // 8.83: FileUtil.stringToFile(code, jsPath)
@@ -6226,6 +6256,106 @@ private String wrapTryScript(String script) {
         return url;                                     // :cond_1
     }
 
+    // ---- JavaAdapter 垫片（星辰适配，2026-10-16）----
+    // 原生 JavaAdapter 靠运行时生成字节码，安卓 ART 上抛 java.lang.Error：穿透 JS 的
+    // try/catch、也穿透宿主 catch(Exception)，红果代理真机实证回 200 空包。海阔规则
+    // 常用 new JavaAdapter(接口, js对象)（如 Enumeration 懒解密流）——接口情形一律走
+    // java.lang.reflect.Proxy（ART 支持），回调时在调用线程进 Context 执行 JS 函数；
+    // 非接口情形回落原生实现，保持原行为。
+    static final class HkJavaAdapterFn extends BaseFunction {
+        private final Object original;
+
+        HkJavaAdapterFn(Object original) {
+            this.original = original;
+        }
+
+        @Override
+        public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+            return adapt(cx, scope, args);
+        }
+
+        @Override
+        public Scriptable construct(Context cx, Scriptable scope, Object[] args) {
+            Object r = adapt(cx, scope, args);
+            if (r instanceof Scriptable) return (Scriptable) r;
+            return cx.getWrapFactory().wrapAsJavaObject(cx, scope, r, null);
+        }
+
+        private Object adapt(Context cx, Scriptable scope, Object[] args) {
+            try {
+                if (args != null && args.length >= 2 && args[1] instanceof Scriptable) {
+                    Class<?> cls = null;
+                    Object a0 = args[0];
+                    if (a0 instanceof org.mozilla.javascript.NativeJavaClass) {
+                        cls = ((org.mozilla.javascript.NativeJavaClass) a0).getClassObject();
+                    } else if (a0 instanceof NativeJavaObject) {
+                        Object u = ((NativeJavaObject) a0).unwrap();
+                        if (u instanceof Class) cls = (Class<?>) u;
+                    }
+                    if (cls != null && cls.isInterface()) {
+                        ClassLoader cl = cls.getClassLoader();
+                        if (cl == null) cl = HkJsRuntime.class.getClassLoader();
+                        return java.lang.reflect.Proxy.newProxyInstance(cl,
+                                new Class<?>[]{cls}, new JsProxyHandler((Scriptable) args[1]));
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            if (original instanceof org.mozilla.javascript.Function) {
+                return ((org.mozilla.javascript.Function) original).call(cx, scope, scope, args);
+            }
+            throw Context.reportRuntimeError("JavaAdapter unavailable");
+        }
+    }
+
+    /** JS 对象 → Java 接口代理：方法调用时进 Context 执行同名 JS 函数。 */
+    static final class JsProxyHandler implements java.lang.reflect.InvocationHandler {
+        private final Scriptable jsObj;
+
+        JsProxyHandler(Scriptable jsObj) {
+            this.jsObj = jsObj;
+        }
+
+        @Override
+        public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] mArgs) {
+            String name = method.getName();
+            if ("toString".equals(name) && (mArgs == null || mArgs.length == 0)) return "HkJsProxy";
+            if ("hashCode".equals(name) && (mArgs == null || mArgs.length == 0)) return System.identityHashCode(proxy);
+            if ("equals".equals(name) && mArgs != null && mArgs.length == 1) return proxy == mArgs[0];
+            return ContextFactory.getGlobal().call(cx -> {
+                Object fn = ScriptableObject.getProperty(jsObj, name);
+                if (!(fn instanceof org.mozilla.javascript.Function)) {
+                    throw Context.reportRuntimeError("js proxy missing fn: " + name);
+                }
+                org.mozilla.javascript.Function f = (org.mozilla.javascript.Function) fn;
+                Scriptable fnScope = f.getParentScope();
+                if (fnScope == null) fnScope = jsObj;
+                Object[] jsArgs = new Object[mArgs == null ? 0 : mArgs.length];
+                for (int i = 0; i < jsArgs.length; i++) jsArgs[i] = Context.javaToJS(mArgs[i], fnScope);
+                Object r = f.call(cx, fnScope, jsObj, jsArgs);
+                Class<?> rt = method.getReturnType();
+                if (rt == void.class || rt == Void.class) return null;
+                Object u = r;
+                if (u instanceof NativeJavaObject) u = ((NativeJavaObject) u).unwrap();
+                if (u == null || u == Undefined.instance) {
+                    if (rt == boolean.class) return false;
+                    if (rt.isPrimitive()) return 0;
+                    return null;
+                }
+                if (rt == boolean.class || rt == Boolean.class) return Context.toBoolean(u);
+                if (rt.isPrimitive() || Number.class.isAssignableFrom(rt)) return Context.toNumber(u);
+                if (rt == String.class) return Context.toString(u);
+                return u;
+            });
+        }
+    }
+
+    private void installJavaAdapterShim(Scriptable scope) {
+        Object orig = ScriptableObject.getProperty(scope, "JavaAdapter");
+        if (orig instanceof HkJavaAdapterFn) return;
+        ScriptableObject.putProperty(scope, "JavaAdapter", new HkJavaAdapterFn(orig));
+    }
+
     /**
      * 8.83 JSEngine.initRequire(Context p1, Scriptable p2) — smali 5400-5484 (.line 540-558)。
      * CommonJS requirejs 桥：StrongCachingModuleScriptProvider（UrlModuleSourceProvider 指向
@@ -6233,16 +6363,32 @@ private String wrapTryScript(String script) {
      * new MyRequire(cx, scope, provider, null, null, false) 挂到 scope.requirejs。
      * 8.83 锁的是 JSEngine.class，本移植锁 HkJsRuntime.class（移植类）。
      */
+    private String requireProviderKey;  // 星辰适配：provider 按规则缓存的键
+
     private void initRequire(Context cx, Scriptable scope) {
-        if (cachingModuleScriptProvider == null) {      // .line 540
-            synchronized (HkJsRuntime.class) {          // .line 541, 8.83: synchronized (JSEngine.class)
-                if (cachingModuleScriptProvider == null) {  // .line 542
-                    // .line 543-546
-                    UrlModuleSourceProvider sourceProvider = new UrlModuleSourceProvider(
-                            Collections.singleton(getDirectory()), null);
+        // 星辰适配：8.83 的模块基只有全局 libs；星辰规则包的自带库落在规则自己的
+        // data/libs（导入落盘口径），按名字取组件（require('crypto') 等）必须连规则
+        // 自己的库目录一起查，否则规则自带的组件永远取不到。故基目录=全局 libs +
+        // 当前规则 libs，provider 按规则标题缓存（近似 8.83 的单例语义、避免每页重编模块）。
+        String key = rule == null ? "" : String.valueOf(rule.getTitle());
+        if (cachingModuleScriptProvider == null || !key.equals(requireProviderKey)) {
+            synchronized (HkJsRuntime.class) {
+                if (cachingModuleScriptProvider == null || !key.equals(requireProviderKey)) {
+                    java.util.List<java.net.URI> bases = new java.util.ArrayList<>();
+                    bases.add(getDirectory());
+                    try {
+                        if (rule != null) {
+                            File rl = new File(HkRuleManager.get().getDataDir(rule.getTitle()), "libs");
+                            if (!rl.exists()) rl.mkdirs();
+                            bases.add(java.net.URI.create("file://" + rl.getAbsolutePath() + File.separator));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    UrlModuleSourceProvider sourceProvider = new UrlModuleSourceProvider(bases, null);
                     cachingModuleScriptProvider = new StrongCachingModuleScriptProvider(sourceProvider);
+                    requireProviderKey = key;
                 }
-            }                                           // :catchall_0 即 synchronized 语义
+            }
         }
         // :cond_1 / :goto_0 — .line 550: new MyRequire(cx, scope, provider, null, null, false)
         MyRequire require = new MyRequire(cx, scope, cachingModuleScriptProvider, null, null, false);

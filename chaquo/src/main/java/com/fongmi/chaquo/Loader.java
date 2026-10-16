@@ -26,6 +26,15 @@ public class Loader {
         } catch (RuntimeException error) {
             SpiderDebug.log("python-spider", error);
         }
+        // 按源定向的环境级补丁：给 requests/urllib 装上「发请求前问 SourceGate」的钩子。
+        // 只靠 base/spider 的 fetch/post 覆盖不全——自己写 fetch 的蜘蛛（XVideos 用
+        // Session、JavMenu 用 urllib）全绕过去，定向对它们从来没生效过（真机实证：
+        // py 源跑了多轮，gate 的 via=py 决策记录一条都没有）。
+        try {
+            Python.getInstance().getModule("gate_patch").callAttr("install");
+        } catch (RuntimeException error) {
+            SpiderDebug.log("python-spider", error);
+        }
         // Python 刚启动：把全局代理配置同步进 os.environ，供 requests 读取
         GlobalProxy.syncPython();
         app = Python.getInstance().getModule("app");

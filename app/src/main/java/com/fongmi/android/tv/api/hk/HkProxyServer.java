@@ -185,12 +185,21 @@ public class HkProxyServer extends NanoHTTPD {
             Object result = rt.evalJSForObj(script, path);
             return buildProxyResponse(result);
         } catch (Throwable t) {
+            // 之前静默吞异常回空包，播放器只看到 200 空响应、无从排查（红果实证）。
+            com.github.catvod.crawler.SpiderDebug.log("hkproxy", "eval failed: %s: %s",
+                    t.getClass().getSimpleName(), String.valueOf(t.getMessage()));
             return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "");
         }
     }
 
     private Response buildProxyResponse(Object result) {
         try {
+            com.github.catvod.crawler.SpiderDebug.log("hkproxy", "result type=%s",
+                    result == null ? "null" : result.getClass().getSimpleName()
+                            + (result instanceof Map ? " keys=" + ((Map<?, ?>) result).keySet()
+                            + " bodyType=" + (((Map<?, ?>) result).get("body") == null ? "null"
+                            : ((Map<?, ?>) result).get("body").getClass().getSimpleName()) : "")
+                            + (result instanceof String ? " len=" + ((String) result).length() : ""));
             if (result instanceof String) {
                 String s = (String) result;
                 if (s != null && s.startsWith("{") && s.endsWith("}")) {

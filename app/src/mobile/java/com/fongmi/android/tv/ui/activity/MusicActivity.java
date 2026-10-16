@@ -18,6 +18,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.ktv.KtvStore;
@@ -53,6 +55,31 @@ public class MusicActivity extends BaseActivity {
     }
 
     private int retryCount;
+    private boolean configTried;
+
+    /** 配置只有首页会主动加载；这边源为空时自己触发一次，别干等。 */
+    private void ensureConfig() {
+        if (configTried) return;
+        configTried = true;
+        try {
+            VodConfig.get().config(Config.vod()).load(new Callback() {
+                @Override
+                public void success() {
+                    runOnUiThread(() -> {
+                        retryCount = 0;
+                        refresh();
+                    });
+                }
+
+                @Override
+                public void error(String msg) {
+                    configTried = false;
+                }
+            });
+        } catch (Throwable t) {
+            configTried = false;
+        }
+    }
 
     @Override
     protected void onResume() {
@@ -79,6 +106,8 @@ public class MusicActivity extends BaseActivity {
             sites.addAll(all);
             binding.sourceHint.setText("没认出哪个是音乐源，先把全部源列出来，点一个去听");
         }
+        if (sites.isEmpty()) ensureConfig();
+        binding.empty.setText(sites.isEmpty() && (retryCount < 6 || configTried) ? "正在加载源…" : "还没有源");
         binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
         if (binding.recycler.getAdapter() != null) binding.recycler.getAdapter().notifyDataSetChanged();
         // 刚装完/刚打开时配置可能还没加载完，源列表先空着：短间隔重试几次，别让他对着空页

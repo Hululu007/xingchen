@@ -99,6 +99,7 @@ public class KtvSingActivity extends BaseActivity {
     private static final int S_CH_LEFT = 3;
     private static final int S_CH_RIGHT = 4;
     private static final int S_CANCEL = 5;
+    private static final int S_ACC_MV = 6;
 
     public static final String EXTRA_SONG = "ktv_song_json";
 
@@ -145,6 +146,10 @@ public class KtvSingActivity extends BaseActivity {
     private String accUrl = "";
     private Map<String, String> accHeaders;
     private boolean onAccUrl;
+    private String accMvUrl;
+    private boolean onAccMv;
+    private int accMvSeq;
+    private boolean accMvHintShown;
     private final List<Integer> states = new ArrayList<>();
     private int stateIdx;
     private int pitchSemi;
@@ -316,6 +321,14 @@ public class KtvSingActivity extends BaseActivity {
         addBtn(row2, btn("词延＋", v -> setLyricOffset(lyricOffsetMs + 500)));
         lyricToggleBtn = btn("歌词·开", v -> toggleLyrics());
         addBtn(row2, lyricToggleBtn);
+        // 第二行东西多：字和边距收紧，不然长标签被挤得竖着叠字
+        for (int i = 0; i < row2.getChildCount(); i++) {
+            if (row2.getChildAt(i) instanceof TextView) {
+                TextView tv = (TextView) row2.getChildAt(i);
+                tv.setTextSize(13);
+                if (tv.getBackground() != null) tv.setPadding(dp(9), dp(7), dp(9), dp(7));
+            }
+        }
         controlBar.addView(row2);
         arrangeLayout();
     }
@@ -435,6 +448,14 @@ public class KtvSingActivity extends BaseActivity {
                     toast("MV 播不了，回到音频");
                     return;
                 }
+                if (!states.isEmpty() && states.get(stateIdx) == S_ACC_MV) {
+                    accMvUrl = null;
+                    onAccMv = false;
+                    if (mainUrl != null && !mainUrl.isEmpty()) playMedia(mainUrl, mainHeaders, 0);
+                    refreshStates();
+                    toast("伴奏MV播不了，回原唱");
+                    return;
+                }
                 toast("这首播不了，下一首");
                 nextSong();
             }
@@ -495,6 +516,9 @@ public class KtvSingActivity extends BaseActivity {
         accUrl = "";
         accHeaders = null;
         onAccUrl = false;
+        accMvUrl = null;
+        onAccMv = false;
+        accMvHintShown = false;
         mvUrl = null;
         onMv = false;
         states.clear();
@@ -507,9 +531,18 @@ public class KtvSingActivity extends BaseActivity {
         Task.execute(() -> resolveAndPlay(song));
         Task.execute(() -> fetchLyrics(song));
         if (!song.isFromServer()) Task.execute(() -> pairAccompaniment(song));
+        final int aseq = ++accMvSeq;
+        if (!song.isFromServer()) {
+            MvFinder.findAccMv(song.title(), song.singer, url -> ui.post(() -> {
+                if (aseq != accMvSeq || url == null || url.isEmpty()) return;
+                accMvUrl = url;
+                refreshStates();
+            }));
+        }
         final int mseq = ++mvSeq;
         if (!song.isFromServer() && KtvStore.pairMv()) {
             MvFinder.find(song.title(), song.singer, url -> ui.post(() -> {
+                KtvLog.add("配MV 结果：" + (url == null ? "无" : "有地址"));
                 if (mseq != mvSeq || url == null || url.isEmpty()) return;
                 mvUrl = url;
                 maybeSwapToMv();
@@ -610,6 +643,7 @@ public class KtvSingActivity extends BaseActivity {
             String base = baseName(cleanTitle(song));
             Result sr = SiteApi.searchContent(site, base + " 伴奏", false, "1");
             java.util.List<Vod> vods = new java.util.ArrayList<>(sr.getList());
+            KtvLog.add("配伴奏 搜「" + base + " 伴奏」候选 " + vods.size() + " 个");
             // 名字带伴奏的结果优先看，其余只扫前几个——原来三十个挨个拉详情，配上时黄花菜都凉了
             vods.sort((a, b) -> Boolean.compare(!(b.getName() != null && b.getName().contains("伴奏")), !(a.getName() != null && a.getName().contains("伴奏"))));
             int scanned = 0;
@@ -621,21 +655,28 @@ public class KtvSingActivity extends BaseActivity {
                 Vod full = dr.getVod();
                 if (full.getFlags().isEmpty()) continue;
                 Flag f = full.getFlags().get(0);
+                // 伴奏标记可能在整首歌的名字上（音乐源的伴奏是独立一首歌，集名就叫播放），
+                // 也可能在集名上（视频源）——两种都认。以前只认集名，音乐源永远配不上。
+                boolean vodIsAcc = accVod && baseName(v.getName()).contains(base);
                 for (Episode ep : f.getEpisodes()) {
                     String en = ep.getName() == null ? "" : ep.getName();
-                    if (en.contains("伴奏") && !isInstrumentCover(en) && baseName(en).contains(base)) {
+                    boolean epIsAcc = en.contains("伴奏") && !isInstrumentCover(en) && baseName(en).contains(base);
+                    if (epIsAcc || (vodIsAcc && !isInstrumentCover(en))) {
                         Result pr = SiteApi.playerContent(site.getKey(), f.getFlag(), ep.getUrl());
                         String u = pr.getUrl() == null ? "" : pr.getUrl().v();
                         if (u != null && !u.isEmpty()) {
                             accUrl = u;
                             accHeaders = pr.getHeader();
+                            KtvLog.add("配伴奏 配到：" + v.getName());
                             runOnUiThread(this::refreshStates);
                             return;
                         }
                     }
                 }
             }
-        } catch (Throwable ignored) {
+            KtvLog.add("配伴奏 没配到：" + song.title());
+        } catch (Throwable t) {
+            KtvLog.add("配伴奏 出错：" + t);
         }
     }
 
@@ -689,6 +730,7 @@ public class KtvSingActivity extends BaseActivity {
         want.add(S_ORIGINAL);
         if (audioTrackCount() >= 2) want.add(S_ACC_TRACK);
         if (accUrl != null && !accUrl.isEmpty()) want.add(S_ACC_URL);
+        if (accMvUrl != null && !accMvUrl.isEmpty()) want.add(S_ACC_MV);
         if (current.isFromServer() && current.mtvOrVcd != null
                 && current.mtvOrVcd.toUpperCase(Locale.ROOT).contains("VCD")) {
             want.add(S_CH_LEFT);
@@ -702,6 +744,7 @@ public class KtvSingActivity extends BaseActivity {
         if (!modeTouched && KtvStore.defaultAcc()) {
             int ai = states.indexOf(S_ACC_URL);
             if (ai < 0) ai = states.indexOf(S_ACC_TRACK);
+            if (ai < 0) ai = states.indexOf(S_ACC_MV);
             if (ai >= 0 && ai != stateIdx) {
                 stateIdx = ai;
                 applyState(states.get(stateIdx));
@@ -725,7 +768,11 @@ public class KtvSingActivity extends BaseActivity {
         if (states.isEmpty() || states.get(stateIdx) != S_ORIGINAL) return;
         int ps = player.getPlaybackState();
         if (ps == Player.STATE_IDLE || ps == Player.STATE_ENDED) return;
-        if (player.getVideoFormat() != null) return;
+        if (player.getVideoFormat() != null) {
+            KtvLog.add("配MV 已有画面不换");
+            return;
+        }
+        KtvLog.add("配MV 换播");
         onMv = true;
         playMedia(mvUrl, null, player.getCurrentPosition());
         toast("配到了 MV");
@@ -736,9 +783,10 @@ public class KtvSingActivity extends BaseActivity {
         vocal.setMode(VocalProcessor.OFF);
         if (player != null) {
             player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().clearOverrides().build());
-            if (onAccUrl && state != S_ACC_URL && mainUrl != null && !mainUrl.isEmpty()) {
+            if ((onAccUrl || onAccMv) && state != S_ACC_URL && state != S_ACC_MV && mainUrl != null && !mainUrl.isEmpty()) {
                 long pos = player.getCurrentPosition();
                 onAccUrl = false;
+                onAccMv = false;
                 playMedia(mainUrl, mainHeaders, pos);
             }
         }
@@ -750,7 +798,20 @@ public class KtvSingActivity extends BaseActivity {
                 if (player != null && accUrl != null && !accUrl.isEmpty()) {
                     long pos = player.getCurrentPosition();
                     onAccUrl = true;
+                    onAccMv = false;
                     playMedia(accUrl, accHeaders, pos);
+                }
+                break;
+            case S_ACC_MV:
+                if (player != null && accMvUrl != null && !accMvUrl.isEmpty()) {
+                    long pos = player.getCurrentPosition();
+                    onAccMv = true;
+                    onAccUrl = false;
+                    playMedia(accMvUrl, null, pos);
+                    if (!accMvHintShown) {
+                        accMvHintShown = true;
+                        toast("伴奏MV要是自带歌词，点「歌词」关掉这层");
+                    }
                 }
                 break;
             case S_CH_LEFT:
@@ -811,6 +872,9 @@ public class KtvSingActivity extends BaseActivity {
                 break;
             case S_CH_RIGHT:
                 label = "伴奏·右声道";
+                break;
+            case S_ACC_MV:
+                label = "伴奏·MV";
                 break;
             case S_CANCEL:
                 label = "消音";
@@ -1156,6 +1220,7 @@ public class KtvSingActivity extends BaseActivity {
 
     private TextView btn(String s, View.OnClickListener l) {
         TextView t = text(s, 14, WHITE);
+        t.setSingleLine(true);
         t.setGravity(Gravity.CENTER);
         t.setPadding(dp(13), dp(9), dp(13), dp(9));
         GradientDrawable g = new GradientDrawable();

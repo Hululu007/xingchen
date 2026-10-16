@@ -22,7 +22,7 @@ public class VocalProcessor implements AudioProcessor {
     private AudioFormat inputFormat = AudioFormat.NOT_SET;
     private ByteBuffer outputBuffer = EMPTY_BUFFER;
     private volatile int mode = OFF;
-    private int lpState;
+    private float b0, b1, b2, a1, a2, lx1, lx2, ly1, ly2;
     private long rampPos = Long.MAX_VALUE;
     private volatile float cancelMix = 0.85f;
 
@@ -46,6 +46,16 @@ public class VocalProcessor implements AudioProcessor {
             throw new UnhandledAudioFormatException(format);
         }
         inputFormat = format;
+        // 低频回补用的低通（170Hz）：贝斯鼓点居中，全砍声音发空；中高频走立体声差值
+        double w = 2 * Math.PI * 170.0 / Math.max(8000, format.sampleRate);
+        double alpha = Math.sin(w) / (2 * 0.7071);
+        double cw = Math.cos(w);
+        double a0 = 1 + alpha;
+        b0 = (float) (((1 - cw) / 2) / a0);
+        b1 = (float) ((1 - cw) / a0);
+        b2 = b0;
+        a1 = (float) ((-2 * cw) / a0);
+        a2 = (float) ((1 - alpha) / a0);
         return format; // 输出格式与输入一致
     }
 
@@ -76,14 +86,20 @@ public class VocalProcessor implements AudioProcessor {
                 int pl, pr;
                 switch (m) {
                     case CANCEL: {
-                        // 差值信号先过一遍柔和：压缩音频在差值里全是金属味杂音，不滤就是电流声
-                        int d = l - r;
-                        lpState += (d - lpState) * 45 / 100;
-                        int v = lpState / 2;
-                        int mono = (l + r) / 2;
-                        int mixed = (int) (v * cancelMix + mono * (1 - cancelMix));
-                        pl = mixed;
-                        pr = mixed;
+                        // 分频相减：低频把居中单声道回补回来（保住贝斯鼓点），
+                        // 中高频只留左右差值——差值本来就是立体声，别再压成单声道糊一团；
+                        // 全程浮点，整数截断的台阶声就是电流声的来源
+                        // 差值天生比原声小一截，不补增益消完就剩蚊子声（他真机听到的"伴奏很小"）
+                        float side = (l - r) * 0.8f;
+                        float mono = (l + r) * 0.5f;
+                        float y = b0 * mono + b1 * lx1 + b2 * lx2 - a1 * ly1 - a2 * ly2;
+                        lx2 = lx1;
+                        lx1 = mono;
+                        ly2 = ly1;
+                        ly1 = y;
+                        float keep = 1 - cancelMix;
+                        pl = clamp(Math.round((side + y) * cancelMix + l * keep));
+                        pr = clamp(Math.round((-side + y) * cancelMix + r * keep));
                         break;
                     }
                     case LEFT:
@@ -137,9 +153,14 @@ public class VocalProcessor implements AudioProcessor {
     }
 
     @Override
+    private static int clamp(int v) {
+        return v > 32767 ? 32767 : Math.max(v, -32768);
+    }
+
+    @Override
     public void flush() {
         outputBuffer = EMPTY_BUFFER;
-        lpState = 0;
+        lx1 = lx2 = ly1 = ly2 = 0;
     }
 
     @Override

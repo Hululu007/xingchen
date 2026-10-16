@@ -137,7 +137,8 @@ public class Req {
 
     public String getCharset() {
         Map<String, String> header = getHeader();
-        List<String> keys = Arrays.asList("Content-Type", "content-type");
+        // 8.83 HttpHelper 认的三种写法（按此顺序）：content-type / Content-Type / Content-type
+        List<String> keys = Arrays.asList("content-type", "Content-Type", "Content-type");
         for (String key : keys) if (header.containsKey(key)) return getCharset(Objects.requireNonNull(header.get(key)));
         return "UTF-8";
     }

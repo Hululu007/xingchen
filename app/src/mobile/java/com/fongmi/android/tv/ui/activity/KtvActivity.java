@@ -25,6 +25,8 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Result;
@@ -253,6 +255,47 @@ public class KtvActivity extends BaseActivity {
         showTab(toServer ? Tab.HOT : Tab.VOD_RESULTS);
     }
 
+    private int siteRetry;
+    private boolean ktvConfigTried;
+
+    /** 同音乐页：配置没加载时自己触发加载（只有首页会主动加载配置）。 */
+    private void ensureKtvConfig() {
+        if (ktvConfigTried) return;
+        ktvConfigTried = true;
+        try {
+            VodConfig.get().config(Config.vod()).load(new Callback() {
+                @Override
+                public void success() {
+                    runOnUiThread(() -> applyMode());
+                }
+
+                @Override
+                public void error(String msg) {
+                    ktvConfigTried = false;
+                }
+            });
+        } catch (Throwable t) {
+            ktvConfigTried = false;
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!KtvStore.useServer()) applyMode();
+    }
+
+    private void retrySiteLater() {
+        if (siteRetry >= 6) return;
+        siteRetry++;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (isFinishing()) return;
+            Site s = vodSite();
+            if (s != null) applyMode();
+            else retrySiteLater();
+        }, 1200);
+    }
+
     private void applyMode() {
         boolean server = KtvStore.useServer();
         modeBtn.setText(server ? "歌源：点歌服务器" : "歌源：点播源");
@@ -266,6 +309,11 @@ public class KtvActivity extends BaseActivity {
             vodBar.setText("点播源：" + (s == null ? "还没选（点这里选）" : s.getName()) + "　换 ›");
         }
         buildChips();
+        if (!server && vodSite() == null) {
+            ensureKtvConfig();
+            retrySiteLater();
+        }
+        else siteRetry = 0;
     }
 
     private void editServer() {
@@ -308,10 +356,10 @@ public class KtvActivity extends BaseActivity {
         try {
             String key = com.github.catvod.utils.Prefers.getString("ktv_vod_site", "");
             List<Site> all = VodConfig.get().getSites();
-            for (Site s : all) if (s.getKey() != null && s.getKey().equals(key)) return s;
+            for (Site s : all) if (s.getKey() != null && s.getKey().equals(key) && s.getName() != null && !s.getName().isEmpty()) return s;
             for (Site s : all) if (MusicActivity.looksMusic(s)) return s;
             Site home = VodConfig.get().getHome();
-            return home;
+            return home != null && home.getName() != null && !home.getName().isEmpty() ? home : null;
         } catch (Throwable t) {
             return null;
         }

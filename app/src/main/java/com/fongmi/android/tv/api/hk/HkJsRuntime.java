@@ -5392,7 +5392,25 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
             Type type = new TypeToken<Map<String, String>>() {}.getType();
             Map<String, String> map = GSON.fromJson(new String(bytes, "UTF-8"), type);
-            if (map != null) kv.putAll(map);
+            if (map != null) {
+                // 一次性清残：1.3.25 之前存储写法有毛病那批版本写下的结构化缓存（{/[ 开头），
+                // 有的能解析但缺字段，规则读回直接崩（UU视频 tabs 缺 ids 实证）。
+                // 字符串类的状态（域名/设备号/令牌）不动，只清结构化的，清完规则自己重建。
+                try {
+                    String healed = com.github.catvod.utils.Prefers.getString("hk_kv_healed", "");
+                    String title = rule == null ? "" : rule.getTitle();
+                    if (title != null && !title.isEmpty() && !healed.contains("\u0001" + title + "\u0001")) {
+                        map.values().removeIf(v -> {
+                            if (v == null) return false;
+                            String t = v.trim();
+                            return t.startsWith("{") || t.startsWith("[");
+                        });
+                        com.github.catvod.utils.Prefers.put("hk_kv_healed", healed + "\u0001" + title + "\u0001");
+                    }
+                } catch (Throwable ignored) {
+                }
+                kv.putAll(map);
+            }
         } catch (Throwable ignored) {
         }
     }

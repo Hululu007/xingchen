@@ -29,18 +29,24 @@ new Thread(() -> {
 String url = null;
 try {
 url = fromNetease(title, singer);
-} catch (Throwable ignored) {
+KtvLog.add("配MV 网易云：" + (url == null ? "没配到" : "配到"));
+} catch (Throwable t) {
+KtvLog.add("配MV 网易云出错：" + t);
 }
 if (url == null) {
 try {
 url = fromBilibili(title, singer);
-} catch (Throwable ignored) {
+KtvLog.add("配MV B站：" + (url == null ? "没配到" : "配到"));
+} catch (Throwable t) {
+KtvLog.add("配MV B站出错：" + t);
 }
 }
 if (url == null) {
 try {
 url = fromQQ(title, singer);
-} catch (Throwable ignored) {
+KtvLog.add("配MV QQ：" + (url == null ? "没配到" : "配到"));
+} catch (Throwable t) {
+KtvLog.add("配MV QQ出错：" + t);
 }
 }
 cb.onResult(url);
@@ -68,7 +74,7 @@ best = score;
 bestId = id;
 }
 }
-if (bestId == 0 || best < 40) return null;
+if (bestId == 0 || best < 70) return null;
 String detail = httpGet("https://music.163.com/api/mv/detail?id=" + bestId, "https://music.163.com/", null);
 JsonObject data = JsonParser.parseString(detail).getAsJsonObject().getAsJsonObject("data");
 if (data == null ||!data.has("brs") ||!data.get("brs").isJsonObject()) return null;
@@ -118,11 +124,15 @@ bestBvid = str(v, "bvid");
 }
 }
 if (bestBvid == null || bestBvid.isEmpty() || best < 50) return null;
-String pages = httpGet("https://api.bilibili.com/x/player/pagelist?bvid=" + bestBvid, "https://www.bilibili.com/", cookie);
+return biliPlayUrl(bestBvid, cookie);
+}
+
+private static String biliPlayUrl(String bvid, String cookie) throws Exception {
+String pages = httpGet("https://api.bilibili.com/x/player/pagelist?bvid=" + bvid, "https://www.bilibili.com/", cookie);
 JsonArray parr = JsonParser.parseString(pages).getAsJsonObject().getAsJsonArray("data");
 if (parr == null || parr.size() == 0) return null;
 long cid = parr.get(0).getAsJsonObject().get("cid").getAsLong();
-String play = httpGet("https://api.bilibili.com/x/player/playurl?bvid=" + bestBvid + "&cid=" + cid + "&fnval=0",
+String play = httpGet("https://api.bilibili.com/x/player/playurl?bvid=" + bvid + "&cid=" + cid + "&fnval=0",
 "https://www.bilibili.com/", cookie);
 JsonObject pdata = JsonParser.parseString(play).getAsJsonObject().getAsJsonObject("data");
 if (pdata == null ||!pdata.has("durl")) return null;
@@ -130,6 +140,57 @@ JsonArray durl = pdata.getAsJsonArray("durl");
 if (durl == null || durl.size() == 0) return null;
 String u = str(durl.get(0).getAsJsonObject(), "url");
 return u.startsWith("http")? u: null;
+}
+
+// ---------- 伴奏MV（B站的卡拉OK/伴奏版视频，画面+伴奏一体的那种） ----------
+
+public static void findAccMv(String title, String singer, Callback cb) {
+new Thread(() -> {
+String url = null;
+try {
+url = fromBiliAccMv(title, singer);
+KtvLog.add("配伴奏MV B站：" + (url == null? "没配到": "配到"));
+} catch (Throwable t) {
+KtvLog.add("配伴奏MV 出错：" + t);
+}
+cb.onResult(url);
+}, "ktv-accmv").start();
+}
+
+private static String fromBiliAccMv(String title, String singer) throws Exception {
+String cookie = "buvid3=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6Dinfoc; buvid4=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6D-024101601-AbCdEfGh";
+String q = URLEncoder.encode((title + " " + singer + " 伴奏").trim(), "UTF-8");
+String body = httpGet("https://api.bilibili.com/x/web-interface/search/type?search_type=video&page=1&page_size=10&keyword=" + q,
+"https://www.bilibili.com/", cookie);
+JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+if (!root.has("data") ||!root.get("data").isJsonObject()) return null;
+JsonArray list = root.getAsJsonObject("data").getAsJsonArray("result");
+if (list == null) return null;
+String want = norm(title);
+String bestBvid = null;
+int best = 0;
+for (JsonElement e: list) {
+JsonObject v = e.getAsJsonObject();
+String t = str(v, "title").replaceAll("<[^>]+>", "");
+String low = t.toLowerCase(Locale.ROOT);
+if (low.contains("教学") || low.contains("翻唱") || low.contains("钢琴") || low.contains("吉他")
+|| low.contains("古筝") || low.contains("葫芦丝") || low.contains("二胡") || low.contains("唢呐")
+|| low.contains("架子鼓") || low.contains("reaction") || low.contains("混剪")) continue;
+boolean karaoke = low.contains("伴奏") || low.contains("ktv") || low.contains("卡拉ok") || low.contains("カラオケ");
+if (!karaoke) continue;
+int score = 50;
+if (norm(t).contains(want) &&!want.isEmpty()) score += 40;
+int sec = parseBiliDuration(str(v, "duration"));
+if (sec >= 120 && sec <= 420) score += 10;
+long play = v.has("play") && v.get("play").isJsonPrimitive()? v.get("play").getAsLong(): 0;
+if (play > 100_000) score += 5;
+if (score > best) {
+best = score;
+bestBvid = str(v, "bvid");
+}
+}
+if (bestBvid == null || bestBvid.isEmpty() || best < 90) return null;
+return biliPlayUrl(bestBvid, cookie);
 }
 
 private static int parseBiliDuration(String d) {
@@ -162,7 +223,7 @@ best = score;
 bestVid = str(mv, "v_id");
 }
 }
-if (bestVid == null || bestVid.isEmpty() || best < 40) return null;
+if (bestVid == null || bestVid.isEmpty() || best < 70) return null;
 String data = "{\"comm\":{\"g_tk\":0,\"uin\":0,\"platform\":\"h5\"},\"mvUrl\":{\"module\":\"music.stream.MvUrlProxy\",\"method\":\"GetMvUrls\",\"param\":{\"vids\":[\"" + bestVid + "\"],\"request_type\":10003}}}";
 String resp = httpGet("https://u.y.qq.com/cgi-bin/musicu.fcg?data=" + URLEncoder.encode(data, "UTF-8"),
 "https://y.qq.com/", null);

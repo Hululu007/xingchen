@@ -74,6 +74,9 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
 
     private WatchController mWatch;
     private boolean host;
+    private String firstUrl;
+    private java.util.Map<String, String> firstHeaders;
+    private int firstEpIndex = -1;
     private String myName = "我";
     private String siteKey = "";
     private String flag = "";
@@ -109,7 +112,7 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
         return true;
     }
 
-    public static void startCreate(Context ctx, String name, String password, String siteKey, String flag, String vodName, String pic, List<Episode> eps, int startIndex, long startPosMs) {
+    public static void startCreate(Context ctx, String name, String password, String siteKey, String flag, String vodName, String pic, List<Episode> eps, int startIndex, long startPosMs, String firstUrl, java.util.Map<String, String> firstHeaders) {
         Intent i = new Intent(ctx, WatchRoomActivity.class);
         i.putExtra("mode", "create");
         i.putExtra("name", name);
@@ -130,6 +133,16 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
         i.putExtra("episodes", arr.toString());
         i.putExtra("start_index", startIndex);
         i.putExtra("start_pos", startPosMs);
+        // 房主正在播的那一集的已解析地址：房间页自己重解析对有些源（海阔/需解析的）拿不到，
+        // 直接把现成的带进来，至少正在看的这一集进房就能播。
+        if (firstUrl != null && !firstUrl.isEmpty()) {
+            i.putExtra("first_url", firstUrl);
+            if (firstHeaders != null && !firstHeaders.isEmpty()) {
+                JsonObject h = new JsonObject();
+                for (java.util.Map.Entry<String, String> e : firstHeaders.entrySet()) h.addProperty(e.getKey(), e.getValue());
+                i.putExtra("first_headers", h.toString());
+            }
+        }
         ctx.startActivity(i);
     }
 
@@ -170,6 +183,17 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
             } catch (Throwable ignored) {
             }
         }
+        firstUrl = i.getStringExtra("first_url");
+        String fh = i.getStringExtra("first_headers");
+        if (fh != null && !fh.isEmpty()) {
+            try {
+                firstHeaders = new java.util.HashMap<>();
+                JsonObject o = JsonParser.parseString(fh).getAsJsonObject();
+                for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : o.entrySet()) firstHeaders.put(e.getKey(), e.getValue().getAsString());
+            } catch (Throwable ignored) {
+            }
+        }
+        firstEpIndex = i.getIntExtra("start_index", 0);
         buildUi();
         buildPlayer();
         mWatch = new WatchController(this);
@@ -178,7 +202,11 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
             mWatch.createRoom(myName, i.getStringExtra("password") == null ? "" : i.getStringExtra("password"));
             int start = i.getIntExtra("start_index", 0);
             long pos = i.getLongExtra("start_pos", 0);
-            if (!episodes.isEmpty()) resolveAndPlay(Math.max(0, Math.min(start, episodes.size() - 1)), pos);
+            if (!episodes.isEmpty()) {
+                int st = Math.max(0, Math.min(start, episodes.size() - 1));
+                firstEpIndex = st;
+                resolveAndPlay(st, pos);
+            }
             else roomView.addSystem("没带选集进来，房主可以在详情页选好片再建房");
         } else {
             mWatch.joinRoom(i.getStringExtra("code") == null ? "" : i.getStringExtra("code"), myName, i.getStringExtra("password") == null ? "" : i.getStringExtra("password"));
@@ -418,6 +446,9 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
     private void playMedia(String url, Map<String, String> headers, long posMs) {
         DefaultHttpDataSource.Factory dsf = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true);
         if (headers != null && !headers.isEmpty()) dsf.setDefaultRequestProperties(headers);
+        boolean hasUa = false;
+        if (headers != null) for (String k : headers.keySet()) if (k != null && k.equalsIgnoreCase("User-Agent")) hasUa = true;
+        if (!hasUa) dsf.setUserAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
         player.setMediaSource(new DefaultMediaSourceFactory(dsf).createMediaSource(MediaItem.fromUri(url)));
         if (posMs > 0) player.seekTo(posMs);
         player.prepare();
@@ -433,6 +464,11 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
     private void resolveAndPlay(int index, long posMs) {
         if (index < 0 || index >= episodes.size()) return;
         curEp = index;
+        if (index == firstEpIndex && firstUrl != null && !firstUrl.isEmpty()) {
+            playMedia(firstUrl, firstHeaders, posMs);
+            if (mWatch != null) mWatch.onHostPlayResolved(firstUrl, firstHeaders, vodTitle);
+            return;
+        }
         String[] ep = episodes.get(index);
         String key = siteKey, fl = flag;
         Task.execute(() -> {

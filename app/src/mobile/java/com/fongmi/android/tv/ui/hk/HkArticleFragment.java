@@ -1695,6 +1695,12 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
                     @Override
                     public void success(String result) {
+                        // 定位用：点的是第几集、解析结果的形状（脱敏），与播放器实际起播的集数对
+                        try {
+                            SpiderDebug.log("hk", "lazy ok pos=%d resultShape=%s", position,
+                                    com.fongmi.android.tv.api.hk.HkJsRuntime.maskedPath(result == null ? "" : result));
+                        } catch (Throwable ignored) {
+                        }
                         dismissLoadingPopup();
                         if (result != null && result.startsWith("error:")) {
                             // 引擎真实错误（含行号），直接弹原文，不走 URL 兜底（否则被 dealWithUrl 当成"未知链接"掩盖）

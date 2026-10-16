@@ -7035,7 +7035,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             }
             long pos = player() == null ? 0 : player().getPosition();
             if (player() != null) player().pause();
-            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), site.getKey(), flag.getFlag(), getName(), getPic(), flag.getEpisodes(), startIndex, pos);
+            String curUrl = "";
+            java.util.Map<String, String> curHeaders = null;
+            try {
+                if (player() != null) {
+                    curUrl = player().getUrl() == null ? "" : player().getUrl();
+                    curHeaders = player().getHeaders();
+                }
+            } catch (Throwable ignored) {
+            }
+            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), site.getKey(), flag.getFlag(), getName(), getPic(), flag.getEpisodes(), startIndex, pos, curUrl, curHeaders);
             dialog.dismiss();
         });
         joinBtn.setOnClickListener(v -> {

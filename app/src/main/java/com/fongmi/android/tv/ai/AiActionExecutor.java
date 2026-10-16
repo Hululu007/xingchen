@@ -80,6 +80,21 @@ public class AiActionExecutor {
                     cls = pkg + "FeaturesActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                case AiVoiceCommand.ACTION_NAV_KTV:
+                    cls = pkg + "KtvActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    break;
+                case AiVoiceCommand.ACTION_NAV_KTV_ORDER:
+                    cls = pkg + "KtvActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    if (!TextUtils.isEmpty(cmd.textParam)) {
+                        intent.putExtra("ktv_order_query", cmd.textParam);
+                    }
+                    break;
+                case AiVoiceCommand.ACTION_NAV_MUSIC:
+                    cls = pkg + "MusicActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    break;
                 case AiVoiceCommand.ACTION_NAV_NODE:
                     cls = pkg + "NodeManageActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -292,6 +307,14 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开一起看");
                 case AiVoiceCommand.ACTION_WATCH_LEAVE:
                     return new AiVoiceCommand.Command(action, "已退出一起看");
+                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
+                    return new AiVoiceCommand.Command(action, "已开启合唱");
+                case AiVoiceCommand.ACTION_KTV_NEXT:
+                    return new AiVoiceCommand.Command(action, "已切歌");
+                case AiVoiceCommand.ACTION_KTV_MODE:
+                    return new AiVoiceCommand.Command(action, "已切换模式");
+                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
+                    return new AiVoiceCommand.Command(action, "已关闭合唱");
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     return new AiVoiceCommand.Command(action, params,
                             params >= 0 ? "已快进 " + (params / 1000) + " 秒" : "已快退 " + (-params / 1000) + " 秒");
@@ -418,6 +441,18 @@ public class AiActionExecutor {
                     return true;
                 case AiVoiceCommand.ACTION_WATCH_LEAVE:
                     invoke(activity, "aiWatchLeave");
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
+                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, true);
+                    return true;
+                case AiVoiceCommand.ACTION_KTV_NEXT:
+                    invoke(activity, "aiKtvNext");
+                    return true;
+                case AiVoiceCommand.ACTION_KTV_MODE:
+                    invoke(activity, "aiKtvMode", new Class[]{int.class}, (int) cmd.param);
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
+                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, false);
                     return true;
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     invoke(activity, "aiSeekBy", new Class[]{long.class}, cmd.param);

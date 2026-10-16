@@ -1673,6 +1673,14 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         SpiderDebug.log("hk", "lazy click entry rule=%s pos=%d url=%s",
                 articleListRule == null ? "" : articleListRule.getTitle(), position,
                 lazySplit == null || lazySplit.length == 0 ? "" : lazySplit[0]);
+        // 地址形状单独记一行（脱敏后导出日志里还在）：与原版拼出的地址对照用
+        try {
+            if (lazySplit != null && lazySplit.length > 0 && lazySplit[0] != null) {
+                SpiderDebug.log("hk", "lazy click shape pos=%d path=%s", position,
+                        com.fongmi.android.tv.api.hk.HkJsRuntime.maskedPath(lazySplit[0]));
+            }
+        } catch (Throwable ignored) {
+        }
         // 照原版：FuckKt.inList(activity) 命中且 goWeb 打开成功则不再走内置解析（FuckKt 为 Fragment 直调，不经 DetailBridge）
         if (HkFuck.inList(getActivity()) && HkFuck.goWeb(getContext(), myUrl, lazySplit[0])) return;
         HkArticleListModel.EngineBridge bridge = HkArticleListModel.getEngineBridge();

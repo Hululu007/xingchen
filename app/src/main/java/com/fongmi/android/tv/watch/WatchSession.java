@@ -61,6 +61,7 @@ public final class WatchSession {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final String clientId = "xc" + Long.toHexString(new Random().nextLong() & 0xFFFFFFFFFFFFL);
     private final Map<String, Boolean> members = new HashMap<>();
+    private final Map<String, String> memberNames = new HashMap<>();
 
     private MqttMiniClient client;
     private int brokerIdx;
@@ -159,6 +160,27 @@ public final class WatchSession {
 
     public String getClientId() {
         return clientId;
+    }
+
+    public String getMyName() {
+        return myName;
+    }
+
+    /** 成员快照（房间页头像条用）：每项含 id/name/host。 */
+    public java.util.List<java.util.Map<String, Object>> getMembers() {
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        synchronized (members) {
+            for (java.util.Map.Entry<String, Boolean> e : members.entrySet()) {
+                java.util.Map<String, Object> m = new java.util.HashMap<>();
+                m.put("id", e.getKey());
+                String n = memberNames.get(e.getKey());
+                m.put("name", n == null || n.isEmpty() ? "伙伴" : n);
+                m.put("host", e.getValue());
+                out.add(m);
+            }
+        }
+        out.sort((a, b) -> Boolean.compare(Boolean.TRUE.equals(b.get("host")), Boolean.TRUE.equals(a.get("host"))));
+        return out;
     }
 
     public java.util.List<String> getMemberIds() {
@@ -318,8 +340,13 @@ public final class WatchSession {
                 String cid = topic.substring(topic.lastIndexOf('/') + 1);
                 boolean on = o.has("on") && o.get("on").getAsBoolean();
                 synchronized (members) {
-                    if (on) members.put(cid, o.has("host") && o.get("host").getAsBoolean());
-                    else members.remove(cid);
+                    if (on) {
+                        members.put(cid, o.has("host") && o.get("host").getAsBoolean());
+                        if (o.has("name")) memberNames.put(cid, o.get("name").getAsString());
+                    } else {
+                        members.remove(cid);
+                        memberNames.remove(cid);
+                    }
                 }
                 int count;
                 boolean hostPresent;

@@ -262,6 +262,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private KaraokeResult mPendingKaraokeResult;
     private AlertDialog mKaraokeResultDialog;
     private WatchController mWatch;
+    private WatchRoomView mRoomView;
+    private WatchRoomView.FloatLayer mRoomFloat;
     private static final java.util.Map<String, String> HK_EPISODES_STORE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger HK_EPISODES_SEQ = new java.util.concurrent.atomic.AtomicInteger();
     private String mWatchName = "我";
@@ -965,6 +967,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mWatch = new WatchController(this);
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
+        mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
+        mBinding.ktvDetail.setOnClickListener(view -> onKtvButton());
+        updateKtvButton();
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -997,6 +1002,35 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         });
         mBinding.control.action.getRoot().setOnTouchListener(this::onActionTouch);
         mBinding.swipeLayout.setOnRefreshListener(this::onSwipeRefresh);
+        // 选集区滑动不许拉出下拉刷新：手指落在选集列表上就先关掉刷新，抬手再恢复
+        //（他真机实证：滑选集滑到顶会误触整页刷新）
+        mBinding.episode.addOnItemTouchListener(new androidx.recyclerview.widget.RecyclerView.OnItemTouchListener() {
+            private boolean disabledByEpisode;
+
+            @Override
+            public boolean onInterceptTouchEvent(androidx.recyclerview.widget.RecyclerView rv, android.view.MotionEvent e) {
+                if (e.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                    if (mBinding.swipeLayout.isEnabled()) {
+                        mBinding.swipeLayout.setEnabled(false);
+                        disabledByEpisode = true;
+                    }
+                } else if (e.getAction() == android.view.MotionEvent.ACTION_UP || e.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                    if (disabledByEpisode) {
+                        mBinding.swipeLayout.setEnabled(true);
+                        disabledByEpisode = false;
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public void onTouchEvent(androidx.recyclerview.widget.RecyclerView rv, android.view.MotionEvent e) {
+            }
+
+            @Override
+            public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+            }
+        });
     }
 
     private WindowInsetsCompat setStatusBar(WindowInsetsCompat insets) {
@@ -6856,6 +6890,24 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         runOnUiThread(this::onWatchButton);
     }
 
+    /** AI：开关实时合唱 */
+    public void aiWatchVoice(boolean on) {
+        runOnUiThread(() -> {
+            if (mWatch == null || !mWatch.inRoom()) {
+                Notify.show("先开一起看房间，才能开合唱");
+                return;
+            }
+            if (!on) {
+                mWatch.setVoiceEnabled(false);
+                return;
+            }
+            com.fongmi.android.tv.utils.PermissionUtil.requestAudio(this, ok -> {
+                if (Boolean.TRUE.equals(ok)) mWatch.setVoiceEnabled(true);
+                else Notify.show("没给麦克风权限，开不了合唱");
+            });
+        });
+    }
+
     /** AI：退出一起看 */
     public void aiWatchLeave() {
         runOnUiThread(() -> {
@@ -6867,7 +6919,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onWatchButton() {
-        if (mWatch != null && mWatch.inRoom()) showWatchRoomDialog();
+        if (mWatch != null && mWatch.inRoom()) showWatchRoomPage();
         else showWatchStartDialog();
     }
 
@@ -6914,30 +6966,132 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 .show();
     }
 
-    private void showWatchRoomDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        box.setPadding(pad, pad / 2, pad, 0);
-        EditText chatInput = new EditText(this);
-        chatInput.setHint("说句话，大家都能看见");
-        box.addView(chatInput);
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("房间 " + mWatch.roomCode() + (mWatch.isHost() ? "（你是房主）" : ""))
-                .setView(box)
-                .setPositiveButton("发送", (d, w) -> {
-                    String text = chatInput.getText().toString().trim();
-                    if (!text.isEmpty()) mWatch.sendChat(text);
-                })
-                .setNegativeButton("离开房间", (d, w) -> mWatch.leaveRoom())
-                .setNeutralButton("关闭", null)
-                .show();
+    /** 房间页（单独一套直播间式界面）：建好后挂在内容区下半部，视频在上面照常播。 */
+    private void ensureRoomView() {
+        if (mRoomView != null) return;
+        mRoomView = new WatchRoomView(this, new WatchRoomView.Action() {
+            @Override
+            public void onSend(String text) {
+                if (mWatch != null) mWatch.sendChat(text);
+            }
+
+            @Override
+            public void onToggleVoice() {
+                if (mWatch == null) return;
+                if (mWatch.isVoiceEnabled()) {
+                    mWatch.setVoiceEnabled(false);
+                    mRoomView.setVoiceState(false);
+                } else {
+                    com.fongmi.android.tv.utils.PermissionUtil.requestAudio(VideoActivity.this, ok -> {
+                        if (Boolean.TRUE.equals(ok)) {
+                            mWatch.setVoiceEnabled(true);
+                            mRoomView.setVoiceState(true);
+                        } else {
+                            Notify.show("没给麦克风权限，开不了合唱");
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onLeave() {
+                if (mWatch != null) mWatch.leaveRoom();
+                hideWatchRoomPage();
+            }
+
+            @Override
+            public void onCollapse() {
+                hideWatchRoomPage();
+            }
+        });
+        mRoomView.setOnTitleClick(() -> {
+            if (mWatch == null || !mWatch.inRoom()) return;
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("房号", mWatch.roomCode()));
+            Notify.show("房号 " + mWatch.roomCode() + " 已复制，发给朋友就能进");
+        });
+        mRoomView.setVisibility(View.GONE);
+        ViewGroup content = findViewById(android.R.id.content);
+        content.addView(mRoomView);
+        // 飘字层盖在视频框上（不吃触摸）
+        if (mBinding != null && mBinding.video != null) {
+            mRoomFloat = new WatchRoomView.FloatLayer(this);
+            mBinding.video.addView(mRoomFloat, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        syncRoomView();
+    }
+
+    private void syncRoomView() {
+        if (mRoomView == null || mWatch == null) return;
+        mRoomView.setMyName(mWatchName);
+        mRoomView.setRoomInfo(mWatch.roomCode(), mWatch.isHost(), mWatch.getMembers().size());
+        mRoomView.setVoiceState(mWatch.isVoiceEnabled());
+        mRoomView.updateMembers(mWatch.getMembers());
+    }
+
+    private void showWatchRoomPage() {
+        if (mWatch == null || !mWatch.inRoom()) return;
+        ensureRoomView();
+        syncRoomView();
+        boolean landscape = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        mRoomView.setLandscapeMode(landscape);
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                landscape ? (int) (dm.widthPixels * 0.55f) : ViewGroup.LayoutParams.MATCH_PARENT,
+                landscape ? ViewGroup.LayoutParams.WRAP_CONTENT : (int) (dm.heightPixels * 0.55f),
+                landscape ? (Gravity.END | Gravity.BOTTOM) : Gravity.BOTTOM);
+        mRoomView.setLayoutParams(flp);
+        mRoomView.setVisibility(View.VISIBLE);
+        mRoomView.bringToFront();
+    }
+
+    private void hideWatchRoomPage() {
+        if (mRoomView != null) mRoomView.setVisibility(View.GONE);
+    }
+
+    /** 详情页 KTV 口子：只在音乐类源露脸（点开把当前这首歌的 MV 拉进唱歌页）。 */
+    private void updateKtvButton() {
+        if (mBinding == null || mBinding.ktvDetail == null) return;
+        Site site = null;
+        try {
+            site = getSite();
+        } catch (Throwable ignored) {
+        }
+        mBinding.ktvDetail.setVisibility(site != null && MusicActivity.looksMusic(site) ? View.VISIBLE : View.GONE);
+    }
+
+    private void onKtvButton() {
+        Episode ep = getEpisode();
+        Flag flag = getFlag();
+        Site site = getSite();
+        if (ep == null || flag == null || site == null) {
+            Notify.show("还没选好歌");
+            return;
+        }
+        com.fongmi.android.tv.ktv.KtvSong song = new com.fongmi.android.tv.ktv.KtvSong();
+        song.origin = "vod";
+        song.siteKey = site.getKey();
+        song.siteName = site.getName();
+        song.vodId = getId();
+        song.flag = flag.getFlag();
+        song.name = ep.getName();
+        song.episode = ep.getName();
+        song.episodeUrl = ep.getUrl();
+        song.singer = getName();
+        song.pic = getPic();
+        KtvSingActivity.startWith(this, song);
     }
 
     private void refreshWatchButton() {
         if (mBinding == null || mBinding.control == null) return;
-        if (mWatch != null && mWatch.inRoom()) mBinding.control.action.watch.setText("房 " + mWatch.roomCode());
-        else mBinding.control.action.watch.setText(R.string.watch_together);
+        updateKtvButton();
+        if (mWatch != null && mWatch.inRoom()) {
+            mBinding.control.action.watch.setText("房 " + mWatch.roomCode());
+            mBinding.watchDetail.setText("房 " + mWatch.roomCode());
+        } else {
+            mBinding.control.action.watch.setText(R.string.watch_together);
+            mBinding.watchDetail.setText(R.string.watch_together);
+        }
     }
 
     @Override
@@ -6965,18 +7119,33 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void watchChat(String name, String text) {
-        Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + "：" + text);
+        if (mWatch != null && mWatch.inRoom()) {
+            ensureRoomView();
+            mRoomView.addChat(name, text);
+            if (mRoomFloat != null) mRoomFloat.floatText(name, text);
+        } else {
+            Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + "：" + text);
+        }
     }
 
     @Override
     public void watchStatus(String text) {
         Notify.show(text);
         refreshWatchButton();
+        if (mWatch != null && mWatch.inRoom()) {
+            ensureRoomView();
+            mRoomView.addSystem(text);
+            syncRoomView();
+            // 横屏不自动弹开盖住全屏画面（靠一起看按钮呼出，平时只飘字）；竖屏自动打开
+            boolean landscape = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            if (!landscape && mRoomView.getVisibility() != View.VISIBLE) showWatchRoomPage();
+        }
     }
 
     @Override
     public void watchMembers(int count) {
         refreshWatchButton();
+        if (mRoomView != null && mWatch != null && mWatch.inRoom()) syncRoomView();
     }
 
     @Override
@@ -6992,21 +7161,28 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     public void watchEnded() {
         refreshWatchButton();
+        hideWatchRoomPage();
     }
 
     @Override
     public void watchSingStart(String name) {
-        Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + " 开唱了");
+        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 开唱了";
+        Notify.show(text);
+        if (mRoomView != null) mRoomView.addSystem(text);
     }
 
     @Override
     public void watchSingStop(String name) {
-        Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + " 唱完了");
+        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 唱完了";
+        Notify.show(text);
+        if (mRoomView != null) mRoomView.addSystem(text);
     }
 
     @Override
     public void watchScore(String name, int score, String grade) {
-        Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + " 得分 " + score + (grade == null || grade.isEmpty() ? "" : "（" + grade + "）"));
+        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 得分 " + score + (grade == null || grade.isEmpty() ? "" : "（" + grade + "）");
+        Notify.show(text);
+        if (mRoomView != null) mRoomView.addSystem(text);
     }
 
     /** AI：快进/快退（毫秒，正数快进负数快退） */

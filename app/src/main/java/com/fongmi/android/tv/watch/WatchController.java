@@ -42,6 +42,7 @@ public final class WatchController implements WatchSession.Listener {
     private final Host host;
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private WatchSession session;
+    private VoiceRoomLink voiceLink;
     private String lastUrl = "";
 
     private final Runnable syncLoop = new Runnable() {
@@ -92,6 +93,10 @@ public final class WatchController implements WatchSession.Listener {
     }
 
     private void stopInternal() {
+        if (voiceLink != null) {
+            voiceLink.disable();
+            voiceLink = null;
+        }
         ticker.removeCallbacks(syncLoop);
         if (session != null) {
             session.leave();
@@ -134,6 +139,31 @@ public final class WatchController implements WatchSession.Listener {
 
     public void sendChat(String text) {
         if (session != null && session.isActive()) session.sendChat(text);
+    }
+
+    public java.util.List<java.util.Map<String, Object>> getMembers() {
+        return session == null ? java.util.Collections.emptyList() : session.getMembers();
+    }
+
+    public String getMyName() {
+        return session == null ? "" : session.getMyName();
+    }
+
+    // ---- 实时合唱（语音组件用时下载，第一版） ----
+
+    public boolean isVoiceEnabled() {
+        return voiceLink != null && voiceLink.isEnabled();
+    }
+
+    public void setVoiceEnabled(boolean on) {
+        if (session == null || !session.isActive()) return;
+        if (on) {
+            if (voiceLink == null) voiceLink = new VoiceRoomLink(session, text -> host.watchStatus(text));
+            voiceLink.enable();
+        } else if (voiceLink != null) {
+            voiceLink.disable();
+            host.watchStatus("实时合唱已关");
+        }
     }
 
     // ---- WatchSession.Listener ----
@@ -198,6 +228,7 @@ public final class WatchController implements WatchSession.Listener {
     @Override
     public void onMembers(int count) {
         host.watchMembers(count);
+        if (voiceLink != null) voiceLink.syncPeers();
     }
 
     @Override
@@ -222,7 +253,7 @@ public final class WatchController implements WatchSession.Listener {
 
     @Override
     public void onVoiceSignal(String kind, String fromId, String name, com.google.gson.JsonObject data) {
-        // 实时语音（合唱）下一版接：信令通道已通，这里先收下不处理。
+        if (voiceLink != null) voiceLink.onSignal(kind, fromId, data);
     }
 
     @Override

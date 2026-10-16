@@ -340,7 +340,7 @@ public class HkRouter {
         if (u.startsWith("video://")) u = u.substring(8).trim();
         // 4. @lazyRule=（已在步骤0提取）
         if (lazyRuleText != null) {
-            resolveLazyRule(lazyPageUrl, lazyRuleText, out);
+            resolveLazyRule(lazyPageUrl, lazyRuleText, out, 0);
             // 照 8.83：懒解析没出地址就是失败、停住报错；
             // 旧代码继续拿剧集页地址走兜底，最终把网页塞给播放器（白屏/解析失败）。
             return out;
@@ -360,7 +360,7 @@ public class HkRouter {
                         resolveWebRule(real, out);
                         return out;
                     }
-                    out.setUrl(splitEnhancement(real, out));
+                    applyLazyResult(real, out, 0);
                     return out;
                 }
             }
@@ -377,7 +377,7 @@ public class HkRouter {
                     resolveWebRule(real, out);
                     return out;
                 }
-                out.setUrl(splitEnhancement(real, out));
+                applyLazyResult(real, out, 0);
                 return out;
             }
         }
@@ -475,7 +475,43 @@ public class HkRouter {
      * 解析 {@code @lazyRule=}：{@code .js:}/{@code js:} 开头走 JS 独立作用域求值，
      * 否则把规则当选择器对剧集页提单个地址（{@code .js:} 值后缀由选择器内部处理）。
      */
-    private void resolveLazyRule(String pageUrl, String ruleText, HkPlay out) {
+    /**
+     * 解析结果再分流：结果本身又是 {@code @lazyRule=} 串时递归解析下一段
+     * （红果两段式：第一段脚本返回的还是带懒规则的地址，海阔原版是循环解析到
+     * 干净地址为止；旧实现直接对整串做 splitEnhancement，花括号匹配会跨进
+     * 脚本里、把第二段懒规则连同地址一起毁掉，最终把 uri: 串塞给播放器报
+     * Malformed URL——1.3.23 真机日志实证）。深度上限 3 防死循环。
+     */
+    private void applyLazyResult(String v, HkPlay out, int depth) {
+        v = v.trim();
+        // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
+        if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
+        // 懒解析结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+        if (v.regionMatches(true, 0, "webRule://", 0, 10)) {
+            resolveWebRule(v, out);
+            return;
+        }
+        int lr = v.indexOf("@lazyRule=");
+        if (lr >= 0) {
+            if (depth >= 3) {
+                SpiderDebug.log("hk", "lazy chain too deep rule=%s", rule.getTitle());
+                return;
+            }
+            String page = v.substring(0, lr).trim();
+            String nextRule = decodeConflict(v.substring(lr + 10).trim());
+            // 页址部分的 ;增强段先拆（此时串里已无脚本，花括号匹配安全）
+            page = splitEnhancement(page, out);
+            int hash = page.indexOf('#');
+            if (hash >= 0) page = page.substring(0, hash).trim();
+            SpiderDebug.log("hk", "lazy chain depth=%d rule=%s host=%s", depth + 1, rule.getTitle(), hostOf(page));
+            resolveLazyRule(page, nextRule, out, depth + 1);
+            return;
+        }
+        out.setUrl(splitEnhancement(v, out));
+        SpiderDebug.log("hk", "lazy resolved rule=%s -> %s", rule.getTitle(), hostOf(out.getUrl()));
+    }
+
+    private void resolveLazyRule(String pageUrl, String ruleText, HkPlay out, int depth) {
         try {
             String r = ruleText.trim();
             boolean js = false;
@@ -494,18 +530,7 @@ public class HkRouter {
                 v = engine.getSelector().evalField(html, r, pageUrl);
             }
             if (!TextUtils.isEmpty(v)) {
-                v = v.trim();
-                // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
-                if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
-                // 懒解析结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
-                if (v.regionMatches(true, 0, "webRule://", 0, 10)) {
-                    resolveWebRule(v, out);
-                    return;
-                }
-                // 懒解析的结果串同样带 ;get;{请求头} 增强段，必须与 play() 步骤 2
-                // 同口径拆掉，否则整串塞给播放器（红果切集 Malformed URL 真机实证：
-                // 第一集因列表点播多走一遍拆解才没事，切集直达就原样下去了）。
-                out.setUrl(splitEnhancement(v, out));
+                applyLazyResult(v, out, depth);
             } else {
                 // 空结果也留痕到文件日志：规则解析失败（如福建兄妹抠不到 playUrl 时
                 // 懒函数抛错/回空）此前只进 logcat，他发来的日志里看不见、定不了案。

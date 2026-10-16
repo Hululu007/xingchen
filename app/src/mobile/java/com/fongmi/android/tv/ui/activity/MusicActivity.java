@@ -1,0 +1,159 @@
+package com.fongmi.android.tv.ui.activity;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewbinding.ViewBinding;
+
+import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.databinding.ActivityMusicBinding;
+import com.fongmi.android.tv.ktv.KtvStore;
+import com.fongmi.android.tv.ui.base.BaseActivity;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/** 音乐页：底栏新格。上面是 KTV 点歌台入口，下面是听歌源（点了切成当前源、回点播页听）。 */
+public class MusicActivity extends BaseActivity {
+
+    private ActivityMusicBinding binding;
+    private final List<Site> sites = new ArrayList<>();
+
+    public static void start(Activity activity) {
+        activity.startActivity(new Intent(activity, MusicActivity.class));
+    }
+
+    @Override
+    protected ViewBinding getBinding() {
+        binding = ActivityMusicBinding.inflate(getLayoutInflater());
+        return binding;
+    }
+
+    @Override
+    protected void initView(Bundle savedInstanceState) {
+        binding.recycler.setLayoutManager(new LinearLayoutManager(this));
+        binding.recycler.setAdapter(new SiteAdapter());
+        binding.ktvCard.setOnClickListener(v -> KtvActivity.start(this));
+        refresh();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (binding != null) refresh();
+    }
+
+    private void refresh() {
+        int n = KtvStore.queue().size();
+        binding.ktvSub.setText(n > 0 ? "点歌台 · 队列里有 " + n + " 首" : "点歌台 · 点播源和点歌服务器都能唱");
+        sites.clear();
+        List<Site> all = new ArrayList<>();
+        try {
+            all.addAll(VodConfig.get().getSites());
+        } catch (Throwable ignored) {
+        }
+        List<Site> music = new ArrayList<>();
+        for (Site s : all) if (looksMusic(s)) music.add(s);
+        if (!music.isEmpty()) {
+            sites.addAll(music);
+            binding.sourceHint.setText("点一个源，切到点播页听它的歌");
+        } else {
+            sites.addAll(all);
+            binding.sourceHint.setText("没认出哪个是音乐源，先把全部源列出来，点一个去听");
+        }
+        binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
+        if (binding.recycler.getAdapter() != null) binding.recycler.getAdapter().notifyDataSetChanged();
+    }
+
+    static boolean looksMusic(Site s) {
+        String n = ((s.getName() == null ? "" : s.getName()) + " " + (s.getKey() == null ? "" : s.getKey())).toLowerCase(Locale.ROOT);
+        return n.contains("音乐") || n.contains("听歌") || n.contains("歌曲") || n.contains("电台")
+                || n.contains("ktv") || n.contains("music") || n.contains(" mv") || n.contains("[mv]")
+                || n.contains("酷我") || n.contains("酷狗") || n.contains("qq音乐") || n.contains("网易云");
+    }
+
+    private void openSite(Site site) {
+        try {
+            VodConfig.get().setHome(site);
+        } catch (Throwable ignored) {
+        }
+        Toast.makeText(this, "已切到「" + site.getName() + "」，去点播页听歌", Toast.LENGTH_SHORT).show();
+        startActivity(new Intent(this, HomeActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+    }
+
+    private class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.Holder> {
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            LinearLayout row = new LinearLayout(parent.getContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(10);
+            row.setLayoutParams(lp);
+            row.setBackgroundResource(com.fongmi.android.tv.R.drawable.shape_music_card);
+            TextView name = new TextView(parent.getContext());
+            name.setTextColor(Color.WHITE);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView tag = new TextView(parent.getContext());
+            tag.setTextColor(0xFFFFD34D);
+            tag.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            row.addView(name);
+            row.addView(tag);
+            return new Holder(row, name, tag);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            Site site = sites.get(position);
+            h.name.setText(site.getName());
+            boolean home = false;
+            try {
+                Site cur = VodConfig.get().getHome();
+                home = cur != null && cur.getKey() != null && cur.getKey().equals(site.getKey());
+            } catch (Throwable ignored) {
+            }
+            h.tag.setText(home ? "使用中" : "›");
+            h.itemView.setOnClickListener(v -> openSite(site));
+        }
+
+        @Override
+        public int getItemCount() {
+            return sites.size();
+        }
+
+        class Holder extends RecyclerView.ViewHolder {
+            final TextView name;
+            final TextView tag;
+
+            Holder(View itemView, TextView name, TextView tag) {
+                super(itemView);
+                this.name = name;
+                this.tag = tag;
+            }
+        }
+    }
+
+    private int dp(int v) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
+    }
+}

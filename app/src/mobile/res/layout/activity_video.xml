@@ -462,13 +462,20 @@
 
                     </FrameLayout>
 
+                    <androidx.appcompat.widget.LinearLayoutCompat
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/name"
                         style="@style/Video.ContextText"
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="16dp"
-                        android:layout_marginEnd="16dp"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
                          android:ellipsize="marquee"
                          android:marqueeRepeatLimit="marquee_forever"
                          android:singleLine="true"
@@ -480,6 +487,34 @@
                         android:textSize="22sp"
                         android:textStyle="bold"
                         tools:text="長安夜行" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/ktvDetail"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="开唱"
+                        android:textColor="@color/white"
+                        android:textSize="15sp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/watchDetail"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="@string/watch_together"
+                        android:textColor="@color/white"
+                        android:textSize="15sp" />
+
+                    </androidx.appcompat.widget.LinearLayoutCompat>
 
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/content"

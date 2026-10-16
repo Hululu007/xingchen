@@ -227,6 +227,33 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /** 求值 confirm 回调 JS（8.83 ArticleListIsland.lambda$confirm$1 同款：evalJS 回调串，结果走路由）。 */
+    /** 从规则传入的对象上取字符串属性（confirm 弹窗用）。 */
+    private static String scriptableString(Scriptable o, String key) {
+        try {
+            Object v = ScriptableObject.getProperty(o, key);
+            if (v == null || v == Scriptable.NOT_FOUND || v instanceof Undefined) return "";
+            return Context.toString(v);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 取回调属性：字符串原样；函数对象取源码包成立即调用式，供 evalConfirmJs 求值。 */
+    private static String scriptableCallback(Scriptable o, String key) {
+        try {
+            Object v = ScriptableObject.getProperty(o, key);
+            if (v == null || v == Scriptable.NOT_FOUND || v instanceof Undefined) return "";
+            if (v instanceof CharSequence) return v.toString();
+            if (v instanceof org.mozilla.javascript.Function) {
+                String src = ((org.mozilla.javascript.Function) v).toString();
+                if (src != null && !src.trim().isEmpty()) return "(" + src + ")()";
+            }
+            return Context.toString(v);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     public String evalConfirmJs(String js) {
         try {
             if (js == null) return "";
@@ -300,6 +327,38 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return "(unknown)";
         }
     }
+    private static String hostOfQuiet(String url) {
+        try {
+            String h = java.net.URI.create(url.trim()).getHost();
+            return h == null ? "" : h;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 路径形状（脱敏）：数字串压成 #、长串压成 *，只留结构与参数名，供与原版地址对照。 */
+    public static String maskedPath(String url) {
+        try {
+            java.net.URI u = java.net.URI.create(url.trim());
+            String path = u.getPath() == null ? "" : u.getPath();
+            path = path.replaceAll("\\d+", "#").replaceAll("[A-Za-z0-9_\\-]{12,}", "*");
+            String q = u.getQuery();
+            if (q != null && !q.isEmpty()) {
+                StringBuilder sb = new StringBuilder(path).append('?');
+                String[] parts = q.split("&");
+                for (int i = 0; i < parts.length && i < 6; i++) {
+                    if (i > 0) sb.append('&');
+                    int eq = parts[i].indexOf('=');
+                    sb.append(eq >= 0 ? parts[i].substring(0, eq) : parts[i]).append("=*");
+                }
+                return sb.toString();
+            }
+            return path;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     private static void recordFetchDiag(String url, int code, Throwable e, boolean emptyBody) {
         try {
             StringBuilder sb = new StringBuilder();
@@ -1152,23 +1211,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
         // ---- 交互/配置（海阔规则常用，preRule 里调） ----
         putFunction("confirm", args -> {
-            // 8.83 JSEngine.confirm 同款：弹确认框；确定走 confirm 回调、取消走 cancel 回调
+            // 8.83 JSEngine.confirm 同款：弹确认框；确定走 confirm 回调、取消走 cancel 回调。
+            // 回调在原版是函数对象：此前先 stringify 再按 JSON 取串，JSON 化会把函数
+            // 整个丢掉，回调恒为空串——弹窗能弹、点确定毫无反应（福建兄妹靠 confirm
+            // 自更新域名，真机实证更新永不生效、海阔原版正常）。改成直接从对象上取：
+            // 函数取源码包成立即调用式，交给 evalConfirmJs 求值后走路由。
             try {
-                if (args != null && args.length > 0 && args[0] != null) {
-                    String json = stringifyArg(args[0]);
-                    if (!TextUtils.isEmpty(json) && json.startsWith("{")) {
-                        org.json.JSONObject o = new org.json.JSONObject(json);
-                        String title = o.optString("title");
-                        String content = o.optString("content");
-                        String confirmJs = o.optString("confirm");
-                        String cancelJs = o.optString("cancel");
-                        ConfirmHandler h = confirmHandler;
-                        if (h != null && (!TextUtils.isEmpty(title) || !TextUtils.isEmpty(content))) {
-                            h.onConfirm(title, content, confirmJs, cancelJs);
-                            return true;
-                        }
+                if (args != null && args.length > 0 && args[0] instanceof Scriptable) {
+                    Scriptable o = (Scriptable) args[0];
+                    String title = scriptableString(o, "title");
+                    String content = scriptableString(o, "content");
+                    String confirmJs = scriptableCallback(o, "confirm");
+                    String cancelJs = scriptableCallback(o, "cancel");
+                    ConfirmHandler h = confirmHandler;
+                    if (h != null && (!TextUtils.isEmpty(title) || !TextUtils.isEmpty(content))) {
+                        h.onConfirm(title, content, confirmJs, cancelJs);
+                        return true;
                     }
-                    Logger.t(TAG).d("confirm: %s", json);
+                    Logger.t(TAG).d("confirm(no handler): %s", title);
                 }
             } catch (Throwable ignored) {
             }
@@ -5283,6 +5343,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     // 见 HkHttpHelper.buildPostBody），不是响应侧。响应侧一律按 charset 解码，
                     // 8.83 没有 ISO-8859-1 字节映射行为。
                     content = new String(bytes, req.getCharset());
+                }
+                if (res.code() < 200 || res.code() >= 300) {
+                    // 非 2xx 定案诊断：把实际发出的 UA、带的 cookie 数、路径形状与
+                    // 错误页正文头记进文件日志（福建兄妹播放页 403：同 App 里 XO 能播、
+                    // 就它不行，日志里没这些就永远定不了是站方拦法还是地址拼错）。
+                    try {
+                        String ua = res.request().header("User-Agent");
+                        String cookie = res.request().header("Cookie");
+                        int cookieCount = 0;
+                        if (cookie != null && !cookie.isEmpty()) cookieCount = cookie.split(";").length;
+                        String head = content == null ? "" : content.replaceAll("\\s+", " ").trim();
+                        if (head.length() > 120) head = head.substring(0, 120);
+                        com.github.catvod.crawler.SpiderDebug.log("hk",
+                                "fetch non2xx host=%s code=%d ua=%s cookies=%d path=%s body=%s",
+                                hostOfQuiet(url), res.code(), ua == null ? "" : ua, cookieCount,
+                                maskedPath(url), head);
+                    } catch (Throwable ignored) {
+                    }
                 }
                 if (withHeaders || withStatusCode) return wrapFetch(content, headers, realUrl, res.code(), null);
                 return content;

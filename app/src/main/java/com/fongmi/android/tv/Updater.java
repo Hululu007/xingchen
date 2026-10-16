@@ -93,6 +93,24 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         return Path.cache("update.apk");
     }
 
+    /** 更新链留痕：走哪条路、哪步失败都记进文件日志，下次更新慢/失败一次查清。 */
+    private static void ulog(String fmt, Object... args) {
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("update", fmt, args);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String hostOf(String url) {
+        try {
+            if (url == null) return "";
+            String h = java.net.URI.create(url.trim()).getHost();
+            return h == null ? "" : h;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     private String getName() {
         return BuildConfig.FLAVOR_mode + "-" + BuildConfig.FLAVOR_abi;
     }
@@ -229,6 +247,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             update.size = object.optLong("size");
             update.sha256 = object.optString("sha256");
             parseDownloads(object, update);
+            ulog("manifest ok channel=%s version=%s code=%d githubHost=%s oci=%s",
+                    channel, update.versionName, update.code, hostOf(update.githubUrl), update.oci != null);
             if (isDefaultReleaseNotes(update.notes)) update.notes = "";
             if (TextUtils.isEmpty(update.notes) && TextUtils.isEmpty(update.desc)) {
                 String notes = TextUtils.isEmpty(fallbackNotes) ? getReleaseNotes(update.name) : fallbackNotes;
@@ -237,6 +257,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         } catch (Exception e) {
             e.printStackTrace();
             update.error = e.getMessage();
+            ulog("manifest fail channel=%s host=%s err=%s", channel, hostOf(manifestUrl), String.valueOf(e.getMessage()));
         }
         return update;
     }
@@ -343,6 +364,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         canceled = false;
         routes = getRoutes(selected);
         routeIndex = 0;
+        ulog("confirm version=%s size=%d source=%s routes=%d", selected.versionName, selected.size,
+                Setting.getUpdateSource(), routes.size());
         if (routes.isEmpty()) {
             downloading = false;
             view.setEnabled(true);
@@ -368,12 +391,15 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private void startNextDownload() {
         if (routes == null || routeIndex >= routes.size()) return;
         UpdateTarget target = routes.get(routeIndex++);
+        ulog("route start %d/%d kind=%s host=%s", routeIndex, routes.size(), target.kind,
+                hostOf(target.kind == UpdateTarget.Kind.OCI ? target.endpoint : target.url));
         transfer = target.kind == UpdateTarget.Kind.OCI ? new OciUpdateTransfer(target, getFile()) : new HttpUpdateTransfer(target.url, getFile(), selected == null ? 0 : selected.size);
         transfer.start(this);
     }
 
     private boolean retryFallback() {
         if (canceled || selected == null || routes == null || routeIndex >= routes.size()) return false;
+        ulog("route failed, switch to %d/%d", routeIndex + 1, routes.size());
         Notify.show(R.string.update_route_switch);
         Path.clear(getFile());
         resetProgress();
@@ -443,6 +469,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     @Override
     public void error(String msg) {
         if (canceled) return;
+        ulog("route error msg=%s", String.valueOf(msg));
         transfer = null;
         if (retryFallback()) return;
         downloading = false;
@@ -459,6 +486,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         Update target = selected;
         Task.execute(() -> {
             String error = validate(file, target);
+            ulog("download done size=%d validate=%s", file.length(), TextUtils.isEmpty(error) ? "ok" : error);
             App.post(() -> {
                 if (canceled) return;
                 downloading = false;

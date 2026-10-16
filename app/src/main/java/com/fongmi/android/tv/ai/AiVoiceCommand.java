@@ -95,6 +95,13 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_NODE = "nav_node";
     public static final String ACTION_WATCH_OPEN = "watch_open";
     public static final String ACTION_WATCH_LEAVE = "watch_leave";
+    public static final String ACTION_WATCH_VOICE_ON = "watch_voice_on";
+    public static final String ACTION_NAV_KTV = "nav_ktv";
+    public static final String ACTION_NAV_KTV_ORDER = "nav_ktv_order";
+    public static final String ACTION_NAV_MUSIC = "nav_music";
+    public static final String ACTION_KTV_NEXT = "ktv_next";
+    public static final String ACTION_KTV_MODE = "ktv_mode";
+    public static final String ACTION_WATCH_VOICE_OFF = "watch_voice_off";
     public static final String ACTION_NAV_NODE_TEST = "nav_node_test";
 
     // ---- 全局开关 ----
@@ -156,6 +163,13 @@ public class AiVoiceCommand {
         if (ep.find() && !t.contains("下一集") && !t.contains("上一集")) {
             long n = safeParseLong(ep.group(1), 0);
             if (n > 0) return new Command(ACTION_EPISODE, n, "正在播放第 " + n + " 集");
+        }
+        // 实时合唱（先判关，短语更具体）
+        if (t.contains("关闭合唱") || t.contains("关掉合唱") || t.contains("关合唱")) {
+            return new Command(ACTION_WATCH_VOICE_OFF, "已关闭合唱");
+        }
+        if (t.contains("打开合唱") || t.contains("开合唱") || t.contains("开启合唱")) {
+            return new Command(ACTION_WATCH_VOICE_ON, "已开启合唱");
         }
         // 一起看（先判离开，它的短语里也带"一起看"）
         if (t.contains("退出一起看") || t.contains("关闭一起看") || t.contains("离开房间") || t.contains("退出房间")) {
@@ -320,6 +334,28 @@ public class AiVoiceCommand {
         }
         // 代理（原名节点，2026-10-15 他把入口改名"代理"；新旧说法都认。
         // 先判管理页，再判开关，避免"打开代理管理"被"打开代理"吞掉）
+        // KTV：点歌带歌名（必须排在模式词前面，"点歌伴奏"不能被伴奏抢走）
+        if (t.startsWith("点歌") && t.length() > 2) {
+            return new Command(ACTION_NAV_KTV_ORDER, t.substring(2).trim(), "正在给你点这首");
+        }
+        if (t.contains("打开KTV") || t.contains("点歌台") || t.contains("开唱")) {
+            return new Command(ACTION_NAV_KTV, "已打开KTV点歌台");
+        }
+        if (t.contains("打开音乐") || t.contains("音乐页")) {
+            return new Command(ACTION_NAV_MUSIC, "已打开音乐");
+        }
+        if (t.contains("切歌") || (t.contains("下一首") && !t.contains("集"))) {
+            return new Command(ACTION_KTV_NEXT, "已切歌");
+        }
+        if (t.contains("消音") || t.contains("消人声") || t.contains("去人声")) {
+            return new Command(ACTION_KTV_MODE, 2, "已消音");
+        }
+        if (t.contains("切伴奏") || t.contains("换伴奏") || t.equals("伴奏")) {
+            return new Command(ACTION_KTV_MODE, 1, "已切伴奏");
+        }
+        if (t.contains("切原唱") || t.contains("换原唱") || t.equals("原唱")) {
+            return new Command(ACTION_KTV_MODE, 0, "已切原唱");
+        }
         if (t.contains("节点管理") || t.contains("节点设置")
                 || t.contains("代理管理") || t.contains("代理设置")) {
             return new Command(ACTION_NAV_NODE, "已打开代理");

@@ -118,6 +118,8 @@ public class KtvSingActivity extends BaseActivity {
     private int mvSeq;
     private long lyricOffsetMs;
     private TextView offsetLabel;
+    private TextView lyricToggleBtn;
+    private boolean lyricsHidden;
     private final VocalProcessor vocal = new VocalProcessor();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -312,6 +314,8 @@ public class KtvSingActivity extends BaseActivity {
         offsetLabel.setGravity(Gravity.CENTER);
         addBtn(row2, offsetLabel);
         addBtn(row2, btn("词延＋", v -> setLyricOffset(lyricOffsetMs + 500)));
+        lyricToggleBtn = btn("歌词·开", v -> toggleLyrics());
+        addBtn(row2, lyricToggleBtn);
         controlBar.addView(row2);
         arrangeLayout();
     }
@@ -1133,6 +1137,14 @@ public class KtvSingActivity extends BaseActivity {
         lp.leftMargin = dp(3);
         lp.rightMargin = dp(3);
         row.addView(b, lp);
+    }
+
+    /** MV 自带词时把咱这层词关掉，免得两套词同框；竖屏关词后画面自动占满整页。 */
+    private void toggleLyrics() {
+        lyricsHidden = !lyricsHidden;
+        if (lyricBox != null) lyricBox.setVisibility(lyricsHidden ? View.GONE : View.VISIBLE);
+        if (lyricToggleBtn != null) lyricToggleBtn.setText(lyricsHidden ? "歌词·关" : "歌词·开");
+        pokeControls();
     }
 
     private void setLyricOffset(long ms) {

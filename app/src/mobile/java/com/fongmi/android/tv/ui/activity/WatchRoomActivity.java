@@ -155,6 +155,94 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
         ctx.startActivity(i);
     }
 
+    /** 设置页入口：输房号直接进房（不用先打开一部片）。样式与播放页的一起看弹窗一致。 */
+    public static void showJoinDialog(Activity act) {
+        float d = act.getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(act);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding((int) (20 * d), (int) (18 * d), (int) (20 * d), (int) (16 * d));
+        android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
+        boxBg.setColor(0xFF13151A);
+        boxBg.setCornerRadius(16 * d);
+        box.setBackground(boxBg);
+
+        TextView title = new TextView(act);
+        title.setText("一起看 · 进房");
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(17);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        box.addView(title);
+
+        LinearLayout.LayoutParams fieldLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        fieldLp.topMargin = (int) (10 * d);
+        android.widget.EditText nameInput = joinField(act, "你的昵称（可不改）", "我", false, d);
+        nameInput.setLayoutParams(fieldLp);
+        box.addView(nameInput);
+        android.widget.EditText codeInput = joinField(act, "填 6 位房号", "", true, d);
+        codeInput.setLayoutParams(fieldLp);
+        box.addView(codeInput);
+        android.widget.EditText pwdInput = joinField(act, "房间密码（没有可不填）", "", false, d);
+        pwdInput.setLayoutParams(fieldLp);
+        box.addView(pwdInput);
+
+        TextView joinBtn = new TextView(act);
+        joinBtn.setText("进房");
+        joinBtn.setTextSize(15);
+        joinBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        joinBtn.setGravity(Gravity.CENTER);
+        joinBtn.setTextColor(0xFF131418);
+        android.graphics.drawable.GradientDrawable btnBg = new android.graphics.drawable.GradientDrawable();
+        btnBg.setColor(0xFFF5C518);
+        btnBg.setCornerRadius(10 * d);
+        joinBtn.setBackground(btnBg);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (int) (44 * d));
+        btnLp.topMargin = (int) (14 * d);
+        joinBtn.setLayoutParams(btnLp);
+        box.addView(joinBtn);
+
+        TextView cancel = new TextView(act);
+        cancel.setText("取消");
+        cancel.setTextSize(14);
+        cancel.setTextColor(0xFF9499A3);
+        cancel.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cancelLp.topMargin = (int) (12 * d);
+        cancel.setLayoutParams(cancelLp);
+        box.addView(cancel);
+
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(act).setView(box).create();
+        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        joinBtn.setOnClickListener(v -> {
+            String code = codeInput.getText().toString().trim();
+            if (code.length() != 6) {
+                Notify.show("房号是 6 位数字");
+                return;
+            }
+            String name = nameInput.getText().toString().trim();
+            startJoin(act, code, name.isEmpty() ? "我" : name, pwdInput.getText().toString().trim());
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    private static android.widget.EditText joinField(Activity act, String hint, String text, boolean numeric, float d) {
+        android.widget.EditText e = new android.widget.EditText(act);
+        e.setHint(hint);
+        e.setText(text);
+        e.setTextSize(15);
+        e.setTextColor(0xFFFFFFFF);
+        e.setHintTextColor(0xFF9499A3);
+        e.setSingleLine(true);
+        if (numeric) e.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        e.setPadding((int) (12 * d), (int) (10 * d), (int) (12 * d), (int) (10 * d));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF1D2027);
+        bg.setCornerRadius(10 * d);
+        e.setBackground(bg);
+        return e;
+    }
+
     // ---------- 生命周期 ----------
 
     @Override
@@ -357,15 +445,17 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
             rlp.weight = 0f;
         } else {
             int w = getResources().getDisplayMetrics().widthPixels;
+            // 竖屏也要认收起：之前竖屏分支写死面板常显，收起按钮点了没反应（真机实证）。
+            // 收起只藏面板，画面尺寸一个像素都不动（他明确不要满屏）；靠「聊天」按钮再展开。
             plp.height = w * 9 / 16;
             plp.weight = 0f;
-            roomView.setVisibility(View.VISIBLE);
+            roomView.setVisibility(panelShown ? View.VISIBLE : View.GONE);
             rlp.height = 0;
             rlp.weight = 1f;
         }
         playerBox.setLayoutParams(plp);
         roomView.setLayoutParams(rlp);
-        chatBtn.setVisibility(landscape ? View.VISIBLE : View.GONE);
+        chatBtn.setVisibility(View.VISIBLE);
     }
 
     private TextView tbtn(String label, View.OnClickListener click) {

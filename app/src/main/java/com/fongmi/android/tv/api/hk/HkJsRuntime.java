@@ -5393,19 +5393,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Type type = new TypeToken<Map<String, String>>() {}.getType();
             Map<String, String> map = GSON.fromJson(new String(bytes, "UTF-8"), type);
             if (map != null) {
-                // 一次性清残：1.3.25 之前存储写法有毛病那批版本写下的结构化缓存（{/[ 开头），
-                // 有的能解析但缺字段，规则读回直接崩（UU视频 tabs 缺 ids 实证）。
-                // 字符串类的状态（域名/设备号/令牌）不动，只清结构化的，清完规则自己重建。
+                // 一次性清残（v2）：旧版本存储写法写下的坏缓存——
+                // ① {/[ 开头的结构化残值（有的能解析但缺字段）；② " 开头的双重编码垃圾
+                // （如 "\"[object Object]\""，本地一比一复现与真机第 68 行同款崩溃）。
+                // 现行 stringifyArg 存字符串从不带引号，kv 里 " 开头的值不可能是合法写入；
+                // 字符串类的状态（域名/设备号/令牌）不带引号、不受影响，清完规则自己重建。
                 try {
-                    String healed = com.github.catvod.utils.Prefers.getString("hk_kv_healed", "");
+                    String healed = com.github.catvod.utils.Prefers.getString("hk_kv_healed2", "");
                     String title = rule == null ? "" : rule.getTitle();
                     if (title != null && !title.isEmpty() && !healed.contains("\u0001" + title + "\u0001")) {
                         map.values().removeIf(v -> {
                             if (v == null) return false;
                             String t = v.trim();
-                            return t.startsWith("{") || t.startsWith("[");
+                            return t.startsWith("{") || t.startsWith("[") || t.startsWith("\"");
                         });
-                        com.github.catvod.utils.Prefers.put("hk_kv_healed", healed + "\u0001" + title + "\u0001");
+                        com.github.catvod.utils.Prefers.put("hk_kv_healed2", healed + "\u0001" + title + "\u0001");
                     }
                 } catch (Throwable ignored) {
                 }

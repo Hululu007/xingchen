@@ -19,7 +19,17 @@ import java.util.Locale;
 public class MvFinder {
 
 public interface Callback {
-void onResult(String mvUrl);
+void onResult(String mvUrl, java.util.Map<String, String> headers);
+}
+
+private static final String BILI_COOKIE = "buvid3=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6Dinfoc; buvid4=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6D-024101601-AbCdEfGh";
+
+private static java.util.Map<String, String> headers(String referer, String cookie) {
+java.util.Map<String, String> h = new java.util.HashMap<>();
+h.put("User-Agent", UA);
+if (referer != null) h.put("Referer", referer);
+if (cookie != null) h.put("Cookie", cookie);
+return h;
 }
 
 private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -27,9 +37,11 @@ private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
 public static void find(String title, String singer, Callback cb) {
 new Thread(() -> {
 String url = null;
+java.util.Map<String, String> hd = null;
 try {
 url = fromNetease(title, singer);
 KtvLog.add("配MV 网易云：" + (url == null ? "没配到" : "配到"));
+if (url != null) hd = headers("https://music.163.com/", null);
 } catch (Throwable t) {
 KtvLog.add("配MV 网易云出错：" + t);
 }
@@ -37,6 +49,7 @@ if (url == null) {
 try {
 url = fromBilibili(title, singer);
 KtvLog.add("配MV B站：" + (url == null ? "没配到" : "配到"));
+if (url != null) hd = headers("https://www.bilibili.com/", BILI_COOKIE);
 } catch (Throwable t) {
 KtvLog.add("配MV B站出错：" + t);
 }
@@ -45,11 +58,12 @@ if (url == null) {
 try {
 url = fromQQ(title, singer);
 KtvLog.add("配MV QQ：" + (url == null ? "没配到" : "配到"));
+if (url != null) hd = headers("https://y.qq.com/", null);
 } catch (Throwable t) {
 KtvLog.add("配MV QQ出错：" + t);
 }
 }
-cb.onResult(url);
+cb.onResult(url, hd);
 }, "ktv-mv").start();
 }
 
@@ -91,7 +105,7 @@ return null;
 // ---------- Bilibili ----------
 
 private static String fromBilibili(String title, String singer) throws Exception {
-String cookie = "buvid3=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6Dinfoc; buvid4=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6D-024101601-AbCdEfGh";
+String cookie = BILI_COOKIE;
 String q = URLEncoder.encode((title + " " + singer + " MV").trim(), "UTF-8");
 String body = httpGet("https://api.bilibili.com/x/web-interface/search/type?search_type=video&page=1&page_size=10&keyword=" + q,
 "https://www.bilibili.com/", cookie);
@@ -153,12 +167,12 @@ KtvLog.add("配伴奏MV B站：" + (url == null? "没配到": "配到"));
 } catch (Throwable t) {
 KtvLog.add("配伴奏MV 出错：" + t);
 }
-cb.onResult(url);
+cb.onResult(url, url == null ? null : headers("https://www.bilibili.com/", BILI_COOKIE));
 }, "ktv-accmv").start();
 }
 
 private static String fromBiliAccMv(String title, String singer) throws Exception {
-String cookie = "buvid3=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6Dinfoc; buvid4=7A3E1B0C-4D5F-4A6B-9C8D-1E2F3A4B5C6D-024101601-AbCdEfGh";
+String cookie = BILI_COOKIE;
 String q = URLEncoder.encode((title + " " + singer + " 伴奏").trim(), "UTF-8");
 String body = httpGet("https://api.bilibili.com/x/web-interface/search/type?search_type=video&page=1&page_size=10&keyword=" + q,
 "https://www.bilibili.com/", cookie);

@@ -116,6 +116,8 @@ public class KtvSingActivity extends BaseActivity {
     private boolean currentConsumed;
     private boolean modeTouched;
     private String mvUrl;
+    private java.util.Map<String, String> mvHeaders;
+    private java.util.Map<String, String> accMvHeaders;
     private boolean onMv;
     private int mvSeq;
     private long lyricOffsetMs;
@@ -124,6 +126,15 @@ public class KtvSingActivity extends BaseActivity {
     private boolean lyricsHidden;
     private final VocalProcessor vocal = new VocalProcessor();
     private final Handler ui = new Handler(Looper.getMainLooper());
+
+    // 进页耗时埋点（他报「刚进来卡几秒」）：日志里看卡在哪一段
+    private long t0;
+    private boolean firstReadyLogged;
+    private boolean firstFrameLogged;
+
+    private String el() {
+        return (System.currentTimeMillis() - t0) + "ms";
+    }
 
     private TextView titleText;
     private TextView nextText;
@@ -177,11 +188,14 @@ public class KtvSingActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        t0 = System.currentTimeMillis();
+        KtvLog.add("唱歌页 进页");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
         hideBars();
         buildUi();
         buildPlayer();
+        KtvLog.add("唱歌页 界面就绪 " + el());
         String json = getIntent().getStringExtra(EXTRA_SONG);
         if (json != null && !json.isEmpty()) {
             try {
@@ -303,6 +317,14 @@ public class KtvSingActivity extends BaseActivity {
         addBtn(row, modeBtn);
         addBtn(row, btn("队列", v -> showQueue()));
         addBtn(row, btn("退出", v -> finish()));
+        // 第一行也收紧：状态钮的标签最长到「伴奏·左声道」，按原唱的宽度排会被挤掉尾巴（真机实证「伴奏·M」截断）
+        for (int i = 0; i < row.getChildCount(); i++) {
+            if (row.getChildAt(i) instanceof TextView) {
+                TextView tv = (TextView) row.getChildAt(i);
+                tv.setTextSize(13);
+                if (tv.getBackground() != null) tv.setPadding(dp(9), dp(7), dp(9), dp(7));
+            }
+        }
         controlBar.addView(row);
 
         LinearLayout row2 = new LinearLayout(this);
@@ -322,12 +344,18 @@ public class KtvSingActivity extends BaseActivity {
         addBtn(row2, btn("词延＋", v -> setLyricOffset(lyricOffsetMs + 500)));
         lyricToggleBtn = btn("歌词·开", v -> toggleLyrics());
         addBtn(row2, lyricToggleBtn);
-        // 第二行东西多：字和边距收紧，不然长标签被挤得竖着叠字
+        // 第二行东西多：字、边距、间隔全收紧，不然「麦克风」这种三字钮都被挤掉（真机两度实证）
         for (int i = 0; i < row2.getChildCount(); i++) {
             if (row2.getChildAt(i) instanceof TextView) {
                 TextView tv = (TextView) row2.getChildAt(i);
-                tv.setTextSize(13);
-                if (tv.getBackground() != null) tv.setPadding(dp(9), dp(7), dp(9), dp(7));
+                tv.setTextSize(12);
+                if (tv.getBackground() != null) tv.setPadding(dp(6), dp(6), dp(6), dp(6));
+                if (tv.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tv.getLayoutParams();
+                    lp.leftMargin = dp(2);
+                    lp.rightMargin = dp(2);
+                    tv.setLayoutParams(lp);
+                }
             }
         }
         controlBar.addView(row2);
@@ -426,9 +454,21 @@ public class KtvSingActivity extends BaseActivity {
         playerView.setPlayer(player);
         player.addListener(new Player.Listener() {
             @Override
+            public void onRenderedFirstFrame() {
+                if (!firstFrameLogged) {
+                    firstFrameLogged = true;
+                    KtvLog.add("唱歌页 首帧 " + el());
+                }
+            }
+
+            @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED) nextSong();
                 if (state == Player.STATE_READY) {
+                    if (!firstReadyLogged) {
+                        firstReadyLogged = true;
+                        KtvLog.add("唱歌页 可播 " + el());
+                    }
                     refreshStates();
                     maybeSwapToMv();
                     coverView.setVisibility(player.getVideoFormat() == null && current != null && current.pic != null && !current.pic.isEmpty() ? View.VISIBLE : View.GONE);
@@ -451,8 +491,15 @@ public class KtvSingActivity extends BaseActivity {
                 }
                 if (!states.isEmpty() && states.get(stateIdx) == S_ACC_MV) {
                     accMvUrl = null;
+                    accMvHeaders = null;
                     onAccMv = false;
-                    if (mainUrl != null && !mainUrl.isEmpty()) playMedia(mainUrl, mainHeaders, 0);
+                    long back = 0;
+                    try {
+                        back = player.getCurrentPosition();
+                    } catch (Throwable ignored) {
+                    }
+                    // 回原唱要接回切走时的位置，别从头重播（真机实证：伴奏MV失败后整首从头来）
+                    if (mainUrl != null && !mainUrl.isEmpty()) playMedia(mainUrl, mainHeaders, back);
                     refreshStates();
                     toast("伴奏MV播不了，回原唱");
                     return;
@@ -518,9 +565,11 @@ public class KtvSingActivity extends BaseActivity {
         accHeaders = null;
         onAccUrl = false;
         accMvUrl = null;
+        accMvHeaders = null;
         onAccMv = false;
         accMvHintShown = false;
         mvUrl = null;
+        mvHeaders = null;
         onMv = false;
         states.clear();
         states.add(S_ORIGINAL);
@@ -529,25 +578,34 @@ public class KtvSingActivity extends BaseActivity {
         applyStateLabel();
         setPitch(0);
         vocal.setMode(VocalProcessor.OFF);
+        KtvLog.add("唱歌页 备歌开始 " + el());
+        firstReadyLogged = false;
+        firstFrameLogged = false;
         Task.execute(() -> resolveAndPlay(song));
         Task.execute(() -> fetchLyrics(song));
-        if (!song.isFromServer()) Task.execute(() -> pairAccompaniment(song));
+        // 配伴奏/配MV都是锦上添花，晚一拍再跑，别跟进页起播抢道（他报进页卡几秒）
         final int aseq = ++accMvSeq;
-        if (!song.isFromServer()) {
-            MvFinder.findAccMv(song.title(), song.singer, url -> ui.post(() -> {
-                if (aseq != accMvSeq || url == null || url.isEmpty()) return;
-                accMvUrl = url;
-                refreshStates();
-            }));
-        }
         final int mseq = ++mvSeq;
-        if (!song.isFromServer() && KtvStore.pairMv()) {
-            MvFinder.find(song.title(), song.singer, url -> ui.post(() -> {
-                KtvLog.add("配MV 结果：" + (url == null ? "无" : "有地址"));
-                if (mseq != mvSeq || url == null || url.isEmpty()) return;
-                mvUrl = url;
-                maybeSwapToMv();
-            }));
+        if (!song.isFromServer()) {
+            ui.postDelayed(() -> {
+                if (isFinishing() || current != song) return;
+                Task.execute(() -> pairAccompaniment(song));
+                MvFinder.findAccMv(song.title(), song.singer, (url, hd) -> ui.post(() -> {
+                    if (aseq != accMvSeq || url == null || url.isEmpty()) return;
+                    accMvUrl = url;
+                    accMvHeaders = hd;
+                    refreshStates();
+                }));
+                if (KtvStore.pairMv()) {
+                    MvFinder.find(song.title(), song.singer, (url, hd) -> ui.post(() -> {
+                        KtvLog.add("配MV 结果：" + (url == null ? "无" : "有地址"));
+                        if (mseq != mvSeq || url == null || url.isEmpty()) return;
+                        mvUrl = url;
+                        mvHeaders = hd;
+                        maybeSwapToMv();
+                    }));
+                }
+            }, 1500);
         }
     }
 
@@ -639,7 +697,7 @@ public class KtvSingActivity extends BaseActivity {
     private void pairAccompaniment(KtvSong song) {
         try {
             Site site = null;
-            for (Site s : VodConfig.get().getSites()) if (s.getKey() != null && s.getKey().equals(song.siteKey)) site = s;
+            for (Site s : KtvActivity.allSites()) if (s.getKey() != null && s.getKey().equals(song.siteKey)) site = s;
             if (site == null) return;
             String base = baseName(cleanTitle(song));
             Result sr = SiteApi.searchContent(site, base + " 伴奏", false, "1");
@@ -775,7 +833,8 @@ public class KtvSingActivity extends BaseActivity {
         }
         KtvLog.add("配MV 换播");
         onMv = true;
-        playMedia(mvUrl, null, player.getCurrentPosition());
+        // MV 地址必须带取址时那家的请求头（B站直链没 Referer 直接 403——真机实证「配到MV却播不了」）
+        playMedia(mvUrl, mvHeaders, player.getCurrentPosition());
         toast("配到了 MV");
     }
 
@@ -808,7 +867,7 @@ public class KtvSingActivity extends BaseActivity {
                     long pos = player.getCurrentPosition();
                     onAccMv = true;
                     onAccUrl = false;
-                    playMedia(accMvUrl, null, pos);
+                    playMedia(accMvUrl, accMvHeaders, pos);
                     if (!accMvHintShown) {
                         accMvHintShown = true;
                         toast("伴奏MV要是自带歌词，点「歌词」关掉这层");
@@ -1004,12 +1063,23 @@ public class KtvSingActivity extends BaseActivity {
         private volatile boolean run;
         private File file;
         private long dataBytes;
+        private int sr = 44100;
 
         void start() throws Exception {
+            // 返听延迟（他报跟不上歌）：三刀——走设备原生采样率免重采样、走通讯通路（低延迟）、
+            // 小片读写+播放低延迟模式，别再攒 8KB 一大片（光攒片就是近百毫秒）。
             int sr = 44100;
+            try {
+                String nsr = ((android.media.AudioManager) getSystemService(AUDIO_SERVICE))
+                        .getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+                if (nsr != null) sr = Integer.parseInt(nsr);
+            } catch (Throwable ignored) {
+            }
+            this.sr = sr;
             int min = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-            int buf = Math.max(min, 8192);
-            record = new AudioRecord(MediaRecorder.AudioSource.MIC, sr,
+            if (min <= 0) min = 4096;
+            int buf = min;
+            record = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, buf * 2);
             track = new AudioTrack.Builder()
                     .setAudioAttributes(new AudioAttributes.Builder()
@@ -1023,6 +1093,7 @@ public class KtvSingActivity extends BaseActivity {
                             .build())
                     .setBufferSizeInBytes(buf)
                     .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build();
             File dir = new File(getCacheDir(), "ktv");
             dir.mkdirs();
@@ -1035,6 +1106,7 @@ public class KtvSingActivity extends BaseActivity {
             track.play();
             record.startRecording();
             thread = new Thread(() -> {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
                 float gain = KtvStore.micGain();
                 byte[] b = new byte[buf];
                 while (run) {
@@ -1069,7 +1141,7 @@ public class KtvSingActivity extends BaseActivity {
 
         private void patchHeader() {
             try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
-                int sr = 44100;
+                int sr = this.sr;
                 raf.write("RIFF".getBytes());
                 raf.write(intLe((int) (36 + dataBytes)));
                 raf.write("WAVE".getBytes());
@@ -1248,7 +1320,8 @@ public class KtvSingActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
-        if (current != null && !currentConsumed) KtvStore.requeueFront(current);
+        // 退出就算唱过、直接过（他定的）：不再把没唱完的塞回队首，
+        // 不然每次开唱都是同一首（真机实证「每次开唱都是固定的」）。
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(hideRunnable);
         if (mic != null) mic.stopAndSave();

@@ -217,6 +217,9 @@ public final class WatchSession {
         o.addProperty("name", myName);
         o.addProperty("text", text);
         send("chat", o);
+        // 本地回显：分发层会把自己发的当回声过滤掉，不补这一下，
+        // 公屏永远看不到自己说的话（真机实证）。回声仍由过滤层挡住，不会重复。
+        main.post(() -> listener.onChat(myName, text));
     }
 
     // ---- 内部 ----

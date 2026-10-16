@@ -1191,11 +1191,16 @@ public class HkRuleManager {
         return f.exists() ? f.lastModified() : -1;
     }
 
-    /** 删除规则（含启用开关记录）。 */
+    /** 删除规则（含启用开关记录与规则数据目录：kv/自带库都在里面，
+     *  不清的话坏缓存删规则重装也甩不掉，UU视频实证）。 */
     public boolean delete(String title) {
         if (title == null) return false;
         File f = new File(getDir(), safeFileName(title) + ".json");
         boolean ok = !f.exists() || f.delete();
+        try {
+            deleteRecursive(getDataDir(title));
+        } catch (Throwable ignored) {
+        }
         try {
             Context ctx = appContext();
             if (ctx != null) ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -1204,6 +1209,13 @@ public class HkRuleManager {
             e.printStackTrace();
         }
         return ok;
+    }
+
+    private static void deleteRecursive(File f) {
+        if (f == null || !f.exists()) return;
+        File[] kids = f.isDirectory() ? f.listFiles() : null;
+        if (kids != null) for (File k : kids) deleteRecursive(k);
+        f.delete();
     }
 
     public void setEnabled(String title, boolean enabled) {

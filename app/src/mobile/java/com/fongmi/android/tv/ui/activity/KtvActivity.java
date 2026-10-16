@@ -208,14 +208,14 @@ public class KtvActivity extends BaseActivity {
         bottom.setGravity(Gravity.CENTER_VERTICAL);
         bottom.setPadding(0, dp(8), 0, dp(2));
         queueInfo = text("", 14, BODY);
+        queueInfo.setOnClickListener(v -> showQueueList());
         bottom.addView(queueInfo, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView clear = pill("清空", BODY, PANEL);
-        clear.setOnClickListener(v -> {
-            KtvStore.clearQueue();
-            refreshQueueInfo();
-            if (tab == Tab.QUEUE) showTab(Tab.QUEUE);
-        });
-        bottom.addView(clear);
+        TextView listBtn = pill("列表", BODY, PANEL);
+        listBtn.setOnClickListener(v -> showQueueList());
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
+        llp.rightMargin = dp(8);
+        bottom.addView(listBtn, llp);
+        // 底栏不再单放清空：列表里已经有了（他点名去掉底栏这个，省得重复还占地方）
         TextView sing = pill("开唱 ›", 0xFF14161C, YELLOW);
         sing.setPadding(dp(24), dp(11), dp(24), dp(11));
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
@@ -229,6 +229,50 @@ public class KtvActivity extends BaseActivity {
             KtvSingActivity.start(this);
         });
         col.addView(bottom);
+    }
+
+    /** 底栏「列表」：看已点队列；点一首选「插到最前当下一首」或「删除这首」，底部还能一键清空（他点名要的）。 */
+    private void showQueueList() {
+        java.util.List<KtvSong> q = KtvStore.queue();
+        if (q.isEmpty()) {
+            toast("还没点歌");
+            return;
+        }
+        String[] names = new String[q.size()];
+        for (int i = 0; i < q.size(); i++) names[i] = (i + 1) + ". " + q.get(i).title() + (q.get(i).singer == null || q.get(i).singer.isEmpty() ? "" : " - " + q.get(i).singer);
+        new AlertDialog.Builder(this)
+                .setTitle("已点歌曲")
+                .setItems(names, (d, w) -> {
+                    KtvSong song = q.get(w);
+                    new AlertDialog.Builder(this)
+                            .setTitle(song.title())
+                            .setItems(new String[]{"下一首唱它（插到最前）", "删除这首"}, (d2, w2) -> {
+                                if (w2 == 0) {
+                                    if (w > 0) {
+                                        KtvStore.moveToTop(w);
+                                        toast("下一首：" + song.title());
+                                    } else toast("这首就是下一首");
+                                    refreshQueueInfo();
+                                    if (tab == Tab.QUEUE) showTab(Tab.QUEUE);
+                                } else {
+                                    KtvStore.removeFromQueue(w);
+                                    toast("删了：" + song.title());
+                                    refreshQueueInfo();
+                                    if (tab == Tab.QUEUE) showTab(Tab.QUEUE);
+                                    if (!KtvStore.queue().isEmpty()) showQueueList();
+                                }
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                })
+                .setNeutralButton("清空", (d, w) -> {
+                    KtvStore.clearQueue();
+                    toast("清空了");
+                    refreshQueueInfo();
+                    if (tab == Tab.QUEUE) showTab(Tab.QUEUE);
+                })
+                .setNegativeButton("关", null)
+                .show();
     }
 
     private void onBack() {
@@ -352,10 +396,31 @@ public class KtvActivity extends BaseActivity {
         });
     }
 
+    /** 点歌台的源名单：配置里的站点 + 插件注册的源（他的源全是散装 py，走插件那条道，
+     * 只读配置名单会读空——真机实证「还没有点播源」）。首页能列出来的，这里也得能列。 */
+    static List<Site> allSites() {
+        List<Site> merged = new ArrayList<>();
+        try {
+            merged.addAll(VodConfig.get().getSites());
+        } catch (Throwable ignored) {
+        }
+        try {
+            com.fongmi.android.tv.setting.CustomCspSetting.Registry registry = com.fongmi.android.tv.setting.CustomCspSetting.load();
+            List<Site> reg = registry.isEnabled() ? registry.sites() : new ArrayList<>();
+            for (Site s : reg) {
+                boolean dup = false;
+                for (Site m : merged) if (s.getKey() != null && s.getKey().equals(m.getKey())) { dup = true; break; }
+                if (!dup) merged.add(s);
+            }
+        } catch (Throwable ignored) {
+        }
+        return merged;
+    }
+
     private Site vodSite() {
         try {
             String key = com.github.catvod.utils.Prefers.getString("ktv_vod_site", "");
-            List<Site> all = VodConfig.get().getSites();
+            List<Site> all = allSites();
             for (Site s : all) if (s.getKey() != null && s.getKey().equals(key) && s.getName() != null && !s.getName().isEmpty()) return s;
             for (Site s : all) if (MusicActivity.looksMusic(s)) return s;
             Site home = VodConfig.get().getHome();
@@ -366,16 +431,14 @@ public class KtvActivity extends BaseActivity {
     }
 
     private void pickVodSite() {
-        List<Site> all;
-        try {
-            all = VodConfig.get().getSites();
-        } catch (Throwable t) {
-            all = new ArrayList<>();
-        }
+        List<Site> all = allSites();
+        KtvLog.add("点歌台 选源：名单共 " + all.size() + " 个");
         if (all.isEmpty()) {
             toast("还没有点播源");
             return;
         }
+        // 认出的音乐源排前面，别让他在一堆视频源里翻
+        all.sort((a, b) -> Boolean.compare(!MusicActivity.looksMusic(b), !MusicActivity.looksMusic(a)));
         String[] names = new String[all.size()];
         for (int i = 0; i < all.size(); i++) names[i] = all.get(i).getName();
         List<Site> finalAll = all;
@@ -446,7 +509,13 @@ public class KtvActivity extends BaseActivity {
                 loadSingers(1, "");
                 break;
             case VOD_RESULTS:
-                status(lastQuery.isEmpty() ? "在上面搜歌，或从点播页翻到想唱的、详情页点开唱" : "");
+                if (lastQuery.isEmpty()) {
+                    Site vs = vodSite();
+                    // 顶着的是视频源时明说，别让他对着空页猜（他报：首页是空的、还以为坏了）
+                    status(vs != null && !MusicActivity.looksMusic(vs)
+                            ? "现在顶着的「" + vs.getName() + "」是看视频的源，多半搜不到歌——点上面「换」挑个音乐源"
+                            : "在上面搜歌，或从点播页翻到想唱的、详情页点开唱");
+                } else status("");
                 if (!lastQuery.isEmpty()) loadPage(1, false);
                 break;
             default:

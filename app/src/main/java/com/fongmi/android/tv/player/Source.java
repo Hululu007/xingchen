@@ -4,6 +4,7 @@ import android.net.Uri;
 
 import androidx.media3.common.MimeTypes;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Result;
@@ -26,7 +27,7 @@ import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -36,6 +37,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 public class Source {
 
@@ -63,48 +65,113 @@ public class Source {
         return extractors.stream().filter(extractor -> extractor.match(uri)).findFirst().orElse(null);
     }
 
-    private void addCallable(Iterator<Episode> iterator, List<Callable<List<Episode>>> items) {
-        String url = iterator.next().getUrl();
-        if (Thunder.Parser.match(url)) {
-            items.add(Thunder.Parser.get(url));
-            iterator.remove();
-        } else if (Youtube.Parser.match(url)) {
-            items.add(Youtube.Parser.get(url));
-            iterator.remove();
-        } else if (Pan115.Parser.match(url)) {
-            items.add(Pan115.Parser.get(url));
-            iterator.remove();
-        } else if (PanQuark.Parser.match(url)) {
-            items.add(PanQuark.Parser.get(url));
-            iterator.remove();
+    private static final ExecutorService PARSE_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    /**
+     * 详情选集展开（磁力/ed2k/油管/115/夸克链接展开成子选集）。
+     * 原实现按线路串行：每条线路 invokeAll 最长阻塞 30 秒（磁力 60 秒），多条线路累加，
+     * 详情页要等全部线路展开完才渲染。现改为全线路一次并行提交、共用一个 deadline，
+     * 总耗时取最长者而非累加。每条线路内语义不变：原选集在前、解析出的在后、解析按提交顺序；
+     * 解析超时/失败的选集保留原地址（之前是直接丢掉）。
+     */
+    public void parse(Vod vod) throws Exception {
+        applyParsed(parseToLists(vod));
+    }
+
+    private static void applyParsed(Map<Flag, List<Episode>> parsed) {
+        for (Map.Entry<Flag, List<Episode>> e : parsed.entrySet()) {
+            e.getKey().getEpisodes().clear();
+            e.getKey().getEpisodes().addAll(e.getValue());
         }
     }
 
-    public void parse(Vod vod) throws Exception {
-        try (ExecutorService executor = Executors.newCachedThreadPool()) {
-            for (Flag flag : vod.getFlags()) {
-                List<Callable<List<Episode>>> items = new ArrayList<>();
-                Iterator<Episode> iterator = flag.getEpisodes().iterator();
-                while (iterator.hasNext()) addCallable(iterator, items);
-                // 磁力走 DHT 拉种子元数据，国内网络经常超过 30 秒，单独放宽到 60 秒
-                long timeout = hasThunderParser(items) ? 60 : 30;
-                for (Future<List<Episode>> future : executor.invokeAll(items, timeout, TimeUnit.SECONDS)) {
+    private Map<Flag, List<Episode>> parseToLists(Vod vod) throws Exception {
+        Map<Flag, List<Episode>> kept = new LinkedHashMap<>();
+        List<Callable<List<Episode>>> all = new ArrayList<>();
+        List<Flag> owners = new ArrayList<>();
+        List<Episode> raws = new ArrayList<>();
+        boolean thunder = false;
+        for (Flag flag : vod.getFlags()) {
+            List<Episode> raw = new ArrayList<>();
+            for (Episode ep : flag.getEpisodes()) {
+                String url = ep.getUrl();
+                Callable<List<Episode>> task = null;
+                if (Thunder.Parser.match(url)) {
+                    task = Thunder.Parser.get(url);
+                    thunder = true;
+                } else if (Youtube.Parser.match(url)) {
+                    task = Youtube.Parser.get(url);
+                } else if (Pan115.Parser.match(url)) {
+                    task = Pan115.Parser.get(url);
+                } else if (PanQuark.Parser.match(url)) {
+                    task = PanQuark.Parser.get(url);
+                }
+                if (task == null) raw.add(ep);
+                else {
+                    all.add(task);
+                    owners.add(flag);
+                    raws.add(ep);
+                }
+            }
+            kept.put(flag, raw);
+        }
+        Map<Flag, List<Episode>> merged = new LinkedHashMap<>();
+        for (Flag flag : vod.getFlags()) merged.put(flag, new ArrayList<>(kept.get(flag)));
+        if (!all.isEmpty()) {
+            // 磁力走 DHT 拉种子元数据，国内网络经常超过 30 秒，单独放宽到 60 秒
+            long timeout = thunder ? 60 : 30;
+            try (ExecutorService executor = Executors.newCachedThreadPool()) {
+                List<Future<List<Episode>>> futures = executor.invokeAll(all, timeout, TimeUnit.SECONDS);
+                for (int i = 0; i < futures.size(); i++) {
                     try {
-                        flag.getEpisodes().addAll(future.get());
+                        merged.get(owners.get(i)).addAll(futures.get(i).get());
                     } catch (CancellationException e) {
                         SpiderDebug.log("source-parse", "解析超时（>%ds），该选集保持原地址", timeout);
+                        merged.get(owners.get(i)).add(raws.get(i));
                     } catch (ExecutionException e) {
                         Throwable cause = e.getCause() != null ? e.getCause() : e;
                         SpiderDebug.log("source-parse", "解析失败：" + cause.getMessage());
+                        merged.get(owners.get(i)).add(raws.get(i));
                     }
                 }
             }
         }
+        return merged;
     }
 
-    private boolean hasThunderParser(List<Callable<List<Episode>>> items) {
-        for (Callable<List<Episode>> item : items) if (item instanceof Thunder.Parser) return true;
+    private static boolean needsParse(Vod vod) {
+        for (Flag flag : vod.getFlags()) {
+            for (Episode ep : flag.getEpisodes()) {
+                String url = ep.getUrl();
+                if (Thunder.Parser.match(url) || Youtube.Parser.match(url) || Pan115.Parser.match(url) || PanQuark.Parser.match(url)) return true;
+            }
+        }
         return false;
+    }
+
+    /**
+     * 详情页先画后展：主数据一到 UI 先渲染，选集展开放后台线程，完成后回主线程一次性换列表并回调。
+     * 后台只读选集地址做计算、不碰现存列表；换列表在主线程完成，渲染线程安全。
+     * 用独立单线程池，不占详情/搜索共用的 5 线程池，解析再慢也不拖住切源。
+     * 回调第二个参数表示是否真的发生了展开；没有可展开的选集时 UI 无需刷新。
+     */
+    public void parseAsync(Vod vod, BiConsumer<Vod, Boolean> onDone) {
+        PARSE_EXECUTOR.execute(() -> {
+            Map<Flag, List<Episode>> parsed = null;
+            boolean expanded = false;
+            try {
+                expanded = needsParse(vod);
+                if (expanded) parsed = parseToLists(vod);
+            } catch (Exception e) {
+                SpiderDebug.log("source-parse", "后台展开失败：" + e.getMessage());
+            }
+            Map<Flag, List<Episode>> result = parsed;
+            boolean done = expanded && result != null;
+            App.post(() -> {
+                if (result != null) applyParsed(result);
+                onDone.accept(vod, done);
+            });
+        });
     }
 
     public String fetch(Result result) throws Exception {

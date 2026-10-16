@@ -97,7 +97,9 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         overlay.setOnClickListener(view -> dismiss());
         binding.getRoot().setClickable(true);
         FrameLayout.LayoutParams params;
-        if (shortDrama) {
+        // 竖屏一律底部半屏抽屉：原来的右侧整高面板在手机竖屏下宽 360dp、占屏九成，
+        // 直接盖住播放画面（竖屏视频点选集时整块白面板糊住视频）。横屏才用右侧面板。
+        if (shortDrama || !ResUtil.isLand(requireContext())) {
             params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.getScreenHeight(requireContext()) / 2, Gravity.BOTTOM);
         } else {
             params = new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);

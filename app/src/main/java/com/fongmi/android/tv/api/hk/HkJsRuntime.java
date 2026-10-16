@@ -428,6 +428,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     private void putFunction(ScriptableObject target, String name, JsFunc fn) {
+        putFunctionEx(target, name, (cx, scope, args) -> fn.call(args));
+    }
+
+    /**
+     * 需要 Rhino 调用方作用域的函数签名（原版 require0 语义：库代码经回调在调用方
+     * 作用域链里求值，库顶层声明对调用方可见、调用方声明对库可见）。
+     */
+    private interface JsFuncEx {
+        Object call(Context cx, Scriptable scope, Object[] args);
+    }
+
+    private void putFunctionEx(String name, JsFuncEx fn) {
+        putFunctionEx(apiRegTarget != null ? apiRegTarget : scope, name, fn);
+    }
+
+    private void putFunctionEx(ScriptableObject target, String name, JsFuncEx fn) {
         ScriptableObject.putProperty(target, name, new BaseFunction() {
             @Override
             public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
@@ -435,9 +451,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 for (int i = 0; i < a.length; i++) {
                     if (a[i] == Context.getUndefinedValue()) a[i] = null;
                 }
-                return fn.call(a);
+                return fn.call(cx, scope, a);
             }
         });
+    }
+
+    /**
+     * 在指定调用方作用域求值（8.83 require0 useCallback=true 同款：库代码在调用方
+     * 作用域里跑，而非共享顶层 scope；规则侧 let/var 声明对库可见）。
+     */
+    private Object evalJsInScope(Context cx, Scriptable callerScope, String js, String sourceName) {
+        Object oldDeadline = armEvalDeadline();
+        SourceGate.Mark prevMark = swapHkMark();
+        try {
+            return cx.evaluateString(callerScope, js, sourceName, 1, null);
+        } finally {
+            restoreMark(prevMark);
+            restoreEvalDeadline(oldDeadline);
+        }
     }
 
     /** 求值（替代 ctx.evaluate）。每次用新 scope，避免规则顶层 const 污染共享 scope。 */
@@ -1334,12 +1365,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 1.3.19 及之前本实现是取不到就记日志回 null、规则照常跑；1.3.20 的 B1 改成抛错后
         // 这类规则整个列表页全灭（2026-10-16 真机实证，"修好的又修坏了"）。按真机结论回软失败。
         // 8.83 语义（JSEngine require0 + 真机）：取到的库代码求值后，顶层声明对 require
-        // 调用方可见（如 JuRequire.js 的 getRely）。evalJs 每次新建一次性子 scope 求值，
-        // 库顶层函数随 scope 丢失、调用方报 ReferenceError 被规则自己的 try/catch 吞掉，
-        // 导致 config.聚阅 永远写不上、聚阅永远停在代理页（2026-10-16 本地双模式复现定案）。
-        // 故取码成功后改走 evalJsInSharedScope（与 Hikerurl.js 等插件 JS 同款语义），
-        // 库顶层声明落在共享顶层 scope。规则代码自身的 evalJs 隔离不动。
-        putFunction("require", args -> {
+        // 调用方可见（如 JuRequire.js 的 getRely）。原版 require 调 require0 时 useCallback=true，
+        // 库代码串经回调 Function.call 在调用方作用域链里求值（JSEngine.smali require0:3702/3719）。
+        // 此前实现（2026-10-16 聚阅修法）把库代码扔进共享顶层 scope 求值：库的顶层声明对调用方
+        // 可见了，但反方向断了——规则侧的顶层声明（如 let xlog = log）对库不可见，UU 插件
+        // 在库里调 xlog 报 ReferenceError（2026-10-17 真机实证 hk-plugin#10）。
+        // 改为在调用方作用域求值（原版同款）：两个方向都通；规则每次 runScript 都是新鲜作用域，
+        // 重复 require 不会在共享顶层攒下重复 let，比之前更干净。
+        putFunctionEx("require", (cx, callerScope, args) -> {
             if (args == null || args.length == 0) return null;
             String libUrl = argStr(args[0]);
             String code = loadLibLocal(libUrl);
@@ -1350,7 +1383,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         libUrl, rule == null ? "" : rule.getTitle());
                 return null;
             }
-            return evalJsInSharedScope(code);
+            return evalJsInScope(cx, callerScope, code, "hk-plugin");
         });
 
         // ---- JS 定时器（setTimeout/setInterval/clearTimeout/clearInterval） ----
@@ -3174,6 +3207,195 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             ua.put("mobileUa", UA_MOBILE);
             ua.put("pcUa", UA_PC);
             return GSON.toJson(ua);
+        });
+
+        // ---- 原版 8.83 补齐（JSEngine @JSAnnotation 清单全量对账，2026-10-17） ----
+        // 原版 160 个注解函数（去重后 159 个名），此前缺 25 个。逐个按原版行为补：
+        // 自带能力的按原版实现；依赖原版应用内能力（X5/EPUB/WebDAV/Chaquopy/网页代理/
+        // 事件总线私类）而星辰没有的，注册同名空实现（同返回类型、不抛错），仅防 ReferenceError，
+        // 行为缺口逐条注明。注意：xlog 不在原版清单里（规则侧 let xlog = log 的别名），
+        // 其 ReferenceError 根因是 require 作用域，已在上面按原版 require0 修，不在此处加新名。
+        putFunction("isShorthand", args -> {
+            // 8.83 JSEngine.isShorthand：判参是否为简写方法（JSFunction.isShorthand）。
+            // 本 Rhino 侧函数皆为 BaseFunction，无此概念，恒 false。
+            return Boolean.FALSE;
+        });
+        putFunction("isVideoOrMusic", args -> {
+            // 8.83 JSEngine.isVideoOrMusic：UrlDetector.isVideoOrMusic(url)，BOOL 型。
+            if (args == null || args.length == 0) return Boolean.FALSE;
+            try {
+                return HkRouter.isVideoOrMusicUrl(argStr(args[0]));
+            } catch (Throwable ignored) {
+                return Boolean.FALSE;
+            }
+        });
+        putFunction("checkPrivacyPassword", args -> {
+            // 8.83 JSEngine.checkPrivacyPassword：星辰无隐私密码功能，恒 false。
+            return Boolean.FALSE;
+        });
+        putFunction("getPrivacyPasswordLen", args -> {
+            // 8.83 JSEngine.getPrivacyPasswordLen：星辰无隐私密码功能，回 0。
+            return 0;
+        });
+        putFunction("copyFiles", args -> {
+            // 8.83 JSEngine.copyFiles(p, p2, dirKey)：Num 型，返回拷贝成功文件数。
+            try {
+                if (args == null || args.length < 2) return 0;
+                java.nio.file.Path src = new File(resolveHikerPath(argStr(args[0]))).toPath();
+                java.nio.file.Path dst = new File(resolveHikerPath(argStr(args[1]))).toPath();
+                if (!java.nio.file.Files.isRegularFile(src)) return 0;
+                if (dst.getParent() != null) java.nio.file.Files.createDirectories(dst.getParent());
+                java.nio.file.Files.copy(src, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                return 1;
+            } catch (Throwable ignored) {
+                return 0;
+            }
+        });
+        putFunction("writeHexFile", args -> {
+            // 8.83 JSEngine.writeHexFile(filePath, content)：hex 串解码后写文件。
+            try {
+                if (args == null || args.length < 2) return null;
+                String hex = argStr(args[1]).replaceAll("\\s", "");
+                int n = hex.length() - hex.length() % 2;
+                byte[] data = new byte[n / 2];
+                for (int i = 0; i < n; i += 2) data[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+                java.nio.file.Path p = new File(resolveHikerPath(argStr(args[0]))).toPath();
+                if (p.getParent() != null) java.nio.file.Files.createDirectories(p.getParent());
+                java.nio.file.Files.write(p, data);
+            } catch (Throwable ignored) {
+            }
+            return null;
+        });
+        putFunction("shareDirectory", args -> {
+            // 8.83 JSEngine.shareDirectory：分享目录。星辰用系统分享框实现等价效果。
+            try {
+                if (args == null || args.length == 0) return null;
+                File dir = new File(resolveHikerPath(argStr(args[0])));
+                if (!dir.isDirectory()) return null;
+                File[] files = dir.listFiles();
+                if (files == null || files.length == 0) return null;
+                java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<>();
+                for (File f : files) {
+                    if (f.isFile()) uris.add(com.fongmi.android.tv.utils.FileUtil.getShareUri(f));
+                }
+                if (uris.isEmpty()) return null;
+                android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE);
+                it.setType("*/*");
+                it.putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris);
+                it.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                App.get().startActivity(android.content.Intent.createChooser(it, ""));
+            } catch (Throwable ignored) {
+            }
+            return null;
+        });
+        putFunction("cacheCode0", args -> {
+            // 8.83 JSEngine.cacheCode0：发 EventBus CacheCode 事件。星辰无此事件类，空实现。
+            return null;
+        });
+        putFunction("buildWebDav", args -> {
+            // 8.83 JSEngine.buildWebDav：构造 WebDavHolder。星辰无 WebDAV 客户端，回 null。
+            return null;
+        });
+        putFunction("createQRCode", args -> {
+            // 8.83 JSEngine.createQRCode(text, size)：应用内展示二维码。
+            // 星辰无此弹窗，用系统图片查看器打开生成的二维码（等价可见，不新造 UI 语义）。
+            try {
+                String text = args != null && args.length > 0 ? argStr(args[0]) : "";
+                if (TextUtils.isEmpty(text) || "null".equals(text)) return null;
+                int size = 512;
+                if (args.length > 1) {
+                    try { size = (int) Double.parseDouble(argStr(args[1])); } catch (Throwable ignored) {}
+                    if (size <= 0) size = 512;
+                }
+                android.graphics.Bitmap bmp = com.fongmi.android.tv.utils.QRCode.getBitmap(text, size, 2);
+                if (bmp == null) return null;
+                File f = new File(App.get().getCacheDir(), "hk_qrcode.png");
+                java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+                out.close();
+                android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                it.setDataAndType(com.fongmi.android.tv.utils.FileUtil.getShareUri(f), "image/png");
+                it.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                App.get().startActivity(it);
+            } catch (Throwable ignored) {
+            }
+            return null;
+        });
+        putFunction("createQRCodeToFile", args -> {
+            // 8.83 JSEngine.createQRCodeToFile(text)：生成二维码存文件，回 "file://"+路径。
+            try {
+                String text = args != null && args.length > 0 ? argStr(args[0]) : "";
+                if (TextUtils.isEmpty(text) || "null".equals(text)) return "";
+                android.graphics.Bitmap bmp = com.fongmi.android.tv.utils.QRCode.getBitmap(text, 512, 2);
+                if (bmp == null) return "";
+                File f = new File(App.get().getCacheDir(), "hk_qrcode_" + System.currentTimeMillis() + ".jpg");
+                java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out);
+                out.close();
+                return "file://" + f.getAbsolutePath();
+            } catch (Throwable ignored) {
+                return "";
+            }
+        });
+        putFunction("getCurrentActivity", args -> {
+            // 8.83 JSEngine.getCurrentActivity：回当前 Activity（原版同款语义）。
+            try {
+                return App.activity();
+            } catch (Throwable ignored) {
+                return null;
+            }
+        });
+        putFunction("getEpubChapters", args -> {
+            // 8.83 JSEngine.getEpubChapters：星辰无 EPUB 解析能力，回空数组 shape。
+            return "[]";
+        });
+        putFunction("getEpubContent0", args -> {
+            // 8.83 JSEngine.getEpubContent0：星辰无 EPUB 解析能力，回空串。
+            return "";
+        });
+        putFunction("getEpubMetadata", args -> {
+            // 8.83 JSEngine.getEpubMetadata：星辰无 EPUB 解析能力，回空对象 shape。
+            return "{}";
+        });
+        putFunction("initChaquopy", args -> {
+            // 8.83 JSEngine.initChaquopy：星辰无 Chaquopy，恒 false。
+            return Boolean.FALSE;
+        });
+        putFunction("addWebProxyRule", args -> {
+            // 8.83 JSEngine.addWebProxyRule：星辰无网页代理规则能力，空实现。
+            return null;
+        });
+        putFunction("removeWebProxyRule", args -> {
+            // 8.83 JSEngine.removeWebProxyRule：星辰无网页代理规则能力，空实现。
+            return null;
+        });
+        putFunction("refreshWebProxyRule", args -> {
+            // 8.83 JSEngine.refreshWebProxyRule：星辰无网页代理规则能力，空实现。
+            return null;
+        });
+        putFunction("refreshReadData", args -> {
+            // 8.83 JSEngine.refreshReadData：发应用内事件刷新阅读数据。星辰无此事件，空实现。
+            return null;
+        });
+        putFunction("refreshVideoSource", args -> {
+            // 8.83 JSEngine.refreshVideoSource：发事件刷新视频源。星辰无此事件，空实现。
+            return null;
+        });
+        putFunction("refreshVideoUrl", args -> {
+            // 8.83 JSEngine.refreshVideoUrl：发事件刷新播放地址。星辰无此事件，空实现。
+            return null;
+        });
+        putFunction("refreshX5Desc", args -> {
+            // 8.83 JSEngine.refreshX5Desc：星辰无 X5 内核，空实现。
+            return null;
+        });
+        putFunction("refreshX5WebView", args -> {
+            // 8.83 JSEngine.refreshX5WebView：星辰无 X5 内核，空实现。
+            return null;
+        });
+        putFunction("png2Ts", args -> {
+            // 8.83 JSEngine.png2Ts：星辰无此转码能力，空实现（回空串）。
+            return "";
         });
 
         // ---- $ 工具集：由 init 注入的官方 v6 版 Hikerurl.js 提供（$ 本体/$.require/$.toString/lazyRule），

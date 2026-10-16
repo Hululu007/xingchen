@@ -23,7 +23,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 按源定向：顶部四切换（PY / JS / 点播 / 海阔），点哪个只看哪个；默认全部直连。 */
+/** 按源定向：顶部五切换（PY / JS / 点播 / 海阔 / Emby），点哪个只看哪个；默认全部直连。 */
 public class SourcePolicyActivity extends BaseActivity {
 
     private ActivitySourcePolicyBinding binding;
@@ -32,6 +32,7 @@ public class SourcePolicyActivity extends BaseActivity {
     private int countJs;
     private int countVod;
     private int countHk;
+    private int countEmby;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SourcePolicyActivity.class));
@@ -61,7 +62,12 @@ public class SourcePolicyActivity extends BaseActivity {
             currentTab = SourceProxyPolicy.KIND_HK;
             applyTab();
         });
+        binding.tabEmby.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_EMBY;
+            applyTab();
+        });
         countHk = fillHk();
+        countEmby = fillEmby();
         countPy = fillSites(SourceProxyPolicy.KIND_PY, binding.groupPy, binding.tvTitlePy);
         countJs = fillSites(SourceProxyPolicy.KIND_JS, binding.groupJs, binding.tvTitleJs);
         countVod = fillVod();
@@ -70,6 +76,7 @@ public class SourcePolicyActivity extends BaseActivity {
             if (countJs > 0) currentTab = SourceProxyPolicy.KIND_JS;
             else if (countVod > 0) currentTab = SourceProxyPolicy.KIND_VOD;
             else if (countHk > 0) currentTab = SourceProxyPolicy.KIND_HK;
+            else if (countEmby > 0) currentTab = SourceProxyPolicy.KIND_EMBY;
         }
         applyTab();
     }
@@ -78,7 +85,8 @@ public class SourcePolicyActivity extends BaseActivity {
         boolean py = SourceProxyPolicy.KIND_PY.equals(currentTab);
         boolean js = SourceProxyPolicy.KIND_JS.equals(currentTab);
         boolean vod = SourceProxyPolicy.KIND_VOD.equals(currentTab);
-        boolean hk = !py && !js && !vod;
+        boolean emby = SourceProxyPolicy.KIND_EMBY.equals(currentTab);
+        boolean hk = !py && !js && !vod && !emby;
         binding.tvTitlePy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.groupPy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.tvTitleJs.setVisibility(js ? View.VISIBLE : View.GONE);
@@ -87,12 +95,15 @@ public class SourcePolicyActivity extends BaseActivity {
         binding.groupVod.setVisibility(vod ? View.VISIBLE : View.GONE);
         binding.tvTitleHk.setVisibility(hk ? View.VISIBLE : View.GONE);
         binding.groupHk.setVisibility(hk ? View.VISIBLE : View.GONE);
-        int count = py ? countPy : (js ? countJs : (vod ? countVod : countHk));
+        binding.tvTitleEmby.setVisibility(emby ? View.VISIBLE : View.GONE);
+        binding.groupEmby.setVisibility(emby ? View.VISIBLE : View.GONE);
+        int count = py ? countPy : (js ? countJs : (vod ? countVod : (emby ? countEmby : countHk)));
         binding.tvNone.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
         styleTab(binding.tabPy, py);
         styleTab(binding.tabJs, js);
         styleTab(binding.tabVod, vod);
         styleTab(binding.tabHk, hk);
+        styleTab(binding.tabEmby, emby);
     }
 
     /** 点播源组：配置站点里 api 不是 .py/.js 的全部（jar 蜘蛛、接口站等），id=站点 key（与打点一致）。 */
@@ -192,6 +203,68 @@ public class SourcePolicyActivity extends BaseActivity {
             addRow(group, e.getValue(), kind, e.getKey());
         }
         return entries.size();
+    }
+
+    /** Emby 分区：列 EmbyStore.servers()，开关读写一律走 EmbyStore（禁直写框架表）。 */
+    private int fillEmby() {
+        List<com.fongmi.android.tv.emby.EmbyStore.EmbyServer> servers;
+        try {
+            servers = com.fongmi.android.tv.emby.EmbyStore.servers();
+        } catch (Throwable t) {
+            servers = new ArrayList<>();
+        }
+        int n = 0;
+        if (servers != null) {
+            for (com.fongmi.android.tv.emby.EmbyStore.EmbyServer s : servers) {
+                if (s == null || s.id == null) continue;
+                addEmbyRow(binding.groupEmby, s.displayName(), s.id);
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** Emby 行：开关读 EmbyStore.isProxyEnabled，写走 EmbyStore.setProxyEnabled（唯一入口）。 */
+    private void addEmbyRow(LinearLayout group, String label, String serverId) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight((int) (56 * d));
+        row.setBackgroundResource(R.drawable.xc_cyber_card);
+        int pad = (int) (12 * d);
+        row.setPadding(pad, pad, pad, pad);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = (int) (8 * d);
+        row.setLayoutParams(lp);
+
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(0xFFFFFFFF);
+        tv.setTextSize(15);
+        tv.setSingleLine(true);
+        tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        tv.setLayoutParams(tlp);
+
+        Switch sw = new Switch(this);
+        sw.setThumbResource(R.drawable.xc_switch_thumb);
+        try {
+            sw.setChecked(com.fongmi.android.tv.emby.EmbyStore.isProxyEnabled(serverId));
+        } catch (Throwable ignored) {
+            sw.setChecked(false);
+        }
+        sw.setOnCheckedChangeListener((btn, checked) -> {
+            try {
+                com.fongmi.android.tv.emby.EmbyStore.setProxyEnabled(this, serverId, checked);
+            } catch (Throwable ignored) {
+            }
+        });
+
+        row.addView(tv);
+        row.addView(sw);
+        group.addView(row);
     }
 
     private void addRow(LinearLayout group, String label, String kind, String id) {

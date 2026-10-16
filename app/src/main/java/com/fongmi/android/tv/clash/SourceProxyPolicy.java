@@ -15,7 +15,8 @@ import java.util.List;
  * <ul>
  * <li>{@link #KIND_PY}：PY 点播源，按源标识（开工时与壳子侧确认标识口径，见 README 未决问题）；
  * <li>{@link #KIND_JS}：JS 点播源，按源标识；
- * <li>{@link #KIND_HK}：海阔小程序，按规则名。
+ * <li>{@link #KIND_HK}：海阔小程序，按规则名；
+ * <li>{@link #KIND_EMBY}：Emby 服务器，按服 id（EmbyStore 镜像一份，本表是框架决策用的唯一真相）。
  * </ul>
  * 决策统一走 {@link #shouldProxy}：总开关（ClashSettings）关 → 一律直连；
  * 总开关开 → 查本表。
@@ -26,6 +27,7 @@ public final class SourceProxyPolicy {
     public static final String KIND_PY = "py";
     public static final String KIND_JS = "js";
     public static final String KIND_HK = "hk";
+    public static final String KIND_EMBY = "emby";
 
     private static final String PREFS = "clash_source_policy";
 

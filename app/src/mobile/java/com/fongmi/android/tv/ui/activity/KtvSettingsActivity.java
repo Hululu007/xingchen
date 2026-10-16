@@ -16,6 +16,7 @@ import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityKtvSettingsBinding;
 import com.fongmi.android.tv.ktv.KtvStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
@@ -183,7 +184,11 @@ public class KtvSettingsActivity extends BaseActivity {
         input.setHint("http://地址:端口");
         input.setText(KtvStore.baseUrl());
         input.setSingleLine(true);
-        new MaterialAlertDialogBuilder(this)
+        input.setBackgroundResource(R.drawable.bg_input_dark);
+        input.setTextAppearance(R.style.XingChen_DialogEditText_Dark);
+        int p12 = (int) android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics());
+        input.setPadding(p12, p12, p12, p12);
+        new MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle("点歌服务器地址")
                 .setView(input)
                 .setPositiveButton("保存", (d, w) -> {

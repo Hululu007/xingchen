@@ -120,6 +120,8 @@
             android:hint="{&quot;cookie&quot;: &quot;UID=xxx;CID=xxx;SEID=xxx;KID=xxx&quot;}"
             android:inputType="textMultiLine"
             android:minLines="4"
+            android:maxLines="8"
+            android:scrollbars="vertical"
             android:textColor="#121417"
             android:textColorHint="#3A3F45"
             android:textSize="13sp" />

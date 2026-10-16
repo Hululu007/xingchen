@@ -85,6 +85,8 @@ public class DownloadManager {
             Notify.show("下载链接为空");
             return null;
         }
+        // Emby 绝对禁下载总闸：手动粘贴 Emby 地址的后门也堵死
+        if (isEmbyUrl(url)) throw new IllegalArgumentException("Emby 内容不允许下载");
         Context context = App.get();
         if (name == null || name.isEmpty()) name = guessFileName(url);
         DownloadTask task = new DownloadTask(url, name);
@@ -108,6 +110,30 @@ public class DownloadManager {
 
     public DownloadTask add(String url, String name) {
         return add(url, name, null);
+    }
+
+    /**
+     * Emby 绝对禁下载判定（防封号口径）：host 等于任一已配 Emby 服务器的 baseUrl host，
+     * 或路径含 Emby 特征（/Videos/、/Items/、/Audio/、MediaSourceId=）。
+     */
+    public static boolean isEmbyUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("/videos/") || lower.contains("/items/") || lower.contains("/audio/")
+                || lower.contains("mediasourceid=")) return true;
+        try {
+            String host = Uri.parse(url).getHost();
+            if (host == null || host.isEmpty()) return false;
+            for (com.fongmi.android.tv.emby.EmbyStore.EmbyServer s
+                    : com.fongmi.android.tv.emby.EmbyStore.servers()) {
+                String base = s == null ? "" : s.baseUrl;
+                if (base == null || base.isEmpty()) continue;
+                String bh = Uri.parse(base).getHost();
+                if (host.equalsIgnoreCase(bh)) return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     private void start(DownloadTask task, Map<String, String> headers) {

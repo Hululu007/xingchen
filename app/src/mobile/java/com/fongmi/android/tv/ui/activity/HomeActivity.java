@@ -145,8 +145,13 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
                 if (lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:")) {
                     VideoActivity.push(this, sharedText);
                 } else {
-                    com.fongmi.android.tv.utils.download.DownloadManager.get().add(url, null);
-                    com.fongmi.android.tv.ui.activity.DownloadActivity.start(this);
+                    try {
+                        com.fongmi.android.tv.utils.download.DownloadManager.get().add(url, null);
+                        com.fongmi.android.tv.ui.activity.DownloadActivity.start(this);
+                    } catch (IllegalArgumentException e) {
+                        // Emby 总闸：Emby 内容不允许下载
+                        com.fongmi.android.tv.utils.Notify.show(e.getMessage());
+                    }
                 }
             }
         } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {

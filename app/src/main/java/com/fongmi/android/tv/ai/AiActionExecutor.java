@@ -11,6 +11,13 @@ import com.google.gson.JsonParser;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.emby.EmbyItem;
+import com.fongmi.android.tv.emby.EmbyMode;
+import com.fongmi.android.tv.emby.EmbyNavigator;
+import com.fongmi.android.tv.emby.EmbySearchHelper;
+import com.fongmi.android.tv.emby.EmbyStore;
+
 /**
  * AI 动作执行器。
  * 根据当前页面执行语音/文字指令：播放页走 VideoActivity，导航/开关类全局可用，复杂指令走 AI 意图理解。
@@ -25,6 +32,12 @@ public class AiActionExecutor {
     public static void executeLocal(Context context, AiVoiceCommand.Command cmd, Callback cb) {
         if (cmd == null) {
             if (cb != null) cb.onFeedback("没听懂，换个说法试试");
+            return;
+        }
+        // Emby 指令：先于通用导航处理（nav_emby 已按 Emby 定案改映射，不再走 navigate()）
+        if (isEmbyCommand(cmd)) {
+            String feedback = executeEmby(context, cmd, cb);
+            if (cb != null) cb.onFeedback(feedback);
             return;
         }
         // 全局导航指令：任何页面都能用
@@ -43,6 +56,142 @@ public class AiActionExecutor {
         Activity activity = findTopActivity(context);
         boolean done = activity != null && dispatchToActivity(activity, cmd);
         if (cb != null) cb.onFeedback(done ? cmd.feedback : "请在播放页面使用该指令");
+    }
+
+    /** 是否为 Emby 指令（含 nav_emby） */
+    private static boolean isEmbyCommand(AiVoiceCommand.Command cmd) {
+        if (cmd == null || cmd.action == null) return false;
+        String a = cmd.action;
+        return a.equals(AiVoiceCommand.ACTION_NAV_EMBY)
+                || a.equals(AiVoiceCommand.ACTION_EMBY_SEARCH)
+                || a.equals(AiVoiceCommand.ACTION_EMBY_PLAY)
+                || a.equals(AiVoiceCommand.ACTION_EMBY_RESUME)
+                || a.equals(AiVoiceCommand.ACTION_EMBY_SWITCH);
+    }
+
+    /**
+     * Emby 指令执行（返回语音反馈文案）。
+     * nav_emby：已登录→EmbyMode.enter 切到 Emby 专属首页；未登录→语音回登录引导。
+     */
+    private static String executeEmby(Context context, AiVoiceCommand.Command cmd, Callback cb) {
+        try {
+            String pkg = "com.fongmi.android.tv.ui.activity.";
+            switch (cmd.action) {
+                case AiVoiceCommand.ACTION_NAV_EMBY: {
+                    EmbyStore.EmbyServer s = loginServer();
+                    if (s == null) return "请先去设置-个性功能登录 Emby";
+                    bringHome(context);
+                    EmbyMode.enter(s.id);
+                    return "已打开 Emby 媒体库";
+                }
+                case AiVoiceCommand.ACTION_EMBY_SEARCH: {
+                    if (!EmbyStore.hasLogin()) return "请先去设置-个性功能登录 Emby";
+                    Activity act = topActivity(context);
+                    if (act == null) return "打开失败，请重试";
+                    Intent intent = new Intent(act, Class.forName(pkg + "SearchActivity"));
+                    intent.putExtra("keyword", cmd.textParam == null ? "" : cmd.textParam);
+                    intent.putExtra("siteKey", EmbyNavigator.SITE_KEY);
+                    act.startActivity(intent);
+                    return cmd.feedback;
+                }
+                case AiVoiceCommand.ACTION_EMBY_PLAY: {
+                    if (!EmbyStore.hasLogin()) return "请先去设置-个性功能登录 Emby";
+                    String kw = cmd.textParam == null ? "" : cmd.textParam.trim();
+                    if (kw.isEmpty()) return "没听清片名，再说一遍";
+                    new Thread(() -> {
+                        List<EmbySearchHelper.ServerResult> rs = EmbySearchHelper.searchAll(kw);
+                        List<EmbyItem> all = EmbySearchHelper.merge(rs);
+                        App.post(() -> {
+                            Activity a = topActivity(context);
+                            if (a == null) return;
+                            if (all.isEmpty()) {
+                                if (cb != null) cb.onFeedback("Emby 里没搜到" + kw);
+                            } else if (all.size() == 1) {
+                                EmbyItem it = all.get(0);
+                                EmbyNavigator.play(a, serverOf(rs, it), it.id, it.name);
+                                if (cb != null) cb.onFeedback("正在播放" + it.name);
+                            } else {
+                                try {
+                                    Intent intent = new Intent(a, Class.forName(pkg + "SearchActivity"));
+                                    intent.putExtra("keyword", kw);
+                                    intent.putExtra("siteKey", EmbyNavigator.SITE_KEY);
+                                    a.startActivity(intent);
+                                } catch (Exception ignored) {
+                                }
+                                if (cb != null) cb.onFeedback("搜到" + all.size() + "个结果，请选择");
+                            }
+                        });
+                    }).start();
+                    return cmd.feedback;
+                }
+                case AiVoiceCommand.ACTION_EMBY_RESUME: {
+                    EmbyStore.EmbyServer s = loginServer();
+                    if (s == null) return "请先去设置-个性功能登录 Emby";
+                    bringHome(context);
+                    EmbyMode.enter(s.id);
+                    return "已打开 Emby 继续观看";
+                }
+                case AiVoiceCommand.ACTION_EMBY_SWITCH: {
+                    List<EmbyStore.EmbyServer> servers = new ArrayList<>();
+                    try {
+                        for (EmbyStore.EmbyServer sv : EmbyStore.servers()) if (sv != null && sv.isLogin()) servers.add(sv);
+                    } catch (Throwable ignored) {
+                    }
+                    int n = (int) cmd.param;
+                    if (n < 1 || n > servers.size()) return "没有第" + n + "号服务器";
+                    EmbyStore.EmbyServer s = servers.get(n - 1);
+                    bringHome(context);
+                    EmbyMode.enter(s.id);
+                    return "已切换到" + n + "号服务器" + s.displayName();
+                }
+                default:
+                    return "不支持的操作";
+            }
+        } catch (Exception e) {
+            return "执行失败，请重试";
+        }
+    }
+
+    /** 当前服可用则用当前服，否则取第一个已登录服；都没有返回 null。 */
+    private static EmbyStore.EmbyServer loginServer() {
+        try {
+            EmbyStore.EmbyServer s = EmbyStore.active();
+            if (s != null && s.isLogin()) return s;
+            for (EmbyStore.EmbyServer sv : EmbyStore.servers()) if (sv != null && sv.isLogin()) return sv;
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static String serverOf(List<EmbySearchHelper.ServerResult> rs, EmbyItem it) {
+        try {
+            for (EmbySearchHelper.ServerResult r : rs) {
+                if (r != null && r.server != null && r.items.contains(it)) return r.server.id;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    private static Activity topActivity(Context context) {
+        Activity a = findTopActivity(context);
+        if (a != null) return a;
+        return context instanceof Activity ? (Activity) context : null;
+    }
+
+    /** 回到首页（Emby 专属首页挂在点播首页上，已在首页则不动）。 */
+    private static void bringHome(Context context) {
+        try {
+            Class<?> homeCls = Class.forName("com.fongmi.android.tv.ui.activity.HomeActivity");
+            Activity top = topActivity(context);
+            if (top != null && homeCls.isInstance(top)) return;
+            Activity act = top != null ? top : (context instanceof Activity ? (Activity) context : null);
+            if (act == null) return;
+            Intent intent = new Intent(act, homeCls)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            act.startActivity(intent);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 是否为全局导航指令 */
@@ -99,6 +248,7 @@ public class AiActionExecutor {
                     cls = pkg + "MusicActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                // nav_emby 已迁到 executeEmby（按 Emby 定案改映射），此处不再处理
                 case AiVoiceCommand.ACTION_NAV_NODE:
                     cls = pkg + "NodeManageActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -245,7 +395,10 @@ public class AiActionExecutor {
                                 + "nav_history（播放历史）、nav_keep（收藏）、nav_download（下载管理）、"
                                 + "nav_plugin（插件管理）、nav_cloud（网盘）、"
                                 + "nav_settings（打开设置）、nav_features（个性功能）、"
-                                + "nav_ai_settings（AI 设置）、nav_player_set（播放器设置）、nav_ui_set（界面设置）。\n"
+                                + "nav_ai_settings（AI 设置）、nav_player_set（播放器设置）、nav_ui_set（界面设置）、"
+                                + "nav_emby（打开 Emby 媒体库）、emby_search（在 Emby 里搜片，text 为片名）、"
+                                + "emby_play（在 Emby 里播片，text 为片名）、emby_resume（Emby 继续看）、"
+                                + "emby_switch（切换到第 N 号 Emby 服务器，params 为序号）。\n"
                                 + "【全局开关】doh_next（切换 DoH）、float_on（打开悬浮窗）、"
                                 + "float_off（关闭悬浮窗）、py_refresh（刷新首页）。\n"
                                 + "无法理解时 action 为 none。\n"
@@ -365,6 +518,16 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开下载管理");
                 case AiVoiceCommand.ACTION_NAV_PLUGIN:
                     return new AiVoiceCommand.Command(action, "已打开插件管理");
+                case AiVoiceCommand.ACTION_NAV_EMBY:
+                    return new AiVoiceCommand.Command(action, "已打开 Emby 媒体库");
+                case AiVoiceCommand.ACTION_EMBY_SEARCH:
+                    return new AiVoiceCommand.Command(action, text, "正在 Emby 里搜索 " + text);
+                case AiVoiceCommand.ACTION_EMBY_PLAY:
+                    return new AiVoiceCommand.Command(action, text, "正在 Emby 里找 " + text);
+                case AiVoiceCommand.ACTION_EMBY_RESUME:
+                    return new AiVoiceCommand.Command(action, "已打开 Emby 继续观看");
+                case AiVoiceCommand.ACTION_EMBY_SWITCH:
+                    return new AiVoiceCommand.Command(action, params, "正在切换到" + params + "号服务器");
                 case AiVoiceCommand.ACTION_NAV_CLOUD:
                     return new AiVoiceCommand.Command(action, "已打开网盘");
                 case AiVoiceCommand.ACTION_NAV_SETTINGS:

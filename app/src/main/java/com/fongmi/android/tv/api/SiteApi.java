@@ -128,9 +128,16 @@ public class SiteApi {
     }
 
     public static void clearHomeCache() {
+        // 首页内容走 site.recent().spider()，残留就是 BaseLoader 里缓存的旧 Spider：
+        // 删插件/换配置后不清它，首页就一直挂着已删插件的旧内容。
+        try {
+            BaseLoader.get().clear();
+        } catch (Throwable ignored) {
+        }
     }
 
     public static void clearHomeCache(String key) {
+        clearHomeCache();
     }
 
     @NonNull

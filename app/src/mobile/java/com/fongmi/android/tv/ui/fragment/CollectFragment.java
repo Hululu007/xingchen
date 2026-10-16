@@ -213,7 +213,35 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                 }
             }
         }
+        // Emby 聚合搜索·层1：按已登录服逐个注册虚拟源（key "emby:<serverId>"，api "csp_Emby"，名 "Emby·服别名"）。
+        // 失败静默降级：EmbySpider.searchContent 未登录抛中文异常，被搜索框架按单源失败隔离，
+        // 不影响其它源；结果分组名即 "Emby·服别名"，点击走既有详情入口。
+        addEmbySearchSites(siteKey);
         SiteHealthStore.sortSites(mSites);
+    }
+
+    /**
+     * Emby 聚合搜索·层1：按已登录服逐个注册虚拟源（key "emby:&lt;serverId&gt;"，api "csp_Emby"，名 "Emby·服别名"），
+     * 走主搜索页既有多源并发框架，一服一组同屏。EmbySpider.searchContent 按 siteKey 选服。
+     * 失败静默降级：未登录的服不注册；蜘蛛内异常按单源失败隔离，不影响其它源。
+     */
+    private void addEmbySearchSites(String siteKey) {
+        try {
+            // 限定单源搜索时：siteKey 是某个 emby 服 key 或老口径 csp_Emby 才挂 Emby 源
+            boolean wantAll = TextUtils.isEmpty(siteKey);
+            boolean wantEmby = wantAll || com.fongmi.android.tv.emby.EmbyNavigator.SITE_KEY.equals(siteKey)
+                    || siteKey.startsWith("emby:");
+            if (!wantEmby) return;
+            for (Site emby : com.fongmi.android.tv.emby.EmbyNavigator.getSearchSites()) {
+                if (emby == null || !emby.isSearchable()) continue;
+                if (!wantAll && !siteKey.equals(emby.getKey())
+                        && !com.fongmi.android.tv.emby.EmbyNavigator.SITE_KEY.equals(siteKey)) continue;
+                boolean exists = false;
+                for (Site s : mSites) if (s.getKey().equals(emby.getKey())) { exists = true; break; }
+                if (!exists) mSites.add(emby);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private Site createPySite(String baseName) {

@@ -191,6 +191,23 @@ public class JarLoader {
     }
 
     public Spider getSpider(String key, String api, String ext, String jar) {
+        // Emby 内置源：不走 DexClassLoader，直接 new 应用类里的 EmbySpider（数据层已实现）。
+        if ("csp_Emby".equals(api)) {
+            String spKey = "emby:" + key;
+            return spiders.computeIfAbsent(spKey, k -> {
+                try {
+                    com.fongmi.android.tv.emby.EmbySpider spider = new com.fongmi.android.tv.emby.EmbySpider();
+                    spider.siteKey = key;
+                    spider.init(App.get(), ext);
+                    SpiderDebug.log("jar-loader", "emby spider init done site=%s", key);
+                    return spider;
+                } catch (Throwable e) {
+                    SpiderDebug.log("jar-loader", "emby spider init error site=%s error=%s", key, error(e));
+                    e.printStackTrace();
+                    return new SpiderNull();
+                }
+            });
+        }
         String jaKey = Util.md5(jar);
         String spKey = jaKey + key;
         return spiders.computeIfAbsent(spKey, k -> {

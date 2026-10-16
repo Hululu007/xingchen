@@ -37,6 +37,10 @@ public class EpisodeGridHolder extends BaseEpisodeHolder {
         binding.text.setOnClickListener(v -> {
             listener.onItemClick(item);
         });
+        binding.text.setOnLongClickListener(v -> {
+            listener.onItemLongClick(item);
+            return true;
+        });
         binding.text.post(() -> setMarquee(binding.text.hasFocus() || binding.text.isActivated()));
     }
 

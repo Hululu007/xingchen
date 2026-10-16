@@ -60,4 +60,25 @@
         android:textColor="#F0A400"
         android:textSize="15sp"
         android:textStyle="bold" />
+
+    <!-- Emby 独立分区：未登录不出现；不与点播线路混排；无清空按钮 -->
+    <TextView
+        android:id="@+id/tv_emby_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:layout_marginBottom="4dp"
+        android:text="@string/emby_title"
+        android:textColor="#0C0E12"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler_emby"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:nestedScrollingEnabled="false"
+        android:visibility="gone" />
 </LinearLayout>

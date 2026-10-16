@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -8,7 +9,12 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ItemConfigHistoryBinding;
+import com.fongmi.android.tv.databinding.ItemEmbyLineBinding;
+import com.fongmi.android.tv.emby.EmbyStore.EmbyServer;
+import com.fongmi.android.tv.emby.EmbyStore;
+import com.fongmi.android.tv.ui.view.EmbyHomeView;
 
 import java.util.List;
 
@@ -54,6 +60,8 @@ public class ConfigHistoryAdapter extends RecyclerView.Adapter<ConfigHistoryAdap
     }
 
     public boolean isActive(Config config) {
+        // 专属首页展示中时，点播行一律不标"使用中"（与 Emby 行互斥）
+        if (EmbyHomeView.isShowing()) return false;
         return config.getUrl() != null && config.getUrl().equals(currentUrl);
     }
 
@@ -109,6 +117,71 @@ public class ConfigHistoryAdapter extends RecyclerView.Adapter<ConfigHistoryAdap
         ViewHolder(ItemConfigHistoryBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+        }
+    }
+
+    // ---------- 线路管理弹窗里的 Emby 独立分区 ----------
+
+    public interface OnEmbyClickListener {
+        void onUse(EmbyServer server);
+    }
+
+    public static class EmbyAdapter extends RecyclerView.Adapter<EmbyAdapter.Holder> {
+
+        private final List<EmbyServer> servers;
+        private final OnEmbyClickListener listener;
+
+        public EmbyAdapter(List<EmbyServer> servers, OnEmbyClickListener listener) {
+            this.servers = servers;
+            this.listener = listener;
+        }
+
+        private boolean isActive(EmbyServer s) {
+            if (!EmbyHomeView.isShowing() || s == null || s.id == null) return false;
+            try {
+                EmbyServer act = EmbyStore.active();
+                return act != null && s.id.equals(act.id);
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            ItemEmbyLineBinding binding = ItemEmbyLineBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false);
+            return new Holder(binding);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull Holder holder, int position) {
+            EmbyServer s = servers.get(position);
+            String alias = s.alias;
+            holder.binding.name.setText(alias == null || alias.isEmpty() ? "未命名" : alias);
+            holder.binding.url.setText(s.baseUrl == null ? "" : s.baseUrl);
+            boolean active = isActive(s);
+            holder.binding.use.setText(active ? R.string.emby_in_use : R.string.emby_use);
+            holder.binding.use.setEnabled(!active);
+            holder.binding.use.setAlpha(active ? 0.5f : 1.0f);
+            holder.binding.use.setOnClickListener(v -> {
+                if (listener != null) listener.onUse(s);
+            });
+            holder.itemView.setOnClickListener(v -> {
+                if (listener != null) listener.onUse(s);
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return servers == null ? 0 : servers.size();
+        }
+
+        static class Holder extends RecyclerView.ViewHolder {
+            final ItemEmbyLineBinding binding;
+            Holder(ItemEmbyLineBinding binding) {
+                super(binding.getRoot());
+                this.binding = binding;
+            }
         }
     }
 }

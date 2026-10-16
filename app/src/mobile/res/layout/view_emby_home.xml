@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Emby 专属首页根视图：深色底，栏目行动态装进 container；本视图常驻、只做显隐切换 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0B0E14">
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:id="@+id/container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="24dp" />
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- 整页级兜底：只有缓存和网络都失败才露脸 -->
+    <TextView
+        android:id="@+id/tv_page_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:paddingHorizontal="48dp"
+        android:text="@string/emby_login_first"
+        android:textColor="#8E97A8"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</FrameLayout>

@@ -392,6 +392,13 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
                 mBinding.textDownloadSub.setText("暂无下载任务");
             }
         } catch (Exception e) { e.printStackTrace(); }
+        // Features subtitle - Emby login state
+        try {
+            if (mBinding.textFeaturesSub != null) {
+                String s = com.fongmi.android.tv.ui.activity.EmbyServerActivity.loginSummary();
+                mBinding.textFeaturesSub.setText(s == null ? "Emby：未登录" : s);
+            }
+        } catch (Exception e) { e.printStackTrace(); }
         // Health subtitle - isolated
         try {
             android.content.SharedPreferences sp = requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE);

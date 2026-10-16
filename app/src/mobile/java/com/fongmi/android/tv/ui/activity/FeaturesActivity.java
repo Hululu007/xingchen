@@ -12,6 +12,7 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.clash.ClashSettings;
 import com.fongmi.android.tv.clash.KernelDownloader;
 import com.fongmi.android.tv.clash.NodeStore;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityFeaturesBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.Notify;
@@ -43,6 +44,7 @@ public class FeaturesActivity extends BaseActivity {
         refreshNode();
         refreshTmdb();
         refreshPanLogin();
+        refreshEmby();
         refreshMiniApp();
         refreshAi();
         binding.swMiniapp.setOnCheckedChangeListener((btn, checked) -> {
@@ -54,6 +56,7 @@ public class FeaturesActivity extends BaseActivity {
         binding.cardNode.setOnClickListener(v -> NodeManageActivity.start(this));
         binding.cardTmdb.setOnClickListener(v -> TmdbActivity.start(this));
         binding.cardPanlogin.setOnClickListener(v -> PanLoginActivity.start(this));
+        binding.cardEmby.setOnClickListener(v -> EmbyServerActivity.start(this));
         binding.cardAi.setOnClickListener(v -> AiSettingsActivity.start(this));
         binding.cardAiRecommend.setOnClickListener(v -> AiRecommendActivity.start(this));
         binding.cardAiAsr.setOnClickListener(v -> {
@@ -72,6 +75,7 @@ public class FeaturesActivity extends BaseActivity {
         refreshNode();
         refreshTmdb();
         refreshPanLogin();
+        refreshEmby();
         refreshMiniApp();
         refreshAi();
     }
@@ -106,6 +110,11 @@ public class FeaturesActivity extends BaseActivity {
 
     private void refreshPanLogin() {
         binding.tvPanloginSub.setText(PanLoginActivity.loginSummary(this));
+    }
+
+    private void refreshEmby() {
+        String s = EmbyServerActivity.loginSummary();
+        binding.tvEmbySub.setText(s == null ? getString(R.string.emby_not_login) : s);
     }
 
     private void refreshMiniApp() {

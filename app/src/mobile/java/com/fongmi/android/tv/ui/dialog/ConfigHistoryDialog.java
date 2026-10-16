@@ -22,16 +22,21 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.databinding.DialogConfigHistoryBinding;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.emby.EmbyMode;
+import com.fongmi.android.tv.emby.EmbyStore.EmbyServer;
+import com.fongmi.android.tv.emby.EmbyStore;
 import com.fongmi.android.tv.ui.adapter.ConfigHistoryAdapter;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ConfigHistoryDialog extends DialogFragment {
 
     private DialogConfigHistoryBinding binding;
     private ConfigHistoryAdapter adapter;
+    private ConfigHistoryAdapter.EmbyAdapter embyAdapter;
     private int type;
     private OnSwitchListener switchListener;
 
@@ -116,6 +121,45 @@ public class ConfigHistoryDialog extends DialogFragment {
             }
         });
         helper.attachToRecyclerView(binding.recycler);
+        initEmbySection();
+    }
+
+    /**
+     * Emby 独立分区：只加行、不动弹窗布局。未登录（无登录态）时整个分区不出现、不占位。
+     * 分区无清空按钮——「清空」只清点播线路，绝不波及 Emby（两套存储互不影响）。
+     */
+    private void initEmbySection() {
+        boolean show = false;
+        List<EmbyServer> list = new ArrayList<>();
+        try {
+            show = EmbyStore.hasLogin();
+            if (show) {
+                List<EmbyServer> all = EmbyStore.servers();
+                if (all != null) list = all;
+            }
+        } catch (Throwable ignored) {
+        }
+        binding.tvEmbyTitle.setVisibility(show ? View.VISIBLE : View.GONE);
+        binding.recyclerEmby.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            embyAdapter = new ConfigHistoryAdapter.EmbyAdapter(list, this::onUseEmby);
+            binding.recyclerEmby.setLayoutManager(new LinearLayoutManager(getContext()));
+            binding.recyclerEmby.setAdapter(embyAdapter);
+        } else {
+            embyAdapter = null;
+        }
+    }
+
+    /** 点 Emby 行：互斥切换进专属首页。 */
+    private void onUseEmby(EmbyServer server) {
+        if (server == null || server.id == null) return;
+        dismiss();
+        try {
+            EmbyMode.enter(server.id);
+            Notify.show("已切换");
+        } catch (Throwable t) {
+            Notify.show("切换失败");
+        }
     }
 
     private void initEvent() {
@@ -128,6 +172,7 @@ public class ConfigHistoryDialog extends DialogFragment {
         binding.empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         binding.recycler.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         adapter.updateItems(items);
+        initEmbySection();
     }
 
     /**
@@ -174,6 +219,11 @@ public class ConfigHistoryDialog extends DialogFragment {
 
     private void onUse(Config config) {
         dismiss();
+        // 点回点播线路即切回专属首页：先退出 Emby 模式（与 Emby 行互斥）
+        try {
+            EmbyMode.exit();
+        } catch (Throwable ignored) {
+        }
         if (switchListener != null) {
             switchListener.onSwitch(config);
             return;

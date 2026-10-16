@@ -10,7 +10,9 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.bean.Plugin;
+import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.utils.ShortDramaHelper;
 import java.io.File;
 import java.util.ArrayList;
@@ -59,9 +61,17 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         });
         
         holder.tvDelete.setOnClickListener(v -> {
+            boolean py = p.getPath() != null && p.getPath().endsWith(".py");
             new File(p.getPath()).delete();
             plugins.remove(position);
             notifyItemRemoved(position);
+            // 单删也要走失效：清掉该插件缓存的旧 Spider 并让首页立刻重载，
+            // 否则首页还挂着已删插件的旧内容（与 PluginActivity.invalidatePlugins 同口径）。
+            try {
+                if (py) BaseLoader.get().clearPy();
+                else BaseLoader.get().clearJs();
+            } catch (Throwable ignored) {}
+            RefreshEvent.home();
             if (onChanged != null) onChanged.run();
         });
     }

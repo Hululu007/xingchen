@@ -42,6 +42,11 @@ import java.util.regex.Pattern;
  *   nav_cloud       网盘 / 云盘
  *   nav_settings    设置 / 打开设置
  *   nav_features    个性功能
+ *   nav_emby        打开Emby（已登录→进 Emby 首页，未登录→提示去登录）
+ *   emby_search     搜索Emby+片名（text=片名，进搜索页限定 Emby 源）
+ *   emby_play       Emby播放+片名（text=片名，多服搜到就播）
+ *   emby_resume     Emby继续看（进 Emby 首页继续观看）
+ *   emby_switch     切换到X号服务器（param=序号）
  *   nav_ai_settings AI设置
  *   nav_player_set  播放器设置
  *   nav_ui_set      界面设置
@@ -100,6 +105,11 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_KTV_SETTINGS = "nav_ktv_settings";
     public static final String ACTION_NAV_KTV_ORDER = "nav_ktv_order";
     public static final String ACTION_NAV_MUSIC = "nav_music";
+    public static final String ACTION_NAV_EMBY = "nav_emby";
+    public static final String ACTION_EMBY_SEARCH = "emby_search";
+    public static final String ACTION_EMBY_PLAY = "emby_play";
+    public static final String ACTION_EMBY_RESUME = "emby_resume";
+    public static final String ACTION_EMBY_SWITCH = "emby_switch";
     public static final String ACTION_KTV_NEXT = "ktv_next";
     public static final String ACTION_KTV_MODE = "ktv_mode";
     public static final String ACTION_WATCH_VOICE_OFF = "watch_voice_off";
@@ -118,6 +128,7 @@ public class AiVoiceCommand {
     private static final Pattern SEEK_BACK_PATTERN2 = Pattern.compile("(\\d+)\\s*秒.*(快退|后退)");
     private static final Pattern SPEED_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*倍速");
     private static final Pattern EPISODE_PATTERN = Pattern.compile("(?:播放|跳到|切到)?\\s*第\\s*(\\d+)\\s*集");
+    private static final Pattern EMBY_SWITCH_PATTERN = Pattern.compile("(?:切换|切)到?\\s*第?\\s*(\\d+)\\s*(?:号|个)?\\s*(?:服务器|服)");
 
     public static class Command {
         public final String action;
@@ -347,6 +358,32 @@ public class AiVoiceCommand {
         }
         if (t.contains("打开音乐") || t.contains("音乐页")) {
             return new Command(ACTION_NAV_MUSIC, "已打开音乐");
+        }
+        // Emby 扩展口令（必须排在"打开Emby"与通用"搜索"分支之前，避免被吞）
+        Matcher embySw = EMBY_SWITCH_PATTERN.matcher(t);
+        if (embySw.find()) {
+            long n = safeParseLong(embySw.group(1), 0);
+            if (n > 0) return new Command(ACTION_EMBY_SWITCH, n, "正在切换到" + n + "号服务器");
+        }
+        if (t.contains("Emby继续看") || t.contains("emby继续看")
+                || t.contains("继续看Emby") || t.contains("打开Emby继续看")) {
+            return new Command(ACTION_EMBY_RESUME, "已打开 Emby 继续观看");
+        }
+        if (t.startsWith("搜索Emby") || t.startsWith("搜索emby")) {
+            String kw = t.substring(4).trim();
+            if (!kw.isEmpty()) return new Command(ACTION_EMBY_SEARCH, kw, "正在 Emby 里搜索 " + kw);
+        }
+        if (t.startsWith("Emby搜索") || t.startsWith("emby搜索")) {
+            String kw = t.substring(6).trim();
+            if (!kw.isEmpty()) return new Command(ACTION_EMBY_SEARCH, kw, "正在 Emby 里搜索 " + kw);
+        }
+        if (t.startsWith("Emby播放") || t.startsWith("emby播放")) {
+            String kw = t.substring(6).trim();
+            if (!kw.isEmpty()) return new Command(ACTION_EMBY_PLAY, kw, "正在 Emby 里找 " + kw);
+        }
+        if (t.contains("打开Emby") || t.contains("打开emby") || t.contains("Emby媒体库")
+                || t.contains("emby媒体库") || t.equals("emby") || t.equals("Emby")) {
+            return new Command(ACTION_NAV_EMBY, "已打开 Emby 媒体库");
         }
         if (t.contains("切歌") || (t.contains("下一首") && !t.contains("集"))) {
             return new Command(ACTION_KTV_NEXT, "已切歌");

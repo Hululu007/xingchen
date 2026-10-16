@@ -202,6 +202,11 @@ public class HkProxyServer extends NanoHTTPD {
                 }
             }
             String paramsJson = GSON.toJson(shaped);
+            // 红果诊断：每次代理请求留下"第几集"的铁证（现有 maskedPath 把查询值脱敏成 rg=*，看不出集数）。
+            java.util.List<String> _rg = shaped.get("rg"), _pp = shaped.get("p");
+            com.github.catvod.crawler.SpiderDebug.log("hkproxy", "serve rg=%s p=%s",
+                    (_rg == null || _rg.isEmpty()) ? "?" : _rg.get(0),
+                    (_pp == null || _pp.isEmpty()) ? "?" : _pp.get(0));
             String script = "var MY_PARAMS = JSON.parse('" + escapeJs(paramsJson) + "');\n" + js;
             String path = session.getUri();
             Object result = rt.evalJSForObj(script, path);

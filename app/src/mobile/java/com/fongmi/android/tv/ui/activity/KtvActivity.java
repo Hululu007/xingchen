@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Config;
@@ -366,7 +367,10 @@ public class KtvActivity extends BaseActivity {
         input.setText(KtvStore.baseUrl());
         input.setHint("例如 http://192.168.1.10:8080");
         input.setSingleLine(true);
-        new AlertDialog.Builder(this)
+        input.setBackgroundResource(R.drawable.bg_input_dark);
+        input.setTextAppearance(R.style.XingChen_DialogEditText_Dark);
+        input.setPadding(dp(12), dp(12), dp(12), dp(12));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle("点歌服务器地址")
                 .setView(input)
                 .setNegativeButton("取消", null)

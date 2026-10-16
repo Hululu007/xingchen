@@ -59,6 +59,23 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     private PlayerManager player;
     private boolean secondarySubtitle;
     private int type;
+    // ---- Emby 外挂字幕合并（只加）：字幕轨列表里追加 Emby 外挂字幕条目 ----
+    private List<Sub> embySubs;
+    private int embySelected = -1;
+    private OnEmbySubListener embySubListener;
+
+    /** Emby 外挂字幕选择回调。 */
+    public interface OnEmbySubListener {
+        void onSelect(int index);
+    }
+
+    /** 附加 Emby 外挂字幕（仅字幕轨生效）。 */
+    public TrackDialog embySubs(List<Sub> subs, int selected, OnEmbySubListener listener) {
+        this.embySubs = subs;
+        this.embySelected = selected;
+        this.embySubListener = listener;
+        return this;
+    }
 
     public static TrackDialog create() {
         return new TrackDialog();
@@ -436,7 +453,21 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     private List<Track> getTrack() {
         List<Track> items = new ArrayList<>();
         addTrack(items);
+        addEmbySubs(items);
         return items;
+    }
+
+    /** Emby 外挂字幕追加进字幕轨列表（播放器原生轨不动）。 */
+    private void addEmbySubs(List<Track> items) {
+        if (type != C.TRACK_TYPE_TEXT || embySubs == null || embySubs.isEmpty()) return;
+        for (int i = 0; i < embySubs.size(); i++) {
+            Sub sub = embySubs.get(i);
+            if (sub == null) continue;
+            Track item = new Track(C.TRACK_TYPE_TEXT, sub.getName(), "Emby 外挂");
+            item.playerId("emby:sub:" + i);
+            item.setSelected(i == embySelected);
+            items.add(item);
+        }
     }
 
     private void addTrack(List<Track> items) {
@@ -465,6 +496,14 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
 
     @Override
     public void onItemClick(Track item) {
+        if (item.getPlayerId() != null && item.getPlayerId().startsWith("emby:sub:") && embySubListener != null) {
+            try {
+                embySubListener.onSelect(Integer.parseInt(item.getPlayerId().substring(9)));
+            } catch (Throwable ignored) {
+            }
+            dismiss();
+            return;
+        }
         if (secondarySubtitle) {
             player.setSecondarySubtitleTrack(item);
             dismiss();

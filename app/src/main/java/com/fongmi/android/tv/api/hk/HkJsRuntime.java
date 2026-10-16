@@ -654,7 +654,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /**
      * 8.83 JSEngine.argsNativeObjectAdjust(Object)（smali 704-716）：调双参版本，p2=false。
      */
-    private Object argsNativeObjectAdjust(Object o) {
+    private static Object argsNativeObjectAdjust(Object o) {
         return argsNativeObjectAdjust(o, false);
     }
 
@@ -665,7 +665,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 注：8.83 用 fastjson 的 JSONObject/JSONArray，本项目未引入 fastjson，
      * 用 JDK 的 LinkedHashMap/ArrayList 等价替代（getString 只判断 instanceof String，行为一致）。
      */
-    private Object argsNativeObjectAdjust(Object o, boolean skipParam) {
+    private static Object argsNativeObjectAdjust(Object o, boolean skipParam) {
         if (isUndefined(o)) return o;
         if (o instanceof NativeObject) {
             Map<String, Object> map = new LinkedHashMap<>();
@@ -3240,11 +3240,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         return evalJs(stripJsPrefix(code));
     }
 
-    /** 8.83 JSEngine.tryGetString 等价：非字符串（含缺参/undefined）抛错。 */
+    /** 8.83 JSEngine.tryGetString 等价：先走 argsNativeObjectAdjust 整理（ConsString 取真串、
+     * NativeJavaObject 拆包、NativeObject/Array 转集合），整理后仍非字符串（含缺参/undefined）抛错。 */
     private static String mustBeString(Object[] args, int i) {
-        if (args == null || args.length <= i || !(args[i] instanceof String))
-            throw new RuntimeException("参数类型只能是字符串");
-        return (String) args[i];
+        if (args == null || args.length <= i) throw new RuntimeException("参数类型只能是字符串");
+        Object o = argsNativeObjectAdjust(args[i]);
+        if (!(o instanceof String)) throw new RuntimeException("参数类型只能是字符串");
+        return (String) o;
     }
 
     /** 8.83 JSEngine.getRuleTitle(ruleTitleKey) 等价：空则取当前规则标题，否则按给定标题取规则数据目录。 */
@@ -5405,29 +5407,55 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Type type = new TypeToken<Map<String, String>>() {}.getType();
             Map<String, String> map = GSON.fromJson(new String(bytes, "UTF-8"), type);
             if (map != null) {
-                // 每次加载都清残（废掉之前 hk_kv_healed2 一次性标记逻辑）：
-                // 旧版本存储写法写下的坏缓存——① {/[ 开头的结构化残值（有的能解析但缺字段）；
-                // ② " 开头的双重编码垃圾（如 "\"[object Object]\""，本地一比一复现与真机第 68 行同款崩溃）。
-                // 现行 stringifyArg 存字符串从不带引号，kv 里 " 开头的值不可能是合法写入；
-                // 字符串类的状态（域名/设备号/令牌）不带引号、不受影响，清完规则自己重建。
-                boolean cleaned = false;
-                try {
-                    cleaned = map.values().removeIf(v -> {
-                        if (v == null) return false;
-                        String t = v.trim();
-                        return t.startsWith("{") || t.startsWith("[") || t.startsWith("\"");
-                    });
-                } catch (Throwable ignored) {
-                }
                 kv.putAll(map);
-                // 清完必须回存落盘（之前清完不回存是复发根因之一）。
-                if (cleaned) {
-                    try {
-                        saveKv();
-                    } catch (Throwable ignored) {
-                    }
-                }
+                // 一次性毒值自检（每个规则只跑一次，记号落盘）：只摘"认死了"的坏值，
+                // 逐条留底备份，绝不删整规则数据、不碰小程序本体。
+                sanitizeKvPoisonOnce();
             }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 认死了的毒值形状（历史写 bug 的产物，当前写路径已修好、只会是存量）： */
+    private static boolean isKvPoison(String v) {
+        if (v == null) return false;
+        // ① BOM 前缀：trim() 去不掉，1.3.26~1.3.28 的清残全看不见它
+        if (v.startsWith("\uFEFF")) return true;
+        // ② Java toString 残留：1.3.21 前 stringifyArg 不认 NativeArray，数组走 String.valueOf 写坏的
+        if (v.startsWith("org.mozilla.javascript.") && v.contains("@")) return true;
+        // ③ 双重编码垃圾：现行 stringifyArg 存字符串从不带引号，" 开头的值不可能是合法写入
+        String t = v.trim();
+        return t.startsWith("\"");
+    }
+
+    /** 一次性毒值清理：只摘坏值、逐条备份、留记号。 */
+    private void sanitizeKvPoisonOnce() {
+        try {
+            File dir = kvFile().getParentFile();
+            if (dir == null) return;
+            File marker = new File(dir, "kv-poison-cleaned.marker");
+            if (marker.exists()) return;
+            Map<String, String> removed = new LinkedHashMap<>();
+            for (Map.Entry<String, String> e : kv.entrySet()) {
+                if (isKvPoison(e.getValue())) removed.put(e.getKey(), e.getValue());
+            }
+            if (!removed.isEmpty()) {
+                // 先留底再摘：按规则名/键名备份被清的值，证据可查
+                File bakDir = new File(dir, "kv-poison-backup");
+                bakDir.mkdirs();
+                String ts = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+                        .format(new java.util.Date());
+                Map<String, Object> bak = new LinkedHashMap<>();
+                String title = rule != null ? rule.getTitle() : "";
+                bak.put("rule", title);
+                bak.put("time", ts);
+                bak.put("removed", removed);
+                java.nio.file.Files.write(new File(bakDir, "backup-" + ts + ".json").toPath(),
+                        GSON.toJson(bak).getBytes("UTF-8"));
+                for (String k : removed.keySet()) kv.remove(k);
+                saveKv();
+            }
+            marker.createNewFile();
         } catch (Throwable ignored) {
         }
     }

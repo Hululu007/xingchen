@@ -19,6 +19,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.util.Log;
@@ -96,6 +98,10 @@ import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityVideoBinding;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.emby.EmbyApi;
+import com.fongmi.android.tv.emby.EmbyItem;
+import com.fongmi.android.tv.emby.EmbyNavigator;
+import com.fongmi.android.tv.emby.EmbyStore;
 import com.fongmi.android.tv.event.CastEvent;
 import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
@@ -159,6 +165,7 @@ import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
 import com.fongmi.android.tv.utils.Clock;
+import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -192,6 +199,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
@@ -343,6 +353,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private Runnable mR3;
     private Runnable mR4;
     private Clock mClock;
+    // ---- Emby 播放钩子（实测语义见 VERIFY.md F2；上报全部走子线程，不阻塞播放） ----
+    private boolean mEmbyPlayingReported;
+    private boolean mEmbyEndedReported;
+    private boolean mEmbyStoppedReported;
+    private long mEmbyLastProgressMs;
+    private List<Sub> mEmbySubs;
+    private int mEmbySubSelected = -1;
+    /** 详情页 Emby 收藏按钮态：null=还没拉到，防详情切换串台用 gen。 */
+    private Boolean mEmbyFavState;
+    private String mEmbyFavSid;
+    private String mEmbyFavIid;
+    private int mEmbyFavGen;
     private MpvPlayer mDiscMenuPlayer;
     private MpvPlayer mCustomButtonPlayer;
     private final Runnable mCustomButtonStateListener = this::updateCustomButtonStates;
@@ -910,6 +932,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.downloadBtn.setOnClickListener(view -> onDownload());
         mBinding.castBtn.setOnClickListener(view -> onCast());
         mBinding.settingBtn.setOnClickListener(view -> onSetting());
+        mBinding.embyFavBtn.setOnClickListener(view -> onEmbyFavToggle());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
         mBinding.name.setOnLongClickListener(view -> onChange());
@@ -1657,6 +1680,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         checkKeepImg();
         setText(item);
         updateKeep();
+        embyBindDetailExtras(item);
     }
 
     private void setText(Vod item) {
@@ -2318,6 +2342,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onDownload() {
+        // Emby 内容一律绝对禁下载（防封号口径），不留开关不留后门
+        if (isEmbyPlayback()) {
+            com.fongmi.android.tv.utils.Notify.show("Emby 内容不允许下载");
+            return;
+        }
         String url = player().getUrl();
         String name = mBinding.name.getText().toString();
         if (url == null || url.isEmpty()) {
@@ -3128,18 +3157,24 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onTrack(View view) {
-        TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
+        TrackDialog dialog = TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player());
+        attachEmbySubs(dialog, Integer.parseInt(view.getTag().toString()));
+        dialog.show(this);
         hideControl();
     }
 
     private void onTrack(int type) {
-        TrackDialog.create().type(type).player(player()).show(this);
+        TrackDialog dialog = TrackDialog.create().type(type).player(player());
+        attachEmbySubs(dialog, type);
+        dialog.show(this);
         hideControl();
     }
 
     @Override
     public void onTrackPanel(int type) {
-        TrackDialog.create().type(type).player(player()).show(this);
+        TrackDialog dialog = TrackDialog.create().type(type).player(player());
+        attachEmbySubs(dialog, type);
+        dialog.show(this);
     }
 
     private void onTitle() {
@@ -6340,8 +6375,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 checkControl();
                 refreshLyrics();
                 player().reset();
+                embyOnPlaying();
                 break;
             case Player.STATE_ENDED:
+                embyOnEnded();
                 checkEnded(true);
                 updatePlayControl(false, syncPiPForPlaybackMode());
                 break;
@@ -6523,6 +6560,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         duration = mHistory.getDuration();
         PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
+        embyOnTick();
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
             checkEnded(false);
         }
@@ -6575,6 +6613,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setPosition() {
         if (mHistory == null || hasDiscMenu()) return;
+        // Emby 断点续播：以服务器 UserData.PlaybackPositionTicks 为准，不吃本地历史
+        if (isEmbyPlayback()) {
+            long startMs = getIntent().getLongExtra(EmbyNavigator.EXTRA_START_MS, 0);
+            if (startMs > 0 && service() != null) player().seekTo(startMs);
+            return;
+        }
         if (mHistory.isNearEnding()) {
             SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
             mHistory.resetPlaybackPosition();
@@ -6582,6 +6626,296 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
         long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
         if (position > 0) player().seekTo(position);
+    }
+
+    // ================= Emby 播放钩子 =================
+    // 实测语义（emby-server/VERIFY.md F2）：
+    // 播放开始 POST /Sessions/Playing；播放中每 10 秒 POST /Sessions/Playing/Progress
+    // （必须带 PlaySessionId，否则 400）；退出/播完 POST /Sessions/Playing/Stopped
+    // （服务端据此写 Played、超 90% 清续播点；只调 Progress 续播点不落盘）。
+    // 全部子线程上报，不阻塞播放；任一环节异常静默丢弃。
+
+    private boolean isEmbyPlayback() {
+        return !TextUtils.isEmpty(getIntent().getStringExtra(EmbyNavigator.EXTRA_SERVER))
+                && !TextUtils.isEmpty(getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM));
+    }
+
+    private EmbyApi embyApi() {
+        try {
+            EmbyStore.EmbyServer s = EmbyStore.getServer(getIntent().getStringExtra(EmbyNavigator.EXTRA_SERVER));
+            if (s == null || !s.isLogin()) return null;
+            return new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 播放开始：上报 Playing + 挂载默认外挂字幕。 */
+    private void embyOnPlaying() {
+        if (!isEmbyPlayback() || mEmbyPlayingReported) return;
+        mEmbyPlayingReported = true;
+        mountEmbySubtitles();
+        String itemId = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        String sessionId = getIntent().getStringExtra(EmbyNavigator.EXTRA_SESSION);
+        Task.execute(() -> {
+            EmbyApi api = embyApi();
+            if (api == null) return;
+            api.reportPlaying(itemId, sessionId);
+        });
+    }
+
+    /** 每秒 tick：每 10 秒上报一次进度。 */
+    private void embyOnTick() {
+        if (!isEmbyPlayback() || !mEmbyPlayingReported || mEmbyStoppedReported) return;
+        if (service() == null) return;
+        long now = System.currentTimeMillis();
+        if (now - mEmbyLastProgressMs < 10_000) return;
+        mEmbyLastProgressMs = now;
+        long pos;
+        boolean paused;
+        try {
+            pos = player().getPosition();
+            paused = !player().isPlaying();
+        } catch (Throwable ignored) {
+            return;
+        }
+        String itemId = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        String sessionId = getIntent().getStringExtra(EmbyNavigator.EXTRA_SESSION);
+        Task.execute(() -> {
+            EmbyApi api = embyApi();
+            if (api == null) return;
+            api.reportProgress(itemId, sessionId, pos, paused);
+        });
+    }
+
+    /** 播完：上报 Stopped + 显式标记看完（兜底）。 */
+    private void embyOnEnded() {
+        if (!isEmbyPlayback() || !mEmbyPlayingReported || mEmbyEndedReported) return;
+        mEmbyEndedReported = true;
+        mEmbyStoppedReported = true;
+        long pos = 0;
+        try {
+            if (service() != null) pos = player().getPosition();
+        } catch (Throwable ignored) {
+        }
+        long position = pos;
+        String itemId = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        String sessionId = getIntent().getStringExtra(EmbyNavigator.EXTRA_SESSION);
+        Task.execute(() -> {
+            EmbyApi api = embyApi();
+            if (api == null) return;
+            api.reportStopped(itemId, sessionId, position);
+            try {
+                api.markPlayed(itemId);
+            } catch (Throwable ignored) {
+            }
+        });
+    }
+
+    /** 中途退出：只上报 Stopped（不断点清零，服务端保留续播点）。 */
+    private void embyOnExit() {
+        if (!isEmbyPlayback() || !mEmbyPlayingReported || mEmbyStoppedReported) return;
+        mEmbyStoppedReported = true;
+        long pos = 0;
+        try {
+            if (service() != null) pos = player().getPosition();
+        } catch (Throwable ignored) {
+        }
+        long position = pos;
+        String itemId = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        String sessionId = getIntent().getStringExtra(EmbyNavigator.EXTRA_SESSION);
+        Task.execute(() -> {
+            EmbyApi api = embyApi();
+            if (api == null) return;
+            api.reportStopped(itemId, sessionId, position);
+        });
+    }
+
+    /** 外挂字幕挂载：走现有 player().setSub 入口，默认挂第一条。 */
+    private void mountEmbySubtitles() {
+        if (mEmbySubs != null || !isEmbyPlayback() || service() == null) return;
+        mEmbySubs = parseEmbySubs(getIntent().getStringExtra(EmbyNavigator.EXTRA_SUBTITLES));
+        if (mEmbySubs.isEmpty()) return;
+        int def = getIntent().getIntExtra(EmbyNavigator.EXTRA_DEFAULT_SUB, 0);
+        if (def < 0 || def >= mEmbySubs.size()) def = 0;
+        mEmbySubSelected = def;
+        try {
+            player().setSub(mEmbySubs.get(def));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private List<Sub> parseEmbySubs(String json) {
+        List<Sub> list = new ArrayList<>();
+        if (TextUtils.isEmpty(json)) return list;
+        try {
+            JSONArray arr = new JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String title = o.optString("title", "");
+                String url = o.optString("url", "");
+                if (TextUtils.isEmpty(url)) continue;
+                if (TextUtils.isEmpty(title)) title = "字幕" + (i + 1);
+                list.add(Sub.create(title, url, "", PlayerHelper.getSubtitleMimeType(url)));
+            }
+        } catch (Throwable ignored) {
+        }
+        return list;
+    }
+
+    /** Emby 外挂字幕切换（二级页 TrackDialog 回调进来）。 */
+    private void onEmbySubSelected(int index) {
+        if (mEmbySubs == null || index < 0 || index >= mEmbySubs.size() || service() == null) return;
+        mEmbySubSelected = index;
+        try {
+            player().setSub(mEmbySubs.get(index));
+            Notify.show(mEmbySubs.get(index).getName());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 字幕轨弹窗：Emby 源时把外挂字幕并入现有 TrackDialog（二级页样式不变）。 */
+    private void attachEmbySubs(TrackDialog dialog, int type) {
+        try {
+            if (type != C.TRACK_TYPE_TEXT) return;
+            if (!isEmbyPlayback()) return;
+            if (mEmbySubs == null) {
+                mEmbySubs = parseEmbySubs(getIntent().getStringExtra(EmbyNavigator.EXTRA_SUBTITLES));
+                mEmbySubSelected = getIntent().getIntExtra(EmbyNavigator.EXTRA_DEFAULT_SUB, 0);
+            }
+            if (mEmbySubs == null || mEmbySubs.isEmpty()) return;
+            dialog.embySubs(mEmbySubs, mEmbySubSelected, this::onEmbySubSelected);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ================= Emby 详情扩展 =================
+
+    private boolean isEmbyDetail(Vod item) {
+        return item != null && item.getId() != null && item.getId().startsWith("emby:");
+    }
+
+    /**
+     * Emby 专属字段补进详情信息区（只加不改原有布局结构）：
+     * 简介/演职员/评分走 Vod 既有字段（spider 已映射）；这里补
+     * Backdrop（无 wallPic 时做上下文壁纸）、类型行、同类推荐（可点行）。
+     * Similar 无元数据时服务端 500，spider 侧已容错（失败当无推荐）。
+     */
+    private void embyBindDetailExtras(Vod item) {
+        boolean emby = isEmbyDetail(item);
+        // Emby 收藏切换按钮：只在 Emby 详情露脸，样式与旁边四个按钮统一
+        if (mBinding.embyFavBtn != null) mBinding.embyFavBtn.setVisibility(emby ? View.VISIBLE : View.GONE);
+        if (!emby) return;
+        bindEmbyFavBtn(EmbyNavigator.serverIdOf(item.getId()), EmbyNavigator.itemIdOf(item.getId()));
+        try {
+            if (TextUtils.isEmpty(getWallPic()) && !TextUtils.isEmpty(item.getEmbyBackdrop())) {
+                setContextWall(item.getEmbyBackdrop());
+            }
+            SpannableStringBuilder sb = new SpannableStringBuilder(mBinding.meta.getText());
+            boolean appended = false;
+            if (!TextUtils.isEmpty(item.getEmbyGenres())) {
+                sb.append("\n类型：").append(item.getEmbyGenres());
+                appended = true;
+            }
+            List<Vod.Similar> similar = item.getEmbySimilar();
+            if (similar != null && !similar.isEmpty()) {
+                sb.append("\n同类推荐：");
+                boolean first = true;
+                for (Vod.Similar s : similar) {
+                    if (s == null || TextUtils.isEmpty(s.id) || TextUtils.isEmpty(s.name)) continue;
+                    if (!first) sb.append(" / ");
+                    first = false;
+                    int start = sb.length();
+                    sb.append(s.name);
+                    String sid = EmbyNavigator.serverIdOf(s.id);
+                    String iid = EmbyNavigator.itemIdOf(s.id);
+                    sb.setSpan(new ClickableSpan() {
+                        @Override
+                        public void onClick(@NonNull android.view.View view) {
+                            EmbyNavigator.openDetail(getActivity(), sid, iid);
+                        }
+                    }, start, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                appended = true;
+            }
+            if (appended) {
+                mBinding.meta.setText(sb, TextView.BufferType.SPANNABLE);
+                mBinding.meta.setLinkTextColor(android.graphics.Color.WHITE);
+                CustomMovement.bind(mBinding.meta);
+            }
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 详情页 Emby 收藏按钮：先置为未拉到态，异步 getItem 拿 UserData.IsFavorite，再刷新文案图标。
+     * gen 防详情切换串台。
+     */
+    private void bindEmbyFavBtn(String sid, String iid) {
+        mEmbyFavState = null;
+        mEmbyFavSid = sid;
+        mEmbyFavIid = iid;
+        updateEmbyFavBtn();
+        final int gen = ++mEmbyFavGen;
+        Task.execute(() -> {
+            Boolean fav = null;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s != null && s.isLogin()) {
+                    EmbyItem ei = new EmbyApi(s.baseUrl, s.token, s.userId).getItem(iid);
+                    if (ei != null) fav = ei.favorite;
+                }
+            } catch (Exception ignored) {
+            }
+            final Boolean r = fav;
+            App.post(() -> {
+                if (gen != mEmbyFavGen) return;
+                mEmbyFavState = r;
+                updateEmbyFavBtn();
+            });
+        });
+    }
+
+    private void updateEmbyFavBtn() {
+        if (mBinding.embyFavBtn == null) return;
+        boolean on = Boolean.TRUE.equals(mEmbyFavState);
+        mBinding.embyFavBtn.setText(on ? R.string.emby_fav_on : R.string.emby_fav);
+        mBinding.embyFavBtn.setIconResource(on ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
+    }
+
+    /** 详情页 Emby 收藏按钮点击：切换收藏/取消收藏，失败给中文提示。 */
+    private void onEmbyFavToggle() {
+        if (TextUtils.isEmpty(mEmbyFavSid) || TextUtils.isEmpty(mEmbyFavIid)) return;
+        final boolean toFav = !Boolean.TRUE.equals(mEmbyFavState);
+        final int gen = mEmbyFavGen;
+        final String sid = mEmbyFavSid;
+        final String iid = mEmbyFavIid;
+        Task.execute(() -> {
+            boolean ok = false;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s != null && s.isLogin()) {
+                    EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId);
+                    if (toFav) api.favorite(iid);
+                    else api.unfavorite(iid);
+                    ok = true;
+                }
+            } catch (Exception ignored) {
+            }
+            final boolean r = ok;
+            App.post(() -> {
+                if (gen != mEmbyFavGen) return;
+                if (r) {
+                    mEmbyFavState = toFav;
+                    updateEmbyFavBtn();
+                    Notify.show(toFav ? getString(R.string.emby_action_fav_ok) : getString(R.string.emby_action_unfav_ok));
+                } else {
+                    Notify.show(getString(R.string.emby_action_fail));
+                }
+            });
+        });
     }
 
     private void checkOrientation() {
@@ -7708,6 +8042,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void finishVideoPlaybackFromSystemBack() {
         mViewModel.stopSearch();
         saveHistory(true);
+        embyOnExit();
         markPlaybackExiting();
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
@@ -7742,6 +8077,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mKaraoke != null) mKaraoke.release();
         mClock.release();
         saveHistory(true);
+        embyOnExit();
         Timer.get().reset();
         DanmakuApi.cancel();
         RefreshEvent.keep();

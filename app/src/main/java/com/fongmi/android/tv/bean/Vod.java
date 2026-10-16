@@ -86,6 +86,18 @@ public class Vod implements Parcelable, Diffable<Vod> {
     private List<Flag> vodFlags;
     private Site site;
 
+    // ---- Emby 专属字段（EmbySpider.detailContent 透出，Gson 直解；只加不改原有字段） ----
+    @SerializedName("emby_backdrop")
+    private String embyBackdrop;
+    @SerializedName("emby_rating")
+    private String embyRating;
+    @SerializedName("emby_resume_ms")
+    private long embyResumeMs;
+    @SerializedName("emby_genres")
+    private String embyGenres;
+    @SerializedName("emby_similar")
+    private List<Similar> embySimilar;
+
     public Vod() {
     }
 
@@ -111,6 +123,11 @@ public class Vod implements Parcelable, Diffable<Vod> {
         this.style = in.readParcelable(Style.class.getClassLoader());
         this.vodFlags = in.createTypedArrayList(Flag.CREATOR);
         this.site = in.readParcelable(Site.class.getClassLoader());
+        this.embyBackdrop = in.readString();
+        this.embyRating = in.readString();
+        this.embyResumeMs = in.readLong();
+        this.embyGenres = in.readString();
+        this.embySimilar = in.createTypedArrayList(Similar.CREATOR);
     }
 
     public static Vod objectFrom(String str) {
@@ -358,6 +375,11 @@ public class Vod implements Parcelable, Diffable<Vod> {
         dest.writeParcelable(this.style, flags);
         dest.writeTypedList(this.vodFlags);
         dest.writeParcelable(this.site, flags);
+        dest.writeString(this.embyBackdrop);
+        dest.writeString(this.embyRating);
+        dest.writeLong(this.embyResumeMs);
+        dest.writeString(this.embyGenres);
+        dest.writeTypedList(this.embySimilar);
     }
 
     @Override
@@ -368,6 +390,71 @@ public class Vod implements Parcelable, Diffable<Vod> {
     @Override
     public boolean isSameContent(Vod other) {
         return getName().equals(other.getName()) && getPic().equals(other.getPic()) && getRemarks().equals(other.getRemarks()) && Objects.equals(getSite(), other.getSite());
+    }
+
+    // ---- Emby 专属字段取值（空安全） ----
+
+    public String getEmbyBackdrop() {
+        return embyBackdrop == null ? "" : embyBackdrop;
+    }
+
+    public String getEmbyRating() {
+        return embyRating == null ? "" : embyRating;
+    }
+
+    public long getEmbyResumeMs() {
+        return embyResumeMs;
+    }
+
+    public String getEmbyGenres() {
+        return embyGenres == null ? "" : embyGenres;
+    }
+
+    public List<Similar> getEmbySimilar() {
+        return embySimilar == null ? Collections.emptyList() : embySimilar;
+    }
+
+    /** Emby 同类推荐条目：{id,name,pic}，id 形如 emby:&lt;serverId&gt;:&lt;itemId&gt;。 */
+    public static class Similar implements Parcelable {
+        @SerializedName("id")
+        public String id = "";
+        @SerializedName("name")
+        public String name = "";
+        @SerializedName("pic")
+        public String pic = "";
+
+        public Similar() {
+        }
+
+        protected Similar(Parcel in) {
+            id = in.readString();
+            name = in.readString();
+            pic = in.readString();
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeString(id);
+            dest.writeString(name);
+            dest.writeString(pic);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        public static final Creator<Similar> CREATOR = new Creator<>() {
+            @Override
+            public Similar createFromParcel(Parcel source) {
+                return new Similar(source);
+            }
+
+            @Override
+            public Similar[] newArray(int size) {
+                return new Similar[size];
+            }
+        };
     }
 
     public static final Creator<Vod> CREATOR = new Creator<>() {

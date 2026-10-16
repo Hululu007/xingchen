@@ -139,6 +139,14 @@ public class SiteViewModel extends ViewModel {
         detailContent(key, id, false);
     }
 
+    /**
+     * 详情页轻量取数：跳过 Source.parse 的选集展开（磁力 DHT 最长 60 秒），
+     * 主数据一到界面先画线路/选集，展开由界面层在后台跑完再补。播放链不受影响。
+     */
+    public void detailContentLight(String key, String id) {
+        execute(TaskType.RESULT, result, () -> SiteApi.detailContent(key, id, false, false), null, null, Constant.TIMEOUT_VOD, key);
+    }
+
     public void detailContent(String key, String id, boolean forceRefresh) {
         // 推送/磁力详情要在 Source.parse 里拉种子元数据（parse 侧上限 60 秒），
         // 外层沿用 30 秒会先把任务掐掉——首次粘贴、DHT 稍慢必失败。对齐到 75 秒。
@@ -219,6 +227,9 @@ public class SiteViewModel extends ViewModel {
         int currentId = taskId.incrementAndGet();
         ListenableFuture<?> old = futures.get(type);
         if (old != null) old.cancel(true);
+        // 切源/刷新/进分类/进详情：旧源的首页 spider 子任务可能还占着线程跑，
+        // 这里直接作废（结果回来也丢弃），新源不等旧的成败立刻开始。
+        if (type == TaskType.RESULT) SiteApi.cancelHomeLoads();
         ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
         FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
         futures.put(type, future);
@@ -254,6 +265,7 @@ public class SiteViewModel extends ViewModel {
     protected void onCleared() {
         super.onCleared();
         stopSearch();
+        SiteApi.cancelHomeLoads();
         futures.values().forEach(future -> future.cancel(true));
         playerExecutor.shutdownNow();
     }

@@ -42,11 +42,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Call;
 import okhttp3.Response;
@@ -145,6 +147,49 @@ public class SiteApi {
         return homeContent(site, false);
     }
 
+    /**
+     * 首页 spider 双路并发的子任务调度。
+     * 以前子任务直接复用 Task.executor()（固定 5 线程）：外层任务本身也跑在同一池里，
+     * 再 submit 两个子任务并用无超时的 get() 死等。切源时只取消外层，子任务继续占着
+     * 池线程跑到网络超时；连切两次就把池占满，新源的子任务排不上队——表现就是
+     * “非等旧源加载出来或失败，才给切别的源”。现在子任务走独立池，并按“代次”登记，
+     * 切源时直接作废旧代次的子任务（结果回来也丢弃，请求能断就断）。
+     */
+    private static final ExecutorService spiderHomePool = Executors.newFixedThreadPool(8, r -> {
+        Thread t = new Thread(r, "spider-home");
+        t.setDaemon(true);
+        return t;
+    });
+    private static final AtomicInteger homeLoadGen = new AtomicInteger(0);
+    private static final ConcurrentHashMap<Integer, CopyOnWriteArrayList<Future<?>>> homeLoadFutures = new ConcurrentHashMap<>();
+
+    /**
+     * 作废所有在途的首页 spider 子任务，并开启一个新代次。
+     * 由 SiteViewModel 在发起新的 RESULT 任务前调用（切源/刷新/进分类/进详情）；
+     * ViewModel 侧已有代次校验，旧结果回来直接丢弃。
+     */
+    public static void cancelHomeLoads() {
+        int gen = homeLoadGen.incrementAndGet();
+        for (Map.Entry<Integer, CopyOnWriteArrayList<Future<?>>> entry : homeLoadFutures.entrySet()) {
+            if (entry.getKey() < gen) {
+                for (Future<?> f : entry.getValue()) f.cancel(true);
+                homeLoadFutures.remove(entry.getKey());
+            }
+        }
+    }
+
+    private static void trackHomeFuture(int gen, Future<?> future) {
+        homeLoadFutures.computeIfAbsent(gen, k -> new CopyOnWriteArrayList<>()).add(future);
+    }
+
+    private static void untrackHomeFuture(int gen, Future<?> future) {
+        CopyOnWriteArrayList<Future<?>> list = homeLoadFutures.get(gen);
+        if (list != null) {
+            list.remove(future);
+            if (list.isEmpty()) homeLoadFutures.remove(gen, list);
+        }
+    }
+
     @NonNull
     public static Result homeContent(@NonNull Site site, boolean forceRefresh) throws Exception {
         if (isSpider(site.getKey(), site)) {
@@ -156,8 +201,11 @@ public class SiteApi {
                 home = "";
                 video = "";
             } else {
-                Future<String> fHome = Task.executor().submit(() -> marked(site, () -> spider.homeContent(true)));
-                Future<String> fVideo = Task.executor().submit(() -> marked(site, spider::homeVideoContent));
+                int gen = homeLoadGen.get();
+                Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> spider.homeContent(true)));
+                trackHomeFuture(gen, fHome);
+                Future<String> fVideo = spiderHomePool.submit(() -> marked(site, spider::homeVideoContent));
+                trackHomeFuture(gen, fVideo);
                 try {
                     home = fHome.get();
                     video = fVideo.get();
@@ -165,6 +213,9 @@ public class SiteApi {
                     Throwable cause = e.getCause();
                     if (cause instanceof Exception) throw (Exception) cause;
                     else throw new RuntimeException(cause);
+                } finally {
+                    untrackHomeFuture(gen, fHome);
+                    untrackHomeFuture(gen, fVideo);
                 }
             }
             Prefers.put("crash", false);
@@ -238,6 +289,16 @@ public class SiteApi {
 
     @NonNull
     public static Result detailContent(@NonNull String key, @NonNull String id, boolean forceRefresh) throws Exception {
+        return detailContent(key, id, forceRefresh, true);
+    }
+
+    /**
+     * @param parse 是否同步做选集展开（磁力/网盘链接展开成子选集）。
+     *              详情页 UI 走 false：主数据一到先渲染，展开由界面层在后台跑完再补，
+     *              免得 DHT 拉种子（最长 60 秒）拖住线路/选集上屏。
+     */
+    @NonNull
+    public static Result detailContent(@NonNull String key, @NonNull String id, boolean forceRefresh, boolean parse) throws Exception {
         SpiderDebug.log("detail", "key=%s,id=%s", key, id);
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.detail(id);
         Site site = VodConfig.get().getSite(key);
@@ -248,7 +309,7 @@ public class SiteApi {
             vod.setPlayUrl(id);
             vod.setPlayFrom(ResUtil.getString(R.string.push));
             vod.setPic(ResUtil.getString(R.string.push_image));
-            Source.get().parse(vod.setFlags());
+            if (parse) Source.get().parse(vod.setFlags());
             PushNameClean.applyEpisodeDisplayNames(vod);
             return Result.vod(vod);
         } else if (isSpider(key, site)) {
@@ -257,7 +318,7 @@ public class SiteApi {
                 DetailCacheEntry cached = detailCache.get(cacheKey);
                 if (cached != null && cached.fresh()) {
                     Result result = Result.fromJson(cached.detail);
-                    Source.get().parse(result.getVod().setFlags());
+                    if (parse) Source.get().parse(result.getVod().setFlags());
                     return result;
                 }
             }
@@ -271,7 +332,7 @@ public class SiteApi {
             } else {
                 detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             }
-            Source.get().parse(result.getVod().setFlags());
+            if (parse) Source.get().parse(result.getVod().setFlags());
             return result;
         } else {
             String cacheKey = key + "_" + id;
@@ -279,7 +340,7 @@ public class SiteApi {
                 DetailCacheEntry cached = detailCache.get(cacheKey);
                 if (cached != null && cached.fresh()) {
                     Result result = Result.fromType(site.getType(), cached.detail);
-                    Source.get().parse(result.getVod().setFlags());
+                    if (parse) Source.get().parse(result.getVod().setFlags());
                     return result;
                 }
             }
@@ -290,7 +351,7 @@ public class SiteApi {
             SpiderDebug.log("detail", detailContent);
             detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             Result result = Result.fromType(site.getType(), detailContent);
-            Source.get().parse(result.getVod().setFlags());
+            if (parse) Source.get().parse(result.getVod().setFlags());
             return result;
         }
     }

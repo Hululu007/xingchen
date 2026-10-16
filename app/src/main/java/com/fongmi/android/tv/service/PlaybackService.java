@@ -537,6 +537,17 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     }
 
     @Override
+    public boolean onHttpGoneRetry() {
+        for (PlayerCallback callback : playerCallbacks) {
+            try {
+                if (callback.onHttpGoneRetry()) return true;
+            } catch (Throwable ignored) {
+            }
+        }
+        return false;
+    }
+
+    @Override
     public void onPlayerRenderRequired() {
         playerCallbacks.forEach(PlayerCallback::onPlayerRenderRequired);
     }
@@ -652,6 +663,14 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         }
 
         default void onReload(String msg) {
+        }
+
+        /**
+         * 播放链返回 HTTP 410（直链过期）时的自救：返回 true 表示已接管重试，
+         * 上游不再走 onError。默认不接管。
+         */
+        default boolean onHttpGoneRetry() {
+            return false;
         }
 
         default void onPlayerRenderRequired() {

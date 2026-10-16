@@ -21,6 +21,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
@@ -309,6 +310,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void release() {
+        logStopAction("release");
         prepareSeq++;
         lutApplySeq++;
         prepareTerminalRelease();
@@ -1208,10 +1210,29 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void stop() {
+        logStopAction("stop");
         stopNativeAudioSession();
         clearDanmaku("stop");
         engine.stop();
         stopParse();
+    }
+
+    /**
+     * 自停诊断：凡是走到 stop/release 都记一行，带调用栈关键帧（类名＋方法名）与当前播放 key。
+     * 下次出现「没人操作播放器自己停」时，直接看 frames 就知道是谁下的手。
+     */
+    private void logStopAction(String action) {
+        if (!SpiderDebug.isEnabled()) return;
+        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+        StringBuilder frames = new StringBuilder();
+        // [0]=getStackTrace [1]=logStopAction [2]=stop/release，调用方从 [3] 开始
+        for (int i = 3; i < trace.length && i < 8; i++) {
+            String cn = trace[i].getClassName();
+            String simple = cn.substring(cn.lastIndexOf('.') + 1);
+            if (frames.length() > 0) frames.append(" <- ");
+            frames.append(simple).append('.').append(trace[i].getMethodName());
+        }
+        SpiderDebug.log("player-stop", "action=%s key=%s frames=%s", action, getKey(), frames);
     }
 
     public void clearMediaItems() {
@@ -5632,6 +5653,14 @@ public class PlayerManager implements ParseCallback {
 
         void onReload(String msg);
 
+        /**
+         * 播放链返回 HTTP 410（直链过期）时的自救钩子：宿主返回 true 表示已接管重试，
+         * PlayerManager 不再走 onError；返回 false 走原报错。默认不接管。
+         */
+        default boolean onHttpGoneRetry() {
+            return false;
+        }
+
         default void onPlayerRenderRequired() {
         }
 
@@ -5812,6 +5841,7 @@ public class PlayerManager implements ParseCallback {
             LocalProxyDebug.dumpIfLocalFailure(spec == null ? null : spec.getUrl(), e);
             if (retryLutFailure(e)) return;
             if (retryLutWarmupByRefresh(action, e)) return;
+            if (retryEmbyGoneLink(e)) return;
             boolean decoderRuntimeObserved = action == PlayerEngine.ErrorAction.DECODE
                     && engine instanceof ExoPlayerEngine exo
                     && exo.observeDecoderRuntimeFailure(e);
@@ -6224,6 +6254,26 @@ public class PlayerManager implements ParseCallback {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "disable and retry after frame processing error code=%d spec=%s cause=%s", e.errorCode, debugSpec(), causeChain(e));
         if (spec != null) setMediaItem();
         return true;
+    }
+
+    /**
+     * HTTP 410 Gone：直链过期（Emby 短命直链典型症状）。只做"是不是 410"的判定，
+     * 真正的重取新链由宿主经 {@link Callback#onHttpGoneRetry()} 接管；宿主不接管则走原报错。
+     */
+    private boolean retryEmbyGoneLink(PlaybackException e) {
+        if (!isHttpGone(e)) return false;
+        return callback.onHttpGoneRetry();
+    }
+
+    /** 在异常链里找 Media3 HttpDataSource 的响应码（OkHttpDataSource 抛出的即此类）。 */
+    private static boolean isHttpGone(PlaybackException e) {
+        Throwable t = e;
+        int depth = 0;
+        while (t != null && depth++ < 10) {
+            if (t instanceof HttpDataSource.HttpDataSourceException hse && hse.responseCode == 410) return true;
+            t = t.getCause();
+        }
+        return false;
     }
 
     private boolean retryLocalProxy(PlaybackException e) {

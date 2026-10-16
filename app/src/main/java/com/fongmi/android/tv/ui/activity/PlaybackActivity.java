@@ -280,6 +280,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onError(String msg) {
     }
 
+    /** HTTP 410 自救钩子：子类（VideoActivity 的 Emby 链）可接管，默认不接管。 */
+    protected boolean onHttpGoneRetry() {
+        return false;
+    }
+
     protected void onReload(String msg) {
         onError(msg);
     }
@@ -673,6 +678,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         @Override
         public void onReload(String msg) {
             if (isOwner()) PlaybackActivity.this.onReload(msg);
+        }
+
+        @Override
+        public boolean onHttpGoneRetry() {
+            if (isOwner()) return PlaybackActivity.this.onHttpGoneRetry();
+            return false;
         }
 
         @Override

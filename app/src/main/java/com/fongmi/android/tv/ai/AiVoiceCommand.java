@@ -93,6 +93,8 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_PLAYER_SET = "nav_player_set";
     public static final String ACTION_NAV_UI_SET = "nav_ui_set";
     public static final String ACTION_NAV_NODE = "nav_node";
+    public static final String ACTION_WATCH_OPEN = "watch_open";
+    public static final String ACTION_WATCH_LEAVE = "watch_leave";
     public static final String ACTION_NAV_NODE_TEST = "nav_node_test";
 
     // ---- 全局开关 ----
@@ -154,6 +156,13 @@ public class AiVoiceCommand {
         if (ep.find() && !t.contains("下一集") && !t.contains("上一集")) {
             long n = safeParseLong(ep.group(1), 0);
             if (n > 0) return new Command(ACTION_EPISODE, n, "正在播放第 " + n + " 集");
+        }
+        // 一起看（先判离开，它的短语里也带"一起看"）
+        if (t.contains("退出一起看") || t.contains("关闭一起看") || t.contains("离开房间") || t.contains("退出房间")) {
+            return new Command(ACTION_WATCH_LEAVE, "已退出一起看");
+        }
+        if (t.contains("一起看") || t.contains("开房间") || t.contains("创建房间")) {
+            return new Command(ACTION_WATCH_OPEN, "已打开一起看");
         }
         // 暂停 / 播放
         if (t.equals("暂停") || t.contains("暂停播放") || t.contains("暂停一下")) {

@@ -288,6 +288,10 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已切换上一集");
                 case AiVoiceCommand.ACTION_TOGGLE_PLAY:
                     return new AiVoiceCommand.Command(action, "已切换播放状态");
+                case AiVoiceCommand.ACTION_WATCH_OPEN:
+                    return new AiVoiceCommand.Command(action, "已打开一起看");
+                case AiVoiceCommand.ACTION_WATCH_LEAVE:
+                    return new AiVoiceCommand.Command(action, "已退出一起看");
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     return new AiVoiceCommand.Command(action, params,
                             params >= 0 ? "已快进 " + (params / 1000) + " 秒" : "已快退 " + (-params / 1000) + " 秒");
@@ -408,6 +412,12 @@ public class AiActionExecutor {
                     return true;
                 case AiVoiceCommand.ACTION_TOGGLE_PLAY:
                     invoke(activity, "aiTogglePlay");
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_OPEN:
+                    invoke(activity, "aiWatchTogether");
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_LEAVE:
+                    invoke(activity, "aiWatchLeave");
                     return true;
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     invoke(activity, "aiSeekBy", new Class[]{long.class}, cmd.param);

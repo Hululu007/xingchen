@@ -360,7 +360,7 @@ public class HkRouter {
                         resolveWebRule(real, out);
                         return out;
                     }
-                    out.setUrl(real);
+                    out.setUrl(splitEnhancement(real, out));
                     return out;
                 }
             }
@@ -377,7 +377,7 @@ public class HkRouter {
                     resolveWebRule(real, out);
                     return out;
                 }
-                out.setUrl(real);
+                out.setUrl(splitEnhancement(real, out));
                 return out;
             }
         }
@@ -467,7 +467,7 @@ public class HkRouter {
             return false;
         }
         if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return true;
-        out.setUrl(real);
+        out.setUrl(splitEnhancement(real, out));
         return true;
     }
 
@@ -502,7 +502,10 @@ public class HkRouter {
                     resolveWebRule(v, out);
                     return;
                 }
-                out.setUrl(v);
+                // 懒解析的结果串同样带 ;get;{请求头} 增强段，必须与 play() 步骤 2
+                // 同口径拆掉，否则整串塞给播放器（红果切集 Malformed URL 真机实证：
+                // 第一集因列表点播多走一遍拆解才没事，切集直达就原样下去了）。
+                out.setUrl(splitEnhancement(v, out));
             } else {
                 // 空结果也留痕到文件日志：规则解析失败（如福建兄妹抠不到 playUrl 时
                 // 懒函数抛错/回空）此前只进 logcat，他发来的日志里看不见、定不了案。

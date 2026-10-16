@@ -64,7 +64,37 @@ public final class SourceGate {
     /** 打点：调用方必须在 finally 里配套 clear()。kind 为空不打点。 */
     public static void mark(String kind, String id) {
         if (kind == null || kind.isEmpty()) return;
-        HOLDER.set(new Mark(kind, id == null ? "" : id));
+        String safeId = id == null ? "" : id;
+        HOLDER.set(new Mark(kind, safeId));
+        RECENT.put(kind + "|" + safeId, System.currentTimeMillis());
+    }
+
+    /** 近期打点登记（给跨线程回退用）：key=kind|id，value=最近打点时刻。 */
+    private static final ConcurrentHashMap<String, Long> RECENT = new ConcurrentHashMap<>();
+    private static final long FALLBACK_WINDOW_MS = 15_000;
+
+    /**
+     * 无线程归属时的回退归属：蜘蛛自己开的 Python 线程（如域名竞速）回调 Java 时
+     * 是新附着的线程、ThreadLocal 为空（1.3.22 真机实证 no-mark 漏直连）。
+     * 只在窗口内恰好只有一个同类来源被打点过时才回退——宁可直连也不串源。
+     */
+    private static Mark fallbackMark(String kindWanted) {
+        long now = System.currentTimeMillis();
+        Mark found = null;
+        for (java.util.Map.Entry<String, Long> e : RECENT.entrySet()) {
+            if (now - e.getValue() > FALLBACK_WINDOW_MS) {
+                RECENT.remove(e.getKey());
+                continue;
+            }
+            int bar = e.getKey().indexOf('|');
+            if (bar < 0) continue;
+            String kind = e.getKey().substring(0, bar);
+            if (kindWanted != null && !kindWanted.equals(kind)) continue;
+            Mark m = new Mark(kind, e.getKey().substring(bar + 1));
+            if (found != null && !(found.kind.equals(m.kind) && found.id.equals(m.id))) return null;
+            found = m;
+        }
+        return found;
     }
 
     public static void clear() {
@@ -100,6 +130,11 @@ public final class SourceGate {
     public static int proxyPortForCurrent() {
         Provider p = provider;
         Mark m = HOLDER.get();
+        boolean viaFallback = false;
+        if (m == null) {
+            m = fallbackMark("py");
+            viaFallback = m != null;
+        }
         if (p == null) {
             if (m != null) logDecision("noprov|" + m.kind + "|" + m.id,
                     "gate direct reason=no-provider kind=" + m.kind + " id=" + m.id + " via=py");
@@ -123,7 +158,7 @@ public final class SourceGate {
             return 0;
         }
         logDecision("proxy|" + (m == null ? "global" : m.kind + "|" + m.id),
-                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + " via=py");
+                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + " via=py" + (viaFallback ? "-fallback" : ""));
         return port;
     }
 
@@ -135,6 +170,7 @@ public final class SourceGate {
             public List<Proxy> select(URI uri) {
                 Provider p = provider;
                 Mark m = HOLDER.get();
+                if (m == null) m = fallbackMark(null);
                 if (p == null) {
                     if (m != null) logDecision("noprov|" + m.kind + "|" + m.id,
                             "gate direct reason=no-provider kind=" + m.kind + " id=" + m.id);

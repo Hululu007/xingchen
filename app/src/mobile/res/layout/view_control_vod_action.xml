@@ -97,6 +97,11 @@
             tools:visibility="visible" />
 
         <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/watch"
+            style="@style/Control"
+            android:text="@string/watch_together" />
+
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/title"
             style="@style/Control"
             android:text="@string/play_title"

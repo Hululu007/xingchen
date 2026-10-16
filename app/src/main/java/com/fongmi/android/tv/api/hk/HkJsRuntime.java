@@ -5059,6 +5059,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return "";
         }
         String t = v.trim();
+        // 存量双重编码自愈：旧链把已序列化好的 JSON 串又 stringify 一层，存成了
+        // "\"[{...}]\" 这种 JSON 字符串字面量。规则读回拿到的是整串文本而不是
+        // 数组，setTabs 逐字迭代读 names[0] 直接崩（UU视频真机实证+本地复现命中）。
+        // 只解一层包：外层是字符串字面量、内层是对象/数组 JSON 才解。
+        if (t.startsWith("\"")) {
+            Object outer = parseJsonStrict(t);
+            if (outer instanceof String) {
+                String inner = ((String) outer).trim();
+                if ((inner.startsWith("{") && inner.endsWith("}")) || (inner.startsWith("[") && inner.endsWith("]"))) {
+                    Object parsedInner = parseJsonStrict(inner);
+                    if (parsedInner != null) return parsedInner;
+                }
+            }
+        }
         if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) {
             Object parsed = parseJsonStrict(v);
             if (parsed != null) return parsed;

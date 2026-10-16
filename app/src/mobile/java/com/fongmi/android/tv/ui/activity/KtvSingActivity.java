@@ -476,7 +476,7 @@ public class KtvSingActivity extends BaseActivity {
         modeTouched = false;
         currentConsumed = false;
         if (song.pic != null && !song.pic.isEmpty()) {
-            ImgUtil.load(song.pic, coverView);
+            ImgUtil.load(song.title(), song.pic, coverView);
             coverView.setVisibility(View.VISIBLE);
         } else {
             coverView.setVisibility(View.GONE);

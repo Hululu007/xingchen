@@ -52,7 +52,6 @@ public class MusicActivity extends BaseActivity {
         refresh();
     }
 
-    @Override
     private int retryCount;
 
     @Override

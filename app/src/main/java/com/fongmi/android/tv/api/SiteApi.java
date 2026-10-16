@@ -9,6 +9,7 @@ import androidx.collection.ArrayMap;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkDetailBridge;
 import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
@@ -410,6 +411,12 @@ public class SiteApi {
             result.setParse(0);
             result.setFlag(flag);
             result.setUrl(Source.get().fetch(result, playerType));
+            // Emby 直链走 PUSH 裸 URL（详情直放/换画质/410 续播/AI 换集），不进蜘蛛：
+            // 媒体请求补 X-Emby-Authorization，否则影桥前置 302→410（play-dead-diagnosis.md）。
+            // 找不到归属服（磁力/txt 等）返回 null，原行为一字不变。
+            String finalUrl = result.getUrl() == null ? id : result.getUrl().v();
+            java.util.Map<String, String> embyHeader = com.fongmi.android.tv.emby.EmbyMediaHeader.forUrl(finalUrl);
+            if (embyHeader != null) result.setHeader(embyHeader);
             SpiderDebug.log("player", result.toString());
             return result;
         } else {
@@ -551,6 +558,65 @@ public class SiteApi {
             if (r != null) r.destroy();
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 取已初始化的 HkRouter（给详情页用）：与播放链共用 hkRouterCache，
+     * 同规则同会话只初始化一次（preRule 只在首次建立时跑），不再每次进详情
+     * new HkRouter + destroy。key 维度=规则名，与缓存现有设计一致，不会串规则。
+     */
+    public static HkRouter getHkRouter(String title) throws Exception {
+        return acquireHkRouter(title);
+    }
+
+    private static final int HK_DETAIL_CACHE_MAX = 20;
+
+    private static class HkDetailCacheEntry {
+        HkDetail detail;
+        long ruleModified;
+        long createdAt;
+    }
+
+    private static final ConcurrentHashMap<String, HkDetailCacheEntry> hkDetailCache = new ConcurrentHashMap<>();
+
+    public interface HkDetailLoader {
+        HkDetail load() throws Exception;
+    }
+
+    /**
+     * 海阔详情结果会话缓存：同一规则同一条目重复进出直接复用，免掉取页等待。
+     * key=规则名+"\n"+条目 url（规则切换=不同 key，自然隔离）；
+     * 规则文件 mtime 变化或 15 分钟 TTL 到期即失效（与 hkRouterCache 同惯例）；
+     * 空详情不缓存（失败不粘住，下次重取）。
+     */
+    public static HkDetail detailCached(String title, String itemUrl, HkDetailLoader loader) throws Exception {
+        String key = title + "\n" + (itemUrl == null ? "" : itemUrl);
+        long mtime = HkRuleManager.get().ruleModified(title);
+        HkDetailCacheEntry e = hkDetailCache.get(key);
+        if (e != null && e.ruleModified == mtime && System.currentTimeMillis() - e.createdAt <= HK_ROUTER_CACHE_TTL_MS) {
+            return e.detail;
+        }
+        HkDetail detail = loader.load();
+        if (detail != null && !detail.isEmpty()) {
+            HkDetailCacheEntry ne = new HkDetailCacheEntry();
+            ne.detail = detail;
+            ne.ruleModified = mtime;
+            ne.createdAt = System.currentTimeMillis();
+            hkDetailCache.put(key, ne);
+            while (hkDetailCache.size() > HK_DETAIL_CACHE_MAX) {
+                String oldest = null;
+                long oldestAt = Long.MAX_VALUE;
+                for (Map.Entry<String, HkDetailCacheEntry> en : hkDetailCache.entrySet()) {
+                    if (en.getValue().createdAt < oldestAt) {
+                        oldestAt = en.getValue().createdAt;
+                        oldest = en.getKey();
+                    }
+                }
+                if (oldest == null) break;
+                hkDetailCache.remove(oldest);
+            }
+        }
+        return detail;
     }
 
     /**

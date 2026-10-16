@@ -180,12 +180,6 @@ public class EmbyHomeView extends FrameLayout {
         }
     }
 
-    private EmbyApi newApi() {
-        EmbyServer s = findServer(serverId);
-        if (s == null) return null;
-        return new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
-    }
-
     // ---------- 缓存首屏 ----------
 
     private void renderCache() {

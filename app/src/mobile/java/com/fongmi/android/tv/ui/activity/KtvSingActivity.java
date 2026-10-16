@@ -60,6 +60,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityKtvSingBinding;
+import com.fongmi.android.tv.ktv.KtvLog;
 import com.fongmi.android.tv.ktv.KtvLyrics;
 import com.fongmi.android.tv.ktv.KtvServer;
 import com.fongmi.android.tv.ktv.KtvSong;

@@ -152,7 +152,6 @@ public class VocalProcessor implements AudioProcessor {
         return Math.max(1, rate * 15 / 100);
     }
 
-    @Override
     private static int clamp(int v) {
         return v > 32767 ? 32767 : Math.max(v, -32768);
     }

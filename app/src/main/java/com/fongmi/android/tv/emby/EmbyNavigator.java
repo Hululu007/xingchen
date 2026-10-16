@@ -198,7 +198,7 @@ public class EmbyNavigator {
     private static List<EmbyItem> allEpisodes(EmbyApi api, String seriesId) throws Exception {
         List<EmbyItem> out = new ArrayList<>();
         for (EmbyItem season : api.seasons(seriesId)) {
-            for (EmbyItem ep : api.episodes(season.id)) {
+            for (EmbyItem ep : api.episodes(seriesId, season.id)) {
                 if (ep != null && !TextUtils.isEmpty(ep.id)) out.add(ep);
             }
         }

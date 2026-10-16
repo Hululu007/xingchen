@@ -113,7 +113,7 @@ public class EmbyHomeView extends FrameLayout {
     private View btnCats;
     private View btnSearch;
     private ViewGroup container;
-    private ViewGroup libContainer;
+    private LinearLayout libContainer;
     private View pageEmpty;
     private String serverId;
     private EmbyApi api;

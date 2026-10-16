@@ -3,6 +3,7 @@ package com.fongmi.android.tv.emby;
 import android.content.Context;
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.github.catvod.utils.Prefers;
 
@@ -35,12 +36,20 @@ public class EmbyStore {
         public String id = "";
         public String alias = "";
         public String baseUrl = "";
+        /** 备选地址（主地址连不上时登录探测用，主在前备选在后）。 */
+        public final List<String> altUrls = new ArrayList<>();
         public String userId = "";
         public String userName = "";
         public String token = "";
         public long lastUsed = 0;
         /** 本服是否走节点（默认 false=直连）。开关只许经 setProxyEnabled 改。 */
         public boolean proxyEnabled = false;
+        /** 服卡是否显示用户名（默认显示）。 */
+        public boolean showUser = true;
+        /** 服卡是否显示上次播放时间（默认不显示）。 */
+        public boolean showLastPlayed = false;
+        /** 上次播放时间（reportPlaying 时顺手记）。 */
+        public long lastPlayedAt = 0;
 
         public boolean isLogin() {
             return !TextUtils.isEmpty(baseUrl) && !TextUtils.isEmpty(userId) && !TextUtils.isEmpty(token);
@@ -57,11 +66,17 @@ public class EmbyStore {
                 o.put("id", id);
                 o.put("alias", alias);
                 o.put("baseUrl", baseUrl);
+                JSONArray alts = new JSONArray();
+                for (String u : altUrls) if (u != null && !u.trim().isEmpty()) alts.put(u.trim());
+                o.put("altUrls", alts);
                 o.put("userId", userId);
                 o.put("userName", userName);
                 o.put("token", token);
                 o.put("lastUsed", lastUsed);
                 o.put("proxyEnabled", proxyEnabled);
+                o.put("showUser", showUser);
+                o.put("showLastPlayed", showLastPlayed);
+                o.put("lastPlayedAt", lastPlayedAt);
             } catch (Exception ignored) {
             }
             return o;
@@ -73,11 +88,19 @@ public class EmbyStore {
             s.id = o.optString("id", "");
             s.alias = o.optString("alias", "");
             s.baseUrl = trimUrl(o.optString("baseUrl", ""));
+            JSONArray alts = o.optJSONArray("altUrls");
+            if (alts != null) for (int i = 0; i < alts.length(); i++) {
+                String u = trimUrl(alts.optString(i, ""));
+                if (!u.isEmpty() && !s.altUrls.contains(u)) s.altUrls.add(u);
+            }
             s.userId = o.optString("userId", "");
             s.userName = o.optString("userName", "");
             s.token = o.optString("token", "");
             s.lastUsed = o.optLong("lastUsed", 0);
             s.proxyEnabled = o.optBoolean("proxyEnabled", false);
+            s.showUser = o.optBoolean("showUser", true);
+            s.showLastPlayed = o.optBoolean("showLastPlayed", false);
+            s.lastPlayedAt = o.optLong("lastPlayedAt", 0);
             return s;
         }
     }
@@ -195,6 +218,10 @@ public class EmbyStore {
         if (map.remove(id) != null) persistSections(map);
         Prefers.remove(K_HOMECACHE + id);
         Prefers.remove(K_HOMECACHE_TIME + id);
+        try {
+            clearCustomIcon(App.get(), id);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 登录成功：只存 token / userId / userName，密码不写盘。 */
@@ -216,6 +243,114 @@ public class EmbyStore {
         s.userName = "";
         s.token = "";
         saveServer(s);
+    }
+
+    /** 播放开始上报时顺手记：本服上次播放时间（服务器管理页展示用）。 */
+    public static void touchLastPlayed(String serverId) {
+        EmbyServer s = getServer(serverId);
+        if (s == null) return;
+        s.lastPlayedAt = System.currentTimeMillis();
+        saveServer(s);
+    }
+
+    /** ---- 自定义图标（只存本地应用私有目录，不上传） ---- */
+
+    private static final String DIR_ICON = "emby_icons";
+
+    /** 本服自定义图标文件（不存在 = 用默认图标）。 */
+    public static java.io.File iconFile(Context context, String serverId) {
+        try {
+            java.io.File dir = new java.io.File(context.getFilesDir(), DIR_ICON);
+            return new java.io.File(dir, serverId + ".png");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 本服有没有自定义图标。 */
+    public static boolean hasCustomIcon(Context context, String serverId) {
+        java.io.File f = iconFile(context, serverId);
+        return f != null && f.exists() && f.length() > 0;
+    }
+
+    /** 存自定义图标：把选中的图拷进私有目录（按 serverId 存）。 */
+    public static boolean saveCustomIcon(Context context, String serverId, android.net.Uri uri) {
+        if (context == null || TextUtils.isEmpty(serverId) || uri == null) return false;
+        try {
+            java.io.File f = iconFile(context, serverId);
+            java.io.File dir = f.getParentFile();
+            if (!dir.exists()) dir.mkdirs();
+            java.io.InputStream in = context.getContentResolver().openInputStream(uri);
+            if (in == null) return false;
+            java.io.OutputStream out = new java.io.FileOutputStream(f);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            out.close();
+            in.close();
+            return f.length() > 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 恢复默认图标：删掉自定义图标文件。删服时也调这个。 */
+    public static void clearCustomIcon(Context context, String serverId) {
+        try {
+            java.io.File f = iconFile(context, serverId);
+            if (f != null && f.exists()) f.delete();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** ---- 全量页排序/筛选偏好（全局存一份） ---- */
+
+    private static final String K_SORT = "emby2.libsort";
+    private static final String K_PLAYED = "emby2.libplayed";
+    private static final String K_YEAR = "emby2.libyear";
+    private static final String K_RATING = "emby2.librating";
+    private static final String K_TAG = "emby2.libtag";
+
+    /** 排序偏好，形如 "SortName:Ascending"。 */
+    public static String libSort() {
+        return Prefers.getString(K_SORT, "SortName:Ascending");
+    }
+
+    public static void setLibSort(String sort) {
+        Prefers.put(K_SORT, sort == null ? "SortName:Ascending" : sort);
+    }
+
+    /** 已看筛选：""=全部，"IsPlayed"=已看，"IsUnplayed"=未看，"IsFavorite"=收藏。 */
+    public static String libPlayedFilter() {
+        return Prefers.getString(K_PLAYED, "");
+    }
+
+    public static void setLibPlayedFilter(String f) {
+        Prefers.put(K_PLAYED, f == null ? "" : f);
+    }
+
+    public static String libYear() {
+        return Prefers.getString(K_YEAR, "");
+    }
+
+    public static void setLibYear(String y) {
+        Prefers.put(K_YEAR, y == null ? "" : y);
+    }
+
+    public static String libRating() {
+        return Prefers.getString(K_RATING, "");
+    }
+
+    public static void setLibRating(String r) {
+        Prefers.put(K_RATING, r == null ? "" : r);
+    }
+
+    public static String libTag() {
+        return Prefers.getString(K_TAG, "");
+    }
+
+    public static void setLibTag(String t) {
+        Prefers.put(K_TAG, t == null ? "" : t);
     }
 
     /** ---- 每台安装唯一的 Emby DeviceId（防多人同服撞号） ---- */

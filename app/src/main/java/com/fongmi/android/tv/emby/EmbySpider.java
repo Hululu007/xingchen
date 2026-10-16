@@ -7,8 +7,15 @@ import com.github.catvod.crawler.Spider;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Emby 内置源：把 Emby 服务器装进 catvod Spider 合同，供壳子既有页复用。
@@ -109,7 +116,9 @@ public class EmbySpider extends Spider {
         JSONArray list = new JSONArray();
         int total;
         if (tid != null && tid.startsWith("view:")) {
-            EmbyApi.ItemPage p = api.items(tid.substring(5), start, LIMIT);
+            // 音乐库自动路由到 Audio 条目（CollectionType=music），不再返回空列表
+            EmbyApi.ItemPage p = api.libraryItems(tid.substring(5), start, LIMIT, null,
+                    "SortName", "Ascending", null, null);
             total = p.total;
             for (EmbyItem it : p.items) list.put(vodJson(api, s, it));
         } else {
@@ -142,33 +151,50 @@ public class EmbySpider extends Spider {
 
         StringBuilder from = new StringBuilder();
         StringBuilder urls = new StringBuilder();
-        if (item.isSeries()) {
-            List<EmbyItem> seasons = api.seasons(item.id);
-            StringBuilder transFrom = new StringBuilder("转码");
-            StringBuilder transUrls = new StringBuilder();
-            for (EmbyItem season : seasons) {
-                if (from.length() > 0) {
-                    from.append("$$$");
-                    urls.append("$$$");
-                    transUrls.append("$$$");
+        // 各季选集与同类推荐并行拉：原来是串行（季数个请求 + 推荐 1 个），服务器稍慢就好几秒。
+        // 转码线路按季镜像：每季紧跟一条「转码·季名」线路，flag 与 url 段一一对应，
+        // 不能把各季转码集拼成一段追加在尾部（flag 按下标取段会错位，之前转码只播得出第一季）。
+        // 组装时仍按 seasons 原顺序拼，并行只加速、不改变顺序。
+        Map<String, List<EmbyItem>> epsBySeason = Collections.emptyMap();
+        List<EmbyItem> similarItems = Collections.emptyList();
+        ExecutorService detailPool = Executors.newCachedThreadPool();
+        try {
+            Future<List<EmbyItem>> similarFuture = detailPool.submit(() -> api.similar(item.id));
+            Map<String, Future<List<EmbyItem>>> epFutures = new HashMap<>();
+            if (item.isSeries()) {
+                List<EmbyItem> seasons = api.seasons(item.id);
+                for (EmbyItem season : seasons) {
+                    String seasonId = season.id;
+                    epFutures.put(seasonId, detailPool.submit(() -> episodesNoThrow(api, item.id, seasonId)));
                 }
-                from.append(season.name);
-                StringBuilder eps = new StringBuilder();
-                for (EmbyItem ep : api.episodes(item.id, season.id)) {
-                    if (eps.length() > 0) eps.append("#");
-                    String epName = "第" + ep.indexNumber + "集";
-                    if (!TextUtils.isEmpty(ep.name) && !ep.name.equals(epName)) epName += " " + ep.name;
-                    eps.append(epName).append("$emby:").append(s.id).append(":").append(ep.id);
+                Map<String, List<EmbyItem>> got = new HashMap<>();
+                for (Map.Entry<String, Future<List<EmbyItem>>> e : epFutures.entrySet()) {
+                    got.put(e.getKey(), getQuietly(e.getValue()));
                 }
-                urls.append(eps);
-                transUrls.append(eps);
+                epsBySeason = got;
+                for (EmbyItem season : seasons) {
+                    StringBuilder eps = new StringBuilder();
+                    for (EmbyItem ep : epsBySeason.getOrDefault(season.id, Collections.emptyList())) {
+                        if (eps.length() > 0) eps.append("#");
+                        String epName = "第" + ep.indexNumber + "集";
+                        if (!TextUtils.isEmpty(ep.name) && !ep.name.equals(epName)) epName += " " + ep.name;
+                        eps.append(epName).append("$emby:").append(s.id).append(":").append(ep.id);
+                    }
+                    if (from.length() > 0) {
+                        from.append("$$$");
+                        urls.append("$$$");
+                    }
+                    from.append(season.name).append("$$$转码·").append(season.name);
+                    urls.append(eps).append("$$$").append(eps);
+                }
+            } else {
+                from.append("Emby$$$转码");
+                String ep = "正片$emby:" + s.id + ":" + item.id;
+                urls.append(ep).append("$$$").append(ep);
             }
-            from.append("$$$").append(transFrom);
-            urls.append("$$$").append(transUrls);
-        } else {
-            from.append("Emby$$$转码");
-            String ep = "正片$emby:" + s.id + ":" + item.id;
-            urls.append(ep).append("$$$").append(ep);
+            similarItems = getQuietly(similarFuture);
+        } finally {
+            detailPool.shutdownNow();
         }
 
         JSONObject v = new JSONObject();
@@ -179,7 +205,7 @@ public class EmbySpider extends Spider {
         v.put("vod_year", item.productionYear > 0 ? String.valueOf(item.productionYear) : "");
         v.put("vod_area", "");
         v.put("vod_director", item.directorText());
-        v.put("vod_actor", item.actorText());
+        // vod_actor 不设：演员走 emby_people 可点行（VideoActivity 渲染），避免纯文本重复
         v.put("vod_content", item.overview);
         v.put("vod_remarks", remarkOf(item));
         v.put("vod_play_from", from.toString());
@@ -189,8 +215,20 @@ public class EmbySpider extends Spider {
         if (!item.ratingText().isEmpty()) v.put("emby_rating", item.ratingText());
         if (item.resumeMs() > 0) v.put("emby_resume_ms", item.resumeMs());
         if (!item.genres.isEmpty()) v.put("emby_genres", TextUtils.join("、", item.genres));
+        if (!item.durationText().isEmpty()) v.put("emby_duration", item.durationText());
+        JSONArray people = new JSONArray();
+        for (EmbyItem.Person p : item.people) {
+            if (p.id.isEmpty() || p.name.isEmpty()) continue;
+            if (people.length() >= 20) break;
+            JSONObject o = new JSONObject();
+            o.put("id", p.id);
+            o.put("name", p.name);
+            o.put("role", p.role == null ? "" : p.role);
+            people.put(o);
+        }
+        v.put("emby_people", people);
         JSONArray similar = new JSONArray();
-        for (EmbyItem it : api.similar(item.id)) {
+        for (EmbyItem it : similarItems) {
             if (similar.length() >= 20) break;
             JSONObject o = new JSONObject();
             o.put("id", "emby:" + s.id + ":" + it.id);
@@ -208,6 +246,26 @@ public class EmbySpider extends Spider {
     }
 
     // ---------- player ----------
+
+    /** 详情并行拉取的容错取数：单季失败/超时只丢该季，不拖住整页。 */
+    private static List<EmbyItem> episodesNoThrow(EmbyApi api, String seriesId, String seasonId) {
+        try {
+            return api.episodes(seriesId, seasonId);
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    /** 并行批次统一 deadline：最慢 10 秒，超时按空处理，详情页不至于被服务器拖死。 */
+    private static List<EmbyItem> getQuietly(Future<List<EmbyItem>> future) {
+        try {
+            List<EmbyItem> items = future.get(10, TimeUnit.SECONDS);
+            return items == null ? new ArrayList<>() : items;
+        } catch (Exception e) {
+            future.cancel(true);
+            return new ArrayList<>();
+        }
+    }
 
     private static String subFormat(String url) {
         String u = url == null ? "" : url.toLowerCase();
@@ -288,7 +346,13 @@ public class EmbySpider extends Spider {
         EmbyStore.EmbyServer s = searchServer();
         if (s == null || !s.isLogin()) throw new Exception(NEED_LOGIN);
         EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
-        EmbyApi.ItemPage p = api.search(key, 0, LIMIT);
+        int page = 1;
+        try {
+            page = Math.max(1, Integer.parseInt(pg));
+        } catch (Exception ignored) {
+        }
+        int start = (page - 1) * LIMIT;
+        EmbyApi.ItemPage p = api.search(key, start, LIMIT);
         JSONArray list = new JSONArray();
         for (EmbyItem it : p.items) {
             JSONObject v = vodJson(api, s, it);
@@ -297,8 +361,8 @@ public class EmbySpider extends Spider {
         }
         JSONObject r = new JSONObject();
         r.put("list", list);
-        r.put("page", 1);
-        r.put("pagecount", 1);
+        r.put("page", page);
+        r.put("pagecount", p.total <= 0 ? 1 : (p.total + LIMIT - 1) / LIMIT);
         r.put("limit", LIMIT);
         r.put("total", p.total);
         return r.toString();

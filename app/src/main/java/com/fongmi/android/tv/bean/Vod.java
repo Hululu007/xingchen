@@ -97,6 +97,10 @@ public class Vod implements Parcelable, Diffable<Vod> {
     private String embyGenres;
     @SerializedName("emby_similar")
     private List<Similar> embySimilar;
+    @SerializedName("emby_people")
+    private List<EmbyPerson> embyPeople;
+    @SerializedName("emby_duration")
+    private String embyDuration;
 
     public Vod() {
     }
@@ -128,6 +132,8 @@ public class Vod implements Parcelable, Diffable<Vod> {
         this.embyResumeMs = in.readLong();
         this.embyGenres = in.readString();
         this.embySimilar = in.createTypedArrayList(Similar.CREATOR);
+        this.embyPeople = in.createTypedArrayList(EmbyPerson.CREATOR);
+        this.embyDuration = in.readString();
     }
 
     public static Vod objectFrom(String str) {
@@ -380,6 +386,8 @@ public class Vod implements Parcelable, Diffable<Vod> {
         dest.writeLong(this.embyResumeMs);
         dest.writeString(this.embyGenres);
         dest.writeTypedList(this.embySimilar);
+        dest.writeTypedList(this.embyPeople);
+        dest.writeString(this.embyDuration);
     }
 
     @Override
@@ -412,6 +420,57 @@ public class Vod implements Parcelable, Diffable<Vod> {
 
     public List<Similar> getEmbySimilar() {
         return embySimilar == null ? Collections.emptyList() : embySimilar;
+    }
+
+    public List<EmbyPerson> getEmbyPeople() {
+        return embyPeople == null ? Collections.emptyList() : embyPeople;
+    }
+
+    public String getEmbyDuration() {
+        return embyDuration == null ? "" : embyDuration;
+    }
+
+    /** Emby 演职员条目：{id,name,role}，id 为 Emby Person Id（可点进演员作品）。 */
+    public static class EmbyPerson implements Parcelable {
+        @SerializedName("id")
+        public String id = "";
+        @SerializedName("name")
+        public String name = "";
+        @SerializedName("role")
+        public String role = "";
+
+        public EmbyPerson() {
+        }
+
+        protected EmbyPerson(Parcel in) {
+            id = in.readString();
+            name = in.readString();
+            role = in.readString();
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeString(id);
+            dest.writeString(name);
+            dest.writeString(role);
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        public static final Creator<EmbyPerson> CREATOR = new Creator<>() {
+            @Override
+            public EmbyPerson createFromParcel(Parcel source) {
+                return new EmbyPerson(source);
+            }
+
+            @Override
+            public EmbyPerson[] newArray(int size) {
+                return new EmbyPerson[size];
+            }
+        };
     }
 
     /** Emby 同类推荐条目：{id,name,pic}，id 形如 emby:&lt;serverId&gt;:&lt;itemId&gt;。 */

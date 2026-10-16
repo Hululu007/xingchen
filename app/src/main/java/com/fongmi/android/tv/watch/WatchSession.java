@@ -53,6 +53,7 @@ public final class WatchSession {
     }
 
     private static final String[] BROKERS = {
+            "wss://xc-watch-relay.1372659842.workers.dev/mqtt",
             "wss://broker.hivemq.com:8884/mqtt",
             "wss://test.mosquitto.org:8081/mqtt"
     };
@@ -70,6 +71,14 @@ public final class WatchSession {
     private boolean host;
     private boolean active;
     private String password = "";
+
+    // 房主当前播放状态：hostPlay/hostPause/hostResume/hostSeek/每次 hostSync 都会刷新，
+    // 客人发 needstate 时房主立刻用它补发，不用等下一拍 sync。
+    private long curPos;
+    private boolean curPlaying;
+    private String curUrl = "";
+    // 客人侧：是否已收到过开播指令（play/state/sync 带 url 只开一次播）
+    private boolean playDelivered;
 
     public WatchSession(Listener listener) {
         this.listener = listener;
@@ -130,32 +139,49 @@ public final class WatchSession {
         }
         send("play", o);
         publishState(url, title, posMs, true, headers);
+        setCurrentState(posMs, true, url);
     }
 
     public void hostPause(long posMs) {
         JsonObject o = new JsonObject();
         o.addProperty("pos", posMs);
         send("pause", o);
+        setCurrentState(posMs, false, null);
     }
 
     public void hostResume(long posMs) {
         JsonObject o = new JsonObject();
         o.addProperty("pos", posMs);
         send("resume", o);
+        setCurrentState(posMs, true, null);
     }
 
     public void hostSeek(long posMs) {
         JsonObject o = new JsonObject();
         o.addProperty("pos", posMs);
         send("seek", o);
+        setCurrentState(posMs, curPlaying, null);
+    }
+
+    /** 记录房主当前播放状态（播放状态变化时由房主侧调用更新）。 */
+    public void setCurrentState(long posMs, boolean playing, String url) {
+        this.curPos = posMs;
+        this.curPlaying = playing;
+        if (url != null) this.curUrl = url;
     }
 
     public void hostSync(long posMs, boolean playing) {
+        hostSync(posMs, playing, curUrl);
+    }
+
+    public void hostSync(long posMs, boolean playing, String url) {
         JsonObject o = new JsonObject();
+        o.addProperty("url", url == null ? "" : url);
         o.addProperty("pos", posMs);
         o.addProperty("playing", playing);
         o.addProperty("ts", System.currentTimeMillis());
         send("sync", o);
+        setCurrentState(posMs, playing, url);
     }
 
     public String getClientId() {
@@ -369,7 +395,10 @@ public final class WatchSession {
                 String url = o.has("url") ? o.get("url").getAsString() : "";
                 String title = o.has("title") ? o.get("title").getAsString() : "";
                 long pos = o.has("pos") ? o.get("pos").getAsLong() : 0;
-                if (!url.isEmpty()) main.post(() -> listener.onPlay(url, title, pos, headersOf(o)));
+                if (!url.isEmpty()) {
+                    playDelivered = true;
+                    main.post(() -> listener.onPlay(url, title, pos, headersOf(o)));
+                }
                 return;
             }
             JsonObject o = JsonParser.parseString(s).getAsJsonObject();
@@ -381,6 +410,7 @@ public final class WatchSession {
                 case "play": {
                     String url = o.has("url") ? o.get("url").getAsString() : "";
                     String title = o.has("title") ? o.get("title").getAsString() : "";
+                    playDelivered = true;
                     main.post(() -> listener.onPlay(url, title, pos, headersOf(o)));
                     break;
                 }
@@ -395,7 +425,17 @@ public final class WatchSession {
                     break;
                 case "sync": {
                     boolean playing = o.has("playing") && o.get("playing").getAsBoolean();
-                    main.post(() -> listener.onSync(pos, playing));
+                    String syncUrl = o.has("url") ? o.get("url").getAsString() : "";
+                    if (!host && !playDelivered && !syncUrl.isEmpty()) {
+                        // 还没开播过：先用房主带来的地址开播，再对齐进度/播放态
+                        playDelivered = true;
+                        main.post(() -> {
+                            listener.onPlay(syncUrl, "", pos, headersOf(o));
+                            listener.onSync(pos, playing);
+                        });
+                    } else {
+                        main.post(() -> listener.onSync(pos, playing));
+                    }
                     break;
                 }
                 case "chat": {
@@ -435,7 +475,15 @@ public final class WatchSession {
                     break;
                 }
                 case "needstate":
-                    // 客人要状态：房主下一拍 sync 自然带到，这里不用回
+                    if (host) {
+                        // 客人要状态：立刻补发当前播放状态（带播放地址），不用等下一拍 sync
+                        JsonObject state = new JsonObject();
+                        state.addProperty("url", curUrl);
+                        state.addProperty("pos", curPos);
+                        state.addProperty("playing", curPlaying);
+                        state.addProperty("ts", System.currentTimeMillis());
+                        send("sync", state);
+                    }
                     break;
                 default:
                     break;

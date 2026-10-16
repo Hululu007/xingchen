@@ -52,16 +52,28 @@ public class HkProxyServer extends NanoHTTPD {
     /** 从指定端口起找/建实例：单例已存在且端口不小于要求时直接复用。 */
     public static synchronized HkProxyServer instance(int port) {
         if (sInstance == null || sInstance.boundPort < port) {
-            if (sInstance != null) {
-                try {
-                    sInstance.destroyServer();
-                } catch (Throwable ignored) {
-                }
-                sInstance = null;
-            }
+            HkProxyServer old = sInstance;
             sInstance = new HkProxyServer(port);
+            if (old != null) migrateAndDestroy(old, sInstance);
         }
         return sInstance;
+    }
+
+    /**
+     * 换端口起新实例时：先把旧实例的代理 JS 与求值器迁到新实例，再彻底销毁旧实例。
+     * 调用方（HkJsRuntime.startProxyServer）在 startWithFallback 后会重新 set 一次，
+     * 迁移是兜底——保证即使调用方只 set 一次、换实例后不再 set，/proxy 照样能求值。
+     * 全局只允许一个存活实例，不留僵尸端口。
+     */
+    private static void migrateAndDestroy(HkProxyServer old, HkProxyServer now) {
+        try {
+            String js = old.getProxyJS();
+            HkJsRuntime rt = old.getEvaluator();
+            old.destroyServer();
+            if (now.getProxyJS() == null && js != null) now.setProxyJS(js);
+            if (now.getEvaluator() == null && rt != null) now.setEvaluator(rt);
+        } catch (Throwable ignored) {
+        }
     }
 
     public void setProxyJS(String js) {
@@ -74,6 +86,10 @@ public class HkProxyServer extends NanoHTTPD {
 
     public void setEvaluator(HkJsRuntime runtime) {
         this.evaluator = runtime;
+    }
+
+    public HkJsRuntime getEvaluator() {
+        return evaluator;
     }
 
     public boolean isRunning() {
@@ -101,7 +117,12 @@ public class HkProxyServer extends NanoHTTPD {
                 return server;
             } catch (Exception e) {
                 last = e;
-                // 端口被占用：销毁这个实例，下一轮 instance(port+1) 会建新的
+                // 端口被占用：这个实例（从未启动成功）彻底销毁再试下一个端口，不留僵尸实例。
+                // 下一轮 instance(port+1) 会建新实例；旧的 proxyJS/evaluator 经 destroyServer 清空。
+                try {
+                    server.destroyServer();
+                } catch (Throwable ignored) {
+                }
                 synchronized (HkProxyServer.class) {
                     if (sInstance == server) sInstance = null;
                 }
@@ -118,9 +139,10 @@ public class HkProxyServer extends NanoHTTPD {
     }
 
     public String getServerUrl() {
-        String ip = getLocalIp();
-        if (ip == null || ip.isEmpty()) return null;
-        return "http://" + ip + ":" + boundPort;
+        // 红果诊断：127.0.0.1 是本机通信唯一永远可靠的地址。
+        // 以前取第一个非回环 IPv4（getLocalIp），他走手机流量回连不可靠，代理连上无响应。
+        // 最小修法：直接回环，不再调 getLocalIp。
+        return "http://127.0.0.1:" + boundPort;
     }
 
     private static String getLocalIp() {

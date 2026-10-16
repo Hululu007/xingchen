@@ -169,6 +169,10 @@ public class KtvSingActivity extends BaseActivity {
     private int curLine = -1;
     private boolean rotateAuto = true;
     private Mic mic;
+    private int micSource = MediaRecorder.AudioSource.VOICE_COMMUNICATION;
+    private boolean micRetried;
+    private FrameLayout micLevelBox;
+    private View micLevelFill;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, KtvSingActivity.class));
@@ -210,8 +214,12 @@ public class KtvSingActivity extends BaseActivity {
             return;
         }
         playCurrent();
-        ui.post(ticker);
-        ui.postDelayed(hideRunnable, 4000);
+        // 进页尾活（进度/歌词心跳、横屏自动收控件）不挡首帧，放消息队列尾部
+        ui.post(() -> {
+            ui.post(ticker);
+            // 竖屏控件常显：自动收控件只在横屏执行（竖屏 arrangeLayout 本来就会清掉这个回调）
+            if (isLandscape()) ui.postDelayed(hideRunnable, 4000);
+        });
     }
 
     private void hideBars() {
@@ -267,12 +275,24 @@ public class KtvSingActivity extends BaseActivity {
         lyricBox.addView(linePrev);
         lyricBox.addView(lineCur);
         lyricBox.addView(lineNext);
+        // 歌词区点一下也唤出控件（跟画面点击一个路数，竖屏下半区、横屏浮层都好点）
+        lyricBox.setOnClickListener(v -> toggleControls());
 
 
         controlBar = new LinearLayout(this);
         controlBar.setOrientation(LinearLayout.VERTICAL);
         controlBar.setPadding(dp(18), dp(8), dp(18), dp(14) + navBarHeight());
         controlBar.setBackground(scrim(0x99000000));
+        // 麦克风实时电平小条：开麦才露脸，跟这页代码搭界面的风格走（不用 XML）
+        micLevelBox = new FrameLayout(this);
+        micLevelFill = new View(this);
+        GradientDrawable mlg = new GradientDrawable();
+        mlg.setColor(YELLOW);
+        mlg.setCornerRadius(dp(999));
+        micLevelFill.setBackground(mlg);
+        micLevelBox.addView(micLevelFill, new FrameLayout.LayoutParams(0, dp(5), Gravity.START | Gravity.CENTER_VERTICAL));
+        micLevelBox.setVisibility(View.GONE);
+        controlBar.addView(micLevelBox, 0, new LinearLayout.LayoutParams(-1, dp(12)));
         LinearLayout seekRow = new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER_VERTICAL);
         seekBar = new SeekBar(this);
@@ -510,10 +530,8 @@ public class KtvSingActivity extends BaseActivity {
 
             @Override
             public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+                // 1.3.28：全程不锁方向，横竖只跟手机走（画面比例只管显示，不管锁屏）
                 if (!rotateAuto || videoSize.width <= 0 || videoSize.height <= 0) return;
-                float r = (float) videoSize.width / videoSize.height;
-                if (r > 1.2f) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-                else if (r < 0.83f) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
             }
 
             @Override
@@ -886,6 +904,11 @@ public class KtvSingActivity extends BaseActivity {
             default:
                 break;
         }
+        // 回到原唱时：如果当前没画面且配到了 MV，补一次换 MV（MV 地址可能来得比切状态晚）
+        if (state == S_ORIGINAL && player != null && player.getVideoFormat() == null) {
+            onMv = false;
+            maybeSwapToMv();
+        }
         applyStateLabel();
     }
 
@@ -1029,8 +1052,10 @@ public class KtvSingActivity extends BaseActivity {
             return;
         }
         PermissionUtil.requestAudio(this, ok -> {
-            if (Boolean.TRUE.equals(ok)) startMic();
-            else toast("没给麦克风权限，唱不了");
+            if (Boolean.TRUE.equals(ok)) {
+                micRetried = false;
+                startMic();
+            } else toast("没给麦克风权限，唱不了");
         });
         pokeControls();
     }
@@ -1038,9 +1063,15 @@ public class KtvSingActivity extends BaseActivity {
     private void startMic() {
         try {
             mic = new Mic();
-            mic.start();
+            mic.start(micSource);
             micBtn.setText("麦克风·开");
+            if (micLevelBox != null) {
+                setMicLevel(0f);
+                micLevelBox.setVisibility(View.VISIBLE);
+            }
             toast("麦克风开了，唱完再点一次关，录音会存下来");
+            // 开麦自检：1 秒内电平始终为 0 就换一路录法重试一次
+            ui.postDelayed(micCheck, 1000);
         } catch (Throwable t) {
             mic = null;
             toast("麦克风没打开");
@@ -1048,11 +1079,54 @@ public class KtvSingActivity extends BaseActivity {
     }
 
     private void stopMic() {
+        stopMicInner(false);
+    }
+
+    private void stopMicInner(boolean quiet) {
+        ui.removeCallbacks(micCheck);
         if (mic == null) return;
         File f = mic.stopAndSave();
         mic = null;
         micBtn.setText("麦克风");
-        toast(f != null ? "录音存好了：" + f.getName() : "麦克风关了");
+        if (micLevelBox != null) {
+            setMicLevel(0f);
+            micLevelBox.setVisibility(View.GONE);
+        }
+        if (!quiet) toast(f != null ? "录音存好了：" + f.getName() : "麦克风关了");
+    }
+
+    /** 开麦自检：1 秒内电平始终为 0 就换一路录法重试一次，再无声提示检查权限/重启。 */
+    private final Runnable micCheck = new Runnable() {
+        @Override
+        public void run() {
+            Mic m = mic;
+            if (m == null || isFinishing()) return;
+            if (m.lastRms > 0.0005f) return; // 有底噪/有声，录法正常
+            if (!micRetried) {
+                micRetried = true;
+                stopMicInner(true);
+                micSource = micSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                        ? MediaRecorder.AudioSource.MIC : MediaRecorder.AudioSource.VOICE_COMMUNICATION;
+                startMic();
+                toast("这路麦克风没声，换一路录法再试一次");
+                return;
+            }
+            stopMicInner(true);
+            toast("麦克风一直没声音，检查下权限，不行重启手机再试");
+        }
+    };
+
+    /** 麦克风实时电平小条（跟本页代码搭界面的路数，不用 XML）。 */
+    private void setMicLevel(float level) {
+        if (micLevelFill == null || micLevelBox == null) return;
+        int w = micLevelBox.getWidth();
+        if (w <= 0) w = dp(240);
+        int fw = (int) (w * Math.min(1f, level * 4f));
+        android.view.ViewGroup.LayoutParams lp = micLevelFill.getLayoutParams();
+        if (lp.width != fw) {
+            lp.width = fw;
+            micLevelFill.setLayoutParams(lp);
+        }
     }
 
     /** 麦克风返听 + 同步录成 WAV（就近取材的土法，延迟以系统为准）。 */
@@ -1064,8 +1138,10 @@ public class KtvSingActivity extends BaseActivity {
         private File file;
         private long dataBytes;
         private int sr = 44100;
+        volatile float lastRms;
+        private long lastLevelPost;
 
-        void start() throws Exception {
+        void start(int source) throws Exception {
             // 返听延迟（他报跟不上歌）：三刀——走设备原生采样率免重采样、走通讯通路（低延迟）、
             // 小片读写+播放低延迟模式，别再攒 8KB 一大片（光攒片就是近百毫秒）。
             int sr = 44100;
@@ -1079,7 +1155,7 @@ public class KtvSingActivity extends BaseActivity {
             int min = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
             if (min <= 0) min = 4096;
             int buf = min;
-            record = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr,
+            record = new AudioRecord(source, sr,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, buf * 2);
             track = new AudioTrack.Builder()
                     .setAudioAttributes(new AudioAttributes.Builder()
@@ -1123,6 +1199,21 @@ public class KtvSingActivity extends BaseActivity {
                             }
                         }
                         track.write(b, 0, n);
+                        // 电平：PCM 算 RMS，节流推到 UI 驱动小条（开麦自检也看它）
+                        double sum = 0;
+                        int cnt = 0;
+                        for (int si = 0; si + 1 < n; si += 2) {
+                            int smp = (b[si] & 0xFF) | (b[si + 1] << 8);
+                            sum += (double) smp * smp;
+                            cnt++;
+                        }
+                        lastRms = cnt > 0 ? (float) (Math.sqrt(sum / cnt) / 32768.0) : 0f;
+                        long now = System.currentTimeMillis();
+                        if (now - lastLevelPost > 120) {
+                            lastLevelPost = now;
+                            final float lv = lastRms;
+                            ui.post(() -> setMicLevel(lv));
+                        }
                         try {
                             fos.write(b, 0, n);
                             dataBytes += n;
@@ -1324,7 +1415,7 @@ public class KtvSingActivity extends BaseActivity {
         // 不然每次开唱都是同一首（真机实证「每次开唱都是固定的」）。
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(hideRunnable);
-        if (mic != null) mic.stopAndSave();
+        stopMicInner(true);
         if (player != null) {
             player.release();
             player = null;

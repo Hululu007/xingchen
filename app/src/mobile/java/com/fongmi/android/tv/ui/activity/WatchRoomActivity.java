@@ -23,15 +23,22 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.api.hk.HkM3u8ClearUtil;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Result;
+import com.fongmi.android.tv.clash.HashUtil;
 import com.fongmi.android.tv.databinding.ActivityWatchRoomBinding;
+import com.fongmi.android.tv.player.engine.PlayerEngine;
+import com.fongmi.android.tv.player.exo.ExoUtil;
+import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
@@ -486,9 +493,7 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
     // ---------- 播放器 ----------
 
     private void buildPlayer() {
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-        player.addListener(new Player.Listener() {
+        Player.Listener listener = new Player.Listener() {
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 playBtn.setText(isPlaying ? "❚❚" : "▶");
@@ -511,7 +516,12 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
             public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
                 Notify.show("播放出错了");
             }
-        });
+        };
+        // 主播放器同款配置：trackSelector/renderersFactory/mediaSourceFactory/loadControl
+        // 全走 ExoUtil.buildPlayer，loadControl 档位跟 PlaybackPerformanceSetting 走
+        int decode = PlayerSetting.isVideoPrefer(PlayerSetting.EXO) ? PlayerEngine.HARD : PlayerEngine.SOFT;
+        player = ExoUtil.buildPlayer(decode, listener);
+        playerView.setPlayer(player);
     }
 
     private final Runnable ticker = new Runnable() {
@@ -534,12 +544,51 @@ public class WatchRoomActivity extends BaseActivity implements WatchController.H
     }
 
     private void playMedia(String url, Map<String, String> headers, long posMs) {
+        if (isM3u8(url)) {
+            // m3u8 先走广告清理：清理是网络 IO，放后台做完再 setMedia
+            //（8.83 语义：清理失败回原 url）
+            Task.execute(() -> {
+                String playUrl = clearM3u8(url, headers);
+                runOnUiThread(() -> {
+                    if (isFinishing() || player == null) return;
+                    setMedia(playUrl, headers, posMs);
+                });
+            });
+            return;
+        }
+        setMedia(url, headers, posMs);
+    }
+
+    private static boolean isM3u8(String url) {
+        return url != null && url.toLowerCase(java.util.Locale.US).contains(".m3u8");
+    }
+
+    /** 8.83 proxyClearM3u8 管线：清理→写 hk_m3u8_cache→返回 file://...##url，失败回原 url */
+    private static String clearM3u8(String url, Map<String, String> headers) {
+        try {
+            String cleaned = HkM3u8ClearUtil.getProxyContent(url, headers, HkM3u8ClearUtil.getRules());
+            if (cleaned == null || cleaned.isEmpty()) return url;
+            java.io.File cacheDir = new java.io.File(App.get().getFilesDir(), "hk_m3u8_cache");
+            if (!cacheDir.exists()) cacheDir.mkdirs();
+            java.io.File out = new java.io.File(cacheDir, HashUtil.md5(url) + ".m3u8");
+            try (java.io.FileWriter fw = new java.io.FileWriter(out)) {
+                fw.write(cleaned);
+            }
+            HkM3u8ClearUtil.pruneCacheDir(cacheDir);
+            return "file://" + out.getAbsolutePath() + "##" + url;
+        } catch (Throwable t) {
+            return url;
+        }
+    }
+
+    private void setMedia(String url, Map<String, String> headers, long posMs) {
         DefaultHttpDataSource.Factory dsf = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true);
         if (headers != null && !headers.isEmpty()) dsf.setDefaultRequestProperties(headers);
         boolean hasUa = false;
         if (headers != null) for (String k : headers.keySet()) if (k != null && k.equalsIgnoreCase("User-Agent")) hasUa = true;
         if (!hasUa) dsf.setUserAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-        player.setMediaSource(new DefaultMediaSourceFactory(dsf).createMediaSource(MediaItem.fromUri(url)));
+        // DefaultDataSource 包一层：file://（清理后的本地缓存）与 http(s) 都能播
+        player.setMediaSource(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, dsf)).createMediaSource(MediaItem.fromUri(url)));
         if (posMs > 0) player.seekTo(posMs);
         player.prepare();
         player.play();

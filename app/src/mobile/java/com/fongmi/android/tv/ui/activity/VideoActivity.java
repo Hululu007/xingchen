@@ -7091,6 +7091,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         song.episodeUrl = ep.getUrl();
         song.singer = getName();
         song.pic = getPic();
+        // 进开唱前先停掉详情页播放（跟进一起看房间前 player().pause() 同一套）
+        if (player() != null) player().pause();
         KtvSingActivity.startWith(this, song);
     }
 

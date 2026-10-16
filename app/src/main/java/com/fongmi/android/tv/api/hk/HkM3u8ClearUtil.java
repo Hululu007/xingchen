@@ -11,6 +11,8 @@ import java.io.File;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -67,6 +69,32 @@ public class HkM3u8ClearUtil {
     private static final Gson GSON = new Gson();
 
     private HkM3u8ClearUtil() {
+    }
+
+    /**
+     * 1.3.28 状态病收尾：m3u8 清理缓存目录只增不减，越用越大。
+     * 每次写缓存后调一次：只留最新的 100 个文件，总量超 200MB 时从最旧的删。
+     * 纯文件操作，删错了下次播自动重建，不影响播放。
+     */
+    public static void pruneCacheDir(File dir) {
+        try {
+            if (dir == null || !dir.isDirectory()) return;
+            File[] files = dir.listFiles();
+            if (files == null || files.length == 0) return;
+            Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+            long total = 0;
+            for (File f : files) total += f.length();
+            int remain = files.length;
+            for (File f : files) {
+                if (remain <= 100 && total <= 200L * 1024 * 1024) break;
+                long len = f.length();
+                if (f.delete()) {
+                    total -= len;
+                    remain--;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     // ------------------------------------------------------------------

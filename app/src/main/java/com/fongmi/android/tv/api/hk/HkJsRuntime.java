@@ -1333,6 +1333,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 但"未命中抛错"不能照搬：黄色仓库等规则会 require 一个本地没有的裸名（如 'crypto'），
         // 1.3.19 及之前本实现是取不到就记日志回 null、规则照常跑；1.3.20 的 B1 改成抛错后
         // 这类规则整个列表页全灭（2026-10-16 真机实证，"修好的又修坏了"）。按真机结论回软失败。
+        // 8.83 语义（JSEngine require0 + 真机）：取到的库代码求值后，顶层声明对 require
+        // 调用方可见（如 JuRequire.js 的 getRely）。evalJs 每次新建一次性子 scope 求值，
+        // 库顶层函数随 scope 丢失、调用方报 ReferenceError 被规则自己的 try/catch 吞掉，
+        // 导致 config.聚阅 永远写不上、聚阅永远停在代理页（2026-10-16 本地双模式复现定案）。
+        // 故取码成功后改走 evalJsInSharedScope（与 Hikerurl.js 等插件 JS 同款语义），
+        // 库顶层声明落在共享顶层 scope。规则代码自身的 evalJs 隔离不动。
         putFunction("require", args -> {
             if (args == null || args.length == 0) return null;
             String libUrl = argStr(args[0]);
@@ -1344,7 +1350,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         libUrl, rule == null ? "" : rule.getTitle());
                 return null;
             }
-            return evalJs(code);
+            return evalJsInSharedScope(code);
         });
 
         // ---- JS 定时器（setTimeout/setInterval/clearTimeout/clearInterval） ----
@@ -2127,6 +2133,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 try (java.io.FileWriter fw = new java.io.FileWriter(out)) {
                     fw.write(cleaned);
                 }
+                com.fongmi.android.tv.api.hk.HkM3u8ClearUtil.pruneCacheDir(cacheDir);
                 return "file://" + out.getAbsolutePath() + "##" + url;
             } catch (Throwable e) {
                 Logger.t(TAG).d("proxyClearM3u8 failed: %s", e.getMessage());
@@ -5124,6 +5131,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 数组，setTabs 逐字迭代读 names[0] 直接崩（UU视频真机实证+本地复现命中）。
         // 只解一层包：外层是字符串字面量、内层是对象/数组 JSON 才解。
         if (t.startsWith("\"")) {
+            // " 开头 = 旧链双重编码的 JSON 字符串字面量（如 "\"[object Object]\""）。
+            // 只接受"内层是合法对象/数组 JSON"这一种自愈并返回解析结果；凡外层解析失败、
+            // 内层不是合法对象/数组，一律按未命中处理（回默认值），绝不 return v 把原始串
+            // 漏给规则——B 型毒值 "[object Object]" 就是从这里的穿透口漏出去的（UU视频真机实证）。
             Object outer = parseJsonStrict(t);
             if (outer instanceof String) {
                 String inner = ((String) outer).trim();
@@ -5132,6 +5143,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     if (parsedInner != null) return parsedInner;
                 }
             }
+            return args.length > 1 && args[1] != null ? args[1] : "";
         }
         if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) {
             Object parsed = parseJsonStrict(v);
@@ -5393,25 +5405,28 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Type type = new TypeToken<Map<String, String>>() {}.getType();
             Map<String, String> map = GSON.fromJson(new String(bytes, "UTF-8"), type);
             if (map != null) {
-                // 一次性清残（v2）：旧版本存储写法写下的坏缓存——
-                // ① {/[ 开头的结构化残值（有的能解析但缺字段）；② " 开头的双重编码垃圾
-                // （如 "\"[object Object]\""，本地一比一复现与真机第 68 行同款崩溃）。
+                // 每次加载都清残（废掉之前 hk_kv_healed2 一次性标记逻辑）：
+                // 旧版本存储写法写下的坏缓存——① {/[ 开头的结构化残值（有的能解析但缺字段）；
+                // ② " 开头的双重编码垃圾（如 "\"[object Object]\""，本地一比一复现与真机第 68 行同款崩溃）。
                 // 现行 stringifyArg 存字符串从不带引号，kv 里 " 开头的值不可能是合法写入；
                 // 字符串类的状态（域名/设备号/令牌）不带引号、不受影响，清完规则自己重建。
+                boolean cleaned = false;
                 try {
-                    String healed = com.github.catvod.utils.Prefers.getString("hk_kv_healed2", "");
-                    String title = rule == null ? "" : rule.getTitle();
-                    if (title != null && !title.isEmpty() && !healed.contains("\u0001" + title + "\u0001")) {
-                        map.values().removeIf(v -> {
-                            if (v == null) return false;
-                            String t = v.trim();
-                            return t.startsWith("{") || t.startsWith("[") || t.startsWith("\"");
-                        });
-                        com.github.catvod.utils.Prefers.put("hk_kv_healed2", healed + "\u0001" + title + "\u0001");
-                    }
+                    cleaned = map.values().removeIf(v -> {
+                        if (v == null) return false;
+                        String t = v.trim();
+                        return t.startsWith("{") || t.startsWith("[") || t.startsWith("\"");
+                    });
                 } catch (Throwable ignored) {
                 }
                 kv.putAll(map);
+                // 清完必须回存落盘（之前清完不回存是复发根因之一）。
+                if (cleaned) {
+                    try {
+                        saveKv();
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
         } catch (Throwable ignored) {
         }

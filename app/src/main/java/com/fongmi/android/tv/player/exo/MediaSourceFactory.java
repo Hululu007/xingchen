@@ -45,6 +45,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class MediaSourceFactory implements MediaSource.Factory {
 
@@ -52,6 +53,13 @@ public class MediaSourceFactory implements MediaSource.Factory {
     private static final String CONCAT_SOURCE_SEPARATOR_REGEX = "\\*\\*\\*";
     private static final String CONCAT_DURATION_SEPARATOR = "|||";
     private static final String CONCAT_DURATION_SEPARATOR_REGEX = "\\|\\|\\|";
+    /**
+     * 海阔本地代理（startProxyServer 返回的 127.0.0.1 回环）超时：
+     * 代理连上后 X 秒无数据就抛错给播放器，不再无限 BUFFERING（红果短剧实证断点）。
+     * 仅代理 URL 走这组超时，非代理 URL 绝不受影响。
+     */
+    private static final int PROXY_CONNECT_TIMEOUT_MS = 8000;
+    private static final int PROXY_READ_TIMEOUT_MS = 15000;
     private static final PriorityTaskManager PLAYBACK_PRIORITY_MANAGER = new PriorityTaskManager();
     private static final CacheCapacityState CACHE_CAPACITY_STATE = new CacheCapacityState();
 
@@ -62,6 +70,9 @@ public class MediaSourceFactory implements MediaSource.Factory {
     private OkHttpDataSource.Factory httpDataSourceFactory;
     private DataSource.Factory dataSourceFactory;
     private ExtractorsFactory extractorsFactory;
+    /** 仅供 127.0.0.1 本地代理 URL 用的带超时链路（实例缓存，保证 applyHeaders 互不串）。 */
+    private OkHttpDataSource.Factory proxyHttpDataSourceFactory;
+    private DataSource.Factory proxyDataSourceFactory;
     @Nullable private final ExoDolbyVisionPlaybackState dolbyVisionPlaybackState;
     @Nullable private final ExoAssSession assSession;
 
@@ -212,9 +223,23 @@ public class MediaSourceFactory implements MediaSource.Factory {
     @Override
     public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
         String url = mediaItem.requestMetadata.mediaUri != null ? mediaItem.requestMetadata.mediaUri.toString() : "";
-        applyHeaders(getHttpDataSourceFactory(), ExoUtil.extractHeaders(mediaItem), url);
+        boolean localProxy = isLocalProxyUrl(url);
+        applyHeaders(localProxy ? getProxyHttpDataSourceFactory() : getHttpDataSourceFactory(), ExoUtil.extractHeaders(mediaItem), url);
         AssFontSet fonts = assSession == null ? null : assSession.beginMediaFonts();
         if (isConcatenatingUrl(url)) return createConcatenatingMediaSource(mediaItem, url);
+        if (localProxy) {
+            // 本地代理走带连接/读取超时的独立链路：代理连上无响应时抛错给播放器，不再无限 BUFFERING。
+            // 提取器分支与主链路保持一致（诊断桥/字幕字体），非代理 URL 走原链路行为不变。
+            DataSource.Factory dsFactory = getProxyDataSourceFactory();
+            if (fonts != null || mediaItem.localConfiguration != null && mediaItem.localConfiguration.tag instanceof com.fongmi.android.tv.player.PlaybackDiagnosticCollector.Context) {
+                return new DefaultMediaSourceFactory(dsFactory, Media3DiagnosticBridge.extractors(buildExtractorsFactory(fonts), mediaItem))
+                        .setLoadOnlySelectedTracks(PlaybackPerformanceSetting.isLoadOnlySelectedTracksEnabled())
+                        .createMediaSource(mediaItem);
+            }
+            return new DefaultMediaSourceFactory(dsFactory, getExtractorsFactory())
+                    .setLoadOnlySelectedTracks(PlaybackPerformanceSetting.isLoadOnlySelectedTracksEnabled())
+                    .createMediaSource(mediaItem);
+        }
         if (fonts != null || mediaItem.localConfiguration != null && mediaItem.localConfiguration.tag instanceof com.fongmi.android.tv.player.PlaybackDiagnosticCollector.Context) {
             // Bind the collection to this source's extractors. Old loaders cannot populate a new video.
             // Container ASS needs its attachments even when no external subtitle was configured.
@@ -292,6 +317,40 @@ public class MediaSourceFactory implements MediaSource.Factory {
     private OkHttpDataSource.Factory getHttpDataSourceFactory() {
         if (httpDataSourceFactory == null) httpDataSourceFactory = new OkHttpDataSource.Factory(OkHttp.player());
         return httpDataSourceFactory;
+    }
+
+    /**
+     * 是否海阔本地代理 URL（startProxyServer 返回的 127.0.0.1 回环）。
+     * 严格按 host 等于 127.0.0.1 判定，非代理 URL 绝不进超时链路。
+     */
+    static boolean isLocalProxyUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        try {
+            return "127.0.0.1".equals(Uri.parse(url).getHost());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 代理专用 OkHttp 链路：继承播放器 client 配置，只改连接/读取超时。 */
+    private synchronized OkHttpDataSource.Factory getProxyHttpDataSourceFactory() {
+        if (proxyHttpDataSourceFactory == null) {
+            proxyHttpDataSourceFactory = new OkHttpDataSource.Factory(OkHttp.player().newBuilder()
+                    .connectTimeout(PROXY_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .readTimeout(PROXY_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .build());
+        }
+        return proxyHttpDataSourceFactory;
+    }
+
+    /** 代理专用上游链路：与主链路同结构（DefaultDataSource→EOF恢复→优先级），只是 HTTP 层带超时。 */
+    private synchronized DataSource.Factory getProxyDataSourceFactory() {
+        if (proxyDataSourceFactory == null) {
+            DataSource.Factory upstream = new DefaultDataSource.Factory(App.get(), getProxyHttpDataSourceFactory());
+            DataSource.Factory recovered = new HttpEofRecoveryDataSource.Factory(upstream);
+            proxyDataSourceFactory = new PriorityTaskDataSource.Factory(recovered, PLAYBACK_PRIORITY_MANAGER, C.PRIORITY_PLAYBACK, false);
+        }
+        return proxyDataSourceFactory;
     }
 
     private static void applyHeaders(OkHttpDataSource.Factory factory, Map<String, String> headers, String url) {

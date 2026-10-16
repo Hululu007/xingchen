@@ -84,6 +84,11 @@ public class EmbyLibraryActivity extends BaseActivity {
     private String genre;
     private final List<String> genres = new ArrayList<>();
     private ChipAdapter chipAdapter;
+    /** 401 标记：登录已失效时空态点我去重登（P0-4 调用方引导侧；首页 rail 在禁区不做）。 */
+    private boolean authExpired;
+    /** 本库是不是音乐库（CollectionType=music）：是则走 Audio 条目。 */
+    private boolean isMusic;
+    private boolean musicChecked;
 
     @Override
     protected ViewBinding getBinding() {
@@ -110,7 +115,16 @@ public class EmbyLibraryActivity extends BaseActivity {
             }
         });
         binding.refresh.setOnRefreshListener(this::reload);
-        binding.tvEmpty.setOnClickListener(v -> reload());
+        binding.tvEmpty.setOnClickListener(v -> {
+            if (authExpired) {
+                try {
+                    EmbyServerActivity.start(EmbyLibraryActivity.this);
+                } catch (Throwable ignored) {
+                }
+                return;
+            }
+            reload();
+        });
         EmbyServer s = findServer();
         if (s != null) api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
         boolean isView = MODE_VIEW.equals(mode);
@@ -118,11 +132,20 @@ public class EmbyLibraryActivity extends BaseActivity {
         binding.btnPerson.setVisibility(isView ? View.VISIBLE : View.GONE);
         binding.btnPerson.setOnClickListener(v -> openPersonDialog());
         binding.filterBar.setVisibility(View.GONE);
+        binding.sortBarScroll.setVisibility(View.GONE);
         if (isView) {
             binding.filterBar.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
             chipAdapter = new ChipAdapter();
             binding.filterBar.setAdapter(chipAdapter);
+            binding.sortBarScroll.setVisibility(View.VISIBLE);
+            binding.btnSort.setOnClickListener(v -> openSortDialog());
+            binding.btnState.setOnClickListener(v -> openStateDialog());
+            binding.btnYear.setOnClickListener(v -> openYearDialog());
+            binding.btnRating.setOnClickListener(v -> openRatingDialog());
+            binding.btnTag.setOnClickListener(v -> openTagDialog());
+            refreshFilterLabels();
             loadGenres();
+            checkMusic();
         }
         reload();
     }
@@ -167,11 +190,252 @@ public class EmbyLibraryActivity extends BaseActivity {
         gen++;
         start = 0;
         noMore = false;
+        authExpired = false;
         items.clear();
         if (adapter != null) adapter.notifyDataSetChanged();
         binding.tvEmpty.setVisibility(View.GONE);
         if (MODE_VIEW.equals(mode)) loadMore();
         else loadSingle();
+    }
+
+    /** 查本库是不是音乐库：是则类型/演员筛选栏藏掉（只留排序），走 Audio 条目。 */
+    private void checkMusic() {
+        if (api == null || parentId == null) return;
+        final int myGen = gen;
+        new Thread(() -> {
+            boolean music = false;
+            try {
+                music = api.isMusicCollection(parentId);
+            } catch (Throwable ignored) {
+            }
+            final boolean m = music;
+            App.post(() -> {
+                if (myGen != gen) return;
+                isMusic = m;
+                musicChecked = true;
+                if (m) {
+                    binding.filterBar.setVisibility(View.GONE);
+                    binding.btnPerson.setVisibility(View.GONE);
+                }
+                reload();
+            });
+        }).start();
+    }
+
+    /** "SortBy:SortOrder" 拆成两段。 */
+    private static String[] parseSort(String sort) {
+        String[] out = {"SortName", "Ascending"};
+        if (sort != null) {
+            int p = sort.indexOf(':');
+            if (p > 0) {
+                out[0] = sort.substring(0, p);
+                out[1] = sort.substring(p + 1);
+            }
+        }
+        return out;
+    }
+
+    /** 状态/分级/标签拼成 Filters/OfficialRatings/Tags 参数（Years 单独走）。 */
+    private String buildFilters() {
+        StringBuilder sb = new StringBuilder();
+        String played = EmbyStore.libPlayedFilter();
+        if (!played.isEmpty()) sb.append(played);
+        return sb.toString();
+    }
+
+    /** 排序/筛选按钮文案刷新。 */
+    private void refreshFilterLabels() {
+        String[] sort = parseSort(EmbyStore.libSort());
+        binding.btnSort.setText(getString(R.string.emby_sort) + "：" + sortNameOf(sort[0])
+                + ("Ascending".equals(sort[1]) ? "↑" : "↓"));
+        String played = EmbyStore.libPlayedFilter();
+        binding.btnState.setText(getString(R.string.emby_filter_state) + "：" + ("".equals(played)
+                ? getString(R.string.emby_state_all)
+                : "IsPlayed".equals(played) ? getString(R.string.emby_state_played)
+                : "IsUnplayed".equals(played) ? getString(R.string.emby_state_unplayed)
+                : getString(R.string.emby_state_fav)));
+        String year = EmbyStore.libYear();
+        binding.btnYear.setText(getString(R.string.emby_filter_year) + (year.isEmpty() ? "" : "：" + year));
+        String rating = EmbyStore.libRating();
+        binding.btnRating.setText(getString(R.string.emby_filter_rating) + (rating.isEmpty() ? "" : "：" + rating));
+        String tag = EmbyStore.libTag();
+        binding.btnTag.setText(getString(R.string.emby_filter_tag) + (tag.isEmpty() ? "" : "：" + tag));
+    }
+
+    private String sortNameOf(String sortBy) {
+        if ("DateCreated".equals(sortBy)) return getString(R.string.emby_sort_date);
+        if ("ProductionYear".equals(sortBy)) return getString(R.string.emby_sort_year);
+        if ("CommunityRating".equals(sortBy)) return getString(R.string.emby_sort_rating);
+        return getString(R.string.emby_sort_name);
+    }
+
+    /** 排序弹窗：4 种字段 × 升/降序。 */
+    private void openSortDialog() {
+        String[] labels = {
+                getString(R.string.emby_sort_name) + getString(R.string.emby_asc),
+                getString(R.string.emby_sort_name) + getString(R.string.emby_desc),
+                getString(R.string.emby_sort_date) + getString(R.string.emby_desc),
+                getString(R.string.emby_sort_date) + getString(R.string.emby_asc),
+                getString(R.string.emby_sort_year) + getString(R.string.emby_desc),
+                getString(R.string.emby_sort_year) + getString(R.string.emby_asc),
+                getString(R.string.emby_sort_rating) + getString(R.string.emby_desc),
+                getString(R.string.emby_sort_rating) + getString(R.string.emby_asc),
+        };
+        String[] values = {
+                "SortName:Ascending", "SortName:Descending",
+                "DateCreated:Descending", "DateCreated:Ascending",
+                "ProductionYear:Descending", "ProductionYear:Ascending",
+                "CommunityRating:Descending", "CommunityRating:Ascending",
+        };
+        String cur = EmbyStore.libSort();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(cur)) checked = i;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.emby_sort)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    d.dismiss();
+                    EmbyStore.setLibSort(values[which]);
+                    refreshFilterLabels();
+                    reload();
+                })
+                .setNegativeButton(R.string.emby_btn_cancel, null)
+                .show();
+    }
+
+    /** 状态弹窗：全部 / 已看 / 未看 / 收藏。 */
+    private void openStateDialog() {
+        String[] labels = {
+                getString(R.string.emby_state_all),
+                getString(R.string.emby_state_played),
+                getString(R.string.emby_state_unplayed),
+                getString(R.string.emby_state_fav),
+        };
+        String[] values = {"", "IsPlayed", "IsUnplayed", "IsFavorite"};
+        String cur = EmbyStore.libPlayedFilter();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(cur)) checked = i;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.emby_filter_state)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    d.dismiss();
+                    EmbyStore.setLibPlayedFilter(values[which]);
+                    refreshFilterLabels();
+                    reload();
+                })
+                .setNegativeButton(R.string.emby_btn_cancel, null)
+                .show();
+    }
+
+    /** 年份弹窗：/Years 拉不到（部分老服 500）就直接提示，不造假数据。 */
+    private void openYearDialog() {
+        if (api == null) return;
+        Notify.show(R.string.emby_loading);
+        new Thread(() -> {
+            List<String> data = null;
+            try {
+                data = api.years();
+            } catch (Throwable ignored) {
+            }
+            final List<String> years = data;
+            App.post(() -> {
+                if (years == null || years.isEmpty()) {
+                    Notify.show(R.string.emby_empty_list);
+                    return;
+                }
+                List<String> labels = new ArrayList<>();
+                List<String> values = new ArrayList<>();
+                labels.add(getString(R.string.emby_state_all));
+                values.add("");
+                labels.addAll(years);
+                values.addAll(years);
+                String cur = EmbyStore.libYear();
+                int checked = 0;
+                for (int i = 0; i < values.size(); i++) if (values.get(i).equals(cur)) checked = i;
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.emby_filter_year)
+                        .setSingleChoiceItems(labels.toArray(new String[0]), checked, (d, which) -> {
+                            d.dismiss();
+                            EmbyStore.setLibYear(values.get(which));
+                            refreshFilterLabels();
+                            reload();
+                        })
+                        .setNegativeButton(R.string.emby_btn_cancel, null)
+                        .show();
+            });
+        }).start();
+    }
+
+    /** 分级弹窗：拿不到就隐藏提示，不造假数据。 */
+    private void openRatingDialog() {
+        if (api == null) return;
+        Notify.show(R.string.emby_loading);
+        new Thread(() -> {
+            List<String> data = null;
+            try {
+                data = api.officialRatings();
+            } catch (Throwable ignored) {
+            }
+            final List<String> ratings = data;
+            App.post(() -> {
+                if (ratings == null || ratings.isEmpty()) {
+                    Notify.show(R.string.emby_empty_list);
+                    return;
+                }
+                showStringChoice(R.string.emby_filter_rating, ratings, EmbyStore.libRating(), v -> {
+                    EmbyStore.setLibRating(v);
+                    refreshFilterLabels();
+                    reload();
+                });
+            });
+        }).start();
+    }
+
+    /** 标签弹窗：拿不到就隐藏提示，不造假数据。 */
+    private void openTagDialog() {
+        if (api == null) return;
+        Notify.show(R.string.emby_loading);
+        new Thread(() -> {
+            List<String> data = null;
+            try {
+                data = api.tags();
+            } catch (Throwable ignored) {
+            }
+            final List<String> tags = data;
+            App.post(() -> {
+                if (tags == null || tags.isEmpty()) {
+                    Notify.show(R.string.emby_empty_list);
+                    return;
+                }
+                showStringChoice(R.string.emby_filter_tag, tags, EmbyStore.libTag(), v -> {
+                    EmbyStore.setLibTag(v);
+                    refreshFilterLabels();
+                    reload();
+                });
+            });
+        }).start();
+    }
+
+    private interface StringChoice {
+        void onPick(String value);
+    }
+
+    private void showStringChoice(int title, List<String> items, String cur, StringChoice cb) {
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        labels.add(getString(R.string.emby_state_all));
+        values.add("");
+        labels.addAll(items);
+        values.addAll(items);
+        int checked = 0;
+        for (int i = 0; i < values.size(); i++) if (values.get(i).equals(cur)) checked = i;
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(labels.toArray(new String[0]), checked, (d, which) -> {
+                    d.dismiss();
+                    cb.onPick(values.get(which));
+                })
+                .setNegativeButton(R.string.emby_btn_cancel, null)
+                .show();
     }
 
     private void loadMore() {
@@ -183,28 +447,45 @@ public class EmbyLibraryActivity extends BaseActivity {
         if (start == 0) binding.loading.setVisibility(View.VISIBLE);
         final int myGen = gen;
         final int offset = start;
+        final String[] sort = parseSort(EmbyStore.libSort());
+        final String filters = buildFilters();
+        final String years = EmbyStore.libYear();
+        final String ratings = EmbyStore.libRating();
+        final String tags = EmbyStore.libTag();
+        final String genreNow = genre;
         new Thread(() -> {
             List<EmbyItem> list = null;
             int total = -1;
+            String err = null;
             try {
-                EmbyApi.ItemPage page = api.items(parentId, offset, PAGE, genre);
+                // 音乐库自动走 Audio 条目；排序/筛选/年份/分级/标签全进服务端参数
+                EmbyApi.ItemPage page = api.libraryItems(parentId, offset, PAGE, genreNow,
+                        sort[0], sort[1], filters, years, ratings, tags);
                 if (page != null) {
                     list = page.items;
                     total = page.total;
                 }
             } catch (Exception e) {
                 list = null;
+                err = e.getMessage();
             }
             final List<EmbyItem> data = list;
             final int totalCount = total;
+            final String error = err;
             App.post(() -> {
                 if (myGen != gen) return;
                 loading = false;
                 binding.loading.setVisibility(View.GONE);
                 binding.refresh.setRefreshing(false);
                 if (data == null) {
-                    if (items.isEmpty()) showEmpty(getString(R.string.emby_load_fail));
-                    else Notify.show("加载失败");
+                    if (isAuthExpired(error)) {
+                        authExpired = true;
+                        showEmpty(getString(R.string.emby_auth_expired_go));
+                    } else if (items.isEmpty()) {
+                        showEmpty(getString(R.string.emby_load_fail));
+                    } else {
+                        Notify.show("加载失败");
+                    }
                     return;
                 }
                 if (totalCount >= 0) noMore = start + data.size() >= totalCount;
@@ -231,21 +512,29 @@ public class EmbyLibraryActivity extends BaseActivity {
         final int myGen = gen;
         new Thread(() -> {
             List<EmbyItem> list = null;
+            String err = null;
             try {
                 if (MODE_RESUME.equals(mode)) list = api.resume();
                 else if (MODE_LATEST.equals(mode)) list = api.latest();
                 else if (MODE_NEXTUP.equals(mode)) list = api.nextUp();
                 else if (MODE_FAV.equals(mode)) list = api.favoriteItems();
                 else if (MODE_PERSON.equals(mode)) list = api.personItems(parentId);
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                err = e.getMessage();
             }
             final List<EmbyItem> data = list;
+            final String error = err;
             App.post(() -> {
                 if (myGen != gen) return;
                 binding.loading.setVisibility(View.GONE);
                 binding.refresh.setRefreshing(false);
                 if (data == null) {
-                    showEmpty(getString(R.string.emby_load_fail));
+                    if (isAuthExpired(error)) {
+                        authExpired = true;
+                        showEmpty(getString(R.string.emby_auth_expired_go));
+                    } else {
+                        showEmpty(getString(R.string.emby_load_fail));
+                    }
                     return;
                 }
                 items.clear();
@@ -256,10 +545,17 @@ public class EmbyLibraryActivity extends BaseActivity {
         }).start();
     }
 
+    /** 401 = token 失效：异常文案来自 EmbyApi.throwIfAuthExpired，直接展示并引导重登。 */
+    private static boolean isAuthExpired(String err) {
+        return err != null && err.contains("登录已失效");
+    }
+
     private void updateEmpty() {
         binding.tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         int text = MODE_PERSON.equals(mode) ? R.string.emby_filter_person_no_work
-                : MODE_FAV.equals(mode) ? R.string.emby_empty_fav : R.string.emby_empty_list;
+                : MODE_FAV.equals(mode) ? R.string.emby_empty_fav
+                : (MODE_VIEW.equals(mode) && isMusic) ? R.string.emby_audio_empty
+                : R.string.emby_empty_list;
         binding.tvEmpty.setText(text);
     }
 

@@ -46,6 +46,86 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- 排序/筛选横栏：只在媒体库全量（view 模式）显示 -->
+    <HorizontalScrollView
+        android:id="@+id/sort_bar_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/sort_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/btn_sort"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/selector_filter_glass_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="7dp"
+                android:text="@string/emby_sort"
+                android:textColor="@color/selector_dialog_glass_chip_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_state"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/selector_filter_glass_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="7dp"
+                android:text="@string/emby_filter_state"
+                android:textColor="@color/selector_dialog_glass_chip_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_year"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/selector_filter_glass_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="7dp"
+                android:text="@string/emby_filter_year"
+                android:textColor="@color/selector_dialog_glass_chip_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_rating"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/selector_filter_glass_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="7dp"
+                android:text="@string/emby_filter_rating"
+                android:textColor="@color/selector_dialog_glass_chip_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_tag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/selector_filter_glass_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="7dp"
+                android:text="@string/emby_filter_tag"
+                android:textColor="@color/selector_dialog_glass_chip_text"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
     <!-- 类型筛选 chips 横栏：只在媒体库全量（view 模式）显示 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/filter_bar"

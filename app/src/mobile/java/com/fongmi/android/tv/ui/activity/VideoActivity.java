@@ -111,6 +111,7 @@ import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.playback.PlaybackOrientation;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.karaoke.KaraokeController;
@@ -153,6 +154,7 @@ import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
+import com.fongmi.android.tv.ui.dialog.EmbyQualityDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
@@ -365,6 +367,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mEmbyFavSid;
     private String mEmbyFavIid;
     private int mEmbyFavGen;
+    /** 详情页 Emby 标记已看按钮态：与收藏共用一次 getItem 拉取。 */
+    private Boolean mEmbyPlayedState;
     private MpvPlayer mDiscMenuPlayer;
     private MpvPlayer mCustomButtonPlayer;
     private final Runnable mCustomButtonStateListener = this::updateCustomButtonStates;
@@ -377,6 +381,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mContextWallLockedUrl;
     private String playHealthKey;
     private long detailStartTime;
+    private long mDetailParseSeq;
     private long playerStartTime;
     private boolean pendingLutImport;
     private boolean skipPausePiP;
@@ -758,6 +763,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.swipeLayout.setRefreshing(true);
         saveHistory();
         getIntent().putExtras(intent);
+        // Emby AI 链：换了片就重配选集单（新 intent 的 emby_episodes）
+        if (getIntent().getStringExtra(EmbyNavigator.EXTRA_EPISODES) != null) mEmbyAiEpisodesBound = false;
         setOrient();
         checkId();
     }
@@ -933,6 +940,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.castBtn.setOnClickListener(view -> onCast());
         mBinding.settingBtn.setOnClickListener(view -> onSetting());
         mBinding.embyFavBtn.setOnClickListener(view -> onEmbyFavToggle());
+        mBinding.embyPlayedBtn.setOnClickListener(view -> onEmbyPlayedToggle());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
         mBinding.name.setOnLongClickListener(view -> onChange());
@@ -1592,6 +1600,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void getDetail() {
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
+        mDetailParseSeq++;
         mNextPreloader.clear();
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
@@ -1603,7 +1612,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             SpiderDebug.log("video-flow", "detail cache hit key=%s id=%s", getKey(), getId());
             setDetail(cached);
         }
-        mViewModel.detailContent(getKey(), getId());
+        // 轻量取数：跳过选集展开（磁力 DHT 最长 60 秒），主数据一到先画线路/选集，
+        // 展开由 startSourceParse 在后台跑完再补，不拖住上屏。
+        mViewModel.detailContentLight(getKey(), getId());
     }
 
     private void getDetail(Vod item) {
@@ -1635,11 +1646,42 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (mDetailCacheShown) return;
             setEmpty(result.hasMsg());
         } else {
+            // 缓存命中时已展示过展开好的列表：新数据先只刷新标题/元信息，线路/选集等
+            // 后台展开完成再整体换，避免列表先"缩水"（裸磁力链）再恢复。无缓存时直接画。
+            boolean hadCache = mDetailCacheShown;
             mDetailCacheShown = false;
-            VodDetailCache.put(this, getKey(), getId(), result.getVod());
-            setDetail(result.getVod());
+            Vod vod = result.getVod();
+            setDetail(vod, hadCache);
+            // 选集展开后置：磁力/网盘展开好了再补列表并写缓存
+            startSourceParse(vod, hadCache);
         }
         Notify.show(result.getMsg());
+    }
+
+    /**
+     * 详情先画后展：选集展开在独立后台线程跑，完成后回主线程补列表。
+     * 世代号防串台：切源/刷新后，旧一轮的回调直接丢弃，不碰新一轮的界面。
+     */
+    private void startSourceParse(Vod vod, boolean deferred) {
+        long seq = mDetailParseSeq;
+        Source.get().parseAsync(vod, (parsed, expanded) -> onSourceParseDone(parsed, expanded, deferred, seq));
+    }
+
+    private void onSourceParseDone(Vod vod, boolean expanded, boolean deferred, long seq) {
+        if (seq != mDetailParseSeq || isFinishing() || isDestroyed()) return;
+        VodDetailCache.put(this, getKey(), getId(), vod);
+        if (deferred) {
+            mFlagAdapter.addAll(vod.getFlags());
+            checkFlag(vod);
+            return;
+        }
+        if (!expanded) return;
+        Flag flag = getFlag();
+        if (flag == null || mEpisodeAdapter == null || mFlagAdapter == null) return;
+        syncSelectedEpisode(flag);
+        setEpisodeAdapter(flag.getEpisodes());
+        mFlagAdapter.notifyDataSetChanged();
+        SpiderDebug.log("video-flow", "detail parse done key=%s", getKey());
     }
 
     private void setEmpty(boolean finish) {
@@ -1661,6 +1703,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setDetail(Vod item) {
+        setDetail(item, false);
+    }
+
+    /**
+     * @param deferLists 为 true 时先不画线路/选集（缓存已展示过展开好的列表时用），
+     *                   等后台展开完成再由 onSourceParseDone 整体换，避免列表先"缩水"再恢复。
+     *                   标题/简介/历史/收藏等其余信息照常立即刷新。
+     */
+    private void setDetail(Vod item, boolean deferLists) {
         if (service() == null) {
             mPendingDetailVod = item;
             return;
@@ -1671,16 +1722,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         item.checkName(getName());
         item.checkContent(getContent());
         mBinding.name.setText(item.getName());
-        mFlagAdapter.addAll(item.getFlags());
+        if (!deferLists) mFlagAdapter.addAll(item.getFlags());
         App.removeCallbacks(mR4);
         checkHistory(item);
+        // 详情页背景：全局星辰壁纸，不铺海报墙
+        mDetailWallOff = true;
+        hideContextWall();
         setAudioStageVisible(shouldUseImmersiveAudio());
         mBinding.progressLayout.showContent();
-        checkFlag(item);
+        if (!deferLists) checkFlag(item);
         checkKeepImg();
         setText(item);
         updateKeep();
         embyBindDetailExtras(item);
+        bindEmbyAiEpisodes();
     }
 
     private void setText(Vod item) {
@@ -1744,6 +1799,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
+        // 起播：详情页的无海报背景门控解除，后续走播放页原有背景逻辑
+        mDetailWallOff = false;
         mBinding.control.title.setText(episode.getDisplayName());
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
@@ -1918,6 +1975,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onItemClick(Episode item) {
+        if (switchEmbyAiEpisode(item)) return;
+        if (startEmbyVersionPick(item)) return;
+        clickEpisode(item);
+    }
+
+    /** 原选集点击主流程（抽出来，给多版本单选回调用）。 */
+    private void clickEpisode(Episode item) {
         if (shouldEnterFullscreen(item)) return;
         syncCurrentAudioPlaylistMetadata();
         Flag flag = getFlag();
@@ -1928,11 +1992,141 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         onRefresh();
     }
 
+    /**
+     * Emby 多版本选集：同一条目有多个可直放版本（4K/1080 等）时，
+     * 点集后先弹版本选择（选哪个播哪个），不再只能进播放器后切。
+     * 只看直放线路；转码线路走原画质机制；AI 链已在 EmbyNavigator 选过版本，不进这里。
+     * 单版本/失败 → 回主线程走原点击流程。
+     */
+    private boolean startEmbyVersionPick(Episode item) {
+        if (isEmbyPlayback()) return false;
+        if (item == null || item.getUrl() == null || !item.getUrl().startsWith("emby:")) return false;
+        Flag flag = getFlag();
+        String flagName = flag == null ? "" : flag.getFlag();
+        if (flagName.contains("转码")) return false;
+        String sid = EmbyNavigator.serverIdOf(item.getUrl());
+        String iid = EmbyNavigator.itemIdOf(item.getUrl());
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) return false;
+        Notify.show(getString(R.string.emby_quality_loading));
+        Task.execute(() -> {
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s == null || !s.isLogin()) throw new Exception("未登录");
+                EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
+                EmbyApi.PlaybackCandidates cand = api.playbackCandidates(iid, item.getName());
+                List<EmbyApi.PlayOption> direct = new ArrayList<>();
+                for (EmbyApi.PlayOption o : cand.options) {
+                    if (o.direct && !TextUtils.isEmpty(o.url)) direct.add(o);
+                }
+                if (direct.size() <= 1) {
+                    App.post(() -> clickEpisode(item));
+                    return;
+                }
+                App.post(() -> EmbyQualityDialog.show(this, direct,
+                        getString(R.string.emby_version_title),
+                        picked -> {
+                            if (picked != null && !TextUtils.isEmpty(picked.url)) {
+                                playPickedEmbyVersion(item, picked);
+                            }
+                        }));
+            } catch (Exception e) {
+                App.post(() -> {
+                    Notify.show("Emby 播放失败：" + e.getMessage());
+                    clickEpisode(item);
+                });
+            }
+        });
+        return true;
+    }
+
+    /** 播选中的版本：UI 更新走原点击流程，播放走 PUSH 直链（版本地址已解析好）。 */
+    private void playPickedEmbyVersion(Episode item, EmbyApi.PlayOption opt) {
+        if (shouldEnterFullscreen(item)) return;
+        mDetailWallOff = false;
+        syncCurrentAudioPlaylistMetadata();
+        Flag flag = getFlag();
+        if (mFlagAdapter != null) mFlagAdapter.toggle(item);
+        if (flag != null) setEpisodeAdapter(flag.getEpisodes());
+        applyAudioQueueMetadata(item);
+        if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
+        mBinding.control.title.setText(item.getDisplayName());
+        saveHistory();
+        updateHistory(item);
+        try {
+            player().stop();
+            player().clear();
+        } catch (Throwable ignored) {
+        }
+        mClock.setCallback(null);
+        clearLyrics();
+        showProgress();
+        getIntent().putExtra("id", opt.url);
+        // 固定走 PUSH 直链口径：版本地址已解析好，不进 spider
+        mViewModel.playerContent(SiteApi.PUSH, "", opt.url);
+    }
+
     @Override
     public void onItemClick(EpisodeGroupAdapter.Group item) {
         mEpisodeGroupAdapter.setSelected(item);
         scrollEpisodeToPosition(item.start);
         scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition());
+    }
+
+    /**
+     * 选集行 Emby 集长按：标记已看/取消已看（P0-5）。
+     * EpisodeAdapter 的 onItemLongClick 钩子 holders 已接好，这里只处理 emby: 开头的集，
+     * 其它源保持原样（默认空实现）。
+     */
+    @Override
+    public void onItemLongClick(Episode item) {
+        if (item == null || item.getUrl() == null || !item.getUrl().startsWith("emby:")) return;
+        String sid = EmbyNavigator.serverIdOf(item.getUrl());
+        String iid = EmbyNavigator.itemIdOf(item.getUrl());
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) return;
+        Notify.show("正在查询…");
+        Task.execute(() -> {
+            Boolean played = null;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s != null && s.isLogin()) {
+                    EmbyItem ei = new EmbyApi(s.baseUrl, s.token, s.userId, s.id).getItem(iid);
+                    if (ei != null) played = ei.played;
+                }
+            } catch (Exception ignored) {
+            }
+            final Boolean p = played;
+            App.post(() -> {
+                if (p == null) {
+                    Notify.show(getString(R.string.emby_action_fail));
+                    return;
+                }
+                String[] titles = {
+                        p ? getString(R.string.emby_menu_unmark_played) : getString(R.string.emby_menu_mark_played)
+                };
+                new AlertDialog.Builder(this).setItems(titles, (d, which) ->
+                        toggleEmbyEpisodePlayed(sid, iid, !p)).show();
+            });
+        });
+    }
+
+    private void toggleEmbyEpisodePlayed(String sid, String iid, boolean toPlayed) {
+        Task.execute(() -> {
+            boolean ok = false;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s != null && s.isLogin()) {
+                    EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
+                    if (toPlayed) api.markPlayed(iid);
+                    else api.unmarkPlayed(iid);
+                    ok = true;
+                }
+            } catch (Exception ignored) {
+            }
+            final boolean r = ok;
+            App.post(() -> Notify.show(r
+                    ? getString(toPlayed ? R.string.emby_action_mark_played_ok : R.string.emby_action_unmark_played_ok)
+                    : getString(R.string.emby_action_fail)));
+        });
     }
 
     @Override
@@ -2409,7 +2603,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void onSetting() {
         setTrackVisible();
-        ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
+        ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player())
+                .embyPlayback(isEmbyPlayback() || isEmbyEpisode()).show(this);
     }
 
     private void onAudioQueue() {
@@ -3159,6 +3354,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onTrack(View view) {
         TrackDialog dialog = TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player());
         attachEmbySubs(dialog, Integer.parseInt(view.getTag().toString()));
+        attachEmbyTracks(dialog, Integer.parseInt(view.getTag().toString()));
         dialog.show(this);
         hideControl();
     }
@@ -3166,6 +3362,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onTrack(int type) {
         TrackDialog dialog = TrackDialog.create().type(type).player(player());
         attachEmbySubs(dialog, type);
+        attachEmbyTracks(dialog, type);
         dialog.show(this);
         hideControl();
     }
@@ -3174,6 +3371,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     public void onTrackPanel(int type) {
         TrackDialog dialog = TrackDialog.create().type(type).player(player());
         attachEmbySubs(dialog, type);
+        attachEmbyTracks(dialog, type);
         dialog.show(this);
     }
 
@@ -4897,6 +5095,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void restoreContextWall() {
+        // 详情页：不铺海报墙，露全局星辰壁纸（窗口底）；起播后走原逻辑
+        if (mDetailWallOff) {
+            hideContextWall();
+            return;
+        }
         if (!Setting.isPlaybackArtworkWall()) return;
         String wall = getContextWall();
         if (TextUtils.isEmpty(wall)) {
@@ -5013,14 +5216,22 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return !getName().isEmpty() || !getPic().isEmpty() || !getWallPic().isEmpty();
     }
 
+    /** 详情页不铺海报背景：showInitialPreview/setDetail 置 true，getPlayer（起播）清掉。 */
+    private boolean mDetailWallOff;
+
     private void showInitialPreview() {
         mBinding.progressLayout.showContent();
         mBinding.name.setText(getName());
         setText(mBinding.content, R.string.detail_content, getContent());
         updateContentFold();
         setDetailLyrics(getContent());
-        if (!getPic().isEmpty()) setArtwork(getPic());
-        else if (!getWallPic().isEmpty()) setContextWall(getWallPic());
+        // 详情页背景：用全局星辰壁纸（窗口底），不再拿海报/剧照当整页背景（共用页，所有源一致）
+        mDetailWallOff = true;
+        hideContextWall();
+        if (!getPic().isEmpty()) {
+            if (mHistory != null) mHistory.setVodPic(getPic());
+            loadArtwork(getPic(), mPlaybackEpisodeKey);
+        }
     }
 
     private History createHistory(Vod item) {
@@ -6790,6 +7001,186 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
+    /** Emby 音轨元数据进音频轨列表：只换名，切换走原生（对不上数量就不碰）。 */
+    private void attachEmbyTracks(TrackDialog dialog, int type) {
+        try {
+            if (type != C.TRACK_TYPE_AUDIO) return;
+            if (!isEmbyPlayback()) return;
+            String json = getIntent().getStringExtra(EmbyNavigator.EXTRA_TRACKS);
+            if (TextUtils.isEmpty(json)) return;
+            dialog.embyTracks(json);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ================= Emby 播放中换源（画质/转码/AI 链换集共用） =================
+    // Result/playerContent 只支持单地址（Result.setUrl(String)），多地址数组要动播放器主链，
+    // 风险大——走退回方案：二级页「画质」入口复用 EmbyQualityDialog，换源保进度。
+
+    /** 当前在播的集是不是 Emby 集（详情链：episode url 为 emby: 开头）。 */
+    private boolean isEmbyEpisode() {
+        try {
+            Episode ep = getEpisode();
+            return ep != null && ep.getUrl() != null && ep.getUrl().startsWith("emby:");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 二级页 Emby「画质」入口：复用 EmbyQualityDialog 换源，保进度。 */
+    @Override
+    public void onEmbyQualityPanel() {
+        String sid = getIntent().getStringExtra(EmbyNavigator.EXTRA_SERVER);
+        String iid = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) {
+            Episode ep = getEpisode();
+            if (ep != null && ep.getUrl() != null && ep.getUrl().startsWith("emby:")) {
+                sid = EmbyNavigator.serverIdOf(ep.getUrl());
+                iid = EmbyNavigator.itemIdOf(ep.getUrl());
+            }
+        }
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) {
+            Notify.show("当前不是 Emby 播放");
+            return;
+        }
+        hideControl();
+        final String s = sid;
+        final String id = iid;
+        EmbyQualityDialog.showForItem(this, s, id, getName(), opt -> {
+            if (opt == null || TextUtils.isEmpty(opt.url)) return;
+            switchEmbySource(opt.url, opt.sessionId, s, id, -1);
+        });
+    }
+
+    /**
+     * Emby 换源：旧会话 Stopped 落盘 → 直接走 playerContent(PUSH) 播新地址。
+     * 进度：AI 链走 intent EXTRA_START_MS（onPrepare→setPosition 照旧）；
+     * 详情链走本地历史（setPosition 原逻辑），这里先把当前位置写进历史。
+     * startMs<0 = 用当前位置。
+     */
+    private void switchEmbySource(String url, String sessionId, String sid, String iid, long startMs) {
+        if (TextUtils.isEmpty(url)) return;
+        long pos = startMs >= 0 ? startMs : currentEmbyPosition();
+        // 旧会话落盘（AI 链才有上报；详情链上报本来就没接，不硬凑）
+        if (isEmbyPlayback() && mEmbyPlayingReported && !mEmbyStoppedReported) {
+            try {
+                EmbyApi api = embyApi();
+                String oIid = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+                String oSess = getIntent().getStringExtra(EmbyNavigator.EXTRA_SESSION);
+                if (api != null) {
+                    final long oPos = pos;
+                    Task.execute(() -> api.reportStopped(oIid, oSess, oPos));
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        mEmbyPlayingReported = false;
+        mEmbyEndedReported = false;
+        mEmbyStoppedReported = false;
+        mEmbySubs = null;
+        getIntent().putExtra("id", url);
+        if (isEmbyPlayback()) {
+            getIntent().putExtra(EmbyNavigator.EXTRA_SESSION, sessionId == null ? "" : sessionId);
+            if (!TextUtils.isEmpty(iid)) getIntent().putExtra(EmbyNavigator.EXTRA_ITEM, iid);
+            getIntent().putExtra(EmbyNavigator.EXTRA_START_MS, pos);
+        } else if (mHistory != null) {
+            mHistory.setPosition(pos);
+        }
+        saveHistory();
+        try {
+            player().stop();
+            player().clear();
+        } catch (Throwable ignored) {
+        }
+        mClock.setCallback(null);
+        clearLyrics();
+        showProgress();
+        // 固定走 PUSH 直链口径：Emby spider 的 playerContent 只认 emby: id，
+        // 用详情链的 key（csp_Emby）传裸 URL 会解析崩，这里换源的都是已解析好的直链。
+        mViewModel.playerContent(SiteApi.PUSH, "", url);
+    }
+
+    private long currentEmbyPosition() {
+        try {
+            if (service() != null) return Math.max(0, player().getPosition());
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
+    /**
+     * AI 直播链的 Emby 集（emby: id）：经 EmbyApi 解析出直链再换源，选集/下一集可用。
+     * 详情链的集走原有 spider playerContent，不进这里。
+     */
+    private boolean switchEmbyAiEpisode(Episode item) {
+        if (!isEmbyPlayback() || item == null || item.getUrl() == null || !item.getUrl().startsWith("emby:"))
+            return false;
+        if (mFlagAdapter != null) mFlagAdapter.toggle(item);
+        if (getFlag() != null) setEpisodeAdapter(getFlag().getEpisodes());
+        updateHistory(item);
+        String sid = EmbyNavigator.serverIdOf(item.getUrl());
+        String iid = EmbyNavigator.itemIdOf(item.getUrl());
+        Notify.show(getString(R.string.emby_quality_loading));
+        Task.execute(() -> {
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s == null || !s.isLogin()) throw new Exception("未登录");
+                EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
+                EmbyApi.PlaybackCandidates cand = api.playbackCandidates(iid, item.getName());
+                String url = cand.options.get(0).url;
+                App.post(() -> switchEmbySource(url, cand.playSessionId, sid, iid, 0));
+            } catch (Exception e) {
+                App.post(() -> Notify.show("Emby 播放失败：" + e.getMessage()));
+            }
+        });
+        return true;
+    }
+
+    /** AI 直播链剧集：intent 带 emby_episodes 时配好选集 UI（下一集/选集可用）。 */
+    private boolean mEmbyAiEpisodesBound;
+
+    private void bindEmbyAiEpisodes() {
+        if (!isEmbyPlayback() || mEmbyAiEpisodesBound) return;
+        String json = getIntent().getStringExtra(EmbyNavigator.EXTRA_EPISODES);
+        if (TextUtils.isEmpty(json)) return;
+        try {
+            JSONArray arr = new JSONArray(json);
+            if (arr.length() == 0) return;
+            String curIid = getIntent().getStringExtra(EmbyNavigator.EXTRA_ITEM);
+            Flag flag = Flag.create("选集");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String eid = o.optString("id", "");
+                String nm = o.optString("name", "");
+                if (eid.isEmpty()) continue;
+                Episode ep = Episode.create(nm.isEmpty() ? ("第" + (i + 1) + "集") : nm, eid);
+                if (!TextUtils.isEmpty(curIid) && eid.endsWith(":" + curIid)) ep.setSelected(true);
+                flag.getEpisodes().add(ep);
+            }
+            if (flag.getEpisodes().isEmpty()) return;
+            boolean anySel = false;
+            for (Episode e : flag.getEpisodes()) if (e.isSelected()) anySel = true;
+            if (!anySel) flag.getEpisodes().get(0).setSelected(true);
+            List<Flag> flags = new ArrayList<>();
+            flags.add(flag);
+            mFlagAdapter.addAll(flags);
+            mFlagAdapter.setSelected(flag);
+            setEpisodeAdapter(flag.getEpisodes());
+            mBinding.flag.setVisibility(View.VISIBLE);
+            // 历史对齐到起始集：后面点线路旗走 seamless 能按 emby: id 找回本集，不会误播
+            for (Episode e : flag.getEpisodes()) {
+                if (e.isSelected() && mHistory != null) {
+                    mHistory.setVodRemarks(e.getName());
+                    mHistory.setEpisodeUrl(e.getUrl());
+                    break;
+                }
+            }
+            mEmbyAiEpisodesBound = true;
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ================= Emby 详情扩展 =================
 
     private boolean isEmbyDetail(Vod item) {
@@ -6806,16 +7197,53 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         boolean emby = isEmbyDetail(item);
         // Emby 收藏切换按钮：只在 Emby 详情露脸，样式与旁边四个按钮统一
         if (mBinding.embyFavBtn != null) mBinding.embyFavBtn.setVisibility(emby ? View.VISIBLE : View.GONE);
+        // Emby 标记已看按钮：同上
+        if (mBinding.embyPlayedBtn != null) mBinding.embyPlayedBtn.setVisibility(emby ? View.VISIBLE : View.GONE);
+        // Emby 红线：下载按钮直接不露脸（不是点了才拦）；本地收藏与服务器收藏重复，Emby 详情只留服务器收藏
+        if (mBinding.downloadBtn != null) mBinding.downloadBtn.setVisibility(emby ? View.GONE : View.VISIBLE);
+        if (mBinding.keepBtn != null) mBinding.keepBtn.setVisibility(emby ? View.GONE : View.VISIBLE);
         if (!emby) return;
         bindEmbyFavBtn(EmbyNavigator.serverIdOf(item.getId()), EmbyNavigator.itemIdOf(item.getId()));
         try {
-            if (TextUtils.isEmpty(getWallPic()) && !TextUtils.isEmpty(item.getEmbyBackdrop())) {
-                setContextWall(item.getEmbyBackdrop());
-            }
+            // 详情页背景纯深色：不再拿 Emby Backdrop 当整页背景（共用页口径）
             SpannableStringBuilder sb = new SpannableStringBuilder(mBinding.meta.getText());
             boolean appended = false;
             if (!TextUtils.isEmpty(item.getEmbyGenres())) {
                 sb.append("\n类型：").append(item.getEmbyGenres());
+                appended = true;
+            }
+            if (!TextUtils.isEmpty(item.getEmbyDuration())) {
+                sb.append("\n").append(getString(R.string.emby_duration, item.getEmbyDuration()));
+                appended = true;
+            }
+            List<Vod.EmbyPerson> people = item.getEmbyPeople();
+            if (people != null && !people.isEmpty()) {
+                sb.append("\n演员：");
+                boolean first = true;
+                int shown = 0;
+                for (Vod.EmbyPerson p : people) {
+                    if (p == null || TextUtils.isEmpty(p.id) || TextUtils.isEmpty(p.name)) continue;
+                    if (shown >= 12) break;
+                    if (!first) sb.append(" / ");
+                    first = false;
+                    shown++;
+                    int start = sb.length();
+                    sb.append(p.name);
+                    String sid = EmbyNavigator.serverIdOf(item.getId());
+                    String pid = p.id;
+                    String pname = p.name;
+                    sb.setSpan(new ClickableSpan() {
+                        @Override
+                        public void onClick(@NonNull android.view.View view) {
+                            try {
+                                EmbyLibraryActivity.start(getActivity(), sid,
+                                        EmbyLibraryActivity.MODE_PERSON, pid, pname);
+                            } catch (Throwable t) {
+                                Notify.show("打不开演员作品");
+                            }
+                        }
+                    }, start, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
                 appended = true;
             }
             List<Vod.Similar> similar = item.getEmbySimilar();
@@ -6851,29 +7279,38 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     /**
      * 详情页 Emby 收藏按钮：先置为未拉到态，异步 getItem 拿 UserData.IsFavorite，再刷新文案图标。
-     * gen 防详情切换串台。
+     * gen 防详情切换串台。顺手把 Played 也拉回来给「标记已看」按钮用。
      */
     private void bindEmbyFavBtn(String sid, String iid) {
         mEmbyFavState = null;
         mEmbyFavSid = sid;
         mEmbyFavIid = iid;
+        mEmbyPlayedState = null;
         updateEmbyFavBtn();
+        updateEmbyPlayedBtn();
         final int gen = ++mEmbyFavGen;
         Task.execute(() -> {
             Boolean fav = null;
+            Boolean played = null;
             try {
                 EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
                 if (s != null && s.isLogin()) {
                     EmbyItem ei = new EmbyApi(s.baseUrl, s.token, s.userId).getItem(iid);
-                    if (ei != null) fav = ei.favorite;
+                    if (ei != null) {
+                        fav = ei.favorite;
+                        played = ei.played;
+                    }
                 }
             } catch (Exception ignored) {
             }
             final Boolean r = fav;
+            final Boolean rp = played;
             App.post(() -> {
                 if (gen != mEmbyFavGen) return;
                 mEmbyFavState = r;
+                mEmbyPlayedState = rp;
                 updateEmbyFavBtn();
+                updateEmbyPlayedBtn();
             });
         });
     }
@@ -6883,6 +7320,45 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         boolean on = Boolean.TRUE.equals(mEmbyFavState);
         mBinding.embyFavBtn.setText(on ? R.string.emby_fav_on : R.string.emby_fav);
         mBinding.embyFavBtn.setIconResource(on ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
+    }
+
+    private void updateEmbyPlayedBtn() {
+        if (mBinding.embyPlayedBtn == null) return;
+        boolean on = Boolean.TRUE.equals(mEmbyPlayedState);
+        mBinding.embyPlayedBtn.setText(on ? R.string.emby_unmark_played : R.string.emby_mark_played);
+    }
+
+    /** 详情页 Emby 标记已看按钮点击：切换已看/取消已看，失败给中文提示。 */
+    private void onEmbyPlayedToggle() {
+        if (TextUtils.isEmpty(mEmbyFavSid) || TextUtils.isEmpty(mEmbyFavIid)) return;
+        final boolean toPlayed = !Boolean.TRUE.equals(mEmbyPlayedState);
+        final int gen = mEmbyFavGen;
+        final String sid = mEmbyFavSid;
+        final String iid = mEmbyFavIid;
+        Task.execute(() -> {
+            boolean ok = false;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(sid);
+                if (s != null && s.isLogin()) {
+                    EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId);
+                    if (toPlayed) api.markPlayed(iid);
+                    else api.unmarkPlayed(iid);
+                    ok = true;
+                }
+            } catch (Exception ignored) {
+            }
+            final boolean r = ok;
+            App.post(() -> {
+                if (gen != mEmbyFavGen) return;
+                if (r) {
+                    mEmbyPlayedState = toPlayed;
+                    updateEmbyPlayedBtn();
+                    Notify.show(toPlayed ? getString(R.string.emby_action_mark_played_ok) : getString(R.string.emby_action_unmark_played_ok));
+                } else {
+                    Notify.show(getString(R.string.emby_action_fail));
+                }
+            });
+        });
     }
 
     /** 详情页 Emby 收藏按钮点击：切换收藏/取消收藏，失败给中文提示。 */

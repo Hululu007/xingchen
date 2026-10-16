@@ -30,6 +30,10 @@ public class EmbyItem {
     public boolean favorite = false;
     public int indexNumber = 0;
     public int productionYear = 0;
+    /** 合集子条目数（BoxSet 的 ChildCount，拿不到为 0）。 */
+    public int childCount = 0;
+    /** 媒体库类型：movies / tvshows / music 等（Views 的 CollectionType）。 */
+    public String collectionType = "";
     public double communityRating = 0;
     public double criticRating = 0;
     public String parentId = "";
@@ -40,6 +44,7 @@ public class EmbyItem {
 
     /** 演职员。 */
     public static class Person {
+        public String id = "";
         public String name = "";
         public String role = "";
         public String imageTag = "";
@@ -47,6 +52,7 @@ public class EmbyItem {
         public static Person fromJson(JSONObject o) {
             Person p = new Person();
             if (o == null) return p;
+            p.id = o.optString("Id", "");
             p.name = o.optString("Name", "");
             p.role = o.optString("Role", "");
             String tag = o.optString("PrimaryImageTag", "");
@@ -77,6 +83,8 @@ public class EmbyItem {
         it.runTimeTicks = o.optLong("RunTimeTicks", 0);
         it.indexNumber = o.optInt("IndexNumber", 0);
         it.productionYear = o.optInt("ProductionYear", 0);
+        it.childCount = o.optInt("ChildCount", 0);
+        it.collectionType = o.optString("CollectionType", "");
         it.communityRating = o.optDouble("CommunityRating", 0);
         it.criticRating = o.optDouble("CriticRating", 0);
         it.parentId = o.optString("ParentId", "");
@@ -106,9 +114,13 @@ public class EmbyItem {
     }
 
     public static List<EmbyItem> listFrom(JSONObject root) {
+        if (root == null) return new ArrayList<>();
+        return listFrom(root.optJSONArray("Items"));
+    }
+
+    /** 裸数组形状：Resume / Latest 这类端点直接回 [...]，没有 {Items} 包装。 */
+    public static List<EmbyItem> listFrom(JSONArray arr) {
         List<EmbyItem> list = new ArrayList<>();
-        if (root == null) return list;
-        JSONArray arr = root.optJSONArray("Items");
         if (arr == null) return list;
         for (int i = 0; i < arr.length(); i++) {
             EmbyItem it = fromJson(arr.optJSONObject(i));

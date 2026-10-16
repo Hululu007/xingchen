@@ -54,11 +54,28 @@ public final class SourceProxyPolicy {
 
     /**
      * 壳子网络层决策入口：这个来源的请求要不要走本地节点口。
-     * 总开关关 → false（直连）；总开关开 → 按本表。
+     * Emby：单服开了走节点即生效，不再要求节点总开关先开（用户口径：开了就生效）。
+     * 其它源：维持原语义，总开关关 → 一律直连。
      */
     public static boolean shouldProxy(Context context, String kind, String id) {
+        if (KIND_EMBY.equals(kind)) return isEnabled(context, kind, id);
         if (!ClashSettings.isEnabled(context)) return false;
         return isEnabled(context, kind, id);
+    }
+
+    /** 某 kind 下是否有任一源开了走节点（节点按需拉起、门控 enabled() 用）。 */
+    public static boolean anyEnabled(Context context, String kind) {
+        try {
+            String prefix = kind + ":";
+            java.util.Map<String, ?> all = prefs(context).getAll();
+            if (all == null) return false;
+            for (java.util.Map.Entry<String, ?> e : all.entrySet()) {
+                if (e.getKey() != null && e.getKey().startsWith(prefix) && Boolean.TRUE.equals(e.getValue()))
+                    return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     /** 列出已开走节点的源（设置页展示用）。 */

@@ -138,6 +138,24 @@ fireError(msg);
 });
 }
 
+/**
+* 按需静默拉起（Emby 服开了「走节点」但总开关没开时用）：
+* 已在跑直接返回 true；否则同步 startSync，失败返回 false。
+* 不碰总开关持久化、不改「全部走节点」语义、不新造常驻——
+* 内核停的时机沿用现有生命周期（用户拨总开关关时 stopSync）。
+* 必须在后台线程调用（同步阻塞，含最长 10 秒健康检查）。
+*/
+public boolean ensureRunning(Context context) {
+try {
+if (isRunning()) return true;
+startSync(context.getApplicationContext());
+return isRunning();
+} catch (Throwable t) {
+com.github.catvod.crawler.SpiderDebug.log("clash", "kernel auto-start FAILED: %s", String.valueOf(t));
+return false;
+}
+}
+
 /** 同步启动：抛异常表示失败（调用方按规格处理）。 */
 public synchronized void startSync(Context context) throws Exception {
 Context app = context.getApplicationContext();

@@ -18,7 +18,12 @@ public final class ClashGate {
         SourceGate.register(new SourceGate.Provider() {
             @Override
             public boolean enabled() {
-                return ClashSettings.isEnabled(app) && MihomoManager.get().isRunning();
+                // 门控 = 内核在跑 且（总开关开 或 任一 Emby 服开了走节点）。
+                // Emby 单服走节点不再要求总开关先开：EmbyApi 在发请求前按需拉起内核；
+                // 其它源维持原语义（总开关关 → 它们的按源开关不生效）。
+                if (!MihomoManager.get().isRunning()) return false;
+                return ClashSettings.isEnabled(app)
+                        || SourceProxyPolicy.anyEnabled(app, SourceProxyPolicy.KIND_EMBY);
             }
 
             @Override

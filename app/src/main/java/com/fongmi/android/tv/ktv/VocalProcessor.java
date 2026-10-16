@@ -22,8 +22,17 @@ public class VocalProcessor implements AudioProcessor {
     private AudioFormat inputFormat = AudioFormat.NOT_SET;
     private ByteBuffer outputBuffer = EMPTY_BUFFER;
     private volatile int mode = OFF;
+    private int lpState;
+    private long rampPos = Long.MAX_VALUE;
+    private volatile float cancelMix = 0.85f;
+
+    /** 消音强度：0 轻（留一点原声）1 标准 2 重（纯相减） */
+    public void setCancelStrength(int idx) {
+        cancelMix = idx <= 0 ? 0.65f : idx >= 2 ? 1f : 0.85f;
+    }
 
     public void setMode(int mode) {
+        if (this.mode != mode) rampPos = 0; // 切换时渐入，别一刀切出爆声
         this.mode = mode;
     }
 
@@ -64,26 +73,40 @@ public class VocalProcessor implements AudioProcessor {
             while (in.remaining() >= 4) {
                 short l = in.getShort();
                 short r = in.getShort();
+                int pl, pr;
                 switch (m) {
                     case CANCEL: {
-                        short v = (short) ((l - r) / 2);
-                        out.putShort(v);
-                        out.putShort(v);
+                        // 差值信号先过一遍柔和：压缩音频在差值里全是金属味杂音，不滤就是电流声
+                        int d = l - r;
+                        lpState += (d - lpState) * 45 / 100;
+                        int v = lpState / 2;
+                        int mono = (l + r) / 2;
+                        int mixed = (int) (v * cancelMix + mono * (1 - cancelMix));
+                        pl = mixed;
+                        pr = mixed;
                         break;
                     }
                     case LEFT:
-                        out.putShort(l);
-                        out.putShort(l);
+                        pl = l;
+                        pr = l;
                         break;
                     case RIGHT:
-                        out.putShort(r);
-                        out.putShort(r);
+                        pl = r;
+                        pr = r;
                         break;
                     default:
-                        out.putShort(l);
-                        out.putShort(r);
+                        pl = l;
+                        pr = r;
                         break;
                 }
+                if (rampPos < rampTotal()) {
+                    double f = rampPos / (double) rampTotal();
+                    pl = (int) (l * (1 - f) + pl * f);
+                    pr = (int) (r * (1 - f) + pr * f);
+                    rampPos++;
+                }
+                out.putShort((short) pl);
+                out.putShort((short) pr);
             }
             while (in.hasRemaining()) out.put(in.get());
             outputBuffer.position(out.position());
@@ -108,9 +131,15 @@ public class VocalProcessor implements AudioProcessor {
     public void queueEndOfStream() {
     }
 
+    private long rampTotal() {
+        int rate = inputFormat == AudioFormat.NOT_SET ? 44100 : inputFormat.sampleRate;
+        return Math.max(1, rate * 15 / 100);
+    }
+
     @Override
     public void flush() {
         outputBuffer = EMPTY_BUFFER;
+        lpState = 0;
     }
 
     @Override

@@ -97,6 +97,7 @@ public class AiVoiceCommand {
     public static final String ACTION_WATCH_LEAVE = "watch_leave";
     public static final String ACTION_WATCH_VOICE_ON = "watch_voice_on";
     public static final String ACTION_NAV_KTV = "nav_ktv";
+    public static final String ACTION_NAV_KTV_SETTINGS = "nav_ktv_settings";
     public static final String ACTION_NAV_KTV_ORDER = "nav_ktv_order";
     public static final String ACTION_NAV_MUSIC = "nav_music";
     public static final String ACTION_KTV_NEXT = "ktv_next";
@@ -337,6 +338,9 @@ public class AiVoiceCommand {
         // KTV：点歌带歌名（必须排在模式词前面，"点歌伴奏"不能被伴奏抢走）
         if (t.startsWith("点歌") && t.length() > 2) {
             return new Command(ACTION_NAV_KTV_ORDER, t.substring(2).trim(), "正在给你点这首");
+        }
+        if (t.contains("KTV设置") || t.contains("点歌设置")) {
+            return new Command(ACTION_NAV_KTV_SETTINGS, "已打开KTV设置");
         }
         if (t.contains("打开KTV") || t.contains("点歌台") || t.contains("开唱")) {
             return new Command(ACTION_NAV_KTV, "已打开KTV点歌台");

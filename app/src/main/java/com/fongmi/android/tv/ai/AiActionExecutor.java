@@ -80,6 +80,10 @@ public class AiActionExecutor {
                     cls = pkg + "FeaturesActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                case AiVoiceCommand.ACTION_NAV_KTV_SETTINGS:
+                    cls = pkg + "KtvSettingsActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    break;
                 case AiVoiceCommand.ACTION_NAV_KTV:
                     cls = pkg + "KtvActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -419,9 +423,36 @@ public class AiActionExecutor {
             if (videoCls.isInstance(activity)) {
                 return dispatchToVideo(activity, cmd);
             }
+            Class<?> roomCls = Class.forName("com.fongmi.android.tv.ui.activity.WatchRoomActivity");
+            if (roomCls.isInstance(activity)) {
+                return dispatchToRoom(activity, cmd);
+            }
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    private static boolean dispatchToRoom(Activity activity, AiVoiceCommand.Command cmd) {
+        try {
+            switch (cmd.action) {
+                case AiVoiceCommand.ACTION_WATCH_LEAVE:
+                    invoke(activity, "aiWatchLeave");
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
+                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, true);
+                    return true;
+                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
+                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, false);
+                    return true;
+                case AiVoiceCommand.ACTION_TOGGLE_PLAY:
+                    invoke(activity, "aiTogglePlay");
+                    return true;
+                default:
+                    return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static boolean dispatchToVideo(Activity activity, AiVoiceCommand.Command cmd) {

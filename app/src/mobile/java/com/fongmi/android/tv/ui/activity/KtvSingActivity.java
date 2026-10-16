@@ -24,6 +24,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -63,9 +64,11 @@ import com.fongmi.android.tv.ktv.KtvLyrics;
 import com.fongmi.android.tv.ktv.KtvServer;
 import com.fongmi.android.tv.ktv.KtvSong;
 import com.fongmi.android.tv.ktv.KtvStore;
+import com.fongmi.android.tv.ktv.MvFinder;
 import com.fongmi.android.tv.ktv.VocalProcessor;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.PermissionUtil;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.google.gson.Gson;
 
@@ -102,6 +105,19 @@ public class KtvSingActivity extends BaseActivity {
     private ActivityKtvSingBinding binding;
     private ExoPlayer player;
     private PlayerView playerView;
+    private ImageView coverView;
+    private FrameLayout stageBox;
+    private LinearLayout lyricBox;
+    private LinearLayout portraitCol;
+    private FrameLayout landscapeFrame;
+    private volatile String siteLrc;
+    private boolean currentConsumed;
+    private boolean modeTouched;
+    private String mvUrl;
+    private boolean onMv;
+    private int mvSeq;
+    private long lyricOffsetMs;
+    private TextView offsetLabel;
     private final VocalProcessor vocal = new VocalProcessor();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -186,43 +202,54 @@ public class KtvSingActivity extends BaseActivity {
 
     private void buildUi() {
         FrameLayout root = binding.singRoot;
+        portraitCol = new LinearLayout(this);
+        portraitCol.setOrientation(LinearLayout.VERTICAL);
+        portraitCol.setBackgroundColor(0xFF000000);
+        landscapeFrame = new FrameLayout(this);
+        root.addView(portraitCol, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(landscapeFrame, new FrameLayout.LayoutParams(-1, -1));
+
+        stageBox = new FrameLayout(this);
+        stageBox.setBackgroundColor(0xFF000000);
         playerView = new PlayerView(this);
         playerView.setUseController(false);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setOnClickListener(v -> toggleControls());
-        root.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
+        stageBox.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
+
+        coverView = new ImageView(this);
+        coverView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        coverView.setAlpha(0.45f);
+        coverView.setVisibility(View.GONE);
+        stageBox.addView(coverView, new FrameLayout.LayoutParams(-1, -1));
 
         topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(18), dp(12), dp(18), dp(12));
+        topBar.setPadding(dp(18), dp(12) + statusBarHeight(), dp(18), dp(12));
         topBar.setBackground(scrim(0x99000000));
         titleText = text("", 16, WHITE);
         topBar.addView(titleText, new LinearLayout.LayoutParams(0, -2, 1f));
         nextText = text("", 12, DIM);
         topBar.addView(nextText);
-        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        root.addView(topBar, tlp);
 
-        LinearLayout lyricBox = new LinearLayout(this);
+        lyricBox = new LinearLayout(this);
         lyricBox.setOrientation(LinearLayout.VERTICAL);
         lyricBox.setGravity(Gravity.CENTER);
-        linePrev = lyricText(17, DIM);
-        lineCur = lyricText(30, WHITE);
+        int lz = KtvStore.lyricSize();
+        float lfs = lz == 1 ? 1.2f : lz == 2 ? 1.45f : 1f;
+        linePrev = lyricText((int) (17 * lfs), DIM);
+        lineCur = lyricText((int) (30 * lfs), WHITE);
         lineCur.setTypeface(lineCur.getTypeface(), android.graphics.Typeface.BOLD);
-        lineNext = lyricText(17, DIM);
+        lineNext = lyricText((int) (17 * lfs), DIM);
         lyricBox.addView(linePrev);
         lyricBox.addView(lineCur);
         lyricBox.addView(lineNext);
-        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        llp.bottomMargin = dp(118);
-        llp.leftMargin = dp(24);
-        llp.rightMargin = dp(24);
-        root.addView(lyricBox, llp);
+
 
         controlBar = new LinearLayout(this);
         controlBar.setOrientation(LinearLayout.VERTICAL);
-        controlBar.setPadding(dp(18), dp(8), dp(18), dp(14));
+        controlBar.setPadding(dp(18), dp(8), dp(18), dp(14) + navBarHeight());
         controlBar.setBackground(scrim(0x99000000));
         LinearLayout seekRow = new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -255,29 +282,88 @@ public class KtvSingActivity extends BaseActivity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
         playBtn = btn("❚❚", v -> togglePlay());
-        row.addView(playBtn);
-        row.addView(btn("重唱", v -> {
+        addBtn(row, playBtn);
+        addBtn(row, btn("重唱", v -> {
             if (player != null) {
                 player.seekTo(0);
                 player.play();
             }
             pokeControls();
         }));
-        row.addView(btn("切歌", v -> nextSong()));
+        addBtn(row, btn("切歌", v -> nextSong()));
         modeBtn = btn("原唱", v -> cycleMode());
-        row.addView(modeBtn);
-        row.addView(btn("调−", v -> setPitch(pitchSemi - 1)));
+        addBtn(row, modeBtn);
+        addBtn(row, btn("队列", v -> showQueue()));
+        addBtn(row, btn("退出", v -> finish()));
+        controlBar.addView(row);
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setGravity(Gravity.CENTER);
+        row2.setPadding(0, dp(8), 0, 0);
+        addBtn(row2, btn("调−", v -> setPitch(pitchSemi - 1)));
         pitchLabel = text("调 0", 13, WHITE);
         pitchLabel.setGravity(Gravity.CENTER);
-        row.addView(pitchLabel, new LinearLayout.LayoutParams(dp(44), -2));
-        row.addView(btn("调＋", v -> setPitch(pitchSemi + 1)));
+        addBtn(row2, pitchLabel);
+        addBtn(row2, btn("调＋", v -> setPitch(pitchSemi + 1)));
         micBtn = btn("麦克风", v -> toggleMic());
-        row.addView(micBtn);
-        row.addView(btn("队列", v -> showQueue()));
-        row.addView(btn("退出", v -> finish()));
-        controlBar.addView(row);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        root.addView(controlBar, clp);
+        addBtn(row2, micBtn);
+        addBtn(row2, btn("词延−", v -> setLyricOffset(lyricOffsetMs - 500)));
+        offsetLabel = text("词延 0.0", 13, WHITE);
+        offsetLabel.setGravity(Gravity.CENTER);
+        addBtn(row2, offsetLabel);
+        addBtn(row2, btn("词延＋", v -> setLyricOffset(lyricOffsetMs + 500)));
+        controlBar.addView(row2);
+        arrangeLayout();
+    }
+
+    private static void detach(View v) {
+        if (v != null && v.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) v.getParent()).removeView(v);
+        }
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /** 竖屏上下分块（上面半屏画面、下面歌词）；横屏不做特殊全屏，页面铺满即可、控件浮在上面。 */
+    private void arrangeLayout() {
+        if (stageBox == null) return;
+        detach(stageBox);
+        detach(topBar);
+        detach(lyricBox);
+        detach(controlBar);
+        if (isLandscape()) {
+            portraitCol.setVisibility(View.GONE);
+            landscapeFrame.setVisibility(View.VISIBLE);
+            landscapeFrame.addView(stageBox, new FrameLayout.LayoutParams(-1, -1));
+            landscapeFrame.addView(topBar, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+            FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+            llp.bottomMargin = dp(150);
+            llp.leftMargin = dp(24);
+            llp.rightMargin = dp(24);
+            landscapeFrame.addView(lyricBox, llp);
+            landscapeFrame.addView(controlBar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+            topBar.setVisibility(controlsShown ? View.VISIBLE : View.GONE);
+            controlBar.setVisibility(controlsShown ? View.VISIBLE : View.GONE);
+        } else {
+            landscapeFrame.setVisibility(View.GONE);
+            portraitCol.setVisibility(View.VISIBLE);
+            portraitCol.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
+            portraitCol.addView(stageBox, new LinearLayout.LayoutParams(-1, 0, 1f));
+            portraitCol.addView(lyricBox, new LinearLayout.LayoutParams(-1, 0, 1f));
+            portraitCol.addView(controlBar, new LinearLayout.LayoutParams(-1, -2));
+            controlsShown = true;
+            ui.removeCallbacks(hideRunnable);
+            topBar.setVisibility(View.VISIBLE);
+            controlBar.setVisibility(View.VISIBLE);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        arrangeLayout();
     }
 
     private final Runnable hideRunnable = () -> {
@@ -289,6 +375,12 @@ public class KtvSingActivity extends BaseActivity {
     };
 
     private void toggleControls() {
+        if (!isLandscape()) {
+            controlsShown = true;
+            topBar.setVisibility(View.VISIBLE);
+            controlBar.setVisibility(View.VISIBLE);
+            return;
+        }
         controlsShown = !controlsShown;
         topBar.setVisibility(controlsShown ? View.VISIBLE : View.GONE);
         controlBar.setVisibility(controlsShown ? View.VISIBLE : View.GONE);
@@ -297,7 +389,7 @@ public class KtvSingActivity extends BaseActivity {
 
     private void pokeControls() {
         ui.removeCallbacks(hideRunnable);
-        if (controlsShown) ui.postDelayed(hideRunnable, 4000);
+        if (controlsShown && isLandscape()) ui.postDelayed(hideRunnable, 4000);
     }
 
     // ================= 播放器 =================
@@ -312,16 +404,33 @@ public class KtvSingActivity extends BaseActivity {
             }
         };
         player = new ExoPlayer.Builder(this).setRenderersFactory(rf).build();
+        vocal.setCancelStrength(KtvStore.cancelStrength());
         playerView.setPlayer(player);
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED) nextSong();
-                if (state == Player.STATE_READY) refreshStates();
+                if (state == Player.STATE_READY) {
+                    refreshStates();
+                    maybeSwapToMv();
+                    coverView.setVisibility(player.getVideoFormat() == null && current != null && current.pic != null && !current.pic.isEmpty() ? View.VISIBLE : View.GONE);
+                }
             }
 
             @Override
             public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
+                if (onMv && mainUrl != null && !mainUrl.isEmpty()) {
+                    onMv = false;
+                    mvUrl = null;
+                    long pos = 0;
+                    try {
+                        pos = player.getCurrentPosition();
+                    } catch (Throwable ignored) {
+                    }
+                    playMedia(mainUrl, mainHeaders, pos);
+                    toast("MV 播不了，回到音频");
+                    return;
+                }
                 toast("这首播不了，下一首");
                 nextSong();
             }
@@ -361,7 +470,17 @@ public class KtvSingActivity extends BaseActivity {
 
     private void playCurrent() {
         KtvSong song = current;
-        titleText.setText(song.title() + (song.singer == null || song.singer.isEmpty() ? "" : " - " + song.singer));
+        String tt = song.title();
+        titleText.setText(song.singer == null || song.singer.isEmpty() || tt.contains(song.singer) ? tt : tt + " - " + song.singer);
+        siteLrc = null;
+        modeTouched = false;
+        currentConsumed = false;
+        if (song.pic != null && !song.pic.isEmpty()) {
+            ImgUtil.load(song.pic, coverView);
+            coverView.setVisibility(View.VISIBLE);
+        } else {
+            coverView.setVisibility(View.GONE);
+        }
         updateNextHint();
         KtvStore.addHistory(song);
         lyrics = null;
@@ -372,6 +491,8 @@ public class KtvSingActivity extends BaseActivity {
         accUrl = "";
         accHeaders = null;
         onAccUrl = false;
+        mvUrl = null;
+        onMv = false;
         states.clear();
         states.add(S_ORIGINAL);
         states.add(S_CANCEL);
@@ -382,6 +503,14 @@ public class KtvSingActivity extends BaseActivity {
         Task.execute(() -> resolveAndPlay(song));
         Task.execute(() -> fetchLyrics(song));
         if (!song.isFromServer()) Task.execute(() -> pairAccompaniment(song));
+        final int mseq = ++mvSeq;
+        if (!song.isFromServer() && KtvStore.pairMv()) {
+            MvFinder.find(song.title(), song.singer, url -> ui.post(() -> {
+                if (mseq != mvSeq || url == null || url.isEmpty()) return;
+                mvUrl = url;
+                maybeSwapToMv();
+            }));
+        }
     }
 
     private void resolveAndPlay(KtvSong song) {
@@ -401,6 +530,7 @@ public class KtvSingActivity extends BaseActivity {
                 Result r = SiteApi.playerContent(song.siteKey, song.flag, song.episodeUrl);
                 mainUrl = r.getUrl() == null ? "" : r.getUrl().v();
                 mainHeaders = r.getHeader();
+                siteLrc = r.getDesc() == null ? "" : r.getDesc();
                 if (mainUrl == null || mainUrl.isEmpty()) throw new IllegalStateException("源没给地址");
             }
             runOnUiThread(() -> {
@@ -415,12 +545,56 @@ public class KtvSingActivity extends BaseActivity {
     }
 
     private void fetchLyrics(KtvSong song) {
-        KtvLyrics.Result r = KtvLyrics.fetch(song.title(), song.singer, 0);
+        KtvLyrics.Result r = null;
+        if (!song.isFromServer()) {
+            long deadline = System.currentTimeMillis() + 20000;
+            while (System.currentTimeMillis() < deadline && current == song) {
+                String d = siteLrc;
+                if (d != null) {
+                    if (!d.isEmpty()) {
+                        java.util.List<KtvLyrics.Line> ls = KtvLyrics.parseLrc(d);
+                        if (ls.size() < 3) ls = KtvLyrics.parseEnhanced(d);
+                        if (ls.size() >= 3) {
+                            r = new KtvLyrics.Result();
+                            r.lines = ls;
+                        }
+                    }
+                    break;
+                }
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+        if (r == null) r = KtvLyrics.fetch(cleanTitle(song), song.singer, 0);
+        KtvLyrics.Result use = r;
         runOnUiThread(() -> {
             if (current != song) return;
-            lyrics = r;
+            lyrics = use;
             curLine = -1;
+            if (use == null || use.lines.isEmpty()) {
+                linePrev.setText("");
+                lineCur.setText("没找到歌词");
+                lineNext.setText("");
+            }
         });
+    }
+
+    private static String cleanTitle(KtvSong song) {
+        String t = song.title() == null ? "" : song.title().trim();
+        String s = song.singer == null ? "" : song.singer.trim();
+        if (!s.isEmpty() && t.contains(" - ")) {
+            StringBuilder sb = new StringBuilder();
+            for (String part : t.split(" - ")) {
+                if (part.trim().equals(s)) continue;
+                if (sb.length() > 0) sb.append(" - ");
+                sb.append(part.trim());
+            }
+            if (sb.length() > 0) t = sb.toString();
+        }
+        return t;
     }
 
     /** 给点播源的歌自动配伴奏：同源搜「歌名 伴奏」，对上就把地址备好。 */
@@ -429,16 +603,23 @@ public class KtvSingActivity extends BaseActivity {
             Site site = null;
             for (Site s : VodConfig.get().getSites()) if (s.getKey() != null && s.getKey().equals(song.siteKey)) site = s;
             if (site == null) return;
-            String base = baseName(song.title());
+            String base = baseName(cleanTitle(song));
             Result sr = SiteApi.searchContent(site, base + " 伴奏", false, "1");
-            for (Vod v : sr.getList()) {
+            java.util.List<Vod> vods = new java.util.ArrayList<>(sr.getList());
+            // 名字带伴奏的结果优先看，其余只扫前几个——原来三十个挨个拉详情，配上时黄花菜都凉了
+            vods.sort((a, b) -> Boolean.compare(!(b.getName() != null && b.getName().contains("伴奏")), !(a.getName() != null && a.getName().contains("伴奏"))));
+            int scanned = 0;
+            for (Vod v : vods) {
+                boolean accVod = v.getName() != null && v.getName().contains("伴奏");
+                if (!accVod && scanned >= 5) break;
+                if (!accVod) scanned++;
                 Result dr = SiteApi.detailContent(site.getKey(), v.getId());
                 Vod full = dr.getVod();
                 if (full.getFlags().isEmpty()) continue;
                 Flag f = full.getFlags().get(0);
                 for (Episode ep : f.getEpisodes()) {
                     String en = ep.getName() == null ? "" : ep.getName();
-                    if (en.contains("伴奏") && baseName(en).contains(base)) {
+                    if (en.contains("伴奏") && !isInstrumentCover(en) && baseName(en).contains(base)) {
                         Result pr = SiteApi.playerContent(site.getKey(), f.getFlag(), ep.getUrl());
                         String u = pr.getUrl() == null ? "" : pr.getUrl().v();
                         if (u != null && !u.isEmpty()) {
@@ -454,12 +635,20 @@ public class KtvSingActivity extends BaseActivity {
         }
     }
 
+    private static boolean isInstrumentCover(String name) {
+        // 古筝/葫芦丝这类是乐器翻奏，不是这首歌的伴奏，配上也不能唱
+        String[] marks = {"古筝", "葫芦丝", "二胡", "唢呐", "钢琴版", "吉他弹唱", "尤克里里", "洞箫", "笛子版"};
+        for (String m : marks) if (name.contains(m)) return true;
+        return false;
+    }
+
     private static String baseName(String name) {
         if (name == null) return "";
         return name.replaceAll("(?i)mv|伴奏|原唱|视频|黑白灰|\\(|\\)|（|）|\\[|\\]|-|_", " ").trim().replaceAll("\\s+", " ");
     }
 
     private void nextSong() {
+        currentConsumed = true;
         KtvSong next = KtvStore.pollQueue();
         if (next == null) {
             toast("唱完了，队列空了");
@@ -506,14 +695,36 @@ public class KtvSingActivity extends BaseActivity {
         states.clear();
         states.addAll(want);
         stateIdx = Math.max(0, states.indexOf(cur));
+        if (!modeTouched && KtvStore.defaultAcc()) {
+            int ai = states.indexOf(S_ACC_URL);
+            if (ai < 0) ai = states.indexOf(S_ACC_TRACK);
+            if (ai >= 0 && ai != stateIdx) {
+                stateIdx = ai;
+                applyState(states.get(stateIdx));
+                return;
+            }
+        }
         applyStateLabel();
     }
 
     private void cycleMode() {
+        modeTouched = true;
         if (states.isEmpty()) return;
         stateIdx = (stateIdx + 1) % states.size();
         applyState(states.get(stateIdx));
         pokeControls();
+    }
+
+    /** 配到了 MV 且当前歌没画面、正在原唱状态，就整首换成 MV 播（与换伴奏地址同路数）。 */
+    private void maybeSwapToMv() {
+        if (mvUrl == null || onMv || player == null) return;
+        if (states.isEmpty() || states.get(stateIdx) != S_ORIGINAL) return;
+        int ps = player.getPlaybackState();
+        if (ps == Player.STATE_IDLE || ps == Player.STATE_ENDED) return;
+        if (player.getVideoFormat() != null) return;
+        onMv = true;
+        playMedia(mvUrl, null, player.getCurrentPosition());
+        toast("配到了 MV");
     }
 
     private void applyState(int state) {
@@ -635,7 +846,7 @@ public class KtvSingActivity extends BaseActivity {
                 seekBar.setProgress((int) (pos * 1000 / dur));
                 timeText.setText(fmtTime(pos) + "/" + fmtTime(dur));
             }
-            updateLyrics(pos);
+            updateLyrics(Math.max(0, pos - lyricOffsetMs));
         }
     };
 
@@ -746,17 +957,30 @@ public class KtvSingActivity extends BaseActivity {
                     .build();
             File dir = new File(getCacheDir(), "ktv");
             dir.mkdirs();
-            file = new File(dir, "唱_" + new SimpleDateFormat("MMdd_HHmmss", Locale.ROOT).format(new Date()) + ".wav");
+            String ttl = current == null ? "" : current.title().replaceAll("[\\\\/:*?\"<>|]", "");
+            if (ttl.length() > 24) ttl = ttl.substring(0, 24);
+            file = new File(dir, "唱_" + ttl + "_" + new SimpleDateFormat("MMdd_HHmmss", Locale.ROOT).format(new Date()) + ".wav");
             FileOutputStream fos = new FileOutputStream(file);
             fos.write(new byte[44]); // 占位头，停时回填
             run = true;
             track.play();
             record.startRecording();
             thread = new Thread(() -> {
+                float gain = KtvStore.micGain();
                 byte[] b = new byte[buf];
                 while (run) {
                     int n = record.read(b, 0, b.length);
                     if (n > 0) {
+                        if (gain != 1f) {
+                            for (int gi = 0; gi + 1 < n; gi += 2) {
+                                int smp = (b[gi] & 0xFF) | (b[gi + 1] << 8);
+                                smp = (int) (smp * gain);
+                                if (smp > 32767) smp = 32767;
+                                if (smp < -32768) smp = -32768;
+                                b[gi] = (byte) smp;
+                                b[gi + 1] = (byte) (smp >> 8);
+                            }
+                        }
                         track.write(b, 0, n);
                         try {
                             fos.write(b, 0, n);
@@ -893,6 +1117,31 @@ public class KtvSingActivity extends BaseActivity {
         return t;
     }
 
+    private int statusBarHeight() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
+    }
+
+    private int navBarHeight() {
+        int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    private void addBtn(LinearLayout row, View b) {
+        if (b instanceof TextView) ((TextView) b).setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        lp.leftMargin = dp(3);
+        lp.rightMargin = dp(3);
+        row.addView(b, lp);
+    }
+
+    private void setLyricOffset(long ms) {
+        lyricOffsetMs = Math.max(-15000, Math.min(15000, ms));
+        if (offsetLabel != null) offsetLabel.setText("词延 " + String.format(java.util.Locale.US, "%+.1f", lyricOffsetMs / 1000.0));
+        curLine = -1;
+        pokeControls();
+    }
+
     private TextView btn(String s, View.OnClickListener l) {
         TextView t = text(s, 14, WHITE);
         t.setGravity(Gravity.CENTER);
@@ -921,6 +1170,7 @@ public class KtvSingActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        if (current != null && !currentConsumed) KtvStore.requeueFront(current);
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(hideRunnable);
         if (mic != null) mic.stopAndSave();

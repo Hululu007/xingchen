@@ -46,6 +46,12 @@ public class KtvStore {
         write(K_QUEUE, q);
     }
 
+    public static void requeueFront(KtvSong song) {
+        List<KtvSong> q = queue();
+        q.add(0, song);
+        write(K_QUEUE, q);
+    }
+
     public static void insertNext(KtvSong song) {
         List<KtvSong> q = queue();
         q.add(q.isEmpty() ? 0 : 1, song);
@@ -127,5 +133,61 @@ public class KtvStore {
 
     public static void setUseServer(boolean server) {
         Prefers.put(K_MODE, server ? "server" : "vod");
+    }
+
+    public static float micGain() {
+        try {
+            return Float.parseFloat(Prefers.getString("ktv_mic_gain", "1.0"));
+        } catch (Throwable e) {
+            return 1f;
+        }
+    }
+
+    public static void setMicGain(float gain) {
+        Prefers.put("ktv_mic_gain", String.valueOf(Math.max(0.2f, Math.min(2f, gain))));
+    }
+
+    /** 歌词字号：0 标准 1 大 2 特大 */
+    public static int lyricSize() {
+        try {
+            return Integer.parseInt(Prefers.getString("ktv_lyric_size", "0"));
+        } catch (Throwable e) {
+            return 0;
+        }
+    }
+
+    public static void setLyricSize(int idx) {
+        Prefers.put("ktv_lyric_size", String.valueOf(Math.max(0, Math.min(2, idx))));
+    }
+
+    /** 开唱默认用伴奏（有伴奏时） */
+    public static boolean defaultAcc() {
+        return "1".equals(Prefers.getString("ktv_default_acc", "0"));
+    }
+
+    public static void setDefaultAcc(boolean on) {
+        Prefers.put("ktv_default_acc", on ? "1" : "0");
+    }
+
+    /** 消音强度：0 轻 1 标准 2 重 */
+    public static int cancelStrength() {
+        try {
+            return Integer.parseInt(Prefers.getString("ktv_cancel_strength", "1"));
+        } catch (Throwable e) {
+            return 1;
+        }
+    }
+
+    public static void setCancelStrength(int idx) {
+        Prefers.put("ktv_cancel_strength", String.valueOf(Math.max(0, Math.min(2, idx))));
+    }
+
+    /** 开唱自动配 MV（给纯音频的歌找画面） */
+    public static boolean pairMv() {
+        return !"0".equals(Prefers.getString("ktv_pair_mv", "1"));
+    }
+
+    public static void setPairMv(boolean on) {
+        Prefers.put("ktv_pair_mv", on ? "1" : "0");
     }
 }

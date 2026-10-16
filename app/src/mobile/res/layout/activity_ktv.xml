@@ -3,4 +3,5 @@
     android:id="@+id/ktvRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0B0D12" />
+    android:background="#0B0D12"
+    android:fitsSystemWindows="true" />

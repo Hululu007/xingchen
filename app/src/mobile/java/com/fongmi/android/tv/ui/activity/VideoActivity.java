@@ -164,7 +164,6 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.CoverRatioCache;
 import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.watch.WatchController;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -198,7 +197,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, WatchController.Host {
+public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener {
 
     /**
      * 播放器是否存活（对齐海阔 8.83 PlayerChooser.hasPlayer）。
@@ -261,9 +260,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
     private AlertDialog mKaraokeResultDialog;
-    private WatchController mWatch;
-    private WatchRoomView mRoomView;
-    private WatchRoomView.FloatLayer mRoomFloat;
     private static final java.util.Map<String, String> HK_EPISODES_STORE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger HK_EPISODES_SEQ = new java.util.concurrent.atomic.AtomicInteger();
     private String mWatchName = "我";
@@ -965,7 +961,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.repeat.setOnClickListener(view -> onRepeat());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mWatch = new WatchController(this);
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.ktvDetail.setOnClickListener(view -> onKtvButton());
@@ -1811,7 +1806,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
         List<Danmaku> siteDanmakus = result.getDanmaku();
         startPlayer(getHistoryKey(), result, isUseParse(), getSite().getTimeout(), buildMetadata());
-        if (mWatch != null) mWatch.onHostPlayResolved(result.getRealUrl(), result.getHeader(), mHistory == null ? "" : mHistory.getVodName());
         Episode playEpisode = getEpisode();
         if (DanmakuApi.canAutoSearch(siteDanmakus) && playEpisode != null)
             DanmakuApi.search(mHistory.getVodName(), playEpisode.getName(), player()::setDanmaku);
@@ -3201,10 +3195,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             refreshLyrics();
         }
         else if (mKaraoke != null) mKaraoke.clear();
-        if (mWatch != null && mWatch.inRoom()) {
-            if (PlayerSetting.isKaraokeMode()) mWatch.onLocalSingStart();
-            else mWatch.onLocalSingStop();
-        }
     }
 
     private void onKaraokeMode() {
@@ -4086,7 +4076,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         KaraokeResult result = mKaraoke.getResult();
         if (result == null) return false;
         mKaraokeResultShown = true;
-        if (mWatch != null && mWatch.inRoom()) mWatch.onLocalSingResult(result.getScorePercent(), result.getGrade());
         mPendingKaraokeResult = result;
         mKaraokeResultAction = action;
         if (mViewModel != null) mViewModel.setKaraokeResult(result, action);
@@ -5577,7 +5566,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         debugLyricsLoop("refreshLyrics", true);
         updateAudioOnlyState();
         boolean audioContent = isAudioOnly() || isMusicLike();
-        if (!mLyrics.hasChoice(player()) && showInlineLyrics()) {
+        if (showInlineLyrics()) {
             refreshKaraoke(audioContent);
             return;
         }
@@ -6361,7 +6350,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
-        if (mWatch != null) mWatch.onHostPlayingChanged(isPlaying);
         debugPlaybackControl("playingChanged=" + isPlaying);
         debugLyricsLoop("playingChanged=" + isPlaying, true);
         syncLyricsPlaybackState(isPlaying);
@@ -6378,7 +6366,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onPlayerPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
-        if (mWatch != null && reason == Player.DISCONTINUITY_REASON_SEEK) mWatch.onHostSeek(newPosition.positionMs);
         debugPlaybackControl("positionDiscontinuity=" + reason + " old=" + oldPosition.positionMs + " new=" + newPosition.positionMs);
         debugLyricsLoop("positionDiscontinuity=" + reason, true);
         syncLyricsPlaybackState(player().isPlaying());
@@ -6893,33 +6880,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /** AI：开关实时合唱 */
     public void aiWatchVoice(boolean on) {
         runOnUiThread(() -> {
-            if (mWatch == null || !mWatch.inRoom()) {
-                Notify.show("先开一起看房间，才能开合唱");
-                return;
-            }
-            if (!on) {
-                mWatch.setVoiceEnabled(false);
-                return;
-            }
-            com.fongmi.android.tv.utils.PermissionUtil.requestAudio(this, ok -> {
-                if (Boolean.TRUE.equals(ok)) mWatch.setVoiceEnabled(true);
-                else Notify.show("没给麦克风权限，开不了合唱");
-            });
+            if (!WatchRoomActivity.voiceIfOpen(this, on)) Notify.show("先开一起看房间，才能开合唱");
         });
     }
 
     /** AI：退出一起看 */
     public void aiWatchLeave() {
         runOnUiThread(() -> {
-            if (mWatch != null && mWatch.inRoom()) {
-                mWatch.leaveRoom();
-                Notify.show("已退出一起看");
-            }
+            if (WatchRoomActivity.leaveIfOpen()) Notify.show("已退出一起看");
+            else Notify.show("现在没有开着的房间");
         });
     }
 
     private void onWatchButton() {
-        if (mWatch != null && mWatch.inRoom()) showWatchRoomPage();
+        if (WatchRoomActivity.isOpen()) WatchRoomActivity.bringToFront(this);
         else showWatchStartDialog();
     }
 
@@ -6928,125 +6902,154 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return name.isEmpty() ? "我" : name;
     }
 
+    private android.widget.EditText watchField(String hint, String text, boolean numeric) {
+        float d = getResources().getDisplayMetrics().density;
+        android.widget.EditText e = new android.widget.EditText(this);
+        e.setHint(hint);
+        e.setText(text);
+        e.setSingleLine(true);
+        e.setTextSize(15);
+        e.setTextColor(0xFFFFFFFF);
+        e.setHintTextColor(0xFF9499A3);
+        e.setPadding((int) (14 * d), (int) (12 * d), (int) (14 * d), (int) (12 * d));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF1D2027);
+        bg.setCornerRadius(12 * d);
+        e.setBackground(bg);
+        if (numeric) {
+            e.setInputType(InputType.TYPE_CLASS_NUMBER);
+            e.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
+        }
+        return e;
+    }
+
+    private TextView watchAction(String label, boolean primary) {
+        float d = getResources().getDisplayMetrics().density;
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(15);
+        b.setGravity(android.view.Gravity.CENTER);
+        b.setPadding(0, (int) (12 * d), 0, (int) (12 * d));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(12 * d);
+        if (primary) {
+            bg.setColor(0xFFF5C518);
+            b.setTextColor(0xFF131418);
+            b.setTypeface(b.getTypeface(), android.graphics.Typeface.BOLD);
+        } else {
+            bg.setColor(0xFF1D2027);
+            bg.setStroke((int) d, 0xFF3A3F4A);
+            b.setTextColor(0xFFFFFFFF);
+        }
+        b.setBackground(bg);
+        return b;
+    }
+
+    private TextView watchLabel(String label) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(13);
+        t.setTextColor(0xFFC9CDD4);
+        return t;
+    }
+
     private void showWatchStartDialog() {
+        float d = getResources().getDisplayMetrics().density;
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        box.setPadding(pad, pad / 2, pad, 0);
-        EditText nameInput = new EditText(this);
-        nameInput.setHint("你的昵称（可不改）");
-        nameInput.setText(mWatchName);
-        EditText pwdInput = new EditText(this);
-        pwdInput.setHint("房间密码（可留空）");
-        EditText codeInput = new EditText(this);
-        codeInput.setHint("进房时填 6 位房号");
-        codeInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.setPadding((int) (20 * d), (int) (18 * d), (int) (20 * d), (int) (14 * d));
+        android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
+        boxBg.setColor(0xFF13151A);
+        boxBg.setCornerRadius(18 * d);
+        box.setBackground(boxBg);
+
+        TextView title = new TextView(this);
+        title.setText("一起看");
+        title.setTextSize(19);
+        title.setTextColor(0xFFFFFFFF);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        box.addView(title);
+
+        LinearLayout.LayoutParams fieldLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        fieldLp.topMargin = (int) (8 * d);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelLp.topMargin = (int) (16 * d);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        btnLp.topMargin = (int) (10 * d);
+
+        TextView nameLabel = watchLabel("你的昵称");
+        nameLabel.setLayoutParams(labelLp);
+        box.addView(nameLabel);
+        android.widget.EditText nameInput = watchField("可不改", mWatchName, false);
+        nameInput.setLayoutParams(fieldLp);
         box.addView(nameInput);
+
+        TextView createLabel = watchLabel("建一个新房间");
+        createLabel.setLayoutParams(labelLp);
+        box.addView(createLabel);
+        android.widget.EditText pwdInput = watchField("房间密码（可留空）", "", false);
+        pwdInput.setLayoutParams(fieldLp);
         box.addView(pwdInput);
+        TextView createBtn = watchAction("建房", true);
+        createBtn.setLayoutParams(btnLp);
+        box.addView(createBtn);
+
+        TextView joinLabel = watchLabel("进朋友的房间");
+        joinLabel.setLayoutParams(labelLp);
+        box.addView(joinLabel);
+        android.widget.EditText codeInput = watchField("填 6 位房号", "", true);
+        codeInput.setLayoutParams(fieldLp);
         box.addView(codeInput);
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("一起看")
-                .setView(box)
-                .setPositiveButton("进房", (d, w) -> {
-                    String code = codeInput.getText().toString().trim();
-                    if (code.length() != 6) {
-                        Notify.show("房号是 6 位数字");
-                        return;
-                    }
-                    mWatchName = watchNameOrDefault(nameInput);
-                    mWatch.joinRoom(code, mWatchName, pwdInput.getText().toString().trim());
-                    Notify.show("正在进房…");
-                })
-                .setNegativeButton("建房", (d, w) -> {
-                    mWatchName = watchNameOrDefault(nameInput);
-                    mWatch.createRoom(mWatchName, pwdInput.getText().toString().trim());
-                    Notify.show("正在建房…");
-                })
-                .setNeutralButton("取消", null)
-                .show();
-    }
+        TextView joinBtn = watchAction("进房", false);
+        joinBtn.setLayoutParams(btnLp);
+        box.addView(joinBtn);
 
-    /** 房间页（单独一套直播间式界面）：建好后挂在内容区下半部，视频在上面照常播。 */
-    private void ensureRoomView() {
-        if (mRoomView != null) return;
-        mRoomView = new WatchRoomView(this, new WatchRoomView.Action() {
-            @Override
-            public void onSend(String text) {
-                if (mWatch != null) mWatch.sendChat(text);
+        TextView cancel = new TextView(this);
+        cancel.setText("取消");
+        cancel.setTextSize(14);
+        cancel.setTextColor(0xFF9499A3);
+        cancel.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cancelLp.topMargin = (int) (14 * d);
+        cancel.setLayoutParams(cancelLp);
+        box.addView(cancel);
+
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this).setView(box).create();
+        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        createBtn.setOnClickListener(v -> {
+            mWatchName = watchNameOrDefault(nameInput);
+            Site site = getSite();
+            Flag flag = getFlag();
+            if (site == null || flag == null || flag.getEpisodes().isEmpty()) {
+                Notify.show("先选好要一起看的片");
+                return;
             }
-
-            @Override
-            public void onToggleVoice() {
-                if (mWatch == null) return;
-                if (mWatch.isVoiceEnabled()) {
-                    mWatch.setVoiceEnabled(false);
-                    mRoomView.setVoiceState(false);
-                } else {
-                    com.fongmi.android.tv.utils.PermissionUtil.requestAudio(VideoActivity.this, ok -> {
-                        if (Boolean.TRUE.equals(ok)) {
-                            mWatch.setVoiceEnabled(true);
-                            mRoomView.setVoiceState(true);
-                        } else {
-                            Notify.show("没给麦克风权限，开不了合唱");
-                        }
-                    });
+            int startIndex = 0;
+            Episode cur = getEpisode();
+            for (int idx = 0; idx < flag.getEpisodes().size(); idx++) {
+                if (flag.getEpisodes().get(idx) == cur) {
+                    startIndex = idx;
+                    break;
                 }
             }
-
-            @Override
-            public void onLeave() {
-                if (mWatch != null) mWatch.leaveRoom();
-                hideWatchRoomPage();
-            }
-
-            @Override
-            public void onCollapse() {
-                hideWatchRoomPage();
-            }
+            long pos = player() == null ? 0 : player().getPosition();
+            if (player() != null) player().pause();
+            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), site.getKey(), flag.getFlag(), getName(), getPic(), flag.getEpisodes(), startIndex, pos);
+            dialog.dismiss();
         });
-        mRoomView.setOnTitleClick(() -> {
-            if (mWatch == null || !mWatch.inRoom()) return;
-            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("房号", mWatch.roomCode()));
-            Notify.show("房号 " + mWatch.roomCode() + " 已复制，发给朋友就能进");
+        joinBtn.setOnClickListener(v -> {
+            String code = codeInput.getText().toString().trim();
+            if (code.length() != 6) {
+                Notify.show("房号是 6 位数字");
+                return;
+            }
+            mWatchName = watchNameOrDefault(nameInput);
+            if (player() != null) player().pause();
+            WatchRoomActivity.startJoin(this, code, mWatchName, pwdInput.getText().toString().trim());
+            dialog.dismiss();
         });
-        mRoomView.setVisibility(View.GONE);
-        ViewGroup content = findViewById(android.R.id.content);
-        content.addView(mRoomView);
-        // 飘字层盖在视频框上（不吃触摸）
-        if (mBinding != null && mBinding.video != null) {
-            mRoomFloat = new WatchRoomView.FloatLayer(this);
-            mBinding.video.addView(mRoomFloat, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        }
-        syncRoomView();
-    }
-
-    private void syncRoomView() {
-        if (mRoomView == null || mWatch == null) return;
-        mRoomView.setMyName(mWatchName);
-        mRoomView.setRoomInfo(mWatch.roomCode(), mWatch.isHost(), mWatch.getMembers().size());
-        mRoomView.setVoiceState(mWatch.isVoiceEnabled());
-        mRoomView.updateMembers(mWatch.getMembers());
-    }
-
-    private void showWatchRoomPage() {
-        if (mWatch == null || !mWatch.inRoom()) return;
-        ensureRoomView();
-        syncRoomView();
-        boolean landscape = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        mRoomView.setLandscapeMode(landscape);
-        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
-                landscape ? (int) (dm.widthPixels * 0.55f) : ViewGroup.LayoutParams.MATCH_PARENT,
-                landscape ? ViewGroup.LayoutParams.WRAP_CONTENT : (int) (dm.heightPixels * 0.55f),
-                landscape ? (Gravity.END | Gravity.BOTTOM) : Gravity.BOTTOM);
-        mRoomView.setLayoutParams(flp);
-        mRoomView.setVisibility(View.VISIBLE);
-        mRoomView.bringToFront();
-    }
-
-    private void hideWatchRoomPage() {
-        if (mRoomView != null) mRoomView.setVisibility(View.GONE);
+        dialog.show();
     }
 
     /** 详情页 KTV 口子：只在音乐类源露脸（点开把当前这首歌的 MV 拉进唱歌页）。 */
@@ -7085,104 +7088,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void refreshWatchButton() {
         if (mBinding == null || mBinding.control == null) return;
         updateKtvButton();
-        if (mWatch != null && mWatch.inRoom()) {
-            mBinding.control.action.watch.setText("房 " + mWatch.roomCode());
-            mBinding.watchDetail.setText("房 " + mWatch.roomCode());
-        } else {
-            mBinding.control.action.watch.setText(R.string.watch_together);
-            mBinding.watchDetail.setText(R.string.watch_together);
-        }
-    }
-
-    @Override
-    public void watchPlayUrl(String url, Map<String, String> headers, String title, long posMs) {
-        if (service() == null || player() == null) return;
-        attachSurface();
-        player().start(PlaySpec.from(getHistoryKey(), url, headers, buildMetadata()), Constant.TIMEOUT_PLAY, true, Math.max(0, posMs));
-        Notify.show("房主开播了，正在同步");
-    }
-
-    @Override
-    public void watchPause() {
-        if (player() != null) player().pause();
-    }
-
-    @Override
-    public void watchResume() {
-        if (player() != null) player().play();
-    }
-
-    @Override
-    public void watchSeek(long posMs) {
-        if (player() != null) player().seekTo(posMs);
-    }
-
-    @Override
-    public void watchChat(String name, String text) {
-        if (mWatch != null && mWatch.inRoom()) {
-            ensureRoomView();
-            mRoomView.addChat(name, text);
-            if (mRoomFloat != null) mRoomFloat.floatText(name, text);
-        } else {
-            Notify.show((name == null || name.isEmpty() ? "伙伴" : name) + "：" + text);
-        }
-    }
-
-    @Override
-    public void watchStatus(String text) {
-        Notify.show(text);
-        refreshWatchButton();
-        if (mWatch != null && mWatch.inRoom()) {
-            ensureRoomView();
-            mRoomView.addSystem(text);
-            syncRoomView();
-            // 横屏不自动弹开盖住全屏画面（靠一起看按钮呼出，平时只飘字）；竖屏自动打开
-            boolean landscape = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-            if (!landscape && mRoomView.getVisibility() != View.VISIBLE) showWatchRoomPage();
-        }
-    }
-
-    @Override
-    public void watchMembers(int count) {
-        refreshWatchButton();
-        if (mRoomView != null && mWatch != null && mWatch.inRoom()) syncRoomView();
-    }
-
-    @Override
-    public long watchPosition() {
-        return service() == null || player() == null ? 0 : player().getPosition();
-    }
-
-    @Override
-    public boolean watchIsPlaying() {
-        return player() != null && player().isPlaying();
-    }
-
-    @Override
-    public void watchEnded() {
-        refreshWatchButton();
-        hideWatchRoomPage();
-    }
-
-    @Override
-    public void watchSingStart(String name) {
-        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 开唱了";
-        Notify.show(text);
-        if (mRoomView != null) mRoomView.addSystem(text);
-    }
-
-    @Override
-    public void watchSingStop(String name) {
-        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 唱完了";
-        Notify.show(text);
-        if (mRoomView != null) mRoomView.addSystem(text);
-    }
-
-    @Override
-    public void watchScore(String name, int score, String grade) {
-        String text = (name == null || name.isEmpty() ? "伙伴" : name) + " 得分 " + score + (grade == null || grade.isEmpty() ? "" : "（" + grade + "）");
-        Notify.show(text);
-        if (mRoomView != null) mRoomView.addSystem(text);
+        mBinding.control.action.watch.setText(R.string.watch_together);
+        mBinding.watchDetail.setText(R.string.watch_together);
     }
 
     /** AI：快进/快退（毫秒，正数快进负数快退） */
@@ -7798,7 +7705,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onDestroy() {
-        if (mWatch != null) mWatch.release();
         hasPlayer = false;
         // 释放 AI 本地字幕
         try {

@@ -48,12 +48,17 @@ public class MusicActivity extends BaseActivity {
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(new SiteAdapter());
         binding.ktvCard.setOnClickListener(v -> KtvActivity.start(this));
+        binding.ktvSettings.setOnClickListener(v -> KtvSettingsActivity.start(this));
         refresh();
     }
 
     @Override
+    private int retryCount;
+
+    @Override
     protected void onResume() {
         super.onResume();
+        retryCount = 0;
         if (binding != null) refresh();
     }
 
@@ -77,6 +82,13 @@ public class MusicActivity extends BaseActivity {
         }
         binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
         if (binding.recycler.getAdapter() != null) binding.recycler.getAdapter().notifyDataSetChanged();
+        // 刚装完/刚打开时配置可能还没加载完，源列表先空着：短间隔重试几次，别让他对着空页
+        if (sites.isEmpty() && retryCount < 6 && !isFinishing()) {
+            retryCount++;
+            binding.getRoot().postDelayed(() -> {
+                if (binding != null && !isFinishing()) refresh();
+            }, 1200);
+        }
     }
 
     static boolean looksMusic(Site s) {

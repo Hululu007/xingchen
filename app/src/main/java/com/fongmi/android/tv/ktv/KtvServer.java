@@ -1,6 +1,6 @@
 package com.fongmi.android.tv.ktv;
 
-import com.fongmi.android.tv.utils.SpiderDebug;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;

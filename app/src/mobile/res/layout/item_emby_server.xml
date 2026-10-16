@@ -1,150 +1,142 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Emby 服务器行：别名/地址/登录用户 + 当前徽标 + 操作按钮；风格与设置页卡片统一 -->
+<!-- Emby 服务器行（Yamby 式）：图标＋服名＋绿点账号行＋上次播放行＋走节点开关＋右侧 ⋮；卡片点击不切服 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="8dp"
     android:background="@drawable/xc_setcard_v2"
-    android:orientation="vertical"
-    android:padding="15dp">
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="14dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+    <FrameLayout
+        android:layout_width="48dp"
+        android:layout_height="48dp">
 
-        <TextView
-            android:id="@+id/tv_alias"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:singleLine="true"
-            android:textColor="#0C0E12"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_current"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/xc_capsule_yellow"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="3dp"
-            android:text="@string/emby_current"
-            android:textColor="#0C0E12"
-            android:textSize="12sp"
-            android:textStyle="bold"
+        <ImageView
+            android:id="@+id/iv_icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="centerCrop"
             android:visibility="gone" />
-    </LinearLayout>
 
-    <TextView
-        android:id="@+id/tv_url"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:singleLine="true"
-        android:textColor="#1B2431"
-        android:textSize="13sp" />
-
-    <TextView
-        android:id="@+id/tv_user"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:ellipsize="end"
-        android:singleLine="true"
-        android:textColor="#1B2431"
-        android:textSize="13sp" />
+        <TextView
+            android:id="@+id/tv_icon_text"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/xc_capsule_light"
+            android:gravity="center"
+            android:textColor="#0C0E12"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+    </FrameLayout>
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/tv_alias"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="走节点"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:singleLine="true"
                 android:textColor="#0C0E12"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tv_current"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="需节点总开关开启才生效"
-                android:textColor="#5B6472"
-                android:textSize="12sp" />
+                android:layout_marginStart="8dp"
+                android:background="@drawable/xc_capsule_yellow"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="3dp"
+                android:text="@string/emby_current"
+                android:textColor="#0C0E12"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/row_user"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/dot_user"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/emby_dot_green" />
+
+            <TextView
+                android:id="@+id/tv_user"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:textColor="#1B2431"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_lastplayed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#1B2431"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="走节点"
+            android:textColor="#0C0E12"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <Switch
             android:id="@+id/sw_proxy"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="2dp" />
     </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:gravity="end"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/btn_switch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/xc_capsule_yellow"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:minWidth="72dp"
-            android:paddingVertical="8dp"
-            android:text="@string/emby_btn_switch"
-            android:textColor="#0C0E12"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/btn_login"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/xc_capsule_light"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:minWidth="72dp"
-            android:paddingVertical="8dp"
-            android:text="@string/emby_btn_relogin"
-            android:textColor="#0C0E12"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/btn_delete"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/xc_capsule_light"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:minWidth="72dp"
-            android:paddingVertical="8dp"
-            android:text="@string/emby_btn_delete"
-            android:textColor="#E5484D"
-            android:textSize="13sp" />
-    </LinearLayout>
+    <ImageView
+        android:id="@+id/btn_more"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="8dp"
+        android:src="@drawable/ic_action_more_vert" />
 </LinearLayout>

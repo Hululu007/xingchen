@@ -33,6 +33,7 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityKtvBinding;
+import com.fongmi.android.tv.ktv.KtvLog;
 import com.fongmi.android.tv.ktv.KtvServer;
 import com.fongmi.android.tv.ktv.KtvSong;
 import com.fongmi.android.tv.ktv.KtvStore;

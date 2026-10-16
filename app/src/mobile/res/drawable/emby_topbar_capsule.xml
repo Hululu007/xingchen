@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Emby 首页顶栏深色长胶囊（定稿：与深底融为一体的深灰胶囊） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#3A4048" />
+    <corners android:radius="24dp" />
+</shape>

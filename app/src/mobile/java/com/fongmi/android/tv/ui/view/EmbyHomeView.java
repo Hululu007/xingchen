@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
@@ -110,7 +111,10 @@ public class EmbyHomeView extends FrameLayout {
 
     private View btnSwitch;
     private TextView tvServer;
-    private View btnCats;
+    private View dotOnline;
+    private View capsule;
+    private View btnStar;
+    private View btnMore;
     private View btnSearch;
     private ViewGroup container;
     private LinearLayout libContainer;
@@ -150,13 +154,19 @@ public class EmbyHomeView extends FrameLayout {
         LayoutInflater.from(context).inflate(R.layout.view_emby_home, this, true);
         btnSwitch = findViewById(R.id.btn_switch);
         tvServer = findViewById(R.id.tv_server);
-        btnCats = findViewById(R.id.btn_cats);
+        dotOnline = findViewById(R.id.dot_online);
+        capsule = findViewById(R.id.capsule);
         btnSearch = findViewById(R.id.btn_search);
+        btnStar = findViewById(R.id.btn_star);
+        btnMore = findViewById(R.id.btn_more);
         container = findViewById(R.id.container);
         pageEmpty = findViewById(R.id.tv_page_empty);
-        btnSwitch.setOnClickListener(v -> openServerSwitcher());
-        btnCats.setOnClickListener(v -> openCategories());
+        View.OnClickListener switcher = v -> openServerSwitcher();
+        btnSwitch.setOnClickListener(switcher);
+        capsule.setOnClickListener(switcher);
         btnSearch.setOnClickListener(v -> openSearch());
+        btnStar.setOnClickListener(v -> openAll(EmbyLibraryActivity.MODE_FAV, null, getContext().getString(R.string.emby_rail_fav)));
+        btnMore.setOnClickListener(v -> openCategories());
         applyWindowInsets(context);
     }
 
@@ -268,6 +278,9 @@ public class EmbyHomeView extends FrameLayout {
     private void updateHeader(EmbyServer server) {
         try {
             tvServer.setText(server == null ? "" : server.displayName());
+            boolean online = server != null && server.isLogin();
+            GradientDrawable dotBg = (GradientDrawable) dotOnline.getBackground();
+            if (dotBg != null) dotBg.setColor(online ? 0xFF34C759 : 0xFF8E8E93);
         } catch (Throwable ignored) {
         }
     }

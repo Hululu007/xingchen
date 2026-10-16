@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Emby 首页顶栏服在线状态圆点（颜色由代码按登录状态设置：绿=已登录，灰=未登录） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#34C759" />
+</shape>

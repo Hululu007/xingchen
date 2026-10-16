@@ -10,7 +10,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- 顶栏：左=服切换入口，中=当前服名，右=搜索＋分类 -->
+        <!-- 顶栏：深色长胶囊（绿点＋服名＋·Emby＋切换）＋三个圆形图标钮（搜索/星标/更多） -->
         <LinearLayout
             android:id="@+id/topbar"
             android:layout_width="match_parent"
@@ -19,53 +19,95 @@
             android:orientation="horizontal"
             android:paddingHorizontal="16dp">
 
-            <TextView
-                android:id="@+id/btn_switch"
-                android:layout_width="wrap_content"
-                android:layout_height="38dp"
-                android:background="@drawable/xc_capsule_glass"
-                android:gravity="center"
-                android:paddingHorizontal="14dp"
-                android:text="⇄ 切换"
-                android:textColor="#F0A400"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_server"
+            <LinearLayout
+                android:id="@+id/capsule"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginEnd="10dp"
                 android:layout_weight="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:paddingHorizontal="8dp"
-                android:textColor="#F2F4F8"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:background="@drawable/emby_topbar_capsule"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="6dp">
 
-            <TextView
-                android:id="@+id/btn_cats"
-                android:layout_width="wrap_content"
-                android:layout_height="38dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/xc_capsule_glass"
-                android:gravity="center"
-                android:paddingHorizontal="14dp"
-                android:text="@string/emby_cats"
-                android:textColor="#EDEFF3"
-                android:textSize="13sp" />
+                <View
+                    android:id="@+id/dot_online"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/emby_online_dot" />
 
-            <TextView
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tv_server"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:maxWidth="160dp"
+                        android:textColor="#F2F4F8"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="· Emby"
+                        android:textColor="#9AA0AE"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btn_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:text="切换 ›"
+                    android:textColor="#F0A400"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ImageView
                 android:id="@+id/btn_search"
-                android:layout_width="wrap_content"
-                android:layout_height="38dp"
-                android:background="@drawable/xc_capsule_glass"
-                android:gravity="center"
-                android:paddingHorizontal="14dp"
-                android:text="@string/emby_search"
-                android:textColor="#EDEFF3"
-                android:textSize="13sp" />
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/emby_topbar_circle"
+                android:contentDescription="@string/emby_search"
+                android:padding="13dp"
+                android:src="@drawable/ic_action_search"
+                android:tint="#FFFFFF" />
+
+            <ImageView
+                android:id="@+id/btn_star"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/emby_topbar_circle"
+                android:contentDescription="@string/emby_rail_fav"
+                android:padding="13dp"
+                android:src="@drawable/icon_star"
+                android:tint="#FFFFFF" />
+
+            <ImageView
+                android:id="@+id/btn_more"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/emby_topbar_circle"
+                android:contentDescription="@string/emby_cats"
+                android:padding="13dp"
+                android:src="@drawable/ic_action_more_vert"
+                android:tint="#FFFFFF" />
         </LinearLayout>
 
         <androidx.core.widget.NestedScrollView

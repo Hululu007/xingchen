@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Emby 服务器管理页：服务器列表（加/切/删/登录）+ 首页栏目显隐；风格与设置页卡片统一 -->
+<!-- Emby 服务器管理页：服务器列表（Yamby 式卡片＋⋮ 菜单）+ 加服/编辑表单；风格与设置页卡片统一 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -106,18 +106,127 @@
                 android:textSize="14sp" />
 
             <EditText
-                android:id="@+id/et_url"
+                android:id="@+id/et_host"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/xc_input_bg"
-                android:hint="@string/emby_hint_url"
+                android:hint="@string/emby_hint_host"
                 android:inputType="textUri"
                 android:padding="14dp"
                 android:singleLine="true"
                 android:textColor="#0C0E12"
                 android:textColorHint="#8E97A8"
                 android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tv_proto_https"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/xc_capsule_yellow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="HTTPS"
+                    android:textColor="#0C0E12"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_proto_http"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/xc_input_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="HTTP"
+                    android:textColor="#0C0E12"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/et_port"
+                    android:layout_width="104dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/xc_input_bg"
+                    android:hint="@string/emby_hint_port"
+                    android:inputType="number"
+                    android:padding="10dp"
+                    android:singleLine="true"
+                    android:textAlignment="center"
+                    android:textColor="#0C0E12"
+                    android:textColorHint="#8E97A8"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/et_path"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/xc_input_bg"
+                android:hint="@string/emby_hint_path"
+                android:inputType="textUri"
+                android:padding="14dp"
+                android:singleLine="true"
+                android:textColor="#0C0E12"
+                android:textColorHint="#8E97A8"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/emby_alt_url_title"
+                android:textColor="#0C0E12"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/container_alt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/btn_alt_add"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/xc_capsule_light"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="8dp"
+                android:text="@string/emby_alt_url_add"
+                android:textColor="#0C0E12"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_icon_reset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/xc_capsule_light"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="8dp"
+                android:text="@string/emby_icon_reset"
+                android:textColor="#0C0E12"
+                android:textSize="13sp"
+                android:visibility="gone" />
 
             <EditText
                 android:id="@+id/et_user"
@@ -146,6 +255,40 @@
                 android:textColor="#0C0E12"
                 android:textColorHint="#8E97A8"
                 android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/emby_form_proxy"
+                        android:textColor="#0C0E12"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/emby_form_proxy_sub"
+                        android:textColor="#1B2431"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_form_proxy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tv_error"
@@ -195,28 +338,5 @@
             </LinearLayout>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="4dp"
-            android:text="@string/emby_section_home"
-            android:textColor="#0C0E12"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/emby_section_home_sub"
-            android:textColor="#1B2431"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:id="@+id/container_sections"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
     </LinearLayout>
 </ScrollView>

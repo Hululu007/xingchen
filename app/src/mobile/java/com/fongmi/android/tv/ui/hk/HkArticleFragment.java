@@ -1609,6 +1609,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (recordHistory) codeAndHeader = null;
+        // 红果定根诊断：只记空/非空不记内容；fromLazy=懒解析回灌（recordHistory=false）
+        SpiderDebug.log("hk", "collect-check rule=%s pos=%d fromLazy=%b codeAndHeaderEmpty=%b",
+                articleListRule == null ? "" : articleListRule.getTitle(), position, !recordHistory,
+                TextUtils.isEmpty(codeAndHeader));
         dealWithUrl(view, decoded, position, codeAndHeader);
     }
 
@@ -2174,6 +2178,9 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             boolean collect = cleared.equals(itemCleared) || !TextUtils.isEmpty(codeAndHeader)
                     || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl());
             boolean byPlayDataOnly = !collect && HkListActivity.playDataOf(url) != null;
+            // 红果定根诊断：记 collect 定值与实际走的分支（单播/单集章节/收全选集），不记地址内容
+            SpiderDebug.log("hk", "collect-branch collect=%b byPlayDataOnly=%b branch=%s", collect, byPlayDataOnly,
+                    byPlayDataOnly ? "single-chapter" : (!collect ? "single" : "chapters"));
             if (!collect && !byPlayDataOnly) {
                 detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
                 return;

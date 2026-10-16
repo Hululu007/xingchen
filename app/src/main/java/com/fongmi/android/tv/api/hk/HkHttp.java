@@ -272,7 +272,22 @@ public class HkHttp {
                 throw new UnknownHostException("dns timeout: " + hostname);
             } catch (java.util.concurrent.ExecutionException e) {
                 Throwable c = e.getCause();
-                if (c instanceof UnknownHostException) throw (UnknownHostException) c;
+                if (c instanceof UnknownHostException) {
+                    // 系统解析直接失败：用 DoH 再查一次（仅兜底，不做主解析，
+                    // 免得重蹈"恒走 DoH 无回退致零封面"）。用户配了 DoH 用用户的，
+                    // 没配用阿里兜底（与取数侧同口径）。DoH 也查不到才维持原失败。
+                    try {
+                        DnsOverHttps fb = hkDoh != null ? hkDoh : autoDoh("https://dns.alidns.com/dns-query");
+                        if (fb != null) {
+                            List<InetAddress> alt = fb.lookup(hostname);
+                            List<InetAddress> cleanAlt = stripAnyLocal(alt);
+                            if (!cleanAlt.isEmpty()) return cleanAlt;
+                            if (alt != null && !alt.isEmpty()) return alt;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    throw (UnknownHostException) c;
+                }
                 throw new UnknownHostException(String.valueOf(c));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

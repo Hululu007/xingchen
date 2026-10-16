@@ -123,15 +123,16 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void homeContent(boolean forceRefresh) {
-        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(VodConfig.get().getHome(), forceRefresh));
+        com.fongmi.android.tv.bean.Site home = VodConfig.get().getHome();
+        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null, null, Constant.TIMEOUT_VOD, home == null ? "" : home.getKey());
     }
 
     public void categoryContent(String key, String tid, String page, boolean filter, HashMap<String, String> extend) {
-        execute(TaskType.RESULT, result, () -> SiteApi.categoryContent(key, tid, page, filter, extend));
+        execute(TaskType.RESULT, result, () -> SiteApi.categoryContent(key, tid, page, filter, extend), null, null, Constant.TIMEOUT_VOD, key);
     }
 
     public void action(String key, String act) {
-        execute(TaskType.ACTION, action, () -> SiteApi.action(key, act));
+        execute(TaskType.ACTION, action, () -> SiteApi.action(key, act), null, null, Constant.TIMEOUT_VOD, key);
     }
 
     public void detailContent(String key, String id) {
@@ -143,18 +144,19 @@ public class SiteViewModel extends ViewModel {
         // 外层沿用 30 秒会先把任务掐掉——首次粘贴、DHT 稍慢必失败。对齐到 75 秒。
         boolean p2p = SiteApi.PUSH.equals(key) || (id != null && Thunder.Parser.match(id));
         execute(TaskType.RESULT, result, () -> SiteApi.detailContent(key, id, forceRefresh), null, null,
-                p2p ? Constant.TIMEOUT_PUSH_DETAIL : Constant.TIMEOUT_VOD);
+                p2p ? Constant.TIMEOUT_PUSH_DETAIL : Constant.TIMEOUT_VOD, key);
     }
 
     public void playerContent(String key, String flag, String id) {
-        execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id));
+        execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id), null, null, Constant.TIMEOUT_VOD, key);
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {
         long start = System.currentTimeMillis();
         execute(TaskType.RESULT, result, SearchTask.create(site, keyword, quick, page),
                 result -> SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, ""),
-                error -> SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage()));
+                error -> SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage()),
+                Constant.TIMEOUT_VOD, site == null ? "" : site.getKey());
     }
 
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
@@ -209,6 +211,10 @@ public class SiteViewModel extends ViewModel {
     }
 
     private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs) {
+        execute(type, liveData, callable, onSuccess, onError, timeoutMs, "");
+    }
+
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs, String siteKey) {
         AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
         int currentId = taskId.incrementAndGet();
         ListenableFuture<?> old = futures.get(type);
@@ -228,7 +234,7 @@ public class SiteViewModel extends ViewModel {
                     if (onError != null) onError.accept(error);
                     // 失败原因必须留痕：以前非 ExtractException 一律吞成空结果，界面只剩通用
                     // 提示、调试日志里也没有原文，推送磁力/ed2k 的超时就是这样一直查不到
-                    SpiderDebug.log("viewmodel", "execute failed type=%s error=%s", type, error);
+                    SpiderDebug.log("viewmodel", "execute failed type=%s site=%s error=%s", type, siteKey, error);
                     if (error instanceof ExtractException) liveData.postValue(Result.error(error.getMessage()));
                     else if (type == TaskType.PLAYER && error instanceof TimeoutException) liveData.postValue(Result.error(ResUtil.getString(R.string.error_play_timeout)));
                     else liveData.postValue(Result.empty());

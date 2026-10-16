@@ -180,11 +180,14 @@ final class WebHomeChromeController {
         binding.navigation.setVisibility(normal ? View.VISIBLE : View.GONE);
         WebHomeViewport current = buildViewport();
         int top = normal ? current.getSafeTop() : 0;
-        // 底部安全区只在网页首页 chrome 真正生效时才加进底栏高度（上游贴底栏的延伸语义）。
-        // 星辰是悬浮胶囊栏，系统栏避让已由 HomeActivity 的边距监听统一处理；
-        // 非网页首页时也加，就会重复计算：手势条一调出来，胶囊被撑成两倍高、图标顶在最上方
-        // （潇洒哥真机截图实锤）。普通首页保持 56dp 设计高度、零内边距。
-        int bottom = active && WebHomeChrome.NORMAL.equals(mode) ? current.getSafeBottom() : 0;
+        // 底栏高度永不加底部安全区：那是上游"贴底栏"的延伸语义（栏贴屏幕底边、
+        // 高度要吞掉系统导航区）。星辰是悬浮胶囊栏，整栏避让已由 HomeActivity
+        // 的边距监听统一处理（基础边距+导航栏高）——这里再把 safeBottom 加进
+        // 栏高就是重复计算，胶囊被撑高、图标顶在上方、下方留空（真机实锤）。
+        // 1.3.20 曾用 active&&NORMAL 做门控，但 active 的口径是"点播页可见"、
+        // 普通首页下恰好恒真，等于没改（潇洒哥 1.3.20 真机复验仍撑高）。
+        // 网页视口上报（buildViewport/safeBottomMax）不受影响，页面自己读安全区。
+        int bottom = 0;
         binding.container.setPadding(0, top, 0, 0);
         binding.navigation.setPadding(0, 0, 0, bottom);
         ViewGroup.LayoutParams params = binding.navigation.getLayoutParams();

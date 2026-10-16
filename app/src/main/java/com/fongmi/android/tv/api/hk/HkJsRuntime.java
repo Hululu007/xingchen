@@ -1869,18 +1869,20 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return readFileContent(new File(ruleDirForTitle(rt), base).getAbsolutePath(), charset);
         });
         putFunction("fileExist", args -> {
-            if (args == null || args.length == 0) return "false";
-            // 官方返回 STRING "true"/"false"；全局 miss 时再查按规则 libs（$.require 门控）
+            // 8.83 JSEngine.java:1574 @JSAnnotation(returnType=BOOL)：JS 侧拿到的是真布尔。
+            // 曾回字符串 "false"——JS 里非空字符串为真，红果代理 if(!fileExist(...)) 永不成立、
+            // 密文从不下载、只回 45 字节报错文本（真机+字节级实证）。全局 miss 再查按规则 libs。
+            if (args == null || args.length == 0) return Boolean.FALSE;
             String p = argStr(args[0]);
-            if (new File(resolveHikerPath(p)).exists()) return "true";
-            return resolvePerRuleLibFile(p) != null ? "true" : "false";
+            if (new File(resolveHikerPath(p)).exists()) return Boolean.TRUE;
+            return resolvePerRuleLibFile(p) != null ? Boolean.TRUE : Boolean.FALSE;
         });
         // 官方别名：exist 即 fileExist
         putFunction("exist", args -> {
-            if (args == null || args.length == 0) return "false";
+            if (args == null || args.length == 0) return Boolean.FALSE;
             String p = argStr(args[0]);
-            if (new File(resolveHikerPath(p)).exists()) return "true";
-            return resolvePerRuleLibFile(p) != null ? "true" : "false";
+            if (new File(resolveHikerPath(p)).exists()) return Boolean.TRUE;
+            return resolvePerRuleLibFile(p) != null ? Boolean.TRUE : Boolean.FALSE;
         });
         // getPath(filePath)：8.83（JSEngine.java:2105）恒返回 "file://" + getFilePath(filePath)。
         // 内部文件操作（writeFile/readFile/exists/delete/download）都直接调 resolveHikerPath，
@@ -3043,7 +3045,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
         // 首页子模块：8.83 JSEngine.getHomeSub/hasHomeSub (JSEngine.smali:17037/18002)
-        // 8.83 语义：getHomeSub() 返回订阅记录 JSON 数组；hasHomeSub(url) 返回 "true"/"false" 字符串。
+        // 8.83 语义：getHomeSub() 返回订阅记录 JSON 数组；hasHomeSub(url) 是 ReturnType.BOOL
+        // （JSEngine.java:2311），JS 侧真布尔——旧注释写"返回字符串"是错的，已按原版改。
         // 移植：HkHomeSubService.getSubRecords()（SharedPreferences 存，语义与 8.83 BigTextDO.getHomeSub() 一致）
         putFunction("getHomeSub", args -> {
             try {
@@ -3055,9 +3058,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunction("hasHomeSub", args -> {
             try {
                 String url = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
-                return HkHomeSubService.hasHomeSub(url);
+                return "true".equals(HkHomeSubService.hasHomeSub(url)) ? Boolean.TRUE : Boolean.FALSE;
             } catch (Throwable t) {
-                return "false";
+                return Boolean.FALSE;
             }
         });
         // 应用信息（真实现）
@@ -5009,7 +5012,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     private String stringifyArg(Object arg) {
         try {
-            if (arg instanceof NativeObject) return jsStringify(arg);
+            // 必须是 Scriptable 而非只有 NativeObject：JS 数组是 NativeArray，
+            // 漏了它数组会被 String.valueOf 压成逗号串/"[object Object]"存进
+            // putMyVar/setItem，下次读回不是数组、结构全烂（UU视频 setTabs
+            // 读缓存 tabs 时 data.names 为空、读 [0] 崩，真机堆栈实证）。
+            if (arg instanceof org.mozilla.javascript.Scriptable) return jsStringify(arg);
         } catch (Throwable ignored) {
         }
         return String.valueOf(arg);
@@ -5031,6 +5038,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try {
                 return parseJson(v);
             } catch (Throwable ignored) {
+                // 长得像 JSON 却解析不了 = 存量坏缓存（旧版数组被压成
+                // "[object Object]" 那批）。当未命中处理，让规则重建，
+                // 别把垃圾串回给规则（UU视频 setTabs 拿它当数组用直接崩）。
+                return args.length > 1 && args[1] != null ? args[1] : "";
             }
         }
         return v;

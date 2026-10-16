@@ -39,8 +39,12 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
 
     private static final String TAG = "HkImageFetch";
 
+    private static final int MAX_ATTEMPTS = 3;
+
     private final Call.Factory client;
     private final GlideUrl url;
+    private int attempts;
+    private volatile boolean cancelled;
     private volatile Call call;
     private InputStream stream;
     private ResponseBody responseBody;
@@ -61,8 +65,23 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
         }
         Request request = builder.build();
         this.callback = callback;
+        attempts++;
         call = client.newCall(request);
         SpiderDebug.log("hkimage", "图片请求发出 host=%s 带解密头=%s", hostOf(), jsBody() != null);
+        call.enqueue(this);
+    }
+
+    /** 重新组装并发出同一图片请求（loadData 的请求构建逻辑复用一遍）。 */
+    private void refire() {
+        Request.Builder builder = new Request.Builder().url(url.toStringUrl());
+        for (Map.Entry<String, String> entry : url.getHeaders().entrySet()) {
+            String key = entry.getKey();
+            if ("js".equals(key) || "timeout".equals(key)) continue;
+            builder.addHeader(key, entry.getValue());
+        }
+        attempts++;
+        call = client.newCall(builder.build());
+        SpiderDebug.log("hkimage", "图片请求重试 host=%s 第%d次", hostOf(), attempts);
         call.enqueue(this);
     }
 
@@ -105,6 +124,16 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
         String cls = e.getClass().getSimpleName();
         String msg = e.getMessage();
         SpiderDebug.log("hkimage", "图片请求失败 host=%s 类型=%s 信息=%s", hostOf(), cls, msg == null ? "" : msg);
+        // 瞬时网络故障（连接被掐/重置/超时）先自重试：换新连接再试，试满才走下面的自救/失败。
+        // 图床类站点在直连下首连常被掐断，重试一两次就能拿到图（真机日志实证：同批图前几张
+        // Connection reset、随后成功）。Canceled 是 Glide 主动取消，不重试。
+        if (!cancelled && attempts < MAX_ATTEMPTS && !"Canceled".equals(msg)) {
+            try {
+                refire();
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
         String js = jsBody();
         if (js != null) {
             InputStream s = evalImageJs(js, null, Collections.emptyMap());
@@ -180,6 +209,7 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
 
     @Override
     public void cancel() {
+        cancelled = true;
         Call c = call;
         if (c != null) c.cancel();
     }

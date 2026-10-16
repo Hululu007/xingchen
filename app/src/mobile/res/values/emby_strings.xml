@@ -2,7 +2,6 @@
 <!-- Emby 模块字符串：只放 Emby 相关的文案，不动已有 strings.xml -->
 <resources>
     <string name="emby_title">Emby</string>
-    <string name="emby_server_manage">Emby 服务器管理</string>
     <string name="emby_not_login">Emby：未登录</string>
     <string name="emby_login_summary">Emby：已登录 %1$d 服</string>
     <string name="emby_rail_resume">继续观看</string>
@@ -44,7 +43,6 @@
     <string name="emby_edit_url_changed">地址已改，若连不上请重新登录</string>
     <string name="emby_logout_ok">已退出登录</string>
     <string name="emby_auth_expired">登录已失效，请去设置-个性功能重新登录</string>
-    <string name="emby_current">当前</string>
     <string name="emby_delete_title">删除服务器</string>
     <string name="emby_delete_msg">确定删除「%1$s」吗？它的登录信息会一起清掉。</string>
     <string name="emby_delete_ok">已删除</string>

@@ -101,7 +101,20 @@ public final class WatchSession {
         this.myName = name == null ? "" : name;
         this.password = password == null ? "" : password;
         this.roomCode = String.valueOf(100000 + new Random().nextInt(900000));
+        // 房主本地先入场：房号、头像不等中继握手回执，先行显示；
+        // 连接和在场同步照常在后台跟上，回显到同 clientId 时原样覆盖，无协议变更。
+        synchronized (members) {
+            members.put(clientId, Boolean.TRUE);
+            if (!myName.isEmpty()) memberNames.put(clientId, myName);
+        }
         connect();
+        main.post(() -> {
+            int n;
+            synchronized (members) {
+                n = members.size();
+            }
+            listener.onMembers(n);
+        });
     }
 
     public void joinRoom(String code, String name, String password) {

@@ -5334,13 +5334,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 首集启动加速：历史集并行预解析。
      * checkHistory 拿到历史选集后，后台提前跑 playerContent 解析，
      * 与 checkFlag/seamless 的 UI 流程并行，命中时 getPlayer 可跳过解析链。
-     * 只走 ExoPlayer 路径（MPV 不预解析）。
+     * Exo 与 MPV 双内核通用：playerContent 三参版按 PlayerSetting.getPlayer()
+     * 取当前引擎做提取，解析结果引擎对版；消费侧 consumePreparsed /
+     * pollInflightPreparse 本来就不分引擎。雷磁类仍按既有规则排除
+     * （在途等待不复用，真机实证预解析内 Source.stop 会杀死在播引擎）。
      */
     private void preparseHistoryEpisode() {
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
         mPreparsedHistoryFuture = null;
-        if (player().isMpv()) return;
         String episodeUrl = mHistory.getEpisodeUrl();
         Flag historyFlag = mHistory.getFlag();
         if (TextUtils.isEmpty(episodeUrl) || historyFlag == null) return;

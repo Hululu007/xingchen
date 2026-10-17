@@ -1371,13 +1371,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return str;
             }
         });
-        // ---- aesEncode/aesDecode：8.83（JSEngine.java:771-814，AesUtil.java:37-47）：
-        // 参数序 (key, data)；AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。
-        // 旧实现是 CBC + 原始 key 补零 16 字节 + base64 + 参数序 (data, key[, iv])，全错位。
+        // ---- aesEncode/aesDecode：8.83（JSEngine.java:771-814）：即 AesUtil.encrypt/decrypt，
+        // 参数序 (key, data)；AES/ECB/PKCS5Padding；密钥补"0"到 32 字节；base64 出入。
         putFunction("aesEncode", args -> {
             if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
             try {
-                return aesEcbHex(true, String.valueOf(args[0]), String.valueOf(args[1]));
+                return aesUtilCrypt(true, String.valueOf(args[0]), String.valueOf(args[1]));
             } catch (Throwable e) {
                 return "";
             }
@@ -1385,7 +1384,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunction("aesDecode", args -> {
             if (args == null || args.length < 2 || args[0] == null || args[1] == null) return "";
             try {
-                return aesEcbHex(false, String.valueOf(args[0]), String.valueOf(args[1]));
+                return aesUtilCrypt(false, String.valueOf(args[0]), String.valueOf(args[1]));
             } catch (Throwable e) {
                 return "";
             }
@@ -1737,7 +1736,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunction("evalPrivateJS", args -> {
             if (args == null || args.length == 0) return null;
             try {
-                String plain = aesEcbHex(false, AES_DEFAULT_KEY, argStr(args[0]));
+                String plain = aesUtilCrypt(false, AES_DEFAULT_KEY, argStr(args[0]));
                 if (TextUtils.isEmpty(plain)) return null;
                 return evalJs(plain);
             } catch (Throwable e) {
@@ -3039,7 +3038,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunction("getPrivateJS", args -> {
             if (args == null || args.length == 0 || args[0] == null) return "";
             try {
-                return aesEcbHex(true, AES_DEFAULT_KEY, argStr(args[0]));
+                return aesUtilCrypt(true, AES_DEFAULT_KEY, argStr(args[0]));
             } catch (Throwable e) {
                 Logger.t(TAG).d("getPrivateJS failed: %s", e.getMessage());
                 return "";
@@ -3354,30 +3353,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
-    /** 8.83 AesUtil 同款：AES/ECB/PKCS5Padding；密钥经 SHA1PRNG 派生 256 位；hex 出入。 */
-    private String aesEcbHex(boolean encode, String key, String data) throws Exception {
-        javax.crypto.KeyGenerator kgen = javax.crypto.KeyGenerator.getInstance("AES");
-        java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
-        sr.setSeed(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        kgen.init(256, sr);
-        byte[] rawKey = kgen.generateKey().getEncoded();
-        javax.crypto.spec.SecretKeySpec spec = new javax.crypto.spec.SecretKeySpec(rawKey, "AES");
-        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES");
+    /** 8.83 AesUtil 同款（encrypt/decrypt）：AES/ECB/PKCS5Padding；密钥补"0"到 32 字节（只补不截）；
+     * base64 出入（Android Base64 NO_WRAP）；UTF-8。原版无 SHA1PRNG、无 hex。 */
+    private String aesUtilCrypt(boolean encode, String key, String data) throws Exception {
+        String padded = key == null ? "" : key;
+        while (padded.length() < 32) padded += "0";
+        javax.crypto.spec.SecretKeySpec spec = new javax.crypto.spec.SecretKeySpec(
+                padded.getBytes(java.nio.charset.StandardCharsets.UTF_8), "AES");
+        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/ECB/PKCS5Padding");
         if (encode) {
             cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, spec);
             byte[] out = cipher.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(out.length * 2);
-            for (byte b : out) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString().toUpperCase();
+            return java.util.Base64.getEncoder().encodeToString(out);
         } else {
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, spec);
-            int n = data.length();
-            byte[] enc = new byte[n / 2];
-            for (int i = 0; i < n / 2; i++) {
-                enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
-            }
+            byte[] enc = java.util.Base64.getMimeDecoder().decode(data);
             return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
         }
     }

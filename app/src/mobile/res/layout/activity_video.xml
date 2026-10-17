@@ -381,7 +381,7 @@
                                 style="@style/AudioActionButton"
                                 android:layout_marginEnd="4dp"
                                 android:text="@string/player_audio_options"
-                                app:drawableTopCompat="@drawable/ic_action_ktv" />
+                                app:drawableTopCompat="@drawable/ic_audio_mic" />
 
                             <com.google.android.material.textview.MaterialTextView
                                 android:id="@+id/audioMoreAction"
@@ -487,19 +487,6 @@
                         android:textSize="22sp"
                         android:textStyle="bold"
                         tools:text="長安夜行" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/ktvDetail"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:minWidth="0dp"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:text="开唱"
-                        android:textColor="@color/white"
-                        android:textSize="15sp"
-                        android:visibility="gone" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/watchDetail"

@@ -1001,8 +1001,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
-        mBinding.ktvDetail.setOnClickListener(view -> onKtvButton());
-        updateKtvButton();
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -8108,44 +8106,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         dialog.show();
     }
 
-    /** 详情页 KTV 口子：只在音乐类源露脸（点开把当前这首歌的 MV 拉进唱歌页）。 */
-    private void updateKtvButton() {
-        if (mBinding == null || mBinding.ktvDetail == null) return;
-        Site site = null;
-        try {
-            site = getSite();
-        } catch (Throwable ignored) {
-        }
-        mBinding.ktvDetail.setVisibility(site != null && MusicActivity.looksMusic(site) ? View.VISIBLE : View.GONE);
-    }
-
-    private void onKtvButton() {
-        Episode ep = getEpisode();
-        Flag flag = getFlag();
-        Site site = getSite();
-        if (ep == null || flag == null || site == null) {
-            Notify.show("还没选好歌");
-            return;
-        }
-        com.fongmi.android.tv.ktv.KtvSong song = new com.fongmi.android.tv.ktv.KtvSong();
-        song.origin = "vod";
-        song.siteKey = site.getKey();
-        song.siteName = site.getName();
-        song.vodId = getId();
-        song.flag = flag.getFlag();
-        song.name = ep.getName();
-        song.episode = ep.getName();
-        song.episodeUrl = ep.getUrl();
-        song.singer = getName();
-        song.pic = getPic();
-        // 进开唱前先停掉详情页播放（跟进一起看房间前 player().pause() 同一套）
-        if (player() != null) player().pause();
-        KtvSingActivity.startWith(this, song);
-    }
-
     private void refreshWatchButton() {
         if (mBinding == null || mBinding.control == null) return;
-        updateKtvButton();
         mBinding.control.action.watch.setText(R.string.watch_together);
         mBinding.watchDetail.setText(R.string.watch_together);
     }

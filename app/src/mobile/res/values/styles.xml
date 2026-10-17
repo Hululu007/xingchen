@@ -222,7 +222,8 @@
     <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走浅色 -->
     <style name="Theme.XingChen.HkPage" parent="Theme.XingChen">
         <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.HkLight</item>
-        <item name="android:windowBackground">#F5F6F8</item>
+        <!-- 液态玻璃：窗背景同步动态背景顶色，透明状态栏下不断带 -->
+        <item name="android:windowBackground">@color/hk_status_bar</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 

@@ -110,8 +110,8 @@ public class ThemeManager {
             if (actName.endsWith(".ui.hk.HkListActivity") || actName.endsWith(".ui.hk.HkSearchActivity")) {
                 try {
                     activity.getWindow().setBackgroundDrawable(
-                            new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
-                    activity.getWindow().setStatusBarColor(0xFFFFFFFF);
+                            new android.graphics.drawable.ColorDrawable(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar)));
+                    activity.getWindow().setStatusBarColor(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar));
                 } catch (Exception ignored) {}
                 return;
             }

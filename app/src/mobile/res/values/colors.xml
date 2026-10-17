@@ -9,4 +9,6 @@
     <color name="hk_green">#ff14c47c</color>
     <color name="hk_gray_text">#ff848484</color>
     <color name="little_yellow">#f0e6f3e6</color>
+    <!-- 液态玻璃：淡色场顶色，海阔页状态栏/窗背景统一取它，不漏白条 -->
+    <color name="hk_status_bar">#FFF4F6F8</color>
 </resources>

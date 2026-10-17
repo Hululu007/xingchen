@@ -31,4 +31,6 @@
     <item type="id" name="item_rect_text" />
     <item type="id" name="btn_bg" />
     <item type="id" name="item_rect_text_desc" />
+    <!-- 液态玻璃动态背景（HkDynamicBgView），各海阔页根第一个孩子 -->
+    <item type="id" name="hk_dynamic_bg" />
 </resources>

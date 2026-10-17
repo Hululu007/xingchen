@@ -604,8 +604,8 @@ public class HkListActivity extends AppCompatActivity
         // 活动标题必须真实设置：HkFuck.inList(Activity) 与 Fragment.activityTitle() 都读它
         setTitle(pageTitle == null ? "" : pageTitle);
         setContentView(R.layout.activity_hk_list);
-        // 海阔浅色页状态栏：不透出星辰壁纸，用白色不透明（ThemeManager 的 resume 重刷同义处理）
-        getWindow().setStatusBarColor(0xFFFFFFFF);
+        // 海阔浅色页状态栏：与动态背景顶色融为一体，不漏白条（ThemeManager 的 resume 重刷同义处理）
+        getWindow().setStatusBarColor(getColor(R.color.hk_status_bar));
         buildMiniappTabs();
         if (savedInstanceState != null) {
             androidx.fragment.app.Fragment restored =

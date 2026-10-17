@@ -255,7 +255,6 @@
                 android:layout_centerHorizontal="true"
                 android:layout_marginBottom="16dp"
                 android:background="@drawable/hk_gold_button"
-                android:elevation="8dp"
                 android:gravity="center"
                 android:paddingLeft="28dp"
                 android:paddingRight="28dp"

@@ -5927,7 +5927,9 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(0xFFF1F3F6);
+                // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）；选中金底待定（按钮点击即跳转、无选中态跟踪）
+                bg.setColor(0xFFFFFFFF);
+                bg.setStroke(dp(1), 0xFFE2E5EA);
                 bg.setCornerRadius(dp(14));
                 tv.setBackground(bg);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -5986,7 +5988,9 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(0xFFF1F3F6);
+                // v5 质感：白底＋细灰边（与 flex/buttons 选集 chip 同语言）
+                bg.setColor(0xFFFFFFFF);
+                bg.setStroke(dp(1), 0xFFE2E5EA);
                 bg.setCornerRadius(dp(14));
                 tv.setBackground(bg);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -6022,7 +6026,9 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(0xFFF1F3F6);
+                // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）；选中金底待定（按钮点击即跳转、无选中态跟踪）
+                bg.setColor(0xFFFFFFFF);
+                bg.setStroke(dp(1), 0xFFE2E5EA);
                 bg.setCornerRadius(dp(14));
                 tv.setBackground(bg);
                 com.google.android.flexbox.FlexboxLayout.LayoutParams lp =

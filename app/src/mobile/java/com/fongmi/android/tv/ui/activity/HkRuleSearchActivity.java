@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -28,6 +31,7 @@ import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.databinding.ActivityHkRuleSearchBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -215,6 +219,69 @@ public class HkRuleSearchActivity extends BaseActivity {
     }
 
     private class ResultAdapter extends RecyclerView.Adapter<ResultAdapter.Holder> {
+        /** v5 口径（与 HkPageActivity P1 同一套色板/算法）：图标主色板＋按标题首字取色。 */
+        private static final int[] TINT_PALETTE = {
+                0xFFC9970D, 0xFF2E7FD9, 0xFF35A06B, 0xFFD95F4B, 0xFF8E6BC8, 0xFF2AA5A0
+        };
+
+        private static int paletteColorFor(String title) {
+            int h = 0;
+            if (title != null && !title.isEmpty()) h = Math.abs(title.charAt(0));
+            return TINT_PALETTE[h % TINT_PALETTE.length];
+        }
+
+        private static int parseIconColor(String iconDef) {
+            if (!TextUtils.isEmpty(iconDef) && iconDef.startsWith("#")) {
+                try {
+                    return android.graphics.Color.parseColor(iconDef);
+                } catch (Exception ignored) {
+                }
+            }
+            return -1;
+        }
+
+        private static int blend(int base, int tint, float ratio) {
+            float r = Math.max(0f, Math.min(1f, ratio));
+            int red = Math.round(android.graphics.Color.red(base) * (1 - r) + android.graphics.Color.red(tint) * r);
+            int green = Math.round(android.graphics.Color.green(base) * (1 - r) + android.graphics.Color.green(tint) * r);
+            int blue = Math.round(android.graphics.Color.blue(base) * (1 - r) + android.graphics.Color.blue(tint) * r);
+            return android.graphics.Color.argb(0xFF, red, green, blue);
+        }
+
+        private static int lighten(int color, float ratio) {
+            return blend(0xFFFFFFFF, color, ratio);
+        }
+
+        /** 图标瓷砖：主色渐变（提亮→主色）＋顶部内高光，圆角 10dp（P1 同口径）。 */
+        private static Drawable iconTileDrawable(int color) {
+            int rad = ResUtil.dp2px(10);
+            GradientDrawable base = new GradientDrawable();
+            base.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            base.setColors(new int[]{lighten(color, 0.45f), color});
+            base.setCornerRadius(rad);
+            GradientDrawable gloss = new GradientDrawable();
+            gloss.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            gloss.setColors(new int[]{0x59FFFFFF, 0x00FFFFFF});
+            gloss.setCornerRadius(rad);
+            return new LayerDrawable(new Drawable[]{base, gloss});
+        }
+
+        /** 结果卡面：纵向微渐变（上浅下微深）＋按主色淡染，圆角 12dp，顶部一层柔光（P1 同口径）。 */
+        private static Drawable cardFaceDrawable(int baseColor) {
+            int rad = ResUtil.dp2px(12);
+            int top = blend(0xFFFFFFFF, baseColor, 0.06f);
+            int bottom = blend(0xFFFFF4E2, baseColor, 0.10f);
+            GradientDrawable face = new GradientDrawable();
+            face.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            face.setColors(new int[]{top, bottom});
+            face.setCornerRadius(rad);
+            GradientDrawable gloss = new GradientDrawable();
+            gloss.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            gloss.setColors(new int[]{0x2EFFFFFF, 0x00FFFFFF});
+            gloss.setCornerRadius(rad);
+            return new LayerDrawable(new Drawable[]{face, gloss});
+        }
+
         class Holder extends RecyclerView.ViewHolder {
             TextView icon, name;
             ImageView ivIcon;
@@ -245,7 +312,11 @@ public class HkRuleSearchActivity extends BaseActivity {
             h.ivIcon.setVisibility(View.GONE);
             h.icon.setVisibility(View.VISIBLE);
             h.icon.setText(!TextUtils.isEmpty(title) ? title.substring(0, 1) : "海");
-            h.icon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
+            // v5：图标瓷砖按图标主色（# 色值优先，否则按标题首字取色板），卡面同色淡染（P1 同口径）
+            int faceBase = parseIconColor(r.getIcon());
+            if (faceBase == -1) faceBase = paletteColorFor(title);
+            h.icon.setBackground(iconTileDrawable(faceBase));
+            h.itemView.setBackground(cardFaceDrawable(faceBase));
             h.itemView.setOnClickListener(v -> {
                 // M12: 历史只存关键词，不存标题。点击结果直接返回，不写历史。
                 Intent data = new Intent();

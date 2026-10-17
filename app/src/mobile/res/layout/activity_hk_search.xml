@@ -89,7 +89,7 @@
             android:id="@+id/hk_search_suggest"
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
-            android:background="#FFFFFF"
+            android:background="#FFF8E8"
             android:maxHeight="280.0dip"
             android:visibility="gone" />
     </FrameLayout>

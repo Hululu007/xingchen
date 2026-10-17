@@ -310,7 +310,8 @@ public class SiteApi {
             vod.setPlayUrl(id);
             vod.setPlayFrom(ResUtil.getString(R.string.push));
             vod.setPic(ResUtil.getString(R.string.push_image));
-            if (parse) Source.get().parse(vod.setFlags());
+            vod.setFlags();
+            if (parse) Source.get().parse(vod);
             PushNameClean.applyEpisodeDisplayNames(vod);
             return Result.vod(vod);
         } else if (isSpider(key, site)) {
@@ -319,7 +320,8 @@ public class SiteApi {
                 DetailCacheEntry cached = detailCache.get(cacheKey);
                 if (cached != null && cached.fresh()) {
                     Result result = Result.fromJson(cached.detail);
-                    if (parse) Source.get().parse(result.getVod().setFlags());
+                    result.getVod().setFlags();
+                    if (parse) Source.get().parse(result.getVod());
                     return result;
                 }
             }
@@ -333,7 +335,8 @@ public class SiteApi {
             } else {
                 detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             }
-            if (parse) Source.get().parse(result.getVod().setFlags());
+            result.getVod().setFlags();
+            if (parse) Source.get().parse(result.getVod());
             return result;
         } else {
             String cacheKey = key + "_" + id;
@@ -341,7 +344,8 @@ public class SiteApi {
                 DetailCacheEntry cached = detailCache.get(cacheKey);
                 if (cached != null && cached.fresh()) {
                     Result result = Result.fromType(site.getType(), cached.detail);
-                    if (parse) Source.get().parse(result.getVod().setFlags());
+                    result.getVod().setFlags();
+                    if (parse) Source.get().parse(result.getVod());
                     return result;
                 }
             }
@@ -352,7 +356,8 @@ public class SiteApi {
             SpiderDebug.log("detail", detailContent);
             detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             Result result = Result.fromType(site.getType(), detailContent);
-            if (parse) Source.get().parse(result.getVod().setFlags());
+            result.getVod().setFlags();
+            if (parse) Source.get().parse(result.getVod());
             return result;
         }
     }

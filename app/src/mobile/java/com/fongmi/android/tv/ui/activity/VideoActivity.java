@@ -1718,7 +1718,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } else if (getName().isEmpty()) {
             showEmpty();
         } else {
-            mBinding.name.setText(getName());
+            if (!TextUtils.equals(mBinding.name.getText(), getName())) mBinding.name.setText(getName());
             App.post(mR4, 10000);
             checkSearch(false);
         }
@@ -5420,7 +5420,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void showInitialPreview() {
         mBinding.progressLayout.showContent();
-        mBinding.name.setText(getName());
+        if (!TextUtils.equals(mBinding.name.getText(), getName())) mBinding.name.setText(getName());
         setText(mBinding.content, R.string.detail_content, getContent());
         updateContentFold();
         setDetailLyrics(getContent());
@@ -5537,7 +5537,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (id) getIntent().putExtra("id", item.getId());
         if (id) mHistory.replace(getHistoryKey());
         if (name) mHistory.setVodName(item.getName());
-        if (name) mBinding.name.setText(item.getName());
+        if (name && !TextUtils.equals(mBinding.name.getText(), item.getName())) mBinding.name.setText(item.getName());
         if (name) mBinding.control.title.setText(item.getName());
         if (name) updateAudioStageText();
         updateFlag(getFlag(), item.getFlags());

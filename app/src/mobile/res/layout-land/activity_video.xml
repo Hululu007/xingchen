@@ -543,7 +543,7 @@
             android:layout_toEndOf="@+id/video"
             android:layout_marginEnd="16dp"
             android:ellipsize="marquee"
-            android:marqueeRepeatLimit="marquee_forever"
+            android:marqueeRepeatLimit="1"
             android:singleLine="true"
             android:focusable="true"
             android:focusableInTouchMode="true"

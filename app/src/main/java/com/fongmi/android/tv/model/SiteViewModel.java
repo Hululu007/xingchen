@@ -128,7 +128,14 @@ public class SiteViewModel extends ViewModel {
         // 否则慢网下进一次详情、返回首页就"打不开"（1.3.30 回归）；切源时新源的
         // homeContent 同样会作废旧源任务，原"切源不等旧源"意图不受影响。
         SiteApi.cancelHomeLoads();
-        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null, null, Constant.TIMEOUT_VOD, home == null ? "" : home.getKey());
+        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null,
+                // 超时/被取消：外层只给了空列表，子任务还在池里继续跑、继续打站点，
+                // 用户一重试就再叠一层——连带作废。正常慢加载（没超时没取消）不受影响。
+                error -> {
+                    if (error instanceof TimeoutException || error instanceof CancellationException)
+                        SiteApi.cancelHomeLoads();
+                },
+                Constant.TIMEOUT_VOD, home == null ? "" : home.getKey());
     }
 
     public void categoryContent(String key, String tid, String page, boolean filter, HashMap<String, String> extend) {

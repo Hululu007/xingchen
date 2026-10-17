@@ -50,6 +50,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Call;
@@ -206,6 +207,11 @@ public class SiteApi {
     });
     private static final AtomicInteger homeLoadGen = new AtomicInteger(0);
     private static final ConcurrentHashMap<Integer, CopyOnWriteArrayList<Future<?>>> homeLoadFutures = new ConcurrentHashMap<>();
+    /**
+     * spider-home 子任务硬上限（秒）。外层 30 秒超时正常先触发兜底；这里防 get() 无限
+     * 挂住池线程——池一共 8 个线程，每源占 2 个，挂住几个切几次源就排不上队了。
+     */
+    private static final long HOME_SUB_TIMEOUT_SECONDS = 35;
 
     /**
      * 作废所有在途的首页 spider 子任务，并开启一个新代次。
@@ -261,8 +267,14 @@ public class SiteApi {
                 Future<String> fVideo = spiderHomePool.submit(() -> marked(site, spider::homeVideoContent));
                 trackHomeFuture(gen, fVideo);
                 try {
-                    home = fHome.get();
-                    video = fVideo.get();
+                    home = fHome.get(HOME_SUB_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    video = fVideo.get(HOME_SUB_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    // 子任务超时：外层按超时处理（空列表）；这里先把两个子任务都掐掉，
+                    // 不让它们继续占池线程、继续打站点——否则用户一重试就再叠一层。
+                    fHome.cancel(true);
+                    fVideo.cancel(true);
+                    throw e;
                 } catch (java.util.concurrent.ExecutionException e) {
                     Throwable cause = e.getCause();
                     if (cause instanceof Exception) throw (Exception) cause;
@@ -278,7 +290,9 @@ public class SiteApi {
             List<Vod> list = Result.fromJson(video).getList();
             if (!list.isEmpty()) result.setList(list);
             setTypes(site, result);
-            if (useHomeCache) homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), result.toString()));
+            // 只缓存仍是当前代次的结果：被作废的旧加载即使跑完回来，也不许覆盖新加载的缓存。
+            if (useHomeCache && gen == homeLoadGen.get())
+                homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), result.toString()));
             return result;
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();

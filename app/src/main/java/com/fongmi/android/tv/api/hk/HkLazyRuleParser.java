@@ -227,7 +227,12 @@ public class HkLazyRuleParser {
         } else if (finalRule[1].startsWith("js:")) {
             parseByJs(executor, "js:", myUrl, activity, ruleObj, finalRule, position, lazyTag, callback);
         } else {
-            String fetchUrl = finalRule[0].contains(";") ? finalRule[0] : finalRule[0] + myUrl;
+            // 8.83 LazyRuleParser.parse 的第 5 个 String 参数是 codeAndHeader（取数时拼在详情页 URL 后，
+            // 正确形态如"详情页URL+;get"）；星辰移植把该位传成了列表页 URL，拼出垃圾地址（1.3.42 封面案：
+            // 「黄色仓库123」点封面卡在"动态解析规则中"）。
+            // 本方法签名里第 6 个 String 参数 lazyTag 实际承接的就是 codeAndHeader（调用处见 HkEngineBridge），
+            // 此处拼 lazyTag；签名不改，避免改动面扩散。
+            String fetchUrl = finalRule[0].contains(";") ? finalRule[0] : finalRule[0] + lazyTag;
             HkHttpParser.parseSearchUrlForHtml(fetchUrl, new HkHttpParser.OnSearchCallBack() {
                 @Override
                 public void onSuccess(String url, final String html) {

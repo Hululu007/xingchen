@@ -32,6 +32,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkCommonParser;
+import com.fongmi.android.tv.api.hk.HkDetailCache;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkLoading;
@@ -705,6 +706,13 @@ public class HkListActivity extends AppCompatActivity
             doOpenSubList(req, null);
             return;
         }
+        final HkRule cacheDto = dto;
+        // 详情短时缓存：5 分钟内点过同一条，直接用缓存开页，连预取都省了（走同一交接槽，新页无感）
+        HkDetailCache.Hit hit = HkDetailCache.get(this, cacheDto.getTitle(), cacheDto.getUrl());
+        if (hit != null) {
+            doOpenSubList(req, HkSubPagePrefetch.put(hit.items, hit.parsedUrl));
+            return;
+        }
         // 单飞锁：从点下开始到打开/失败收场为止，列表任何条目点击一律吞掉
         cur.setSubPagePrefetchLock(true);
         HkPrefetchCard.show(this, "加载中");
@@ -717,6 +725,9 @@ public class HkListActivity extends AppCompatActivity
                     public void bindArrayToView(String key, List<HkItem> list) {
                         runOnUiThread(() -> {
                             if (isFinishing() || isDestroyed()) return;
+                            // 预取抓成功顺手写短时缓存：5 分钟内再点这条直接秒开
+                            HkDetailCache.put(HkListActivity.this, cacheDto.getTitle(), cacheDto.getUrl(),
+                                    list, parsedUrl[0]);
                             String slotKey = HkSubPagePrefetch.put(list, parsedUrl[0]);
                             finishSubPagePrefetchUi();
                             doOpenSubList(req, slotKey);

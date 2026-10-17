@@ -244,6 +244,11 @@ public class HkRuleManager {
         File target = new File(getDir(), safeFileName(rule.getTitle()) + ".json");
         Files.write(target.toPath(), rawJson.getBytes(StandardCharsets.UTF_8));
         rule.setEnabled(isEnabled(rule.getTitle()));
+        // 规则安装/更新：该规则的详情短时缓存一并失效，绝不留陈货
+        try {
+            HkDetailCache.invalidateRule(appContext(), rule.getTitle());
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -1197,6 +1202,11 @@ public class HkRuleManager {
         if (title == null) return false;
         File f = new File(getDir(), safeFileName(title) + ".json");
         boolean ok = !f.exists() || f.delete();
+        // 规则删除：该规则的详情短时缓存一并失效，绝不留陈货
+        try {
+            HkDetailCache.invalidateRule(appContext(), title);
+        } catch (Exception ignored) {
+        }
         try {
             deleteRecursive(getDataDir(title));
         } catch (Throwable ignored) {

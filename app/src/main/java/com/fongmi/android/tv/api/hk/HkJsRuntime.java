@@ -1706,21 +1706,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
 
-        // ---- 带缓存的网络（fc=fetchCache，rc=requireCache，key=url，hours 小时过期） ----
-        // 8.83 JSEngine.java:2814：未传 h 默认 24 小时，持久文件缓存（按 url 的 md5 落盘）。
-        putFunction("fc", args -> {
-            if (args == null || args.length == 0) return "";
-            String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 24;
-            return fileCached(url, hours, () -> fetchSync(url, null));
-        });
+        // ---- W2：fc/fetchCache 按 8.83 require0 代码缓存重做 ----
+        // 原版 fc = require0(url, h, options, ruleTitleKey, evalKey=false, v)，returnType=STRING
+        // （JSEngine.smali:3554-3563）：支持 js:/file:///hiker://page/ 前缀、本地 libs/<md5>.js 缓存、
+        // 版本校验、h 默认 24 小时、h==0 强制重下。我方之前是纯 URL body 文件缓存，走样。
+        // 软失败口径保留（取不到回 ""，不抛错打死整页，见 require 处注释）。
+        putFunction("fc", args -> fcImpl(args));
         // 官方全名：fetchCache 即 fc
-        putFunction("fetchCache", args -> {
-            if (args == null || args.length == 0) return "";
-            String url = argStr(args[0]);
-            double hours = args.length > 1 ? toDouble(args[1]) : 24;
-            return fileCached(url, hours, () -> fetchSync(url, null));
-        });
+        putFunction("fetchCache", args -> fcImpl(args));
         // W5（8.83 require0:3702/3719）：requireCache 求值走调用方作用域——照 require 同款修法（UU 1.3.30）。
         putFunctionEx("rc", (cx, scope, args) -> requireCacheEval(args, cx, scope));
         // 官方全名：requireCache 即 rc
@@ -3432,6 +3425,26 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
             }
             return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    /** W2：原版 fc 语义（require0，useCallback=false）——返回代码字符串，不求值。
+     * 参数：url, h(小时，默认24，0=强制重下), options, v(版本号，默认0)。
+     * require0 已有忠实移植（D1-C），fc 直接复用：js:/file:///hiker://page/ 前缀、
+     * 本地 libs/<md5>.js 缓存＋版本校验、按 3600000*h 过期、h==0 永远重下。 */
+    private String fcImpl(Object[] args) {
+        if (args == null || args.length == 0) return "";
+        try {
+            String url = argStr(args[0]);
+            int hours = args.length > 1 ? (int) toDouble(args[1]) : 24;
+            Object options = args.length > 2 ? args[2] : null;
+            int v = args.length > 3 ? (int) toDouble(args[3]) : 0;
+            String ruleTitle = rule != null ? rule.getTitle() : "";
+            Object r = require0(options, url, hours, options, null, false, ruleTitle, v);
+            return r == null ? "" : String.valueOf(r);
+        } catch (Throwable e) {
+            Logger.t(TAG).d("fc failed (soft): %s", e.getMessage());
+            return "";
         }
     }
 

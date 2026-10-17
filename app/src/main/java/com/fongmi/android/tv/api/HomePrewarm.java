@@ -29,8 +29,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   不登记 homeLoadFutures、不读不写 homeLoadGen；前台切源/进详情/搜索/刷新
  *   触发的任何作废都碰不到预热任务（射程外的独立池＋独立 future 表）。
  * - 绝不调用任何作废接口：不调 cancelHomeLoads、不递增前台代次。
- * - 慢源专用耐心：单源超时按账自适应（历史耗时×1.5＋10 秒余量，60–300 秒钳制；
- *   无账新源默认 120 秒），前台 30/35 秒口径一字不动；只有真挂死才跳过。
+ * - 慢源专用耐心（两遍）：第一遍每源最多等 25 秒，超时不算失败、不记 doneThisBoot，
+ *   挪到队尾第二遍；第二遍按账自适应（历史耗时×1.5＋10 秒余量，60–300 秒钳制；
+ *   无账新源默认 120 秒）。前台 30/35 秒口径一字不动；只有真挂死才跳过。
  * - 耗时记账：每个源每次成功加载的实际耗时持久化，下次启动慢源优先先热。
  * - 走节点源遇内核没就绪：不算失败、不记 doneThisBoot，挪到补跑队列稍后试一次；
  *   补跑时仍没就绪则放弃（不无限循环）；非节点源完全不受影响，队列不被堵。
@@ -40,6 +41,12 @@ public final class HomePrewarm {
 
     /** 预热单源默认上限（秒）：无账可查的新源用它；慢但健康的源（带登记握手、第一次十几秒）正是预热要救的，不许套前台口径。 */
     static final long PREWARM_SOURCE_TIMEOUT_SECONDS = 120;
+    /**
+     * 第一遍单源等待上限（秒）：坏源卡住 worker 是预热慢的主因（真机实证：黄果占满 120 秒、
+     * 双 worker 静默卡 82 秒，50 源 6 分钟只完 18 个）。第一遍只给 25 秒：超时不算失败、
+     * 不记 doneThisBoot，挪到队尾第二遍再用自适应耐心慢慢等——快源先热完，用户体感先到位。
+     */
+    static final long PASS1_TIMEOUT_SECONDS = 25;
     /** 耐心上限钳制（毫秒）：按账自适应也不许超过它，避免真挂死的源拖住队列。 */
     private static final long TIMEOUT_MAX_MS = 300_000;
     private static final long TIMEOUT_MIN_MS = 60_000;
@@ -84,8 +91,18 @@ public final class HomePrewarm {
 
     /** 驱动：单线程，按源列表顺序逐个推进（同时最多 1 个源在跑）。 */
     private static final ExecutorService driver = Executors.newSingleThreadExecutor(daemon("prewarm-driver"));
-    /** 子任务：2 线程，只跑预热自己的 home/homeVideo 双路，不占前台 spiderHomePool。 */
-    static final ExecutorService workers = Executors.newFixedThreadPool(2, daemon("prewarm-worker"));
+    /**
+     * 子任务：4 线程，只跑预热自己的 home/homeVideo 双路，不占前台 spiderHomePool。
+     * 说明：每个源固定提交 home＋homeVideoContent 两路（并发跑），驱动本身是单线程串行
+     * 推进源的；4 线程主要吃两样——①僵尸任务：驱动侧超时后 Python 侧停不下来（JNI 里
+     * interrupt 无效，cancel(true) 只打断 Java 等待），僵尸继续占着线程直到脚本自己返回，
+     * 线程多一点队列不容易被僵尸堵死；②给将来驱动跨源并行留 headroom。
+     * Chaquo 层没有 Java 全局锁（chaquo/Spider.java 无 synchronized/Lock）：单进程单解释器
+     * 的 GIL 只串行 Python 字节码，网络 I/O（gate_patch 把 requests/urllib 钩到 Java 侧
+     * OkHttp，via=py）等待时 GIL 释放，多路 homeContent 在墙钟上是交叠跑的——加线程对
+     * py 有效，不是摆设。
+     */
+    static final ExecutorService workers = Executors.newFixedThreadPool(4, daemon("prewarm-worker"));
 
     /** 在途预热（single-flight）：前台切到正在预热的源时复用/等待它，不另起一趟。 */
     private static final ConcurrentHashMap<String, CompletableFuture<String>> inflight = new ConcurrentHashMap<>();
@@ -320,6 +337,10 @@ public final class HomePrewarm {
             } catch (Throwable ignored) {
             }
             com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue start: " + sites.size() + " sites");
+            // 第一遍：快源先热完。每源最多等 25 秒——超时的不算失败、不记 doneThisBoot，
+            // 挪到 pass2 队尾；只有秒挂（抛异常/空结果）才当场记 doneThisBoot 跳过。
+            Deque<Site> pass2 = new ArrayDeque<>();
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 start: " + sites.size() + " sites");
             for (Site site : sites) {
                 try {
                     if (!wantSite(site, home)) continue;
@@ -329,13 +350,36 @@ public final class HomePrewarm {
                         // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到队尾稍后补跑一次。
                         // 队列先跑后面的非节点源，不许被它堵住。
                         deferredProxy.add(site);
-                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "defer (kernel not ready): " + safeKey(site));
+                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 defer (kernel not ready): " + safeKey(site));
                         continue;
                     }
-                    if (prewarmOne(site)) warmed++; else skipped++;
+                    int r = prewarmOne(site, PASS1_TIMEOUT_SECONDS, 1);
+                    if (r == WARMED) warmed++;
+                    else if (r == RETRY_LATER) pass2.add(site);
+                    else skipped++;
                 } catch (Throwable t) {
                     // 队列尽力而为：单个条目异常绝不中断全队列。
-                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue item failed: " + safeKey(site));
+                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 item failed: " + safeKey(site));
+                }
+            }
+            // 第二遍：只跑第一遍超时的源，用现行自适应耐心慢慢等。这里超时才算真失败记 doneThisBoot。
+            if (!pass2.isEmpty()) {
+                com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 start: " + pass2.size() + " sites");
+                Site s;
+                while ((s = pass2.poll()) != null) {
+                    try {
+                        if (!wantSite(s, home)) continue; // 第一遍到第二遍之间前台可能已经暖了它
+                        if (!waitPlayback()) return;
+                        if (proxyNotReady(s)) {
+                            deferredProxy.add(s);
+                            com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 defer (kernel not ready): " + safeKey(s));
+                            continue;
+                        }
+                        if (prewarmOne(s, timeoutFor(s.getKey()), 2) == WARMED) warmed++;
+                        else skipped++;
+                    } catch (Throwable t) {
+                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 item failed: " + safeKey(s));
+                    }
                 }
             }
             // 补跑一轮：只此一轮，不无限循环。
@@ -350,7 +394,7 @@ public final class HomePrewarm {
                         com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (kernel not ready): " + safeKey(retry));
                         continue;
                     }
-                    if (prewarmOne(retry)) warmed++; else skipped++; // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
+                    if (prewarmOne(retry, timeoutFor(retry.getKey()), 0) == WARMED) warmed++; else skipped++; // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
                 } catch (Throwable t) {
                     com.github.catvod.crawler.SpiderDebug.log("prewarm", "retry item failed: " + safeKey(retry));
                 }
@@ -417,33 +461,49 @@ public final class HomePrewarm {
         return c > 0 ? c : UNKNOWN_COST_ESTIMATE_MS;
     }
 
-    /** 跑一个源：返回 true 表示暖好写进缓存，false 表示跳过/失败/在途重复。成功才记账。 */
-    private static boolean prewarmOne(Site site) {
+    /** prewarmOne 返回值：暖好 / 跳过（失败或空） / 第一遍超时→第二遍队尾。 */
+    private static final int WARMED = 1, SKIPPED = 0, RETRY_LATER = -1;
+
+    /**
+     * 跑一个源：成功才记账（耗时进 prewarm_cost_*）。
+     * pass=1（第一遍）：超时不算失败、不记 doneThisBoot，返回 RETRY_LATER 由调用方挪到队尾第二遍。
+     * pass=2（第二遍）/其它：超时也算真失败记 doneThisBoot。其它异常/空结果各遍都当场记 doneThisBoot 跳过。
+     */
+    private static int prewarmOne(Site site, long timeoutSeconds, int pass) {
         String key = site.getKey();
+        String tag = pass == 1 ? "pass1" : pass == 2 ? "pass2" : "proxy";
+        boolean firstPass = pass == 1;
         CompletableFuture<String> f = new CompletableFuture<>();
-        if (inflight.putIfAbsent(key, f) != null) return false; // 已有在途：不重复
+        if (inflight.putIfAbsent(key, f) != null) return SKIPPED; // 已有在途：不重复
         try {
             long start = System.currentTimeMillis();
-            String json = SiteApi.prewarmSpiderHome(site, timeoutFor(key)); // 抛异常/超时/空都算失败
+            String json = SiteApi.prewarmSpiderHome(site, timeoutSeconds); // 抛异常/超时/空都算失败
             long cost = System.currentTimeMillis() - start;
             if (json != null && !json.isEmpty()) {
                 SiteApi.putPrewarmCache(cacheKey(site), json);
                 recordCost(key, cost); // 成功才记账
-                com.github.catvod.crawler.SpiderDebug.log("prewarm", "warmed: " + key + " cost=" + cost + "ms");
+                com.github.catvod.crawler.SpiderDebug.log("prewarm", tag + " warmed: " + key + " cost=" + cost + "ms");
                 f.complete(json);
                 doneThisBoot.add(key); // 成功或空结果都算试过，本次启动不再重试
-                return true;
+                return WARMED;
             }
-            com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (empty): " + key);
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", tag + " skip (empty): " + key);
             f.complete(json);
             doneThisBoot.add(key);
-            return false;
+            return SKIPPED;
+        } catch (java.util.concurrent.TimeoutException te) {
+            // 注意：驱动侧超时后 Python 侧的任务停不下来（JNI 里 interrupt 无效），
+            // 僵尸继续占着 worker 线程直到脚本自己返回——所以 worker 提到 4 线程留 headroom。
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", tag + " timeout: " + key + (firstPass ? " -> pass2" : ""));
+            f.completeExceptionally(te);
+            if (!firstPass) doneThisBoot.add(key); // 第二遍/补跑超时才算真失败
+            return firstPass ? RETRY_LATER : SKIPPED;
         } catch (Throwable t) {
             // 坏源只跳过：记一笔日志，继续下一个，绝不卡死队列；失败不记账。
-            com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (fail): " + key + " " + t.getClass().getSimpleName());
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", tag + " skip (fail): " + key + " " + t.getClass().getSimpleName());
             f.completeExceptionally(t);
             doneThisBoot.add(key);
-            return false;
+            return SKIPPED;
         } finally {
             inflight.remove(key, f);
         }

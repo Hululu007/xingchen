@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 海阔 8.83 聚合搜索页（SearchActivity）星辰版：顶部搜索栏（无搜索按钮、回车触发）+ 建议下拉 + ViewPager 多发动机结果 + 底部状态条。 -->
+<!-- 液态玻璃动态背景：LinearLayout 根，背景走 HkDynamicBgView.attachTo（decor 注入，见 HkSearchActivity） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:background="@drawable/hk_bg_translucent"
+    android:background="@android:color/transparent"
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 

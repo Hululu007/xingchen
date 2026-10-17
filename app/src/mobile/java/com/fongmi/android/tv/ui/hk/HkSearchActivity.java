@@ -115,6 +115,8 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         HkListActivity.ensureStatics();
         wireRouteHooks();
         setContentView(R.layout.activity_hk_search);
+        // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
+        HkDynamicBgView.attachTo(this);
         // 海阔浅色页状态栏：与动态背景顶色融为一体，不漏白条（ThemeManager 的 resume 重刷同义处理）
         getWindow().setStatusBarColor(getColor(R.color.hk_status_bar));
 

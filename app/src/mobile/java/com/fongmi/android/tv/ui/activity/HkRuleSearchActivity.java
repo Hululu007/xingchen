@@ -27,6 +27,9 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ui.hk.HkDynamicBgView;
+import com.fongmi.android.tv.ui.hk.HkGlassDrawable;
+import com.fongmi.android.tv.ui.hk.HkPressFeedback;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.databinding.ActivityHkRuleSearchBinding;
@@ -68,6 +71,8 @@ public class HkRuleSearchActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
+        HkDynamicBgView.attachTo(this);
         loadHistory();
         binding.rvResults.setLayoutManager(new GridLayoutManager(this, 2));
         resultAdapter = new ResultAdapter();
@@ -266,22 +271,6 @@ public class HkRuleSearchActivity extends BaseActivity {
             return new LayerDrawable(new Drawable[]{base, gloss});
         }
 
-        /** 结果卡面：纵向微渐变（上浅下微深）＋按主色淡染，圆角 12dp，顶部一层柔光（P1 同口径）。 */
-        private static Drawable cardFaceDrawable(int baseColor) {
-            int rad = ResUtil.dp2px(12);
-            int top = blend(0xFFFFFFFF, baseColor, 0.06f);
-            int bottom = blend(0xFFFFF4E2, baseColor, 0.10f);
-            GradientDrawable face = new GradientDrawable();
-            face.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
-            face.setColors(new int[]{top, bottom});
-            face.setCornerRadius(rad);
-            GradientDrawable gloss = new GradientDrawable();
-            gloss.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
-            gloss.setColors(new int[]{0x2EFFFFFF, 0x00FFFFFF});
-            gloss.setCornerRadius(rad);
-            return new LayerDrawable(new Drawable[]{face, gloss});
-        }
-
         class Holder extends RecyclerView.ViewHolder {
             TextView icon, name;
             ImageView ivIcon;
@@ -300,8 +289,18 @@ public class HkRuleSearchActivity extends BaseActivity {
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            return new Holder(LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_hk_rule, parent, false));
+            View v = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_hk_rule, parent, false);
+            // 液态玻璃：结果卡去 CardView 实底换玻璃件（圆角 20dp）＋按压反馈；图标砖取色保留
+            if (v instanceof androidx.cardview.widget.CardView) {
+                androidx.cardview.widget.CardView cv = (androidx.cardview.widget.CardView) v;
+                cv.setCardElevation(0);
+                cv.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
+                cv.setStrokeWidth(0);
+                cv.setBackground(new HkGlassDrawable(cv.getContext(), 20));
+            }
+            HkPressFeedback.attach(v);
+            return new Holder(v);
         }
 
         @Override
@@ -312,11 +311,10 @@ public class HkRuleSearchActivity extends BaseActivity {
             h.ivIcon.setVisibility(View.GONE);
             h.icon.setVisibility(View.VISIBLE);
             h.icon.setText(!TextUtils.isEmpty(title) ? title.substring(0, 1) : "海");
-            // v5：图标瓷砖按图标主色（# 色值优先，否则按标题首字取色板），卡面同色淡染（P1 同口径）
+            // 液态玻璃：图标瓷砖按图标主色（# 色值优先，否则按标题首字取色板），卡面换玻璃（整卡淡染已去）
             int faceBase = parseIconColor(r.getIcon());
             if (faceBase == -1) faceBase = paletteColorFor(title);
             h.icon.setBackground(iconTileDrawable(faceBase));
-            h.itemView.setBackground(cardFaceDrawable(faceBase));
             h.itemView.setOnClickListener(v -> {
                 // M12: 历史只存关键词，不存标题。点击结果直接返回，不写历史。
                 Intent data = new Intent();

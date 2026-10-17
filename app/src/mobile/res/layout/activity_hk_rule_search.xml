@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 独立规则搜索页：搜已安装小程序（对齐 8.83 activit_rules_search） -->
+<!-- 液态玻璃动态背景：LinearLayout 根，背景走 HkDynamicBgView.attachTo（decor 注入，见 HkRuleSearchActivity） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/hk_bg_translucent"
+    android:background="@android:color/transparent"
     android:fitsSystemWindows="true"
     android:orientation="vertical"
     android:paddingTop="12dp">

@@ -21,6 +21,6 @@
     android:textSize="15sp"
     android:textColor="#101216"
     android:checkMark="?android:attr/listChoiceIndicatorMultiple"
-    android:checkMarkTint="#D4A017"
+    android:checkMarkTint="#D9A420"
     android:ellipsize="end"
     android:maxLines="1" />

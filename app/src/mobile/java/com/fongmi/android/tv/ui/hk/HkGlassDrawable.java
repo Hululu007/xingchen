@@ -65,9 +65,9 @@ public class HkGlassDrawable extends Drawable {
         mStrokePaint.setColor(strokeColor);
     }
 
-    /** 奶油玻璃底钮快捷构造：奶油渐变＋1dp 金描边 #D4A017。 */
+    /** 奶油玻璃底钮快捷构造：奶油渐变＋1dp 金描边 #D9A420。 */
     public static HkGlassDrawable creamButton(Context context, float cornerRadiusDp) {
-        return new HkGlassDrawable(context, cornerRadiusDp, OVERLAY_CREAM, 0xFFD4A017);
+        return new HkGlassDrawable(context, cornerRadiusDp, OVERLAY_CREAM, 0xFFD9A420);
     }
 
     @Override

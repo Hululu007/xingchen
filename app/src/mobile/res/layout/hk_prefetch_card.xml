@@ -20,7 +20,7 @@
         android:layout_width="22dp"
         android:layout_height="22dp"
         android:layout_marginRight="12dp"
-        android:indeterminateTint="#D4A017" />
+        android:indeterminateTint="#D9A420" />
 
     <TextView
         android:id="@+id/hk_prefetch_text"

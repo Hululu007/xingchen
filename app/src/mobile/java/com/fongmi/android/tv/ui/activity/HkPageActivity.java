@@ -795,8 +795,8 @@ public class HkPageActivity extends BaseActivity {
         gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         if (checked) {
             // 液态玻璃：已选态换金底（金色语言对差）
-            gd.setColor(0xFFD4A017);
-            gd.setStroke(dp(1), 0xFFD4A017);
+            gd.setColor(0xFFD9A420);
+            gd.setStroke(dp(1), 0xFFD9A420);
         } else {
             gd.setColor(0xFFFFFFFF);
             gd.setStroke(dp(1), 0xFFB9BEC7);
@@ -3232,7 +3232,7 @@ public class HkPageActivity extends BaseActivity {
             HkRule r = rules.get(position);
             h.name.setText(r.getTitle());
             boolean sel = curTitle != null && curTitle.equals(r.getTitle());
-            h.name.setTextColor(sel ? 0xFFD4A017 : 0xFF1A1D24);
+            h.name.setTextColor(sel ? 0xFFD9A420 : 0xFF1A1D24);
             h.name.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             h.name.setOnClickListener(v -> {
                 if (listener != null) listener.onPick(r);
@@ -5995,8 +5995,8 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
-                    bg.setColor(0xFFD4A017);
+                    // 选中金底：#D9A420 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD9A420);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {
@@ -6064,8 +6064,8 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
-                    bg.setColor(0xFFD4A017);
+                    // 选中金底：#D9A420 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD9A420);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {
@@ -6110,8 +6110,8 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
-                    bg.setColor(0xFFD4A017);
+                    // 选中金底：#D9A420 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD9A420);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {

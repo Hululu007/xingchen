@@ -189,7 +189,7 @@
         <item name="android:textColorSecondary">#A8B0C0</item>
         <item name="android:textColorAlertDialogListItem">#F2F4F8</item>
         <item name="textColorAlertDialogListItem">#F2F4F8</item>
-        <item name="android:colorAccent">#D4A017</item>
+        <item name="android:colorAccent">#D9A420</item>
         <item name="android:editTextStyle">@style/XingChen.DialogEditText.Dark</item>
     </style>
 
@@ -209,7 +209,7 @@
         <item name="android:textColorSecondary">#1E2126</item>
         <item name="android:textColorAlertDialogListItem">#101216</item>
         <item name="textColorAlertDialogListItem">#101216</item>
-        <item name="android:colorAccent">#D4A017</item>
+        <item name="android:colorAccent">#D9A420</item>
         <item name="android:editTextStyle">@style/XingChen.DialogEditText.HkLight</item>
     </style>
 

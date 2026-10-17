@@ -1410,7 +1410,7 @@ public class HkListActivity extends AppCompatActivity
             HkRule r = rules.get(position);
             h.name.setText(r.getTitle());
             boolean sel = curTitle != null && curTitle.equals(r.getTitle());
-            h.name.setTextColor(sel ? 0xFFD4A017 : 0xFF1A1D24);
+            h.name.setTextColor(sel ? 0xFFD9A420 : 0xFF1A1D24);
             h.name.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             h.name.setOnClickListener(v -> {
                 if (listener != null) listener.onPick(r);

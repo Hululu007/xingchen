@@ -235,7 +235,7 @@
                     android:background="@drawable/hk_capsule_light"
                     android:gravity="center"
                     android:text="海"
-                    android:textColor="#D4A017"
+                    android:textColor="#D9A420"
                     android:textSize="24sp"
                     android:textStyle="bold" />
 

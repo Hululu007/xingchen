@@ -490,7 +490,8 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private void onBackground(View view) {
         ChoiceDialog.showSingle(this, R.string.player_background, background, PlayerSetting.getBackground(), which -> {
             mBinding.backgroundText.setText(background[which]);
-            PlayerSetting.putBackground(which);
+            // 老的二选行也走统一入口：三档原文和派生镜像一起写，不再只写老值
+            PlayerSetting.putBgPipMode(which == 0 ? "off" : "bg");
         });
     }
 

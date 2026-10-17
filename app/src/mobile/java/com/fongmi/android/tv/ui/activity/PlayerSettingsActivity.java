@@ -122,7 +122,6 @@ public class PlayerSettingsActivity extends BaseActivity {
         if (PlayerSetting.getBackground() != want) PlayerSetting.putBackground(want);
     }
     private void setBgPip(String m) {
-        getSharedPreferences("xingchen", MODE_PRIVATE).edit().putString("bg_pip_mode", m).apply();
-        PlayerSetting.putBackground("off".equals(m) ? BackgroundPlaybackPolicy.OFF : BackgroundPlaybackPolicy.ON);
+        PlayerSetting.putBgPipMode(m);
     }
 }

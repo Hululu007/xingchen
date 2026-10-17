@@ -446,7 +446,8 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     }
 
     private void onBackground(View view) {
-        PlayerSetting.putBackground(PlayerSetting.isBackgroundOn() ? 0 : 1);
+        // TV 端老开关也走统一入口：三档原文和派生镜像一起写，不再只写老值
+        PlayerSetting.putBgPipMode(PlayerSetting.isBackgroundOn() ? "off" : "bg");
         mBinding.backgroundText.setText(getSwitch(PlayerSetting.isBackgroundOn()));
     }
 }

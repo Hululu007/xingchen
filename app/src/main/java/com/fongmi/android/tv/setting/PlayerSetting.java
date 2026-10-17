@@ -277,8 +277,26 @@ public class PlayerSetting {
         Prefers.put("playback_bluray_menu", enabled);
     }
 
+    /**
+     * 后台与画中画三档的唯一真相源（"xingchen" prefs 的 bg_pip_mode，取值 off/bg/pip）。
+     * 老的 "background" 值只是它的派生镜像，任何地方要改档都走 putBgPipMode 一处。
+     */
+    public static String getBgPipMode() {
+        return App.get().getSharedPreferences("xingchen", Context.MODE_PRIVATE).getString("bg_pip_mode", "off");
+    }
+
+    /** 所有写入收口到这里：写三档原文，同步把派生镜像写成一致的值。 */
+    public static void putBgPipMode(String mode) {
+        String m = "pip".equals(mode) ? "pip" : "bg".equals(mode) ? "bg" : "off";
+        App.get().getSharedPreferences("xingchen", Context.MODE_PRIVATE).edit().putString("bg_pip_mode", m).apply();
+        putBackground("off".equals(m) ? BackgroundPlaybackPolicy.OFF : BackgroundPlaybackPolicy.ON);
+    }
+
     public static int getBackground() {
-        int stored = Prefers.getInt("background", BackgroundPlaybackPolicy.ON);
+        // 默认值跟三档走：从没写过老值的人按三档的默认"关"算，不再用 ON 兜底；
+        // 已存的老值语义不动。
+        int def = "off".equals(getBgPipMode()) ? BackgroundPlaybackPolicy.OFF : BackgroundPlaybackPolicy.ON;
+        int stored = Prefers.getInt("background", def);
         int normalized = BackgroundPlaybackPolicy.normalize(stored);
         if (stored != normalized) Prefers.put("background", normalized);
         return normalized;

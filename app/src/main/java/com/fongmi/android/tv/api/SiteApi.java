@@ -276,11 +276,11 @@ public class SiteApi {
             }
             String home;
             String video;
+            int gen = homeLoadGen.get();
             if (crash) {
                 home = "";
                 video = "";
             } else {
-                int gen = homeLoadGen.get();
                 Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> pyHomeContent(spider, gen)));
                 trackHomeFuture(gen, fHome);
                 Future<String> fVideo = spiderHomePool.submit(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));

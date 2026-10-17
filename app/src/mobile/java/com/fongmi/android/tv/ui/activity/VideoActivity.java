@@ -1695,7 +1695,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 SpiderDebug.log("video-flow", "deferred parse empty flags, keep current lists key=%s", getKey());
             } else {
                 mFlagAdapter.addAll(vod.getFlags());
-                checkFlag(vod);
+                // 只渲染不点火：自动播点火是 bindDetailService（缓存路）/
+                // consumePendingPlaybackResult（无缓存或服务后连路）的职责。走 checkFlag 会因
+                // addAll 换了新 Flags 丢了选中态，seamless 再 onItemClick 一遍，onRefresh
+                // stop+clear 重起——用户体感「暂停一下再播」（双 input.open）。
+                renderFlagSelection(vod);
             }
             return;
         }
@@ -1757,7 +1761,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         item.checkPic(getPic());
         item.checkName(getName());
         item.checkContent(getContent());
-        mBinding.name.setText(item.getName());
+        // 文本未变不重设：重设会重启标题跑马灯，用户看到字跳一下
+        if (!TextUtils.equals(mBinding.name.getText(), item.getName())) mBinding.name.setText(item.getName());
         if (!deferLists) mFlagAdapter.addAll(item.getFlags());
         App.removeCallbacks(mR4);
         checkHistoryUi(item);
@@ -1844,7 +1849,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             view.setVisibility(View.GONE);
             return;
         }
-        view.setText(Sniffer.buildClickable(resId > 0 ? getString(resId, text) : text, this::clickableSpan), TextView.BufferType.SPANNABLE);
+        // 文本未变不重建 Spannable：详情两阶段渲染（缓存→新数据）各跑一遍，重建会让简介跳动
+        String target = resId > 0 ? getString(resId, text) : text;
+        if (TextUtils.equals(view.getText(), target) && view.getVisibility() == View.VISIBLE) return;
+        view.setText(Sniffer.buildClickable(target, this::clickableSpan), TextView.BufferType.SPANNABLE);
         view.setVisibility(View.VISIBLE);
         view.setLinkTextColor(Color.WHITE);
         CustomMovement.bind(view);
@@ -1881,10 +1889,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (sb.length() > 0) sb.append("\n");
             sb.append(line3.toString().trim());
         }
-        mBinding.meta.setVisibility(sb.length() == 0 ? View.GONE : View.VISIBLE);
+        // 文本未变不重建 Spannable：两阶段渲染各跑一遍，重建会让元数据行跳动
+        String target = sb.toString();
+        boolean show = target.length() > 0;
+        if (show && TextUtils.equals(mBinding.meta.getText(), target) && mBinding.meta.getVisibility() == View.VISIBLE) return;
+        mBinding.meta.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) return;
         // 导演/演员等字段可能带 [a=cr:{...}]名字[/a] 标记（源数据原样），照上游 setText 的做法过 buildClickable：
         // 标记转成可点名字（点击按标记里的规则走搜索），不再把标记原文当纯文本显示。
-        mBinding.meta.setText(Sniffer.buildClickable(sb.toString(), this::clickableSpan), TextView.BufferType.SPANNABLE);
+        mBinding.meta.setText(Sniffer.buildClickable(target, this::clickableSpan), TextView.BufferType.SPANNABLE);
         mBinding.meta.setLinkTextColor(Color.WHITE);
         CustomMovement.bind(mBinding.meta);
     }

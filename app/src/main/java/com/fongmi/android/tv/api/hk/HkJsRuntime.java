@@ -1721,9 +1721,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             double hours = args.length > 1 ? toDouble(args[1]) : 24;
             return fileCached(url, hours, () -> fetchSync(url, null));
         });
-        putFunction("rc", args -> requireCacheEval(args));
+        // W5（8.83 require0:3702/3719）：requireCache 求值走调用方作用域——照 require 同款修法（UU 1.3.30）。
+        putFunctionEx("rc", (cx, scope, args) -> requireCacheEval(args, cx, scope));
         // 官方全名：requireCache 即 rc
-        putFunction("requireCache", args -> requireCacheEval(args));
+        putFunctionEx("requireCache", (cx, scope, args) -> requireCacheEval(args, cx, scope));
         // ---- 批量（bf=batchFetch 并发取回 body 数组；be=batchExecute 预加载，宿主 no-op；bcm 返回原地址） ----
         putFunction("bf", args -> {
             if (args == null || args.length == 0) return "[]";
@@ -3445,8 +3446,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
-    /** 8.83 require0 的 eval 分支（requireCache/rc，returnType=OBJECT）：返回模块执行结果；缺码抛错。 */
-    private Object requireCacheEval(Object[] args) {
+    /** 8.83 require0 的 eval 分支（requireCache/rc，returnType=OBJECT）：返回模块执行结果；缺码抛错。
+     * W5：求值在调用方作用域（同 require 修法），库代码与调用方顶层声明双向可见。 */
+    private Object requireCacheEval(Object[] args, Context cx, Scriptable callerScope) {
         if (args == null || args.length == 0) return null;
         String url = argStr(args[0]);
         double hours = args.length > 1 ? toDouble(args[1]) : 0;
@@ -3459,6 +3461,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Logger.t(TAG).d("requireCache miss (soft): %s", url);
             return null;
         }
+        if (cx != null && callerScope != null) return evalJsInScope(cx, callerScope, stripJsPrefix(code), "hk-plugin");
         return evalJs(stripJsPrefix(code));
     }
 

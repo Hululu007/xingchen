@@ -177,13 +177,36 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 若 key 已带 @ 则直接用（兼容旧数据）。
      */
     private String myVarKey(String key) {
+        return myVarKeyFor(key, null);
+    }
+
+    /** W4：8.83 getRuleTitle(ruleTitleKey)（smali:17390）：空则取当前规则标题，否则用给定标题。 */
+    private String myVarKeyFor(String key, String ruleTitleKey) {
         if (key == null) return "";
         if (key.contains("@")) return key;
-        String title = "";
-        try {
-            title = rule != null && rule.getTitle() != null ? rule.getTitle() : "";
-        } catch (Throwable ignored) {}
+        String title;
+        if (ruleTitleKey != null && !ruleTitleKey.isEmpty()) title = ruleTitleKey;
+        else {
+            try {
+                title = rule != null && rule.getTitle() != null ? rule.getTitle() : "";
+            } catch (Throwable ignored) { title = ""; }
+        }
         return title + "@" + key;
+    }
+
+    /** W4：跨规则变量表定位。无第三参回本规则表；有则查对方规则的常驻运行时，
+     * 对方没建过运行时按"没有"处理（不触发创建，避免副作用）。 */
+    private Map<String, String> myVarsFor(String ruleTitleKey) {
+        if (ruleTitleKey == null || ruleTitleKey.isEmpty()) return myVars;
+        try {
+            HkRule other = HkRuleManager.get().getInstalledRule(ruleTitleKey);
+            if (other == null) return myVars;
+            HkJsRuntime rt = com.fongmi.android.tv.ui.hk.HkEngineManager.runtimeIfPresent(other);
+            if (rt == null) return myVars;
+            return rt.myVars;
+        } catch (Throwable ignored) {
+            return myVars;
+        }
     }
     /** 跨规则公共持久化（setPublicItem/getPublicItem）。 */
     private final Map<String, String> publicKv = new HashMap<>();
@@ -1492,14 +1515,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // E8: key 加 ruleTitle@ 前缀做规则间隔离（8.83 JSEngine.smali:21694）
         putFunction("putMyVar", args -> {
             // E8: 8.83 putMyVar 对象值 JSON 序列化存（JSEngine.smali:21861），key 加 ruleTitle@ 前缀隔离
-            if (args != null && args.length > 1) myVars.put(myVarKey(argStr(args[0])), stringifyArg(args[1]));
+            // W4：第三参 ruleTitleKey 指定别的规则名时写进该规则的变量表（原版单例一张表天然互通，
+            // JSEngine.smali:17390）；我方按规则分实例，跨规则时查对方常驻运行时。
+            if (args != null && args.length > 1) {
+                Map<String, String> target = myVarsFor(args.length > 2 ? argStr(args[2]) : null);
+                target.put(myVarKeyFor(argStr(args[0]), args.length > 2 ? argStr(args[2]) : null), stringifyArg(args[1]));
+            }
             return null;
         });
         // 8.83 JSEngine.java:594：key 非字符串直接回 ""（忽略默认值）
         putFunction("getMyVar", args -> {
             if (args == null || args.length == 0) return "";
             if (!(args[0] instanceof String)) return "";
-            String v = myVars.get(myVarKey((String) args[0]));
+            // W4：第三参 ruleTitleKey 跨规则读（smali:17390），见 putMyVar 注释。
+            String rt = args.length > 2 ? argStr(args[2]) : null;
+            Map<String, String> target = myVarsFor(rt);
+            String v = target.get(myVarKeyFor((String) args[0], rt));
             if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });

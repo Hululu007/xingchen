@@ -47,6 +47,12 @@ public final class HkEngineManager {
         return rt;
     }
 
+    /** W4：只查不建——跨规则变量共享（getMyVar/putMyVar 第三参）读别规则变量表时用，
+     * 不在就当没有，不触发创建（避免副作用）。 */
+    public static HkJsRuntime runtimeIfPresent(HkRule rule) {
+        return RUNTIMES.get(ruleKey(rule));
+    }
+
     /** init 每实例只执行一次（原版 JSEngine 单例 init 一次）；失败不标记，下次重试。 */
     public static void ensureInit(HkJsRuntime rt) throws Exception {
         if (INITIALIZED.contains(rt)) return;

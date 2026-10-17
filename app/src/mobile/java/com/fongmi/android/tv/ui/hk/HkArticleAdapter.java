@@ -840,8 +840,9 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         boolean useSelected = tabTitle.equals(selected)
                 && (!ruleUrl.contains("fyAll") || ruleFirstHeader.equals(item.getDesc()));
         if (useSelected) {
-            tv.setBackground(context.getResources().getDrawable(R.drawable.tab_item_selected));
-            tv.setTextColor(context.getResources().getColor(R.color.yellowAction));
+            // 液态玻璃：选中态同 P1（奶油渐变胶囊＋金下划线＋金字 #8A6400）
+            tv.setBackground(context.getResources().getDrawable(R.drawable.hk_chip_selected));
+            tv.setTextColor(0xFF8A6400);
         } else {
             tv.setBackground(context.getResources().getDrawable(R.drawable.tab_item_default));
             tv.setTextColor(context.getResources().getColor(R.color.black_666));

@@ -10,6 +10,7 @@ import com.github.catvod.utils.Prefers;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -129,14 +130,63 @@ public final class HomePrewarm {
      */
     public static void kick() {
         if (!state.compareAndSet(STATE_IDLE, STATE_STARTING)) return;
-        int n = -1;
+        int cfg = -1, pf = -1;
         try {
             List<Site> s = VodConfig.get().getSites();
-            n = s == null ? -1 : s.size();
+            cfg = s == null ? -1 : s.size();
         } catch (Throwable ignored) {
         }
-        com.github.catvod.crawler.SpiderDebug.log("prewarm", "kick: sites=" + n);
+        try {
+            pf = collectPluginSites().size();
+        } catch (Throwable ignored) {
+        }
+        com.github.catvod.crawler.SpiderDebug.log("prewarm", "kick: configSites=" + cfg + " pluginFiles=" + pf);
         driver.submit(HomePrewarm::runQueue);
+    }
+
+    /**
+     * 枚举用户插件文件（与 SourceScriptsDialog.listScripts 完全同口径）：
+     * 目录 getFilesDir()/plugins/py（*.py）、plugins/js（*.js、*.wv）；
+     * 拼 Site 与 VodFragment.onScriptSelected 完全同口径：key=py_/js_+去后缀文件名、
+     * name=去后缀、api=文件绝对路径、type=3、ext=PyExtConfig.load（空则"{}"）、jar=""。
+     * 有些用户的源全是插件文件，UI 现场拼临时 Site（setHome）从不进 VodConfig.sites——
+     * 只枚举 getSites() 的话，预热对这类用户结构性空跑。
+     */
+    private static List<Site> collectPluginSites() {
+        List<Site> sites = new ArrayList<>();
+        try {
+            java.io.File filesDir = App.get().getFilesDir();
+            collectPluginDir(sites, new java.io.File(filesDir, "plugins/py"), ".py", true);
+            collectPluginDir(sites, new java.io.File(filesDir, "plugins/js"), ".js", false);
+        } catch (Throwable ignored) {
+        }
+        return sites;
+    }
+
+    private static void collectPluginDir(List<Site> out, java.io.File dir, String ext, boolean isPy) {
+        try {
+            if (dir == null || !dir.exists() || !dir.isDirectory()) return;
+            java.io.File[] files = dir.listFiles((d, name) -> name.endsWith(ext) || (".js".equals(ext) && name.endsWith(".wv")));
+            if (files == null) return;
+            String prefix = isPy ? "py_" : "js_";
+            for (java.io.File f : files) {
+                try {
+                    String name = f.getName();
+                    String baseName = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+                    Site site = new Site();
+                    site.setKey(prefix + baseName);
+                    site.setName(baseName);
+                    site.setApi(f.getAbsolutePath());
+                    site.setType(3);
+                    String savedExt = com.fongmi.android.tv.utils.PyExtConfig.load(App.get(), prefix + baseName);
+                    site.setExt(savedExt == null || savedExt.isEmpty() ? "{}" : savedExt);
+                    site.setJar("");
+                    out.add(site);
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -217,11 +267,38 @@ public final class HomePrewarm {
             resetIdle();
             return;
         }
-        // 冷启动 kick 常常打在配置装填完成之前：读到空列表就轮询等一会儿，
-        // 等的过程中零资源消耗；等不到就放弃并复位门闩（进程级机会不烧掉）。
-        List<Site> raw = waitForSites();
-        if (raw == null || raw.isEmpty()) {
-            com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (config not ready after 30s)");
+        // 队列源 = 插件文件源 ∪ VodConfig 配置源。
+        // 插件文件非空就直接开跑、不等配置：用户 UI 现场拼临时 Site（setHome）从不进
+        // VodConfig.sites，等配置的轮询对此类用户永远等不到——这就是之前整进程零日志的根。
+        List<Site> pluginSites = collectPluginSites();
+        List<Site> configSites;
+        if (pluginSites.isEmpty()) {
+            // 两者皆空才保留原有轮询兜底（给纯配置用户）。
+            configSites = waitForSites();
+            if (configSites == null || configSites.isEmpty()) {
+                com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (config not ready after 30s)");
+                resetIdle();
+                return;
+            }
+        } else {
+            List<Site> cs = null;
+            try {
+                cs = VodConfig.get().getSites();
+            } catch (Throwable ignored) {
+            }
+            configSites = cs == null ? new ArrayList<Site>() : cs;
+        }
+        // 按 key 去重、插件文件优先（与前台手选覆盖行为一致）。
+        List<Site> raw = new ArrayList<>(pluginSites.size() + configSites.size());
+        java.util.Set<String> seen = new HashSet<>();
+        for (Site s : pluginSites) {
+            if (s != null && s.getKey() != null && seen.add(s.getKey())) raw.add(s);
+        }
+        for (Site s : configSites) {
+            if (s != null && s.getKey() != null && seen.add(s.getKey())) raw.add(s);
+        }
+        if (raw.isEmpty()) {
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (no warmable sites)");
             resetIdle();
             return;
         }

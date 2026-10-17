@@ -24,9 +24,15 @@ public class HkEngine {
     private final HkRule rule;
     private final HkJsRuntime jsRuntime;
     private final HkSelector selector;
+    /**
+     * true = 包裹常驻运行时（只借用）：不重复 init、destroy() 是空操作，
+     * 生命周期归 HkEngineManager 管。见修法 A（b12 分类点不进去定案）。
+     */
+    private final boolean adopted;
 
     public HkEngine(HkRule rule) throws Exception {
         this.rule = rule;
+        this.adopted = false;
         try {
             this.jsRuntime = new HkJsRuntime(rule);
             this.jsRuntime.init();
@@ -39,6 +45,27 @@ public class HkEngine {
         // 这里兜底保证引擎创建时即登记（8.83 JSEngine.getInstance() 单例语义）。
         HkImage.setCurrentRuntime(this.jsRuntime);
         this.selector = jsRuntime.newSelector();
+    }
+
+    /**
+     * 修法 A：包裹常驻运行时（HkEngineManager.runtimeFor），不新建不 init，
+     * destroy() 空操作——与 8.83 JSEngine 单例语义一致：写读同一张变量表，
+     * 点击求值的 putMyVar 才能被页面刷新求值读到。
+     * 调用方须先 HkEngineManager.ensureInit(rt)（只跑一次，不清变量表）。
+     */
+    private HkEngine(HkRule rule, HkJsRuntime resident) {
+        this.rule = rule;
+        this.adopted = true;
+        this.jsRuntime = resident;
+        // 图片 @js= 求值依赖当前规则的 JS 运行时；与原构造同款兜底登记
+        HkImage.setCurrentRuntime(this.jsRuntime);
+        this.selector = resident.newSelector();
+    }
+
+    /** 修法 A 工厂：HkRouter 取常驻运行时后用此构造包裹。 */
+    public static HkEngine wrapResident(HkRule rule, HkJsRuntime resident) {
+        if (rule == null || resident == null) throw new IllegalArgumentException("rule/resident null");
+        return new HkEngine(rule, resident);
     }
 
     /**
@@ -202,6 +229,8 @@ public class HkEngine {
     }
 
     public void destroy() {
-        jsRuntime.destroy();
+        // 修法 A：包裹常驻运行时时绝不能销毁它（原版单例语义：常驻引擎生命周期
+        // 归 HkEngineManager 管，进程内永不销毁）；旧独立引擎才走原销毁。
+        if (!adopted) jsRuntime.destroy();
     }
 }

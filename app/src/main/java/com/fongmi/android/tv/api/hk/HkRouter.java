@@ -4,6 +4,7 @@ import android.text.TextUtils;
 
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.SourceGate;
+import com.fongmi.android.tv.ui.hk.HkEngineManager;
 import com.orhanobut.logger.Logger;
 
 import java.io.IOException;
@@ -34,7 +35,15 @@ public class HkRouter {
 
     public HkRouter(HkRule rule) throws Exception {
         this.rule = rule;
-        this.engine = new HkEngine(rule);
+        // 修法 A（b12 分类点不进去定案，见 ~/workspace/oneapp-reopen-diagnosis.md）：
+        // 点击求值（putMyVar 写分类号）必须与页面刷新求值落在同一个运行时上。
+        // 8.83 JSEngine 是进程单例；星辰对应物是 HkEngineManager 的常驻运行时。
+        // 之前这里每次 new HkEngine → 写入随一次性实例丢弃，刷新读到默认值永远回首页。
+        // ensureInit 每实例只跑一次（不重复 init、不清变量表）；destroy 由 HkEngine
+        // 的 adopted 标记护住，常驻运行时永不销毁。
+        HkJsRuntime rt = HkEngineManager.runtimeFor(rule);
+        HkEngineManager.ensureInit(rt);
+        this.engine = HkEngine.wrapResident(rule, rt);
     }
 
     /** 按规则名打开路由（规则不存在抛异常）。 */

@@ -495,6 +495,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         try {
             return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
         } finally {
+            // W6：8.83 每次求值全新 scope，Module._cache 天然全新。我方共享 scope 的
+            // Module._cache 会跨求值泄漏（同规则内页间/懒加载求值间），求值完即重置，
+            // 与原版"每求值 fresh"对齐。runScript 那条路本就全新 scope，不受影响。
+            try {
+                rhinoCx.evaluateString(scope,
+                        "try{ if (typeof Module!=='undefined' && Module._cache) Module._cache = new Map(); }catch(e){}",
+                        "hk-modcache-reset", 1, null);
+            } catch (Throwable ignored) {
+            }
             restoreMark(prevMark);
             restoreEvalDeadline(oldDeadline);
         }

@@ -85,6 +85,17 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     private AppCompatImageView progressView1;
     private MyWebProgress progress_bar;
     private RecyclerView recyclerView;
+    // —— 详情预取（点条目先抓齐再整页开，省略白屏）——
+    /** 预取进行中：单飞锁，锁定时列表任何条目点击一律吞掉。 */
+    private boolean subPagePrefetchLock;
+    /** 本次点按的条目视图/位置：预取期间保持按压高亮。 */
+    private View prefetchClickView;
+    private int prefetchClickPos = -1;
+    private android.graphics.drawable.Drawable prefetchClickOldFg;
+    private android.graphics.drawable.ColorDrawable prefetchClickWash;
+    /** 新页消费的预取首屏数据（宿主在开页前注入，initData 里一次性消费）。 */
+    private java.util.List<com.fongmi.android.tv.api.hk.HkItem> prefetchedPage1;
+    private String prefetchedMyUrl;
     private int scrollFlag = -2;
     private RecyclerView.OnScrollListener scrollListener;
     private int scrollPos = -1;
@@ -117,34 +128,118 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         else dto.setFirstHeader("class");
         this.articleListRule = dto;
         try {
-            this.articleListRuleDTO = dto.copyRule();
+            this.articleListRuleDTO = prepareSubPageRule(rule);
             originalPageUrl = rule.getUrl();
             currentPageUrl = rule.getUrl();
-            HkRule d = this.articleListRuleDTO;
-            if (TextUtils.isEmpty(d.getUrl())) {
+            // 标记位看剥标记之前的原始地址（DTO 的地址在 prepareSubPageRule 里已剥过）
+            String rawUrl = dto.getUrl();
+            if (TextUtils.isEmpty(rawUrl)) {
                 noHistory = true;
                 noRecordHistory = true;
             } else {
-                if (d.getUrl().contains("#noHistory#")) {
-                    noHistory = true;
-                    d.setUrl(d.getUrl().replaceFirst(java.util.regex.Pattern.quote("#noHistory#"), ""));
-                }
-                if (d.getUrl().contains("#noRecordHistory#")) {
-                    noRecordHistory = true;
-                    d.setUrl(d.getUrl().replaceFirst(java.util.regex.Pattern.quote("#noRecordHistory#"), ""));
-                }
-                if (d.getUrl().contains("#autoPage#")) {
+                if (rawUrl.contains("#noHistory#")) noHistory = true;
+                if (rawUrl.contains("#noRecordHistory#")) noRecordHistory = true;
+                if (rawUrl.contains("#autoPage#")) {
                     noRecordHistory = true;
                     noHistory = true;
                 }
             }
-            if (!TextUtils.isEmpty(d.getAreaUrl())) d.setAreaUrl(d.getAreaUrl().split("&")[0]);
-            if (!TextUtils.isEmpty(d.getClassUrl())) d.setClassUrl(d.getClassUrl().split("&")[0]);
-            if (!TextUtils.isEmpty(d.getYearUrl())) d.setYearUrl(d.getYearUrl().split("&")[0]);
-            if (!TextUtils.isEmpty(d.getSortUrl())) d.setSortUrl(d.getSortUrl().split("&")[0]);
         } catch (Exception ignored) {
         }
         return this;
+    }
+
+    /**
+     * instance() 里 DTO 整备逻辑的静态原样抽取：克隆→归一化→剥取数标记→导航 url 取首段。
+     * 详情预取（HkListActivity 先抓齐再开页）与新页跑同一套参数，走这里，不另写解析。
+     */
+    public static HkRule prepareSubPageRule(HkRule rule) {
+        HkRule dto;
+        try {
+            dto = rule.copyRule();
+        } catch (Exception e) {
+            dto = rule;
+        }
+        if (TextUtils.isEmpty(dto.getColType())) {
+            dto.setColType(HkColType.MOVIE_3.code);
+        } else {
+            dto.setColType(dto.getColType());
+        }
+        if (!TextUtils.isEmpty(dto.getClassName())) dto.setFirstHeader("class");
+        else if (!TextUtils.isEmpty(dto.getAreaName())) dto.setFirstHeader("area");
+        else if (!TextUtils.isEmpty(dto.getYearName())) dto.setFirstHeader("year");
+        else if (!TextUtils.isEmpty(dto.getSortName())) dto.setFirstHeader("sort");
+        else dto.setFirstHeader("class");
+        HkRule d;
+        try {
+            d = dto.copyRule();
+        } catch (Exception e) {
+            d = dto;
+        }
+        if (!TextUtils.isEmpty(d.getUrl())) {
+            if (d.getUrl().contains("#noHistory#")) {
+                d.setUrl(d.getUrl().replaceFirst(java.util.regex.Pattern.quote("#noHistory#"), ""));
+            }
+            if (d.getUrl().contains("#noRecordHistory#")) {
+                d.setUrl(d.getUrl().replaceFirst(java.util.regex.Pattern.quote("#noRecordHistory#"), ""));
+            }
+        }
+        if (!TextUtils.isEmpty(d.getAreaUrl())) d.setAreaUrl(d.getAreaUrl().split("&")[0]);
+        if (!TextUtils.isEmpty(d.getClassUrl())) d.setClassUrl(d.getClassUrl().split("&")[0]);
+        if (!TextUtils.isEmpty(d.getYearUrl())) d.setYearUrl(d.getYearUrl().split("&")[0]);
+        if (!TextUtils.isEmpty(d.getSortUrl())) d.setSortUrl(d.getSortUrl().split("&")[0]);
+        return d;
+    }
+
+    /** 预取锁开关：宿主在开始抓详情时置 true，抓完/失败置 false；解锁时顺带清掉点按高亮。 */
+    public void setSubPagePrefetchLock(boolean lock) {
+        subPagePrefetchLock = lock;
+        if (!lock) clearPrefetchHighlight();
+    }
+
+    public boolean isSubPagePrefetchLock() {
+        return subPagePrefetchLock;
+    }
+
+    /** 点按高亮：给被点的条目罩一层按压色的 wash，预取期间保持不消失。 */
+    public void setPrefetchHighlight(View v, int position) {
+        clearPrefetchHighlight();
+        if (v == null || position < 0) return;
+        prefetchClickView = v;
+        prefetchClickPos = position;
+        try {
+            prefetchClickOldFg = v.getForeground();
+            prefetchClickWash = new android.graphics.drawable.ColorDrawable(0x26000000);
+            v.setForeground(prefetchClickWash);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 清掉点按高亮（含条目视图在预取期间被复用时的兜底清理）。 */
+    public void clearPrefetchHighlight() {
+        try {
+            if (recyclerView != null && prefetchClickWash != null) {
+                for (int i = 0; i < recyclerView.getChildCount(); i++) {
+                    View child = recyclerView.getChildAt(i);
+                    if (child != null && child.getForeground() == prefetchClickWash) {
+                        child.setForeground(child == prefetchClickView ? prefetchClickOldFg : null);
+                    }
+                }
+            } else if (prefetchClickView != null) {
+                prefetchClickView.setForeground(prefetchClickOldFg);
+            }
+        } catch (Throwable ignored) {
+        }
+        prefetchClickView = null;
+        prefetchClickPos = -1;
+        prefetchClickOldFg = null;
+        prefetchClickWash = null;
+    }
+
+    /** 宿主注入预取好的首屏数据（开页前调用，initData 里一次性消费）。 */
+    public void setPrefetchedPage1(java.util.List<com.fongmi.android.tv.api.hk.HkItem> list, String parsedUrl) {
+        prefetchedPage1 = list;
+        prefetchedMyUrl = parsedUrl;
     }
 
     @Nullable
@@ -163,6 +258,15 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版 initData：先亮加载态；cacheOnly 命中缓存时直接返回（缓存子系统随切片补入）；否则走模型取数。 */
     protected void initData() {
+        // 详情预取：宿主已把首屏抓齐，直接绑视图，首帧即正文，不走模型、不亮加载态
+        if (prefetchedPage1 != null) {
+            java.util.List<com.fongmi.android.tv.api.hk.HkItem> list = prefetchedPage1;
+            prefetchedPage1 = null;
+            if (prefetchedMyUrl != null) myUrl = prefetchedMyUrl;
+            prefetchedMyUrl = null;
+            bindArrayToView("ARTICLE_LIST_NEW", list);
+            return;
+        }
         loading(true);
         loadingPage = page;
         articleListModel.params(requireContext(), page, false, articleListRuleDTO,
@@ -1490,6 +1594,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
      * DetailUIHelper.dealUrlSimply 简单链接、download://、@lazyRule 懒解析、@rule= 子规则、detail_find_rule 详情、余者 dealWithUrl。
      */
     protected void clickItem(View view, int position, String url, boolean recordHistory, String extraInput) {
+        // 详情预取单飞锁：锁定时列表任何条目点击一律吞掉
+        if (subPagePrefetchLock) return;
+        prefetchClickView = view;
+        prefetchClickPos = position;
         if (position < 0 || adapter == null || position >= adapter.getList().size()) return;
         if (getContext() == null) return;
         HkItem item = adapter.getList().get(position);
@@ -1669,7 +1777,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         memoryPosition(position);
         req.newWindow = "true".equals(item.getExtra("newWindow"));
         req.windowId = item.getExtra("windowId");
-        if (pageOpener != null) pageOpener.openSubList(req);
+        if (pageOpener != null) {
+            // 详情预取：点按高亮先罩上，宿主侧抓齐数据才开页
+            setPrefetchHighlight(prefetchClickView, prefetchClickPos);
+            pageOpener.openSubList(req);
+        }
     }
 
     /** 照抄原版 dealLazyRule + $13 回调：解析前弹"动态解析规则中，请稍候"（#noLoading# 除外），成功以 recordHistory=false 回灌 clickItem，失败仅关弹窗（错误原文由解析器侧弹）。 */
@@ -2072,7 +2184,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             req.title = titlePrefix + item.getTitle();
             req.newWindow = "true".equals(item.getExtra("newWindow"));
             req.windowId = item.getExtra("windowId");
-            if (pageOpener != null) pageOpener.openSubList(req);
+            if (pageOpener != null) {
+                // 详情预取：点按高亮先罩上，宿主侧抓齐数据才开页
+                setPrefetchHighlight(view, position);
+                pageOpener.openSubList(req);
+            }
             memoryPosition(position);
             return;
         }

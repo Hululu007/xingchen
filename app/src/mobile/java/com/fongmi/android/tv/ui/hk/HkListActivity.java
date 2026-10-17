@@ -615,6 +615,13 @@ public class HkListActivity extends AppCompatActivity
         fragment.setListHost(getIntent().getBooleanExtra("listHost", false));
         fragment.setPageOpener(this);
         fragment.setImmersiveTheme(false);
+        // 详情预取：凭 key 取走列表页抓齐的首屏，initData 里直接绑视图、首帧即正文；
+        // 取不到（过期/丢失）则回落新页自己抓，行为与原来一致
+        String prefetchKey = getIntent().getStringExtra("prefetchKey");
+        if (!TextUtils.isEmpty(prefetchKey)) {
+            HkSubPagePrefetch.PrefetchResult pr = HkSubPagePrefetch.take(prefetchKey);
+            if (pr != null) fragment.setPrefetchedPage1(pr.list, pr.parsedUrl);
+        }
         if (parentData != null) fragment.setAutoPageData(parentData);
         getSupportFragmentManager().beginTransaction()
                 .add(R.id.hk_list_container, fragment)
@@ -648,6 +655,7 @@ public class HkListActivity extends AppCompatActivity
     protected void onDestroy() {
         HkLoading.clearListener(hkLoadingListener);
         hideHkLoading();
+        HkPrefetchCard.dismiss(this);
         super.onDestroy();
     }
 
@@ -666,6 +674,88 @@ public class HkListActivity extends AppCompatActivity
     @Override
     public void openSubList(HkArticleFragment.SubListRequest req) {
         if (req == null || req.subRule == null) return;
+        // 详情预取：#autoPage# 续页走原原子路径不动；其余先在列表页把详情首屏抓齐再整页开，省略白屏
+        if (req.autoPageData != null) {
+            doOpenSubList(req, null);
+            return;
+        }
+        beginSubPagePrefetch(req);
+    }
+
+    /**
+     * 详情预取：点条目后不立刻开空白新页，先在列表页跑新页本来要跑的同一套取数管线
+     * （prepareSubPageRule + ARTICLE_LIST_NEW；page=1、listHost、非历史——与新页 initData 参数一致），
+     * 抓齐才开页；失败留在列表页提示，不开空白坏页。
+     */
+    private void beginSubPagePrefetch(HkArticleFragment.SubListRequest req) {
+        HkArticleFragment cur = fragment;
+        if (cur == null || isFinishing() || isDestroyed()) {
+            doOpenSubList(req, null);
+            return;
+        }
+        // 单飞：已在预取中时任何再进来的子页打开一律吞掉（连点/JS 桥接并发只开一个）
+        if (cur.isSubPagePrefetchLock()) return;
+        HkRule dto;
+        try {
+            dto = HkArticleFragment.prepareSubPageRule(req.subRule);
+        } catch (Throwable t) {
+            dto = null;
+        }
+        if (dto == null) {
+            doOpenSubList(req, null);
+            return;
+        }
+        // 单飞锁：从点下开始到打开/失败收场为止，列表任何条目点击一律吞掉
+        cur.setSubPagePrefetchLock(true);
+        HkPrefetchCard.show(this, "加载中");
+        final String[] parsedUrl = new String[]{""};
+        new HkArticleListModel()
+                .withUrlParseCallBack(url -> parsedUrl[0] = url == null ? "" : url)
+                .params(this, 1, false, dto, true, false)
+                .process("ARTICLE_LIST_NEW", new HkArticleListModel.Callback() {
+                    @Override
+                    public void bindArrayToView(String key, List<HkItem> list) {
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            String slotKey = HkSubPagePrefetch.put(list, parsedUrl[0]);
+                            finishSubPagePrefetchUi();
+                            doOpenSubList(req, slotKey);
+                        });
+                    }
+
+                    @Override
+                    public void bindObjectToView(String key, HkItem item) {
+                    }
+
+                    @Override
+                    public void error(String key, String title, String msg, Exception e) {
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            finishSubPagePrefetchUi();
+                            HkPrefetchCard.fail(HkListActivity.this, "加载失败");
+                            String reason = !TextUtils.isEmpty(msg) ? msg
+                                    : (!TextUtils.isEmpty(title) ? title : "网络开小差了");
+                            HkRouteBlocker.toastShortBottom(HkListActivity.this, reason);
+                        });
+                    }
+
+                    @Override
+                    public void loading(boolean show) {
+                    }
+                });
+    }
+
+    /** 预取收尾：解锁、清点按高亮、收小卡（成功/失败都走这里，立刻执行）。 */
+    private void finishSubPagePrefetchUi() {
+        if (fragment != null) fragment.setSubPagePrefetchLock(false);
+        HkPrefetchCard.dismiss(this);
+    }
+
+    /**
+     * 子页打开本体：预取抓齐后带 key 开页（新页凭 key 取走预取结果，首帧即正文）；
+     * prefetchKey 为空时走原逻辑（新页自己抓）。
+     */
+    private void doOpenSubList(HkArticleFragment.SubListRequest req, String prefetchKey) {
         Intent intent = new Intent(this, HkListActivity.class);
         putTempRule(intent, new Gson().toJson(req.subRule));
         intent.putExtra("title", req.title);
@@ -675,6 +765,7 @@ public class HkListActivity extends AppCompatActivity
         intent.putExtra("fromActivity", req.fromActivity);
         intent.putExtra("fromLastClick", req.fromLastClick);
         intent.putExtra("listHost", true);
+        if (prefetchKey != null) intent.putExtra("prefetchKey", prefetchKey);
         if (req.autoPageData != null) tempParentData = req.autoPageData;
         // 子页参数已由 HkPageParser 写进子规则的 params 字段（可序列化），随规则 JSON 走，
         // 不再走静态槽交接（槽竞态会把参数串给别的页面，1.3.11 审计定案已撤）。

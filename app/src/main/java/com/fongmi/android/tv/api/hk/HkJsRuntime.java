@@ -2373,32 +2373,30 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
 
-        // ---- 下划线内部别名（兼容老规则写法） ----
-        // _pd(html, rule, urlKey)：8.83（smali:10148）三参全透传 parseDomForUrl(html, rule, urlKey)，
-        // urlKey 用于拼绝对地址。旧实现第 3 参恒 ""。
+        // ---- 下划线内部别名：8.83（smali:10148）三参全透传 HtmlParser.parseDomForUrl(html, rule, urlKey)，
+        // urlKey 用于拼绝对地址。pd 走 CommonParser 口径，_pd 走 HtmlParser 口径，两套不得互串。
         putFunction("_pd", args -> {
             if (args == null || args.length < 2) return "";
             String urlKey = args.length > 2 ? argStr(args[2]) : "";
-            return parser.pdfh(argStr(args[0]), sel(args[1]), urlKey);
+            return parser.hpdh(argStr(args[0]), sel(args[1]), urlKey);
         });
         putFunction("_pdfh", args -> {
             if (args == null || args.length < 2) return "";
-            return parser.pdfh(argStr(args[0]), sel(args[1]), "");
+            return parser.hpdh(argStr(args[0]), sel(args[1]), "");
         });
         putFunction("_pdfa", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
-            return toJsArray(parser.pdfa(argStr(args[0]), sel(args[1])));
+            return toJsArray(parser.hpda(argStr(args[0]), sel(args[1])));
         });
         // _pdfl(html, listRule, htmlRule, texts, urls)：8.83（HtmlParser.smali:569）：
         // 每项 = parseDomForUrl(itemHtml, htmlRule, "").trim() + "$" + parseDomForUrl(itemHtml, texts, urls)，
         // 返回 text$url 真数组。旧实现只调 pdfa 丢了 texts/urls（每项只剩裸 html）。
-        // quickjs.Parser.pdfl 的形参 (html, rule, texts, urls, urlKey) 已按此语义实现，直接透传。
         putFunction("_pdfl", args -> {
             if (args == null || args.length < 2) return toJsArray(new ArrayList<>());
             String htmlRule = args.length > 2 ? argStr(args[2]) : "";
             String texts = args.length > 3 ? argStr(args[3]) : "";
             String urls = args.length > 4 ? argStr(args[4]) : "";
-            return toJsArray(parser.pdfl(argStr(args[0]), sel(args[1]), htmlRule, texts, urls));
+            return toJsArray(parser.hpdfl(argStr(args[0]), sel(args[1]), htmlRule, texts, urls));
         });
         // _findItem(id)：8.83（JSEngine.java:1280）按 id 查当前条目列表（ItemFindEvent 机制），
         // 找到返回条目对象、找不到 null。星辰旧实现恒 ""。

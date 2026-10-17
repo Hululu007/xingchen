@@ -39,7 +39,9 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         Plugin p = plugins.get(position);
         holder.tvName.setText(p.getName());
         holder.tvVersion.setText(p.isEnabled() ? "已启用" : "已停用");
+        holder.cbSelect.setOnCheckedChangeListener(null);
         holder.cbSelect.setChecked(p.isSelected());
+        holder.switchEnable.setOnCheckedChangeListener(null);
         holder.switchEnable.setChecked(p.isEnabled());
         
         // 长按切换短剧标记（替代原来难看的"短剧"文字按钮）
@@ -61,10 +63,13 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         });
         
         holder.tvDelete.setOnClickListener(v -> {
-            boolean py = p.getPath() != null && p.getPath().endsWith(".py");
-            new File(p.getPath()).delete();
-            plugins.remove(position);
-            notifyItemRemoved(position);
+            int pos = holder.getBindingAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION || pos >= plugins.size()) return;
+            Plugin item = plugins.get(pos);
+            boolean py = item.getPath() != null && item.getPath().endsWith(".py");
+            new File(item.getPath()).delete();
+            plugins.remove(pos);
+            notifyItemRemoved(pos);
             // 单删也要走失效：清掉该插件缓存的旧 Spider 并让首页立刻重载，
             // 否则首页还挂着已删插件的旧内容（与 PluginActivity.invalidatePlugins 同口径）。
             try {

@@ -176,6 +176,8 @@ public class HkPageActivity extends BaseActivity {
     private int groupDropTargetPos = -1;
 
     private ContentAdapter contentAdapter;
+    /** 详情页选集选中跟踪：最近一次点播的集（url 归一化做 key），选中态金底深字（定稿图7）。 */
+    private String lastEpKey = null;
     private final List<HkItem> videos = new ArrayList<>();
     private GridLayoutManager contentGrid;
     private HkRule currentRule;
@@ -4201,6 +4203,18 @@ public class HkPageActivity extends BaseActivity {
         }
     }
 
+    /** 选集 chip 唯一键：归一化后的 url。 */
+    private static String epKey(HkItem it) {
+        if (it == null || it.getUrl() == null) return "";
+        return it.getUrl().trim();
+    }
+
+    /** 该 chip 是否为当前选中（正在播）的那一集。 */
+    private boolean isEpSelected(HkItem it) {
+        String k = epKey(it);
+        return !k.isEmpty() && k.equals(lastEpKey);
+    }
+
     /**
      * V2 非视频条目的统一点击：无 url 的纯展示行无反应；有 url 先过动作协议，
      * 未消费则走 openDetail。条目自带 {@code @lazyRule=} 时用 lazy 预检模式，
@@ -4259,11 +4273,15 @@ public class HkPageActivity extends BaseActivity {
             // 8.83 H2：@lazyRule= 优先走 lazy 解析（dealLazyRule），绝不进 webview；
             // dealKind 会把含 @lazyRule= 的 http URL 误判为 "web"。
             if (hasLazy) {
+                lastEpKey = epKey(it);
+                if (contentAdapter != null) contentAdapter.notifyDataSetChanged();
                 playDetailEpisode(it, url);
                 return;
             }
             String kind = HkRouter.dealKind(url);
             if ("video".equals(kind)) {
+                lastEpKey = epKey(it);
+                if (contentAdapter != null) contentAdapter.notifyDataSetChanged();
                 playDetailEpisode(it, url);
                 return;
             }
@@ -5936,10 +5954,18 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）；选中金底待定（按钮点击即跳转、无选中态跟踪）
-                bg.setColor(0xFFFFFFFF);
-                bg.setStroke(dp(1), 0xFFE2E5EA);
-                bg.setCornerRadius(dp(14));
+                if (isEpSelected(sub)) {
+                    // 选中金底（定稿图7）：金底＋深金字
+                    bg.setColor(0xFFD9A420);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF7A5A00);
+                } else {
+                    // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）
+                    bg.setColor(0xFFFFFFFF);
+                    bg.setStroke(dp(1), 0xFFE2E5EA);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF1A1D24);
+                }
                 tv.setBackground(bg);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -5997,10 +6023,18 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                // v5 质感：白底＋细灰边（与 flex/buttons 选集 chip 同语言）
-                bg.setColor(0xFFFFFFFF);
-                bg.setStroke(dp(1), 0xFFE2E5EA);
-                bg.setCornerRadius(dp(14));
+                if (isEpSelected(sub)) {
+                    // 选中金底（定稿图7）：金底＋深金字
+                    bg.setColor(0xFFD9A420);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF7A5A00);
+                } else {
+                    // v5 质感：白底＋细灰边（与 flex/buttons 选集 chip 同语言）
+                    bg.setColor(0xFFFFFFFF);
+                    bg.setStroke(dp(1), 0xFFE2E5EA);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF1A1D24);
+                }
                 tv.setBackground(bg);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -6035,10 +6069,18 @@ public class HkPageActivity extends BaseActivity {
                 tv.setEllipsize(TextUtils.TruncateAt.END);
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
-                // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）；选中金底待定（按钮点击即跳转、无选中态跟踪）
-                bg.setColor(0xFFFFFFFF);
-                bg.setStroke(dp(1), 0xFFE2E5EA);
-                bg.setCornerRadius(dp(14));
+                if (isEpSelected(sub)) {
+                    // 选中金底（定稿图7）：金底＋深金字
+                    bg.setColor(0xFFD9A420);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF7A5A00);
+                } else {
+                    // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）
+                    bg.setColor(0xFFFFFFFF);
+                    bg.setStroke(dp(1), 0xFFE2E5EA);
+                    bg.setCornerRadius(dp(14));
+                    tv.setTextColor(0xFF1A1D24);
+                }
                 tv.setBackground(bg);
                 com.google.android.flexbox.FlexboxLayout.LayoutParams lp =
                         new com.google.android.flexbox.FlexboxLayout.LayoutParams(

@@ -67,12 +67,6 @@ public class ThemeManager {
         theme = XingChenTheme.load(ctx);
     }
 
-    public void setUiStyle(android.content.Context ctx, String style) {
-        theme.uiStyle = style;
-        theme.save(ctx);
-        applyAll();
-    }
-
     public void setWallpaper(android.content.Context ctx, String type, String value) {
         theme.wallpaperType = type;
         theme.wallpaperValue = value;

@@ -32,7 +32,6 @@ public class UiSettingsActivity extends BaseActivity {
         initCoverSizeSection();
         initOrientSection();
         initRatioSection();
-        initUiStyleSection();
         initWallpaperSection();
         
         updateCoverSizeUI();
@@ -107,26 +106,6 @@ public class UiSettingsActivity extends BaseActivity {
         }
     }
 
-    private void initUiStyleSection() {
-        binding.segUiCapsule.setOnClickListener(v -> setUiStyle(XingChenTheme.UI_NORMAL));
-        binding.segUiGlass.setOnClickListener(v -> setUiStyle(XingChenTheme.UI_GLASS));
-        updateUiStyleUI();
-    }
-
-    private void setUiStyle(String style) {
-        ThemeManager.get().setUiStyle(this, style);
-        ThemeManager.get().apply(this);
-        updateUiStyleUI();
-        updateVisibility();
-    }
-
-    private void updateUiStyleUI() {
-        String style = ThemeManager.get().getTheme().uiStyle;
-        boolean isNormal = XingChenTheme.UI_NORMAL.equals(style);
-        setSegSelected(binding.segUiCapsule, isNormal);
-        setSegSelected(binding.segUiGlass, !isNormal);
-
-    }
 
     private void initWallpaperSection() {
         binding.segWpDefault.setOnClickListener(v -> setWallpaper(XingChenTheme.WP_BUILTIN, "shanjian"));
@@ -264,7 +243,6 @@ public class UiSettingsActivity extends BaseActivity {
         updateCoverSizeUI();
         updateOrientUI();
         updateRatioUI();
-        updateUiStyleUI();
         updateWallpaperUI();
     }
 

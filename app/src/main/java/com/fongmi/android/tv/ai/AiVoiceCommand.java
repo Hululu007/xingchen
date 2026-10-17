@@ -324,7 +324,8 @@ public class AiVoiceCommand {
         if (t.contains("播放器设置") || t.contains("播放设置")) {
             return new Command(ACTION_NAV_PLAYER_SET, "已打开播放器设置");
         }
-        if (t.contains("界面设置") || t.contains("换UI") || t.contains("换ui") || t.contains("切换界面") || t.contains("换主题")) {
+        // 界面设置：赛博朋克/主题切换已取消，"换UI""换主题"类触发词摘掉，只留"界面设置"进外观设置页
+        if (t.contains("界面设置")) {
             return new Command(ACTION_NAV_UI_SET, "已打开界面设置");
         }
         if (t.equals("设置") || t.contains("打开设置") || t.contains("进入设置")

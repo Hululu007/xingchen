@@ -4210,7 +4210,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     // ================= setPublicItem/getPublicItem 持久化（跨规则） =================
 
+    /** 8.83 setPublicItem0：持久化路径恒为 hiker://files/rules/_item00.json（JSEngine.smali:3059）。 */
     private File publicKvFile() {
+        return new File(getFilePath("hiker://files/rules/_item00.json"));
+    }
+
+    /** 旧版 public_kv.json（规则数据目录旁）→ 新版 _item00.json 的一次性迁移。 */
+    private File legacyPublicKvFile() {
         File dataDir = HkRuleManager.get().getDataDir(rule.getTitle());
         File parent = dataDir.getParentFile();
         if (parent == null) parent = dataDir;
@@ -4220,7 +4226,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private void loadPublicKv() {
         try {
             File f = publicKvFile();
-            if (!f.exists()) return;
+            if (!f.exists()) {
+                // 一次性迁移：旧版 public_kv.json 有数据而新版尚无，搬过去
+                File legacy = legacyPublicKvFile();
+                if (legacy.exists() && legacy.length() > 0) {
+                    byte[] lb = java.nio.file.Files.readAllBytes(legacy.toPath());
+                    if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                    java.nio.file.Files.write(f.toPath(), lb);
+                    legacy.delete();
+                } else {
+                    return;
+                }
+            }
             byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
             Map<String, String> map = GSON.fromJson(new String(bytes, "UTF-8"),
                     new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType());

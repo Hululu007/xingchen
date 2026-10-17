@@ -242,6 +242,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mR2 = this::setTraffic;
         mR3 = this::hideInfo;
         mPiP = new PiP();
+        mPiP.useXingchenBackgroundMode();
         setRecyclerView();
         mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdDiagnostics, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
             @Override
@@ -1785,6 +1786,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
+        // 按三档分流：只有"画中画"档才自动进小窗，"后台播放"档只播声音、"关闭"档走暂停链
+        if (!"pip".equals(PlayerSetting.getBgPipMode())) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             preparePiP("userLeaveHint");
         } else {
@@ -1794,6 +1797,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public boolean onPictureInPictureRequested() {
+        // 系统回调（android.app.Activity#onPictureInPictureRequested，API 26+），非死代码
+        if (!"pip".equals(PlayerSetting.getBgPipMode())) return false;
         return requestPiP("systemRequest");
     }
 

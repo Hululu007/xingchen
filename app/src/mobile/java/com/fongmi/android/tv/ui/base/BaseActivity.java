@@ -18,6 +18,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.Updater;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.setting.Setting;
 
@@ -49,6 +50,15 @@ public abstract class BaseActivity extends AppCompatActivity {
         initView(savedInstanceState);
         setBackCallback();
         initEvent();
+        // 精修 P4：全 App 页面进出统一渐入渐出（只用 alpha，200ms）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        // 精修 P4：finish 路径统一淡出；recreate()/正常返回都走这里，视觉一致
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
 
     @Override

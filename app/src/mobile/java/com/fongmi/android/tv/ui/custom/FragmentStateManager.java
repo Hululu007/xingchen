@@ -1,13 +1,12 @@
 package com.fongmi.android.tv.ui.custom;
 
-import static androidx.fragment.app.FragmentTransaction.TRANSIT_FRAGMENT_OPEN;
-
 import android.view.ViewGroup;
 
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 
 import java.util.function.IntFunction;
@@ -29,11 +28,11 @@ public class FragmentStateManager {
         Fragment expected = factory.apply(position);
         if (expected == null) return false;
         Fragment fragment = fm.findFragmentByTag(tag);
-        FragmentTransaction ft = fm.beginTransaction().setTransition(TRANSIT_FRAGMENT_OPEN);
+        FragmentTransaction ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         if (fragment != null && fragment.getClass() != expected.getClass()) {
             ft.remove(fragment).commitNowAllowingStateLoss();
             fragment = null;
-            ft = fm.beginTransaction().setTransition(TRANSIT_FRAGMENT_OPEN);
+            ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         }
         if (fragment == null) {
             fragment = expected;

@@ -436,22 +436,30 @@ public class HkPageActivity extends BaseActivity {
         return null;
     }
 
+    // 精修 P4：内页切换只做渐入（alpha 180ms）；隐藏的直接 GONE 不做渐出，
+    // 避免返回连点时 alpha 卡在半透明
+    private void fadeInView(android.view.View v) {
+        v.setVisibility(View.VISIBLE);
+        v.setAlpha(0f);
+        v.animate().alpha(1f).setDuration(180).start();
+    }
+
     private void showView(int v) {
         // V_RULES（首页）保持原样，一行不动
         binding.viewRules.setVisibility(v == V_RULES ? View.VISIBLE : View.GONE);
         // 内页改用 Fragment 架构（8.83 式，带过渡动画）
         if (v == V_CONTENT) {
-            binding.viewContent.setVisibility(View.VISIBLE);
+            fadeInView(binding.viewContent);
             binding.viewSearch.setVisibility(View.GONE);
             binding.viewDetail.setVisibility(View.GONE);
         } else if (v == V_SEARCH) {
             binding.viewContent.setVisibility(View.GONE);
-            binding.viewSearch.setVisibility(View.VISIBLE);
+            fadeInView(binding.viewSearch);
             binding.viewDetail.setVisibility(View.GONE);
         } else if (v == V_DETAIL) {
             binding.viewContent.setVisibility(View.GONE);
             binding.viewSearch.setVisibility(View.GONE);
-            binding.viewDetail.setVisibility(View.VISIBLE);
+            fadeInView(binding.viewDetail);
         } else {
             binding.viewContent.setVisibility(View.GONE);
             binding.viewSearch.setVisibility(View.GONE);

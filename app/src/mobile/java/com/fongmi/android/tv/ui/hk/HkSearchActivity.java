@@ -132,6 +132,14 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
             searchEdit.setSelection(wd.length());
             submitSearch(wd);
         }
+        // 精修 P4：与主 App 同一套渐入渐出（不改继承，只加两行）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
 
     @Override

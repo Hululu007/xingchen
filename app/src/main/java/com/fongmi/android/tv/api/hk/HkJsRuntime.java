@@ -1727,96 +1727,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunctionEx("rc", (cx, scope, args) -> requireCacheEval(args, cx, scope));
         // 官方全名：requireCache 即 rc
         putFunctionEx("requireCache", (cx, scope, args) -> requireCacheEval(args, cx, scope));
-        // ---- 批量（bf=batchFetch 并发取回 body 数组；be=batchExecute 预加载，宿主 no-op；bcm 返回原地址） ----
-        putFunction("bf", args -> {
-            if (args == null || args.length == 0) return "[]";
-            try {
-                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
-                List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
-                        new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
-                if (list == null || list.isEmpty()) return "[]";
-                int n = list.size();
-                int threads = 4;
-                if (args.length > 1) {
-                    try { threads = Math.max(1, (int) toDouble(args[1])); } catch (Throwable ignored) {}
-                }
-                threads = Math.min(n, threads);
-                java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(threads);
-                try {
-                    List<Future<String>> futures = new ArrayList<>(n);
-                    for (Object o : list) {
-                        final String u;
-                        final String opt;
-                        if (o instanceof Map) {
-                            Map<String, Object> m = (Map<String, Object>) o;
-                            u = String.valueOf(m.get("url"));
-                            Object op = m.get("options");
-                            opt = op == null ? null : GSON.toJson(op);
-                        } else {
-                            u = String.valueOf(o);
-                            opt = null;
-                        }
-                        futures.add(pool.submit(() -> fetchSync(u, opt)));
-                    }
-                    List<String> out = new ArrayList<>(n);
-                    for (Future<String> f : futures) {
-                        try { out.add(f.get(30, TimeUnit.SECONDS)); }
-                        catch (Throwable ignored) { out.add(""); }
-                    }
-                    return GSON.toJson(out);
-                } finally {
-                    pool.shutdownNow();
-                }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("bf failed: %s", e.getMessage());
-                return "[]";
-            }
-        });
+        // ---- 批量（bf=batchFetch 并发取回 body 数组；be=batchExecute 预加载；bcm 返回原地址） ----
+        // W7：8.83 JSEngine.batchExecute (smali:11005, 2230-2266)：线程数 min(n,16)，
+        // CountDownLatch 总等待 n/16*10+10 秒，按索引组装结果。我方之前固定 4 线程＋每项 30s。
+        putFunction("bf", args -> batchFetchImpl(args));
         // 官方全名：batchFetch 即 bf（并发取回 body 数组）
-        putFunction("batchFetch", args -> {
-            if (args == null || args.length == 0) return "[]";
-            try {
-                String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
-                List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
-                        new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
-                if (list == null || list.isEmpty()) return "[]";
-                int n = list.size();
-                int threads = 4;
-                if (args.length > 1) {
-                    try { threads = Math.max(1, (int) toDouble(args[1])); } catch (Throwable ignored) {}
-                }
-                threads = Math.min(n, threads);
-                java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(threads);
-                try {
-                    List<Future<String>> futures = new ArrayList<>(n);
-                    for (Object o : list) {
-                        final String u;
-                        final String opt;
-                        if (o instanceof Map) {
-                            Map<String, Object> m = (Map<String, Object>) o;
-                            u = String.valueOf(m.get("url"));
-                            Object op = m.get("options");
-                            opt = op == null ? null : GSON.toJson(op);
-                        } else {
-                            u = String.valueOf(o);
-                            opt = null;
-                        }
-                        futures.add(pool.submit(() -> fetchSync(u, opt)));
-                    }
-                    List<String> out = new ArrayList<>(n);
-                    for (Future<String> f : futures) {
-                        try { out.add(f.get(30, TimeUnit.SECONDS)); }
-                        catch (Throwable ignored) { out.add(""); }
-                    }
-                    return GSON.toJson(out);
-                } finally {
-                    pool.shutdownNow();
-                }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("batchFetch failed: %s", e.getMessage());
-                return "[]";
-            }
-        });
+        putFunction("batchFetch", args -> batchFetchImpl(args));
         // ------------------------------------------------------------------
         // 8.83: batchExecute(Object tasks, Object listener0, Object success, Object ruleKey)V
         // [JSEngine.smali 11276-11680]  alias "be". D2: 真实实现（替代 no-op）。
@@ -3454,6 +3370,58 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } catch (Throwable e) {
             Logger.t(TAG).d("fc failed (soft): %s", e.getMessage());
             return "";
+        }
+    }
+
+    /** W7：原版 batchFetch/batchExecute 语义（JSEngine.smali:11005）。
+     * 线程数 min(n,16)，总等待 n/16*10+10 秒，按索引组装；失败项填 ""。 */
+    private String batchFetchImpl(Object[] args) {
+        if (args == null || args.length == 0) return "[]";
+        try {
+            String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
+            List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
+                    new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
+            if (list == null || list.isEmpty()) return "[]";
+            int n = list.size();
+            int threads = Math.min(n, 16);
+            if (args.length > 1) {
+                try { threads = Math.max(1, Math.min(n, (int) toDouble(args[1]))); } catch (Throwable ignored) {}
+            }
+            java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(threads);
+            java.util.concurrent.ConcurrentHashMap<Integer, String> results = new java.util.concurrent.ConcurrentHashMap<>();
+            java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(n);
+            try {
+                for (int i = 0; i < n; i++) {
+                    final int idx = i;
+                    Object o = list.get(i);
+                    final String u;
+                    final String opt;
+                    if (o instanceof Map) {
+                        Map<String, Object> m = (Map<String, Object>) o;
+                        u = String.valueOf(m.get("url"));
+                        Object op = m.get("options");
+                        opt = op == null ? null : GSON.toJson(op);
+                    } else {
+                        u = String.valueOf(o);
+                        opt = null;
+                    }
+                    pool.execute(() -> {
+                        try { results.put(idx, fetchSync(u, opt)); }
+                        catch (Throwable t) { results.put(idx, ""); }
+                        finally { latch.countDown(); }
+                    });
+                }
+                // 原版：await(n/16*10+10, SECONDS)（smali:2260）
+                latch.await((long) (n / 16 * 10 + 10), TimeUnit.SECONDS);
+                List<String> out = new ArrayList<>(n);
+                for (int i = 0; i < n; i++) out.add(results.getOrDefault(i, ""));
+                return GSON.toJson(out);
+            } finally {
+                pool.shutdownNow();
+            }
+        } catch (Throwable e) {
+            Logger.t(TAG).d("batchFetch failed: %s", e.getMessage());
+            return "[]";
         }
     }
 

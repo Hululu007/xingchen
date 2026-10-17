@@ -1196,7 +1196,8 @@ public class HkListActivity extends AppCompatActivity
                 h.card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
                 h.card.setStrokeWidth(0);
             }
-            h.chip.setBackgroundResource(0);
+            // v5 基准：选中=奶油胶囊＋金下划线，未选中透明
+            h.chip.setBackgroundResource(sel ? R.drawable.hk_chip_selected : 0);
             h.chip.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             h.chip.setTextColor(sel ? 0xFF8A6D00 : 0xFF8A8F98);
             h.chip.setOnClickListener(v -> {

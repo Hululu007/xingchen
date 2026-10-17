@@ -3,7 +3,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:background="@drawable/hk_bg_translucent"
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 
@@ -32,12 +32,12 @@
             android:layout_width="wrap_content"
             android:layout_height="32dp"
             android:layout_marginStart="4dp"
-            android:background="@drawable/dialog_option_card_light"
+            android:background="@drawable/hk_all_pill"
             android:gravity="center"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:text="全部 ▾"
-            android:textColor="#222222"
+            android:textColor="#8A6D00"
             android:textSize="13sp"
             android:textStyle="bold" />
     </LinearLayout>

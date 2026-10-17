@@ -2342,7 +2342,7 @@ public class HkPageActivity extends BaseActivity {
                     h.tag.setBackgroundResource(R.drawable.hk_group_tag_empty);
                 } else {
                     h.tag.setText(stripGroupPrefix(g));
-                    h.tag.setTextColor(0xFF1B5E20);
+                    h.tag.setTextColor(0xFF8A6D00);
                     h.tag.setBackgroundResource(R.drawable.hk_group_tag);
                 }
             }
@@ -6393,9 +6393,9 @@ public class HkPageActivity extends BaseActivity {
                     h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
                 }
                 h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
-                // 磨砂 pills：选中=淡绿磨砂+深绿字，未选中=白磨砂+深灰字（深色字在磨砂底上保持可读）
-                h.chip.setTextColor(sel ? 0xFF1B5E20 : 0xFF222222);
-                h.chip.setBackgroundResource(sel ? R.drawable.hk_ripple_glass_selected : R.drawable.hk_ripple_glass);
+                // 磨砂 pills：选中=奶油胶囊＋金下划线（v5 基准，去绿）＋深色字，未选中=白磨砂+深灰字
+                h.chip.setTextColor(sel ? 0xFF101216 : 0xFF222222);
+                h.chip.setBackgroundResource(sel ? R.drawable.hk_chip_selected : R.drawable.hk_ripple_glass);
             }
             h.chip.setOnClickListener(v -> {
                 int pos = h.getBindingAdapterPosition();

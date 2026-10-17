@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 页签/分组 pill 选中态：奶油胶囊＋金下划线（v5 基准语言，hk-ui-polish P0） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:bottom="3dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFF8E8" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item
+        android:left="10dp"
+        android:right="10dp"
+        android:gravity="bottom">
+        <shape android:shape="rectangle">
+            <size android:height="2dp" />
+            <solid android:color="#D4A017" />
+            <corners android:radius="1dp" />
+        </shape>
+    </item>
+</layer-list>

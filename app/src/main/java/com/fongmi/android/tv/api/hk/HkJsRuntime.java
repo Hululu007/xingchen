@@ -2400,12 +2400,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // _findItem(id)：8.83（JSEngine.java:1280）按 id 查当前条目列表（ItemFindEvent 机制），
         // 找到返回条目对象、找不到 null。星辰旧实现恒 ""。
         // 条目来源用运行时现有的当前列表持有处 results（id 存 extra.id，见 _findItemsByCls 同源）。
+        // returnType=JSON：原版桥接层 JSON.parse 后是真 JS 对象；此处把 Map 经 parseJson 转成
+        // 带原型的真对象（1.3.42 UU 案同图），不用 Rhino 的 NativeJavaObject 包装。
         putFunction("_findItem", args -> {
             try {
                 String id = args != null && args.length > 0 ? argStr(args[0]) : "";
                 for (HkItem it : results) {
                     if (id.equals(it.getExtra("id"))) {
-                        return itemToFullMap(it);
+                        return parseJson(GSON.toJson(itemToFullMap(it)));
                     }
                 }
                 return null;
@@ -2415,6 +2417,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         // findItemsByCls/deleteItemByCls：按条目 extra.cls 匹配当前已收集结果
         // B35：8.83 _findItemsByCls 回 ArticleList 完整序列化（含 content/extra/type 等），此处按 HkItem 现有字段补齐
+        // returnType=JSON：原版桥接层 JSON.parse 后是真数组，此处走 parseJson（1.3.42 UU 案同图）。
         putFunction("_findItemsByCls", args -> {
             try {
                 String cls = args != null && args.length > 0 ? argStr(args[0]) : "";
@@ -2422,9 +2425,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 for (HkItem it : results) {
                     if (cls.equals(it.getExtra("cls"))) out.add(itemToFullMap(it));
                 }
-                return GSON.toJson(out);
+                return parseJson(GSON.toJson(out));
             } catch (Throwable e) {
-                return "[]";
+                return toJsArray(new ArrayList<>());
             }
         });
 
@@ -3394,8 +3397,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /** W7：原版 batchFetch/batchExecute 语义（JSEngine.smali:11005）。
      * 线程数 min(n,16)，总等待 n/16*10+10 秒，按索引组装；失败项填 ""。 */
-    private String batchFetchImpl(Object[] args) {
-        if (args == null || args.length == 0) return "[]";
+    /** W7 batchFetch：8.83（JSEngine.java:11633）returnType=JSON。
+     *  原版桥接层对 JSON 型做 JSON.parse(retStr)——规则拿到真 JS 数组。
+     *  星辰曾直接回 GSON 字符串（UU 案：规则调 .map 当场 TypeError）。
+     *  此处走 toJsArray，与 8.83 的 JS 可见形态一致。 */
+    private NativeArray batchFetchImpl(Object[] args) {
+        if (args == null || args.length == 0) return toJsArray(new ArrayList<>());
         try {
             String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
             List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
@@ -3434,13 +3441,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 latch.await((long) (n / 16 * 10 + 10), TimeUnit.SECONDS);
                 List<String> out = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) out.add(results.getOrDefault(i, ""));
-                return GSON.toJson(out);
+                return toJsArray(out);
             } finally {
                 pool.shutdownNow();
             }
         } catch (Throwable e) {
             Logger.t(TAG).d("batchFetch failed: %s", e.getMessage());
-            return "[]";
+            return toJsArray(new ArrayList<>());
         }
     }
 
@@ -3615,8 +3622,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 否则回 "[]"；每项下载索引文件，返回 "file##url"（失败/等价项回原 url，抛错项置 null），
      * 整体 JSON 数组字符串。并发下载（最多 8 线）。
      */
-    private String batchCacheM3u8Impl(Object[] args) {
-        if (args == null || args.length == 0 || args[0] == null) return "[]";
+    /** 8.83（JSEngine.java:10933）returnType=JSON：原版桥接层 JSON.parse 后是真数组。
+     *  星辰曾回 GSON 字符串（1.3.42 UU 案同图），此处改回真数组。 */
+    private NativeArray batchCacheM3u8Impl(Object[] args) {
+        if (args == null || args.length == 0 || args[0] == null) return toJsArray(new ArrayList<>());
         List<Object> items = new ArrayList<>();
         try {
             Object p0 = args[0];
@@ -3625,16 +3634,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 for (int i = 0; i < na.size(); i++) items.add(na.get(i));
             } else {
                 String json = argStr(p0).trim();
-                if (!json.startsWith("[")) return "[]";
+                if (!json.startsWith("[")) return toJsArray(new ArrayList<>());
                 List<Object> list = GSON.fromJson(json,
                         new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
                 if (list != null) items.addAll(list);
             }
         } catch (Throwable e) {
             Logger.t(TAG).d("batchCacheM3u8 parse failed: %s", e.getMessage());
-            return "[]";
+            return toJsArray(new ArrayList<>());
         }
-        if (items.isEmpty()) return "[]";
+        if (items.isEmpty()) return toJsArray(new ArrayList<>());
         int n = items.size();
         int threads = Math.min(n, 8);
         java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
@@ -3676,7 +3685,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } finally {
             pool.shutdownNow();
         }
-        return GSON.toJson(out);
+        // returnType=JSON（见本方法头注释）：回真数组，null 槽位保留为 JS null。
+        return toJsArray(out);
     }
 
     /**

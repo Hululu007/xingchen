@@ -431,6 +431,62 @@ public class SiteApi {
         header.remove("referer");
     }
 
+    /**
+     * 解析结果短时内存缓存：key = 源 key|flag|集 id。命中直接返回，不重跑解析。
+     * 普通源 TTL 10 分钟；Emby 直链易过期缩到 3 分钟；
+     * 迅雷/磁力/ed2k 类不缓存（解析交给播放器引擎，缓存解析结果无意义）。
+     * 只做内存、不落盘；缓存值是解析完的 URL＋header 原样（JSON 存取，防调用方篡改）。
+     */
+    private static final long PLAYER_CACHE_TTL = 10 * 60 * 1000;
+    private static final long PLAYER_CACHE_TTL_EMBY = 3 * 60 * 1000;
+    private static final ConcurrentHashMap<String, PlayerCacheEntry> playerCache = new ConcurrentHashMap<>();
+
+    private static class PlayerCacheEntry {
+        final long time;
+        final long ttl;
+        final String json;
+
+        PlayerCacheEntry(long time, long ttl, String json) {
+            this.time = time;
+            this.ttl = ttl;
+            this.json = json;
+        }
+
+        boolean fresh() {
+            return System.currentTimeMillis() - time < ttl;
+        }
+    }
+
+    /** 迅雷/磁力类判别：与 VideoActivity.isThunderUrl 同口径。 */
+    private static boolean isThunderId(String id) {
+        if (id == null) return false;
+        String lower = id.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:");
+    }
+
+    private static boolean isEmbySite(Site site) {
+        return site != null && "csp_Emby".equals(site.getApi());
+    }
+
+    private static long playerCacheTtl(Site site, String finalUrl) {
+        if (isEmbySite(site)) return PLAYER_CACHE_TTL_EMBY;
+        try {
+            if (com.fongmi.android.tv.emby.EmbyMediaHeader.forUrl(finalUrl) != null) return PLAYER_CACHE_TTL_EMBY;
+        } catch (Throwable ignored) {
+        }
+        return PLAYER_CACHE_TTL;
+    }
+
+    private static Result cachePlayerResult(String cacheKey, Result result, long ttl) {
+        if (cacheKey != null && result != null) {
+            try {
+                playerCache.put(cacheKey, new PlayerCacheEntry(System.currentTimeMillis(), ttl, result.toString()));
+            } catch (Throwable ignored) {
+            }
+        }
+        return result;
+    }
+
     @NonNull
     public static Result playerContent(@NonNull String key, @NonNull String flag, @NonNull String id) throws Exception {
         return playerContent(key, flag, id, PlayerSetting.getPlayer());
@@ -443,6 +499,12 @@ public class SiteApi {
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.player(flag, id);
         if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id, playerType);
         Site site = VodConfig.get().getSite(key);
+        // 解析结果缓存：迅雷/磁力类不进缓存；海阔走独立路由（hkPlayerContent）不进缓存。
+        String playerCacheKey = isThunderId(id) ? null : key + "|" + flag + "|" + id;
+        if (playerCacheKey != null) {
+            PlayerCacheEntry cached = playerCache.get(playerCacheKey);
+            if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
+        }
         if (isSpider(key, site)) {
             String playerContent = marked(site, () -> site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags()));
             SpiderDebug.log("player", playerContent);
@@ -452,7 +514,7 @@ public class SiteApi {
             result.setHeader(site.getHeader());
             stripRefererForCloudFront(result);
             result.setKey(key);
-            return result;
+            return cachePlayerResult(playerCacheKey, result, playerCacheTtl(site, result.getUrl().v()));
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("play", id);
@@ -463,7 +525,7 @@ public class SiteApi {
             if (result.getFlag().isEmpty()) result.setFlag(flag);
             result.setUrl(Source.get().fetch(result, playerType));
             result.setHeader(site.getHeader());
-            return result;
+            return cachePlayerResult(playerCacheKey, result, playerCacheTtl(site, result.getUrl().v()));
         } else if (site.isEmpty() && "push_agent".equals(key)) {
             Result result = new Result();
             result.setUrl(id);
@@ -477,7 +539,7 @@ public class SiteApi {
             java.util.Map<String, String> embyHeader = com.fongmi.android.tv.emby.EmbyMediaHeader.forUrl(finalUrl);
             if (embyHeader != null) result.setHeader(embyHeader);
             SpiderDebug.log("player", result.toString());
-            return result;
+            return cachePlayerResult(playerCacheKey, result, playerCacheTtl(site, finalUrl));
         } else {
             Result result = new Result();
             result.setUrl(id);
@@ -487,7 +549,7 @@ public class SiteApi {
             result.setParse(Sniffer.isVideoFormat(id) && result.getPlayUrl().isEmpty() ? 0 : 1);
             result.setUrl(Source.get().fetch(result, playerType));
             SpiderDebug.log("player", result.toString());
-            return result;
+            return cachePlayerResult(playerCacheKey, result, playerCacheTtl(site, result.getUrl().v()));
         }
     }
 

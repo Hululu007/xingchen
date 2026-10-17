@@ -506,11 +506,15 @@ public class SiteApi {
             if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
         }
         if (isSpider(key, site)) {
+            long spiderStart = System.currentTimeMillis();
             String playerContent = marked(site, () -> site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags()));
+            SpiderDebug.log("player", "spider done key=%s cost=%dms", key, System.currentTimeMillis() - spiderStart);
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);
             if (result.getFlag().isEmpty()) result.setFlag(flag);
+            long fetchStart = System.currentTimeMillis();
             result.setUrl(Source.get().fetch(result, playerType));
+            SpiderDebug.log("player", "fetch done key=%s cost=%dms empty=%s", key, System.currentTimeMillis() - fetchStart, result.getUrl() == null || TextUtils.isEmpty(result.getUrl().v()));
             result.setHeader(site.getHeader());
             stripRefererForCloudFront(result);
             result.setKey(key);
@@ -519,11 +523,15 @@ public class SiteApi {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("play", id);
             params.put("flag", flag);
+            long callStart = System.currentTimeMillis();
             String playerContent = call(site, params);
+            SpiderDebug.log("player", "spider done key=%s cost=%dms", key, System.currentTimeMillis() - callStart);
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);
             if (result.getFlag().isEmpty()) result.setFlag(flag);
+            long fetchStart = System.currentTimeMillis();
             result.setUrl(Source.get().fetch(result, playerType));
+            SpiderDebug.log("player", "fetch done key=%s cost=%dms empty=%s", key, System.currentTimeMillis() - fetchStart, result.getUrl() == null || TextUtils.isEmpty(result.getUrl().v()));
             result.setHeader(site.getHeader());
             return cachePlayerResult(playerCacheKey, result, playerCacheTtl(site, result.getUrl().v()));
         } else if (site.isEmpty() && "push_agent".equals(key)) {

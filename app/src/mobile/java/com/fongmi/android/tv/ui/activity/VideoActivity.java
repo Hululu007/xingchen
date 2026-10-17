@@ -206,6 +206,7 @@ import org.json.JSONObject;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener {
@@ -311,6 +312,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private Result mPendingPlayerResult;
     private Result mPreparsedHistoryResult;
     private String mPreparsedHistorySpec;
+    private Future<Result> mPreparsedHistoryFuture; // 在途预解析：getPlayer 可等待复用，消灭双跑
     private final NextEpisodePreloader mNextPreloader = new NextEpisodePreloader();
     private int mAudioArtworkColor = Color.rgb(55, 45, 68);
     private final Map<String, String> mAudioQueueFlags = new HashMap<>();
@@ -1615,6 +1617,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mNextPreloader.clear();
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
+        mPreparsedHistoryFuture = null;
         SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s", getKey(), getId(), getName());
         mDetailCacheShown = false;
         Vod cached = VodDetailCache.get(this, getKey(), getId());
@@ -1888,18 +1891,47 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 预解析命中检查：历史预解析 / 下一集预加载
         Result preparsed = consumePreparsed(playFlag, episode.getUrl());
         if (preparsed != null) {
-            mBinding.control.title.setSelected(true);
-            updateHistory(episode);
-            showProgress();
-            try {
-                String videoTitle = mBinding.name.getText().toString();
-                SubtitleManager.autoMatch(player(), videoTitle);
-            } catch (Throwable ignored) {
-            }
+            beginParseUi(episode);
             setPlayer(preparsed);
             return;
         }
+        // 在途预解析复用：同一集的预解析还在跑就等它，不另开一轮解析（消灭双跑）
+        Future<Result> inflight = pollInflightPreparse(playFlag, episode.getUrl());
+        if (inflight != null) {
+            SpiderDebug.log("video-flow", "history preparse wait key=%s", getKey());
+            beginParseUi(episode);
+            Task.execute(() -> {
+                try {
+                    Result r = inflight.get(PREPARSE_WAIT_MS, TimeUnit.MILLISECONDS);
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (isUsableParseResult(r)) setPlayer(r);
+                        else startNormalParse(flag, episode, playFlag);
+                    });
+                } catch (Throwable t) {
+                    SpiderDebug.log("video-flow", "history preparse wait fail key=%s err=%s", getKey(), t.getClass().getSimpleName());
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        startNormalParse(flag, episode, playFlag);
+                    });
+                }
+            });
+            return;
+        }
+        startNormalParse(flag, episode, playFlag);
+    }
+
+    /** 在途预解析等待上限：与解析超时同量级，超了回退走正常解析链，不更慢。 */
+    private static final long PREPARSE_WAIT_MS = 25000;
+
+    /** 正常解析链：ViewModel 串行跑 playerContent，结果经 observe 回到 setPlayer。 */
+    private void startNormalParse(Flag flag, Episode episode, String playFlag) {
         mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        beginParseUi(episode);
+    }
+
+    /** 点集后三条路共用的 UI 准备：标题选中/历史/进度/字幕自动匹配。 */
+    private void beginParseUi(Episode episode) {
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
@@ -1909,6 +1941,25 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             SubtitleManager.autoMatch(player(), videoTitle);
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 在途预解析取用：只有同 spec、未完成才等；取用即摘除防重入。
+     * 排除：雷磁类不复用（预解析内 Source.stop 会杀死在播引擎，真机实证）。
+     */
+    private Future<Result> pollInflightPreparse(String playFlag, String episodeUrl) {
+        Future<Result> future = mPreparsedHistoryFuture;
+        if (future == null || future.isDone()) return null;
+        String spec = getKey() + "|" + playFlag + "|" + episodeUrl;
+        if (!spec.equals(mPreparsedHistorySpec)) return null;
+        if (isThunderUrl(episodeUrl)) return null;
+        mPreparsedHistoryFuture = null;
+        mPreparsedHistorySpec = null;
+        return future;
+    }
+
+    private boolean isUsableParseResult(Result r) {
+        return r != null && r.getUrl() != null && !TextUtils.isEmpty(r.getUrl().v());
     }
 
     /**
@@ -5288,6 +5339,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void preparseHistoryEpisode() {
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
+        mPreparsedHistoryFuture = null;
         if (player().isMpv()) return;
         String episodeUrl = mHistory.getEpisodeUrl();
         Flag historyFlag = mHistory.getFlag();
@@ -5296,14 +5348,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (TextUtils.isEmpty(flag)) return;
         String spec = getKey() + "|" + flag + "|" + episodeUrl;
         mPreparsedHistorySpec = spec;
-        Task.execute(() -> {
-            try {
-                Result result = SiteApi.playerContent(getKey(), flag, episodeUrl);
-                if (spec.equals(mPreparsedHistorySpec)) {
-                    mPreparsedHistoryResult = result;
-                }
-            } catch (Throwable ignored) {
+        mPreparsedHistoryFuture = Task.executor().submit(() -> {
+            Result result = SiteApi.playerContent(getKey(), flag, episodeUrl);
+            if (spec.equals(mPreparsedHistorySpec)) {
+                mPreparsedHistoryResult = result;
             }
+            return result;
         });
     }
 

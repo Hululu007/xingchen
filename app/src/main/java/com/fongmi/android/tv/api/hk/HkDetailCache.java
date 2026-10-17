@@ -31,6 +31,15 @@ public final class HkDetailCache {
     private static final Gson GSON = new Gson();
     private static final Type ENTRY_TYPE = new TypeToken<Entry>() {
     }.getType();
+    /**
+     * items 数组的强类型读回口。
+     * 2026-10-17 崩溃修法：Entry 里原来直接存 List<HkItem> 字段，R8 混淆后泛型签名被剥
+     * （字段被收紧成裸 ArrayList），读回时元素全变成 LinkedTreeMap、绑定页强转崩。
+     * 改成字符串中转后，这里是全链路唯一的泛型落点，用 TypeToken 匿名子类写法，
+     * 本 App HkPageParser 等多处同款写法在 R8 下一直正常。
+     */
+    private static final Type ITEMS_TYPE = new TypeToken<List<HkItem>>() {
+    }.getType();
 
     /** 命中结果：首屏条目 + 解析出的真实地址（新页 myUrl 用，与预取槽同口径）。 */
     public static final class Hit {
@@ -43,11 +52,16 @@ public final class HkDetailCache {
         }
     }
 
-    /** 落盘结构：写入时间 + 真实地址 + 条目。 */
+    /**
+     * 落盘结构：写入时间 + 真实地址 + 条目的 JSON 字符串。
+     * 2026-10-17 崩溃修法：原来直接存 List<HkItem> 字段，R8 剥签名后读回全变 LinkedTreeMap
+     * 直接崩；现在条目以字符串中转，泛型落点只在 ITEMS_TYPE 一处，字符串字段本身无泛型可剥。
+     * 旧版文件的 items 数组字段 Gson 读到这里时直接忽略（itemsJson 为 null），走删档自愈。
+     */
     private static class Entry {
         long at;
         String parsedUrl;
-        List<HkItem> items;
+        String itemsJson;
     }
 
     private HkDetailCache() {
@@ -79,7 +93,8 @@ public final class HkDetailCache {
             }
             String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
             Entry e = GSON.fromJson(json, ENTRY_TYPE);
-            if (e == null || e.items == null || e.items.isEmpty()) {
+            if (e == null || e.itemsJson == null || e.itemsJson.isEmpty()) {
+                // 旧版文件的 items 数组形态：itemsJson 为空，走删档自愈，永不把异形数据注入页面。
                 f.delete();
                 return null;
             }
@@ -87,7 +102,17 @@ public final class HkDetailCache {
                 f.delete();
                 return null;
             }
-            return new Hit(e.items, e.parsedUrl);
+            // 强类型读回：元素若不是 HkItem（静默变质、fromJson 不抛异常），删档当未命中。
+            List<HkItem> items = null;
+            try {
+                items = GSON.fromJson(e.itemsJson, ITEMS_TYPE);
+            } catch (Exception ignored) {
+            }
+            if (items == null || items.isEmpty() || !allHkItems(items)) {
+                f.delete();
+                return null;
+            }
+            return new Hit(items, e.parsedUrl);
         } catch (Exception ex) {
             try {
                 f.delete();
@@ -118,7 +143,8 @@ public final class HkDetailCache {
                     Entry e = new Entry();
                     e.at = System.currentTimeMillis();
                     e.parsedUrl = pu;
-                    e.items = copy;
+                    // toJson 用运行时真实类型序列化，安全；读回只走 ITEMS_TYPE 强类型口。
+                    e.itemsJson = GSON.toJson(copy);
                     Files.write(f.toPath(), GSON.toJson(e).getBytes(StandardCharsets.UTF_8));
                     pruneLocked(c, t);
                 }
@@ -152,6 +178,14 @@ public final class HkDetailCache {
 
     private static File fileOf(Context ctx, String ruleTitle, String key) {
         return new File(dirOf(ctx, ruleTitle), key + ".json");
+    }
+
+    /** 类型自检：元素必须全是 HkItem，混进一个异形就整批判废（删档自愈）。 */
+    private static boolean allHkItems(List<HkItem> items) {
+        for (Object o : items) {
+            if (!(o instanceof HkItem)) return false;
+        }
+        return true;
     }
 
     /** 只清本规则目录下的过期文件。 */

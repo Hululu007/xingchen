@@ -2,6 +2,10 @@
 -keep class androidx.leanback.widget.** { *; }
 -keep class com.fongmi.quickjs.method.** { *; }
 -keep class com.fongmi.android.tv.bean.** { *; }
+# 海阔详情短时缓存落盘结构（2026-10-17 崩溃修法保险丝：R8 曾把 Entry 的 List<HkItem>
+# 字段泛型签名剥掉、读回全变 LinkedTreeMap 直接崩；现在 Entry 只存字符串无泛型可剥，
+# 这里再加一道保险，防 R8 对缓存结构动手脚）
+-keep class com.fongmi.android.tv.api.hk.HkDetailCache$Entry { *; }
 
 # MPV JNI bridge
 -keep class is.xyz.mpv.MPVLib { *; }

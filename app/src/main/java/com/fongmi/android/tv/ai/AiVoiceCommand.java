@@ -101,17 +101,12 @@ public class AiVoiceCommand {
     public static final String ACTION_WATCH_OPEN = "watch_open";
     public static final String ACTION_WATCH_LEAVE = "watch_leave";
     public static final String ACTION_WATCH_VOICE_ON = "watch_voice_on";
-    public static final String ACTION_NAV_KTV = "nav_ktv";
-    public static final String ACTION_NAV_KTV_SETTINGS = "nav_ktv_settings";
-    public static final String ACTION_NAV_KTV_ORDER = "nav_ktv_order";
     public static final String ACTION_NAV_MUSIC = "nav_music";
     public static final String ACTION_NAV_EMBY = "nav_emby";
     public static final String ACTION_EMBY_SEARCH = "emby_search";
     public static final String ACTION_EMBY_PLAY = "emby_play";
     public static final String ACTION_EMBY_RESUME = "emby_resume";
     public static final String ACTION_EMBY_SWITCH = "emby_switch";
-    public static final String ACTION_KTV_NEXT = "ktv_next";
-    public static final String ACTION_KTV_MODE = "ktv_mode";
     public static final String ACTION_WATCH_VOICE_OFF = "watch_voice_off";
     public static final String ACTION_NAV_NODE_TEST = "nav_node_test";
 
@@ -346,16 +341,6 @@ public class AiVoiceCommand {
         }
         // 代理（原名节点，2026-10-15 他把入口改名"代理"；新旧说法都认。
         // 先判管理页，再判开关，避免"打开代理管理"被"打开代理"吞掉）
-        // KTV：点歌带歌名（必须排在模式词前面，"点歌伴奏"不能被伴奏抢走）
-        if (t.startsWith("点歌") && t.length() > 2) {
-            return new Command(ACTION_NAV_KTV_ORDER, t.substring(2).trim(), "正在给你点这首");
-        }
-        if (t.contains("KTV设置") || t.contains("点歌设置")) {
-            return new Command(ACTION_NAV_KTV_SETTINGS, "已打开KTV设置");
-        }
-        if (t.contains("打开KTV") || t.contains("点歌台") || t.contains("开唱")) {
-            return new Command(ACTION_NAV_KTV, "已打开KTV点歌台");
-        }
         if (t.contains("打开音乐") || t.contains("音乐页")) {
             return new Command(ACTION_NAV_MUSIC, "已打开音乐");
         }
@@ -384,18 +369,6 @@ public class AiVoiceCommand {
         if (t.contains("打开Emby") || t.contains("打开emby") || t.contains("Emby媒体库")
                 || t.contains("emby媒体库") || t.equals("emby") || t.equals("Emby")) {
             return new Command(ACTION_NAV_EMBY, "已打开 Emby 媒体库");
-        }
-        if (t.contains("切歌") || (t.contains("下一首") && !t.contains("集"))) {
-            return new Command(ACTION_KTV_NEXT, "已切歌");
-        }
-        if (t.contains("消音") || t.contains("消人声") || t.contains("去人声")) {
-            return new Command(ACTION_KTV_MODE, 2, "已消音");
-        }
-        if (t.contains("切伴奏") || t.contains("换伴奏") || t.equals("伴奏")) {
-            return new Command(ACTION_KTV_MODE, 1, "已切伴奏");
-        }
-        if (t.contains("切原唱") || t.contains("换原唱") || t.equals("原唱")) {
-            return new Command(ACTION_KTV_MODE, 0, "已切原唱");
         }
         if (t.contains("节点管理") || t.contains("节点设置")
                 || t.contains("代理管理") || t.contains("代理设置")) {

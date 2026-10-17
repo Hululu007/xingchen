@@ -22,14 +22,13 @@ import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
-import com.fongmi.android.tv.ktv.KtvStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** 音乐页：底栏新格。上面是 KTV 点歌台入口，下面是听歌源（点了切成当前源、回点播页听）。 */
+/** 音乐页：底栏新格。听歌源（点了切成当前源、回点播页听）。 */
 public class MusicActivity extends BaseActivity {
 
     private ActivityMusicBinding binding;
@@ -49,8 +48,6 @@ public class MusicActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(new SiteAdapter());
-        binding.ktvCard.setOnClickListener(v -> KtvActivity.start(this));
-        binding.ktvSettings.setOnClickListener(v -> KtvSettingsActivity.start(this));
         refresh();
     }
 
@@ -89,8 +86,6 @@ public class MusicActivity extends BaseActivity {
     }
 
     private void refresh() {
-        int n = KtvStore.queue().size();
-        binding.ktvSub.setText(n > 0 ? "点歌台 · 队列里有 " + n + " 首" : "点歌台 · 点播源和点歌服务器都能唱");
         sites.clear();
         List<Site> all = new ArrayList<>();
         try {

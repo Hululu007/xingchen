@@ -128,22 +128,8 @@
             android:screenOrientation="fullUser" />
 
         <activity
-            android:name=".ui.activity.KtvSingActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
-            android:screenOrientation="fullUser" />
-
-        <activity
             android:name=".ui.activity.WatchRoomActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
-            android:screenOrientation="fullUser" />
-
-        <activity
-            android:name=".ui.activity.KtvSettingsActivity"
-            android:screenOrientation="fullUser" />
-
-        <activity
-            android:name=".ui.activity.KtvActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
         <activity

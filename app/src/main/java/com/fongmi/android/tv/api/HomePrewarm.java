@@ -7,7 +7,6 @@ import com.fongmi.android.tv.clash.MihomoManager;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.github.catvod.utils.Prefers;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
@@ -15,9 +14,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -32,6 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - 慢源专用耐心（两遍）：第一遍每源最多等 25 秒，超时不算失败、不记 doneThisBoot，
  *   挪到队尾第二遍；第二遍按账自适应（历史耗时×1.5＋10 秒余量，60–300 秒钳制；
  *   无账新源默认 120 秒）。前台 30/35 秒口径一字不动；只有真挂死才跳过。
+ * - 驱动跨源并行：同一遍内同时推进 K=2 个源（池 4 线程、每源内部 home＋homeVideoContent
+ *   两路各占 1 线程，正好占满；K 锁死 2，僵尸任务白占线程，池子留 headroom 不许加码）。
+ *   逐源语义与旧串行版一字不变：pass1 超时仍 RETRY_LATER 挪队尾、pass2 才算真失败；
+ *   两遍之间仍是 pass1 全完才开 pass2。
  * - 耗时记账：每个源每次成功加载的实际耗时持久化，下次启动慢源优先先热。
  * - 走节点源遇内核没就绪：不算失败、不记 doneThisBoot，挪到补跑队列稍后试一次；
  *   补跑时仍没就绪则放弃（不无限循环）；非节点源完全不受影响，队列不被堵。
@@ -89,18 +95,26 @@ public final class HomePrewarm {
         };
     }
 
-    /** 驱动：单线程，按源列表顺序逐个推进（同时最多 1 个源在跑）。 */
+    /** 驱动：单线程，只负责拉起各遍、等两个 slot 收工、跑补跑队列；源的推进由 slots 并行做。 */
     private static final ExecutorService driver = Executors.newSingleThreadExecutor(daemon("prewarm-driver"));
     /**
+     * 推进位（slot）：K=2，同时推进的源数。每遍内两个 slot 从同一个并发队列取源并行跑；
+     * 每个源内部 home＋homeVideoContent 两路各占 1 个 workers 线程，2 源正好占满 4 线程。
+     * K 锁死 2：①僵尸任务白占线程（驱动侧超时后 Python 侧停不下来，JNI 里 interrupt 无效），
+     * 池子要留 headroom；②workers 只有 4 线程，加码 slot 只是让更多的 home/homeVideo 任务
+     * 在池队列里排队，不加真吞吐。不要私自改 K 或扩池。
+     */
+    private static final int SLOT_COUNT = 2;
+    private static final ExecutorService slots = Executors.newFixedThreadPool(SLOT_COUNT, daemon("prewarm-slot"));
+    /**
      * 子任务：4 线程，只跑预热自己的 home/homeVideo 双路，不占前台 spiderHomePool。
-     * 说明：每个源固定提交 home＋homeVideoContent 两路（并发跑），驱动本身是单线程串行
-     * 推进源的；4 线程主要吃两样——①僵尸任务：驱动侧超时后 Python 侧停不下来（JNI 里
-     * interrupt 无效，cancel(true) 只打断 Java 等待），僵尸继续占着线程直到脚本自己返回，
-     * 线程多一点队列不容易被僵尸堵死；②给将来驱动跨源并行留 headroom。
-     * Chaquo 层没有 Java 全局锁（chaquo/Spider.java 无 synchronized/Lock）：单进程单解释器
-     * 的 GIL 只串行 Python 字节码，网络 I/O（gate_patch 把 requests/urllib 钩到 Java 侧
-     * OkHttp，via=py）等待时 GIL 释放，多路 homeContent 在墙钟上是交叠跑的——加线程对
-     * py 有效，不是摆设。
+     * 说明：每个源固定提交 home＋homeVideoContent 两路（并发跑），2 个 slot 各带 1 个源，
+     * 4 路正好占满；僵尸任务（驱动侧超时后 Python 侧停不下来，JNI 里 interrupt 无效，
+     * cancel(true) 只打断 Java 等待）继续占着线程直到脚本自己返回，线程多一点队列不
+     * 容易被僵尸堵死。Chaquo 层没有 Java 全局锁（chaquo/Spider.java 无 synchronized/Lock）：
+     * 单进程单解释器的 GIL 只串行 Python 字节码，网络 I/O（gate_patch 把 requests/urllib
+     * 钩到 Java 侧 OkHttp，via=py）等待时 GIL 释放，多路 homeContent 在墙钟上是交叠跑的——
+     * 加线程对 py 有效，不是摆设。
      */
     static final ExecutorService workers = Executors.newFixedThreadPool(4, daemon("prewarm-worker"));
 
@@ -111,8 +125,9 @@ public final class HomePrewarm {
     /**
      * 等节点补跑队列：内核没就绪时碰到的走节点源不算失败、不记 doneThisBoot，
      * 挪到这里稍后补跑一次；驱动单线程消费，随 kick 只进一次。
+     * 两个 slot 会并发往里加：必须用并发 deque（原来单线程驱动时 ArrayDeque 够用）。
      */
-    private static final Deque<Site> deferredProxy = new ArrayDeque<>();
+    private static final Deque<Site> deferredProxy = new ConcurrentLinkedDeque<>();
 
     /** 预热缓存 key：py 用 脚本戳（与普通首页缓存同口径，可直接晋升）；js 用固定后缀。 */
     static String cacheKey(Site site) {
@@ -323,13 +338,15 @@ public final class HomePrewarm {
         List<Site> sites = new ArrayList<>(raw);
         // 配置就绪、队列真正开始消费：此刻门闩落下。
         state.compareAndSet(STATE_STARTING, STATE_RUNNING);
-        int warmed = 0, skipped = 0;
+        final AtomicInteger warmed = new AtomicInteger(0), skipped = new AtomicInteger(0);
+        final AtomicBoolean aborted = new AtomicBoolean(false); // 播放让路被中断时两遍都停（与旧串行版 waitPlayback false 即 return 语义一致）
         try {
             Site home = null;
             try {
                 home = VodConfig.get().getHome();
             } catch (Throwable ignored) {
             }
+            final Site homeSite = home;
             // 慢源优先：按账本耗时降序排，慢的先热（痛点先治），快的捎带就完；
             // 无账源按中等偏慢估计，不抢已知慢源的先机。
             try {
@@ -339,48 +356,19 @@ public final class HomePrewarm {
             com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue start: " + sites.size() + " sites");
             // 第一遍：快源先热完。每源最多等 25 秒——超时的不算失败、不记 doneThisBoot，
             // 挪到 pass2 队尾；只有秒挂（抛异常/空结果）才当场记 doneThisBoot 跳过。
-            Deque<Site> pass2 = new ArrayDeque<>();
+            Deque<Site> pass2 = new ConcurrentLinkedDeque<>();
             com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 start: " + sites.size() + " sites");
-            for (Site site : sites) {
-                try {
-                    if (!wantSite(site, home)) continue;
-                    // 播放让路：用户开始播放/解析时暂停推进，播完再续（只等，不取消）。
-                    if (!waitPlayback()) return;
-                    if (proxyNotReady(site)) {
-                        // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到队尾稍后补跑一次。
-                        // 队列先跑后面的非节点源，不许被它堵住。
-                        deferredProxy.add(site);
-                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 defer (kernel not ready): " + safeKey(site));
-                        continue;
-                    }
-                    int r = prewarmOne(site, PASS1_TIMEOUT_SECONDS, 1);
-                    if (r == WARMED) warmed++;
-                    else if (r == RETRY_LATER) pass2.add(site);
-                    else skipped++;
-                } catch (Throwable t) {
-                    // 队列尽力而为：单个条目异常绝不中断全队列。
-                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass1 item failed: " + safeKey(site));
-                }
-            }
+            drivePass(new ConcurrentLinkedDeque<>(sites), homeSite, pass2, 1, warmed, skipped, aborted);
+            if (aborted.get()) return;
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "progress pass1 " + sites.size() + "/" + sites.size() + " (done)");
             // 第二遍：只跑第一遍超时的源，用现行自适应耐心慢慢等。这里超时才算真失败记 doneThisBoot。
+            // 两遍之间仍是 pass1 全完才开 pass2（drivePass 内部等两个 slot 收工才返回）。
             if (!pass2.isEmpty()) {
                 com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 start: " + pass2.size() + " sites");
-                Site s;
-                while ((s = pass2.poll()) != null) {
-                    try {
-                        if (!wantSite(s, home)) continue; // 第一遍到第二遍之间前台可能已经暖了它
-                        if (!waitPlayback()) return;
-                        if (proxyNotReady(s)) {
-                            deferredProxy.add(s);
-                            com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 defer (kernel not ready): " + safeKey(s));
-                            continue;
-                        }
-                        if (prewarmOne(s, timeoutFor(s.getKey()), 2) == WARMED) warmed++;
-                        else skipped++;
-                    } catch (Throwable t) {
-                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "pass2 item failed: " + safeKey(s));
-                    }
-                }
+                Deque<Site> noop = new ConcurrentLinkedDeque<>(); // pass=2 超时算真失败、返回 SKIPPED，RETRY_LATER 只在 pass1 出现
+                drivePass(pass2, homeSite, noop, 2, warmed, skipped, aborted);
+                if (!noop.isEmpty()) skipped.addAndGet(noop.size()); // 保险：真有漏网也只计跳过，不循环
+                if (aborted.get()) return;
             }
             // 补跑一轮：只此一轮，不无限循环。
             Site retry;
@@ -394,7 +382,7 @@ public final class HomePrewarm {
                         com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (kernel not ready): " + safeKey(retry));
                         continue;
                     }
-                    if (prewarmOne(retry, timeoutFor(retry.getKey()), 0) == WARMED) warmed++; else skipped++; // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
+                    if (prewarmOne(retry, timeoutFor(retry.getKey()), 0) == WARMED) warmed.incrementAndGet(); else skipped.incrementAndGet(); // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
                 } catch (Throwable t) {
                     com.github.catvod.crawler.SpiderDebug.log("prewarm", "retry item failed: " + safeKey(retry));
                 }
@@ -402,7 +390,7 @@ public final class HomePrewarm {
         } finally {
             // 跑过一轮（正常结束或中途被播放让路打断都算）：门闩落下，进程级机会消耗。
             state.set(STATE_DONE);
-            com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue done: warmed=" + warmed + " skipped=" + skipped);
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue done: warmed=" + warmed.get() + " skipped=" + skipped.get());
         }
     }
 
@@ -459,6 +447,57 @@ public final class HomePrewarm {
     private static long sortCost(Site site) {
         long c = costOf(site == null ? null : site.getKey());
         return c > 0 ? c : UNKNOWN_COST_ESTIMATE_MS;
+    }
+
+    /**
+     * 一遍内多源并行推进：K=2 个 slot 从同一个并发队列取源并行跑，两个 slot 都收工才返回。
+     * 逐源语义与旧串行版一字不变：wantSite 门控、播放让路、节点 defer、pass1 超时→retryOut、
+     * pass1 固定 25 秒 / pass2 自适应耐心、坏源只跳过不连累。进度日志每完成 5 个源打一行。
+     */
+    private static void drivePass(Deque<Site> queue, Site home, Deque<Site> retryOut, int pass,
+                                 AtomicInteger warmed, AtomicInteger skipped, AtomicBoolean aborted) {
+        final int total = queue.size();
+        final AtomicInteger done = new AtomicInteger(0);
+        final String passTag = pass == 1 ? "pass1" : "pass2";
+        List<Future<?>> jobs = new ArrayList<>(SLOT_COUNT);
+        for (int i = 0; i < SLOT_COUNT; i++) {
+            jobs.add(slots.submit(() -> {
+                Site site;
+                while ((site = queue.poll()) != null) {
+                    int d = done.incrementAndGet();
+                    try {
+                        if (!wantSite(site, home)) continue;
+                        // 播放让路：每源开跑前仍生效；用户开始播放/解析时暂停推进，播完再续。
+                        if (!waitPlayback()) {
+                            aborted.set(true);
+                            return;
+                        }
+                        if (proxyNotReady(site)) {
+                            // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到补跑队列稍后一次。
+                            deferredProxy.add(site);
+                            com.github.catvod.crawler.SpiderDebug.log("prewarm", passTag + " defer (kernel not ready): " + safeKey(site));
+                            continue;
+                        }
+                        long timeout = pass == 1 ? PASS1_TIMEOUT_SECONDS : timeoutFor(site.getKey());
+                        int r = prewarmOne(site, timeout, pass);
+                        if (r == WARMED) warmed.incrementAndGet();
+                        else if (r == RETRY_LATER) retryOut.add(site);
+                        else skipped.incrementAndGet();
+                        if (d % 5 == 0)
+                            com.github.catvod.crawler.SpiderDebug.log("prewarm", "progress " + passTag + " " + d + "/" + total);
+                    } catch (Throwable t) {
+                        // 队列尽力而为：单个条目异常绝不中断全队列。
+                        com.github.catvod.crawler.SpiderDebug.log("prewarm", passTag + " item failed: " + safeKey(site));
+                    }
+                }
+            }));
+        }
+        for (Future<?> j : jobs) {
+            try {
+                j.get();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** prewarmOne 返回值：暖好 / 跳过（失败或空） / 第一遍超时→第二遍队尾。 */

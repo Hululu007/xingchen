@@ -3221,6 +3221,9 @@ public class PlayerManager implements ParseCallback {
 
     private void onMpvVideoSizeProbed(Integer width, Integer height) {
         if (width == null || height == null || width <= 0 || height <= 0) return;
+        // MPV 的尺寸只到这里：同样写进 videoSize，否则 isPortrait()/isLandscape() 对 MPV
+        // 恒为 false，元数据到达后的方向纠正（checkOrientation）永远转不动 MPV 的竖屏。
+        videoSize = new VideoSize(width, height);
         if (!isMpv()
                 || !shouldEvaluateMpvOutput()
                 || mpvAutoOutputEvaluated) return;

@@ -277,6 +277,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mWatchName = "我";
     private boolean mSuppressKaraokeResultAction;
     private boolean mRestoringConfigurationPlayback;
+    /** 阶段二自动播点火期间为真：点火只负责起播，抑制 shouldEnterFullscreen 的进全屏副作用（finally 复位，手动点集路径不受影响）。 */
+    private boolean mAutoIgniting;
     private boolean mSkipKaraokeTrackAutoLoad;
     private BottomSheetDialog mLyricsResultDialog;
     private BottomSheetDialog mAudioQueueDialog;
@@ -1788,11 +1790,28 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (!isDirectPlaySession()) {
                 scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
                 Episode episode = getEpisode();
-                if (episode != null) onItemClick(episode);
+                if (episode != null) igniteEpisode(episode);
             }
         }
         if (preservePlayback) SpiderDebug.log("karaoke-result", "configuration restore preserved playback key=%s episode=%s", player().getKey(), mHistory.getVodRemarks());
         mRestoringConfigurationPlayback = false;
+    }
+
+    /**
+     * 阶段二自动播点火：只负责起播，不触发进全屏。
+     * 1.3.30 语义里自动播从不走 shouldEnterFullscreen（seamless 只在集未选中时才 onItemClick）；
+     * 而点火时的集已被阶段一标为选中，直接 onItemClick 会在元数据到达前瞬间 enterFullscreen，
+     * resolveOrientation 落到默认 SENSOR_LANDSCAPE——每个视频点开先强制横屏的真凶。
+     * 点火沿 onItemClick(Episode) 完整主流程（emby:410 复位/EmbyAI/多版本/红果守卫/起播语义一字不动），
+     * 仅用瞬态标记摘掉「进全屏」这一个副作用；方向纠正留给起播后 onSizeChanged→checkOrientation。
+     */
+    private void igniteEpisode(Episode item) {
+        mAutoIgniting = true;
+        try {
+            onItemClick(item);
+        } finally {
+            mAutoIgniting = false;
+        }
     }
 
     /** 直接播放会话（海阔选集/txt 走 setupDirectEpisodes）：选集已预选，playHkDirect/playTxtDirect
@@ -4909,7 +4928,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private boolean shouldEnterFullscreen(Episode item) {
-        boolean enter = !isFullscreen() && item.isSelected();
+        // 点火期（mAutoIgniting）只摘副作用：手动点集的进全屏判定语义一字不动。
+        boolean enter = !isFullscreen() && item.isSelected() && !mAutoIgniting;
         if (enter) enterFullscreen();
         return enter;
     }
@@ -6830,7 +6850,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setSizeText();
         updateVideoHeight();
         applyResizeMode(getScale());
-        checkOrientation();
+        checkOrientation(size);
         logVideoFrame("onSizeChanged after size=" + size.width + "x" + size.height);
     }
 
@@ -7662,11 +7682,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         });
     }
 
-    private void checkOrientation() {
-        if (isFullscreen() && !isRotate() && player().isPortrait()) {
+    /**
+     * 元数据到达后的方向纠正。
+     * 判定优先用这次收到的真实尺寸：player().isPortrait() 读的是 PlayerManager 的缓存字段，
+     * Activity 与 PlayerManager 是 Exo 的两个独立监听器，触发顺序不保证——先到的一方看到的
+     * 可能是旧值/0x0（实证：onVideoSizeChanged 1080x1920 已到，playerView 被 pillarbox 压扁，
+     * Activity 全程没转）。
+     */
+    private void checkOrientation(VideoSize freshSize) {
+        boolean portrait = freshSize != null ? freshSize.height > freshSize.width : player().isPortrait();
+        boolean landscape = freshSize != null ? freshSize.width > freshSize.height : player().isLandscape();
+        if (isFullscreen() && !isRotate() && portrait) {
             setRequestedOrientation(PlaybackOrientation.getPortraitVideoSizeOrientation());
             setRotate(true);
-        } else if (isFullscreen() && isRotate() && player().isLandscape()) {
+        } else if (isFullscreen() && isRotate() && landscape) {
             setRequestedOrientation(PlaybackOrientation.getLandscapeVideoSizeOrientation());
             setRotate(false);
         } else if (!isFullscreen() && !mUserExitedFullscreenForThisVideo && mShortDramaMode) {

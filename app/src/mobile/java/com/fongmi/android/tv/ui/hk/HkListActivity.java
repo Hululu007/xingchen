@@ -604,6 +604,8 @@ public class HkListActivity extends AppCompatActivity
         // 活动标题必须真实设置：HkFuck.inList(Activity) 与 Fragment.activityTitle() 都读它
         setTitle(pageTitle == null ? "" : pageTitle);
         setContentView(R.layout.activity_hk_list);
+        // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
+        HkDynamicBgView.attachTo(this);
         // 海阔浅色页状态栏：与动态背景顶色融为一体，不漏白条（ThemeManager 的 resume 重刷同义处理）
         getWindow().setStatusBarColor(getColor(R.color.hk_status_bar));
         buildMiniappTabs();
@@ -1144,6 +1146,8 @@ public class HkListActivity extends AppCompatActivity
             row.setVisibility(View.GONE);
             return;
         }
+        // 液态玻璃：页签条换玻璃悬浮条（圆角 12dp）；选中奶油胶囊＋金下划线已随 hk_chip_selected 自动生效
+        row.setBackground(new HkGlassDrawable(this, 12));
         try {
             List<HkRule> rules = HkRuleManager.get().getRules();
             java.util.List<HkRule> enabled = new java.util.ArrayList<>();

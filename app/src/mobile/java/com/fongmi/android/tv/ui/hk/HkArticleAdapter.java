@@ -2337,6 +2337,14 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
      * 分发表见 hk-verbatim/holder_layout_map.txt（寄存器状态追踪实证）。
      * 布局均为 8.83 原版布局文件（已原样拷入 res/layout）。
      */
+    @Override
+    public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
+        super.onViewAttachedToWindow(holder);
+        // 液态玻璃：内容卡按压反馈（发亮＋微缩 6%＋回弹），不碰原版绑定逻辑；内嵌 WebView 卡不碰
+        if (holder instanceof X5WebViewHolder) return;
+        HkPressFeedback.attach(holder.itemView);
+    }
+
     @NonNull
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

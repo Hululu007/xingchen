@@ -51,6 +51,7 @@ public class HkDynamicBgView extends View {
     private static final float[] BLOB_PHASE = {0f, 1.7f, 3.4f, 5.1f};
 
     private boolean mUserPaused = false;        // Activity onPause 兜底
+    private boolean mWindowVisible = true;      // 窗口可见性（被全屏页盖住时为 false）
     private final Paint mPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
 
     public HkDynamicBgView(Context context) {
@@ -97,7 +98,8 @@ public class HkDynamicBgView extends View {
         synchronized (LOCK) {
             sViews.add(new WeakReference<>(this));
         }
-        if (getWindowVisibility() == VISIBLE && !mUserPaused) ensureTicker();
+        mWindowVisible = getWindowVisibility() == VISIBLE;
+        if (mWindowVisible && !mUserPaused) ensureTicker();
     }
 
     @Override
@@ -115,7 +117,8 @@ public class HkDynamicBgView extends View {
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
-        if (visibility == VISIBLE && !mUserPaused) ensureTicker();
+        mWindowVisible = visibility == VISIBLE;
+        if (mWindowVisible && !mUserPaused) ensureTicker();
         else maybeStopTicker();
     }
 
@@ -153,8 +156,8 @@ public class HkDynamicBgView extends View {
                     it.remove();
                     continue;
                 }
-                // 还有存活且可见、未被用户暂停的视图就继续跑
-                if (v.isAttachedToWindow() && !v.mUserPaused) return;
+                // 还有存活、窗口可见、未被用户暂停的视图就继续跑
+                if (v.isAttachedToWindow() && v.mWindowVisible && !v.mUserPaused) return;
             }
             sTickerRunning = false;
             sHandler.removeCallbacks(sTick);

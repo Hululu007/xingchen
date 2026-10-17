@@ -28,7 +28,7 @@ public class ConfigSourceActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         binding.cardVod.setOnClickListener(v -> ConfigDialog.create().vod().show(getSupportFragmentManager(), null));
-        binding.cardLive.setOnClickListener(v -> ConfigDialog.create().live().edit().show(getSupportFragmentManager(), null));
+        binding.cardLive.setOnClickListener(v -> ConfigDialog.create().live().show(getSupportFragmentManager(), null));
     }
     @Override
     protected void onResume() {

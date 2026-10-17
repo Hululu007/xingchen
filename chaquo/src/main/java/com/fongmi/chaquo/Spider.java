@@ -3,6 +3,7 @@ package com.fongmi.chaquo;
 import android.content.Context;
 
 import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.UriUtil;
 import com.github.catvod.utils.Util;
@@ -37,12 +38,35 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String homeContent(boolean filter) {
-        return app.callAttr("homeContent", obj, filter).toString();
+        return homeContent(filter, -1);
+    }
+
+    /**
+     * 首页代次：SiteApi 首页加载把当前代次带进来；Python 透传层（app.py）发现代次
+     * 过期直接返回空 JSON，不再进脚本。gen 传 -1 表示不校验（兼容老路径）。
+     */
+    public String homeContent(boolean filter, int homeGen) {
+        return app.callAttr("homeContent", obj, filter, homeGen).toString();
     }
 
     @Override
     public String homeVideoContent() {
-        return app.callAttr("homeVideoContent", obj).toString();
+        return homeVideoContent(-1);
+    }
+
+    public String homeVideoContent(int homeGen) {
+        return app.callAttr("homeVideoContent", obj, homeGen).toString();
+    }
+
+    /**
+     * 推送首页代次到 Python 透传层。由 SiteApi.cancelHomeLoads() 在作废旧首页加载
+     * 时调用；Python 未启动时跳过（此时也不可能有在途 py 加载）。
+     */
+    public static void setHomeGeneration(int gen) {
+        try {
+            if (Python.isStarted()) Python.getInstance().getModule("app").callAttr("set_home_generation", gen);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override

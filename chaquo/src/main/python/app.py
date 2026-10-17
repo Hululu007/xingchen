@@ -43,6 +43,30 @@ _install_dns_bridge()
 _file_hashes = {}
 
 
+# 首页加载代次（修 3）：Java 侧每次作废旧首页加载时代次 +1 并经 set_home_generation
+# 推送到这里。homeContent / homeVideoContent 入口用调用方携带的代次校验，
+# 过期直接返回空 JSON，不再进脚本。gen 为 None 或负数表示不校验（兼容老调用）。
+_home_generation = 0
+_EMPTY_HOME_JSON = '{"list":[]}'
+
+
+def set_home_generation(gen):
+    global _home_generation
+    try:
+        gen = int(gen)
+    except Exception:
+        return
+    if gen > _home_generation:
+        _home_generation = gen
+
+
+def _home_gen_ok(gen):
+    try:
+        return gen is None or int(gen) < 0 or int(gen) >= _home_generation
+    except Exception:
+        return True
+
+
 def _resolve_pic(spider_obj, pic):
     if not pic or not isinstance(pic, str):
         return pic
@@ -135,13 +159,21 @@ def init(ru, extend):
     ru.init(extend)
 
 
-def homeContent(ru, filter):
+def homeContent(ru, filter, gen=None):
+    # 首页代次令牌（修 3）：Java 侧 SiteApi.cancelHomeLoads() 作废旧首页加载时把代次
+    # +1 并推送到 _home_generation。调用方携带的代次若已过期，直接返回空 JSON，
+    # 不再进脚本——防止被取消/排队中的旧任务在取消后仍打站点（僵尸加载止血）。
+    # 只限首页两路；播放/详情/搜索/分类绝不受首页代次影响。
+    if not _home_gen_ok(gen):
+        return _EMPTY_HOME_JSON
     result = _fix_pics(ru, ru.homeContent(filter))
     formatJo = json.dumps(result, ensure_ascii=False)
     return formatJo
 
 
-def homeVideoContent(ru):
+def homeVideoContent(ru, gen=None):
+    if not _home_gen_ok(gen):
+        return _EMPTY_HOME_JSON
     result = _fix_pics(ru, ru.homeVideoContent())
     formatJo = json.dumps(result, ensure_ascii=False)
     return formatJo

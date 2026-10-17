@@ -220,6 +220,9 @@ public class SiteApi {
      */
     public static void cancelHomeLoads() {
         int gen = homeLoadGen.incrementAndGet();
+        // 代次推送到 Python 透传层（修 3）：过期代次的首页调用在入口直接返回空 JSON，
+        // 不再进脚本——被取消/排队中的旧任务不再打站点（僵尸加载止血）。
+        com.fongmi.chaquo.Spider.setHomeGeneration(gen);
         for (Map.Entry<Integer, CopyOnWriteArrayList<Future<?>>> entry : homeLoadFutures.entrySet()) {
             if (entry.getKey() < gen) {
                 for (Future<?> f : entry.getValue()) f.cancel(true);
@@ -238,6 +241,22 @@ public class SiteApi {
             list.remove(future);
             if (list.isEmpty()) homeLoadFutures.remove(gen, list);
         }
+    }
+
+    /**
+     * py 首页取数：把当前代次带进 Python 透传层。过期代次的调用在入口直接返回空 JSON
+     * 不再进脚本（修 3）；非 py 源（js 等）走原路径，不受代次影响。
+     */
+    private static String pyHomeContent(Spider spider, int gen) throws Exception {
+        if (spider instanceof com.fongmi.chaquo.Spider)
+            return ((com.fongmi.chaquo.Spider) spider).homeContent(true, gen);
+        return spider.homeContent(true);
+    }
+
+    private static String pyHomeVideoContent(Spider spider, int gen) throws Exception {
+        if (spider instanceof com.fongmi.chaquo.Spider)
+            return ((com.fongmi.chaquo.Spider) spider).homeVideoContent(gen);
+        return spider.homeVideoContent();
     }
 
     @NonNull
@@ -262,9 +281,9 @@ public class SiteApi {
                 video = "";
             } else {
                 int gen = homeLoadGen.get();
-                Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> spider.homeContent(true)));
+                Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> pyHomeContent(spider, gen)));
                 trackHomeFuture(gen, fHome);
-                Future<String> fVideo = spiderHomePool.submit(() -> marked(site, spider::homeVideoContent));
+                Future<String> fVideo = spiderHomePool.submit(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));
                 trackHomeFuture(gen, fVideo);
                 try {
                     home = fHome.get(HOME_SUB_TIMEOUT_SECONDS, TimeUnit.SECONDS);

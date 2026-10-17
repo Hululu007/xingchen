@@ -29,7 +29,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class HomePrewarm {
 
-    private static final String PREF_KEY = "home_prewarm";
 
     /** 预热单源默认上限（秒）：无账可查的新源用它；慢但健康的源（带登记握手、第一次十几秒）正是预热要救的，不许套前台口径。 */
     static final long PREWARM_SOURCE_TIMEOUT_SECONDS = 120;
@@ -73,14 +72,6 @@ public final class HomePrewarm {
     /** 本次启动已处理过的源：坏源只跳过一次，不重试打站点。 */
     private static final Set<String> doneThisBoot = ConcurrentHashMap.newKeySet();
 
-    public static boolean enabled() {
-        return Prefers.getBoolean(PREF_KEY, true);
-    }
-
-    public static void setEnabled(boolean v) {
-        Prefers.put(PREF_KEY, v);
-    }
-
     /** 预热缓存 key：py 用 脚本戳（与普通首页缓存同口径，可直接晋升）；js 用固定后缀。 */
     static String cacheKey(Site site) {
         String key = site.getKey();
@@ -110,7 +101,6 @@ public final class HomePrewarm {
 
     /** App 冷启动且主页首屏加载发起后调用；每进程只生效一次。 */
     public static void kick() {
-        if (!enabled()) return;
         if (!kicked.compareAndSet(false, true)) return;
         driver.submit(HomePrewarm::runQueue);
     }

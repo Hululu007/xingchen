@@ -7,7 +7,6 @@ import android.os.Bundle;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.Updater;
-import com.fongmi.android.tv.api.HomePrewarm;
 import com.fongmi.android.tv.databinding.ActivityXingchenSettingsBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.ui.base.BaseActivity;
@@ -47,9 +46,6 @@ public class XingChenSettingsActivity extends BaseActivity {
             XingChenDoh.setIndex(this, which);
             updateDohSub();
         }));
-        binding.swPrewarm.setChecked(HomePrewarm.enabled());
-        binding.swPrewarm.setOnCheckedChangeListener((v, checked) -> HomePrewarm.setEnabled(checked));
-        binding.cardPrewarm.setOnClickListener(v -> binding.swPrewarm.toggle());
         refreshCacheSize();
         binding.cardCache.setOnClickListener(v -> FileUtil.clearCache(new Callback() {
             @Override

@@ -4521,25 +4521,85 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
+    // W3：图片 @js= 专用进程单例（8.83 JSEngine.getInstance() 同款）。
+    // 图片求值不再走规则运行时：规则的 putVar 变量对图片 JS 不可见（原版语义），
+    // 图片 JS 自己的 putVar/getVar 落到单例变量表，与规则隔离。
+    private static volatile HkJsRuntime imageEngine;
+
+    /**
+     * W3：取图片求值单例。DCL；初始化失败返回 null（调用方退化为原图直出）。
+     */
+    public static HkJsRuntime imageEngine() {
+        HkJsRuntime e = imageEngine;
+        if (e == null) {
+            synchronized (HkJsRuntime.class) {
+                e = imageEngine;
+                if (e == null) {
+                    try {
+                        e = new HkJsRuntime(null);
+                        e.initImageEngine();
+                        imageEngine = e;
+                    } catch (Throwable t) {
+                        Logger.t(TAG).e(t, "imageEngine init failed");
+                        return null;
+                    }
+                }
+            }
+        }
+        return e;
+    }
+
+    /**
+     * W3：图片单例的轻量初始化——只进 Rhino Context，不跑规则 init
+     *（无规则、无 preRule、无 kv/config；求值所需 API 每次在新 scope 里现场注册）。
+     */
+    private void initImageEngine() throws Exception {
+        java.util.concurrent.Future<?> f = submit(() -> {
+            jsThread = Thread.currentThread();
+            // 8.83 initRhino 同款：单 Context + 禁优化器 + 语言版本 200
+            rhinoCx = Context.enter();
+            rhinoCx.setOptimizationLevel(-1);
+            rhinoCx.setLanguageVersion(200);
+            return null;
+        });
+        try {
+            f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new Exception("imageEngine init timeout", e);
+        }
+    }
+
     /**
      * 8.83 OkHttpStreamFetcher.evalJS 语义：图片 {@code @js=} 求值。
      *
      * <p>{@code input} 绑定为 Java InputStream（响应流；下载失败时为 null）。
      * JS 求值结果为 InputStream（或其 NativeJavaObject 包装）才采用，且与原 input
      * 不同时关闭原流；结果非流或任何异常 → 返回原 input（调用方决定失败处理）。
-     * 复用规则 scope（$、Hikerurl.js、规则函数均已注入），跑在 JS 单线程 executor
-     * 上保证 scope 安全；求值前后保存/恢复全局 input。</p>
+     * W3：走图片单例、每次 {@code initStandardObjects()} 全新 scope（8.83
+     * JSEngine.smali:14051 同款），不再以规则 scope 为原型——规则变量对图片 JS
+     * 不可见，图片 JS 的变量也不写穿到规则。</p>
      */
     public InputStream evalImageJs(String jsCode, InputStream input, Map<String, List<String>> headers, String urlString) {
+        HkJsRuntime img = imageEngine();
+        if (img == null) return input;
+        return img.evalImageJs(jsCode, input, headers, urlString, null);
+    }
+
+    /**
+     * W3：图片单例上的真实求值入口。ruleTitle 只做 MY_TITLE 回退（无害项保留）。
+     */
+    public InputStream evalImageJs(String jsCode, InputStream input, Map<String, List<String>> headers, String urlString, String ruleTitle) {
         try {
             return submit(() -> {
-                // C5: 8.83 每次图片 JS 用全新 scope 并重求值 Hikerurl.js（JSEngine.smali:13914，
-                // OkHttpStreamFetcher.smali:289/451），$ / $.require 必可用。
-                // 星辰之前复用规则 scope，$ 缺失时只靠 ensureDollarShim 兜底 crypto-java.js，
-                // 其他 require 路径抛错被吞 → 返回加密原字节 → 解码失败。
-                Scriptable imageScope = rhinoCx.newObject(scope);
-                imageScope.setPrototype(scope);
-                imageScope.setParentScope(null);
+                // W3：全新 scope（8.83 JSEngine.smali:14051 initStandardObjects），
+                // 不再 newObject(规则 scope) 挂原型链。
+                ScriptableObject imageScope = rhinoCx.initStandardObjects();
+                // 8.83 line 454-455：ImporterTopLevel + initRequire
+                org.mozilla.javascript.ImporterTopLevel.init(rhinoCx, imageScope, false);
+                initRequire(rhinoCx, imageScope);
+                // 8.83 allFunctions 等价：全部宿主 API 函数现场注册进新 scope
+                registerApiInto(imageScope);
+                // C5 保留：重求值 Hikerurl.js，$ / $.require 必可用。
                 // 8.83 crypto-java.js 原生 AES 接线：原版直引海阔包内 FileUtil，星辰注入宿主实现。
                 ScriptableObject.putProperty(imageScope, "__cryptoFileUtil",
                         Context.javaToJS(new HkCryptoFileUtil(), imageScope));
@@ -4565,7 +4625,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
                     }
                     ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
-                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode) + ensureDollarShim() + wrapImageJs(jsCode);
+                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode, ruleTitle) + ensureDollarShim() + wrapImageJs(jsCode);
                     Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
                     InputStream out = coerceImageStream(r, input, urlString);
                     SpiderDebug.log("hkimage", "图片解密完成 host=%s 耗时=%dms 结果=%s",
@@ -4691,9 +4751,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * <p>规则 {@code $().image(fn)} 生成的代码体引用裸 {@code MY_TITLE}
      *（如 {@code $.require("data?rule=" + MY_TITLE)}），图片求值作用域若无此全局则报
      * ReferenceError，被 try/catch 吞掉后返回加密原字节，Glide 解码失败、封面空白。
-     * 取值：优先从代码体 {@code $.hiker.MY_TITLE = "..."} 提取，取不到时用当前规则标题。</p>
+     * 取值：优先从代码体 {@code $.hiker.MY_TITLE = "..."} 提取，取不到时用调用方传入的规则标题
+     *（W3：图片走进程单例，单例本身无规则，标题由调用链显式传入）。</p>
      */
-    private String getMyTitleJs(String jsCode) {
+    private String getMyTitleJs(String jsCode, String ruleTitle) {
         String title = null;
         try {
             java.util.regex.Matcher m = java.util.regex.Pattern
@@ -4702,7 +4763,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (m.find()) title = m.group(1).replace("\\\"", "\"").replace("\\\\", "\\");
         } catch (Throwable ignored) {
         }
-        if (android.text.TextUtils.isEmpty(title) && rule != null) title = rule.getTitle();
+        if (android.text.TextUtils.isEmpty(title)) title = ruleTitle;
         if (android.text.TextUtils.isEmpty(title)) return "";
         return "var MY_TITLE = '" + escapeJsString(title) + "';\n";
     }

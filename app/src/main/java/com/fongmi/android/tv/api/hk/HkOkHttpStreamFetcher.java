@@ -101,15 +101,15 @@ public class HkOkHttpStreamFetcher implements DataFetcher<InputStream>, okhttp3.
         }
     }
 
-    /** 调规则当前 HkJsRuntime 求值；拿不到 runtime 时退化为原 input（8.83 无此分支，宿主多规则所需）。 */
+    /** W3：调图片求值进程单例（8.83 JSEngine.getInstance() 同款）；单例起不来时退化为原 input。 */
     private InputStream evalImageJs(String jsBody, InputStream input, Map<String, List<String>> headers) {
         try {
-            HkJsRuntime rt = HkImage.currentRuntime();
-            if (rt == null) {
-                SpiderDebug.log("hkimage", "图片求值无可用脚本环境 host=%s（退化为原流）", hostOf());
+            HkJsRuntime img = HkJsRuntime.imageEngine();
+            if (img == null) {
+                SpiderDebug.log("hkimage", "图片单例初始化失败 host=%s（退化为原流）", hostOf());
                 return input;
             }
-            return rt.evalImageJs(jsBody, input, headers, url.toString());
+            return img.evalImageJs(jsBody, input, headers, url.toString(), HkImage.currentTitle());
         } catch (Throwable t) {
             String cls = t.getClass().getSimpleName();
             String msg = t.getMessage();

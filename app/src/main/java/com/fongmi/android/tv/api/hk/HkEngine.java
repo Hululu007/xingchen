@@ -44,6 +44,7 @@ public class HkEngine {
         // 图片 @js= 求值依赖当前规则的 JS 运行时；HkPageActivity.getRouter() 也会设置，
         // 这里兜底保证引擎创建时即登记（8.83 JSEngine.getInstance() 单例语义）。
         HkImage.setCurrentRuntime(this.jsRuntime);
+        HkImage.setCurrentTitle(rule.getTitle());
         this.selector = jsRuntime.newSelector();
     }
 
@@ -59,6 +60,7 @@ public class HkEngine {
         this.jsRuntime = resident;
         // 图片 @js= 求值依赖当前规则的 JS 运行时；与原构造同款兜底登记
         HkImage.setCurrentRuntime(this.jsRuntime);
+        HkImage.setCurrentTitle(rule.getTitle());
         this.selector = resident.newSelector();
     }
 

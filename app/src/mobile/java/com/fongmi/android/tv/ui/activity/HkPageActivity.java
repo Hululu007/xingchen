@@ -2118,16 +2118,43 @@ public class HkPageActivity extends BaseActivity {
                 .show();
     }
 
-    /** 导出为文件：弹窗选择格式（.json / .hkzip / .zip），保存到 Download 目录并调起分享。 */
+    /** 导出为文件：弹窗选择格式（.json / .hkzip / .zip），保存到 Download 目录并调起分享。卡片风（P7）。 */
     private void exportAsFile(HkRule rule) {
-        new HkDialogs(this)
-                .setTitle("选择导出格式")
-                .setItems(new String[]{"导出为 .json 文件", "导出为 .hkzip 包", "导出为 .zip 包"}, (d, which) -> {
-                    if (which == 0) doExportAsJsonFile(rule);
-                    else if (which == 1) doExportAsHkZip(rule);
-                    else doExportAsZip(rule);
-                })
-                .show();
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(16));
+        TextView title = new TextView(this);
+        title.setText("选择导出格式");
+        title.setTextColor(0xFF1A1D24);
+        title.setTextSize(16);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        String[] labels = {"导出为 .json 文件", "导出为 .hkzip 包", "导出为 .zip 包"};
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
+        for (int i = 0; i < labels.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(labels[i]);
+            tv.setTextColor(0xFF1A1D24);
+            tv.setTextSize(15);
+            tv.setGravity(Gravity.CENTER);
+            tv.setBackgroundResource(R.drawable.dialog_option_card_light);
+            tv.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            tv.setLayoutParams(lp);
+            final int which = i;
+            tv.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) doExportAsJsonFile(rule);
+                else if (which == 1) doExportAsHkZip(rule);
+                else doExportAsZip(rule);
+            });
+            root.addView(tv);
+        }
+        dialog.show();
     }
 
     /** 导出规则为文件：保存到 Download 目录并调起分享。 */

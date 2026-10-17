@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.hk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.http.SslError;
@@ -474,7 +474,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             passEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             box.addView(userEdit);
             box.addView(passEdit);
-            new AlertDialog.Builder(act)
+            new HkDialogs(act)
                     .setTitle("网页登录")
                     .setView(box)
                     .setCancelable(false)
@@ -585,7 +585,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             }
             int pad = (int) (16 * act.getResources().getDisplayMetrics().density);
             input.setPadding(pad, pad / 2, pad, 0);
-            new AlertDialog.Builder(act)
+            new HkDialogs(act)
                     .setTitle("来自网页的输入请求")
                     .setMessage(message)
                     .setView(input)
@@ -598,7 +598,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         /** 原版 XPopup asConfirm("网页提示", message)（16dp 圆角、不可返回/点外关闭）的原生等价。 */
         private void showJsConfirmDialog(Activity act, String message, JsResult result) {
-            new AlertDialog.Builder(act)
+            new HkDialogs(act)
                     .setTitle("网页提示")
                     .setMessage(message)
                     .setCancelable(false)

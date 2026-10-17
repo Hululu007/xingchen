@@ -2538,7 +2538,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         String type = item.getType();
         if (HkColType.RICH_TEXT.code.equals(type) || HkColType.LONG_TEXT.code.equals(type)) {
             String[] items = {"自由复制", "调试数据"};
-            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            new HkDialogs(requireContext())
                     .setItems(items, (dialog, which) -> {
                         dealLongMenuClick(view, which == 0 ? "自由复制" : "调试数据", position, lazySplit);
                         dialog.dismiss();
@@ -2659,7 +2659,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     toastCenter("当前正在连续投屏中，不支持此操作");
                     return;
                 }
-                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                new HkDialogs(requireContext())
                         .setTitle("批量投屏")
                         .setMessage("点击确定后，点击页面中要投屏的内容即可快速添加到投屏队列，注意是投屏到世界直播，不是DLNA投屏！添加完成后请点击右下角的完成按钮结束批量投屏模式")
                         .setPositiveButton("确定", (dialog, which) -> {
@@ -2760,7 +2760,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版批量下载确认弹窗（XPopup asConfirm 的原生等价）：「确定」进批量选择模式；「下载全部」再弹二次确认。 */
     private void showBatchDownloadConfirm() {
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        new HkDialogs(requireContext())
                 .setTitle("批量下载")
                 .setMessage("点击确定后，点击页面中要下载的内容即可快速添加到下载队列，添加完成后请点击右下角的完成按钮结束批量下载模式")
                 .setPositiveButton("确定", (dialog, which) -> {
@@ -2774,7 +2774,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     /** 照抄原版「下载全部」二次确认弹窗：确定后 batchDownloadSelecting+batchDownloadAll 双置真、亮 notify 条。 */
     private void showDownloadAllConfirm() {
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        new HkDialogs(requireContext())
                 .setTitle("下载全部")
                 .setMessage("如想要下载全部剧集，请先点击要下载的第一项，然后软件就会陆续解析当前选择和后面的所有剧集，解析到下载地址后会加入下载任务，注意在未完成所有下载任务添加前不要离开页面，添加完任务会弹窗提示，此时即可离开页面，确定开始吗？")
                 .setPositiveButton("确定", (dialog, which) -> {

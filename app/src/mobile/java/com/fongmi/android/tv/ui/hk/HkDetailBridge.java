@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.hk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -492,7 +492,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         content.setTextIsSelectable(true);
         int pad = (int) (20 * activity.getResources().getDisplayMetrics().density);
         content.setPadding(pad, pad / 2, pad, 0);
-        new AlertDialog.Builder(activity)
+        new HkDialogs(activity)
                 .setView(content)
                 .setPositiveButton("复制", (d, w) -> copyToClipboardForce(activity, text))
                 .setNegativeButton("取消", null)
@@ -655,7 +655,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         }
         if (activity == null) return;
         String js = HkParserKit.arrayToString(parts, 1, ".js:");
-        new AlertDialog.Builder(activity)
+        new HkDialogs(activity)
                 .setTitle("小程序提示")
                 .setMessage(parts[0])
                 .setPositiveButton("确定", (dialog, which) -> BG.execute(() -> {
@@ -759,7 +759,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         int pad = (int) (20 * activity.getResources().getDisplayMetrics().density);
         // 原先底部内边距为 0，下划线直接压在文字上（潇洒哥 1.3.1 真机截图）；上下都留足间距
         edit.setPadding(pad, pad / 2, pad, pad / 2);
-        new AlertDialog.Builder(activity)
+        new HkDialogs(activity)
                 .setTitle("请输入")
                 .setView(edit)
                 .setPositiveButton("确定", (dialog, which) -> {

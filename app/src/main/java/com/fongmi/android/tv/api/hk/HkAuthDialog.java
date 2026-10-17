@@ -1,8 +1,9 @@
 package com.fongmi.android.tv.api.hk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.text.TextUtils;
+import com.fongmi.android.tv.ui.hk.HkDialogs;
 
 /**
  * 海阔敏感 API 授权弹窗（简化版）。
@@ -34,7 +35,7 @@ public class HkAuthDialog {
             msg.append("\n\n⚠️ 高风险操作：此操作可执行任意代码，仅允许信任的规则！");
         }
         try {
-            new AlertDialog.Builder(activity)
+            new HkDialogs(activity)
                     .setTitle(title)
                     .setMessage(msg.toString())
                     .setCancelable(false)

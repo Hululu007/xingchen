@@ -213,6 +213,12 @@
         <item name="android:editTextStyle">@style/XingChen.DialogEditText.HkLight</item>
     </style>
 
+    <!-- 海阔弹窗统一淡入淡出（HkDialogs.create 里挂到 window 上） -->
+    <style name="HkDialogFade">
+        <item name="android:windowEnterAnimation">@anim/hk_dialog_fade_in</item>
+        <item name="android:windowExitAnimation">@anim/hk_dialog_fade_out</item>
+    </style>
+
     <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走浅色 -->
     <style name="Theme.XingChen.HkPage" parent="Theme.XingChen">
         <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.HkLight</item>

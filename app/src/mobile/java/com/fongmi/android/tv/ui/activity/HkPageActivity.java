@@ -1,8 +1,8 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Dialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -97,6 +97,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.fongmi.android.tv.ui.hk.HkDetailBridge;
+import com.fongmi.android.tv.ui.hk.HkDialogs;
 import java.util.Arrays;
 
 /**
@@ -414,7 +415,7 @@ public class HkPageActivity extends BaseActivity {
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             if (code.equals(sp.getString(KEY_LAST_CLIP, ""))) return;
             sp.edit().putString(KEY_LAST_CLIP, code).apply();
-            new AlertDialog.Builder(this)
+            new HkDialogs(this)
                     .setTitle("检测到云口令")
                     .setMessage("剪贴板中有海阔云口令，是否立即导入？\n\n" + code)
                     .setPositiveButton("导入", (d, w) -> importByCloudCode(code))
@@ -713,7 +714,7 @@ public class HkPageActivity extends BaseActivity {
             return;
         }
         final List<String> targets = new ArrayList<>(ruleSelectedTitles);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("删除小程序")
                 .setMessage("确定删除选中的 " + targets.size() + " 个小程序吗？删了要重新导入。")
                 .setPositiveButton("删除", (d, w) -> new Thread(() -> {
@@ -941,7 +942,7 @@ public class HkPageActivity extends BaseActivity {
         int current = getPrefs().getInt(KEY_RULE_SPAN, 3);
         String[] labels = {"2 列", "3 列"};
         int[] spans = {2, 3};
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
             tv.setText(labels[i]);
@@ -1069,7 +1070,7 @@ public class HkPageActivity extends BaseActivity {
         ScrollView sv = new ScrollView(this);
         LinearLayout opts = new LinearLayout(this);
         opts.setOrientation(LinearLayout.VERTICAL);
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (String g : values) {
             TextView tv = new TextView(this);
             tv.setText(TextUtils.isEmpty(g) ? "无分组" : stripGroupPrefix(g));
@@ -1139,7 +1140,7 @@ public class HkPageActivity extends BaseActivity {
         ScrollView sv = new ScrollView(this);
         LinearLayout opts = new LinearLayout(this);
         opts.setOrientation(LinearLayout.VERTICAL);
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         dialog.setOnCancelListener(d -> cb.onPicked(""));
         for (String g : values) {
             TextView tv = new TextView(this);
@@ -1229,7 +1230,7 @@ public class HkPageActivity extends BaseActivity {
         LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         addLp.topMargin = dp(10);
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         addBtn.setOnClickListener(v -> showGroupNameInput(null, name -> {
             customGroups.add(name);
             saveCustomGroups();
@@ -1298,7 +1299,7 @@ public class HkPageActivity extends BaseActivity {
                 ruleAdapter.rebuildSections();
                 ruleAdapter.notifyDataSetChanged();
             })));
-            row.addView(groupRowBtn("删除", v -> new AlertDialog.Builder(this)
+            row.addView(groupRowBtn("删除", v -> new HkDialogs(this)
                     .setTitle("删除分组")
                     .setMessage("删除「" + stripGroupPrefix(g) + "」？组内小程序将恢复按规则文件分组。")
                     .setPositiveButton("删除", (d, w) -> {
@@ -1350,7 +1351,7 @@ public class HkPageActivity extends BaseActivity {
         et.setPadding(dp(14), dp(12), dp(14), dp(12));
         root.addView(et, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle(oldName == null ? "新建分组" : "改名")
                 .setView(root)
                 .setPositiveButton("确定", (d, w) -> {
@@ -1392,7 +1393,7 @@ public class HkPageActivity extends BaseActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(16), dp(20), dp(16));
         String[] labels = {"从文件导入", "从云口令导入", "粘贴规则 JSON"};
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
             tv.setText(labels[i]);
@@ -1451,7 +1452,7 @@ public class HkPageActivity extends BaseActivity {
         cb.setChecked(importPwdPromptEnabled());
         cb.setOnCheckedChangeListener((v, checked) -> setImportPwdPromptEnabled(checked));
         box.addView(cb);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("从云口令导入")
                 .setView(box)
                 .setPositiveButton("导入", (d, w) -> importByCloudCode(et.getText().toString(), etPwd.getText().toString().trim(), false))
@@ -1493,7 +1494,7 @@ public class HkPageActivity extends BaseActivity {
         et.setTextColor(0xFF1A1D24);
         et.setHintTextColor(0xFF9AA1B0);
         et.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("这个分享可能设了密码")
                 .setMessage("没填密码导入失败了。分享人要是给了密码，填这里再试一次。")
                 .setView(et)
@@ -1569,7 +1570,7 @@ public class HkPageActivity extends BaseActivity {
         et.setMinLines(4);
         et.setTextColor(0xFF1A1D24);
         et.setHintTextColor(0xFF9AA1B0);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("从口令导入")
                 .setView(et)
                 .setPositiveButton("导入", (d, w) -> importRuleText(et.getText().toString(), null))
@@ -1823,7 +1824,7 @@ public class HkPageActivity extends BaseActivity {
             }
         }
         if (!downgrade.isEmpty()) {
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            new HkDialogs(this)
                     .setTitle("版本未更新，是否覆盖？")
                     .setMessage("以下小程序的导入版本不高于已安装版本：\n" + sb + "\n\n覆盖可能导致降级。")
                     .setPositiveButton("全部覆盖", (d, w) -> pickGroupThenImport(picked))
@@ -1930,7 +1931,7 @@ public class HkPageActivity extends BaseActivity {
         if (isFinishing() || isDestroyed()) return;
         if (rules.size() == 1) {
             HkRule rule = rules.get(0);
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            new HkDialogs(this)
                     .setTitle(rule.getTitle())
                     .setMessage("是否打开该小程序？")
                     .setPositiveButton("打开", (d, w) -> openRule(rule))
@@ -1939,7 +1940,7 @@ public class HkPageActivity extends BaseActivity {
         } else {
             String[] titles = new String[rules.size()];
             for (int i = 0; i < rules.size(); i++) titles[i] = rules.get(i).getTitle();
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            new HkDialogs(this)
                     .setTitle("是否打开小程序？")
                     .setItems(titles, (d, which) -> openRule(rules.get(which)))
                     .setNegativeButton("取消", null)
@@ -1992,7 +1993,7 @@ public class HkPageActivity extends BaseActivity {
             for (int i = 0; i < labels.size(); i++) listView.setItemChecked(i, isChecked);
         });
 
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("选择要导入的小程序（" + labels.size() + "）")
                 .setView(root)
                 .setPositiveButton("导入", (d, w) -> {
@@ -2070,7 +2071,7 @@ public class HkPageActivity extends BaseActivity {
         tv.setTextIsSelectable(true);
         tv.setTextColor(0xFF1A1D24);
         tv.setPadding(dp(8), dp(8), dp(8), dp(8));
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("「" + title + "」的云口令")
                 .setMessage("口令已生成，可复制分享给他人导入：")
                 .setView(tv)
@@ -2087,7 +2088,7 @@ public class HkPageActivity extends BaseActivity {
 
     /** 导出为文件：弹窗选择格式（.json / .hkzip / .zip），保存到 Download 目录并调起分享。 */
     private void exportAsFile(HkRule rule) {
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("选择导出格式")
                 .setItems(new String[]{"导出为 .json 文件", "导出为 .hkzip 包", "导出为 .zip 包"}, (d, which) -> {
                     if (which == 0) doExportAsJsonFile(rule);
@@ -2166,7 +2167,7 @@ public class HkPageActivity extends BaseActivity {
         }).start();
     }
 
-    private void showDeleteRuleConfirm(HkRule rule) {        new AlertDialog.Builder(this)
+    private void showDeleteRuleConfirm(HkRule rule) {        new HkDialogs(this)
                 .setTitle("删除规则")
                 .setMessage("确定删除「" + rule.getTitle() + "」吗？")
                 .setPositiveButton("删除", (d, w) -> new Thread(() -> {
@@ -2465,7 +2466,7 @@ public class HkPageActivity extends BaseActivity {
         root.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         String[] labels = {"编辑", "分享", "删除"};
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
             tv.setText(labels[i]);
@@ -2495,7 +2496,7 @@ public class HkPageActivity extends BaseActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(16), dp(20), dp(16));
         String[] labels = {"云口令分享", "文件分享"};
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
             tv.setText(labels[i]);
@@ -2535,7 +2536,7 @@ public class HkPageActivity extends BaseActivity {
         String[] labels = {"云1 · pastebin", "云2 · textdb（官方通用）", "云5 · cmd.im（短口令）",
                 "云6 · pasteme（白阑）", "云7 · note.ms", "云9 · txtpad", "云10 · hastebin"};
         int[] clipNums = {1, 2, 5, 6, 7, 9, 10};
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(root).create();
+        AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
             tv.setText(labels[i]);
@@ -2795,7 +2796,7 @@ public class HkPageActivity extends BaseActivity {
             tvTitle.setGravity(Gravity.CENTER);
             root.addView(tvTitle, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            AlertDialog dlg = new AlertDialog.Builder(this).setView(root).create();
+            AlertDialog dlg = new HkDialogs(this).setView(root).create();
             ScrollView sv = new ScrollView(this);
             LinearLayout list = new LinearLayout(this);
             list.setOrientation(LinearLayout.VERTICAL);
@@ -3123,7 +3124,7 @@ public class HkPageActivity extends BaseActivity {
         outer.addView(card, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new HkDialogs(this)
                 .setView(outer).create();
         holder[0] = dialog;
         dialog.setCanceledOnTouchOutside(true);
@@ -3539,7 +3540,7 @@ public class HkPageActivity extends BaseActivity {
 
     /** H3: 长按搜索按钮弹出选择：搜内容 / 搜规则（已安装小程序） */
     private void showSearchChooser() {
-        new android.app.AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("搜索")
                 .setItems(new String[]{"搜内容", "搜规则"}, (d, which) -> {
                     if (which == 0) {
@@ -3682,7 +3683,7 @@ public class HkPageActivity extends BaseActivity {
                     }
                     android.widget.ImageView iv = new android.widget.ImageView(this);
                     com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), urls.get(0), iv, false, 0, 0, hkRuleUrl());
-                    new AlertDialog.Builder(this)
+                    new HkDialogs(this)
                             .setTitle(stripHtml(item.getTitle()))
                             .setView(iv)
                             .setPositiveButton("关闭", (d, w) -> d.dismiss())
@@ -3701,7 +3702,7 @@ public class HkPageActivity extends BaseActivity {
                 case "image": {
                     android.widget.ImageView iv = new android.widget.ImageView(this);
                     com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), url, iv, false, 0, 0, hkRuleUrl());
-                    new AlertDialog.Builder(this)
+                    new HkDialogs(this)
                             .setView(iv)
                             .setPositiveButton("关闭", (d, w) -> d.dismiss())
                             .show();
@@ -4757,7 +4758,7 @@ public class HkPageActivity extends BaseActivity {
                 String msg = url.substring(10);
                 int q = msg.indexOf('?');
                 if (q >= 0) msg = msg.substring(0, q);
-                new AlertDialog.Builder(this)
+                new HkDialogs(this)
                         .setMessage(msg.isEmpty() ? "确认？" : msg)
                         .setPositiveButton("确定", (d, w) -> d.dismiss())
                         .setNegativeButton("取消", (d, w) -> d.dismiss())
@@ -4782,7 +4783,7 @@ public class HkPageActivity extends BaseActivity {
                 String js = url.substring(ci + 13).trim();
                 if (js.startsWith("js:")) js = js.substring(3);
                 final String code = js;
-                new AlertDialog.Builder(this)
+                new HkDialogs(this)
                         .setMessage(msg.isEmpty() ? "确认？" : msg)
                         .setPositiveButton("确定", (d, w) -> {
                             d.dismiss();
@@ -4959,7 +4960,7 @@ public class HkPageActivity extends BaseActivity {
         if (titles.isEmpty()) return;
         final String js = extra.js == null ? "" : extra.js;
         String dlgTitle = extra.title != null && !extra.title.isEmpty() ? extra.title : "请选择";
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle(dlgTitle)
                 .setSingleChoiceItems(titles.toArray(new String[0]), extra.selectedIndex,
                         (d, which) -> {
@@ -4998,7 +4999,7 @@ public class HkPageActivity extends BaseActivity {
                 dialogTitle = stripHtml(title);
             }
         }
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle(dialogTitle)
                 .setView(et)
                 .setPositiveButton("确定", (d, w) -> {
@@ -5017,7 +5018,7 @@ public class HkPageActivity extends BaseActivity {
             wv.getSettings().setDomStorageEnabled(true);
             wv.setWebViewClient(new android.webkit.WebViewClient());
             wv.loadUrl(url);
-            new AlertDialog.Builder(this)
+            new HkDialogs(this)
                     .setView(wv)
                     .setPositiveButton("关闭", (d, w) -> {
                         try { wv.destroy(); } catch (Throwable ignored) {}
@@ -6332,7 +6333,7 @@ public class HkPageActivity extends BaseActivity {
         String url = item.getUrl() == null ? "" : item.getUrl().trim();
         String title = stripHtml(item.getTitle() == null ? "" : item.getTitle());
         String[] labels = {"复制链接", "访问链接", "下载资源", "自由复制"};
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle(title.isEmpty() ? "操作" : (title.length() > 20 ? title.substring(0, 20) + "…" : title))
                 .setItems(labels, (d, which) -> {
                     switch (which) {

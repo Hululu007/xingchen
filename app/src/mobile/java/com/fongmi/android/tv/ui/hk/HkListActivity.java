@@ -369,7 +369,7 @@ public class HkListActivity extends AppCompatActivity
             public void showDownloadDialog(Activity activity, String title, String url, String film, java.util.Map<String, String> headers) {
                 if (activity == null || TextUtils.isEmpty(url)) return;
                 String name = !TextUtils.isEmpty(title) ? title : url;
-                new AlertDialog.Builder(activity)
+                new HkDialogs(activity)
                         .setTitle("下载资源")
                         .setMessage(name + "\n" + url)
                         .setPositiveButton("下载", (d, w) -> {
@@ -645,7 +645,7 @@ public class HkListActivity extends AppCompatActivity
 
     /** 照原版 initView 数据全丢分支：温馨提示「页面数据被系统回收，即将退出该页面。」确认后退出。 */
     private void showRecycledAndExit() {
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("温馨提示")
                 .setMessage("页面数据被系统回收，即将退出该页面。")
                 .setCancelable(false)
@@ -776,7 +776,7 @@ public class HkListActivity extends AppCompatActivity
             new HkDetailBridge().goWeb(this, content);
             return;
         }
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setMessage(content)
                 .setPositiveButton("复制", (dialog, which) -> {
                     android.content.ClipboardManager clipboard =
@@ -810,7 +810,7 @@ public class HkListActivity extends AppCompatActivity
         edit.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         int pad = (int) (16 * getResources().getDisplayMetrics().density + 0.5f);
         edit.setPadding(pad, pad, pad, pad);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle(new File(path).getName())
                 .setView(edit)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -839,7 +839,7 @@ public class HkListActivity extends AppCompatActivity
         text.setPadding(pad, pad, pad, pad);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(text);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("代码")
                 .setView(scroll)
                 .setPositiveButton("关闭", null)
@@ -855,7 +855,7 @@ public class HkListActivity extends AppCompatActivity
         edit.setTextSize(14f);
         int pad = (int) (16 * getResources().getDisplayMetrics().density + 0.5f);
         edit.setPadding(pad, pad, pad, pad);
-        new AlertDialog.Builder(this)
+        new HkDialogs(this)
                 .setTitle("编辑")
                 .setView(edit)
                 .setPositiveButton("确定", (dialog, which) -> {
@@ -1135,7 +1135,7 @@ public class HkListActivity extends AppCompatActivity
         outer.addView(card, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new HkDialogs(this)
                 .setView(outer).create();
         holder[0] = dialog;
         dialog.setCanceledOnTouchOutside(true);

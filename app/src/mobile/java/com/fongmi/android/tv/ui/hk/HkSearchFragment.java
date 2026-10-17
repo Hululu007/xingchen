@@ -408,7 +408,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         String title = result.getTitle();
         if (title != null && title.startsWith("没有找到你想要的噢-_-")) {
             if (title.contains("精准") && getContext() != null) {
-                new android.app.AlertDialog.Builder(getContext())
+                new HkDialogs(getContext())
                         .setTitle("温馨提示")
                         .setMessage("当前为精准搜索模式，可能会过滤掉一些结果，可以改为默认搜索模式查看全部搜索结果")
                         .setPositiveButton("知道了", null)
@@ -842,7 +842,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         if (getContext() == null || adapter == null
                 || position < 0 || position >= adapter.getList().size()) return;
         String[] data = getDetailData(position);
-        new android.app.AlertDialog.Builder(getContext())
+        new HkDialogs(getContext())
                 .setTitle("调试数据")
                 .setItems(data, (dialog, which) -> copyToClipboard(data[which]))
                 .setNegativeButton("关闭", null)

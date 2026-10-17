@@ -3,8 +3,14 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/hk_bg_translucent"
+    android:background="@android:color/transparent"
     android:fitsSystemWindows="true">
+
+    <!-- 液态玻璃动态背景：根第一个孩子，match_parent（施工图 §3.1） -->
+    <com.fongmi.android.tv.ui.hk.HkDynamicBgView
+        android:id="@+id/hk_dynamic_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -31,11 +37,14 @@
                 android:paddingBottom="8dp" />
 
             <!-- 悬浮磨砂顶栏：背景直接设在 FrameLayout 上，避免内部 match_parent 的 header_bg 测量异常撑满盖住列表 -->
+            <!-- 悬浮玻璃顶栏：左右 18dp 悬浮边距（样张定案的 margin 例外），背景代码设 HkGlassDrawable -->
             <FrameLayout
                 android:id="@+id/header_cluster"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_alignParentTop="true"
+                android:layout_marginLeft="18dp"
+                android:layout_marginRight="18dp"
                 android:background="@drawable/hk_header_glass">
 
                 <LinearLayout
@@ -247,6 +256,7 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
+            <!-- 奶油玻璃底钮：左右 18dp 悬浮边距（样张定案的 margin 例外），背景/字色代码设 -->
             <TextView
                 android:id="@+id/btn_import"
                 android:layout_width="wrap_content"
@@ -254,6 +264,8 @@
                 android:layout_alignParentBottom="true"
                 android:layout_centerHorizontal="true"
                 android:layout_marginBottom="16dp"
+                android:layout_marginLeft="18dp"
+                android:layout_marginRight="18dp"
                 android:background="@drawable/hk_gold_button"
                 android:gravity="center"
                 android:paddingLeft="28dp"

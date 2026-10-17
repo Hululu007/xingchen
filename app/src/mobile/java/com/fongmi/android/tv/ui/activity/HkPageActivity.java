@@ -98,6 +98,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.fongmi.android.tv.ui.hk.HkDetailBridge;
 import com.fongmi.android.tv.ui.hk.HkDialogs;
+import com.fongmi.android.tv.ui.hk.HkDynamicBgView;
+import com.fongmi.android.tv.ui.hk.HkGlassDrawable;
+import com.fongmi.android.tv.ui.hk.HkPressFeedback;
 import java.util.Arrays;
 
 /**
@@ -379,11 +382,15 @@ public class HkPageActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         hkPaused = false;
+        // 液态玻璃：页面回可见，恢复动态背景（兜底，View 自停为主）
+        if (binding != null && binding.hkDynamicBg != null) binding.hkDynamicBg.resume();
     }
 
     @Override
     protected void onPause() {
         hkPaused = true;
+        // 液态玻璃：页面不可见，停动态背景
+        if (binding != null && binding.hkDynamicBg != null) binding.hkDynamicBg.pause();
         super.onPause();
     }
 
@@ -512,9 +519,8 @@ public class HkPageActivity extends BaseActivity {
         binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        // 顶栏已改实色底，不再需要 blur（之前半透明导致跟滚动内容混在一起像一起滚）。
-        // 搜索条不再打 blur：FrostedGlass 的契约是只糊独立背景层，糊在装输入框的容器上
-        // 会把文字和按钮一起糊成毛玻璃（真机表现为搜索框像被一层白盖住）。
+        applyLiquidGlass();
+        // 液态玻璃顶栏：只裁剪背景缓冲，内容层（文字/按钮）永远不糊，不存在旧 blur 把字糊住的问题。
         binding.etInlineSearch.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -635,6 +641,21 @@ public class HkPageActivity extends BaseActivity {
         boolean search = binding.inlineSearchBar.getVisibility() == View.VISIBLE;
         int top = dp(56) + dp(8) + (groups ? dp(48) : 0) + (search ? dp(56) : 0);
         binding.rvRules.setPadding(0, top, 0, dp(8));
+    }
+
+    /** 液态玻璃（P1 小程序页）：顶栏/圆钮/底钮换玻璃件＋按压反馈，布局不动。 */
+    private void applyLiquidGlass() {
+        // 悬浮玻璃顶栏：圆角 24dp，左右 18dp 悬浮边距见布局
+        binding.headerCluster.setBackground(new HkGlassDrawable(this, 24));
+        // 搜索/漏斗图标：玻璃圆钮（小圆玻璃底＋深色图标，图标 src 不动）
+        binding.btnSearchRule.setBackground(new HkGlassDrawable(this, 16));
+        binding.btnSortRule.setBackground(new HkGlassDrawable(this, 16));
+        HkPressFeedback.attach(binding.btnSearchRule);
+        HkPressFeedback.attach(binding.btnSortRule);
+        // 底部导入钮：奶油玻璃胶囊（奶油渐变＋1dp 金描边）＋深金字
+        binding.btnImport.setBackground(HkGlassDrawable.creamButton(this, 26));
+        binding.btnImport.setTextColor(0xFF7A5A00);
+        HkPressFeedback.attach(binding.btnImport);
     }
 
     /** 顶部「编辑」按钮：进入排列+分组编辑模式（长按拖拽排序，点卡片分配分组；按钮文字 编辑/完成 互换）。 */
@@ -2280,7 +2301,8 @@ public class HkPageActivity extends BaseActivity {
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             int layout = viewType == TYPE_RULE_COMPACT ? R.layout.item_hk_rule_compact : R.layout.item_hk_rule;
             View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
-            // 卡片已改纯白实底，不再需要 blur
+            // 液态玻璃：卡片按压反馈（发亮＋微缩 6%＋回弹），背景在 onBind 换玻璃件
+            HkPressFeedback.attach(v);
             return new Holder(v);
         }
 
@@ -2362,23 +2384,7 @@ public class HkPageActivity extends BaseActivity {
                     new android.graphics.drawable.Drawable[]{base, gloss});
         }
 
-        /** 卡面 drawable：纵向微渐变（上浅下微深）＋按主色淡染，圆角 12dp，顶部一层柔光（贴边光）。 */
-        private android.graphics.drawable.Drawable cardFaceDrawable(int baseColor) {
-            int top = blend(0xFFFFFFFF, baseColor, 0.06f);
-            int bottom = blend(0xFFFFF4E2, baseColor, 0.10f);
-            android.graphics.drawable.GradientDrawable face = new android.graphics.drawable.GradientDrawable();
-            face.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
-            face.setColors(new int[]{top, bottom});
-            face.setCornerRadius(dp(12));
-            android.graphics.drawable.GradientDrawable gloss = new android.graphics.drawable.GradientDrawable();
-            gloss.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
-            gloss.setColors(new int[]{0x2EFFFFFF, 0x00FFFFFF});
-            gloss.setCornerRadius(dp(12));
-            return new android.graphics.drawable.LayerDrawable(
-                    new android.graphics.drawable.Drawable[]{face, gloss});
-        }
-
-        /** 淡染主色板：图片图标/无色值定义时，按标题首字哈希取，保证每张卡有主色可染。 */
+        /** 淡染主色板：图片图标/无色值定义时，按标题首字哈希取，保证图标砖有主色可用（卡面淡染已随液态玻璃去掉）。 */
         private static final int[] TINT_PALETTE = {
                 0xFFC9970D, 0xFF2E7FD9, 0xFF35A06B, 0xFFD95F4B, 0xFF8E6BC8, 0xFF2AA5A0
         };
@@ -2396,12 +2402,18 @@ public class HkPageActivity extends BaseActivity {
             String title = rule.getTitle();
             h.name.setText(android.text.TextUtils.isEmpty(title) ? "未命名规则" : title);
             applyIconBg(h, rule.getIcon());
-            // v5 卡面：微渐变＋按图标主色淡染（8–12%）；2列/3列走同一份 onBind，一次覆盖
-            int faceBase = parseIconColor(rule.getIcon());
-            if (faceBase == -1) faceBase = paletteColorFor(title);
-            android.graphics.drawable.Drawable face = cardFaceDrawable(faceBase);
-            if (h.cardBg != null) h.cardBg.setBackground(face);
-            else h.itemView.setBackground(face);
+            // 液态玻璃卡面：共享缓冲裁剪（圆角 20dp），整卡淡染已去（样张是白透玻璃＋彩色图标砖）；图标砖取色保留
+            if (h.cardBg != null) {
+                if (!(h.cardBg.getBackground() instanceof HkGlassDrawable))
+                    h.cardBg.setBackground(new HkGlassDrawable(h.cardBg.getContext(), 20));
+            } else if (h.itemView instanceof androidx.cardview.widget.CardView) {
+                androidx.cardview.widget.CardView cv = (androidx.cardview.widget.CardView) h.itemView;
+                cv.setCardElevation(0);
+                cv.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
+                cv.setStrokeWidth(0);
+                if (!(cv.getBackground() instanceof HkGlassDrawable))
+                    cv.setBackground(new HkGlassDrawable(cv.getContext(), 20));
+            }
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
             if (h.ivIcon != null) h.ivIcon.setAlpha(alpha);
@@ -6516,8 +6528,8 @@ public class HkPageActivity extends BaseActivity {
                     h.card.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFE1E5EB));
                 }
                 h.chip.setTypeface(null, android.graphics.Typeface.NORMAL);
-                // 磨砂 pills：选中=奶油胶囊＋金下划线（v5 基准，去绿）＋深色字，未选中=白磨砂+深灰字
-                h.chip.setTextColor(sel ? 0xFF101216 : 0xFF222222);
+                // 液态玻璃 pills：选中=奶油渐变胶囊＋金下划线＋金字 #8A6400（照 v2 样张），未选中=白透玻璃 pill＋深灰字
+                h.chip.setTextColor(sel ? 0xFF8A6400 : 0xFF222222);
                 h.chip.setBackgroundResource(sel ? R.drawable.hk_chip_selected : R.drawable.hk_ripple_glass);
             }
             h.chip.setOnClickListener(v -> {

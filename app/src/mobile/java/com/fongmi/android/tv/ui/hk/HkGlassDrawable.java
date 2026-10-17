@@ -42,23 +42,41 @@ public class HkGlassDrawable extends Drawable {
     private int mLastVersion = -1;
     private boolean mLastOk = false;
 
+    // 白玻璃默认：白渐变罩 .58→.34→.46 ＋ 1dp 白描边（75%）
+    private static final int[] OVERLAY_WHITE = {0x94FFFFFF, 0x57FFFFFF, 0x75FFFFFF};
+    // 奶油玻璃：奶油渐变底 ＋ 1dp 金描边（底钮用）
+    private static final int[] OVERLAY_CREAM = {0xFFFFFBF0, 0xFFFFF6E2, 0xFFFFEECB};
+
+    private int[] mOverlayColors = OVERLAY_WHITE;
+    private float[] mOverlayStops = {0f, 0.55f, 1f};
+
     public HkGlassDrawable(Context context, float cornerRadiusDp) {
+        this(context, cornerRadiusDp, OVERLAY_WHITE, 0xBFFFFFFF);
+    }
+
+    /** 变体：自定义罩色与描边色（如奶油玻璃底钮：奶油渐变＋金描边）。 */
+    public HkGlassDrawable(Context context, float cornerRadiusDp, int[] overlayColors, int strokeColor) {
         mDensity = context.getResources().getDisplayMetrics().density;
         mRadius = cornerRadiusDp * mDensity;
+        if (overlayColors != null && overlayColors.length == 3) mOverlayColors = overlayColors;
         mFallbackPaint.setColor(0xE8FFFFFF);
         mStrokePaint.setStyle(Paint.Style.STROKE);
         mStrokePaint.setStrokeWidth(1f * mDensity);
-        mStrokePaint.setColor(0xBFFFFFFF); // 1dp 白描边，75% 透明
+        mStrokePaint.setColor(strokeColor);
+    }
+
+    /** 奶油玻璃底钮快捷构造：奶油渐变＋1dp 金描边 #D4A017。 */
+    public static HkGlassDrawable creamButton(Context context, float cornerRadiusDp) {
+        return new HkGlassDrawable(context, cornerRadiusDp, OVERLAY_CREAM, 0xFFD4A017);
     }
 
     @Override
     protected void onBoundsChange(Rect bounds) {
         super.onBoundsChange(bounds);
         mLastVersion = -1; // 界变了就重裁
-        // 白渐变罩 shader（界相关，缓存）：180° rgba(255,255,255,.58→.34→.46)
+        // 罩色 shader（界相关，缓存）：默认白玻璃 .58→.34→.46，奶油变体走构造参数
         mOverlayPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                new int[]{0x94FFFFFF, 0x57FFFFFF, 0x75FFFFFF},
-                new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
+                mOverlayColors, mOverlayStops, Shader.TileMode.CLAMP));
         // 底部内软影：rgba(80,90,120,.20) 向上羽化 14dp
         float sh = 14f * mDensity;
         mShadowPaint.setShader(new LinearGradient(0, bounds.bottom - sh, 0, bounds.bottom,

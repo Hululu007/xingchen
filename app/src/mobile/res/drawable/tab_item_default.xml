@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list
-  xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- 导航 tab 默认态：白透玻璃 pill（原纯白大白块已去）＋涟漪保留 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
-        <shape>
-            <solid android:color="#ffffffff" />
+        <shape android:shape="rectangle">
+            <solid android:color="#C2FFFFFF" />
+            <corners android:radius="10dp" />
+            <stroke
+                android:width="1dp"
+                android:color="#E1E5EB" />
         </shape>
     </item>
-    <item android:drawable="@drawable/ripple_gray_corners" android:left="2.0dip" android:right="2.0dip" />
+    <item
+        android:drawable="@drawable/ripple_gray_corners"
+        android:left="2.0dip"
+        android:right="2.0dip" />
 </layer-list>

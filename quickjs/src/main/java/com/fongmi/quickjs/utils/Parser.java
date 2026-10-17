@@ -318,4 +318,180 @@ public class Parser {
         if (s == null) return "";
         return s.replace("？？", "?").replace("＆＆", "&").replace("；；", ";").replace("，，", ",");
     }
+
+    // ================= 8.83 HtmlParser 忠实移植（供 _pd / _pdfh / _pdfa / _pdfl 调用） =================
+    // 与 pdfh 家族（CommonParser 口径）并存：pd 走 CommonParser，_pd 走 HtmlParser，两套不得互串。
+    // 口径来源：8.83 HtmlParser.smali（parseDomForUrl / parseDomForArray / parseDomForList /
+    // parseHikerToJq / getParseInfo / parseOneRule / joinUrl），逐分支照抄。
+
+    private static final Pattern HP_NOADD_INDEX = Pattern.compile(":eq|:lt|:gt|:first|:last|:not|:even|:odd|:has|:contains|:matches|:empty|^body$|^#");
+    private static final Pattern HP_URLJOIN_ATTR = Pattern.compile("(url|src|href|-original|-src|-play|-url|style)$|^(data-|url-|src-)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HP_SPECIAL_URL = Pattern.compile("^(ftp|magnet|thunder|ws):", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HP_STYLE_URL = Pattern.compile("url\\((.*?)\\)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    private static class HPainfo {
+        String nparse_rule;
+        int nparse_index;
+        List<String> excludes;
+    }
+
+    /** 8.83 HtmlParser.parseDomForUrl（_pd） */
+    public String hpdh(String html, String rule, String baseUrl) {
+        if (rule == null || rule.isEmpty()) return "";
+        if (baseUrl == null) baseUrl = "";
+        Document doc = cache.getPdfh(html);
+        if (rule.equals("body&&Text") || rule.equals("Text")) return doc.text();
+        if (rule.equals("body&&Html") || rule.equals("Html")) return doc.html();
+        // 8.83（HtmlParser.smali:179-184）：&& 有则末段是取值段（v3），从选择链里去掉；
+        // 无 && 则取值段为空（v3=""），末尾走 outerHtml。
+        String last;
+        if (rule.contains("&&")) {
+            String[] segs = rule.split("&&");
+            last = segs[segs.length - 1];
+            List<String> kept = new ArrayList<>();
+            for (int i = 0; i < segs.length - 1; i++) kept.add(segs[i]);
+            rule = hpJoin(" ", kept);
+        } else {
+            last = "";
+        }
+        String[] jqRules = parseHikerToJq(rule, true).split(" ");
+        Elements elements = new Elements();
+        for (String jqRule : jqRules) {
+            elements = hpParseOneRule(doc, jqRule, elements);
+            if (elements.isEmpty()) return "";
+        }
+        if (last.isEmpty()) return elements.outerHtml();
+        if (last.equals("Text")) return elements.text();
+        if (last.equals("Html")) return elements.html();
+        String[] attrs = last.split("[||]");
+        String result = "";
+        for (String attrName : attrs) {
+            String val = elements.attr(attrName);
+            if (attrName.toLowerCase().contains("style") && val.contains("url(")) {
+                Matcher m = HP_STYLE_URL.matcher(val);
+                if (m.find()) val = m.group(1);
+                val = val.replaceAll("^[\\'\"](.*)[\\'\"]$", "$1");
+            }
+            if (!val.isEmpty() && !baseUrl.isEmpty()
+                    && HP_URLJOIN_ATTR.matcher(attrName).find()
+                    && !HP_SPECIAL_URL.matcher(val).find()) {
+                val = val.contains("http") ? val.substring(val.indexOf("http")) : hpJoinUrl(baseUrl, val);
+            }
+            if (!val.isEmpty()) return val;
+            result = val;
+        }
+        return result;
+    }
+
+    /** 8.83 HtmlParser.parseDomForArray（_pdfa） */
+    public List<String> hpda(String html, String rule) {
+        Document doc = cache.getPdfa(html);
+        String[] jqRules = parseHikerToJq(rule, false).split(" ");
+        Elements elements = new Elements();
+        for (String jqRule : jqRules) {
+            elements = hpParseOneRule(doc, jqRule, elements);
+            if (elements.isEmpty()) return new ArrayList<>();
+        }
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < elements.size(); i++) out.add(elements.get(i).outerHtml());
+        return out;
+    }
+
+    /** 8.83 HtmlParser.parseDomForList（_pdfl：每条 = parseDomForUrl(htmlRule)+"$"+parseDomForUrl(texts, urls)） */
+    public List<String> hpdfl(String html, String rule, String htmlRule, String texts, String urls) {
+        Document doc = cache.getPdfa(html);
+        String[] jqRules = parseHikerToJq(rule, false).split(" ");
+        Elements elements = new Elements();
+        for (String jqRule : jqRules) {
+            elements = hpParseOneRule(doc, jqRule, elements);
+            if (elements.isEmpty()) return new ArrayList<>();
+        }
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < elements.size(); i++) {
+            String outerHtml = elements.get(i).outerHtml();
+            out.add(hpdh(outerHtml, htmlRule, "").trim() + "$" + hpdh(outerHtml, texts, urls));
+        }
+        return out;
+    }
+
+    private static Elements hpParseOneRule(Document doc, String rule, Elements elements) {
+        HPainfo info = hpGetParseInfo(rule);
+        Elements selected = elements.isEmpty() ? doc.select(info.nparse_rule) : elements.select(info.nparse_rule);
+        if (rule.contains(":eq")) {
+            selected = info.nparse_index < 0 ? selected.eq(selected.size() + info.nparse_index) : selected.eq(info.nparse_index);
+        }
+        if (info.excludes != null && !selected.isEmpty()) {
+            selected = selected.clone();
+            for (int i = 0; i < info.excludes.size(); i++) selected.select(info.excludes.get(i)).remove();
+        }
+        return selected;
+    }
+
+    private static HPainfo hpGetParseInfo(String rule) {
+        HPainfo info = new HPainfo();
+        info.nparse_rule = rule;
+        if (rule.contains(":eq")) {
+            info.nparse_rule = rule.split(":")[0];
+            String idxPart = rule.split(":")[1];
+            if (info.nparse_rule.contains("--")) {
+                String[] split = info.nparse_rule.split("--");
+                info.excludes = new ArrayList<>();
+                for (int i = 1; i < split.length; i++) info.excludes.add(split[i]);
+                info.nparse_rule = split[0];
+            } else if (idxPart.contains("--")) {
+                String[] split = idxPart.split("--");
+                info.excludes = new ArrayList<>();
+                for (int i = 1; i < split.length; i++) info.excludes.add(split[i]);
+                idxPart = split[0];
+            }
+            try {
+                info.nparse_index = Integer.parseInt(idxPart.replace("eq(", "").replace(")", ""));
+            } catch (Exception e) {
+                info.nparse_index = 0;
+            }
+        } else if (rule.contains("--")) {
+            String[] split = info.nparse_rule.split("--");
+            info.excludes = new ArrayList<>();
+            for (int i = 1; i < split.length; i++) info.excludes.add(split[i]);
+            info.nparse_rule = split[0];
+        }
+        return info;
+    }
+
+    private static String parseHikerToJq(String rule, boolean addIndex) {
+        if (rule.contains("&&")) {
+            String[] segs = rule.split("&&");
+            List<String> out = new ArrayList<>();
+            for (int i = 0; i < segs.length; i++) {
+                String[] tokens = segs[i].split(" ");
+                if (!HP_NOADD_INDEX.matcher(tokens[tokens.length - 1]).find()) {
+                    out.add(!addIndex && i >= segs.length - 1 ? segs[i] : segs[i] + ":eq(0)");
+                } else {
+                    out.add(segs[i]);
+                }
+            }
+            return hpJoin(" ", out);
+        }
+        String[] tokens = rule.split(" ");
+        return (HP_NOADD_INDEX.matcher(tokens[tokens.length - 1]).find() || !addIndex) ? rule : rule + ":eq(0)";
+    }
+
+    private static String hpJoin(CharSequence sep, Iterable<?> items) {
+        StringBuilder sb = new StringBuilder();
+        for (Object o : items) {
+            if (sb.length() > 0) sb.append(sep);
+            sb.append(o);
+        }
+        return sb.toString();
+    }
+
+    /** 8.83 HtmlParser.joinUrl：new URL(new URL(base), child)，失败回 base */
+    private static String hpJoinUrl(String base, String child) {
+        if (base.isEmpty()) return child;
+        try {
+            return new java.net.URL(new java.net.URL(base), child).toExternalForm();
+        } catch (Exception e) {
+            return base;
+        }
+    }
 }

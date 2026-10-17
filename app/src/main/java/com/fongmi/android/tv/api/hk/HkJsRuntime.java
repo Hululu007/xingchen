@@ -274,7 +274,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String mySort = "";
 
     /** 8.83 AES_DEFAULT_KEY（JSEngine.java:162）：getPrivateJS/evalPrivateJS 共用此密钥。 */
-    private static final String AES_DEFAULT_KEY = "1234567890kkkk";
+    private static final String AES_DEFAULT_KEY = "hk6666666109";
     private static final String UA_MOBILE = "Mozilla/5.0 (Linux; Android 15; 2407FRK8EC Build/AP3A.240617.008; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36";
     private static final String UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 

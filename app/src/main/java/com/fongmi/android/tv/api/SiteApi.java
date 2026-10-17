@@ -78,7 +78,7 @@ public class SiteApi {
      * py 侧问代理口时无归属、无日志、静默直连（真机日志 via=py 全天 0 条即此故）。
      * 再兜一层：key 以 py_ 开头也算 py（与 isSpider 的口径一致）。
      */
-    private static String proxyKindOf(Site site) {
+    static String proxyKindOf(Site site) {
         String api = site == null ? null : site.getApi();
         if (api == null) return null;
         String a = api.toLowerCase();

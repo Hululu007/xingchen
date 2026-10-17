@@ -1,9 +1,14 @@
 package com.fongmi.android.tv.api;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.github.catvod.utils.Prefers;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -26,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - 慢源专用耐心：单源超时按账自适应（历史耗时×1.5＋10 秒余量，60–300 秒钳制；
  *   无账新源默认 120 秒），前台 30/35 秒口径一字不动；只有真挂死才跳过。
  * - 耗时记账：每个源每次成功加载的实际耗时持久化，下次启动慢源优先先热。
+ * - 走节点源遇内核没就绪：不算失败、不记 doneThisBoot，挪到补跑队列稍后试一次；
+ *   补跑时仍没就绪则放弃（不无限循环）；非节点源完全不受影响，队列不被堵。
  */
 public final class HomePrewarm {
 
@@ -71,6 +78,11 @@ public final class HomePrewarm {
     private static final ConcurrentHashMap<String, CompletableFuture<String>> inflight = new ConcurrentHashMap<>();
     /** 本次启动已处理过的源：坏源只跳过一次，不重试打站点。 */
     private static final Set<String> doneThisBoot = ConcurrentHashMap.newKeySet();
+    /**
+     * 等节点补跑队列：内核没就绪时碰到的走节点源不算失败、不记 doneThisBoot，
+     * 挪到这里稍后补跑一次；驱动单线程消费，随 kick 只进一次。
+     */
+    private static final Deque<Site> deferredProxy = new ArrayDeque<>();
 
     /** 预热缓存 key：py 用 脚本戳（与普通首页缓存同口径，可直接晋升）；js 用固定后缀。 */
     static String cacheKey(Site site) {
@@ -137,6 +149,40 @@ public final class HomePrewarm {
         return ms / 1000;
     }
 
+    /** 走节点口径：与 ClashGate/网络层同口径——kind 走 SiteApi.proxyKindOf，id 用源 key。 */
+    static boolean needsProxyWarm(Site site) {
+        try {
+            if (site == null || site.getKey() == null) return false;
+            String kind = SiteApi.proxyKindOf(site);
+            if (kind == null) return false;
+            return SourceProxyPolicy.shouldProxy(App.get(), kind, site.getKey());
+        } catch (Throwable t) {
+            return false; // 判不出就当直连：fail-open，绝不挡预热
+        }
+    }
+
+    /** 走节点的源碰上内核没就绪：现在跑会静默直连，挪到补跑队列，稍后再试。 */
+    static boolean proxyNotReady(Site site) {
+        if (!needsProxyWarm(site)) return false;
+        try {
+            return !MihomoManager.get().isRunning();
+        } catch (Throwable t) {
+            return false; // 判不出就绪态也当可跑：不许堵队列
+        }
+    }
+
+    /** 播放让路：用户开始播放/解析时暂停推进，播完再续（只等，不取消）；返回 false 表示被中断，调用方应退出队列。 */
+    private static boolean waitPlayback() {
+        while (playbackActive) {
+            try {
+                Thread.sleep(PLAYBACK_WAIT_MS);
+            } catch (InterruptedException e) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static void runQueue() {
         try {
             Thread.sleep(START_DELAY_MS);
@@ -165,17 +211,35 @@ public final class HomePrewarm {
             try {
                 if (!wantSite(site, home)) continue;
                 // 播放让路：用户开始播放/解析时暂停推进，播完再续（只等，不取消）。
-                while (playbackActive) {
-                    try {
-                        Thread.sleep(PLAYBACK_WAIT_MS);
-                    } catch (InterruptedException e) {
-                        return;
-                    }
+                if (!waitPlayback()) return;
+                if (proxyNotReady(site)) {
+                    // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到队尾稍后补跑一次。
+                    // 队列先跑后面的非节点源，不许被它堵住。
+                    deferredProxy.add(site);
+                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "defer (kernel not ready): " + safeKey(site));
+                    continue;
                 }
                 prewarmOne(site);
             } catch (Throwable t) {
                 // 队列尽力而为：单个条目异常绝不中断全队列。
                 com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue item failed: " + safeKey(site));
+            }
+        }
+        // 补跑一轮：只此一轮，不无限循环。
+        Site retry;
+        while ((retry = deferredProxy.poll()) != null) {
+            try {
+                if (!wantSite(retry, home)) continue; // 中途前台已暖或状态变化就跳过
+                if (!waitPlayback()) return;
+                if (proxyNotReady(retry)) {
+                    // 补跑时内核仍没就绪：放弃本次启动，不算失败，记 done 防止再被拾起。
+                    doneThisBoot.add(retry.getKey());
+                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (kernel not ready): " + safeKey(retry));
+                    continue;
+                }
+                prewarmOne(retry); // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
+            } catch (Throwable t) {
+                com.github.catvod.crawler.SpiderDebug.log("prewarm", "retry item failed: " + safeKey(retry));
             }
         }
     }

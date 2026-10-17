@@ -6270,7 +6270,7 @@ public class PlayerManager implements ParseCallback {
         Throwable t = e;
         int depth = 0;
         while (t != null && depth++ < 10) {
-            if (t instanceof HttpDataSource.HttpDataSourceException hse && hse.responseCode == 410) return true;
+            if (t instanceof HttpDataSource.InvalidResponseCodeException irce && irce.responseCode == 410) return true;
             t = t.getCause();
         }
         return false;

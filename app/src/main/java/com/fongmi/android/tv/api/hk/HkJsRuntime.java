@@ -1953,14 +1953,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // setPageReverse：官方设置页面倒序标记；宿主存 kv 供规则自查
         // 8.83 JSEngine.setPageReverse(4140)：post OnReversePageEvent(reverse) 经 EventBus，FilmListActivity.onSetReverse 接收后调 reverseArticleList
         putFunction("setPageReverse", args -> {
-            try {
-                boolean rev = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
-                kv.put("__pageReverse", rev ? "1" : "0");
-                saveKv();
-                // 对齐 8.83：发 EventBus 事件，详情页收到后倒序列表
-                org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.OnReversePageEvent(rev));
-            } catch (Throwable ignored) {
-            }
+            setPageReverseDo(args);
+            return null;
+        });
+        // W1：8.83 里 refreshPage 与 setPageReverse 同挂别名 "refresh"
+        // （JSEngine.smali:22084 refreshPage / :24779 setPageReverse），注册顺序靠后者胜，
+        // 别名 refresh 实际指向倒序页面语义（OnReversePageEvent，smali:4140）。
+        // 注：别名赢家依赖原版方法声明顺序，ART 上为声明顺序，非规范保证
+        // （对差表"没定死"第 5 项）。
+        putFunction("refresh", args -> {
+            setPageReverseDo(args);
             return null;
         });
 
@@ -2775,20 +2777,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return false;
             }
         });
-        // R6: 8.83 的 refresh() 等同 refreshPage()（JSEngine @JSAnnotation(alias="refresh")，
-        // 调 refresh 即调 refreshPage 本体，同样发事件）。之前只置标记不发事件，规则调 refresh() 时页面不刷。
-        putFunction("refresh", args -> {
-            refreshRequested = true;
-            refreshToTop = refreshScrollTop(args);
-            long now = System.currentTimeMillis();
-            if (now - lastRefreshPageAt >= 200) {
-                lastRefreshPageAt = now;
-                org.greenrobot.eventbus.EventBus.getDefault().post(
-                        new com.fongmi.android.tv.api.hk.event.home.OnRefreshPageEvent(refreshToTop));
-            }
-            Logger.t(TAG).d("refreshPage(%s) requested", refreshToTop);
-            return null;
-        });
+        // （W1：refresh 别名已迁至 setPageReverse 处注册为倒序语义，此处旧的重刷实现删除。）
         // setPageParams：8.83 JSEngine.setPageParams(2779)：post SetPageParamsEvent(t) 经 EventBus，FilmListActivity.onSetParams 接收后更新 rule params
         putFunction("setPageParams", args -> {
             try {
@@ -3443,6 +3432,18 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 enc[i] = (byte) Integer.parseInt(data.substring(i * 2, i * 2 + 2), 16);
             }
             return new String(cipher.doFinal(enc), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    /** W1 倒序语义本体（8.83 JSEngine.setPageReverse:4140：布尔参有效时发 OnReversePageEvent）。 */
+    private void setPageReverseDo(Object[] args) {
+        try {
+            boolean rev = args != null && args.length > 0 && Boolean.parseBoolean(argStr(args[0]));
+            kv.put("__pageReverse", rev ? "1" : "0");
+            saveKv();
+            // 对齐 8.83：发 EventBus 事件，详情页收到后倒序列表
+            org.greenrobot.eventbus.EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.home.OnReversePageEvent(rev));
+        } catch (Throwable ignored) {
         }
     }
 

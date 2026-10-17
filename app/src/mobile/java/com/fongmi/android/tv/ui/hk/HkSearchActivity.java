@@ -362,8 +362,7 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
     // ---------- 状态事件（底部状态条） ----------
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    public void onStatusEvent(HkSearchStatusEvent event) {
-        if (event == null || event.engine == null) return;
+    public void onStatusEvent(HkSearchStatusEvent event) {        if (event == null || event.engine == null) return;
         int pos = -1;
         for (int i = 0; i < engines.size(); i++) {
             HkSearchEngine e = engines.get(i);
@@ -382,6 +381,12 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
             errorEngines.remove(event.engine);
         }
         if (bottomAdapter != null) bottomAdapter.notifyItemChanged(pos);
+    }
+
+    /** backToHome：8.83 BackMainEvent 清栈。搜索页不是首页，收到直接退出。 */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onBackMainEvent(com.fongmi.android.tv.api.hk.event.video.BackMainEvent event) {
+        finish();
     }
 
     /** 点失败汇总时弹错误发动机列表，选中切到对应页（原版 errorPopup 语义）。 */

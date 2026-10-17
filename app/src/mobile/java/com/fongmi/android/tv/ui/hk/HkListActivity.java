@@ -29,6 +29,10 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
+
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkCommonParser;
@@ -660,6 +664,24 @@ public class HkListActivity extends AppCompatActivity
         super.onDestroy();
     }
 
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (!EventBus.getDefault().isRegistered(this)) EventBus.getDefault().register(this);
+    }
+
+    @Override
+    protected void onStop() {
+        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
+        super.onStop();
+    }
+
+    /** backToHome：8.83 BackMainEvent 清栈。星辰等价：子页级实例（listHost=true）直接退出，规则首页级留守。 */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onBackMainEvent(com.fongmi.android.tv.api.hk.event.video.BackMainEvent event) {
+        if (getIntent().getBooleanExtra("listHost", false)) finish();
+    }
+
     /** 照原版 initView 数据全丢分支：温馨提示「页面数据被系统回收，即将退出该页面。」确认后退出。 */
     private void showRecycledAndExit() {
         new HkDialogs(this)
@@ -691,7 +713,8 @@ public class HkListActivity extends AppCompatActivity
     private void beginSubPagePrefetch(HkArticleFragment.SubListRequest req) {
         HkArticleFragment cur = fragment;
         if (cur == null || isFinishing() || isDestroyed()) {
-            doOpenSubList(req, null);
+            // 早退不再裸开白页：与预取失败同口径，留列表页、小卡报加载失败＋toast
+            prefetchEarlyFail("页面状态异常，请重试");
             return;
         }
         // 单飞：已在预取中时任何再进来的子页打开一律吞掉（连点/JS 桥接并发只开一个）
@@ -703,7 +726,7 @@ public class HkListActivity extends AppCompatActivity
             dto = null;
         }
         if (dto == null) {
-            doOpenSubList(req, null);
+            prefetchEarlyFail("规则解析失败");
             return;
         }
         final HkRule cacheDto = dto;
@@ -760,6 +783,13 @@ public class HkListActivity extends AppCompatActivity
     private void finishSubPagePrefetchUi() {
         if (fragment != null) fragment.setSubPagePrefetchLock(false);
         HkPrefetchCard.dismiss(this);
+    }
+
+    /** 预取早退：与预取失败同口径——留列表页、小卡「加载失败」＋toast，不开裸白页。 */
+    private void prefetchEarlyFail(String reason) {
+        if (isFinishing() || isDestroyed()) return;
+        HkPrefetchCard.fail(this, "加载失败");
+        HkRouteBlocker.toastShortBottom(this, reason);
     }
 
     /**

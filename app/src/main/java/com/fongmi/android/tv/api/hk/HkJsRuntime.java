@@ -871,6 +871,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         return arr;
     }
 
+    /** log/xlog 共用的打日志实现（1.3.42 聚阅案：xlog 是宿主全局别名）。 */
+    private void logImpl(Object[] args) {
+        Logger.t(TAG).d("%s", args != null && args.length > 0 ? argStr(args[0]) : "");
+    }
+
     public HkJsRuntime(HkRule rule) {
         this.rule = rule;
         this.executor = Executors.newSingleThreadExecutor();
@@ -1268,7 +1273,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("log", args -> {
-            Logger.t(TAG).d("%s", args != null && args.length > 0 ? argStr(args[0]) : "");
+            logImpl(args);
+            return null;
+        });
+        // 聚阅库兼容垫片（1.3.42 聚阅案）：聚阅 SrcJuPublic.js 在全新作用域里「先用后定义」
+        // xlog（let xlog = log 只在 SrcJuMethod.js 里，而该文件在这条加载链上从未被
+        // require），require 作用域修法救不了这种写法。加宿主全局别名 xlog=log：
+        // SrcJuPublic.js 的 xlog(...) 取到全局别名正常跑；SrcJuMethod.js 的 let xlog = log
+        // 在调用方作用域内遮蔽全局，不冲突。xlog 不在 8.83 原版清单里，属兼容垫片。
+        putFunction("xlog", args -> {
+            logImpl(args);
             return null;
         });
 

@@ -11,8 +11,7 @@
         android:id="@+id/card_bg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/hk_card_glass"
-        android:elevation="6dp" />
+        android:background="@drawable/hk_card_glass" />
 
     <!-- 内容层：透明，永远不被模糊 -->
     <LinearLayout

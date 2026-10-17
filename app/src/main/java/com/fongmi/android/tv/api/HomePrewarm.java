@@ -8,6 +8,7 @@ import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.github.catvod.utils.Prefers;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Set;
@@ -16,7 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -54,11 +54,23 @@ public final class HomePrewarm {
     private static final long START_DELAY_MS = 3000;
     /** 播放让路轮询间隔。 */
     private static final long PLAYBACK_WAIT_MS = 2000;
+    /** 等配置就绪上限（毫秒）：冷启动 kick 常常打在配置装填完成之前，此时读到的源列表是空的，轮询等一会儿。 */
+    private static final long CONFIG_WAIT_MS = 30_000;
+    /** 等配置轮询间隔（毫秒）。 */
+    private static final long CONFIG_POLL_MS = 1000;
+
+    /**
+     * 进程级门闩（状态机，杜绝并发两轮）：
+     * IDLE → STARTING（kick 打响）→ RUNNING（配置就绪、队列真正开始消费，此刻门闩落下）→ DONE（跑完一轮）。
+     * 超时/崩溃恢复/被中断导致一轮都没跑成时，复位回 IDLE，进程级机会不烧掉——
+     * 后续 kick（如下拉刷新、配置就绪后再次 homeContent）还能重新驱动。
+     */
+    private static final int STATE_IDLE = 0, STATE_STARTING = 1, STATE_RUNNING = 2, STATE_DONE = 3;
+    private static final AtomicInteger state = new AtomicInteger(STATE_IDLE);
 
     /** 播放进行中标记：SiteApi.playerContent 置 true；PlayerManager.stop()/release() 清 false。 */
     public static volatile boolean playbackActive = false;
 
-    private static final AtomicBoolean kicked = new AtomicBoolean(false);
     private static final AtomicInteger threadNo = new AtomicInteger(0);
 
     private static ThreadFactory daemon(String name) {
@@ -111,9 +123,19 @@ public final class HomePrewarm {
         return key.startsWith("py_") || a.contains(".py") || a.contains(".js") || a.contains(".wv");
     }
 
-    /** App 冷启动且主页首屏加载发起后调用；每进程只生效一次。 */
+    /**
+     * App 冷启动且主页首屏加载发起后调用；门闩只在真正跑过一轮后落下，
+     * 一轮都没跑成（配置等不到等）不烧进程级机会，后续 kick 可重新驱动。
+     */
     public static void kick() {
-        if (!kicked.compareAndSet(false, true)) return;
+        if (!state.compareAndSet(STATE_IDLE, STATE_STARTING)) return;
+        int n = -1;
+        try {
+            List<Site> s = VodConfig.get().getSites();
+            n = s == null ? -1 : s.size();
+        } catch (Throwable ignored) {
+        }
+        com.github.catvod.crawler.SpiderDebug.log("prewarm", "kick: sites=" + n);
         driver.submit(HomePrewarm::runQueue);
     }
 
@@ -187,61 +209,116 @@ public final class HomePrewarm {
         try {
             Thread.sleep(START_DELAY_MS);
         } catch (InterruptedException e) {
+            resetIdle();
             return;
         }
-        if (Prefers.getBoolean("crash")) return; // 崩溃恢复模式：不添乱
-        List<Site> sites;
-        try {
-            sites = VodConfig.get().getSites();
-        } catch (Throwable t) {
+        if (Prefers.getBoolean("crash")) { // 崩溃恢复模式：不添乱
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (crash recovery mode)");
+            resetIdle();
             return;
         }
-        Site home = null;
-        try {
-            home = VodConfig.get().getHome();
-        } catch (Throwable ignored) {
+        // 冷启动 kick 常常打在配置装填完成之前：读到空列表就轮询等一会儿，
+        // 等的过程中零资源消耗；等不到就放弃并复位门闩（进程级机会不烧掉）。
+        List<Site> raw = waitForSites();
+        if (raw == null || raw.isEmpty()) {
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (config not ready after 30s)");
+            resetIdle();
+            return;
         }
-        // 慢源优先：按账本耗时降序排，慢的先热（痛点先治），快的捎带就完；
-        // 无账源按中等偏慢估计，不抢已知慢源的先机。
+        // 快照一份再排：源列表是 VodConfig 的内部列表，原地 sort 会打乱用户界面的源顺序。
+        List<Site> sites = new ArrayList<>(raw);
+        // 配置就绪、队列真正开始消费：此刻门闩落下。
+        state.compareAndSet(STATE_STARTING, STATE_RUNNING);
+        int warmed = 0, skipped = 0;
         try {
-            sites.sort((a, b) -> Long.compare(sortCost(b), sortCost(a)));
-        } catch (Throwable ignored) {
-        }
-        for (Site site : sites) {
+            Site home = null;
             try {
-                if (!wantSite(site, home)) continue;
-                // 播放让路：用户开始播放/解析时暂停推进，播完再续（只等，不取消）。
-                if (!waitPlayback()) return;
-                if (proxyNotReady(site)) {
-                    // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到队尾稍后补跑一次。
-                    // 队列先跑后面的非节点源，不许被它堵住。
-                    deferredProxy.add(site);
-                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "defer (kernel not ready): " + safeKey(site));
-                    continue;
+                home = VodConfig.get().getHome();
+            } catch (Throwable ignored) {
+            }
+            // 慢源优先：按账本耗时降序排，慢的先热（痛点先治），快的捎带就完；
+            // 无账源按中等偏慢估计，不抢已知慢源的先机。
+            try {
+                sites.sort((a, b) -> Long.compare(sortCost(b), sortCost(a)));
+            } catch (Throwable ignored) {
+            }
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue start: " + sites.size() + " sites");
+            for (Site site : sites) {
+                try {
+                    if (!wantSite(site, home)) continue;
+                    // 播放让路：用户开始播放/解析时暂停推进，播完再续（只等，不取消）。
+                    if (!waitPlayback()) return;
+                    if (proxyNotReady(site)) {
+                        // 走节点但内核没就绪：不算失败、不记 doneThisBoot，挪到队尾稍后补跑一次。
+                        // 队列先跑后面的非节点源，不许被它堵住。
+                        deferredProxy.add(site);
+                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "defer (kernel not ready): " + safeKey(site));
+                        continue;
+                    }
+                    if (prewarmOne(site)) warmed++; else skipped++;
+                } catch (Throwable t) {
+                    // 队列尽力而为：单个条目异常绝不中断全队列。
+                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue item failed: " + safeKey(site));
                 }
-                prewarmOne(site);
-            } catch (Throwable t) {
-                // 队列尽力而为：单个条目异常绝不中断全队列。
-                com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue item failed: " + safeKey(site));
+            }
+            // 补跑一轮：只此一轮，不无限循环。
+            Site retry;
+            while ((retry = deferredProxy.poll()) != null) {
+                try {
+                    if (!wantSite(retry, home)) continue; // 中途前台已暖或状态变化就跳过
+                    if (!waitPlayback()) return;
+                    if (proxyNotReady(retry)) {
+                        // 补跑时内核仍没就绪：放弃本次启动，不算失败，记 done 防止再被拾起。
+                        doneThisBoot.add(retry.getKey());
+                        com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (kernel not ready): " + safeKey(retry));
+                        continue;
+                    }
+                    if (prewarmOne(retry)) warmed++; else skipped++; // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
+                } catch (Throwable t) {
+                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "retry item failed: " + safeKey(retry));
+                }
+            }
+        } finally {
+            // 跑过一轮（正常结束或中途被播放让路打断都算）：门闩落下，进程级机会消耗。
+            state.set(STATE_DONE);
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "queue done: warmed=" + warmed + " skipped=" + skipped);
+        }
+    }
+
+    /**
+     * 复位门闩：一轮都没跑成（被中断/崩溃恢复/配置等不到），进程级机会不烧掉，
+     * 后续 kick（如下拉刷新、配置就绪后再次 homeContent）还能重新驱动。
+     */
+    private static void resetIdle() {
+        state.compareAndSet(STATE_STARTING, STATE_IDLE);
+    }
+
+    /**
+     * 等配置就绪：冷启动 kick 常常打在配置装填完成之前，此时 getSites() 返回空列表。
+     * 短间隔轮询、上限约 30 秒；等的过程中只是 sleep、零资源消耗，不挡播放；
+     * 等不到返回 null，调用方放弃并复位门闩。
+     */
+    private static List<Site> waitForSites() {
+        long deadline = System.currentTimeMillis() + CONFIG_WAIT_MS;
+        boolean logged = false;
+        while (System.currentTimeMillis() < deadline) {
+            List<Site> sites = null;
+            try {
+                sites = VodConfig.get().getSites();
+            } catch (Throwable ignored) {
+            }
+            if (sites != null && !sites.isEmpty()) return sites;
+            if (!logged) {
+                com.github.catvod.crawler.SpiderDebug.log("prewarm", "waiting for config (sites empty)");
+                logged = true;
+            }
+            try {
+                Thread.sleep(CONFIG_POLL_MS);
+            } catch (InterruptedException e) {
+                return null;
             }
         }
-        // 补跑一轮：只此一轮，不无限循环。
-        Site retry;
-        while ((retry = deferredProxy.poll()) != null) {
-            try {
-                if (!wantSite(retry, home)) continue; // 中途前台已暖或状态变化就跳过
-                if (!waitPlayback()) return;
-                if (proxyNotReady(retry)) {
-                    // 补跑时内核仍没就绪：放弃本次启动，不算失败，记 done 防止再被拾起。
-                    doneThisBoot.add(retry.getKey());
-                    com.github.catvod.crawler.SpiderDebug.log("prewarm", "giveup (kernel not ready): " + safeKey(retry));
-                    continue;
-                }
-                prewarmOne(retry); // 内核已就绪：正常一趟；就绪时进的主循环那一趟没被推迟，不会跑第二趟
-            } catch (Throwable t) {
-                com.github.catvod.crawler.SpiderDebug.log("prewarm", "retry item failed: " + safeKey(retry));
-            }
-        }
+        return null;
     }
 
     private static boolean wantSite(Site site, Site home) {
@@ -263,10 +340,11 @@ public final class HomePrewarm {
         return c > 0 ? c : UNKNOWN_COST_ESTIMATE_MS;
     }
 
-    private static void prewarmOne(Site site) {
+    /** 跑一个源：返回 true 表示暖好写进缓存，false 表示跳过/失败/在途重复。成功才记账。 */
+    private static boolean prewarmOne(Site site) {
         String key = site.getKey();
         CompletableFuture<String> f = new CompletableFuture<>();
-        if (inflight.putIfAbsent(key, f) != null) return; // 已有在途：不重复
+        if (inflight.putIfAbsent(key, f) != null) return false; // 已有在途：不重复
         try {
             long start = System.currentTimeMillis();
             String json = SiteApi.prewarmSpiderHome(site, timeoutFor(key)); // 抛异常/超时/空都算失败
@@ -275,16 +353,20 @@ public final class HomePrewarm {
                 SiteApi.putPrewarmCache(cacheKey(site), json);
                 recordCost(key, cost); // 成功才记账
                 com.github.catvod.crawler.SpiderDebug.log("prewarm", "warmed: " + key + " cost=" + cost + "ms");
-            } else {
-                com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (empty): " + key);
+                f.complete(json);
+                doneThisBoot.add(key); // 成功或空结果都算试过，本次启动不再重试
+                return true;
             }
+            com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (empty): " + key);
             f.complete(json);
-            doneThisBoot.add(key); // 成功或空结果都算试过，本次启动不再重试
+            doneThisBoot.add(key);
+            return false;
         } catch (Throwable t) {
             // 坏源只跳过：记一笔日志，继续下一个，绝不卡死队列；失败不记账。
             com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (fail): " + key + " " + t.getClass().getSimpleName());
             f.completeExceptionally(t);
             doneThisBoot.add(key);
+            return false;
         } finally {
             inflight.remove(key, f);
         }

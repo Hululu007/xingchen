@@ -2244,6 +2244,7 @@ public class HkPageActivity extends BaseActivity {
             android.widget.ImageView ivIcon;
             SwitchCompat sw;
             ImageButton more;
+            View cardBg;
 
             Holder(View v) {
                 super(v);
@@ -2253,6 +2254,7 @@ public class HkPageActivity extends BaseActivity {
                 tag = v.findViewById(R.id.tv_group_tag);
                 sw = v.findViewById(R.id.sw_enable);
                 more = v.findViewById(R.id.btn_more);
+                cardBg = v.findViewById(R.id.card_bg);
             }
         }
 
@@ -2271,7 +2273,7 @@ public class HkPageActivity extends BaseActivity {
             return new Holder(v);
         }
 
-        /** 图标：URL 则加载图片，# 开头则设背景色，否则默认"海"字。 */
+        /** 图标：URL 则加载图片，# 开头则按主色做渐变瓷砖，否则默认"海"字（v5 质感）。 */
         private void applyIconBg(Holder h, String iconDef) {
             TextView icon = h.icon;
             android.widget.ImageView ivIcon = h.ivIcon;
@@ -2302,20 +2304,78 @@ public class HkPageActivity extends BaseActivity {
                 }
                 return;
             }
-            // 非 URL：显示"海"字
+            // 非 URL：显示"海"字（v5 质感：渐变底＋顶部内高光）
             ivIcon.setVisibility(View.GONE);
             icon.setVisibility(View.VISIBLE);
-            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-            gd.setCornerRadius(dp(10));
-            int color = 0xFFF6EED6;
+            int color = parseIconColor(iconDef);
+            if (color == -1) color = 0xFFF6EED6;
+            icon.setBackground(iconTileDrawable(color));
+        }
+
+        /** 图标主色："#" 开头解析色值；图片图标/无定义返回 -1（调用方用标题首字色板）。 */
+        private int parseIconColor(String iconDef) {
             if (!TextUtils.isEmpty(iconDef) && iconDef.startsWith("#")) {
                 try {
-                    color = android.graphics.Color.parseColor(iconDef);
+                    return android.graphics.Color.parseColor(iconDef);
                 } catch (Exception ignored) {
                 }
             }
-            gd.setColor(color);
-            icon.setBackground(gd);
+            return -1;
+        }
+
+        /** 把 tint 按 ratio 染到 base 上（0=全 base，1=全 tint）。 */
+        private static int blend(int base, int tint, float ratio) {
+            float r = Math.max(0f, Math.min(1f, ratio));
+            int red = Math.round(android.graphics.Color.red(base) * (1 - r) + android.graphics.Color.red(tint) * r);
+            int green = Math.round(android.graphics.Color.green(base) * (1 - r) + android.graphics.Color.green(tint) * r);
+            int blue = Math.round(android.graphics.Color.blue(base) * (1 - r) + android.graphics.Color.blue(tint) * r);
+            return android.graphics.Color.argb(0xFF, red, green, blue);
+        }
+
+        /** 主色提亮（瓷砖渐变上端）。 */
+        private static int lighten(int color, float ratio) {
+            return blend(0xFFFFFFFF, color, ratio);
+        }
+
+        /** 图标瓷砖 drawable：渐变底（提亮→主色）＋顶部内高光，圆角 10dp。 */
+        private android.graphics.drawable.Drawable iconTileDrawable(int color) {
+            android.graphics.drawable.GradientDrawable base = new android.graphics.drawable.GradientDrawable();
+            base.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            base.setColors(new int[]{lighten(color, 0.45f), color});
+            base.setCornerRadius(dp(10));
+            android.graphics.drawable.GradientDrawable gloss = new android.graphics.drawable.GradientDrawable();
+            gloss.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            gloss.setColors(new int[]{0x59FFFFFF, 0x00FFFFFF});
+            gloss.setCornerRadius(dp(10));
+            return new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[]{base, gloss});
+        }
+
+        /** 卡面 drawable：纵向微渐变（上浅下微深）＋按主色淡染，圆角 12dp，顶部一层柔光（贴边光）。 */
+        private android.graphics.drawable.Drawable cardFaceDrawable(int baseColor) {
+            int top = blend(0xFFFFFFFF, baseColor, 0.06f);
+            int bottom = blend(0xFFFFF4E2, baseColor, 0.10f);
+            android.graphics.drawable.GradientDrawable face = new android.graphics.drawable.GradientDrawable();
+            face.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            face.setColors(new int[]{top, bottom});
+            face.setCornerRadius(dp(12));
+            android.graphics.drawable.GradientDrawable gloss = new android.graphics.drawable.GradientDrawable();
+            gloss.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            gloss.setColors(new int[]{0x2EFFFFFF, 0x00FFFFFF});
+            gloss.setCornerRadius(dp(12));
+            return new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[]{face, gloss});
+        }
+
+        /** 淡染主色板：图片图标/无色值定义时，按标题首字哈希取，保证每张卡有主色可染。 */
+        private static final int[] TINT_PALETTE = {
+                0xFFC9970D, 0xFF2E7FD9, 0xFF35A06B, 0xFFD95F4B, 0xFF8E6BC8, 0xFF2AA5A0
+        };
+
+        private static int paletteColorFor(String title) {
+            int h = 0;
+            if (title != null && !title.isEmpty()) h = Math.abs(title.charAt(0));
+            return TINT_PALETTE[h % TINT_PALETTE.length];
         }
 
         @Override
@@ -2325,6 +2385,12 @@ public class HkPageActivity extends BaseActivity {
             String title = rule.getTitle();
             h.name.setText(android.text.TextUtils.isEmpty(title) ? "未命名规则" : title);
             applyIconBg(h, rule.getIcon());
+            // v5 卡面：微渐变＋按图标主色淡染（8–12%）；2列/3列走同一份 onBind，一次覆盖
+            int faceBase = parseIconColor(rule.getIcon());
+            if (faceBase == -1) faceBase = paletteColorFor(title);
+            android.graphics.drawable.Drawable face = cardFaceDrawable(faceBase);
+            if (h.cardBg != null) h.cardBg.setBackground(face);
+            else h.itemView.setBackground(face);
             float alpha = rule.isEnabled() ? 1f : 0.5f;
             h.icon.setAlpha(alpha);
             if (h.ivIcon != null) h.ivIcon.setAlpha(alpha);

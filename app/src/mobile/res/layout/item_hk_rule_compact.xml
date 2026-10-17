@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔小程序：3列紧凑卡片（磨砂玻璃：独立背景层半透明+真blur+描边，内容层透明不被模糊）
+<!-- 海阔小程序：3列紧凑卡片（v5 质感：卡面微渐变＋同色淡染，adapter 按图标主色设；描边已随 v5 去掉）
      3列下卡片约100dp宽，横向空间紧张，故图标/⋮按钮缩小、间距收紧，保证名字可读 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:minHeight="60dp">
 
-    <!-- 独立背景层：磨砂 -->
+    <!-- 独立背景层：v5 卡面（adapter 设微渐变＋淡染 drawable），外层柔阴影 -->
     <View
         android:id="@+id/card_bg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/hk_card_glass" />
+        android:background="@drawable/hk_card_glass"
+        android:elevation="6dp" />
 
     <!-- 内容层：透明，永远不被模糊 -->
     <LinearLayout

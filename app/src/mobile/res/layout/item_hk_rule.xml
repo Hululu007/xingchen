@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔小程序列表卡片：白底 CardView 圆角 8dp 无阴影，标题 16sp 单行省略（对齐 8.83 item_shortcut_col_2） -->
+<!-- 海阔小程序列表卡片：v5 质感——卡面微渐变＋同色淡染（adapter 按图标主色设）、圆角 12dp、外层柔阴影 6dp -->
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -8,8 +8,8 @@
     android:layout_marginStart="5dp"
     android:layout_marginEnd="5dp"
     app:cardBackgroundColor="#FFFFFF"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="0dp">
+    app:cardCornerRadius="12dp"
+    app:cardElevation="6dp">
 
     <RelativeLayout
         android:layout_width="match_parent"

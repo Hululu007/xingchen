@@ -310,6 +310,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void release() {
+        com.fongmi.android.tv.api.HomePrewarm.playbackActive = false; // 首页预热恢复推进
         logStopAction("release");
         prepareSeq++;
         lutApplySeq++;
@@ -1210,6 +1211,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void stop() {
+        com.fongmi.android.tv.api.HomePrewarm.playbackActive = false; // 首页预热恢复推进
         logStopAction("stop");
         stopNativeAudioSession();
         clearDanmaku("stop");

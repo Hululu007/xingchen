@@ -155,8 +155,53 @@ public class SiteApi {
         }
     }
 
+    /**
+     * 预热缓存：与普通首页缓存同口径（key=源 key|脚本戳），但走独立通道写入、
+     * TTL 更长（HomePrewarm.PREWARM_CACHE_TTL）。命中即晋升为普通首页缓存。
+     * 失效红线与普通缓存一致：删插件/换配置清全部，下拉刷新按源清。
+     */
+    private static final ConcurrentHashMap<String, HomeCacheEntry> prewarmCache = new ConcurrentHashMap<>();
+
+    static void putPrewarmCache(String key, String json) {
+        if (key != null && json != null && !json.isEmpty())
+            prewarmCache.put(key, new HomeCacheEntry(System.currentTimeMillis(), json));
+    }
+
+    static String getPrewarmCache(String key) {
+        if (key == null) return null;
+        HomeCacheEntry e = prewarmCache.get(key);
+        if (e == null) return null;
+        if (System.currentTimeMillis() - e.time >= HomePrewarm.PREWARM_CACHE_TTL) {
+            prewarmCache.remove(key, e);
+            return null;
+        }
+        return e.json;
+    }
+
+    static void dropPrewarmCache(String key) {
+        if (key == null) return;
+        for (String k : prewarmCache.keySet()) {
+            if (k.startsWith(key + "|")) prewarmCache.remove(k);
+        }
+    }
+
+    /** 按完整 key 精确删一条（下拉刷新用，传的是 key|戳 的完整预热 key）。 */
+    static void dropPrewarmKey(String fullKey) {
+        if (fullKey != null) prewarmCache.remove(fullKey);
+    }
+
+    /** 某源是否有新鲜的普通首页缓存（预热队列用它判断"已经暖了"）。 */
+    static boolean homeCacheHasFresh(String siteKey) {
+        if (siteKey == null) return false;
+        for (Map.Entry<String, HomeCacheEntry> e : homeCache.entrySet()) {
+            if (e.getKey().startsWith(siteKey + "|") && e.getValue().fresh()) return true;
+        }
+        return false;
+    }
+
     public static void clearHomeCache() {
         homeCache.clear();
+        prewarmCache.clear();
         // 首页内容走 site.recent().spider()，残留就是 BaseLoader 里缓存的旧 Spider：
         // 删插件/换配置后不清它，首页就一直挂着已删插件的旧内容。
         try {
@@ -173,6 +218,7 @@ public class SiteApi {
         for (String k : homeCache.keySet()) {
             if (k.startsWith(key + "|")) homeCache.remove(k);
         }
+        dropPrewarmCache(key);
         try {
             BaseLoader.get().removePySpider(key);
             BaseLoader.get().removeJsSpider(key);
@@ -274,9 +320,40 @@ public class SiteApi {
                     if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
                 }
             }
+            // 首页预热 single-flight：预热缓存命中即晋升为普通缓存直接返回；
+            // 切到在途预热源时接上等完（不另起一趟，更不掐了重跑）。
+            if (!crash) {
+                String pwKey = HomePrewarm.cacheKey(site);
+                if (forceRefresh) {
+                    dropPrewarmKey(pwKey);
+                } else {
+                    String pwJson = getPrewarmCache(pwKey);
+                    if (pwJson != null) {
+                        Result pre = Result.fromJson(pwJson);
+                        if (useHomeCache) homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), pwJson));
+                        return pre;
+                    }
+                    java.util.concurrent.CompletableFuture<String> inflight = HomePrewarm.pollInflight(site.getKey());
+                    if (inflight != null) {
+                        try {
+                            String ij = inflight.get(HomePrewarm.PREWARM_JOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                            if (ij != null && !ij.isEmpty()) {
+                                Result ir = Result.fromJson(ij);
+                                if (!ir.getList().isEmpty()) {
+                                    if (useHomeCache) homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), ij));
+                                    return ir;
+                                }
+                            }
+                        } catch (Throwable ignored) {
+                            // 落回正常前台链：自己跑一趟。
+                        }
+                    }
+                }
+            }
             String home;
             String video;
             int gen = homeLoadGen.get();
+            long loadStart = System.currentTimeMillis(); // 耗时记账：只统计真正跑了脚本的加载
             if (crash) {
                 home = "";
                 video = "";
@@ -312,6 +389,8 @@ public class SiteApi {
             // 只缓存仍是当前代次的结果：被作废的旧加载即使跑完回来，也不许覆盖新加载的缓存。
             if (useHomeCache && gen == homeLoadGen.get())
                 homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), result.toString()));
+            // 耗时记账：只记真正跑了脚本的成功加载；crash 兜底（没跑脚本）不记，避免 0ms 污染账本。
+            if (!crash) HomePrewarm.recordCost(site.getKey(), System.currentTimeMillis() - loadStart);
             return result;
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();
@@ -334,6 +413,38 @@ public class SiteApi {
     }
 
     @NonNull
+    /**
+     * 首页预热专用取数：独立通道，不套前台口径——
+     * ① 不读不写 homeLoadGen、不登记 homeLoadFutures、不调 cancelHomeLoads（前台作废射程外）；
+     * ② Python 代次传 -1（透传层不校验），不受前台代次推送影响；
+     * ③ 单源超时按账自适应（HomePrewarm.timeoutFor：历史×1.5＋10s 余量，60–300s 钳制，
+     *    无账新源默认 120s）：慢但健康的源（带登记握手、第一次十几秒）正是预热要救的，
+     *    只有真挂死才抛异常，由调用方记日志跳过、继续下一个。
+     * @return 首页 JSON；失败/空抛异常或返回 null。
+     */
+    static String prewarmSpiderHome(@NonNull Site site, long timeoutSeconds) throws Exception {
+        Spider spider = site.recent().spider();
+        java.util.concurrent.Future<String> fHome = HomePrewarm.workers.submit(() -> marked(site, () -> pyHomeContent(spider, -1)));
+        java.util.concurrent.Future<String> fVideo = HomePrewarm.workers.submit(() -> marked(site, () -> pyHomeVideoContent(spider, -1)));
+        String home;
+        String video;
+        try {
+            home = fHome.get(timeoutSeconds, TimeUnit.SECONDS);
+            video = fVideo.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            fHome.cancel(true);
+            fVideo.cancel(true);
+            throw e;
+        }
+        SpiderDebug.log("prewarm", "done key=%s", site.getKey());
+        Result result = Result.fromJson(home);
+        List<Vod> list = Result.fromJson(video).getList();
+        if (!list.isEmpty()) result.setList(list);
+        setTypes(site, result);
+        if (result.getList() == null || result.getList().isEmpty()) return null;
+        return result.toString();
+    }
+
     public static Result categoryContent(@NonNull String key, @NonNull String tid, @NonNull String page, boolean filter, @NonNull HashMap<String, String> extend) throws Exception {
         SpiderDebug.log("category", "key=%s,tid=%s,page=%s,filter=%s,extend=%s", key, tid, page, filter, extend);
         Site site = VodConfig.get().getSite(key);
@@ -528,6 +639,7 @@ public class SiteApi {
     @NonNull
     public static Result playerContent(@NonNull String key, @NonNull String flag, @NonNull String id, int playerType) throws Exception {
         SpiderDebug.log("player", "key=%s,flag=%s,id=%s", key, flag, id);
+        HomePrewarm.playbackActive = true; // 首页预热让路：播放/解析开始即暂停推进
         Source.get().stop();
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.player(flag, id);
         if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id, playerType);

@@ -476,6 +476,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         mBinding.pager.setAdapter(new PageAdapter(getChildFragmentManager()));
         setFabVisible(0);
         mViewModel.homeContent(forceRefresh);
+        // 首页预热：前台首屏加载已发出后，后台提前跑遍各源首页（每进程一次）。
+        com.fongmi.android.tv.api.HomePrewarm.kick();
     }
 
     private void loadHome() {

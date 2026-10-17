@@ -1556,7 +1556,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     if (parts.length > 1) out.add(parts[1]);
                 }
             }
-            return GSON.toJson(out);
+            // returnType=JSON：原版桥接层 JSON.parse 后是真数组（1.3.42 扫尾）。
+            return parseJson(GSON.toJson(out));
         });
         putFunction("clearVar", args -> {
             // 8.83 JSEngine.clearVar：只删指定键；无参时直接 return（无"清空全表"行为，
@@ -2039,7 +2040,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return t;
         });
-        putFunction("getPastes", args -> "[]");
+        putFunction("getPastes", args -> {
+            // 8.83 JSEngine.getPastes：returnType=JSON。星辰无剪贴板分享能力，回真数组（1.3.42 扫尾）。
+            return toJsArray(new ArrayList<>());
+        });
         putFunction("sharePaste", args -> {
             Logger.t(TAG).d("sharePaste: no-op in host");
             return "";
@@ -2931,7 +2935,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     try {
                         count = (int) toDouble(args[0]);
                     } catch (Throwable ignored) {
-                        return "[]";
+                        return toJsArray(new ArrayList<>());
                     }
                     if (count == -1) count = Integer.MAX_VALUE;
                 }
@@ -2949,10 +2953,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     } catch (Throwable ignored) {
                     }
                 }
-                return GSON.toJson(out);
+                // returnType=JSON：原版桥接层 JSON.parse 后是真数组（1.3.42 扫尾）。
+                return parseJson(GSON.toJson(out));
             } catch (Throwable e) {
                 Logger.t(TAG).d("getLastRules failed: %s", e.getMessage());
-                return "[]";
+                return toJsArray(new ArrayList<>());
             }
         });
         putFunction("getRuleCount", args -> {
@@ -3110,9 +3115,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 移植：HkHomeSubService.getSubRecords()（SharedPreferences 存，语义与 8.83 BigTextDO.getHomeSub() 一致）
         putFunction("getHomeSub", args -> {
             try {
-                return new com.google.gson.Gson().toJson(HkHomeSubService.getSubRecords());
+                // returnType=JSON：原版桥接层 JSON.parse 后是真数组（1.3.42 扫尾）。
+                return parseJson(new com.google.gson.Gson().toJson(HkHomeSubService.getSubRecords()));
             } catch (Throwable t) {
-                return "[]";
+                return toJsArray(new ArrayList<>());
             }
         });
         putFunction("hasHomeSub", args -> {
@@ -3285,16 +3291,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
         });
         putFunction("getEpubChapters", args -> {
-            // 8.83 JSEngine.getEpubChapters：星辰无 EPUB 解析能力，回空数组 shape。
-            return "[]";
+            // 8.83 JSEngine.getEpubChapters：returnType=JSON。星辰无 EPUB 解析能力，回真数组（1.3.42 扫尾）。
+            return toJsArray(new ArrayList<>());
         });
         putFunction("getEpubContent0", args -> {
             // 8.83 JSEngine.getEpubContent0：星辰无 EPUB 解析能力，回空串。
             return "";
         });
         putFunction("getEpubMetadata", args -> {
-            // 8.83 JSEngine.getEpubMetadata：星辰无 EPUB 解析能力，回空对象 shape。
-            return "{}";
+            // 8.83 JSEngine.getEpubMetadata：returnType=JSON。星辰无 EPUB 解析能力，回真对象（1.3.42 扫尾）。
+            return parseJson("{}");
         });
         putFunction("initChaquopy", args -> {
             // 8.83 JSEngine.initChaquopy：星辰无 Chaquopy，恒 false。

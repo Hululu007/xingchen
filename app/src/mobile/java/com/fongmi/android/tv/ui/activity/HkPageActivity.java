@@ -5967,13 +5967,13 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底（定稿图7）：金底＋深金字
-                    bg.setColor(0xFFD9A420);
+                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD4A017);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {
-                    // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）
-                    bg.setColor(0xFFFFFFFF);
+                    // 液态玻璃：白透玻璃底＋细灰边（未选中态）
+                    bg.setColor(0xC2FFFFFF);
                     bg.setStroke(dp(1), 0xFFE2E5EA);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF1A1D24);
@@ -6036,13 +6036,13 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底（定稿图7）：金底＋深金字
-                    bg.setColor(0xFFD9A420);
+                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD4A017);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {
-                    // v5 质感：白底＋细灰边（与 flex/buttons 选集 chip 同语言）
-                    bg.setColor(0xFFFFFFFF);
+                    // 液态玻璃：白透玻璃底＋细灰边（未选中态）
+                    bg.setColor(0xC2FFFFFF);
                     bg.setStroke(dp(1), 0xFFE2E5EA);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF1A1D24);
@@ -6082,13 +6082,13 @@ public class HkPageActivity extends BaseActivity {
                 tv.setPadding(padH, padV, padH, padV);
                 GradientDrawable bg = new GradientDrawable();
                 if (isEpSelected(sub)) {
-                    // 选中金底（定稿图7）：金底＋深金字
-                    bg.setColor(0xFFD9A420);
+                    // 选中金底：#D4A017 金底＋深金字（液态玻璃对差）
+                    bg.setColor(0xFFD4A017);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF7A5A00);
                 } else {
-                    // v5 质感：白底＋细灰边（定稿图7 选集 chip 未选中态）
-                    bg.setColor(0xFFFFFFFF);
+                    // 液态玻璃：白透玻璃底＋细灰边（未选中态）
+                    bg.setColor(0xC2FFFFFF);
                     bg.setStroke(dp(1), 0xFFE2E5EA);
                     bg.setCornerRadius(dp(14));
                     tv.setTextColor(0xFF1A1D24);
@@ -6295,6 +6295,14 @@ public class HkPageActivity extends BaseActivity {
          * 标题 16sp 最多 2 行省略，描述最多 2 行底部对齐。点击走通用条目点击。
          */
         private void bindDetailHeader(Holder h, HkItem item) {
+            // 液态玻璃：详情头卡底包玻璃（圆角 20dp，视觉边距沿用原 inset 12/4dp，不动内部约束）；简介字色不动
+            if (!(h.itemView.getBackground() instanceof android.graphics.drawable.InsetDrawable)) {
+                android.graphics.drawable.InsetDrawable inset =
+                        new android.graphics.drawable.InsetDrawable(
+                                new HkGlassDrawable(h.itemView.getContext(), 20),
+                                dp(12), dp(4), dp(12), dp(4));
+                h.itemView.setBackground(inset);
+            }
             if (h.title == null || h.cover == null) return;
             h.title.setText(titleSpan(item.getTitle()));
             String d = stripHtml(item.getDesc());

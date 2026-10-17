@@ -124,6 +124,10 @@ public class SiteViewModel extends ViewModel {
 
     public void homeContent(boolean forceRefresh) {
         com.fongmi.android.tv.bean.Site home = VodConfig.get().getHome();
+        // 作废旧首页任务只留给家页取数：进详情/分类/搜索不再掐首页加载。
+        // 否则慢网下进一次详情、返回首页就"打不开"（1.3.30 回归）；切源时新源的
+        // homeContent 同样会作废旧源任务，原"切源不等旧源"意图不受影响。
+        SiteApi.cancelHomeLoads();
         execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null, null, Constant.TIMEOUT_VOD, home == null ? "" : home.getKey());
     }
 
@@ -227,9 +231,6 @@ public class SiteViewModel extends ViewModel {
         int currentId = taskId.incrementAndGet();
         ListenableFuture<?> old = futures.get(type);
         if (old != null) old.cancel(true);
-        // 切源/刷新/进分类/进详情：旧源的首页 spider 子任务可能还占着线程跑，
-        // 这里直接作废（结果回来也丢弃），新源不等旧的成败立刻开始。
-        if (type == TaskType.RESULT) SiteApi.cancelHomeLoads();
         ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
         FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
         futures.put(type, future);

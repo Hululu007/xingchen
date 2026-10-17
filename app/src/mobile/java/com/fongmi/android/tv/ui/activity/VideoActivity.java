@@ -1779,12 +1779,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (item.getFlags().isEmpty()) {
             if (!preservePlayback) startFlow();
         } else if (!preservePlayback) {
-            // 原 checkFlag→onItemClick 路径：History.getFlag() 每次返回新对象（isSelected 恒 false），
-            // 程序化调用恒走到 seamless；阶段一已做完纯渲染，这里只补播放动作。
-            seamless(mHistory.getFlag());
+            // 等价于 08786a51 前 checkFlag→onItemClick→seamless 的自动播语义。
+            // 注意不能照字面调 onItemClick(mHistory.getFlag())：阶段一 syncSelectedEpisode 已把历史集标为选中，
+            // 空壳经 setSelected 灌入真列表后 seamless 的预选守卫会直接 return，自动播依然点不着（实测代码确认）。
+            // 这里直接点播阶段一定好的那一集（历史集）；直接播放流（海阔选集/txt 走 setupDirectEpisodes，
+            // playHkDirect/playTxtDirect 随后自行 playerContent）不再点火，避免重播。
+            if (!isDirectPlaySession()) {
+                scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
+                Episode episode = getEpisode();
+                if (episode != null) onItemClick(episode);
+            }
         }
         if (preservePlayback) SpiderDebug.log("karaoke-result", "configuration restore preserved playback key=%s episode=%s", player().getKey(), mHistory.getVodRemarks());
         mRestoringConfigurationPlayback = false;
+    }
+
+    /** 直接播放会话（海阔选集/txt 走 setupDirectEpisodes）：选集已预选，playHkDirect/playTxtDirect
+     * 随后自行 playerContent，阶段二不再点火，避免重播。 */
+    private boolean isDirectPlaySession() {
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) return true;
+        return getIntent().getBooleanExtra("hk_direct_play", false) && !TextUtils.isEmpty(getIntent().getStringExtra("hk_rule"));
     }
 
     /** checkFlag 的纯渲染版：只画线路/选集 UI，不启动自动播放（播放动作等 bindDetailService）。 */
@@ -2343,8 +2357,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return 0;
     }
 
+    /** 已有预选中集（直接播放流按用户点击集预选）：不吃历史回选，保留用户点的那一集。 */
+    private boolean hasPreselectedEpisode(Flag flag) {
+        if (flag == null) return false;
+        for (Episode ep : flag.getEpisodes()) if (ep.isSelected()) return true;
+        return false;
+    }
+
     private void syncSelectedEpisode(Flag flag) {
         if (flag == null || mHistory == null) return;
+        // 直接播放流（海阔选集/txt）已预选中第 N 集：不再用历史集覆盖，否则显示被切回第 1 集
+        if (hasPreselectedEpisode(flag)) return;
         Episode episode = flag.find(mHistory.getEpisode(), false);
         if (episode != null) flag.toggle(true, episode);
     }
@@ -2357,7 +2380,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void seamless(Flag flag) {
         // 直接播放流（海阔选集/txt/推送）已按用户点击集预选中，不吃历史回选；
         // 否则点的第 N 集会被新剧默认历史（第 1 集）切回第 1 集（红果 1.3.30 真机日志实证）
-        for (Episode ep : flag.getEpisodes()) if (ep.isSelected()) return;
+        if (hasPreselectedEpisode(flag)) return;
         Episode episode = getMark().isEmpty() ? flag.find(mHistory.getEpisode(), true) : flag.find(mHistory.getVodRemarks(), false);
         setQualityVisible(episode != null && episode.isSelected() && mQualityAdapter.getItemCount() > 1);
         if (episode == null || episode.isSelected()) return;

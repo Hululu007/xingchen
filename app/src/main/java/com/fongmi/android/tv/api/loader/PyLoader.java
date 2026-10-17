@@ -4,6 +4,7 @@ import android.os.FileObserver;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.chaquo.Loader;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderNull;
@@ -58,6 +59,11 @@ public class PyLoader {
                 @Override
                 public void onEvent(int event, String path) {
                     clear();
+                    // 插件文件增删改：首页结果内存缓存也一起失效（删 py 后首页瞬间刷新口径）。
+                    try {
+                        SiteApi.clearHomeCache();
+                    } catch (Throwable ignored) {
+                    }
                 }
             };
             watcher.startWatching();
@@ -74,6 +80,24 @@ public class PyLoader {
 
     private static long stampOf(File f) {
         return f.lastModified() * 31L + f.length();
+    }
+
+    /**
+     * 脚本文件戳（给首页结果内存缓存当 key 的一部分）：
+     * 本地文件 → 「绝对路径#mtime*31+size」；文件已删 → 路径#missing（key 变化，旧缓存自然失效）；
+     * 远程脚本 → api 串本身。
+     */
+    public static String scriptStamp(String api) {
+        if (api == null) return "";
+        if (api.startsWith("http")) return api;
+        String resolved = api;
+        if (api.startsWith("plugins/") && App.get() != null && App.get().getFilesDir() != null) {
+            File f = new File(App.get().getFilesDir(), api);
+            if (f.exists()) resolved = f.getAbsolutePath();
+        }
+        File f = new File(resolved);
+        if (f.exists()) return resolved + "#" + (f.lastModified() * 31L + f.length());
+        return resolved + "#missing";
     }
 
     public Spider getSpider(String key, String api, String ext) {

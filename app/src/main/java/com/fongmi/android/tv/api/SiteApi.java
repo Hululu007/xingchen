@@ -15,6 +15,7 @@ import com.fongmi.android.tv.api.hk.HkPlay;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.api.loader.BaseLoader;
+import com.fongmi.android.tv.api.loader.PyLoader;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Result;
@@ -130,7 +131,31 @@ public class SiteApi {
         if (key != null) detailCache.remove(key);
     }
 
+    /**
+     * py 首页结果短时内存缓存：key = 源 key + 脚本文件戳（路径#mtime/size）。
+     * 命中直接返回，不跑 Python；TTL 3 分钟。只做内存、不落盘。
+     * 失效：删插件（PyLoader 文件监听回调）/换配置（VodConfig.clear）清全部；
+     * 下拉刷新走 forceRefresh 强制重跑并刷新缓存；换脚本文件戳变化 key 自动失效。
+     */
+    private static final long HOME_CACHE_TTL = 3 * 60 * 1000;
+    private static final ConcurrentHashMap<String, HomeCacheEntry> homeCache = new ConcurrentHashMap<>();
+
+    private static class HomeCacheEntry {
+        final long time;
+        final String json;
+
+        HomeCacheEntry(long time, String json) {
+            this.time = time;
+            this.json = json;
+        }
+
+        boolean fresh() {
+            return System.currentTimeMillis() - time < HOME_CACHE_TTL;
+        }
+    }
+
     public static void clearHomeCache() {
+        homeCache.clear();
         // 首页内容走 site.recent().spider()，残留就是 BaseLoader 里缓存的旧 Spider：
         // 删插件/换配置后不清它，首页就一直挂着已删插件的旧内容。
         try {
@@ -140,7 +165,25 @@ public class SiteApi {
     }
 
     public static void clearHomeCache(String key) {
-        clearHomeCache();
+        if (key == null) {
+            clearHomeCache();
+            return;
+        }
+        for (String k : homeCache.keySet()) {
+            if (k.startsWith(key + "|")) homeCache.remove(k);
+        }
+        try {
+            BaseLoader.get().removePySpider(key);
+            BaseLoader.get().removeJsSpider(key);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** py 蜘蛛判别：与 proxyKindOf 的口径一致。 */
+    private static boolean isPySpiderSite(@NonNull Site site) {
+        String key = site.getKey();
+        String api = site.getApi();
+        return (key != null && key.startsWith("py_")) || (api != null && api.contains(".py"));
     }
 
     @NonNull
@@ -196,6 +239,16 @@ public class SiteApi {
         if (isSpider(site.getKey(), site)) {
             Spider spider = site.recent().spider();
             boolean crash = Prefers.getBoolean("crash");
+            // py 首页短时缓存：命中直接返回，不跑 Python。crash 兜底分支不走缓存。
+            boolean useHomeCache = isPySpiderSite(site) && !crash;
+            String homeCacheKey = null;
+            if (useHomeCache) {
+                homeCacheKey = site.getKey() + "|" + PyLoader.scriptStamp(site.getApi());
+                if (!forceRefresh) {
+                    HomeCacheEntry cached = homeCache.get(homeCacheKey);
+                    if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
+                }
+            }
             String home;
             String video;
             if (crash) {
@@ -225,6 +278,7 @@ public class SiteApi {
             List<Vod> list = Result.fromJson(video).getList();
             if (!list.isEmpty()) result.setList(list);
             setTypes(site, result);
+            if (useHomeCache) homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), result.toString()));
             return result;
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();

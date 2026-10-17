@@ -794,8 +794,9 @@ public class HkPageActivity extends BaseActivity {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         if (checked) {
-            gd.setColor(0xFFF5C518);
-            gd.setStroke(dp(1), 0xFFF5C518);
+            // 液态玻璃：已选态换金底（金色语言对差）
+            gd.setColor(0xFFD4A017);
+            gd.setStroke(dp(1), 0xFFD4A017);
         } else {
             gd.setColor(0xFFFFFFFF);
             gd.setStroke(dp(1), 0xFFB9BEC7);

@@ -115,6 +115,12 @@ public class NodeManageActivity extends BaseActivity {
     }
 
     private void refreshKernel() {
+        // 随包内置的内核在位时直接认它：内置版不写下载记录，绝不能误报「未下载」。
+        if (KernelDownloader.bundledBinary(this) != null) {
+            binding.tvKernelStatus.setText("内置内核 v" + KernelDownloader.wantVersion(this) + "，随 App 版本更新");
+            return;
+        }
+        // 内置真不在位才走下载记录的老文案。
         String have = ClashSettings.getKernelVersion(this);
         String want = KernelDownloader.wantVersion(this);
         if (have == null || have.isEmpty()) {

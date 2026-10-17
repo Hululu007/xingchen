@@ -2955,7 +2955,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
                 File dir = HkRuleManager.get().getDir();
                 File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
-                if (files == null || files.length == 0) return "[]";
+                if (files == null || files.length == 0) return toJsArray(new ArrayList<>());
                 java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
                 List<Object> out = new ArrayList<>();
                 for (File f : files) {
@@ -3427,7 +3427,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String json = args[0] instanceof NativeArray ? jsStringify(args[0]) : argStr(args[0]);
             List<Object> list = GSON.fromJson(json.trim().startsWith("[") ? json : "[]",
                     new com.google.gson.reflect.TypeToken<List<Object>>() {}.getType());
-            if (list == null || list.isEmpty()) return "[]";
+            if (list == null || list.isEmpty()) return toJsArray(new ArrayList<>());
             int n = list.size();
             int threads = Math.min(n, 16);
             if (args.length > 1) {

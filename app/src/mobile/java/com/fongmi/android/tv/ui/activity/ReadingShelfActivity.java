@@ -204,7 +204,17 @@ public class ReadingShelfActivity extends AppCompatActivity {
         boolean novel = "NOVEL".equals(currentTab);
         contentBox.removeAllViews();
         if (novel) {
-            contentBox.addView(ReadingSkin.sectionHeader(this, "在看的小说", "长按移除", null));
+            // 在看的小说：标题栏右侧「全部 ›」进完整小说页（横滑只管接着读，书多了走全量页）
+            LinearLayout novelHeader = ReadingSkin.sectionHeader(this, "在看的小说", "长按移除", null);
+            TextView allBtn = new TextView(this);
+            allBtn.setText("全部 ›");
+            allBtn.setTextSize(13);
+            allBtn.setTextColor(ReadingSkin.GOLD_TEXT);
+            allBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+            allBtn.setOnClickListener(v ->
+                    startActivity(new android.content.Intent(this, AllNovelsActivity.class)));
+            novelHeader.addView(allBtn);
+            contentBox.addView(novelHeader);
             if (novels.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说，或去听一本书"));
             else for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));

@@ -279,6 +279,11 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
+            android:name=".ui.activity.AllNovelsActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
             android:name=".ui.activity.LegadoActivity"
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

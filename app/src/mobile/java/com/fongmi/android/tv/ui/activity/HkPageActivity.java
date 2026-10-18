@@ -387,15 +387,18 @@ public class HkPageActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         hkPaused = false;
-        // 液态玻璃：页面回可见，恢复动态背景（兜底，View 自停为主）
-        if (binding != null && binding.hkDynamicBg != null) binding.hkDynamicBg.resume();
+        // 液态玻璃：页面回可见，恢复动态背景（兜底，View 自停为主；背景是 decor 注入挂在 content 根，
+        // 不在 activity_hk.xml 的 binding 里，用注入时打的 id 找）
+        HkDynamicBgView bg = findViewById(R.id.hk_dynamic_bg);
+        if (bg != null) bg.resume();
     }
 
     @Override
     protected void onPause() {
         hkPaused = true;
-        // 液态玻璃：页面不可见，停动态背景
-        if (binding != null && binding.hkDynamicBg != null) binding.hkDynamicBg.pause();
+        // 液态玻璃：页面不可见，停动态背景（decor 注入视图，用 id 找）
+        HkDynamicBgView bg = findViewById(R.id.hk_dynamic_bg);
+        if (bg != null) bg.pause();
         super.onPause();
     }
 

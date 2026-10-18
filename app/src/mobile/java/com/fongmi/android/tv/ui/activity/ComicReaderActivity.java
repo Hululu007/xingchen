@@ -43,6 +43,10 @@ public class ComicReaderActivity extends AppCompatActivity {
 
     private static final String PREFS = "reading_pref";
     private static final String KEY_DIRECTION = "comic_direction_h";
+    private static final String KEY_RTL = "comic_rtl";
+    private static final String KEY_DUAL_PAGE = "comic_dual_page";
+    private static final String KEY_VOLUME_PAGE = "comic_volume_page";
+    private static final String KEY_KEEP_SCREEN = "comic_keep_screen";
 
     private ReadingSession session;
     private RecyclerView rv;
@@ -71,7 +75,75 @@ public class ComicReaderActivity extends AppCompatActivity {
         }
         horizontal = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_DIRECTION, false);
         buildUi();
+        applyKeepScreen();
         loadChapter(session.chapterIndex, Math.max(0, session.startPage));
+    }
+
+    // ---------------- 布局：方向 / 从右往左 / 横屏双页 ----------------
+
+    private boolean rtl() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_RTL, false);
+    }
+
+    private boolean dualPage() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_DUAL_PAGE, false);
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /**
+     * 横向：从右往左=反向布局；竖向：横屏＋双页开关=双列。
+     * 切布局时尽量保住当前页。
+     */
+    private void applyLayoutManager() {
+        int pos = 0;
+        try {
+            if (rv.getLayoutManager() != null) {
+                pos = Math.max(0, ((LinearLayoutManager) rv.getLayoutManager())
+                        .findFirstVisibleItemPosition());
+            }
+        } catch (Throwable ignored) {
+        }
+        androidx.recyclerview.widget.RecyclerView.LayoutManager lm;
+        if (horizontal) {
+            lm = new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, rtl());
+        } else if (dualPage() && isLandscape()) {
+            lm = new androidx.recyclerview.widget.GridLayoutManager(this, 2,
+                    LinearLayoutManager.VERTICAL, false);
+        } else {
+            lm = new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false);
+        }
+        if (lm instanceof LinearLayoutManager) {
+            ((LinearLayoutManager) lm).setInitialPrefetchItemCount(4);
+        }
+        rv.setLayoutManager(lm);
+        if (adapter != null) {
+            rv.setAdapter(adapter);
+            final int fp = Math.min(pos, Math.max(0, images.size() - 1));
+            rv.post(() -> scrollToPage(fp));
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if (getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_VOLUME_PAGE, false)
+                && (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP
+                || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            int dir = keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN ? 1 : -1;
+            if (rtl() && horizontal) dir = -dir;
+            scrollToPage(currentPage() + dir);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void applyKeepScreen() {
+        boolean on = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_KEEP_SCREEN, true);
+        if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     // ---------------- UI ----------------
@@ -83,10 +155,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         rv = new RecyclerView(this);
         rv.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        LinearLayoutManager lm = new LinearLayoutManager(this,
-                horizontal ? LinearLayoutManager.HORIZONTAL : LinearLayoutManager.VERTICAL, false);
-        lm.setInitialPrefetchItemCount(4);
-        rv.setLayoutManager(lm);
+        applyLayoutManager();
         adapter = new ImgAdapter();
         rv.setAdapter(adapter);
         root.addView(rv);
@@ -227,15 +296,135 @@ public class ComicReaderActivity extends AppCompatActivity {
             horizontal = !horizontal;
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_DIRECTION, horizontal).apply();
             dir.setText(horizontal ? "横向" : "竖向");
-            int pos = currentPage();
-            rv.setLayoutManager(new LinearLayoutManager(this,
-                    horizontal ? LinearLayoutManager.HORIZONTAL : LinearLayoutManager.VERTICAL, false));
-            rv.setAdapter(adapter);
-            scrollToPage(Math.min(pos, Math.max(0, images.size() - 1)));
+            applyLayoutManager();
         });
         row2.addView(dir);
-        bar.addView(row2);
+
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
+        row3.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView markBtn = chapterButton("书签");
+        markBtn.setOnClickListener(v -> showBookmarks());
+        row3.addView(markBtn);
+
+        TextView csBtn = chapterButton("换源");
+        csBtn.setOnClickListener(v -> changeSource());
+        row3.addView(csBtn);
+
+        TextView setBtn = chapterButton("设置");
+        setBtn.setOnClickListener(v -> showSettings());
+        row3.addView(setBtn);
+        bar.addView(row3);
         return bar;
+    }
+
+    // ---------------- 设置 ----------------
+
+    private void showSettings() {
+        String[] items = {
+                "从右往左：" + (rtl() ? "开" : "关") + "（横向阅读时）",
+                "横屏双页：" + (dualPage() ? "开" : "关"),
+                "音量键翻页：" + (getSharedPreferences(PREFS, MODE_PRIVATE)
+                        .getBoolean(KEY_VOLUME_PAGE, false) ? "开" : "关"),
+                "屏幕常亮：" + (getSharedPreferences(PREFS, MODE_PRIVATE)
+                        .getBoolean(KEY_KEEP_SCREEN, true) ? "开" : "关"),
+                "清除本书缓存"
+        };
+        new HkDialogs(this)
+                .setTitle("漫画设置")
+                .setItems(items, (d, which) -> {
+                    d.dismiss();
+                    android.content.SharedPreferences p =
+                            getSharedPreferences(PREFS, MODE_PRIVATE);
+                    switch (which) {
+                        case 0:
+                            p.edit().putBoolean(KEY_RTL, !rtl()).apply();
+                            applyLayoutManager();
+                            Toast.makeText(this, rtl() ? "已切换为从右往左" : "已切换为从左往右",
+                                    Toast.LENGTH_SHORT).show();
+                            break;
+                        case 1:
+                            p.edit().putBoolean(KEY_DUAL_PAGE, !dualPage()).apply();
+                            applyLayoutManager();
+                            showSettings();
+                            break;
+                        case 2:
+                            p.edit().putBoolean(KEY_VOLUME_PAGE,
+                                    !p.getBoolean(KEY_VOLUME_PAGE, false)).apply();
+                            showSettings();
+                            break;
+                        case 3:
+                            p.edit().putBoolean(KEY_KEEP_SCREEN,
+                                    !p.getBoolean(KEY_KEEP_SCREEN, true)).apply();
+                            applyKeepScreen();
+                            showSettings();
+                            break;
+                        case 4:
+                            com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
+                            Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
+                            break;
+                    }
+                })
+                .setPositiveButton("关闭", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    // ---------------- 书签 ----------------
+
+    private String bookKey() {
+        if (!TextUtils.isEmpty(session.localId)) return "local|" + session.localId;
+        return "COMIC|" + session.sourceName + "|" + session.bookTitle;
+    }
+
+    private void showBookmarks() {
+        java.util.List<com.fongmi.android.tv.read.ReadingBookmarkStore.Mark> marks =
+                com.fongmi.android.tv.read.ReadingBookmarkStore.list(bookKey());
+        com.fongmi.android.tv.read.ReaderDialogs.showBookmarks(this, session.bookTitle, marks,
+                this::addBookmarkAtCurrent,
+                m -> loadChapter(m.chapterIndex, m.position),
+                m -> com.fongmi.android.tv.read.ReadingBookmarkStore.remove(m.bookKey, m.createdAt));
+    }
+
+    private void addBookmarkAtCurrent() {
+        com.fongmi.android.tv.read.ReadingBookmarkStore.Mark m =
+                new com.fongmi.android.tv.read.ReadingBookmarkStore.Mark();
+        m.bookKey = bookKey();
+        m.bookTitle = session.bookTitle;
+        m.kind = "COMIC";
+        m.chapterName = session.currentChapter().name;
+        m.chapterIndex = session.chapterIndex;
+        m.position = currentPage();
+        m.excerpt = m.chapterName + " 第" + (m.position + 1) + "张";
+        com.fongmi.android.tv.read.ReadingBookmarkStore.add(m);
+        Toast.makeText(this, "书签已保存", Toast.LENGTH_SHORT).show();
+    }
+
+    /** AI 口令"书签"。 */
+    public void aiBookmarks() {
+        setBarsVisible(false);
+        showBookmarks();
+    }
+
+    // ---------------- 换源 ----------------
+
+    private void changeSource() {
+        if (!com.fongmi.android.tv.read.ReadingChangeSource.supported(session)) {
+            Toast.makeText(this, "当前这本不支持换源（仅书源的漫画可换）",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "正在其它书源里找这本…", Toast.LENGTH_SHORT).show();
+        android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+        com.fongmi.android.tv.read.ReadingChangeSource.search(this, session, ui, candidates ->
+                com.fongmi.android.tv.read.ReadingChangeSource.pickAndSwitch(
+                        this, session, candidates, session.chapterIndex, 0f, currentPage()));
+    }
+
+    /** AI 口令"换源"。 */
+    public void aiChangeSource() {
+        setBarsVisible(false);
+        changeSource();
     }
 
     /** 轻量文字按钮：字大好点，阅读器控制栏用。 */
@@ -286,7 +475,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         ReadingSession.Chapter ch = session.currentChapter();
         session.chapterUrl = ch.url;
         Task.execute(() -> {
-            List<String> list = resolveImages(ch);
+            List<String> list = cachedOrResolve(ch, firstLoad);
             runOnUiThread(() -> {
                 loading = false;
                 firstLoad = false;
@@ -306,10 +495,16 @@ public class ComicReaderActivity extends AppCompatActivity {
         });
     }
 
-    /** 解析某章图片：会话自带（首载）→ 本地书 → py 内嵌串 → 海阔懒取。 */
-    private List<String> resolveImages(ReadingSession.Chapter ch) {
+    /**
+     * 解析某章图片：缓存 → 会话自带（首载）→ 本地书 → py 内嵌串 → 海阔懒取 → 书源规则。
+     * 静态化供章节缓存复用（同口径，不另起炉灶）。
+     */
+    public static List<String> resolveImages(ReadingSession session,
+                                             ReadingSession.Chapter ch,
+                                             boolean preferSessionImages) {
+        // 0. 缓存优先（阅读器侧按 bookKey 查，见 loadChapter）
         // 1. 首载用会话自带（判别层/入口已带入）
-        if (firstLoad && !session.images.isEmpty()) {
+        if (preferSessionImages && !session.images.isEmpty()) {
             return new ArrayList<>(session.images);
         }
         // 2. 本地书：按章从私有目录懒读（图包按需解到缓存）
@@ -344,6 +539,16 @@ public class ComicReaderActivity extends AppCompatActivity {
         return new ArrayList<>();
     }
 
+    /** 取图：先看缓存（本地书本身就在本地，不走缓存）。 */
+    private List<String> cachedOrResolve(ReadingSession.Chapter ch, boolean first) {
+        if (TextUtils.isEmpty(session.localId)) {
+            List<String> cached = com.fongmi.android.tv.read.ReadingDownload.loadComicChapter(
+                    this, bookKey(), session.chapterIndex);
+            if (!cached.isEmpty()) return cached;
+        }
+        return resolveImages(session, ch, first);
+    }
+
     private void goChapter(int index) {
         loadChapter(index, 0);
     }
@@ -353,15 +558,34 @@ public class ComicReaderActivity extends AppCompatActivity {
             Toast.makeText(this, "没有章节列表", Toast.LENGTH_SHORT).show();
             return;
         }
-        String[] names = new String[session.chapters.size()];
-        for (int i = 0; i < names.length; i++) names[i] = session.chapters.get(i).name;
+        java.util.List<String> names = new java.util.ArrayList<>(session.chapters.size());
+        for (ReadingSession.Chapter c : session.chapters) names.add(c.name);
+        boolean local = !TextUtils.isEmpty(session.localId);
+        String cacheStatus = local ? null : com.fongmi.android.tv.read.ReadingDownload
+                .statusText(this, bookKey(), session.chapters.size());
+        com.fongmi.android.tv.read.ReaderDialogs.showChapters(this, session.bookTitle, names,
+                session.chapterIndex, cacheStatus,
+                local ? null : this::askCacheRange,
+                this::goChapter);
+    }
+
+    private void askCacheRange() {
+        String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
+        int[] counts = {20, 50, Integer.MAX_VALUE};
         new HkDialogs(this)
-                .setTitle("章节（" + names.length + "）")
-                .setSingleChoiceItems(names, session.chapterIndex, (d, which) -> {
+                .setTitle("缓存章节（离线看）")
+                .setItems(items, (d, which) -> {
                     d.dismiss();
-                    goChapter(which);
+                    Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+                    android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+                    com.fongmi.android.tv.read.ReadingDownload.downloadNextComic(
+                            this, session, bookKey(), counts[which], ui,
+                            (ok, total) -> Toast.makeText(this,
+                                    total == 0 ? "没有可缓存的新章节"
+                                            : "已缓存 " + ok + " / " + total + " 章",
+                                    Toast.LENGTH_SHORT).show());
                 })
-                .setPositiveButton("关闭", (d, w) -> d.dismiss())
+                .setPositiveButton("取消", (d, w) -> d.dismiss())
                 .show();
     }
 
@@ -436,7 +660,14 @@ public class ComicReaderActivity extends AppCompatActivity {
     protected void onPause() {
         lastSaveAt = 0;
         saveProgress();
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyKeepScreen();
     }
 
     // ---------------- 适配器 ----------------

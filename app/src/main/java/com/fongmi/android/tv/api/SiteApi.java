@@ -843,56 +843,6 @@ public class SiteApi {
         return acquireHkRouter(title);
     }
 
-    private static final int HK_DETAIL_CACHE_MAX = 20;
-
-    private static class HkDetailCacheEntry {
-        HkDetail detail;
-        long ruleModified;
-        long createdAt;
-    }
-
-    private static final ConcurrentHashMap<String, HkDetailCacheEntry> hkDetailCache = new ConcurrentHashMap<>();
-
-    public interface HkDetailLoader {
-        HkDetail load() throws Exception;
-    }
-
-    /**
-     * 海阔详情结果会话缓存：同一规则同一条目重复进出直接复用，免掉取页等待。
-     * key=规则名+"\n"+条目 url（规则切换=不同 key，自然隔离）；
-     * 规则文件 mtime 变化或 15 分钟 TTL 到期即失效（与 hkRouterCache 同惯例）；
-     * 空详情不缓存（失败不粘住，下次重取）。
-     */
-    public static HkDetail detailCached(String title, String itemUrl, HkDetailLoader loader) throws Exception {
-        String key = title + "\n" + (itemUrl == null ? "" : itemUrl);
-        long mtime = HkRuleManager.get().ruleModified(title);
-        HkDetailCacheEntry e = hkDetailCache.get(key);
-        if (e != null && e.ruleModified == mtime && System.currentTimeMillis() - e.createdAt <= HK_ROUTER_CACHE_TTL_MS) {
-            return e.detail;
-        }
-        HkDetail detail = loader.load();
-        if (detail != null && !detail.isEmpty()) {
-            HkDetailCacheEntry ne = new HkDetailCacheEntry();
-            ne.detail = detail;
-            ne.ruleModified = mtime;
-            ne.createdAt = System.currentTimeMillis();
-            hkDetailCache.put(key, ne);
-            while (hkDetailCache.size() > HK_DETAIL_CACHE_MAX) {
-                String oldest = null;
-                long oldestAt = Long.MAX_VALUE;
-                for (Map.Entry<String, HkDetailCacheEntry> en : hkDetailCache.entrySet()) {
-                    if (en.getValue().createdAt < oldestAt) {
-                        oldestAt = en.getValue().createdAt;
-                        oldest = en.getKey();
-                    }
-                }
-                if (oldest == null) break;
-                hkDetailCache.remove(oldest);
-            }
-        }
-        return detail;
-    }
-
     /**
      * 海阔小程序播放（M4）：{@code hk_<规则名>} key 拦截 → {@link HkRouter#play(String)}
      * 分流链解析出真地址 → 直接组装 Result，不走 spider/嗅探。

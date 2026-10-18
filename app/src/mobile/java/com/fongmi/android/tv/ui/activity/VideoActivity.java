@@ -1473,7 +1473,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /**
      * 海阔分支：HkRouter.detail() 取数 → HkDetailBridge 转 Vod → 走现有详情渲染。
      * 引擎走 SiteApi 的 hkRouterCache 复用（原版单例语义）：同规则同会话只初始化
-     * 一次，不再每次 new+destroy；详情结果会话内缓存，同一条目重复进出直接复用。
+     * 一次，不再每次 new+destroy；详情结果不做会话缓存，每次进详情都实时取
+     * （与 8.83 原版一致），重复进出同一条目会重新执行规则取数。
      * 播放拦截是 M4 内容，本期点选集走原有播放链（可能失败，属预期）。
      */
     private void getHkDetail() {
@@ -1486,8 +1487,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 HkRule rule = HkRuleManager.get().getRule(ruleTitle);
                 if (rule == null) throw new IllegalStateException("hk rule missing: " + ruleTitle);
                 HkItem item = new HkItem(getName(), itemUrl, getPic(), getContent());
-                HkDetail detail = SiteApi.detailCached(ruleTitle, itemUrl,
-                        () -> SiteApi.getHkRouter(ruleTitle).detail(itemUrl, item, false));
+                HkDetail detail = SiteApi.getHkRouter(ruleTitle).detail(itemUrl, item, false);
                 Vod vod = HkDetailBridge.toVod(rule, getId(), detail);
                 App.post(() -> {
                     mBinding.swipeLayout.setRefreshing(false);

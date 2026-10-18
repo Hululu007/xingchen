@@ -2438,7 +2438,6 @@ public class HkPageActivity extends BaseActivity {
                 androidx.cardview.widget.CardView cv = (androidx.cardview.widget.CardView) h.itemView;
                 cv.setCardElevation(0);
                 cv.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
-                cv.setStrokeWidth(0);
                 if (!(cv.getBackground() instanceof HkGlassDrawable))
                     cv.setBackground(new HkGlassDrawable(cv.getContext(), 20));
             }

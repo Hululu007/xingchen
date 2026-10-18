@@ -312,7 +312,7 @@ public class EmbySpider extends Spider {
         EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
         boolean forceTranscode = flag != null && (flag.contains("转码") || flag.contains("transcode"));
 
-        String playUrl;
+        String playUrl = "";
         JSONArray subs = new JSONArray();
         String sessionId = "";
         if (forceTranscode) {

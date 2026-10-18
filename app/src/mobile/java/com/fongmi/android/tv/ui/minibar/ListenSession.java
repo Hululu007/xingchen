@@ -125,6 +125,11 @@ public class ListenSession implements MiniBarPolicy.Session {
         return c != null && c.canNext();
     }
 
+    public boolean canPrev() {
+        Control c = control();
+        return c != null && c.canPrev();
+    }
+
     /** 真关闭：页在走页，不在走兜底；之后一律从策略注销。 */
     void performClose(Context ctx, PlaybackService svc) {
         Control c = control();

@@ -31,6 +31,7 @@ import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.tts.EdgeVoice;
 import com.fongmi.android.tv.tts.EdgeVoiceCatalog;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
 import com.fongmi.android.tv.ui.minibar.ListenSession;
 

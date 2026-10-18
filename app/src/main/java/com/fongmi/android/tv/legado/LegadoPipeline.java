@@ -33,6 +33,7 @@ public class LegadoPipeline {
     }
 
     public static class BookInfo {
+        public String bookUrl = "";
         public String name = "";
         public String author = "";
         public String coverUrl = "";
@@ -83,7 +84,7 @@ public class LegadoPipeline {
                 if (o.has("headers")) {
                     JSONObject h = o.optJSONObject("headers");
                     if (h != null) {
-                        for (String k : JSONObject.getNames(h)) spec.opt.headers.put(k, h.optString(k, ""));
+                        for (java.util.Iterator<String> it = h.keys(); it.hasNext(); ) { String k = it.next(); spec.opt.headers.put(k, h.optString(k, "")); }
                     }
                 }
                 t = t.substring(0, oi);
@@ -262,6 +263,7 @@ public class LegadoPipeline {
                 LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
                 LegadoSource.RuleBookInfo r = source.ruleBookInfo;
                 BookInfo info = new BookInfo();
+                info.bookUrl = bookUrl;
                 info.name = LegadoRuleEvaluator.str(ctx.root, ctx, r.name, false);
                 info.author = LegadoRuleEvaluator.str(ctx.root, ctx, r.author, false);
                 info.coverUrl = LegadoRuleEvaluator.str(ctx.root, ctx, r.coverUrl, true);

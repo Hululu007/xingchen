@@ -2098,7 +2098,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (rs.chapters.size() <= 1) {
                 List<Episode> eps = episodeListForReader();
                 if (eps != null && eps.size() > 1) {
-                    ReadingSession cur = rs.currentChapter();
+                    ReadingSession.Chapter cur = rs.currentChapter();
                     String curUrl = cur.url;
                     rs.chapters.clear();
                     int idx = 0;
@@ -2111,7 +2111,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     rs.chapterIndex = idx;
                 }
             }
-            ReadingSession cur = rs.currentChapter();
+            ReadingSession.Chapter cur = rs.currentChapter();
             if (TextUtils.isEmpty(rs.chapterUrl)) rs.chapterUrl = cur.url;
             SpiderDebug.log("video-flow", manual
                             ? "reading manual open kind=%s book=%s chapters=%d"

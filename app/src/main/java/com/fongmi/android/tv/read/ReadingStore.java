@@ -50,6 +50,8 @@ public class ReadingStore {
         public int segIndex = 0;
         /** 连载追更：记录的书地址（Legado 书源 bookUrl，有它才能查更新）。 */
         public String bookUrl = "";
+        /** 海阔改道来源的规则名（节点归属换算用）。 */
+        public String ruleTitle = "";
         /** 连载追更：上次查到的总章节数。 */
         public int totalChapters = 0;
         /** 连载追更：上次检查时间（节流用）。 */

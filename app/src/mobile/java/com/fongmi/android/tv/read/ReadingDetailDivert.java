@@ -1,6 +1,5 @@
 package com.fongmi.android.tv.read;
 
-import android.app.Activity;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.bean.Episode;
@@ -8,20 +7,25 @@ import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * 详情级改道：不漏认两层（源级标记 / 详情级判别）命中后，
- * 用当前线路的选集表组装阅读会话、打开对应阅读器。
+ * 详情级改道支撑（不漏认两层）。
  * <p>
- * 与 playerContent 时的改道（VideoActivity.divertToReader）同源：
- * 会话只带章节表（name/url），内容由阅读器按章懒取
- * （漫画：会话自带/内嵌串/海阔懒取；小说：首章内联/按章重跑解析/海阔抓取）。
- * kind 由 {@link ReadingKindProbe} 解析（内联图片→漫画，否则小说）。
+ * 源级标记 / 详情级判别命中后，由 VideoActivity 在详情打开时调用：
+ * 本文件只做纯数据准备（章节表组装、听书守卫），kind 分辨与会话组装走
+ * {@link ReadingManual#probeSession}（与手动入口同一探针分发：只取解析产出，
+ * 不 fetch、不写缓存，先自动口径再放宽口径）。
  */
 public class ReadingDetailDivert {
 
     private ReadingDetailDivert() {
     }
+
+    /** 章节 url 里的音频扩展名（听书源守卫：听书也用"第X章"命名，不进阅读改道）。 */
+    private static final String[] AUDIO_EXTS = {
+            ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".wav", ".flac", ".opus", ".wma", ".amr"
+    };
 
     private static void log(String fmt, Object... args) {
         try {
@@ -55,52 +59,28 @@ public class ReadingDetailDivert {
         return chapters;
     }
 
-    /**
-     * 整页改道阅读器。
-     *
-     * @param activity   当前详情页（改道后 finish）
-     * @param siteKey    源 key（会话 siteKey，py 小说按章重跑用）
-     * @param siteName   源显示名
-     * @param ruleTitle  海阔规则名（非海阔传空串；阅读器按规则懒取用）
-     * @param bookTitle  书名（详情标题）
-     * @param coverUrl   封面
-     * @param episodes   当前线路选集表
-     * @param why        判据（记日志）
-     * @return true=已改道（调用方须 finish 详情页并抑制自动播）
-     */
-    public static boolean divert(Activity activity, String siteKey, String siteName,
-                                 String ruleTitle, String bookTitle, String coverUrl,
-                                 List<Episode> episodes, String why) {
-        try {
-            List<ReadingSession.Chapter> chapters = toChapters(episodes);
-            if (chapters.isEmpty()) return false;
-            // 听书守卫：章节地址是音频文件 → 不改道（听书源也用第X章命名）
-            if (ReadingKindProbe.hasAudioChapterUrl(chapters)) {
-                log("skip audio-chapters key=%s", siteKey);
-                return false;
+    /** 任一章节地址是否音频文件（听书源守卫）。 */
+    public static boolean hasAudioChapterUrl(List<ReadingSession.Chapter> chapters) {
+        if (chapters == null) return false;
+        for (ReadingSession.Chapter c : chapters) {
+            if (c != null && isAudioUrl(c.url)) {
+                log("skip audio-chapter url=%s", c.url);
+                return true;
             }
-            ReadingKindProbe.ProbeResult pr = ReadingKindProbe.probe(
-                    chapters, chapterNames(episodes), null);
-            ReadingSession s = new ReadingSession();
-            s.kind = pr.kind == ReadingKindProbe.Kind.NOVEL
-                    ? ReadingSession.Kind.NOVEL : ReadingSession.Kind.COMIC;
-            s.sourceName = siteName == null ? "" : siteName;
-            s.siteKey = siteKey == null ? "" : siteKey;
-            // 海阔：传规则名（阅读器按规则懒取 pics/正文）；py 源不走规则，传空防误查
-            s.ruleTitle = ruleTitle == null ? "" : ruleTitle;
-            s.bookTitle = bookTitle == null ? "" : bookTitle;
-            s.coverUrl = coverUrl == null ? "" : coverUrl;
-            s.chapters = chapters;
-            s.chapterIndex = 0;
-            ReadingSession.Chapter c = s.currentChapter();
-            s.chapterUrl = c.url;
-            log("detail divert key=%s why=%s kind=%s chapters=%d",
-                    siteKey, why, s.kind, chapters.size());
-            ReadingRouter.openReading(activity, s);
-            return true;
-        } catch (Throwable t) {
-            log("detail divert failed key=%s err=%s", siteKey, t.getMessage());
-            return false;
         }
+        return false;
+    }
+
+    private static boolean isAudioUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String low = url.trim().toLowerCase(Locale.ROOT);
+        int q = low.indexOf('?');
+        if (q >= 0) low = low.substring(0, q);
+        int h = low.indexOf('#');
+        if (h >= 0) low = low.substring(0, h);
+        for (String ext : AUDIO_EXTS) {
+            if (low.endsWith(ext)) return true;
+        }
+        return false;
     }
 }

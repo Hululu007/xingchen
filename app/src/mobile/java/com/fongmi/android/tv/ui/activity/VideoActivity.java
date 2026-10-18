@@ -86,10 +86,13 @@ import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkProxyPrewarm;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
+import com.fongmi.android.tv.read.ReadingDetailDivert;
+import com.fongmi.android.tv.read.ReadingDetailJudge;
 import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingManual;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
+import com.fongmi.android.tv.read.ReadingSourceMark;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Episode;
@@ -1024,6 +1027,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.readDetail.setOnClickListener(view -> onManualReadEntry());
+        mBinding.readMark.setOnClickListener(view -> onToggleSourceMark());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -1638,6 +1642,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
         mDetailParseSeq++;
+        mReadingDetailDiverting = false;
         mNextPreloader.clear();
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
@@ -1724,6 +1729,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 renderFlagSelection(vod);
                 // Emby 画质行：线路/选集后补上时刷新
                 refreshEmbyQualityRow();
+                // 不漏认两层：缓存路后台展开完成后，用完整选集表再判一次。
+                // 探针是最终仲裁（确认书形内容才改道），误判视频不会被改道。
+                maybeDivertDetailToReading(vod.getTypeName());
             }
             return;
         }
@@ -1801,11 +1809,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         updateKeep();
         embyBindDetailExtras(item);
         refreshReadDetailVisibility();
+        refreshReadMarkVisibility();
         bindEmbyAiEpisodes();
+        // 不漏认两层：详情打开时整页改道判定（选集已同步画出时）。
+        // 命中后抑制 bindDetailService 的自动播点火，探针确认内容后开阅读器。
+        if (!deferLists) maybeDivertDetailToReading(item.getTypeName());
     }
 
     /** 阶段二：需要播放器服务的部分。服务连上后由 consumePendingPlaybackResult 补调。 */
     private void bindDetailService(Vod item, boolean deferLists) {
+        // 不漏认两层改道中：不点火，探针确认后阅读器接管
+        if (mReadingDetailDiverting) return;
         checkHistoryPlayer(item);
         if (deferLists) return;
         boolean preservePlayback = mRestoringConfigurationPlayback && !player().isEmpty();
@@ -2117,6 +2131,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private volatile boolean mManualReadingBusy = false;
 
+    /**
+     * 详情级改道进行中（不漏认两层）：源标记 / 整书判别命中后，
+     * 后台探针确认内容期间为 true——抑制自动播点火与选集点击，
+     * 探针无结果则复位回落详情页。
+     */
+    private volatile boolean mReadingDetailDiverting = false;
+
     /** 手动入口是否隐藏：Emby 详情/播放一律不露。 */
     private boolean isManualReadHidden() {
         String key = getKey();
@@ -2182,48 +2203,129 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     /**
-     * 手动探针（后台线程）：只取解析产出，不做 Source.fetch、不写播放缓存。
-     * 先按自动口径走一遍（与 playerContent 内部分流一致），命中直接用；
-     * 未命中再按放宽口径分发阅读器；都不中返回 null（不打开、不入架）。
+     * 手动入口的探针分发（委托共用实现）。
+     * 与详情级改道共用 {@link ReadingManual#probeSession}：只取解析产出，
+     * 不做 Source.fetch、不写播放缓存；都不中返回 null（不打开、不入架）。
      */
     private ReadingSession probeManualSession(String key, Flag flag, String episodeName, String chapterId) throws Exception {
         String playFlag = getEpisodePlayFlag(flag, findEpisode(chapterId));
-        if (HkDetailBridge.isHkKey(key)) {
-            String title = key.substring(HkDetailBridge.KEY_PREFIX.length());
-            if (ReadingGate.isHkNovelRule(title)) {
-                return ReadingGate.fromHkNovel(title, null,
-                        java.util.Collections.singletonList(new ReadingSession.Chapter(episodeName, chapterId)), 0);
+        String ruleTitle = HkDetailBridge.isHkKey(key) ? key.substring(HkDetailBridge.KEY_PREFIX.length()) : "";
+        return ReadingManual.probeSession(key, playFlag, siteNameOf(), ruleTitle, episodeName, chapterId);
+    }
+
+    // ================= 阅读不漏认两层（源级标记 / 详情级判别） =================
+    // 优先级：源标记 ＞ 详情判别 ＞ 内容判别（playerContent 内） ＞ 手动入口兜底。
+    // 命中→后台探针确认内容形态（与手动入口同一分发）→开阅读器整页改道。
+
+    /**
+     * 详情级改道判定（详情打开 / 缓存展开后调用）。
+     *
+     * @param typeName 详情分类/类型名
+     * @return true=已启动改道（调用方不再自动播）
+     */
+    private boolean maybeDivertDetailToReading(String typeName) {
+        if (mReadingDetailDiverting) return true;
+        try {
+            if (isEmbyPlayback()) return false;           // 红线：Emby 纯视频
+            String key = getKey();
+            if (SiteApi.PUSH.equals(key)) return false;   // push_agent 走 txt 混合链
+            if (isDirectPlaySession()) return false;      // 海阔直播/直播会话自有链
+            List<Episode> eps = episodeListForReader();
+            if (eps == null || eps.isEmpty()) return false;
+            boolean marked = ReadingSourceMark.isMarked(key);
+            ReadingDetailJudge.Verdict v = null;
+            if (!marked) {
+                v = ReadingDetailJudge.judgeDetail(ReadingDetailDivert.chapterNames(eps), typeName);
+                if (v == null || !v.isBook) return false;  // fail-open：判不中原样
             }
-            SiteApi.ReadingProbe probe = SiteApi.readingProbe(key, playFlag, chapterId);
-            if (probe == null || probe.hkPlay == null) return null;
-            if (ReadingManual.isHkComicRelaxed(probe.hkPlay)) {
-                String referer = "";
-                try {
-                    java.util.Map<String, String> headers = probe.hkPlay.getHeaders();
-                    if (headers != null && headers.get("Referer") != null) referer = headers.get("Referer");
-                } catch (Throwable ignored) {
+            if (ReadingDetailDivert.hasAudioChapterUrl(ReadingDetailDivert.toChapters(eps))) return false;
+            mReadingDetailDiverting = true;
+            startDetailReadingProbe(key, eps, marked ? "source-marked" : ("detail-judge:" + v.reason));
+            return true;
+        } catch (Throwable t) {
+            mReadingDetailDiverting = false;
+            return false;
+        }
+    }
+
+    /** 后台探针确认内容后开阅读器；探针未确认则复位回落详情页，不打扰用户。 */
+    private void startDetailReadingProbe(String key, List<Episode> eps, String why) {
+        Flag flag = getFlag();
+        Episode target = getEpisode();
+        if (target == null || TextUtils.isEmpty(target.getUrl())) {
+            target = null;
+            for (Episode e : eps) {
+                if (e != null && !TextUtils.isEmpty(e.getUrl())) {
+                    target = e;
+                    break;
                 }
-                return ReadingGate.fromHkComic(title, null, episodeName, chapterId, probe.hkPlay, referer);
             }
-            if (ReadingManual.isNovelRelaxed(probe.hkPlay.getUrl())) {
-                return ReadingGate.fromHkNovel(title, null,
-                        java.util.Collections.singletonList(new ReadingSession.Chapter(episodeName, chapterId)), 0);
+        }
+        if (target == null) {
+            mReadingDetailDiverting = false;
+            return;
+        }
+        final String episodeName = target.getName();
+        final String chapterId = target.getUrl();
+        final String playFlag = getEpisodePlayFlag(flag, target);
+        final String siteName = siteNameOf();
+        final String ruleTitle = HkDetailBridge.isHkKey(key) ? key.substring(HkDetailBridge.KEY_PREFIX.length()) : "";
+        new Thread(() -> {
+            try {
+                final ReadingSession rs = ReadingManual.probeSession(key, playFlag, siteName, ruleTitle, episodeName, chapterId);
+                App.post(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        mReadingDetailDiverting = false;
+                        return;
+                    }
+                    if (rs == null) {
+                        SpiderDebug.log("reading-nomiss", "detail probe no session key=%s why=%s", key, why);
+                        mReadingDetailDiverting = false;
+                        return;
+                    }
+                    SpiderDebug.log("reading-nomiss", "detail divert key=%s why=%s kind=%s", key, why, rs.kind);
+                    openReadingSession(rs, false);
+                });
+            } catch (Throwable t) {
+                SpiderDebug.log("reading-nomiss", "detail probe failed key=%s err=%s", key, String.valueOf(t.getMessage()));
+                App.post(() -> mReadingDetailDiverting = false);
             }
-            return null;
+        }).start();
+    }
+
+    /**
+     * 标记入口显隐：Emby / push / 海阔规则不露（只给 py、接口源）。
+     * 与 readDetail 同一判别口径，叠加：Emby 不许被标记。
+     */
+    private boolean isMarkHidden() {
+        if (isManualReadHidden()) return true;
+        String key = getKey();
+        if (SiteApi.PUSH.equals(key)) return true;
+        return HkDetailBridge.isHkKey(key);
+    }
+
+    /** 标记按钮显隐＋文案刷新（标记状态在详情页可见）。 */
+    private void refreshReadMarkVisibility() {
+        if (mBinding == null || mBinding.readMark == null) return;
+        mBinding.readMark.setVisibility(isMarkHidden() ? View.GONE : View.VISIBLE);
+        if (!isMarkHidden()) {
+            mBinding.readMark.setText(ReadingSourceMark.isMarked(getKey())
+                    ? R.string.reading_mark_remove : R.string.reading_mark_add);
         }
-        SiteApi.ReadingProbe probe = SiteApi.readingProbe(key, playFlag, chapterId);
-        if (probe == null || TextUtils.isEmpty(probe.pyRaw)) return null;
-        String siteName = siteNameOf();
-        ReadingSession auto = ReadingGate.detectPy(key, siteName, null, episodeName, probe.pyRaw);
-        if (auto != null) return auto;
-        if (ReadingManual.isComicRelaxed(probe.pyRaw)) {
-            return ReadingManual.comicFromImages(key, siteName, null, episodeName, chapterId,
-                    ReadingManual.realImages(probe.pyRaw));
+    }
+
+    /** 标记本站为书源／取消标记：立即生效，取消立即恢复原行为。 */
+    private void onToggleSourceMark() {
+        if (isMarkHidden()) return;
+        String key = getKey();
+        if (ReadingSourceMark.isMarked(key)) {
+            ReadingSourceMark.unmark(key);
+            Notify.show(R.string.reading_unmarked_toast);
+        } else {
+            ReadingSourceMark.mark(key, siteNameOf());
+            Notify.show(R.string.reading_marked_toast);
         }
-        if (ReadingManual.isNovelRelaxed(probe.pyRaw)) {
-            return ReadingManual.novelFromText(key, siteName, null, episodeName, chapterId, probe.pyRaw.trim());
-        }
-        return null;
+        refreshReadMarkVisibility();
     }
 
     /** 按章节地址找回 Episode（取其线路 flag 用；找不到回 null）。 */
@@ -2383,6 +2485,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onItemClick(Episode item) {
+        // 不漏认两层改道中：探针确认前吞掉选集点击，确认后阅读器已接管
+        if (mReadingDetailDiverting) return;
         if (item != null && item.getUrl() != null && item.getUrl().startsWith("emby:")) {
             resetEmby410(EmbyNavigator.serverIdOf(item.getUrl()), EmbyNavigator.itemIdOf(item.getUrl()));
         }

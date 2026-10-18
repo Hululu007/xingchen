@@ -2,11 +2,15 @@ package com.fongmi.android.tv.read;
 
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.api.hk.HkDetailBridge;
 import com.fongmi.android.tv.api.hk.HkPlay;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -133,6 +137,60 @@ public final class ReadingManual {
      */
     public static boolean isHkComicRelaxed(HkPlay play) {
         return play != null && realImagesOfPics(play).size() >= MANUAL_MIN_SEGS;
+    }
+
+    /**
+     * 探针分发（手动入口 / 详情级改道共用）。
+     * <p>
+     * 只取解析产出（{@link SiteApi#readingProbe}：不做 Source.fetch、不写播放缓存），
+     * 先按自动口径走一遍（与 playerContent 内部分流一致），未命中再按放宽口径分发。
+     * 后台线程调用。都不中返回 null。
+     *
+     * @param key         源 key（hk_ 开头为海阔规则）
+     * @param playFlag    播放线路 flag（探针用）
+     * @param siteName    源显示名
+     * @param ruleTitle   海阔规则名（非海阔可空，此时从 key 反推）
+     * @param episodeName 章节名
+     * @param chapterId   章节地址
+     */
+    public static ReadingSession probeSession(String key, String playFlag, String siteName,
+                                              String ruleTitle, String episodeName, String chapterId) throws Exception {
+        boolean hk = HkDetailBridge.isHkKey(key);
+        String title = !TextUtils.isEmpty(ruleTitle) ? ruleTitle
+                : (hk ? key.substring(HkDetailBridge.KEY_PREFIX.length()) : "");
+        if (hk) {
+            if (ReadingGate.isHkNovelRule(title)) {
+                return ReadingGate.fromHkNovel(title, null,
+                        Collections.singletonList(new ReadingSession.Chapter(episodeName, chapterId)), 0);
+            }
+            SiteApi.ReadingProbe probe = SiteApi.readingProbe(key, playFlag, chapterId);
+            if (probe == null || probe.hkPlay == null) return null;
+            if (isHkComicRelaxed(probe.hkPlay)) {
+                String referer = "";
+                try {
+                    Map<String, String> headers = probe.hkPlay.getHeaders();
+                    if (headers != null && headers.get("Referer") != null) referer = headers.get("Referer");
+                } catch (Throwable ignored) {
+                }
+                return ReadingGate.fromHkComic(title, null, episodeName, chapterId, probe.hkPlay, referer);
+            }
+            if (isNovelRelaxed(probe.hkPlay.getUrl())) {
+                return ReadingGate.fromHkNovel(title, null,
+                        Collections.singletonList(new ReadingSession.Chapter(episodeName, chapterId)), 0);
+            }
+            return null;
+        }
+        SiteApi.ReadingProbe probe = SiteApi.readingProbe(key, playFlag, chapterId);
+        if (probe == null || TextUtils.isEmpty(probe.pyRaw)) return null;
+        ReadingSession auto = ReadingGate.detectPy(key, siteName, null, episodeName, probe.pyRaw);
+        if (auto != null) return auto;
+        if (isComicRelaxed(probe.pyRaw)) {
+            return comicFromImages(key, siteName, null, episodeName, chapterId, realImages(probe.pyRaw));
+        }
+        if (isNovelRelaxed(probe.pyRaw)) {
+            return novelFromText(key, siteName, null, episodeName, chapterId, probe.pyRaw.trim());
+        }
+        return null;
     }
 
     private static List<String> realImagesOfPics(HkPlay play) {

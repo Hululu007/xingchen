@@ -105,6 +105,8 @@ public class HkCenterListPopup {
         dialog.setContentView(root);
         Window window = dialog.getWindow();
         if (window != null) {
+            // 渐入渐出试水批：弹窗淡入淡出（与 HkDialogs 同一套）
+            window.setWindowAnimations(com.fongmi.android.tv.R.style.HkDialogFade);
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
             int screenHeight = context.getResources().getDisplayMetrics().heightPixels;

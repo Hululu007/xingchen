@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.hk;
 
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -140,13 +141,13 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
             submitSearch(wd);
         }
         // 精修 P4：与主 App 同一套渐入渐出（不改继承，只加两行）
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        XcFadeTransition.applyEnter(this);
     }
 
     @Override
     public void finish() {
         super.finish();
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        XcFadeTransition.applyExit(this);
     }
 
     @Override

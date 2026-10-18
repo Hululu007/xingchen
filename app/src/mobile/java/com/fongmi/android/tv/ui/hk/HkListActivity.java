@@ -52,6 +52,7 @@ import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.utils.download.DownloadManager;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.google.gson.Gson;
 
 import org.json.JSONArray;
@@ -741,16 +742,17 @@ public class HkListActivity extends AppCompatActivity
         }
         if (parentData != null) fragment.setAutoPageData(parentData);
         getSupportFragmentManager().beginTransaction()
+                .setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out)
                 .add(R.id.hk_list_container, fragment)
                 .commit();
         // 精修 P4：与主 App 同一套渐入渐出（不改继承，只加两行）
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        XcFadeTransition.applyEnter(this);
     }
 
     @Override
     public void finish() {
         super.finish();
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        XcFadeTransition.applyExit(this);
     }
 
     @Override

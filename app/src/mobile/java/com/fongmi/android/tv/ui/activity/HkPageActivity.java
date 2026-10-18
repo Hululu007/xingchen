@@ -78,6 +78,7 @@ import com.fongmi.android.tv.databinding.ActivityHkBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.xingchen.tv.theme.FrostedGlass;
 
 import java.io.ByteArrayOutputStream;
@@ -459,32 +460,18 @@ public class HkPageActivity extends BaseActivity {
     // 精修 P4：内页切换只做渐入（alpha 180ms）；隐藏的直接 GONE 不做渐出，
     // 避免返回连点时 alpha 卡在半透明
     private void fadeInView(android.view.View v) {
-        v.setVisibility(View.VISIBLE);
-        v.setAlpha(0f);
-        v.animate().alpha(1f).setDuration(180).start();
+        // 渐入渐出统一收口：带系统动画开关降级，时长 200ms
+        XcFadeTransition.fadeIn(v);
     }
 
     private void showView(int v) {
-        // V_RULES（首页）保持原样，一行不动
-        binding.viewRules.setVisibility(v == V_RULES ? View.VISIBLE : View.GONE);
-        // 内页改用 Fragment 架构（8.83 式，带过渡动画）
-        if (v == V_CONTENT) {
-            fadeInView(binding.viewContent);
-            binding.viewSearch.setVisibility(View.GONE);
-            binding.viewDetail.setVisibility(View.GONE);
-        } else if (v == V_SEARCH) {
-            binding.viewContent.setVisibility(View.GONE);
-            fadeInView(binding.viewSearch);
-            binding.viewDetail.setVisibility(View.GONE);
-        } else if (v == V_DETAIL) {
-            binding.viewContent.setVisibility(View.GONE);
-            binding.viewSearch.setVisibility(View.GONE);
-            fadeInView(binding.viewDetail);
-        } else {
-            binding.viewContent.setVisibility(View.GONE);
-            binding.viewSearch.setVisibility(View.GONE);
-            binding.viewDetail.setVisibility(View.GONE);
-        }
+        // 内页切换统一走渐入渐出：新页淡入、旧页淡出（并行，不阻塞加载）
+        android.view.View show = v == V_RULES ? binding.viewRules
+                : v == V_CONTENT ? binding.viewContent
+                : v == V_SEARCH ? binding.viewSearch
+                : v == V_DETAIL ? binding.viewDetail : null;
+        XcFadeTransition.swapViews(show, binding.viewRules, binding.viewContent,
+                binding.viewSearch, binding.viewDetail);
     }
 
     private void buildCategoryRow() {

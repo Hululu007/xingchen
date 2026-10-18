@@ -18,6 +18,7 @@ import com.fongmi.android.tv.ui.activity.AdBlockActivity;
 import com.fongmi.android.tv.ui.activity.DownloadActivity;
 import com.fongmi.android.tv.ui.activity.FileActivity;
 import com.fongmi.android.tv.ui.activity.HistoryActivity;
+import com.fongmi.android.tv.ui.activity.HkFavoriteActivity;
 import com.fongmi.android.tv.ui.activity.HkPageActivity;
 import com.fongmi.android.tv.ui.activity.KeepActivity;
 
@@ -259,7 +260,8 @@ public final class HkRouteBlocker {
 
             @Override
             public void openCollection(Activity activity, int fromActivity, String group, String search) {
-                KeepActivity.start(activity);
+                // 对齐 8.83：收藏是海阔侧自己的体系（ViewCollection），不再进主 App 的 Keep（首页收藏）
+                HkFavoriteActivity.start(activity, group);
             }
 
             @Override

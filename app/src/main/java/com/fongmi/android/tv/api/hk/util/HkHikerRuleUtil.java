@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.hk.util;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.hk.HkFavoriteStore;
 import com.fongmi.android.tv.api.hk.HkParserKit;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
@@ -68,9 +69,12 @@ public final class HkHikerRuleUtil {
             }
             return allRulesJson();
         }
-        if (p0.startsWith("bookmark") || p0.startsWith("download")
-                || p0.startsWith("collection") || p0.startsWith("history")) {
-            // 8.83 返回对应库（书签/下载记录/收藏/历史）的记录 JSON；
+        if (p0.startsWith("collection")) {
+            // 对齐 8.83：返回收藏库记录 JSON（原版 home.js 收藏卡片用 picUrl/length）
+            return HkFavoriteStore.toJson();
+        }
+        if (p0.startsWith("bookmark") || p0.startsWith("download") || p0.startsWith("history")) {
+            // 8.83 返回对应库（书签/下载记录/历史）的记录 JSON；
             // 星辰无 hk 侧对应存储，等价于空库返回 []
             return "[]";
         }

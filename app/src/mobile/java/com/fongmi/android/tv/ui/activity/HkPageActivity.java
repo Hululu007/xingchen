@@ -61,6 +61,7 @@ import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkDetailItem;
 import com.fongmi.android.tv.api.hk.HkErrorUtil;
+import com.fongmi.android.tv.api.hk.HkFavoriteStore;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkLazyRuleParser;
@@ -257,6 +258,8 @@ public class HkPageActivity extends BaseActivity {
                 SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT));
         // 液态玻璃动态背景：decor 注入，画到状态栏底下（XML 首孩子在 fitsSystemWindows 根里盖不住状态栏区，见 activity_hk.xml）
         HkDynamicBgView.attachTo(this);
+        // 历史数据迁移（一次性）：此前误入主 App Keep 的海阔收藏搬回海阔侧（后台线程，幂等）
+        HkFavoriteStore.migrateIfNeeded();
     }
 
     @Override
@@ -518,6 +521,8 @@ public class HkPageActivity extends BaseActivity {
             ruleAdapter.notifyDataSetChanged();
         });
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
+        // 用户拍板：收藏入口放编辑左边（搜索/筛选 … 收藏/编辑），进海阔自己的收藏页
+        binding.btnFavoriteRule.setOnClickListener(v -> HkFavoriteActivity.start(this));
         binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -654,6 +659,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSortRule.setBackground(new HkGlassDrawable(this, 16));
         HkPressFeedback.attach(binding.btnSearchRule);
         HkPressFeedback.attach(binding.btnSortRule);
+        HkPressFeedback.attach(binding.btnFavoriteRule);
         // 底部导入钮：奶油玻璃胶囊（奶油渐变＋1dp 金描边）＋深金字
         binding.btnImport.setBackground(HkGlassDrawable.creamButton(this, 26));
         binding.btnImport.setTextColor(0xFF7A5A00);
@@ -667,6 +673,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnGroupManage.setVisibility(ruleManageMode ? View.VISIBLE : View.GONE);
         binding.btnSearchRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         binding.btnSortRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        binding.btnFavoriteRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         // 编辑模式下收起 inline 搜索（搜索图标已隐藏）
         if (ruleManageMode && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
             binding.inlineSearchBar.setVisibility(View.GONE);
@@ -697,6 +704,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSearchRule.setVisibility(View.GONE);
         binding.btnSortRule.setVisibility(View.GONE);
         binding.btnEditRule.setVisibility(View.GONE);
+        binding.btnFavoriteRule.setVisibility(View.GONE);
         binding.btnSelectAllRules.setVisibility(View.VISIBLE);
         binding.btnDeleteSelectedRules.setVisibility(View.VISIBLE);
         binding.btnSelectDone.setVisibility(View.VISIBLE);
@@ -711,6 +719,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSearchRule.setVisibility(View.VISIBLE);
         binding.btnSortRule.setVisibility(View.VISIBLE);
         binding.btnEditRule.setVisibility(View.VISIBLE);
+        binding.btnFavoriteRule.setVisibility(View.VISIBLE);
         binding.btnSelectAllRules.setVisibility(View.GONE);
         binding.btnDeleteSelectedRules.setVisibility(View.GONE);
         binding.btnSelectDone.setVisibility(View.GONE);

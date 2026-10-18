@@ -80,6 +80,8 @@ import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.hk.HkDetail;
 import com.fongmi.android.tv.api.hk.HkDetailBridge;
+import com.fongmi.android.tv.api.hk.HkFavorite;
+import com.fongmi.android.tv.api.hk.HkFavoriteStore;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
@@ -142,6 +144,7 @@ import com.fongmi.android.tv.ui.adapter.ParseAdapter;
 import com.fongmi.android.tv.ui.adapter.QualityAdapter;
 import com.fongmi.android.tv.ui.adapter.QuickAdapter;
 import com.fongmi.android.tv.ui.base.ViewType;
+import com.fongmi.android.tv.ui.hk.HkFavoriteDialogs;
 import com.fongmi.android.tv.ui.custom.AudioPlayerBackgroundDrawable;
 import com.fongmi.android.tv.ui.custom.CustomKeyDown;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
@@ -2718,11 +2721,69 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onKeep() {
+        // 海阔交接详情：对齐 8.83，收藏进海阔侧自己的收藏体系，不再混入主 App 的 Keep（首页收藏）
+        if (HkDetailBridge.isHkKey(getKey())) {
+            onHkKeep();
+            return;
+        }
         Keep keep = Keep.find(getHistoryKey());
         Notify.show(keep != null ? R.string.keep_del : R.string.keep_add);
         if (keep != null) keep.delete();
         else createKeep();
         checkKeepImg();
+    }
+
+    /** 海阔详情的规则标题（收藏记录用）。 */
+    private String hkRuleTitle() {
+        String t = getIntent().getStringExtra("hk_rule");
+        if (t == null || t.isEmpty()) t = getKey().substring(HkDetailBridge.KEY_PREFIX.length());
+        return t == null ? "" : t;
+    }
+
+    /** 海阔详情星标：对齐 8.83 FilmListActivity 的收藏交互（新增/更新/取消收藏）。 */
+    private void onHkKeep() {
+        String ruleTitle = hkRuleTitle();
+        String episodeUrl = getId();
+        HkFavorite exist = HkFavoriteStore.find(ruleTitle, episodeUrl);
+        if (exist != null) {
+            HkFavoriteDialogs.showOptions(this, "请选择操作", new String[]{"取消收藏", "更新收藏"}, which -> {
+                if (which == 0) {
+                    HkFavoriteStore.remove(ruleTitle, episodeUrl);
+                    Notify.show("已取消收藏");
+                } else {
+                    showHkFavoriteEdit(exist);
+                    return;
+                }
+                checkKeepImg();
+            });
+            return;
+        }
+        HkFavorite f = new HkFavorite();
+        f.setRuleTitle(ruleTitle);
+        f.setEpisodeUrl(episodeUrl);
+        String name = getIntent().getStringExtra("name");
+        if (name == null || name.isEmpty()) name = mHistory != null ? mHistory.getVodName() : "";
+        f.setTitle(name);
+        String pic = getIntent().getStringExtra("pic");
+        f.setPicUrl(pic);
+        f.setGroup(HkFavoriteStore.DEFAULT_GROUP);
+        f.setTime(System.currentTimeMillis());
+        HkRule rule = HkRuleManager.get().getInstalledRule(ruleTitle);
+        if (rule != null) f.setRuleUrl(rule.getUrl());
+        showHkFavoriteEdit(f);
+    }
+
+    /** 海阔收藏编辑弹窗：标题可改、分组可选（对齐原版 BookmarkEditPopup）。 */
+    private void showHkFavoriteEdit(HkFavorite f) {
+        boolean isNew = HkFavoriteStore.find(f.getRuleTitle(), f.getEpisodeUrl()) == null;
+        HkFavoriteDialogs.showEdit(this, isNew ? "新增收藏" : "更新收藏", f.getTitle(), f.getGroup(), (title, group) -> {
+            f.setTitle(title);
+            f.setGroup(group);
+            f.setTime(System.currentTimeMillis());
+            HkFavoriteStore.addOrUpdate(f);
+            Notify.show(isNew ? "已加入收藏" : "收藏已更新");
+            checkKeepImg();
+        });
     }
 
     private void onDownload() {
@@ -5493,7 +5554,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkKeepImg() {
-        boolean kept = Keep.find(getHistoryKey()) != null;
+        // 海阔交接详情：星标态读海阔收藏（原版 ViewCollection 语义），不读主 App Keep
+        boolean kept = HkDetailBridge.isHkKey(getKey())
+                ? HkFavoriteStore.isFavorite(hkRuleTitle(), getId())
+                : Keep.find(getHistoryKey()) != null;
         mBinding.control.keep.setImageResource(kept ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
         mBinding.audioKeepAction.setSelected(kept);
         if (mBinding.keepBtn != null) mBinding.keepBtn.setIconResource(kept ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
@@ -5512,6 +5576,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void createKeep() {
+        // 海阔交接详情不写主 App Keep（走海阔收藏），防御性拦截
+        if (HkDetailBridge.isHkKey(getKey())) return;
         Keep keep = new Keep();
         keep.setKey(getHistoryKey());
         keep.setCid(VodConfig.getCid());

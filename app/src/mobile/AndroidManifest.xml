@@ -233,6 +233,13 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 海阔收藏页：对齐 8.83 CollectionListActivity（海阔侧自己的收藏家） -->
+        <activity
+            android:name=".ui.activity.HkFavoriteActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <activity
             android:name=".ui.activity.PanLoginActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

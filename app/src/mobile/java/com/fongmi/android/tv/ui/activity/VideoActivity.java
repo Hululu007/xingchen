@@ -1008,7 +1008,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.repeat.setOnClickListener(view -> onRepeat());
         mBinding.control.action.openingItem.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.more.setOnClickListener(view -> onMore());
+        mBinding.control.action.more.setOnClickListener(view -> onMorePanel());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
@@ -3240,8 +3240,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 .embyPlayback(isEmbyPlayback() || isEmbyEpisode()).show(this);
     }
 
-    /** 更多面板：9 宫格，每格接现有行为方法（定稿口径 4） */
-    private void onMore() {
+    /** 更多面板：9 宫格，每格接现有行为方法（定稿口径 4；与详情选集区旧 onMore() 同名冲突故改名） */
+    private void onMorePanel() {
         DialogPlayerMoreBinding binding = DialogPlayerMoreBinding.inflate(getLayoutInflater());
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setContentView(binding.getRoot());

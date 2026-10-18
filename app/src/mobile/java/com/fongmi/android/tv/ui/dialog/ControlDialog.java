@@ -17,6 +17,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.media3.common.C;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
@@ -243,10 +244,15 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void setScaleText() {
+        String current = ResUtil.getStringArray(R.array.select_scale)[getCurrentScale()];
         for (int i = 0; i < scales.size(); i++) {
             scales.get(i).setText(scale[i]);
-            scales.get(i).setSelected(scales.get(i).getText().equals(parent.control.action.scale.getText()));
+            scales.get(i).setSelected(scales.get(i).getText().equals(current));
         }
+    }
+
+    private int getCurrentScale() {
+        return history != null && history.getScale() != -1 ? history.getScale() : PlayerSetting.getScale();
     }
 
     private void setParse() {
@@ -325,7 +331,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     public void setLut() {
         if (binding == null || !resolveHostDependencies()) return;
-        binding.lut.setText(parent.control.action.lut.getText());
+        binding.lut.setText(player.getLutText());
     }
 
     private boolean resolveHostDependencies() {
@@ -346,8 +352,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     public void setTrackVisible() {
         binding.text.setVisibility(parent.control.action.text.getVisibility());
-        binding.audio.setVisibility(parent.control.action.audio.getVisibility());
-        binding.video.setVisibility(parent.control.action.video.getVisibility());
+        binding.audio.setVisibility(player.haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
+        binding.video.setVisibility(player.haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         boolean visible = binding.text.getVisibility() != View.GONE || binding.audio.getVisibility() != View.GONE || binding.video.getVisibility() != View.GONE || binding.title.getVisibility() != View.GONE || binding.danmaku.getVisibility() != View.GONE;
         binding.trackText.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.trackRow.setVisibility(visible ? View.VISIBLE : View.GONE);
@@ -426,7 +432,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public void setTitleVisible() {
-        binding.title.setVisibility(parent.control.action.title.getVisibility());
+        binding.title.setVisibility(player.haveTitle() ? View.VISIBLE : View.GONE);
         setTrackVisible();
     }
 

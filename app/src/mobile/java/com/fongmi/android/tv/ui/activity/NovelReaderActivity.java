@@ -159,6 +159,8 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void applyTheme() {
         root.setBackgroundColor(bg());
+        // 窗口底跟纸色走（夜间主题深色，状态栏不断带）
+        ReadingSkin.fitWindowBackground(this, bg(), theme() == 2);
         if (tvContent != null) {
             tvContent.setTextColor(fg());
         }

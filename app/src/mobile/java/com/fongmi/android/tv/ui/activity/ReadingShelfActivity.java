@@ -85,6 +85,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
+        ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
         // AI 口令"继续读"中转：直接进最近一本，不在书架停留
         if (getIntent().getBooleanExtra("auto_continue", false)) {
             ReadingRouter.continueReading(this);
@@ -136,15 +137,15 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
         TextView srcBtn = new TextView(this);
         srcBtn.setText("书源");
-        srcBtn.setTextSize(14);
+        srcBtn.setTextSize(16);
         srcBtn.setTextColor(ReadingSkin.GOLD);
         srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
         srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
         topBar.addView(srcBtn);
 
         importBtn = new TextView(this);
-        importBtn.setText("导入");
-        importBtn.setTextSize(14);
+        importBtn.setText("本地");
+        importBtn.setTextSize(16);
         importBtn.setTextColor(ReadingSkin.GOLD);
         importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         importBtn.setOnClickListener(v -> showImportMenu());
@@ -795,7 +796,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
     private void setImporting(boolean on) {
         importBtn.setEnabled(!on);
-        importBtn.setText(on ? "导入中…" : "导入");
+        importBtn.setText(on ? "导入中…" : "本地");
     }
 
     private void importFiles(List<android.net.Uri> uris) {

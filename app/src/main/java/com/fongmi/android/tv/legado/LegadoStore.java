@@ -58,44 +58,96 @@ public class LegadoStore {
         prefs().edit().putString(KEY, GSON.toJson(list, LIST_TYPE)).apply();
     }
 
-    public static LegadoSource parse(String json) {
-        LegadoSource s;
-        try {
-            s = GSON.fromJson(json, LegadoSource.class);
-        } catch (Throwable t) {
-            throw new LegadoException("书源 JSON 解析失败: " + t.getMessage());
-        }
-        if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
-            throw new LegadoException("不是合法书源：缺少 bookSourceUrl");
-        }
+    /** 去掉 BOM 头（部分编辑器/网站导出的文件带）。 */
+    private static String stripBom(String s) {
+        if (s != null && !s.isEmpty() && s.charAt(0) == '﻿') return s.substring(1);
         return s;
     }
 
-    /** 导入 JSON 文本；同 bookSourceUrl 覆盖。返回源名。 */
-    public static synchronized String importText(String json) {
-        if (json == null || json.trim().isEmpty()) throw new LegadoException("内容为空");
-        LegadoSource s = parse(json.trim());
-        List<Entry> list = all();
-        boolean replaced = false;
-        for (Entry e : list) {
-            try {
-                if (s.bookSourceUrl.equals(parse(e.json).bookSourceUrl)) {
-                    e.json = json.trim();
-                    replaced = true;
-                    break;
-                }
-            } catch (Throwable ignored) {
+    public static LegadoSource parse(String json) {
+        List<LegadoSource> all = parseList(json);
+        return all.get(0);
+    }
+
+    /**
+     * 解析书源 JSON：支持裸对象 {...} 与数组 [{...}, {...}] 两种形态。
+     * 对齐原版「阅读」：只认纯 JSON，不从说明文字里抠；整包解析，
+     * 坏项整包失败（不逐个跳过），但报错指名第几个源出了问题。
+     * 标准书源文件/订阅链接几乎全是数组，老写法只认裸对象是导入失败的根因。
+     */
+    public static List<LegadoSource> parseList(String json) {
+        String t = stripBom(json == null ? "" : json.trim());
+        if (t.isEmpty()) throw new LegadoException("内容为空");
+        List<LegadoSource> out = new ArrayList<>();
+        try {
+            if (t.startsWith("[")) {
+                Type t2 = new TypeToken<List<LegadoSource>>() {
+                }.getType();
+                List<LegadoSource> arr = GSON.fromJson(t, t2);
+                if (arr != null) out.addAll(arr);
+            } else {
+                LegadoSource s = GSON.fromJson(t, LegadoSource.class);
+                if (s != null) out.add(s);
+            }
+        } catch (Throwable th) {
+            throw new LegadoException("书源 JSON 解析失败"
+                    + truncatedHint(t) + ": " + th.getMessage());
+        }
+        if (out.isEmpty()) throw new LegadoException("内容为空");
+        for (int i = 0; i < out.size(); i++) {
+            LegadoSource s = out.get(i);
+            if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
+                throw new LegadoException("第 " + (i + 1) + " 个源不是合法书源：缺少 bookSourceUrl");
             }
         }
-        if (!replaced) {
-            Entry e = new Entry();
-            e.json = json.trim();
-            e.enabled = true;
-            e.addedAt = System.currentTimeMillis();
-            list.add(e);
+        return out;
+    }
+
+    /** 截断提示：起手是 [/{、结尾却不是 ]/}，大概率粘贴时没贴全。 */
+    private static String truncatedHint(String t) {
+        char first = t.charAt(0);
+        char last = t.charAt(t.length() - 1);
+        if ((first == '[' && last != ']') || (first == '{' && last != '}')) {
+            return "（内容像没贴全，检查结尾是不是被截断了）";
+        }
+        return "";
+    }
+
+    /**
+     * 导入 JSON 文本；同 bookSourceUrl 覆盖。数组逐个入库（每源独立条目，
+     * 列表/开关/删除等下游仍按单源 JSON 走）。
+     * 返回：单个源返回源名；多个返回「N 个源」。
+     */
+    public static synchronized String importText(String json) {
+        List<LegadoSource> srcs = parseList(json);
+        List<Entry> list = all();
+        int added = 0, replaced = 0;
+        for (LegadoSource s : srcs) {
+            String one = GSON.toJson(s);
+            boolean hit = false;
+            for (Entry e : list) {
+                try {
+                    if (s.bookSourceUrl.equals(parse(e.json).bookSourceUrl)) {
+                        e.json = one;
+                        hit = true;
+                        replaced++;
+                        break;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (!hit) {
+                Entry e = new Entry();
+                e.json = one;
+                e.enabled = true;
+                e.addedAt = System.currentTimeMillis();
+                list.add(e);
+                added++;
+            }
         }
         saveAll(list);
-        return s.tag();
+        if (srcs.size() == 1) return srcs.get(0).tag();
+        return "已导入 " + srcs.size() + " 个源";
     }
 
     /** 导入文件（.json/.txt）。 */
@@ -113,19 +165,68 @@ public class LegadoStore {
         return importText(sb.toString());
     }
 
-    /** 导入链接（拉取后按文本导入）。 */
+    /**
+     * 导入链接（拉取后按文本导入）。对齐原版：支持 {"sourceUrls":[...]} 订阅列表，
+     * 逐个拉取导入；普通 JSON 走 importText。
+     */
     public static String importUrl(String url) {
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new LegadoException("链接格式不对");
         }
+        String text;
         try {
             LegadoHttp.Result r = LegadoHttpAndroid.get().fetch(url, "GET", null, null);
-            return importText(new String(r.body, StandardCharsets.UTF_8));
+            text = new String(r.body, StandardCharsets.UTF_8);
         } catch (LegadoException e) {
             throw e;
         } catch (Throwable t) {
             throw new LegadoException("链接拉取失败: " + t.getMessage());
         }
+        List<String> subs = sourceUrls(text);
+        if (subs != null) {
+            int ok = 0;
+            StringBuilder fails = new StringBuilder();
+            for (String u : subs) {
+                try {
+                    importUrl(u);
+                    ok++;
+                } catch (Throwable t) {
+                    if (fails.length() > 0) fails.append("；");
+                    fails.append(u).append("：").append(shortMsg(t));
+                }
+            }
+            if (ok == 0) throw new LegadoException("订阅列表全部拉取失败：" + fails);
+            return "已导入 " + ok + " 个订阅源"
+                    + (fails.length() > 0 ? "，失败：" + fails : "");
+        }
+        return importText(text);
+    }
+
+    /** 订阅列表形态 {"sourceUrls":[...]}；不是则返回 null。 */
+    private static List<String> sourceUrls(String text) {
+        try {
+            String t = stripBom(text == null ? "" : text.trim());
+            if (!t.startsWith("{")) return null;
+            Type t2 = new TypeToken<java.util.Map<String, List<String>>>() {
+            }.getType();
+            java.util.Map<String, List<String>> m = GSON.fromJson(t, t2);
+            if (m == null) return null;
+            List<String> urls = m.get("sourceUrls");
+            if (urls == null || urls.isEmpty()) return null;
+            List<String> out = new ArrayList<>();
+            for (String u : urls) {
+                if (u != null && !u.trim().isEmpty()) out.add(u.trim());
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String shortMsg(Throwable t) {
+        String m = t.getMessage();
+        if (m == null || m.isEmpty()) m = t.getClass().getSimpleName();
+        return m.length() > 60 ? m.substring(0, 60) : m;
     }
 
     public static synchronized LegadoSource get(String bookSourceUrl) {

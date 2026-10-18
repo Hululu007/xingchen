@@ -52,6 +52,7 @@ public class LegadoActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(ReadingSkin.pageBackground(this));
@@ -271,7 +272,10 @@ public class LegadoActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_PICK_FILE && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
-            if (uri == null) return;
+            if (uri == null) {
+                Toast.makeText(this, "没取到文件", Toast.LENGTH_SHORT).show();
+                return;
+            }
             doImport(() -> {
                 try (InputStream in = getContentResolver().openInputStream(uri)) {
                     if (in == null) throw new LegadoException("打不开文件");
@@ -304,7 +308,8 @@ public class LegadoActivity extends Activity {
             try {
                 String name = importer.run();
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "已导入：" + name, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, name.startsWith("已导入") ? name : "已导入：" + name,
+                            Toast.LENGTH_SHORT).show();
                     reload();
                 });
             } catch (Throwable t) {

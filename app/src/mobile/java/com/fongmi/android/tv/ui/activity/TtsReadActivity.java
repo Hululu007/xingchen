@@ -101,6 +101,7 @@ public class TtsReadActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ReadingSkin.fitWindowBackground(this, 0xFFF5F3EF, false);
         jobId = getIntent().getStringExtra("job");
         job = TtsJob.get(jobId);
         if (job == null || job.chapters.isEmpty()) {

@@ -79,6 +79,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
         album = LegadoAudio.take(getIntent().getStringExtra("session"));
         if (album == null || album.chapters.isEmpty()) {
             Toast.makeText(this, "专辑数据丢失", Toast.LENGTH_SHORT).show();

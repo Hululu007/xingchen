@@ -38,16 +38,23 @@ public class LegadoSource {
         public String bookList = "";
         public String name = "";
         public String author = "";
+        public String kind = "";
+        public String wordCount = "";
+        public String lastChapter = "";
         public String coverUrl = "";
         public String intro = "";
         public String bookUrl = "";
     }
 
     public static class RuleBookInfo {
+        public String init = "";
         public String name = "";
         public String author = "";
+        public String kind = "";
         public String coverUrl = "";
         public String intro = "";
+        public String lastChapter = "";
+        public String wordCount = "";
         public String tocUrl = "";
     }
 

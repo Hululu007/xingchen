@@ -32,23 +32,65 @@ public final class ReadingSkin {
     public static final int TEXT = 0xFFF4F2EC;
     public static final int SUB = 0x99F4F2EC;
     public static final int FAINT = 0x66F4F2EC;
-    public static final int PAGE_BG = 0xFF0E0E13;
+    /**
+     * 暖棕黑基底（2026-10-18 他定调对稿）：
+     * 取色依据——小说阅读器稿整套里最暖的页面底 #141318 压暗为顶色；
+     * 封面占位暖棕渐变（#2C2118→#6B4A2E 系）取暖调；
+     * 顶部暖色柔光取稿内金色 #F2B33D 降透明度。
+     * 层次要看得出来，但不压字。
+     */
+    public static final int PAGE_BG_TOP = 0xFF171310;
+    public static final int PAGE_BG_BOTTOM = 0xFF0D0B08;
+    /** 兼容旧引用：页面主底色＝暖棕黑顶色。 */
+    public static final int PAGE_BG = PAGE_BG_TOP;
 
     public static int dp(Context c, int v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }
 
-    /** 页面底：深底＋顶部一道柔光（稿里的径向光，代码近似）。 */
+    /** 页面底：暖棕黑纵向渐变＋顶部一道暖金柔光（对稿，层次不压字）。 */
     public static Drawable pageBackground(Context c) {
         GradientDrawable glow = new GradientDrawable();
         glow.setShape(GradientDrawable.RECTANGLE);
         glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        glow.setGradientRadius(dp(c, 340));
+        glow.setGradientRadius(dp(c, 380));
         glow.setGradientCenter(0.5f, 0f);
-        glow.setColors(new int[]{0x33546EBE, 0x00000000});
-        GradientDrawable base = new GradientDrawable();
-        base.setColor(PAGE_BG);
+        glow.setColors(new int[]{0x2BF2B33D, 0x00000000});
+        GradientDrawable base = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{PAGE_BG_TOP, PAGE_BG_BOTTOM});
         return new LayerDrawable(new Drawable[]{base, glow});
+    }
+
+    /**
+     * 窗口底对齐页面底：阅读页全挂 Theme.XingChen.HkPage，其 windowBackground
+     * 是米白 #FFF4F6F8——状态栏接缝的根。调用方在 onCreate 里调一次，
+     * 颜色只从这里取，各页不许各调各的。
+     *
+     * @param darkPage 深色页时状态栏/导航栏图标切浅色，浅色页切深色
+     */
+    public static void fitWindowBackground(android.app.Activity act, int color,
+                                          boolean darkPage) {
+        try {
+            act.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(color));
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.window.WindowInsetsController ic =
+                        act.getWindow().getInsetsController();
+                if (ic != null) {
+                    int mask = android.window.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.window.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    ic.setSystemBarsAppearance(darkPage ? 0 : mask, mask);
+                }
+            } else {
+                android.view.View decor = act.getWindow().getDecorView();
+                int f = decor.getSystemUiVisibility();
+                int bits = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                decor.setSystemUiVisibility(darkPage ? (f & ~bits) : (f | bits));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 毛玻璃卡：半透明白渐变＋边缘高光＋圆角。阴影走 view.setElevation。 */

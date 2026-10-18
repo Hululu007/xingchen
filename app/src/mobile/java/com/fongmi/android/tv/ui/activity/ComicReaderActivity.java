@@ -71,6 +71,7 @@ public class ComicReaderActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ReadingSkin.fitWindowBackground(this, 0xFF000000, true);
         EdgeToEdge.enable(this);
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {

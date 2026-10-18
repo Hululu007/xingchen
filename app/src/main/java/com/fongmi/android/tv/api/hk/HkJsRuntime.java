@@ -1535,6 +1535,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (args != null && args.length > 1) {
                 Map<String, String> target = myVarsFor(args.length > 2 ? argStr(args[2]) : null);
                 target.put(myVarKeyFor(argStr(args[0]), args.length > 2 ? argStr(args[2]) : null), stringifyArg(args[1]));
+                // 取证日志（一个APP 分类案真机取证用，下版定案后可删）：只记规则标题/键/值，超长截断，抛错不影响主流程
+                try {
+                    String pv = stringifyArg(args[1]);
+                    SpiderDebug.log("hk", "putMyVar rule=%s key=%s value=%s", rule.getTitle(), argStr(args[0]), pv != null && pv.length() > 100 ? pv.substring(0, 100) + "…" : pv);
+                } catch (Throwable ignored) {}
             }
             return null;
         });
@@ -1546,6 +1551,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String rt = args.length > 2 ? argStr(args[2]) : null;
             Map<String, String> target = myVarsFor(rt);
             String v = target.get(myVarKeyFor((String) args[0], rt));
+            // 取证日志（一个APP 分类案真机取证用，下版定案后可删）：只记规则标题/键/读到的值，存里没读到标「空」，超长截断，抛错不影响主流程
+            try {
+                SpiderDebug.log("hk", "getMyVar rule=%s key=%s value=%s", rule.getTitle(), (String) args[0], v == null ? "空" : (v.length() > 100 ? v.substring(0, 100) + "…" : v));
+            } catch (Throwable ignored) {}
             if (v == null && args.length > 1) v = argStr(args[1]);
             return v == null ? "" : v;
         });

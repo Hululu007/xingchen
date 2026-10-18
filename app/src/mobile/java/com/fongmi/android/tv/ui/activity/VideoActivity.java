@@ -92,7 +92,6 @@ import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingManual;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
-import com.fongmi.android.tv.read.ReadingSourceMark;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Episode;
@@ -1026,7 +1025,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
-        mBinding.readMark.setOnClickListener(view -> onToggleSourceMark());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -1808,7 +1806,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setText(item);
         updateKeep();
         embyBindDetailExtras(item);
-        refreshReadMarkVisibility();
         bindEmbyAiEpisodes();
         // 不漏认两层：详情打开时整页改道判定（选集已同步画出时）。
         // 命中后抑制 bindDetailService 的自动播点火，探针确认内容后开阅读器。
@@ -2170,15 +2167,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (isDirectPlaySession()) return false;      // 海阔直播/直播会话自有链
             List<Episode> eps = episodeListForReader();
             if (eps == null || eps.isEmpty()) return false;
-            boolean marked = ReadingSourceMark.isMarked(key);
-            ReadingDetailJudge.Verdict v = null;
-            if (!marked) {
-                v = ReadingDetailJudge.judgeDetail(ReadingDetailDivert.chapterNames(eps), typeName);
-                if (v == null || !v.isBook) return false;  // fail-open：判不中原样
-            }
+            ReadingDetailJudge.Verdict v = ReadingDetailJudge.judgeDetail(ReadingDetailDivert.chapterNames(eps), typeName);
+            if (v == null || !v.isBook) return false;  // fail-open：判不中原样
             if (ReadingDetailDivert.hasAudioChapterUrl(ReadingDetailDivert.toChapters(eps))) return false;
             mReadingDetailDiverting = true;
-            startDetailReadingProbe(key, eps, marked ? "source-marked" : ("detail-judge:" + v.reason));
+            startDetailReadingProbe(key, eps, "detail-judge:" + v.reason);
             return true;
         } catch (Throwable t) {
             mReadingDetailDiverting = false;
@@ -2233,40 +2226,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 App.post(() -> mReadingDetailDiverting = false);
             }
         }).start();
-    }
-
-    /**
-     * 标记入口显隐：Emby / push / 海阔规则不露（只给 py、接口源）。
-     */
-    private boolean isMarkHidden() {
-        String key = getKey();
-        if (isEmbyPlayback() || EmbyNavigator.SITE_KEY.equals(key) || key.startsWith("emby:")) return true;
-        if (SiteApi.PUSH.equals(key)) return true;
-        return HkDetailBridge.isHkKey(key);
-    }
-
-    /** 标记按钮显隐＋文案刷新（标记状态在详情页可见）。 */
-    private void refreshReadMarkVisibility() {
-        if (mBinding == null || mBinding.readMark == null) return;
-        mBinding.readMark.setVisibility(isMarkHidden() ? View.GONE : View.VISIBLE);
-        if (!isMarkHidden()) {
-            mBinding.readMark.setText(ReadingSourceMark.isMarked(getKey())
-                    ? R.string.reading_mark_remove : R.string.reading_mark_add);
-        }
-    }
-
-    /** 标记本站为书源／取消标记：立即生效，取消立即恢复原行为。 */
-    private void onToggleSourceMark() {
-        if (isMarkHidden()) return;
-        String key = getKey();
-        if (ReadingSourceMark.isMarked(key)) {
-            ReadingSourceMark.unmark(key);
-            Notify.show(R.string.reading_unmarked_toast);
-        } else {
-            ReadingSourceMark.mark(key, siteNameOf());
-            Notify.show(R.string.reading_marked_toast);
-        }
-        refreshReadMarkVisibility();
     }
 
     /** 按章节地址找回 Episode（取其线路 flag 用；找不到回 null）。 */
@@ -2783,7 +2742,36 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mEpisodeAdapter.setCompactEnabled(!HkDetailBridge.isHkKey(getKey()));
         updateEpisodeSpan(items);
         mEpisodeAdapter.addAll(items);
+        stripVodNamePrefix(items);
         selectEpisodeGroupByPosition(mEpisodeAdapter.getPosition());
+    }
+
+    /**
+     * 选集钮删片名（显示层）：集名以详情片名开头时剥掉片名那截，剥完为空显示「播放地址」。
+     * 锚定详情 vodName 归一化全等比较；只改 displayName，不动原始名与 URL。
+     */
+    private void stripVodNamePrefix(List<Episode> items) {
+        if (items == null || items.isEmpty()) return;
+        String anchor = normTitle(mHistory == null ? null : mHistory.getVodName());
+        if (TextUtils.isEmpty(anchor)) return;
+        boolean changed = false;
+        for (Episode item : items) {
+            if (item == null) continue;
+            String name = normTitle(item.getDisplayName());
+            if (TextUtils.isEmpty(name) || !name.startsWith(anchor)) continue;
+            String rest = name.substring(anchor.length()).replaceAll("^[\\s\\-–—▶:：]+", "").trim();
+            if (rest.isEmpty()) rest = "播放地址";
+            if (!rest.equals(item.getDisplayName())) {
+                item.setDisplayName(rest);
+                changed = true;
+            }
+        }
+        if (changed) mEpisodeAdapter.notifyDataSetChanged();
+    }
+
+    private static String normTitle(String s) {
+        if (s == null) return "";
+        return s.replace('\u3000', ' ').trim();
     }
 
     private void syncEpisodeGroupByScroll() {

@@ -13,7 +13,7 @@ import java.util.Random;
 
 /**
  * 一起看房间会话：房号/口令、房主控播、进度对表、房内弹幕，全部走公共消息通道。
- * 通道顺序：HiveMQ（真机实测最稳）→ Mosquitto 备选。
+ * 通道顺序：HiveMQ → Mosquitto → 自建 CF 中继（workers.dev 垫底；握手慢时 10 秒 CONNACK 超时自动切走）。
  * 协议（topic xc/room/<房号>/msg，JSON）：
  * play/pause/resume/seek/sync/chat/join/bye/needstate；
  * 在线状态走 retained 的 xc/room/<房号>/p/<成员id>，房主播放状态走 retained 的 .../state。
@@ -53,9 +53,9 @@ public final class WatchSession {
     }
 
     private static final String[] BROKERS = {
-            "wss://xc-watch-relay.1372659842.workers.dev/mqtt",
             "wss://broker.hivemq.com:8884/mqtt",
-            "wss://test.mosquitto.org:8081/mqtt"
+            "wss://test.mosquitto.org:8081/mqtt",
+            "wss://xc-watch-relay.1372659842.workers.dev/mqtt"
     };
 
     private final Listener listener;

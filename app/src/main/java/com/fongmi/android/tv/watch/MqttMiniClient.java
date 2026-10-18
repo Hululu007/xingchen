@@ -40,12 +40,16 @@ public final class MqttMiniClient {
     private final Listener listener;
     private final AtomicInteger packetId = new AtomicInteger(1);
     private final List<String> pendingSubs = new ArrayList<>();
+    /** 连通前暂存的待发包：CONNACK 后 flush 一次，不静默丢。 */
+    private final List<byte[]> pendingPublishes = new ArrayList<>();
 
     private OkHttpClient http;
     private WebSocket ws;
     private ScheduledExecutorService pinger;
+    private ScheduledExecutorService connackTimer;
     private volatile boolean open;
     private volatile boolean closedByUser;
+    private volatile boolean connackTimedOut;
 
     public MqttMiniClient(String url, String clientId, String willTopic, byte[] willPayload, Listener listener) {
         this.url = url;
@@ -57,6 +61,8 @@ public final class MqttMiniClient {
 
     public synchronized void connect() {
         closedByUser = false;
+        connackTimedOut = false;
+        open = false;
         http = new OkHttpClient.Builder()
                 .connectTimeout(12, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -69,6 +75,7 @@ public final class MqttMiniClient {
             @Override
             public void onOpen(WebSocket webSocket, Response response) {
                 webSocket.send(ByteString.of(Codec.connect(clientId, willTopic, willPayload, 30)));
+                armConnackTimeout();
             }
 
             @Override
@@ -79,15 +86,50 @@ public final class MqttMiniClient {
             @Override
             public void onClosed(WebSocket webSocket, int code, String reason) {
                 teardown();
-                if (!closedByUser) listener.onClosed(reason);
+                if (!closedByUser && !connackTimedOut) listener.onClosed(reason);
             }
 
             @Override
             public void onFailure(WebSocket webSocket, Throwable t, Response response) {
                 teardown();
-                if (!closedByUser) listener.onFailure(String.valueOf(t));
+                if (!closedByUser && !connackTimedOut) listener.onFailure(String.valueOf(t));
             }
         });
+    }
+
+    /**
+     * CONNACK 总时限：WS onOpen 后 10 秒内没收到 CONNACK，就 teardown 并报
+     * listener.onFailure("connack timeout")，走现有 onBrokerDown 切中继。
+     */
+    private synchronized void armConnackTimeout() {
+        cancelConnackTimeout();
+        connackTimer = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "watch-mqtt-connack");
+            t.setDaemon(true);
+            return t;
+        });
+        connackTimer.schedule(() -> {
+            synchronized (MqttMiniClient.this) {
+                if (open || closedByUser || connackTimedOut) return;
+                connackTimedOut = true;
+            }
+            WebSocket w = ws;
+            if (w != null) {
+                try {
+                    w.close(1000, "connack timeout");
+                } catch (Throwable ignored) {
+                }
+            }
+            teardown();
+            listener.onFailure("connack timeout");
+        }, 10, TimeUnit.SECONDS);
+    }
+
+    private synchronized void cancelConnackTimeout() {
+        if (connackTimer != null) {
+            connackTimer.shutdownNow();
+            connackTimer = null;
+        }
     }
 
     public synchronized void subscribe(String topicFilter) {
@@ -101,8 +143,14 @@ public final class MqttMiniClient {
     }
 
     public void publish(String topic, byte[] payload, boolean retained) {
-        if (!open) return;
-        send(Codec.publish(topic, payload, retained, packetId.getAndIncrement()));
+        byte[] packet = Codec.publish(topic, payload, retained, packetId.getAndIncrement());
+        synchronized (pendingPublishes) {
+            if (!open) {
+                pendingPublishes.add(packet);
+                return;
+            }
+        }
+        send(packet);
     }
 
     public synchronized void disconnect() {
@@ -125,6 +173,7 @@ public final class MqttMiniClient {
 
     private void teardown() {
         open = false;
+        cancelConnackTimeout();
         if (pinger != null) {
             pinger.shutdownNow();
             pinger = null;
@@ -138,12 +187,14 @@ public final class MqttMiniClient {
             case 2: // CONNACK
                 if (p.length >= 4 && p[3] == 0) {
                     open = true;
+                    cancelConnackTimeout();
                     List<String> subs;
                     synchronized (pendingSubs) {
                         subs = new ArrayList<>(pendingSubs);
                         pendingSubs.clear();
                     }
                     for (String f : subs) send(Codec.subscribe(packetId.getAndIncrement(), f));
+                    flushPendingPublishes();
                     startPinger();
                     listener.onOpen();
                 } else {
@@ -158,6 +209,17 @@ public final class MqttMiniClient {
             default:
                 break; // SUBACK/PUBACK/PINGRESP 不处理
         }
+    }
+
+    /** 连通前攒下的待发包：CONNACK 后 flush 一次（先于 onOpen 的新鲜消息发出）。 */
+    private void flushPendingPublishes() {
+        List<byte[]> queued;
+        synchronized (pendingPublishes) {
+            if (pendingPublishes.isEmpty()) return;
+            queued = new ArrayList<>(pendingPublishes);
+            pendingPublishes.clear();
+        }
+        for (byte[] q : queued) send(q);
     }
 
     private void startPinger() {

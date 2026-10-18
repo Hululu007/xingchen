@@ -9,7 +9,7 @@ public class ExoBufferBudgetTest {
 
     @Test
     public void automaticCapacityRequestsHeapSafeMaximum() {
-        assertEquals(mib(256), ExoBufferBudget.resolveRequestedTargetBytes(0));
+        assertEquals(mib(768), ExoBufferBudget.resolveRequestedTargetBytes(0));
         assertEquals(mib(128), ExoBufferBudget.resolveRequestedTargetBytes(mib(128)));
     }
 
@@ -30,6 +30,9 @@ public class ExoBufferBudgetTest {
     public void heapBudgetNeverExceedsMaximum() {
         assertEquals(mib(256), effective(256, 1024, false));
         assertEquals(mib(256), effective(256, 2048, false));
+        // 上限已提到 768MB（5 分钟高码率）：堆再大也只给到 768MB
+        assertEquals(mib(768), effective(1024, 4096, false));
+        assertEquals(mib(768), effective(2048, 8192, false));
     }
 
     @Test

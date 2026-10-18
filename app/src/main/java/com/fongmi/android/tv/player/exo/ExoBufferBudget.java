@@ -7,7 +7,8 @@ import android.content.pm.ApplicationInfo;
 final class ExoBufferBudget {
 
     static final int MIN_TARGET_BYTES = 16 * 1024 * 1024;
-    static final int MAX_TARGET_BYTES = 256 * 1024 * 1024;
+    /** 字节上限：能装下 5 分钟 20Mbps 高码率（750MB），取整 768MB；实际生效仍受堆比例与保留余量约束。 */
+    static final int MAX_TARGET_BYTES = 768 * 1024 * 1024;
     private static final int LOW_RAM_PERCENT = 20;
     private static final int NORMAL_RAM_PERCENT = 30;
     private static final int LOW_RAM_RESERVED_BYTES = 48 * 1024 * 1024;

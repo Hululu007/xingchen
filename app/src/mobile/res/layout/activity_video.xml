@@ -501,19 +501,6 @@
                         android:textColor="@color/white"
                         android:textSize="15sp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/readMark"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="8dp"
-                        android:minWidth="0dp"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:text="@string/reading_mark_add"
-                        android:textColor="@color/white"
-                        android:textSize="15sp" />
-
                     </androidx.appcompat.widget.LinearLayoutCompat>
 
                     <com.google.android.material.textview.MaterialTextView

@@ -947,7 +947,9 @@ public class HkListActivity extends AppCompatActivity
             req.parentTitle = pageTitle;
             req.parentUrl = rule == null ? "" : rule.getUrl();
             req.fromActivity = hashCode();
-            runOnUiThread(() -> openSubList(req));
+            // 切分类走这里：不跑子页预取、不弹预取小卡，直接开新页，
+            // 由新页自己的顶部进度条接管加载；条目点进子页仍走 openSubList 预取卡。
+            runOnUiThread(() -> doOpenSubList(req, null));
         } catch (Exception e) {
             Log.e(TAG, "openPageUrl", e);
             runOnUiThread(() -> HkRouteBlocker.toastShortBottom(this, String.valueOf(e.getMessage())));

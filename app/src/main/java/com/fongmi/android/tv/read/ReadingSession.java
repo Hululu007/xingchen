@@ -49,6 +49,8 @@ public class ReadingSession {
     public String referer = "";
     /** py 源 key（懒取章节表用）。 */
     public String siteKey = "";
+    /** 起始页（漫画第几张图；阅读器打开时定位用）。 */
+    public int startPage = 0;
 
     // ---- 进程内静态仓：大数据不走 Intent ----
     private static final ConcurrentHashMap<String, ReadingSession> STORE = new ConcurrentHashMap<>();

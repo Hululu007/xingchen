@@ -35,6 +35,13 @@ public class ReadingRouter {
         }
     }
 
+    /** 打开阅读器并指定起始页（漫画第几张图）。 */
+    public static void openReadingWithStartPage(Context context, ReadingSession session, int startPage) {
+        if (session == null) return;
+        session.startPage = Math.max(0, startPage);
+        openReading(context, session);
+    }
+
     /** 打开书架。 */
     public static void openShelf(Context context) {
         if (context == null) return;

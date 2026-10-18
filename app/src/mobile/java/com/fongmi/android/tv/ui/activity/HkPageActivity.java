@@ -67,6 +67,9 @@ import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkLazyRuleParser;
 import com.fongmi.android.tv.api.hk.HkLoading;
 import com.fongmi.android.tv.api.hk.HkPlay;
+import com.fongmi.android.tv.read.ReadingRouter;
+import com.fongmi.android.tv.read.ReadingSession;
+import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
@@ -3731,7 +3734,7 @@ public class HkPageActivity extends BaseActivity {
         try {
             switch (kind) {
                 case "pics": {
-                    // pics://url1&&url2... → 图片列表查看
+                    // pics://url1&&url2... → 直接进漫画阅读器（阶段二：不再只弹第一张图）
                     String raw = url.replaceFirst("(?i)^pics://", "");
                     String[] parts = raw.split("&&");
                     java.util.ArrayList<String> urls = new java.util.ArrayList<>();
@@ -3742,13 +3745,22 @@ public class HkPageActivity extends BaseActivity {
                         android.widget.Toast.makeText(this, "无图片", android.widget.Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    android.widget.ImageView iv = new android.widget.ImageView(this);
-                    com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), urls.get(0), iv, false, 0, 0, hkRuleUrl());
-                    new HkDialogs(this)
-                            .setTitle(stripHtml(item.getTitle()))
-                            .setView(iv)
-                            .setPositiveButton("关闭", (d, w) -> d.dismiss())
-                            .show();
+                    ReadingSession s = new ReadingSession();
+                    s.kind = ReadingSession.Kind.COMIC;
+                    String ruleTitle = currentRule == null ? "" : currentRule.getTitle();
+                    s.sourceName = ruleTitle;
+                    s.ruleTitle = ruleTitle;
+                    s.bookTitle = stripHtml(item.getTitle());
+                    s.images = urls;
+                    s.referer = hkRuleUrl();
+                    ReadingSession.Chapter c = new ReadingSession.Chapter(s.bookTitle, url);
+                    c.pic = item.getPic() == null ? "" : item.getPic();
+                    s.chapters.add(c);
+                    s.chapterIndex = 0;
+                    // 有阅读进度则从上次位置继续
+                    ReadingStore.Record prog = ReadingStore.find("COMIC", ruleTitle, s.bookTitle);
+                    int startPage = (prog != null && prog.position > 0) ? prog.position : 0;
+                    ReadingRouter.openReadingWithStartPage(this, s, startPage);
                     return;
                 }
                 case "x5": {

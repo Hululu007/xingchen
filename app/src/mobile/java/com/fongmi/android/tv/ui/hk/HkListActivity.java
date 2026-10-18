@@ -46,6 +46,10 @@ import com.fongmi.android.tv.api.hk.HkPageParser;
 import com.fongmi.android.tv.api.hk.HkPlayData;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
+import com.fongmi.android.tv.read.ReadingGate;
+import com.fongmi.android.tv.read.ReadingRouter;
+import com.fongmi.android.tv.read.ReadingSession;
+import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.google.gson.Gson;
@@ -56,6 +60,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -308,6 +313,46 @@ public class HkListActivity extends AppCompatActivity
                 if (TextUtils.isEmpty(ruleTitle)) {
                     ruleTitle = !TextUtils.isEmpty(film) ? film : hostRuleTitle(activity);
                 }
+                // 阅读模块阶段二：小说规则的章节表改道小说阅读器，不进 VideoActivity。
+                // 视频规则原样走下（type 不是"小说"）。
+                if (ReadingGate.isHkNovelRule(ruleTitle)) {
+                    try {
+                        ReadingSession ns = new ReadingSession();
+                        ns.kind = ReadingSession.Kind.NOVEL;
+                        ns.sourceName = ruleTitle;
+                        ns.ruleTitle = ruleTitle;
+                        ns.bookTitle = !TextUtils.isEmpty(mTitle) && !mTitle.equals(ruleTitle) ? mTitle : "";
+                        for (HkArticleFragment.HkChapter ch : chapters) {
+                            ReadingSession.Chapter rc = new ReadingSession.Chapter(
+                                    !TextUtils.isEmpty(ch.title) ? ch.title
+                                            : (ch.memoryTitle == null ? "" : ch.memoryTitle),
+                                    playUrlForChapter(ch));
+                            rc.pic = ch.pic == null ? "" : ch.pic;
+                            ns.chapters.add(rc);
+                        }
+                        int nidx = 0;
+                        for (int i = 0; i < chapters.size(); i++) {
+                            if (chapters.get(i).use) {
+                                nidx = i;
+                                break;
+                            }
+                        }
+                        ns.chapterIndex = nidx;
+                        ReadingSession.Chapter cur = ns.currentChapter();
+                        ns.chapterUrl = cur.url;
+                        if (TextUtils.isEmpty(ns.bookTitle)) ns.bookTitle = cur.name;
+                        // 有阅读进度则从上次章节/位置继续
+                        ReadingStore.Record nprog = ReadingStore.find("NOVEL", ruleTitle, ns.bookTitle);
+                        if (nprog != null && nprog.chapterIndex >= 0 && nprog.chapterIndex < ns.chapters.size()) {
+                            ns.chapterIndex = nprog.chapterIndex;
+                            ns.chapterUrl = ns.currentChapter().url;
+                        }
+                        ReadingRouter.openReading(activity, ns);
+                    } catch (Throwable t) {
+                        android.util.Log.e(TAG, "novel divert failed", t);
+                    }
+                    return;
+                }
                 int selIdx = 0;
                 for (int i = 0; i < chapters.size(); i++) {
                     if (chapters.get(i).use) {
@@ -394,6 +439,67 @@ public class HkListActivity extends AppCompatActivity
                 DownloadManager.get().add(url, name);
                 if (context != null) {
                     HkRouteBlocker.toastShortBottom(context, "已加入下载：" + name);
+                }
+            }
+
+            /**
+             * 阅读模块阶段二：文章页/搜索页的 pics:// 入口（此前是空实现，点了没反应）。
+             * PictureListRequest（pics/chapters/nowPage/fromLastPage）直接转阅读会话，
+             * 进漫画阅读器。章节表、当前页、从末页起读全部保留。
+             */
+            @Override
+            public void openPictureList(Activity activity,
+                                        HkArticleFragment.PictureListRequest request) {
+                if (activity == null || request == null) return;
+                try {
+                    ReadingSession s = new ReadingSession();
+                    s.kind = ReadingSession.Kind.COMIC;
+                    String ruleTitle = hostRuleTitle(activity);
+                    if (!TextUtils.isEmpty(request.ruleJson)) {
+                        try {
+                            HkRule r = new Gson().fromJson(request.ruleJson, HkRule.class);
+                            if (r != null && !TextUtils.isEmpty(r.getTitle())) ruleTitle = r.getTitle();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    s.sourceName = ruleTitle;
+                    s.ruleTitle = ruleTitle;
+                    s.bookTitle = !TextUtils.isEmpty(request.mTitle) ? request.mTitle
+                            : (!TextUtils.isEmpty(request.title) ? request.title : "");
+                    if (request.pics != null) s.images = new ArrayList<>(request.pics);
+                    s.referer = request.url == null ? "" : request.url;
+                    if (request.chapters != null) {
+                        for (HkArticleFragment.HkChapter ch : request.chapters) {
+                            ReadingSession.Chapter c = new ReadingSession.Chapter(
+                                    !TextUtils.isEmpty(ch.title) ? ch.title
+                                            : (ch.memoryTitle == null ? "" : ch.memoryTitle),
+                                    ch.url == null ? "" : ch.url);
+                            c.pic = ch.pic == null ? "" : ch.pic;
+                            s.chapters.add(c);
+                        }
+                    }
+                    // 当前章：按 url 匹配章节表，匹配不上则单章模式
+                    int idx = 0;
+                    if (!TextUtils.isEmpty(request.url) && !s.chapters.isEmpty()) {
+                        for (int i = 0; i < s.chapters.size(); i++) {
+                            if (request.url.equals(s.chapters.get(i).url)) {
+                                idx = i;
+                                break;
+                            }
+                        }
+                    }
+                    s.chapterIndex = idx;
+                    s.chapterUrl = request.url == null ? "" : request.url;
+                    // 起始页：nowPage / 从末页起读（原版 PictureListActivity 入参语义）
+                    int startPage = Math.max(0, request.nowPage);
+                    if (request.fromLastPage && !s.images.isEmpty()) {
+                        startPage = s.images.size() - 1;
+                    }
+                    ReadingStore.Record prog = ReadingStore.find("COMIC", ruleTitle, s.bookTitle);
+                    if (prog != null && prog.position > 0) startPage = prog.position;
+                    ReadingRouter.openReadingWithStartPage(activity, s, startPage);
+                } catch (Throwable t) {
+                    android.util.Log.e(TAG, "openPictureList failed", t);
                 }
             }
         };

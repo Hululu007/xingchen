@@ -158,8 +158,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     /** 明细原始条目收集（parseDetailRaw 用，保留 line/col_type 等扩展字段）。 */
     private final List<Map<String, String>> rawResults = new ArrayList<>();
     private volatile boolean collectRaw;
-    /** 规则内会话变量（getMyVar/putMyVar，官方 key 形态为 ruleTitle@key；单规则单实例，等价）。 */
-    private final Map<String, String> myVars = new HashMap<>();
+    /** 规则内会话变量（getMyVar/putMyVar，官方 key 形态为 ruleTitle@key；单规则单实例，等价）。
+     * D3：图片求值走调用线程并发后，图片单例的变量表可能被多线程同时读写，用并发 map（单线程语义不变）。 */
+    private final Map<String, String> myVars = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Java 侧设置规则变量（供 HkPageActivity 等调用）。 */
     public void putMyVar(String key, String value) {
@@ -208,8 +209,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return myVars;
         }
     }
-    /** 跨规则公共持久化（setPublicItem/getPublicItem）。 */
-    private final Map<String, String> publicKv = new HashMap<>();
+    /** 跨规则公共持久化（setPublicItem/getPublicItem）。D3：并发图片求值可能同时读写，用并发 map。 */
+    private final Map<String, String> publicKv = new java.util.concurrent.ConcurrentHashMap<>();
     /** addListener 注册的事件回调（事件名 → 回调描述）。 */
     private final Map<String, String> listeners = new HashMap<>();
     /** fc/rc 的内存缓存（url → 数据+过期时间）。 */
@@ -881,7 +882,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         this.executor = Executors.newSingleThreadExecutor();
         this.parser = new Parser();
         this.parser.setJsEvaluator(this);
-        this.vars = new HashMap<>();
+        this.vars = new java.util.concurrent.ConcurrentHashMap<>();
         this.results = new ArrayList<>();
         this.kv = new HashMap<>();
         loadPublicKv();
@@ -1616,7 +1617,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // 壳只建一次存进 sharedStorage0：新鲜作用域补注册时直接共用，避免跨 Context 重建与重复挂载。
         // registerApiInto(imageScope) 画像求值单例场景下字段 scope 恒为 null（initImageEngine
         // 从不赋值 scope），此行与 1634/1637 行同 pattern 走守卫，免 Context.newObject(null) 打空。
-        if (sharedStorage0 == null) sharedStorage0 = (ScriptableObject) rhinoCx.newObject(apiRegTarget != null ? apiRegTarget : scope);
+        // D3：图片求值改走调用线程独立 Context 后，此处用「当前线程已 enter 的 Context」
+        // （规则路径下与字段 rhinoCx 是同一对象，语义不变；图片路径下即本次求值的独立 cx）。
+        if (sharedStorage0 == null) sharedStorage0 = (ScriptableObject) Context.getCurrentContext().newObject(apiRegTarget != null ? apiRegTarget : scope);
         ScriptableObject storage0 = sharedStorage0;
         putFunction(storage0, "putVar", args -> {
             if (args != null && args.length > 1) vars.put(argStr(args[0]), stringifyArg(args[1]));
@@ -4567,6 +4570,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }
     }
 
+    /** D2：8.83 JSEngine.globalMap 同款——进程共享的 JS 全局变量表，挂载为图片 scope 的 `_globalMap`。 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Object> imageGlobalMap = new java.util.concurrent.ConcurrentHashMap<>();
+
     // W3：图片 @js= 专用进程单例（8.83 JSEngine.getInstance() 同款）。
     // 图片求值不再走规则运行时：规则的 putVar 变量对图片 JS 不可见（原版语义），
     // 图片 JS 自己的 putVar/getVar 落到单例变量表，与规则隔离。
@@ -4632,86 +4638,172 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
-     * W3：图片单例上的真实求值入口。ruleTitle 只做 MY_TITLE 回退（无害项保留）。
+     * D3：8.83 并发模型（OkHttpStreamFetcher.evalJS / JSEngine.evalJS 同款）——
+     * 每次求值在调用线程（OkHttp 回调线程）进独立 Rhino Context + 建独立 scope，
+     * 不再经图片单线程 executor 串行排队。线程安全靠「每求值独立」构造：
+     * Context、scope、挂载物全部是本次调用的局部量。
+     * W3（b4210351）「每次全新 scope」保留；fe18e2d1 的 FileUtil 补链与
+     * 54d569bb 的 registerApi 空指针守卫在新模型下照常成立（见内联说明）。
+     * ruleTitle 只做 MY_TITLE 回退（无害项保留）。
      */
     public InputStream evalImageJs(String jsCode, InputStream input, Map<String, List<String>> headers, String urlString, String ruleTitle) {
+        HkJsRuntime img = imageEngine();
+        if (img == null) return input;
+        Context cx = Context.enter();
+        cx.setOptimizationLevel(-1);
+        cx.setLanguageVersion(200);
         try {
-            return submit(() -> {
-                // W3：全新 scope（8.83 JSEngine.smali:14051 initStandardObjects），
-                // 不再 newObject(规则 scope) 挂原型链。
-                ScriptableObject imageScope = rhinoCx.initStandardObjects();
-                // 8.83 line 454-455：ImporterTopLevel + initRequire
-                org.mozilla.javascript.ImporterTopLevel.init(rhinoCx, imageScope, false);
-                initRequire(rhinoCx, imageScope);
-                // 8.83 allFunctions 等价：全部宿主 API 函数现场注册进新 scope
-                registerApiInto(imageScope);
-                // C5 保留：重求值 Hikerurl.js，$ / $.require 必可用。
-                // 8.83 crypto-java.js 原生 AES 接线：原版直引海阔包内 FileUtil，星辰注入宿主实现。
-                ScriptableObject.putProperty(imageScope, "__cryptoFileUtil",
-                        Context.javaToJS(new HkCryptoFileUtil(), imageScope));
-                injectAndroidPackage(imageScope);
-                // wrapImageJs 的 JS 侧 catch 走此函数记可导出日志（原 log() 只进 logcat）。
-                ScriptableObject.putProperty(imageScope, "__hkImageLog", new org.mozilla.javascript.BaseFunction() {
-                    @Override
-                    public Object call(org.mozilla.javascript.Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-                        SpiderDebug.log("hkimage", "图片解密JS内报错 host=%s 信息=%s",
-                                hostOfUrl(urlString), args != null && args.length > 0 ? String.valueOf(args[0]) : "");
-                        return null;
-                    }
-                });
-                long t0 = android.os.SystemClock.elapsedRealtime();
-                try {
-                    // 重求值 Hikerurl.js，确保 $ 完整可用
-                    try {
-                        String hikerUrlJs = loadAsset("Hikerurl.js");
-                        if (!TextUtils.isEmpty(hikerUrlJs)) {
-                            rhinoCx.evaluateString(imageScope, hikerUrlJs, "Hikerurl.js", 1, null);
-                        }
-                    } catch (Throwable t) {
-                        Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
-                    }
-                    // UU 等规则图片回调直引 com.example.hikerview.utils.FileUtil（8.83 包内真实类）。
-                    // 星辰无此包：建链定义指向同一个 HkCryptoFileUtil 实例（与 __cryptoFileUtil 既有
-                    // shim 策略一致；crypto-java.js:17 的同款兼容判断即依赖 __cryptoFileUtil）。
-                    // 修前 Rhino 侧只剩 JavaPackage 占位、调 toBytes 抛 TypeError → 封面空白。
-                    // 注：var com 只遮蔽 ImporterTopLevel 对 com.* Java 包的回退；图片解密 JS 现实只会
-                    // 用到 com.example.hikerview.utils.FileUtil（UU/oneapp 皆如此），java.* 与
-                    // android 包不受影响。
-                    try {
-                        rhinoCx.evaluateString(imageScope,
-                                "var com = {};\n"
-                                        + "com.example = {};\n"
-                                        + "com.example.hikerview = {};\n"
-                                        + "com.example.hikerview.utils = {};\n"
-                                        + "com.example.hikerview.utils.FileUtil = __cryptoFileUtil;",
-                                "fileutilShim", 1, null);
-                    } catch (Throwable t) {
-                        Logger.t(TAG).d("evalImageJs: fileutil shim failed: %s", t.getMessage());
-                    }
-                    ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
-                    String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode, ruleTitle) + ensureDollarShim() + wrapImageJs(jsCode);
-                    Object r = rhinoCx.evaluateString(imageScope, code, "imageJs", 1, null);
-                    InputStream out = coerceImageStream(r, input, urlString);
-                    SpiderDebug.log("hkimage", "图片解密完成 host=%s 耗时=%dms 结果=%s",
-                            hostOfUrl(urlString), android.os.SystemClock.elapsedRealtime() - t0,
-                            out == null ? "null" : out.getClass().getSimpleName() + (out == input ? "(回退原字节)" : ""));
-                    return out;
-                } catch (Throwable t) {
-                    // 图片解密求值失败：记进可导出日志（此前静默吞掉，真机断点不可见）
-                    String cls = t.getClass().getSimpleName();
-                    String msg = t.getMessage();
-                    SpiderDebug.log("hkimage", "图片解密求值失败 url=%s 类型=%s 信息=%s",
-                            urlString, cls, msg == null ? "" : msg);
-                    return input;
-                }
-            }).get();
+            return img.evalImageJsInternal(cx, jsCode, input, headers, urlString, ruleTitle);
         } catch (Throwable t) {
             String cls = t.getClass().getSimpleName();
             String msg = t.getMessage();
-            SpiderDebug.log("hkimage", "图片解密调度失败 url=%s 类型=%s 信息=%s",
+            SpiderDebug.log("hkimage", "图片解密求值失败 url=%s 类型=%s 信息=%s",
+                    urlString, cls, msg == null ? "" : msg);
+            return input;
+        } finally {
+            Context.exit();
+        }
+    }
+
+    /**
+     * D3：调用线程上的真实求值体。cx 与 imageScope 均为本次调用独占。
+     * registerApiInto 的 apiRegisterLock 照常保护「注册目标切换 + sharedStorage0
+     * 首次创建」（注册期串行、求值期并行）；registerApi 内部的 54d569bb 守卫
+     * （Context.getCurrentContext().newObject(非空 target)）在新模型下恒成立——
+     * 注册发生在已 enter 的调用线程内，currentContext 即本次的 cx。
+     */
+    private InputStream evalImageJsInternal(Context cx, String jsCode, InputStream input, Map<String, List<String>> headers, String urlString, String ruleTitle) {
+        // W3：全新 scope（8.83 JSEngine.smali:14051 initStandardObjects），
+        // 不再 newObject(规则 scope) 挂原型链。
+        ScriptableObject imageScope = cx.initStandardObjects();
+        // 8.83 line 454-455：ImporterTopLevel + initRequire
+        org.mozilla.javascript.ImporterTopLevel.init(cx, imageScope, false);
+        initRequire(cx, imageScope);
+        // 8.83 allFunctions 等价：全部宿主 API 函数现场注册进新 scope
+        registerApiInto(imageScope);
+        // C5 保留：重求值 Hikerurl.js，$ / $.require 必可用。
+        // 8.83 crypto-java.js 原生 AES 接线：原版直引海阔包内 FileUtil，星辰注入宿主实现。
+        ScriptableObject.putProperty(imageScope, "__cryptoFileUtil",
+                Context.javaToJS(new HkCryptoFileUtil(), imageScope));
+        // D2：8.83 JSEngine.evalJS 挂载物对齐（JSEngine.smali:13914 段，Java 456-461 行）：
+        // input / _globalMap / rc4 / _base64 / javaContext / javaLoader。
+        ScriptableObject.putProperty(imageScope, "_globalMap", Context.javaToJS(imageGlobalMap, imageScope));
+        ScriptableObject.putProperty(imageScope, "rc4", Context.javaToJS(new HkRc4(), imageScope));
+        ScriptableObject.putProperty(imageScope, "_base64", Context.javaToJS(new HkMyBase64(), imageScope));
+        ScriptableObject.putProperty(imageScope, "javaContext", Context.javaToJS(this, imageScope));
+        ScriptableObject.putProperty(imageScope, "javaLoader", Context.javaToJS(HkJsRuntime.class.getClassLoader(), imageScope));
+        injectAndroidPackage(imageScope);
+        // D7：图片 scope 里 $.require("hiker://assets/...") 直通宿主资产——
+        // 宿主函数读资产文本，JS 侧在当前图片 scope 内按 Hikerurl 模块机求值
+        // （new Function(module,exports,__filename) + $.exports 交接），不绕
+        // Hikerurl 的 request/getScript 链。目标：一个APP 的 crypto-java.js
+        // 在图片 scope 里完整加载（android.util.Base64 已注入，__cryptoFileUtil 已注入）。
+        ScriptableObject.putProperty(imageScope, "__imageRequireAsset", new org.mozilla.javascript.BaseFunction() {
+            @Override
+            public Object call(org.mozilla.javascript.Context cxx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                String p = args != null && args.length > 0 && args[0] != null ? String.valueOf(args[0]) : "";
+                return loadAssetText(p);
+            }
+        });
+        // wrapImageJs 的 JS 侧 catch 走此函数记可导出日志（原 log() 只进 logcat）。
+        ScriptableObject.putProperty(imageScope, "__hkImageLog", new org.mozilla.javascript.BaseFunction() {
+            @Override
+            public Object call(org.mozilla.javascript.Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                SpiderDebug.log("hkimage", "图片解密JS内报错 host=%s 信息=%s",
+                        hostOfUrl(urlString), args != null && args.length > 0 ? String.valueOf(args[0]) : "");
+                return null;
+            }
+        });
+        long t0 = android.os.SystemClock.elapsedRealtime();
+        try {
+            // 重求值 Hikerurl.js，确保 $ 完整可用
+            try {
+                String hikerUrlJs = loadAsset("Hikerurl.js");
+                if (!TextUtils.isEmpty(hikerUrlJs)) {
+                    cx.evaluateString(imageScope, hikerUrlJs, "Hikerurl.js", 1, null);
+                }
+            } catch (Throwable t) {
+                Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
+            }
+            // D7 直通补丁：Hikerurl.js 求值成功（$ / $.require 可用）时才装；
+            // 若 Hikerurl.js 没起来，走 ensureDollarShim() 的兜底 require。
+            try {
+                cx.evaluateString(imageScope, imageAssetRequirePatch(), "imageAssetRequire", 1, null);
+            } catch (Throwable t) {
+                Logger.t(TAG).d("evalImageJs: asset require patch failed: %s", t.getMessage());
+            }
+            // fe18e2d1 保留：UU 等规则图片回调直引 com.example.hikerview.utils.FileUtil
+            // （8.83 包内真实类）。星辰无此包：建链定义指向同一个 HkCryptoFileUtil 实例
+            // （与 __cryptoFileUtil 既有 shim 策略一致；crypto-java.js:17 的同款兼容判断
+            // 即依赖 __cryptoFileUtil）。修前 Rhino 侧只剩 JavaPackage 占位、调 toBytes
+            // 抛 TypeError → 封面空白。
+            // 注：var com 只遮蔽 ImporterTopLevel 对 com.* Java 包的回退；图片解密 JS 现实只会
+            // 用到 com.example.hikerview.utils.FileUtil（UU/oneapp 皆如此），java.* 与
+            // android 包不受影响。
+            try {
+                cx.evaluateString(imageScope,
+                        "var com = {};\n"
+                                + "com.example = {};\n"
+                                + "com.example.hikerview = {};\n"
+                                + "com.example.hikerview.utils = {};\n"
+                                + "com.example.hikerview.utils.FileUtil = __cryptoFileUtil;",
+                        "fileutilShim", 1, null);
+            } catch (Throwable t) {
+                Logger.t(TAG).d("evalImageJs: fileutil shim failed: %s", t.getMessage());
+            }
+            ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
+            String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode, ruleTitle) + ensureDollarShim() + wrapImageJs(jsCode);
+            Object r = cx.evaluateString(imageScope, code, "imageJs", 1, null);
+            InputStream out = coerceImageStream(r, input, urlString);
+            SpiderDebug.log("hkimage", "图片解密完成 host=%s 耗时=%dms 结果=%s",
+                    hostOfUrl(urlString), android.os.SystemClock.elapsedRealtime() - t0,
+                    out == null ? "null" : out.getClass().getSimpleName() + (out == input ? "(回退原字节)" : ""));
+            return out;
+        } catch (Throwable t) {
+            // 图片解密求值失败：记进可导出日志（此前静默吞掉，真机断点不可见）
+            String cls = t.getClass().getSimpleName();
+            String msg = t.getMessage();
+            SpiderDebug.log("hkimage", "图片解密求值失败 url=%s 类型=%s 信息=%s",
                     urlString, cls, msg == null ? "" : msg);
             return input;
         }
+    }
+
+    /**
+     * D7：图片 scope 的 hiker://assets 直通补丁（JS）。
+     * 拦截 $.require("hiker://assets/...")：宿主 __imageRequireAsset 读资产文本，
+     * 在当前图片 scope 内按 Hikerurl 模块机求值（new Function(module,exports,__filename)
+     * + $.exports 交接，与 Module._extensions.js / Module.prototype.load 同语义），
+     * 带模块缓存；非 assets 路径走原 $.require。
+     */
+    private static String imageAssetRequirePatch() {
+        return "(function(){\n"
+                + "if (typeof $ === 'undefined' || typeof $.require !== 'function') return;\n"
+                + "var __assetModules = {};\n"
+                + "function __imageAssetRequire(path) {\n"
+                + "  var key = String(path);\n"
+                + "  if (__assetModules[key]) return __assetModules[key].exports;\n"
+                + "  var code = String(__imageRequireAsset(key));\n"
+                + "  if (!code) throw new Error('Module \"' + key + '\" cannot be found.');\n"
+                + "  if (code.indexOf('js:') === 0) code = code.slice(3);\n"
+                + "  var module = { id: key, exports: {} };\n"
+                + "  var __savedExports = $.exports;\n"
+                + "  $.exports = module.exports;\n"
+                + "  try {\n"
+                + "    var __fn = new Function('module', 'exports', '__filename', code);\n"
+                + "    __fn.call(module.exports, module, module.exports, key);\n"
+                + "    if ($.exports !== module.exports) module.exports = $.exports;\n"
+                + "  } finally { $.exports = __savedExports; }\n"
+                + "  __assetModules[key] = module;\n"
+                + "  return module.exports;\n"
+                + "}\n"
+                + "var __origRequire = $.require;\n"
+                + "$.require = function(path, importParam, headers, time) {\n"
+                + "  var p = String(path == null ? '' : path);\n"
+                + "  if (p.indexOf('hiker://assets/') === 0) return __imageAssetRequire(p);\n"
+                + "  return __origRequire.call(this, path, importParam, headers, time);\n"
+                + "};\n"
+                + "})();\n";
     }
 
     /**

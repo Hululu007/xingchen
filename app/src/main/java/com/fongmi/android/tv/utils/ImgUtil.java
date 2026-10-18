@@ -19,6 +19,7 @@ import androidx.annotation.Nullable;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.load.model.LazyHeaders;
@@ -117,6 +118,9 @@ public class ImgUtil {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
             builder.placeholder(getTextDrawable(text, vod));
+            // D4：海阔列表分支（ruleUrl 非空）与 8.83 ArticleListRuleAdapter 对齐，
+            // 用 DiskCacheStrategy.ALL；点播/主 App（ruleUrl 为空）保持默认 AUTOMATIC 不动。
+            if (ruleUrl != null) builder.diskCacheStrategy(DiskCacheStrategy.ALL);
             if (vod) builder.centerCrop().into(view);
             else builder.fitCenter().into(view);
         } catch (Throwable e) {

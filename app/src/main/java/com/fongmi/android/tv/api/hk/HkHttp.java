@@ -349,9 +349,9 @@ public class HkHttp {
                             // 8.83 OkHttpUrlLoader.Factory 内建 client：read/write 各 15 秒
                             .readTimeout(15, TimeUnit.SECONDS)
                             .writeTimeout(15, TimeUnit.SECONDS)
-                            // 总超时必须有：connect/read/write 都管不住 DNS 解析阶段，
-                            // 域名被污染时解析能无限挂起，图片请求整批死等（真机封面全白同因）
-                            .callTimeout(45, TimeUnit.SECONDS)
+                            // D1：与 8.83 对齐（OkHttpUrlLoader.Factory 内建 client 无 callTimeout）。
+                            // 注：OkHttp 的 connectTimeout 本就覆盖「DNS 解析 + 建连」整个阶段，
+                            // 域名解析挂起会被 connectTimeout 掐断，不需要 callTimeout 兜底。
                             // 按源定向：与壳子同套选择器链（SourceGate 包在 GlobalProxy 外）。
                             // to()/取数 client 由 client().newBuilder() 派生，选择器自动继承。
                             .proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())));

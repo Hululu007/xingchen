@@ -86,6 +86,14 @@ import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
 public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     private static final String TAG = "HkJsRuntime";
+    // 聚阅借名垫片用的路径常量（原文 SrcJuMethod.js:2-8，ea2ea7f49c1d87b8d19784fa4206921f.js）。
+    // 只垫被跨文件借用的；cachepath/casefile 只在方法库内部用，不垫。
+    private static final String JUYUE_LIBSPATH = "hiker://files/data/聚阅/";
+    private static final String JUYUE_RULEPATH = "hiker://files/rules/Src/Juyue/";
+    private static final String JUYUE_JKFILESPATH = "hiker://files/rules/Src/Juyue/jiekou/";
+    private static final String JUYUE_JKFILE = "hiker://files/rules/Src/Juyue/jiekou.json";
+    private static final String JUYUE_CFGFILE = "hiker://files/rules/Src/Juyue/config.json";
+    private static final String JUYUE_SORTFILE = "hiker://files/rules/Src/Juyue/jksort.json";
     /** be()/batchExecute 真实实现后置 true，跨小程序内容搜索据此判断引擎是否就绪。 */
     public static volatile boolean BATCH_EXECUTE_READY = false;
     private static final Gson GSON = new Gson();
@@ -877,6 +885,296 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         Logger.t(TAG).d("%s", args != null && args.length > 0 ? argStr(args[0]) : "");
     }
 
+    /**
+     * 垫片共用的 fetch（与注册的 "fetch" 函数同语义，供聚阅借名垫片在 Java 侧直接调用，
+     * 不经过 JS 层：hiker://assets 走内置资源；hiker://files|file:// 走内部协议分发；
+     * 其余走 fetchSync）。
+     */
+    private String fetchForShim(String url) {
+        if (url == null) return "";
+        if (url.startsWith("hiker://assets/")) return loadAssetText(url);
+        if (url.startsWith("hiker://") || url.startsWith("file://")) {
+            Object r = fetchByHiker(url, null, false, false);
+            return r instanceof String ? (String) r : "";
+        }
+        return fetchSync(url, null);
+    }
+
+    /** 新建空 JS 对象（优先当前 Context，兜底 new NativeObject，永不抛）。 */
+    private Scriptable newEmptyJsObject() {
+        try {
+            Context cx = Context.getCurrentContext();
+            if (cx == null) cx = rhinoCx;
+            if (cx != null && scope != null) return cx.newObject(scope);
+        } catch (Throwable ignored) {
+        }
+        return new NativeObject();
+    }
+
+    /** JS 松散语义：数值 0（原文 so.use==0 对字串 "0" 也成立，垫片只认数值，见 setJkSort 注释）。 */
+    private boolean isJsZero(Object v) {
+        return v instanceof Number && ((Number) v).doubleValue() == 0;
+    }
+
+    /** JS 真值语义（对象恒真；原文 so.use / so.fail 分支用）。 */
+    private boolean isJsTruthy(Object v) {
+        if (v == null || v == Scriptable.NOT_FOUND || v == Context.getUndefinedValue()) return false;
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v instanceof Number) return ((Number) v).doubleValue() != 0;
+        if (v instanceof CharSequence) return ((CharSequence) v).length() > 0;
+        return true;
+    }
+
+    /** 取数值（原文 jksort.use||0 的取值口径）。 */
+    private long jsToLong(Object v) {
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof CharSequence) {
+            try {
+                return Long.parseLong(v.toString().trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 对等 juItemO.items()（SrcJuMethod.js:33-43）：读存储文件 → 解析成对象；
+     * 空文件回 {}；坏文件记日志（原文 "加载juItem存储文件失败>…"）回 {}。
+     */
+    private Scriptable juStoreItems(String file) {
+        try {
+            String content = fetchForShim(file);
+            if (content != null && !content.isEmpty()) {
+                Object o = parseJsonStrict(content);
+                if (o instanceof Scriptable) return (Scriptable) o;
+                logImpl(new Object[]{"加载juItem存储文件失败>内容不是合法对象"});
+            }
+        } catch (Throwable e) {
+            logImpl(new Object[]{"加载juItem存储文件失败>" + e.getMessage()});
+        }
+        return newEmptyJsObject();
+    }
+
+    /** 对等原文 items[id] || {}。 */
+    private Scriptable juStoreItemOf(Scriptable items, String id) {
+        if (ScriptableObject.hasProperty(items, id)) {
+            Object o = ScriptableObject.getProperty(items, id);
+            if (o instanceof Scriptable) return (Scriptable) o;
+        }
+        return newEmptyJsObject();
+    }
+
+    /**
+     * 对等原文 id 解析：id = id2 || id || (storage0.getMyVar('二级源接口信息')
+     * || storage0.getMyVar('一级源接口信息')).id。
+     * 原文把结果写回闭包 id（下次调用沿用），宿主侧用 idBox[0] 承载同一语义。
+     * 失败回 null（原文此时 id 为 undefined/falsy，调用方走" id获取失败"分支）。
+     */
+    private String juStoreId(String[] idBox, Object id2arg) {
+        String id2 = id2arg == null || id2arg == Context.getUndefinedValue() ? null : argStr(id2arg);
+        if (id2 != null && !id2.isEmpty()) {
+            idBox[0] = id2;
+            return id2;
+        }
+        if (idBox[0] != null && !idBox[0].isEmpty()) return idBox[0];
+        try {
+            Map<String, String> m = myVarsFor(null);
+            Object v = storage0GetByKey(m, myVarKeyFor("二级源接口信息", null), new Object[0]);
+            if (v == null || "".equals(v)) {
+                v = storage0GetByKey(m, myVarKeyFor("一级源接口信息", null), new Object[0]);
+            }
+            if (v instanceof Scriptable) {
+                Object idObj = ScriptableObject.getProperty((Scriptable) v, "id");
+                if (idObj != null && idObj != Scriptable.NOT_FOUND
+                        && idObj != Context.getUndefinedValue()) {
+                    String s = Context.toString(idObj);
+                    if (!s.isEmpty()) {
+                        idBox[0] = s;
+                        return s;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * 聚阅 juItemF(id, s) 的宿主实现（SrcJuMethod.js:30-164），按原文 7 个方法逐行实现：
+     * items/set/get/clear/getAll/clearAll/listKeys。
+     * file 口径：s ? rulepath+'juItem.json' : libspath+'juItem.json'。
+     * 读写走 fetch/writeFile（hiker:// 语义与原文一致），id 解析走 storage0.getMyVar
+     * 同命名空间，日志走 xlog（logImpl）。每个方法独立 try/catch，失败只记日志不抛。
+     *
+     * @param ctorId     对等 juItemF(id)：juItem 传 null，juItem2 传 "Juyue"
+     * @param useRulePath 对等 juItemF(id, s)：juItem 传 false，juItem2 传 true
+     */
+    private Scriptable makeJuItemStore(final String ctorId, final boolean useRulePath) {
+        final String file = (useRulePath ? JUYUE_RULEPATH : JUYUE_LIBSPATH) + "juItem.json";
+        final String[] idBox = new String[]{ctorId};
+        final Scriptable store = newEmptyJsObject();
+
+        ScriptableObject.putProperty(store, "items", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                return juStoreItems(file);
+            }
+        });
+
+        ScriptableObject.putProperty(store, "set", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    // 原文：if(!key || str === undefined || str === null) return;
+                    String key = args != null && args.length > 0 ? argStr(args[0]) : "";
+                    Object str = args != null && args.length > 1 ? args[1] : null;
+                    if (key == null || key.isEmpty()
+                            || str == null || str == Context.getUndefinedValue()) return null;
+                    // 原文：str.toString().length>1000 则 xlog(key+':无法写入长度超1000') 并返回
+                    if (Context.toString(str).length() > 1000) {
+                        logImpl(new Object[]{key + ":无法写入长度超1000"});
+                        return null;
+                    }
+                    String id = juStoreId(idBox, args.length > 2 ? args[2] : null);
+                    if (id == null || id.isEmpty()) {
+                        logImpl(new Object[]{key + ":id获取失败"});
+                        return null;
+                    }
+                    Scriptable items = juStoreItems(file);
+                    Scriptable item = juStoreItemOf(items, id);
+                    ScriptableObject.putProperty(item, key, str);
+                    ScriptableObject.putProperty(items, id, item);
+                    // 原文：writeFile(this.file, JSON.stringify(items))
+                    writeFileContent(resolveHikerPath(file), jsStringify(items));
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.set失败>" + e.getMessage()});
+                }
+                return null;
+            }
+        });
+
+        ScriptableObject.putProperty(store, "get", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    // 原文：if(!key) return;
+                    String key = args != null && args.length > 0 ? argStr(args[0]) : "";
+                    if (key == null || key.isEmpty()) return null;
+                    Object def = args != null && args.length > 1 ? args[1] : null;
+                    String id = juStoreId(idBox, args.length > 2 ? args[2] : null);
+                    if (id == null || id.isEmpty()) {
+                        logImpl(new Object[]{key + ":id获取失败"});
+                        return "";
+                    }
+                    Scriptable items = juStoreItems(file);
+                    Scriptable item = juStoreItemOf(items, id);
+                    // 原文：item[key] !== undefined && !== null 则返回
+                    if (ScriptableObject.hasProperty(item, key)) {
+                        Object v = ScriptableObject.getProperty(item, key);
+                        if (v != null && v != Scriptable.NOT_FOUND
+                                && v != Context.getUndefinedValue()) return v;
+                    }
+                    // 原文：else if(str != '' && str != undefined) return str; 否则 ''
+                    //（宿主侧：缺省值非空字串才回；数值 0 等极端宽松语义差异见施工报告）
+                    if (def != null && def != Context.getUndefinedValue()
+                            && !"".equals(Context.toString(def))) return def;
+                    return "";
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.get失败>" + e.getMessage()});
+                    return "";
+                }
+            }
+        });
+
+        ScriptableObject.putProperty(store, "clear", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    // 原文：if(!key) return;
+                    String key = args != null && args.length > 0 ? argStr(args[0]) : "";
+                    if (key == null || key.isEmpty()) return null;
+                    String id = juStoreId(idBox, args.length > 1 ? args[1] : null);
+                    if (id == null || id.isEmpty()) {
+                        logImpl(new Object[]{key + ":id获取失败"});
+                        return null;
+                    }
+                    Scriptable items = juStoreItems(file);
+                    if (ScriptableObject.hasProperty(items, id)) {
+                        Scriptable item = juStoreItemOf(items, id);
+                        if (ScriptableObject.hasProperty(item, key)) {
+                            ScriptableObject.deleteProperty(item, key);
+                            ScriptableObject.putProperty(items, id, item);
+                            writeFileContent(resolveHikerPath(file), jsStringify(items));
+                        }
+                    }
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.clear失败>" + e.getMessage()});
+                }
+                return null;
+            }
+        });
+
+        ScriptableObject.putProperty(store, "getAll", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    String id = juStoreId(idBox, args != null && args.length > 0 ? args[0] : null);
+                    if (id == null || id.isEmpty()) {
+                        // 原文此处的 xlog 用了未定义的 key 变量（恒为 undefined），
+                        // 垫片记一条可读日志，返回值保持原文的 ''。
+                        logImpl(new Object[]{"juItem.getAll:id获取失败"});
+                        return "";
+                    }
+                    return juStoreItemOf(juStoreItems(file), id);
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.getAll失败>" + e.getMessage()});
+                    return "";
+                }
+            }
+        });
+
+        ScriptableObject.putProperty(store, "clearAll", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    // 原文：if(!id2) return;（注意：用 id2 直删，不走闭包 id 解析）
+                    String id2 = args != null && args.length > 0 ? argStr(args[0]) : "";
+                    if (id2 == null || id2.isEmpty()) return null;
+                    Scriptable items = juStoreItems(file);
+                    ScriptableObject.deleteProperty(items, id2);
+                    writeFileContent(resolveHikerPath(file), jsStringify(items));
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.clearAll失败>" + e.getMessage()});
+                }
+                return null;
+            }
+        });
+
+        ScriptableObject.putProperty(store, "listKeys", new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable s, Scriptable thisObj, Object[] args) {
+                try {
+                    String id = juStoreId(idBox, args != null && args.length > 0 ? args[0] : null);
+                    if (id == null || id.isEmpty()) {
+                        logImpl(new Object[]{"juItem.listKeys:id获取失败"});
+                        return "";
+                    }
+                    Scriptable item = juStoreItemOf(juStoreItems(file), id);
+                    Object[] ids = item.getIds();
+                    List<String> keys = new ArrayList<>();
+                    for (Object k : ids) keys.add(Context.toString(k));
+                    // 原文：Object.keys(item)
+                    return keys.toArray(new String[0]);
+                } catch (Throwable e) {
+                    logImpl(new Object[]{"juItem.listKeys失败>" + e.getMessage()});
+                    return "";
+                }
+            }
+        });
+
+        return store;
+    }
+
     public HkJsRuntime(HkRule rule) {
         this.rule = rule;
         this.executor = Executors.newSingleThreadExecutor();
@@ -1329,6 +1627,155 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 logImpl(new Object[]{"插件文件本地化失败>" + e.getMessage()});
             }
             return null;
+        });
+
+        // 聚阅库兼容垫片（1.3.47 聚阅借名垫齐案）：聚阅 SrcJuPublic.js
+        //（dc83a9ca6959bd597f109b9f1e16df6e.js）在全新作用域里借用了一批只定义在
+        // SrcJuMethod.js（ea2ea7f49c1d87b8d19784fa4206921f.js）顶层的名字，
+        // 本加载链从未 require 方法库文件，逐次新作用域直接报 ReferenceError。
+        // 借名清单（枚举方法：两文件顶层 function/let 全量统计＋交叉引用核对，
+        // 详见施工报告；xlog=1.3.42、downloadPlugins=1.3.46 已垫，不再重复；
+        // juFile/Juconfig/sourcename 经核对是误报——路径字串里的 "juFile"、
+        // 方法库内部局部变量、属性名字串，不垫）：
+        //   路径常量：libspath(:2)、rulepath(:3)、jkfilespath(:5)、jkfile(:6)、
+        //             cfgfile(:7)、sortfile(:8)
+        //   getJuconfig(:170) —— 公共库:47,645,705,733,755,773,779
+        //   juItem(:165, =juItemF()) —— 公共库:1386 clearAll
+        //   juItem2(:166, =juItemF('Juyue',1)) —— 公共库:55,58,62,122,165,209,
+        //             467,495,588,618,619,621（getAll/set/get/clear）
+        //   setJkSort(:1142) —— 公共库:276,398
+        //   readDir(:1514) —— 公共库:1300
+        // 写法与 1.3.46 downloadPlugins 垫片同款：按原函数逐行实现，只用宿主已实证
+        // 的等价能力（fetch/writeFile/deleteFile/fileExist/getPath/resolveHikerPath、
+        // storage0.getMyVar、xlog/logImpl、parseJson/jsStringify），try/catch 包住、
+        // 失败只记日志不抛。垫片不是 8.83 原版 API，属兼容垫片。
+        ScriptableObject regTarget = apiRegTarget != null ? apiRegTarget : scope;
+        // —— 路径常量（原文 :2-:8 的 let，直接挂全局；规则文件自己的同名 let 会遮蔽，不冲突）
+        ScriptableObject.putProperty(regTarget, "libspath", JUYUE_LIBSPATH);
+        ScriptableObject.putProperty(regTarget, "rulepath", JUYUE_RULEPATH);
+        ScriptableObject.putProperty(regTarget, "jkfilespath", JUYUE_JKFILESPATH);
+        ScriptableObject.putProperty(regTarget, "jkfile", JUYUE_JKFILE);
+        ScriptableObject.putProperty(regTarget, "cfgfile", JUYUE_CFGFILE);
+        ScriptableObject.putProperty(regTarget, "sortfile", JUYUE_SORTFILE);
+        // —— getJuconfig()（原文 :170-177：fetch(cfgfile)，非空则 eval 成对象；空文件回 {}）
+        putFunction("getJuconfig", args -> {
+            try {
+                String c = fetchForShim(JUYUE_CFGFILE);
+                if (c == null || c.isEmpty()) return newEmptyJsObject();
+                Object o = parseJsonStrict(c);
+                if (o instanceof Scriptable) return o;
+                // 原文 eval 失败会抛；垫片按"失败只记日志不抛"口径回空对象
+                logImpl(new Object[]{"加载Juconfig失败>内容不是合法对象"});
+                return newEmptyJsObject();
+            } catch (Throwable e) {
+                logImpl(new Object[]{"加载Juconfig失败>" + e.getMessage()});
+                return newEmptyJsObject();
+            }
+        });
+        // —— juItem / juItem2（原文 :30-167 juItemF 工厂 + :165-:167 三个实例）
+        try {
+            ScriptableObject.putProperty(regTarget, "juItem", makeJuItemStore(null, false));
+            ScriptableObject.putProperty(regTarget, "juItem2", makeJuItemStore("Juyue", true));
+        } catch (Throwable e) {
+            logImpl(new Object[]{"juItem垫片装配失败>" + e.getMessage()});
+        }
+        // —— setJkSort(data, so)（原文 :1142-1185；$.type 用 Java instanceof 还原）
+        putFunction("setJkSort", args -> {
+            try {
+                Object data = args != null && args.length > 0 ? args[0] : null;
+                Object so = args != null && args.length > 1 ? args[1] : null;
+                // 原文 waitlist 装配：string→[data]；object→[data]；array→data；其余→[]
+                //（$.type(array)='array'，故数组分支必须排在 Scriptable 之前）
+                List<Object> waitlist = new ArrayList<>();
+                if (data instanceof CharSequence) {
+                    waitlist.add(data);
+                } else if (data instanceof NativeArray) {
+                    for (Object o : (NativeArray) data) waitlist.add(o);
+                } else if (data != null && data.getClass().isArray()) {
+                    int n = java.lang.reflect.Array.getLength(data);
+                    for (int i = 0; i < n; i++) waitlist.add(java.lang.reflect.Array.get(data, i));
+                } else if (data instanceof List) {
+                    waitlist.addAll((List<?>) data);
+                } else if (data instanceof Scriptable) {
+                    waitlist.add(data);
+                }
+                // 原文：sort={}；fetch(sortfile) 非空则 eval("sort="+内容)；失败 xlog
+                //（原文调了两次 fetch，宿主侧一次读完，外部可观察行为一致）
+                Scriptable sort = newEmptyJsObject();
+                String sortContent = fetchForShim(JUYUE_SORTFILE);
+                if (sortContent != null && !sortContent.isEmpty()) {
+                    Object o = parseJsonStrict(sortContent);
+                    if (o instanceof Scriptable) sort = (Scriptable) o;
+                    else logImpl(new Object[]{"加载使用记录sort文件失败>内容不是合法对象"});
+                }
+                for (Object it : waitlist) {
+                    // 原文：object 取 it.id；string 取自身；其余 key 保持 undefined
+                    //（JS 里 undefined 作键即 "undefined"，宿主侧直接用该字串）
+                    String key;
+                    if (it instanceof Scriptable && !(it instanceof NativeArray)) {
+                        Object idv = ScriptableObject.getProperty((Scriptable) it, "id");
+                        key = (idv == null || idv == Scriptable.NOT_FOUND
+                                || idv == Context.getUndefinedValue()) ? "undefined" : Context.toString(idv);
+                    } else if (it instanceof CharSequence) {
+                        key = it.toString();
+                    } else {
+                        key = "undefined";
+                    }
+                    // 原文：jksort = sort[key] || {}；非 object 则重置为 {}
+                    Scriptable jksort;
+                    if (ScriptableObject.hasProperty(sort, key)) {
+                        Object e = ScriptableObject.getProperty(sort, key);
+                        jksort = (e instanceof Scriptable && !(e instanceof NativeArray))
+                                ? (Scriptable) e : newEmptyJsObject();
+                    } else {
+                        jksort = newEmptyJsObject();
+                    }
+                    // 原文四分支（so.use==0 / so.fail==0 / so.use++ / so.fail++）；
+                    // ==0 用宽松语义（数值 0；原文对字串 "0" 也成立，宿主侧只认数值，
+                    // 实调点只传 {fail:0}/{use:1} 对象字面量，无影响）
+                    if (so instanceof Scriptable) {
+                        Object useV = ScriptableObject.getProperty((Scriptable) so, "use");
+                        Object failV = ScriptableObject.getProperty((Scriptable) so, "fail");
+                        if (isJsZero(useV)) {
+                            ScriptableObject.putProperty(jksort, "use", 0);
+                        } else if (isJsZero(failV)) {
+                            ScriptableObject.putProperty(jksort, "fail", 0);
+                        } else if (isJsTruthy(useV)) {
+                            long u = jsToLong(ScriptableObject.getProperty(jksort, "use"));
+                            ScriptableObject.putProperty(jksort, "use", u + 1);
+                        } else if (isJsTruthy(failV)) {
+                            long f = jsToLong(ScriptableObject.getProperty(jksort, "fail"));
+                            ScriptableObject.putProperty(jksort, "fail", f + 1);
+                        }
+                    }
+                    ScriptableObject.putProperty(sort, key, jksort);
+                }
+                // 原文：writeFile(sortfile, JSON.stringify(sort))
+                writeFileContent(resolveHikerPath(JUYUE_SORTFILE), jsStringify(sort));
+            } catch (Throwable e) {
+                // 原文无外层 try（内层读文件失败才 xlog）；垫片统一"失败只记日志不抛"
+                logImpl(new Object[]{"setJkSort失败>" + e.getMessage()});
+            }
+            return null;
+        });
+        // —— readDir(path)（原文 :1514-1524：hiker:// 走 getPath 再去 "file://" 前缀；
+        // getPath 即 "file://" + resolveHikerPath，宿主侧直接 resolve，结果等价；
+        // 非 hiker:// 路径原文直接 new File(path)，同样保留）
+        putFunction("readDir", args -> {
+            try {
+                String p = args != null && args.length > 0 ? argStr(args[0]) : "";
+                if (p == null || p.isEmpty()) return new String[0];
+                String abs = p.startsWith("hiker://") ? resolveHikerPath(p) : p;
+                File dir = new File(abs);
+                if (!dir.exists() || !dir.isDirectory()) return new String[0];
+                File[] fs = dir.listFiles();
+                List<String> names = new ArrayList<>();
+                if (fs != null) for (File f : fs) names.add(f.getName());
+                return names.toArray(new String[0]);
+            } catch (Throwable e) {
+                logImpl(new Object[]{"readDir失败>" + e.getMessage()});
+                return new String[0];
+            }
         });
 
         // ---- 交互/配置（海阔规则常用，preRule 里调） ----

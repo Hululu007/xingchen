@@ -5,6 +5,13 @@ import android.content.SharedPreferences;
 
 import com.fongmi.android.tv.App;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.File;
@@ -15,6 +22,7 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 书源存储与管理底座：导入（文本/文件/链接）· 列表 · 启用停用 · 删除。
@@ -27,8 +35,43 @@ public class LegadoStore {
     private static final String PREFS = "legado_sources";
     private static final String KEY = "sources";
     private static final Gson GSON = new Gson();
+    private static final Gson SOURCE_GSON = new GsonBuilder()
+            .registerTypeAdapter(LegadoSource.class, new SourceDeserializer()).create();
     private static final Type LIST_TYPE = new TypeToken<List<Entry>>() {
     }.getType();
+    private static final Type HEADER_MAP_TYPE = new TypeToken<Map<String, String>>() {
+    }.getType();
+
+    /**
+     * header 两种形态都吃（生态源常见写法）：对象照常；字符串是 JSON 就解析成表，
+     * 不是 JSON 就忽略该字段。别再让 header 形态杀整包。
+     */
+    static class SourceDeserializer implements JsonDeserializer<LegadoSource> {
+        private final Gson plain = new Gson();
+
+        @Override
+        public LegadoSource deserialize(JsonElement json, Type typeOfT,
+                                         JsonDeserializationContext context) {
+            JsonObject o = json.getAsJsonObject();
+            JsonElement h = o.get("header");
+            Map<String, String> headerMap = null;
+            boolean stripped = false;
+            if (h != null && h.isJsonPrimitive() && h.getAsJsonPrimitive().isString()) {
+                stripped = true;
+                String hs = h.getAsString().trim();
+                if (hs.startsWith("{")) {
+                    try {
+                        headerMap = context.deserialize(JsonParser.parseString(hs), HEADER_MAP_TYPE);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                o.remove("header");
+            }
+            LegadoSource s = plain.fromJson(o, LegadoSource.class);
+            if (stripped) s.header = headerMap;
+            return s;
+        }
+    }
 
     /** 存储条目：源 JSON 原文＋开关。 */
     public static class Entry {
@@ -69,38 +112,61 @@ public class LegadoStore {
         return all.get(0);
     }
 
+    /** 逐个解析的结果：进了的＋坏项跳过的计数。 */
+    public static class ParseResult {
+        public final List<LegadoSource> ok = new ArrayList<>();
+        public int skipped = 0;
+    }
+
     /**
      * 解析书源 JSON：支持裸对象 {...} 与数组 [{...}, {...}] 两种形态。
-     * 对齐原版「阅读」：只认纯 JSON，不从说明文字里抠；整包解析，
-     * 坏项整包失败（不逐个跳过），但报错指名第几个源出了问题。
-     * 标准书源文件/订阅链接几乎全是数组，老写法只认裸对象是导入失败的根因。
+     * 对齐原版「阅读」：只认纯 JSON，不从说明文字里抠。
+     * 数组逐个解析：坏项跳过并计数，不再整包陪葬。
+     * 标准书源文件/订阅链接几乎全是数组，老写法只认裸对象是导入失败的根因之一。
      */
-    public static List<LegadoSource> parseList(String json) {
+    public static ParseResult parseListTolerant(String json) {
         String t = stripBom(json == null ? "" : json.trim());
         if (t.isEmpty()) throw new LegadoException("内容为空");
-        List<LegadoSource> out = new ArrayList<>();
+        ParseResult r = new ParseResult();
         try {
             if (t.startsWith("[")) {
-                Type t2 = new TypeToken<List<LegadoSource>>() {
-                }.getType();
-                List<LegadoSource> arr = GSON.fromJson(t, t2);
-                if (arr != null) out.addAll(arr);
+                JsonArray arr = JsonParser.parseString(t).getAsJsonArray();
+                for (int i = 0; i < arr.size(); i++) {
+                    try {
+                        LegadoSource s = SOURCE_GSON.fromJson(arr.get(i), LegadoSource.class);
+                        if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
+                            throw new LegadoException("缺少 bookSourceUrl");
+                        }
+                        r.ok.add(s);
+                    } catch (Throwable ignored) {
+                        r.skipped++;
+                    }
+                }
             } else {
-                LegadoSource s = GSON.fromJson(t, LegadoSource.class);
-                if (s != null) out.add(s);
+                LegadoSource s = SOURCE_GSON.fromJson(JsonParser.parseString(t), LegadoSource.class);
+                if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
+                    throw new LegadoException("不是合法书源：缺少 bookSourceUrl");
+                }
+                r.ok.add(s);
             }
+        } catch (LegadoException e) {
+            throw e;
         } catch (Throwable th) {
             throw new LegadoException("书源 JSON 解析失败"
                     + truncatedHint(t) + ": " + th.getMessage());
         }
-        if (out.isEmpty()) throw new LegadoException("内容为空");
-        for (int i = 0; i < out.size(); i++) {
-            LegadoSource s = out.get(i);
-            if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
-                throw new LegadoException("第 " + (i + 1) + " 个源不是合法书源：缺少 bookSourceUrl");
-            }
-        }
-        return out;
+        if (r.ok.isEmpty() && r.skipped == 0) throw new LegadoException("内容为空");
+        return r;
+    }
+
+    /**
+     * 解析书源 JSON（严格版）：坏项仍抛错。存量条目回读（parse）走这个，
+     * 语义不变。
+     */
+    public static List<LegadoSource> parseList(String json) {
+        ParseResult r = parseListTolerant(json);
+        if (r.ok.isEmpty()) throw new LegadoException("没有可用的书源");
+        return r.ok;
     }
 
     /** 截断提示：起手是 [/{、结尾却不是 ]/}，大概率粘贴时没贴全。 */
@@ -116,10 +182,11 @@ public class LegadoStore {
     /**
      * 导入 JSON 文本；同 bookSourceUrl 覆盖。数组逐个入库（每源独立条目，
      * 列表/开关/删除等下游仍按单源 JSON 走）。
-     * 返回：单个源返回源名；多个返回「N 个源」。
+     * 返回：单个源且无跳过→源名；否则报清「进了几个、跳过几个」。
      */
     public static synchronized String importText(String json) {
-        List<LegadoSource> srcs = parseList(json);
+        ParseResult pr = parseListTolerant(json);
+        List<LegadoSource> srcs = pr.ok;
         List<Entry> list = all();
         int added = 0, replaced = 0;
         for (LegadoSource s : srcs) {
@@ -146,8 +213,11 @@ public class LegadoStore {
             }
         }
         saveAll(list);
-        if (srcs.size() == 1) return srcs.get(0).tag();
-        return "已导入 " + srcs.size() + " 个源";
+        if (srcs.size() == 1 && pr.skipped == 0) return srcs.get(0).tag();
+        int total = added + replaced;
+        String msg = "进了 " + total + " 个";
+        if (pr.skipped > 0) msg += "，跳过 " + pr.skipped + " 个";
+        return msg;
     }
 
     /** 导入文件（.json/.txt）。 */

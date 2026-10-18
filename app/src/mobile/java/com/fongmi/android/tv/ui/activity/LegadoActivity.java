@@ -286,8 +286,9 @@ public class LegadoActivity extends Activity {
             try {
                 String name = importer.run();
                 runOnUiThread(() -> {
-                    Toast.makeText(this, name.startsWith("已导入") ? name : "已导入：" + name,
-                            Toast.LENGTH_SHORT).show();
+                    String toast = (name.startsWith("已导入") || name.startsWith("进了"))
+                            ? name : "已导入：" + name;
+                    Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
                     reload();
                 });
             } catch (Throwable t) {

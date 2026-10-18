@@ -36,6 +36,8 @@ public class ReadingStore {
         public String chapterUrl = "";
         /** py 源 key（继续读后按章重取用）。 */
         public String siteKey = "";
+        /** Legado 书源 bookSourceUrl（继续读后按章重取用）。 */
+        public String legadoKey = "";
         /** 小说正文快照（py 小说继续读时用，海阔小说按章重抓）。 */
         public String content = "";
         /** 漫画：看到第几张图（下标）；小说：进度万分比（0~10000，换字号也准）。 */

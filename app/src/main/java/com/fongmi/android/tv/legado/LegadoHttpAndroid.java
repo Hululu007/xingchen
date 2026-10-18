@@ -1,0 +1,98 @@
+package com.fongmi.android.tv.legado;
+
+import com.fongmi.android.tv.api.hk.HkHttp;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
+import com.github.catvod.net.SourceGate;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+
+/**
+ * 书源网络层宿主默认实现：复用 HkHttp 的 OkHttp 客户端（含节点选路）。
+ * 超时：连接 12s / 读写 20s；任何失败只抛 IOException，不拖垮宿主。
+ */
+public class LegadoHttpAndroid implements LegadoHttp {
+
+    private static volatile LegadoHttp instance;
+
+    public static void setInstance(LegadoHttp impl) {
+        instance = impl;
+    }
+
+    public static LegadoHttp get() {
+        LegadoHttp impl = instance;
+        return impl != null ? impl : Holder.DEF;
+    }
+
+    private static class Holder {
+        static final LegadoHttpAndroid DEF = new LegadoHttpAndroid();
+    }
+
+    private OkHttpClient client() {
+        return HkHttp.client().newBuilder()
+                .connectTimeout(LegadoHttp.CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .readTimeout(LegadoHttp.READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(LegadoHttp.READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .build();
+    }
+
+    @Override
+    public LegadoHttp.Result fetch(String url, String method, Map<String, String> headers, byte[] body) throws IOException {
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            throw new IOException("不支持的协议: " + url);
+        }
+        // 节点打点：书源走 KIND_VOD 口径（与点播源同链）。
+        SourceGate.mark(SourceProxyPolicy.KIND_VOD, "legado");
+        try {
+            Request.Builder rb = new Request.Builder().url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "zh-CN,zh;q=0.9");
+            if (headers != null) {
+                for (Map.Entry<String, String> h : headers.entrySet()) {
+                    try {
+                        if (h.getKey() != null && h.getValue() != null) rb.header(h.getKey(), h.getValue());
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            String m = method == null ? "GET" : method.toUpperCase();
+            if ("POST".equals(m)) {
+                byte[] b = body == null ? new byte[0] : body;
+                rb.post(RequestBody.create(b, MediaType.parse("application/x-www-form-urlencoded; charset=utf-8")));
+            } else {
+                rb.get();
+            }
+            LegadoHttp.Result r = new LegadoHttp.Result();
+            try (Response resp = client().newCall(rb.build()).execute()) {
+                if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
+                ResponseBody rb2 = resp.body();
+                if (rb2 == null) throw new IOException("空响应 " + url);
+                r.body = rb2.bytes();
+                String ct = resp.header("Content-Type");
+                r.contentType = ct == null ? "" : ct;
+                List<String> setCookies = resp.headers("Set-Cookie");
+                if (setCookies != null) {
+                    for (String c : setCookies) {
+                        int eq = c.indexOf('=');
+                        int sc = c.indexOf(';');
+                        if (eq > 0) r.cookies.put(c.substring(0, eq).trim(),
+                                c.substring(eq + 1, sc < 0 ? c.length() : sc).trim());
+                    }
+                }
+            }
+            return r;
+        } finally {
+            SourceGate.clear();
+        }
+    }
+}

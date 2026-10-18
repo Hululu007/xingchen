@@ -92,6 +92,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
         tlp.leftMargin = dp(8);
         title.setLayoutParams(tlp);
         topBar.addView(title);
+
+        TextView srcBtn = new TextView(this);
+        srcBtn.setText("书源");
+        srcBtn.setTextSize(15);
+        srcBtn.setTextColor(0xFFB8860B);
+        srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
+        srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
+        topBar.addView(srcBtn);
         root.addView(topBar);
 
         FrameLayout content = new FrameLayout(this);

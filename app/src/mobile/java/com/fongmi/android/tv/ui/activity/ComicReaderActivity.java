@@ -328,6 +328,15 @@ public class ComicReaderActivity extends AppCompatActivity {
             } catch (Throwable ignored) {
             }
         }
+        // Legado 书源：按书源规则取图片
+        if (!TextUtils.isEmpty(session.legadoKey) && !TextUtils.isEmpty(ch.url)) {
+            try {
+                java.util.List<String> list =
+                        com.fongmi.android.tv.legado.LegadoReading.fetchImages(session.legadoKey, ch.url);
+                if (list != null && !list.isEmpty()) return new ArrayList<>(list);
+            } catch (Throwable ignored) {
+            }
+        }
         return new ArrayList<>();
     }
 
@@ -410,6 +419,7 @@ public class ComicReaderActivity extends AppCompatActivity {
             r.chapterIndex = session.chapterIndex;
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
+            r.legadoKey = session.legadoKey;
             r.position = currentPage();
             ReadingStore.save(r);
         } catch (Throwable ignored) {

@@ -72,8 +72,11 @@ public class ReadingRouter {
         s.chapters.add(c);
         s.chapterUrl = c.url;
         s.siteKey = r.siteKey == null ? "" : r.siteKey;
+        s.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
         // 海阔记录的 sourceName 即规则名；py 源不走规则（ruleTitle 置空防误查）
         s.ruleTitle = TextUtils.isEmpty(s.siteKey) ? s.sourceName : "";
+        // Legado 书源走 legadoKey 懒取，不许误进海阔规则链
+        if (!TextUtils.isEmpty(s.legadoKey)) s.ruleTitle = "";
         if (s.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(r.content)) {
             s.text = r.content;
         }

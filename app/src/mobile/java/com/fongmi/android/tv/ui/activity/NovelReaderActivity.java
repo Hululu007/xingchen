@@ -317,6 +317,11 @@ public class NovelReaderActivity extends AppCompatActivity {
             } catch (Throwable ignored) {
             }
         }
+        // Legado 书源：按书源规则抓正文
+        if (!TextUtils.isEmpty(session.legadoKey) && !TextUtils.isEmpty(ch.url)) {
+            String t = com.fongmi.android.tv.legado.LegadoReading.fetchText(session.legadoKey, ch.url);
+            if (!TextUtils.isEmpty(t)) return t;
+        }
         // 海阔：按规则抓正文
         if (!TextUtils.isEmpty(session.ruleTitle) && !TextUtils.isEmpty(ch.url)) {
             String t = HkNovelFetcher.fetchText(session.ruleTitle, ch.url);
@@ -396,6 +401,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             r.chapterIndex = session.chapterIndex;
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
+            r.legadoKey = session.legadoKey;
             r.position = Math.round(currentFraction() * 10000);
             // py 小说：正文存快照，继续读时不用重跑解析
             if (TextUtils.isEmpty(session.ruleTitle) && !TextUtils.isEmpty(currentText)) {

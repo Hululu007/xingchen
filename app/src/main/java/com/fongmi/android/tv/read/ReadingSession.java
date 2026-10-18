@@ -49,6 +49,8 @@ public class ReadingSession {
     public String referer = "";
     /** py 源 key（懒取章节表用）。 */
     public String siteKey = "";
+    /** Legado 书源 bookSourceUrl（书源懒取正文/图片用）。 */
+    public String legadoKey = "";
     /** 起始页（漫画第几张图；阅读器打开时定位用）。 */
     public int startPage = 0;
 

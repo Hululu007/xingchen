@@ -271,6 +271,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mBinding.navigation.getMenu().findItem(R.id.setting).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.live).setVisible(LiveConfig.hasUrl());
         mBinding.navigation.getMenu().findItem(R.id.music).setVisible(true);
+        mBinding.navigation.getMenu().findItem(R.id.reading).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.miniapp).setVisible(FeaturesActivity.isMiniAppEnabled(this));
         syncNavigationSelection();
     }
@@ -359,6 +360,10 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (item.getItemId() == R.id.live) return openLive();
         if (item.getItemId() == R.id.music) {
             MusicActivity.start(this);
+            return false;
+        }
+        if (item.getItemId() == R.id.reading) {
+            ReadingShelfActivity.start(this);
             return false;
         }
         if (item.getItemId() == R.id.miniapp) {

@@ -20,6 +20,12 @@
         android:visible="true" />
 
     <item
+        android:id="@+id/reading"
+        android:icon="@drawable/ic_nav_reading"
+        android:title="@string/nav_reading"
+        android:visible="true" />
+
+    <item
         android:id="@+id/miniapp"
         android:icon="@drawable/ic_nav_miniapp"
         android:title="@string/nav_miniapp"

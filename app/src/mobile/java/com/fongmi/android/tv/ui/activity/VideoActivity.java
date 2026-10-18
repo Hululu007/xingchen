@@ -5371,7 +5371,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void onPlayerKernel() {
         if (playerKernelSwitchRefreshing) return;
-        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+        int next = player().getPlayerType() == PlayerSetting.EXO ? PlayerSetting.MPV : PlayerSetting.EXO;
+        switchPlayerKernel(next);
     }
 
     private void switchPlayerKernel(int type) {

@@ -361,6 +361,7 @@ public final class DanmakuSearchInputDialog extends DialogFragment implements Ca
     }
 
     private void showError(String message) {
+        if (!isAdded()) return;
         if (TextUtils.isEmpty(message)) message = getString(R.string.error_empty);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "search dialog failed error=%s", message);
         hideProgress();
@@ -373,6 +374,7 @@ public final class DanmakuSearchInputDialog extends DialogFragment implements Ca
     }
 
     private void onSuccess(List<Danmaku> items) {
+        if (!isAdded()) return;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "search dialog success count=%d", items.size());
         hideProgress();
         syncCurrentState(items);

@@ -381,6 +381,7 @@ public final class DanmakuSearchDialog extends DialogFragment implements Callbac
     }
 
     private void onSuccess(List<Danmaku> items) {
+        if (!isAdded()) return;
         syncCurrentState(items);
         buildGroups(items);
         renderSourceTabs();
@@ -485,6 +486,7 @@ public final class DanmakuSearchDialog extends DialogFragment implements Callbac
     }
 
     private void onError(Exception e) {
+        if (!isAdded()) return;
         String message = e == null || TextUtils.isEmpty(e.getMessage()) ? getString(R.string.error_empty) : e.getMessage();
         empty.setText(message);
         hideProgress(true);

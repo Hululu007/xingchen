@@ -320,7 +320,6 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.speed.setValue(Math.max(player.getSpeed(), 0.5f));
         setSpeedPresets();
         binding.player.setText(parent.control.action.player.getText());
-        binding.reset.setText(parent.control.action.reset.getText());
         setLut();
         setEpisodeColumn();
         binding.decode.setVisibility(parent.control.action.decode.getVisibility());

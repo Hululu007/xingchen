@@ -2223,10 +2223,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 final EmbyApi.PlayOption pick = best;
                 App.post(() -> playPickedEmbyVersion(item, pick));
             } catch (Exception e) {
-                App.post(() -> {
-                    Notify.show("Emby 播放失败：" + e.getMessage());
-                    clickEpisode(item);
-                });
+                // Emby 失败分支只弹提示、对齐普通源点播失败留详情页的行为：
+                // 不再调 clickEpisode(item)——它会走 shouldEnterFullscreen 把人扔进横屏全屏黑屏。
+                // 无收尾可清：本分支只发过一条 toast，未弹对话框、未改选集状态。
+                App.post(() -> Notify.show("Emby 播放失败：" + e.getMessage()));
             }
         });
         return true;

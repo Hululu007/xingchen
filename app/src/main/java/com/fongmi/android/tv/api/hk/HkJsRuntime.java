@@ -1022,7 +1022,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         // setPreResult：预返回（官方要求与 setResult 成对、顺序固定）。
-        // 语义：先占位展示，下一记 setResult/setSearchResult 到达时整体替换。
+        // 语义：先占位展示，下一记 setResult/setSearchResult 到达时追加合并（官方文档原话：
+        // "最后再调用setResult()返回需要追加显示的部分"；8.83 smali 亦为 PRE 立即显示＋AFTER 追加，
+        // 无"整体替换"）。规则侧占位符（如"加载中"）由规则自己调 deleteItem/remove，无需壳清。
         putFunction("setPreResult", args -> {
             results.clear();
             rawResults.clear();
@@ -3838,14 +3840,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
-     * setPreResult 之后的第一记 setResult/setSearchResult/setHomeResult：清空预返回占位。
+     * 8.83 语义：setPreResult 的预存保留、追加合并。
+     * JSEngine.smali:918 六参版：p5=1 → preCalled.add(key)＋ARTICLE_LIST_PRE 立即显示导航；
+     * p5=0 且 key 在 preCalled 中 → ARTICLE_LIST_AFTER 追加视频。ArticleListFragment 两次都走
+     * append，无"整体替换"。旧实现（清掉预存）与原版相悖，已按原版对齐：只翻转标志。
+     * 跨次求值不串数据：parseList/parseSearch 入口已清 results 并复位 preResultActive。
      */
     private void beginResult() {
-        if (preResultActive) {
-            results.clear();
-            rawResults.clear();
-            preResultActive = false;
-        }
+        preResultActive = false;
     }
 
     /**
@@ -4658,6 +4660,24 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         }
                     } catch (Throwable t) {
                         Logger.t(TAG).d("evalImageJs: re-eval Hikerurl.js failed: %s", t.getMessage());
+                    }
+                    // UU 等规则图片回调直引 com.example.hikerview.utils.FileUtil（8.83 包内真实类）。
+                    // 星辰无此包：建链定义指向同一个 HkCryptoFileUtil 实例（与 __cryptoFileUtil 既有
+                    // shim 策略一致；crypto-java.js:17 的同款兼容判断即依赖 __cryptoFileUtil）。
+                    // 修前 Rhino 侧只剩 JavaPackage 占位、调 toBytes 抛 TypeError → 封面空白。
+                    // 注：var com 只遮蔽 ImporterTopLevel 对 com.* Java 包的回退；图片解密 JS 现实只会
+                    // 用到 com.example.hikerview.utils.FileUtil（UU/oneapp 皆如此），java.* 与
+                    // android 包不受影响。
+                    try {
+                        rhinoCx.evaluateString(imageScope,
+                                "var com = {};\n"
+                                        + "com.example = {};\n"
+                                        + "com.example.hikerview = {};\n"
+                                        + "com.example.hikerview.utils = {};\n"
+                                        + "com.example.hikerview.utils.FileUtil = __cryptoFileUtil;",
+                                "fileutilShim", 1, null);
+                    } catch (Throwable t) {
+                        Logger.t(TAG).d("evalImageJs: fileutil shim failed: %s", t.getMessage());
                     }
                     ScriptableObject.putProperty(imageScope, "input", Context.javaToJS(input, imageScope));
                     String code = generateMyHeaders(headers) + getMyUrlJs(urlString) + getMyTitleJs(jsCode, ruleTitle) + ensureDollarShim() + wrapImageJs(jsCode);

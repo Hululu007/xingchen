@@ -4434,14 +4434,23 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      */
     private void downloadToFile(String url, String dest, String headersJson) {
         if (TextUtils.isEmpty(url)) return;
+        File f = null;
+        File tmp = null;
         try {
-            File f = new File(dest);
+            f = new File(dest);
             if (f.isDirectory() || dest.endsWith("/")) {
                 String name = url.replaceAll("[?#].*$", "").replaceAll("^.*/", "");
                 if (TextUtils.isEmpty(name)) name = "download.bin";
                 f = new File(f, name);
             }
             if (f.getParentFile() != null) f.getParentFile().mkdirs();
+            // 毒文件根治（红果冷播可行性 §四）：最终路径「存在即完整」。
+            // 同目标的历史临时文件先清（60 分钟前的 .part-<唯一> 残留；在途的并发下载因年轻跳过；
+            // P0 预热的固定名 X.part 不带 "-<唯一>" 后缀，不会被扫到）。
+            sweepStalePartFiles(f);
+            // 临时名带唯一后缀：同目标多线程并发下载互不踩；与最终文件同目录，原子改名要求同文件系统。
+            tmp = new File(f.getParentFile(),
+                    f.getName() + ".part-" + System.nanoTime() + "-" + Thread.currentThread().getId());
             String opt = "{\"headers\":{}}";
             try {
                 Map<String, Object> m = GSON.fromJson(headersJson,
@@ -4463,7 +4472,22 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             try (okhttp3.Response res = HkHttp.to(url,
                     com.fongmi.quickjs.bean.Req.objectFrom(opt)).execute()) {
                 if (res.isSuccessful() && res.body() != null) {
-                    java.nio.file.Files.write(f.toPath(), res.body().bytes());
+                    byte[] body = res.body().bytes();
+                    if (body.length == 0) {
+                        // 空响应不落盘：规则侧把 0 字节密文当毒（hgpSize 校验），删了反而自愈。
+                        // 与 HTTP 失败同口径抛错（8.83 官方：失败抛 Exception）。
+                        throw new RuntimeException("下载文件失败：空响应");
+                    }
+                    java.nio.file.Files.write(tmp.toPath(), body);
+                    try {
+                        java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    tmp = null; // 已落定，catch 不再删
                     Logger.t(TAG).d("downloadToFile ok: %s", f.getAbsolutePath());
                     // 落盘视频自动清理（潇洒哥 2026-10-18 定：6 小时/8 个文件/400MB 删最旧）：
                     // 后台线程跑，不阻塞规则当前执行；落盘根与 downloadFile 一致。
@@ -4473,9 +4497,33 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
             }
         } catch (Throwable e) {
+            // 失败/中断：临时文件直接删，最终路径上永远不会出现半截文件。
+            if (tmp != null) {
+                try { tmp.delete(); } catch (Throwable ignored) {}
+            }
             if (e instanceof RuntimeException && String.valueOf(e.getMessage()).startsWith("下载文件失败")) throw (RuntimeException) e;
             throw new RuntimeException("下载文件失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 清同目标的历史临时下载文件（.part-<唯一> 残留）。
+     * 只删 60 分钟前的：在途的并发下载因年轻跳过；P0 预热的固定名 X.part 无 "-<唯一>" 后缀，不会被扫到。
+     */
+    private static void sweepStalePartFiles(File target) {
+        try {
+            File dir = target.getParentFile();
+            if (dir == null) return;
+            final String prefix = target.getName() + ".part-";
+            File[] kids = dir.listFiles();
+            if (kids == null) return;
+            long cutoff = System.currentTimeMillis() - 60L * 60 * 1000;
+            for (File k : kids) {
+                if (k.isFile() && k.getName().startsWith(prefix) && k.lastModified() < cutoff) {
+                    try { k.delete(); } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     /**

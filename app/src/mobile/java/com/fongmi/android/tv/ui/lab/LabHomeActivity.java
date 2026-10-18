@@ -80,9 +80,10 @@ public class LabHomeActivity extends AppCompatActivity {
         add.setTextColor(LabSkin.YELLOW);
         add.setPadding(dp(12), dp(12), dp(12), dp(12));
         add.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setItems(new String[]{"选文件", "粘贴文本/链接"}, (d, which) -> {
+                .setItems(new String[]{"选文件", "粘贴文本", "链接"}, (d, which) -> {
                     if (which == 0) LabInstallActivity.pickFile(this);
-                    else LabPasteImportActivity.start(this);
+                    else if (which == 1) LabPasteImportActivity.start(this);
+                    else LabPasteImportActivity.startLink(this);
                 }).show());
         top.addView(titles);
         top.addView(add);

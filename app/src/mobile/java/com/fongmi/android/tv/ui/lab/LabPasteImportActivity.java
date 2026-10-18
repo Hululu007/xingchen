@@ -37,15 +37,33 @@ import java.util.List;
 public class LabPasteImportActivity extends AppCompatActivity {
 
     private static final String EXTRA_URI = "uri";
+    private static final String EXTRA_MODE = "mode";
+    /** 粘贴模式：多行文本框 */
+    private static final String MODE_PASTE = "paste";
+    /** 链接模式：单行 URL 输入框 */
+    private static final String MODE_LINK = "link";
 
     private EditText input;
     private TextView status;
     private LinearLayout resultBox;
     private TextView importBtn;
+    private TextView goBtn;
     private List<LabImportCompat.ImportItem> items;
+    private String mode = MODE_PASTE;
 
     public static void start(Activity activity) {
-        activity.startActivity(new Intent(activity, LabPasteImportActivity.class));
+        startMode(activity, MODE_PASTE);
+    }
+
+    /** 链接入口：单行输入框，拉下来再识别 */
+    public static void startLink(Activity activity) {
+        startMode(activity, MODE_LINK);
+    }
+
+    private static void startMode(Activity activity, String mode) {
+        Intent i = new Intent(activity, LabPasteImportActivity.class);
+        i.putExtra(EXTRA_MODE, mode);
+        activity.startActivity(i);
     }
 
     public static void startWithUri(Activity activity, Uri uri) {
@@ -57,6 +75,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        String m = getIntent().getStringExtra(EXTRA_MODE);
+        if (MODE_LINK.equals(m)) mode = MODE_LINK;
         buildUi();
         String uriStr = getIntent().getStringExtra(EXTRA_URI);
         if (!TextUtils.isEmpty(uriStr)) {
@@ -84,7 +104,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
         back.setPadding(dp(8), dp(8), dp(14), dp(8));
         back.setOnClickListener(v -> onBackPressed());
         TextView title = new TextView(this);
-        title.setText("粘贴导入");
+        boolean linkMode = MODE_LINK.equals(mode);
+        title.setText(linkMode ? "链接导入" : "粘贴导入");
         title.setTextSize(20);
         title.setTextColor(LabSkin.TEXT_MAIN);
         title.getPaint().setFakeBoldText(true);
@@ -93,7 +114,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
         root.addView(nav);
 
         TextView hint = new TextView(this);
-        hint.setText("把服务清单、命令条目或脚本粘进来，自动识别；也可以粘一个清单链接");
+        hint.setText(linkMode ? "粘贴服务清单的链接，拉下来自动识别"
+                : "把服务清单、命令条目或脚本粘进来，自动识别");
         hint.setTextSize(14);
         hint.setTextColor(LabSkin.TEXT_SUB);
         hint.setPadding(dp(18), dp(4), dp(18), dp(8));
@@ -106,11 +128,16 @@ public class LabPasteImportActivity extends AppCompatActivity {
         body.setPadding(0, 0, 0, dp(30));
 
         input = new EditText(this);
-        input.setMinLines(8);
+        if (MODE_LINK.equals(mode)) {
+            input.setSingleLine(true);
+            input.setHint("https://…");
+        } else {
+            input.setMinLines(8);
+            input.setHint("粘在这里…");
+        }
         input.setTextSize(13);
         input.setTextColor(LabSkin.TEXT_MAIN);
         input.setHintTextColor(LabSkin.TEXT_DIM);
-        input.setHint("粘在这里…");
         input.setBackground(LabSkin.cardBackground(this, false));
         input.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
@@ -118,13 +145,13 @@ public class LabPasteImportActivity extends AppCompatActivity {
         ilp.setMargins(dp(18), dp(4), dp(18), 0);
         body.addView(input, ilp);
 
-        TextView go = bigButton("识别", true);
+        goBtn = bigButton(MODE_LINK.equals(mode) ? "拉取并识别" : "识别", true);
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         glp.setMargins(dp(18), dp(12), dp(18), 0);
-        go.setLayoutParams(glp);
-        go.setOnClickListener(v -> recognize(input.getText().toString(), null));
-        body.addView(go);
+        goBtn.setLayoutParams(glp);
+        goBtn.setOnClickListener(v -> recognize(input.getText().toString(), null));
+        body.addView(goBtn);
 
         status = new TextView(this);
         status.setTextSize(14);
@@ -186,7 +213,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
     private void recognize(String text, String fileName) {
         String t = text == null ? "" : text.trim();
         if (t.isEmpty()) {
-            showStatus("先粘点东西进来");
+            showStatus(MODE_LINK.equals(mode) ? "先粘个链接进来" : "先粘点东西进来");
             return;
         }
         showStatus("正在识别…");

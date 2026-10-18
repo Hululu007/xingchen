@@ -162,6 +162,27 @@ public class ReadingGate {
         return IMAGE_URL.matcher(url.trim()).matches();
     }
 
+    /**
+     * 取某章的图片列表：章节 url 本身就是图片串（py 生态约定）时现场拆分；
+     * 海阔章节走 HkPlay.pics（已在会话 images 里），这里只处理 url 内嵌串。
+     */
+    public static List<String> imagesOfChapter(ReadingSession.Chapter chapter) {
+        List<String> out = new ArrayList<>();
+        if (chapter == null || TextUtils.isEmpty(chapter.url)) return out;
+        List<String> segs = splitImages(chapter.url);
+        if (segs.size() >= 2) {
+            boolean allImage = true;
+            for (String u : segs) {
+                if (!isImageUrl(u)) {
+                    allImage = false;
+                    break;
+                }
+            }
+            if (allImage) return segs;
+        }
+        return out;
+    }
+
     /** 是否带 URL 特征：有 :// 或常见协议头即算。 */
     public static boolean looksLikeUrl(String s) {
         if (TextUtils.isEmpty(s)) return false;

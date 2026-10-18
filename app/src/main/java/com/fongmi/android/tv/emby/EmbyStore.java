@@ -26,6 +26,7 @@ public class EmbyStore {
 
     private static final String K_SERVERS = "emby2.servers";
     private static final String K_ACTIVE = "emby2.active";
+    private static final String K_LAST = "emby2.last";
     private static final String K_SECTIONS = "emby2.sections";
     private static final String K_HOMECACHE = "emby2.homecache.";
     private static final String K_HOMECACHE_TIME = "emby2.homecache.time.";
@@ -182,6 +183,17 @@ public class EmbyStore {
         for (int i = 0; i < list.size(); i++) if (list.get(i).id.equals(id)) list.set(i, s);
         persist(list);
         Prefers.put(K_ACTIVE, id);
+    }
+
+    /** 上次进入的那台服：只在 EmbyMode.enter 落点；exit 清 active 时不清除；重启仍在。 */
+    public static EmbyServer lastEntered() {
+        return getServer(Prefers.getString(K_LAST, ""));
+    }
+
+    public static void setLastEntered(String id) {
+        if (TextUtils.isEmpty(id)) return;
+        if (getServer(id) == null) return;
+        Prefers.put(K_LAST, id);
     }
 
     /** 任一服含 token 即算有登录。 */

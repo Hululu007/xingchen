@@ -30,6 +30,7 @@ public class EmbyMode {
         EmbyStore.EmbyServer s = EmbyStore.getServer(serverId);
         if (s == null || !s.isLogin()) return;
         EmbyStore.setActive(serverId);
+        EmbyStore.setLastEntered(serverId);
         App.post(() -> {
             // 前景页是管理页等非首页时，Fragment 挂载扑空，这里先重绑当前实例兜底
             EmbyHomeView.bindCurrent(serverId);

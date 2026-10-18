@@ -29,14 +29,12 @@ import com.fongmi.android.tv.ui.adapter.ConfigHistoryAdapter;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class ConfigHistoryDialog extends DialogFragment {
 
     private DialogConfigHistoryBinding binding;
     private ConfigHistoryAdapter adapter;
-    private ConfigHistoryAdapter.EmbyAdapter embyAdapter;
     private int type;
     private OnSwitchListener switchListener;
 
@@ -125,37 +123,39 @@ public class ConfigHistoryDialog extends DialogFragment {
     }
 
     /**
-     * Emby 独立分区：只加行、不动弹窗布局。未登录（无登录态）时整个分区不出现、不占位。
+     * Emby 一行入口：未登录（无登录态）时整个分区不出现、不占位。
      * 分区无清空按钮——「清空」只清点播线路，绝不波及 Emby（两套存储互不影响）。
      */
     private void initEmbySection() {
         boolean show = false;
-        List<EmbyServer> list = new ArrayList<>();
         try {
             show = EmbyStore.hasLogin();
-            if (show) {
-                List<EmbyServer> all = EmbyStore.servers();
-                if (all != null) list = all;
+        } catch (Throwable ignored) {
+        }
+        binding.rowEmby.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) binding.btnEmbySwitch.setOnClickListener(v -> onSwitchEmby());
+    }
+
+    /** 点「切换」：进上次进入的那台服；无记录则进第一个已登录服。换服在 Emby 内部顶栏。 */
+    private void onSwitchEmby() {
+        EmbyServer target = null;
+        try {
+            target = EmbyStore.lastEntered();
+            if (target == null || !target.isLogin()) target = null;
+            if (target == null) {
+                for (EmbyServer s : EmbyStore.servers()) {
+                    if (s != null && s.isLogin()) {
+                        target = s;
+                        break;
+                    }
+                }
             }
         } catch (Throwable ignored) {
         }
-        binding.tvEmbyTitle.setVisibility(show ? View.VISIBLE : View.GONE);
-        binding.recyclerEmby.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) {
-            embyAdapter = new ConfigHistoryAdapter.EmbyAdapter(list, this::onUseEmby);
-            binding.recyclerEmby.setLayoutManager(new LinearLayoutManager(getContext()));
-            binding.recyclerEmby.setAdapter(embyAdapter);
-        } else {
-            embyAdapter = null;
-        }
-    }
-
-    /** 点 Emby 行：互斥切换进专属首页。 */
-    private void onUseEmby(EmbyServer server) {
-        if (server == null || server.id == null) return;
+        if (target == null || target.id == null) return;
         dismiss();
         try {
-            EmbyMode.enter(server.id);
+            EmbyMode.enter(target.id);
             Notify.show("已切换");
         } catch (Throwable t) {
             Notify.show("切换失败");

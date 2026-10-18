@@ -61,24 +61,39 @@
         android:textSize="15sp"
         android:textStyle="bold" />
 
-    <!-- Emby 独立分区：未登录不出现；不与点播线路混排；无清空按钮 -->
-    <TextView
-        android:id="@+id/tv_emby_title"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:layout_marginBottom="4dp"
-        android:text="@string/emby_title"
-        android:textColor="#0C0E12"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recycler_emby"
+    <!-- Emby 一行入口：左「Emby」右「切换」。未登录不出现；不与点播线路混排；无清空按钮 -->
+    <LinearLayout
+        android:id="@+id/row_emby"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:nestedScrollingEnabled="false"
-        android:visibility="gone" />
+        android:layout_marginTop="20dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="4dp"
+        android:paddingVertical="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/emby_title"
+            android:textColor="#0C0E12"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_emby_switch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/dialog_glass"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="8dp"
+            android:text="@string/emby_btn_switch"
+            android:textColor="#F0A400"
+            android:textSize="13sp" />
+    </LinearLayout>
 </LinearLayout>

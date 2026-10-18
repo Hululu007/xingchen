@@ -68,6 +68,14 @@ public class LegadoPipeline {
     }
 
     static UrlSpec parseUrl(String template, Map<String, String> vars) {
+        return parseUrl(template, vars, null);
+    }
+
+    /**
+     * 解析「url,{json}」形态。charsetOverride 非空时，body 编码与响应解码回退
+     * 都按它走（GBK 重试用；声明优先，override 只在没声明时由壳子传）。
+     */
+    static UrlSpec parseUrl(String template, Map<String, String> vars, String charsetOverride) {
         UrlSpec spec = new UrlSpec();
         String t = template == null ? "" : template.trim();
         int oi = t.lastIndexOf(",{");
@@ -77,6 +85,7 @@ public class LegadoPipeline {
                 JSONObject o = new JSONObject(json);
                 if (o.has("method")) spec.opt.method = o.optString("method", "GET");
                 if (o.has("charset")) spec.opt.charset = o.optString("charset", "utf-8");
+                if (charsetOverride != null) spec.opt.charset = charsetOverride;
                 if (o.has("body")) {
                     String b = o.optString("body", "");
                     // body 按该 URL 声明的 charset 编码（GBK 站按 UTF-8 发 body
@@ -95,11 +104,12 @@ public class LegadoPipeline {
             }
         }
         spec.url = renderVars(t, vars);
-        // body 里的变量也渲染
+        // body 里的变量也渲染（重试时按 override 编码重发）
         if (spec.opt.body != null) {
             try {
-                String b = new String(spec.opt.body, "UTF-8");
-                spec.opt.body = renderVars(b, vars).getBytes("UTF-8");
+                String cs = charsetOverride != null ? charsetOverride : "UTF-8";
+                String b = new String(spec.opt.body, cs);
+                spec.opt.body = renderVars(b, vars).getBytes(cs);
             } catch (Throwable ignored) {
             }
         }
@@ -127,6 +137,16 @@ public class LegadoPipeline {
      * （m.manhuagui.com 实测：UTF-8 键回显乱码"鏂楃綏澶ч檰"0 条，GBK 键 4 条）。
      */
     private static String urlCharset(String template) {
+        String d = declaredCharset(template);
+        return d != null ? d : "UTF-8";
+    }
+
+    /**
+     * 尾部 ,{...} 里是否声明了 charset（有→归一化后的值，无→null）。
+     * 声明优先；没声明且默认编码搜回 0 条，壳子自动换 GBK 重试一次兜底
+     * （旧源文件不用重新导入，装上直接能搜）。
+     */
+    private static String declaredCharset(String template) {
         String t = template == null ? "" : template.trim();
         int oi = t.lastIndexOf(",{");
         if (oi > 0 && t.endsWith("}")) {
@@ -136,7 +156,7 @@ public class LegadoPipeline {
             } catch (Throwable ignored) {
             }
         }
-        return "UTF-8";
+        return null;
     }
 
     private static byte[] toBytes(String s, String charset) {
@@ -265,32 +285,44 @@ public class LegadoPipeline {
             if (source.ruleSearch == null || isEmpty(source.ruleSearch.bookList)) {
                 throw new LegadoException(source.tag() + " 未配置搜索规则");
             }
-            try {
-                Map<String, String> vars = baseVars();
-                // key 按该 searchUrl 声明的 charset 编码（默认 UTF-8，保持老源行为不变）
-                vars.put("key", urlEncode(key, urlCharset(source.searchUrl)));
-                vars.put("page", String.valueOf(page));
-                UrlSpec spec = parseUrl(source.searchUrl, vars);
-                if (source.header != null) spec.opt.headers.putAll(source.header);
-                String text = fetchText(spec);
-                LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
-                List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, source.ruleSearch.bookList);
-                List<Book> out = new ArrayList<>();
-                for (LegadoRuleEvaluator.Sel el : els) {
-                    Book b = new Book();
-                    b.name = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.name, false);
-                    b.author = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.author, false);
-                    b.coverUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.coverUrl, true);
-                    b.bookUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.bookUrl, true);
-                    if (!b.name.isEmpty() && !b.bookUrl.isEmpty()) out.add(b);
-                }
-                return out;
-            } catch (LegadoException e) {
-                throw e;
-            } catch (Throwable t) {
-                throw new LegadoException(source.tag() + " 搜索失败: " + t.getMessage());
+            String declared = declaredCharset(source.searchUrl);
+            List<Book> out = searchOnce(key, page, declared != null ? declared : "UTF-8");
+            // 壳子兜底：源没声明 charset 且默认编码搜回 0 条，换 GBK 重试一次
+            //（URL 上的词和 POST body 里的词一起换；旧源文件不用重新导入）。
+            if (out.isEmpty() && declared == null) {
+                out = searchOnce(key, page, "GBK");
             }
+            return out;
+        }
+    }
+
+    /** 单次搜索：key 按 charset 做 URL 编码；POST body 同步按该编码重发。 */
+    private List<Book> searchOnce(String key, int page, String charset) {
+        try {
+            Map<String, String> vars = baseVars();
+            // key 按指定 charset 编码（声明优先；壳子重试时传 GBK）
+            vars.put("key", urlEncode(key, charset));
+            vars.put("page", String.valueOf(page));
+            UrlSpec spec = parseUrl(source.searchUrl, vars, charset);
+            if (source.header != null) spec.opt.headers.putAll(source.header);
+            String text = fetchText(spec);
+            LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
+            List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, source.ruleSearch.bookList);
+            List<Book> out = new ArrayList<>();
+            for (LegadoRuleEvaluator.Sel el : els) {
+                Book b = new Book();
+                b.name = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.name, false);
+                b.author = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.author, false);
+                b.coverUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.coverUrl, true);
+                b.bookUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.bookUrl, true);
+                if (!b.name.isEmpty() && !b.bookUrl.isEmpty()) out.add(b);
             }
+            return out;
+        } catch (LegadoException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new LegadoException(source.tag() + " 搜索失败: " + t.getMessage());
+        }
     }
 
     // ================= 详情 =================

@@ -24,7 +24,7 @@ import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentActivity;
 
 import com.fongmi.android.tv.R;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.hk.HkDialogs;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -250,8 +250,8 @@ public class HkErrorUtil {
             View view = LayoutInflater.from(context).inflate(R.layout.dialog_hk_error_detail, null);
             TextView tv = view.findViewById(R.id.get_html_txt);
             tv.setText(detailText);
-            MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(context)
-                    .setTitle("错误详细信息")
+            HkDialogs hkBuilder = new HkDialogs(context);
+            hkBuilder.setTitle("错误详细信息")
                     .setView(view)
                     .setCancelable(true)
                     // 对等 setPositiveButton("报告作者")：复制详情文本
@@ -264,10 +264,10 @@ public class HkErrorUtil {
             // 对等 smali 117-118 行：仅当规则标题以 "home@" 开头时显示"删除规则"
             if (!TextUtils.isEmpty(ruleTitle) && ruleTitle.startsWith("home@")) {
                 final String rt = ruleTitle;
-                builder.setNeutralButton("删除规则", (d, w) -> delRuleByTitle(context, rt));
+                hkBuilder.setNeutralButton("删除规则", (d, w) -> delRuleByTitle(context, rt));
             }
             try {
-                builder.create().show();
+                hkBuilder.create().show();
             } catch (Throwable ignored) {
             }
         }

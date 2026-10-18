@@ -2660,13 +2660,13 @@ public class HkPageActivity extends BaseActivity {
         final Dialog dialog = new Dialog(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF2F3F5);
+        root.setBackgroundColor(0x00000000);
 
         // ---- 顶栏：取消 / 编辑小程序 / 保存 ----
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(0xFFFFFFFF);
+        bar.setBackgroundColor(0x00000000);
         bar.setPadding(dp(6), dp(8), dp(6), dp(8));
         TextView btnCancel = new TextView(this);
         btnCancel.setText("取消");
@@ -2759,7 +2759,7 @@ public class HkPageActivity extends BaseActivity {
         android.view.Window w = dialog.getWindow();
         if (w != null) {
             w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xFFF2F3F5));
+            w.setBackgroundDrawableResource(R.drawable.dialog_glass_light);
             w.getDecorView().setPadding(0, 0, 0, 0);
             w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
@@ -3399,7 +3399,7 @@ public class HkPageActivity extends BaseActivity {
             listener.onPick(url);
         }));
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(R.drawable.hk_category_popup_bg);
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_glass_light);
         }
         dialog.show();
     }

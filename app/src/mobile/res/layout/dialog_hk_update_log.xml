@@ -3,7 +3,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/hk_update_log_bg"
+    android:background="@drawable/dialog_glass_light"
     android:orientation="vertical"
     android:paddingTop="16dp"
     android:paddingBottom="8dp">

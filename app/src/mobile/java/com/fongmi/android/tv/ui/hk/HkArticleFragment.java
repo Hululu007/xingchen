@@ -1097,18 +1097,17 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     .setNegativeButton("取消", (d, w) -> routeConfirmResult(rt, rule, cancelJs))
                     .create();
             if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawable(
-                        new android.graphics.drawable.ColorDrawable(0xFF2B2B2B));
+                dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_glass_light);
             }
             dialog.setOnShowListener(d -> {
                 android.widget.TextView tvTitle = dialog.findViewById(android.R.id.title);
-                if (tvTitle != null) tvTitle.setTextColor(0xFFFFFFFF);
+                if (tvTitle != null) tvTitle.setTextColor(0xFF1A1D24);
                 android.widget.TextView tvMsg = dialog.findViewById(android.R.id.message);
-                if (tvMsg != null) tvMsg.setTextColor(0xFFFFFFFF);
+                if (tvMsg != null) tvMsg.setTextColor(0xFF1A1D24);
                 android.widget.Button b1 = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
-                if (b1 != null) b1.setTextColor(0xFFFFD54F);
+                if (b1 != null) b1.setTextColor(0xFFD9A420);
                 android.widget.Button b2 = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
-                if (b2 != null) b2.setTextColor(0xFFBBBBBB);
+                if (b2 != null) b2.setTextColor(0xFF666666);
             });
             dialog.show();
         });

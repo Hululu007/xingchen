@@ -58,7 +58,7 @@ public class HkQrUtil {
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundResource(R.drawable.hk_update_log_bg);
+        root.setBackgroundResource(R.drawable.dialog_glass_light);
         int pad = dp(activity, 16);
         root.setPadding(pad, pad, pad, pad / 2);
 

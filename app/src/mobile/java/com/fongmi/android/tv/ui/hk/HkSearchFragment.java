@@ -518,7 +518,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
                 });
     }
 
-    private android.app.AlertDialog loadingDialog;
+    private androidx.appcompat.app.AlertDialog loadingDialog;
 
     private void showLoadingDialog() {
         Activity activity = getActivity();
@@ -530,7 +530,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             text.setTextSize(15);
             text.setTextColor(0xFF222222);
             text.setPadding(48, 40, 48, 40);
-            loadingDialog = new android.app.AlertDialog.Builder(activity)
+            loadingDialog = new com.fongmi.android.tv.ui.hk.HkDialogs(activity)
                     .setView(text).setCancelable(false).create();
             loadingDialog.show();
         });

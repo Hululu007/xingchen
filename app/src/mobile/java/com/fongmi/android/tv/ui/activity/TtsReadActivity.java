@@ -234,15 +234,18 @@ public class TtsReadActivity extends Activity
             this.navKey = navKey;
             this.ci = ci;
             this.si = si;
+            String cn = "", cu = "";
             try {
                 ReadingSession.Chapter c = job.chapters.get(
                         Math.min(ci, job.chapters.size() - 1));
-                this.chapterName = c.name;
-                this.chapterUrl = c.url;
+                cn = c.name;
+                cu = c.url;
             } catch (Throwable t) {
-                this.chapterName = "";
-                this.chapterUrl = "";
+                cn = "";
+                cu = "";
             }
+            this.chapterName = cn;
+            this.chapterUrl = cu;
         }
 
         private boolean keyMatch(PlaybackService svc) {

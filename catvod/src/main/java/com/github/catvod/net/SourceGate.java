@@ -54,6 +54,23 @@ public final class SourceGate {
     private static volatile Provider provider;
     private static final ThreadLocal<Mark> HOLDER = new ThreadLocal<>();
 
+    /**
+     * 按 host 认领归属的钩子（app 侧注册）：播放器取流线程、Glide 线程这类
+     * 无线程打点的请求，按请求 host 反查归属（如 Emby 服地址）。
+     * 模块方向约束同 Provider：实现由 app 侧提供。
+     * 返回 "kind|id"，无归属返回 null。实现里可做内核按需拉起，
+     * 但必须保证：host 不命中时足够便宜（select 是热路径）。
+     */
+    public interface HostClaim {
+        String claim(String host);
+    }
+
+    private static volatile HostClaim hostClaim;
+
+    public static void registerHostClaim(HostClaim c) {
+        hostClaim = c;
+    }
+
     private SourceGate() {
     }
 
@@ -99,6 +116,23 @@ public final class SourceGate {
 
     public static void clear() {
         HOLDER.remove();
+    }
+
+    /**
+     * 嵌套打点：返回打点前的旧归属，调用方在 finally 里配套 pop(prev) 恢复。
+     * EmbyApi 内层打点用它，避免内层 clear() 把外层（如 SiteApi 的 vod 标记）一起吞掉。
+     * 仅支持一层嵌套（现行调用链最深就是一层：SiteApi→EmbyApi）。
+     */
+    public static Mark push(String kind, String id) {
+        Mark prev = HOLDER.get();
+        mark(kind, id);
+        return prev;
+    }
+
+    /** 恢复 push() 之前的归属：有旧值则恢复，无则清掉。 */
+    public static void pop(Mark prev) {
+        if (prev != null) HOLDER.set(prev);
+        else HOLDER.remove();
     }
 
     public static Mark current() {
@@ -170,30 +204,44 @@ public final class SourceGate {
             public List<Proxy> select(URI uri) {
                 Provider p = provider;
                 Mark m = HOLDER.get();
-                if (m == null) m = fallbackMark(null);
+                String via = null;
+                if (m == null) {
+                    m = fallbackMark(null);
+                    if (m != null) via = "fallback";
+                }
                 if (p == null) {
                     if (m != null) logDecision("noprov|" + m.kind + "|" + m.id,
                             "gate direct reason=no-provider kind=" + m.kind + " id=" + m.id);
                     return shell.select(uri);
                 }
+                if (isLoopback(uri)) return List.of(Proxy.NO_PROXY);
+                // 无线程打点时按 host 认领归属（如 Emby 播放流/海报跑在 Exo/Glide 线程上）。
+                // 认领实现里可做内核按需拉起，所以放在 enabled() 门控之前。
+                if (m == null && hostClaim != null) {
+                    m = claimHost(uri);
+                    if (m != null) via = "host";
+                }
                 if (!p.enabled()) {
                     if (m != null) logDecision("disabled|" + m.kind + "|" + m.id,
-                            "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id);
+                            "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id + viaSuffix(via));
                     return shell.select(uri);
                 }
-                if (isLoopback(uri)) return List.of(Proxy.NO_PROXY);
                 boolean hit = (m != null) ? p.shouldProxy(m.kind, m.id) : p.globalMode();
                 if (hit) {
                     int port = p.port();
                     if (port > 0 && port <= 65535) {
                         logDecision("proxy|" + (m == null ? "global" : m.kind + "|" + m.id),
-                                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port);
+                                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + viaSuffix(via));
                         return List.of(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", port)));
                     }
                     logDecision("badport", "gate direct reason=bad-port port=" + port);
                 } else if (m != null) {
                     logDecision("notenabled|" + m.kind + "|" + m.id,
-                            "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id);
+                            "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id + viaSuffix(via));
+                } else {
+                    // 无归属也记一条（带 host）：以前流/图的直连是黑盒，现在可查。
+                    logDecision("nomark|" + hostOf(uri),
+                            "gate direct reason=no-mark host=" + hostOf(uri) + " (调用线程无源归属，查打点口径)");
                 }
                 return shell.select(uri);
             }
@@ -214,5 +262,37 @@ public final class SourceGate {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** 按 host 认领归属：host 归一化（小写去端口），认领结果 "kind|id" 转成 Mark。 */
+    private static Mark claimHost(URI uri) {
+        try {
+            HostClaim c = hostClaim;
+            if (c == null) return null;
+            String host = hostOf(uri);
+            if (host.isEmpty()) return null;
+            String claimed = c.claim(host);
+            if (claimed == null || claimed.isEmpty()) return null;
+            int bar = claimed.indexOf('|');
+            if (bar < 0) return null;
+            String kind = claimed.substring(0, bar);
+            if (kind.isEmpty()) return null;
+            return new Mark(kind, claimed.substring(bar + 1));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String hostOf(URI uri) {
+        try {
+            String host = uri.getHost();
+            return host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String viaSuffix(String via) {
+        return via == null ? "" : " via=" + via;
     }
 }

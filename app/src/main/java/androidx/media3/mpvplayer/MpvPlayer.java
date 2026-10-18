@@ -41,6 +41,7 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 
 import com.fongmi.android.tv.BuildConfig;
+import com.fongmi.android.tv.emby.EmbyProxyGate;
 import com.fongmi.android.tv.player.AudioPlaybackDiagnostics;
 import com.fongmi.android.tv.player.PlaybackAutoContext;
 import com.fongmi.android.tv.player.PlaybackRoute;
@@ -3723,6 +3724,18 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     }
 
     private void loadCurrentUri() {
+        // Emby 走节点：libmpv 不走 JVM 的 ProxySelector，按服策略灌 http-proxy；
+        // 非 Emby 或策略关则清空（恢复默认），其它源行为不变。
+        try {
+            String host = EmbyProxyGate.hostOfUrl(currentPlayableUri);
+            String proxyUrl = EmbyProxyGate.proxyUrlForHost(host, context);
+            setOption("http-proxy", proxyUrl == null ? "" : proxyUrl);
+            if (!host.isEmpty() && EmbyProxyGate.serverIdForHost(host) != null) {
+                PlaybackTrace.log("mpv", playbackTraceId, "emby http-proxy=%s",
+                        proxyUrl == null ? "off(内核没跑或开关关)" : proxyUrl);
+            }
+        } catch (Throwable ignored) {
+        }
         if (currentIsoUri != null && shouldCollectDebugDetails()) {
             PlaybackTrace.log("mpv", playbackTraceId,
                     "ISO routing raw=%s disc-menu=%s access-references=%s",

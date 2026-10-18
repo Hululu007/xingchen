@@ -41,5 +41,12 @@ public final class ClashGate {
                 return SourceProxyPolicy.shouldProxy(app, kind, id);
             }
         });
+        // Emby 按 host 认领：Exo 取流线程、Glide 线程无打点，按请求 host 反查开了走节点的服
+        SourceGate.registerHostClaim(new SourceGate.HostClaim() {
+            @Override
+            public String claim(String host) {
+                return com.fongmi.android.tv.emby.EmbyProxyGate.claim(host, app);
+            }
+        });
     }
 }

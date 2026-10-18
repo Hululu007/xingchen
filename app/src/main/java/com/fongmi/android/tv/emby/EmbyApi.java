@@ -236,14 +236,17 @@ public class EmbyApi {
      * 否则按服开关打点（默认直连）；节点总开关关 → 框架层全直连。
      * 打点前先做节点按需拉起：本服开了「走节点」就静默把内核拉起来，
      * 不再要求节点总开关先开（用户口径）。
+     * 返回打点前的旧归属，调用方在 finally 里 SourceGate.pop(prev) 恢复，
+     * 避免内层 clear() 把外层（如 SiteApi 的 vod 标记）一起吞掉。
      */
-    private void beginMark() {
+    private SourceGate.Mark beginMark() {
         try {
             ensureNodeForServer(serverId);
             boolean global = ClashSettings.isGlobalMode(App.get()) && ClashSettings.isEnabled(App.get());
-            if (!global) SourceGate.mark(SourceProxyPolicy.KIND_EMBY, serverId);
+            if (!global) return SourceGate.push(SourceProxyPolicy.KIND_EMBY, serverId);
         } catch (Throwable ignored) {
         }
+        return null;
     }
 
     /**
@@ -272,7 +275,7 @@ public class EmbyApi {
     private int lastHttpCode;
 
     private String get(String path) throws Exception {
-        beginMark();
+        SourceGate.Mark prev = beginMark();
         try {
             Request req = rb(path).get().build();
             try (Response resp = client.newCall(req).execute()) {
@@ -283,12 +286,12 @@ public class EmbyApi {
                 return resp.body().string();
             }
         } finally {
-            SourceGate.clear();
+            SourceGate.pop(prev);
         }
     }
 
     private void delete(String path) throws Exception {
-        beginMark();
+        SourceGate.Mark prev = beginMark();
         try {
             Request req = rb(path).delete().build();
             try (Response resp = client.newCall(req).execute()) {
@@ -296,12 +299,12 @@ public class EmbyApi {
                 if (!resp.isSuccessful()) throw new Exception("http " + resp.code());
             }
         } finally {
-            SourceGate.clear();
+            SourceGate.pop(prev);
         }
     }
 
     private String post(String path, String body) throws Exception {
-        beginMark();
+        SourceGate.Mark prev = beginMark();
         try {
             Request req = rb(path).post(RequestBody.create(body, JSON)).build();
             try (Response resp = client.newCall(req).execute()) {
@@ -312,7 +315,7 @@ public class EmbyApi {
                 return resp.body().string();
             }
         } finally {
-            SourceGate.clear();
+            SourceGate.pop(prev);
         }
     }
 
@@ -403,15 +406,17 @@ public class EmbyApi {
      * 登录/探测打点：与实例 beginMark 同口径——「全部走节点」模式下不打点（框架按全局决策），
      * 否则按服打点。登录前服务器还没入库也照打：id 先定、策略表先挂（见 EmbyServerActivity），
      * 这样只通节点的服在登录这一步就能走节点，不会卡死在第一步。
+     * 返回旧归属，调用方 finally 里 SourceGate.pop(prev) 恢复。
      */
-    private static void markFor(String serverId) {
+    private static SourceGate.Mark markFor(String serverId) {
         try {
             // 登录/探测也是"真正用节点"的时机：本服开了走节点就静默拉起内核
             ensureNodeForServer(serverId);
             boolean global = ClashSettings.isGlobalMode(App.get()) && ClashSettings.isEnabled(App.get());
-            if (!global) SourceGate.mark(SourceProxyPolicy.KIND_EMBY, serverId == null ? "" : serverId);
+            if (!global) return SourceGate.push(SourceProxyPolicy.KIND_EMBY, serverId == null ? "" : serverId);
         } catch (Throwable ignored) {
         }
+        return null;
     }
 
     /**
@@ -438,16 +443,16 @@ public class EmbyApi {
         Exception last = null;
         for (String base : cands) {
             ServerInfo info;
-            markFor(serverId);
+            SourceGate.Mark prev = markFor(serverId);
             try {
                 info = pingInternal(base, 8);
             } catch (Exception e) {
                 last = e;
                 continue;
             } finally {
-                SourceGate.clear();
+                SourceGate.pop(prev);
             }
-            markFor(serverId);
+            SourceGate.Mark prevLogin = markFor(serverId);
             try {
                 LoginResult r = loginInternal(base, username, password);
                 ResolvedLogin out = new ResolvedLogin();
@@ -456,7 +461,7 @@ public class EmbyApi {
                 out.login = r;
                 return out;
             } finally {
-                SourceGate.clear();
+                SourceGate.pop(prevLogin);
             }
         }
         throw new Exception("连不上服务器：地址再核对下，或打开「走节点」再试"

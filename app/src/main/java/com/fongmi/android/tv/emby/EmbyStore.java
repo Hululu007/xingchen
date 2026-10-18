@@ -156,6 +156,8 @@ public class EmbyStore {
         JSONArray arr = new JSONArray();
         for (EmbyServer s : list) arr.put(s.toJson());
         Prefers.put(K_SERVERS, arr.toString());
+        // 服地址/走节点开关可能变了，按 host 认领表失效重建
+        EmbyProxyGate.invalidate();
     }
 
     public static EmbyServer getServer(String id) {

@@ -46,6 +46,8 @@ public class ReadingStore {
         public String content = "";
         /** 漫画：看到第几张图（下标）；小说：进度万分比（0~10000，换字号也准）。 */
         public int position = 0;
+        /** 神经朗读：当前章内第几段（kind="TTS" 时有效）。 */
+        public int segIndex = 0;
         public long updatedAt = 0L;
 
         public String key() {

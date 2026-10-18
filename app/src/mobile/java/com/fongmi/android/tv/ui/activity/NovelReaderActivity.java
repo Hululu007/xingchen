@@ -218,8 +218,44 @@ public class NovelReaderActivity extends AppCompatActivity {
             Toast.makeText(this, "已切换主题", Toast.LENGTH_SHORT).show();
         });
         row2.addView(themeBtn);
+
+        // 朗读入口（功能线；视觉随后换皮）：神经朗读从当前章当前位置起读
+        TextView ttsBtn = btn("朗读");
+        ttsBtn.setOnClickListener(v -> startTts());
+        row2.addView(ttsBtn);
         bar.addView(row2);
         return bar;
+    }
+
+    /** 朗读本章：把会话递给朗读播放页（调用关系，阅读器本身不动）。 */
+    private void startTts() {
+        try {
+            com.fongmi.android.tv.tts.TtsJob job =
+                    new com.fongmi.android.tv.tts.TtsJob();
+            job.bookTitle = session.bookTitle;
+            job.coverUrl = session.coverUrl;
+            job.sourceName = session.sourceName;
+            job.siteKey = session.siteKey;
+            job.legadoKey = session.legadoKey;
+            job.ruleTitle = session.ruleTitle;
+            job.localId = session.localId;
+            job.inlineText = session.text;
+            if (session.chapters != null && !session.chapters.isEmpty()) {
+                job.chapters.addAll(session.chapters);
+            } else {
+                job.chapters.add(session.currentChapter());
+            }
+            job.startChapter = Math.max(0, Math.min(session.chapterIndex,
+                    job.chapters.size() - 1));
+            job.startFraction = Math.round(currentFraction() * 10000);
+            job.voiceId = com.fongmi.android.tv.tts.EdgeVoiceCatalog.defaultVoice();
+            job.rate = 1.0f;
+            String id = com.fongmi.android.tv.tts.TtsJob.put(job);
+            com.fongmi.android.tv.ui.activity.TtsReadActivity.start(this, id);
+            setBarsVisible(false);
+        } catch (Throwable t) {
+            Toast.makeText(this, "朗读启动失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private TextView btn(String text) {
@@ -270,7 +306,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         tvContent.setText("加载中…");
         refreshTitle();
         Task.execute(() -> {
-            String text = resolveText(ch);
+            String text = resolveText(session, ch);
             runOnUiThread(() -> {
                 loading = false;
                 currentText = text;
@@ -299,8 +335,11 @@ public class NovelReaderActivity extends AppCompatActivity {
         });
     }
 
-    /** 取正文：本地书 → 会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。 */
-    private String resolveText(ReadingSession.Chapter ch) {
+    /**
+     * 取正文：本地书 → 会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。
+     * 静态化供朗读引擎复用（同口径，不另起炉灶）。
+     */
+    static String resolveText(ReadingSession session, ReadingSession.Chapter ch) {
         // 本地书：按章从私有目录懒读
         if (com.fongmi.android.tv.localbook.LocalBookReader.isLocal(ch.url)) {
             return com.fongmi.android.tv.localbook.LocalBookReader.textOf(ch.url);

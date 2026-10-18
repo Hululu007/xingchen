@@ -87,19 +87,10 @@ public class ReadDialogs extends AlertDialog.Builder {
         return input(context, hint, multiLine, 0);
     }
 
-    /** 光标强制可见色：29+ 走公开 API，低版本反射兜底。 */
+    /** 光标强制可见色：29+ 走公开 API；低版本用主题默认光标（反射 mCursorDrawable 在 targetSdk 28+ 被 lintVital 拦为致命错，不用）。 */
     private static void applyVisibleCursor(EditText et) {
-        Drawable cursor = new ColorDrawable(ReadingSkin.GOLD_TEXT);
         if (Build.VERSION.SDK_INT >= 29) {
-            et.setTextCursorDrawable(cursor);
-            return;
-        }
-        try {
-            java.lang.reflect.Field f =
-                    android.widget.TextView.class.getDeclaredField("mCursorDrawable");
-            f.setAccessible(true);
-            f.set(et, new Drawable[]{cursor, cursor});
-        } catch (Throwable ignored) {
+            et.setTextCursorDrawable(new ColorDrawable(ReadingSkin.GOLD_TEXT));
         }
     }
 

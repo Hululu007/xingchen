@@ -1603,7 +1603,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         // ---- storage0 对象（官方：支持存储 JSON 对象的存储封装） ----
         // put* 用 stringifyArg 把值（含 JSObject）序列化为 JSON 存；get* 存的是 JSON 对象/数组则解析回 JS 对象返回
         // 壳只建一次存进 sharedStorage0：新鲜作用域补注册时直接共用，避免跨 Context 重建与重复挂载。
-        if (sharedStorage0 == null) sharedStorage0 = (ScriptableObject) rhinoCx.newObject(scope);
+        // registerApiInto(imageScope) 画像求值单例场景下字段 scope 恒为 null（initImageEngine
+        // 从不赋值 scope），此行与 1634/1637 行同 pattern 走守卫，免 Context.newObject(null) 打空。
+        if (sharedStorage0 == null) sharedStorage0 = (ScriptableObject) rhinoCx.newObject(apiRegTarget != null ? apiRegTarget : scope);
         ScriptableObject storage0 = sharedStorage0;
         putFunction(storage0, "putVar", args -> {
             if (args != null && args.length > 1) vars.put(argStr(args[0]), stringifyArg(args[1]));

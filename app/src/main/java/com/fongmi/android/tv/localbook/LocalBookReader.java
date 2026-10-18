@@ -44,6 +44,12 @@ public class LocalBookReader {
             if (book == null) return "";
             LocalBook.ChapterRef ref = chapterOf(book, url);
             if (ref == null) return "";
+            if ("MOBI".equals(book.format) || "AZW3".equals(book.format)) {
+                // mobi/azw3：正文已抽成 UTF-8 的 book.txt，章节是 charMode 偏移
+                File f = new File(book.dir, "book.txt");
+                if (!f.exists()) return "";
+                return LocalTxtIndex.readChapterCharMode(f, "UTF-8", ref);
+            }
             if ("TXT".equals(book.format)) {
                 File f = new File(book.dir, book.fileName);
                 if (!f.exists()) return "";
@@ -81,6 +87,14 @@ public class LocalBookReader {
                 File f = new File(book.dir, book.fileName);
                 if (!f.exists()) return out;
                 out.addAll(extractChapterImages(f, book, ref));
+            } else if (LocalArchive2.isCbrCb7(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists()) return out;
+                out.addAll(extractArchive2ChapterImages(f, book, ref));
+            } else if ("PDF".equals(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists()) return out;
+                out.addAll(renderPdfChapter(f, book, ref));
             } else if ("EPUB".equals(book.format)) {
                 File f = new File(book.dir, book.fileName);
                 if (!f.exists() || TextUtils.isEmpty(ref.entry)) return out;
@@ -143,6 +157,33 @@ public class LocalBookReader {
                 i++;
             }
         }
+        return out;
+    }
+
+    private static List<String> extractArchive2ChapterImages(File archFile, LocalBook book,
+                                                            LocalBook.ChapterRef ref) throws Exception {
+        List<String> out = new ArrayList<>();
+        File cache = chapterCache(book.id);
+        List<String> entries = LocalArchive2.imagesOf(archFile, ref, book.format);
+        int i = 0;
+        for (String name : entries) {
+            if (i >= MAX_IMAGES_PER_CHAPTER) break;
+            String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : ".jpg";
+            File target = new File(cache, String.format("%04d%s", i, ext));
+            LocalArchive2.extractTo(archFile, name, target, book.format);
+            out.add("file://" + target.getAbsolutePath());
+            i++;
+        }
+        return out;
+    }
+
+    /** PDF：只渲染本章的页（30 页一组），不整本预渲。 */
+    private static List<String> renderPdfChapter(File pdfFile, LocalBook book,
+                                                 LocalBook.ChapterRef ref) throws Exception {
+        File cache = chapterCache(book.id);
+        List<String> paths = LocalPdf.renderPages(pdfFile, ref.startPage, ref.endPage, cache);
+        List<String> out = new ArrayList<>();
+        for (String p : paths) out.add("file://" + p);
         return out;
     }
 

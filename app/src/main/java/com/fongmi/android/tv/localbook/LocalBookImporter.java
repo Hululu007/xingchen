@@ -34,24 +34,38 @@ public class LocalBookImporter {
         public String warn = "";
     }
 
-    /** 从文件选择器 Uri 导入（txt/epub/zip/cbz）。 */
+    /** 纯函数：按文件名判格式；不支持的抛 ImportException（人话）。供离线测试。 */
+    public static String formatOf(String display) throws ImportException {
+        String lower = display == null ? "" : display.toLowerCase();
+        if (lower.endsWith(".txt")) return "TXT";
+        if (lower.endsWith(".epub")) return "EPUB";
+        if (lower.endsWith(".cbz")) return "CBZ";
+        if (lower.endsWith(".zip")) return "ZIP";
+        if (lower.endsWith(".pdf")) return "PDF";
+        if (lower.endsWith(".mobi")) return "MOBI";
+        if (lower.endsWith(".azw") || lower.endsWith(".azw3")) return "AZW3";
+        if (lower.endsWith(".cbr")) return "CBR";
+        if (lower.endsWith(".cb7")) return "CB7";
+        if (lower.endsWith(".umd")) {
+            throw new ImportException("umd 是已淘汰的老格式，星辰暂不支持（txt/epub/mobi 可正常导入）");
+        }
+        if (lower.endsWith(".chm")) {
+            throw new ImportException("chm 格式暂不支持（可转成 pdf/epub 再导入）");
+        }
+        throw new ImportException("不支持的格式：" + display
+                + "（收 txt/epub/pdf/mobi/azw3/zip/cbz/cbr/cb7）");
+    }
+
+    /** 从文件选择器 Uri 导入（txt/epub/zip/cbz/pdf/mobi/azw3/cbr/cb7）。 */
     public static Result importUri(Context ctx, Uri uri) throws ImportException {
         String display = displayName(ctx, uri);
         if (TextUtils.isEmpty(display)) display = "未命名";
-        String lower = display.toLowerCase();
-        String format;
-        if (lower.endsWith(".txt")) format = "TXT";
-        else if (lower.endsWith(".epub")) format = "EPUB";
-        else if (lower.endsWith(".cbz")) format = "CBZ";
-        else if (lower.endsWith(".zip")) format = "ZIP";
-        else throw new ImportException("不支持的格式：" + display + "（只收 txt/epub/zip/cbz）");
+        String format = formatOf(display);
 
         String id = LocalBook.newId();
         File dir = new File(LocalBookStore.booksDir(), id);
         dir.mkdirs();
-        String ext = format.toLowerCase().equals("cbz") ? "cbz"
-                : format.toLowerCase().equals("zip") ? "zip"
-                : format.toLowerCase().equals("epub") ? "epub" : "txt";
+        String ext = format.toLowerCase().equals("azw3") ? "azw3" : format.toLowerCase();
         File target = new File(dir, "book." + ext);
         try {
             copyUri(ctx, uri, target, 2L * 1024 * 1024 * 1024);
@@ -61,7 +75,7 @@ public class LocalBookImporter {
             throw new ImportException("文件拷入失败：" + t.getMessage());
         }
 
-        String title = display.replaceAll("(?i)\\.(txt|epub|zip|cbz)$", "");
+        String title = display.replaceAll("(?i)\\.(txt|epub|zip|cbz|pdf|mobi|azw3?|cbr|cb7)$", "");
         try {
             LocalBook book = buildFromFile(id, dir, target, format, title);
             LocalBookStore.save(book);
@@ -148,6 +162,63 @@ public class LocalBookImporter {
             if (TextUtils.isEmpty(book.coverPath) && comic) {
                 book.coverPath = extractFirstComicImage(book, dir);
             }
+        } else if ("PDF".equals(format)) {
+            int pages;
+            try {
+                pages = LocalPdf.pageCount(target);
+            } catch (LocalPdf.PdfPasswordException pe) {
+                throw new ImportException("这本 PDF 带密码，星辰打不开（去密码后再导入）");
+            } catch (LocalPdf.PdfCorruptException ce) {
+                throw new ImportException("这本 PDF 已损坏，打不开");
+            }
+            book.kind = "COMIC";
+            book.title = title;
+            book.chapters = LocalPdf.chaptersOf(pages);
+            book.coverPath = renderPdfCover(target, dir);
+        } else if ("MOBI".equals(format) || "AZW3".equals(format)) {
+            File txtOut = new File(dir, "book.txt");
+            LocalMobi.Book mb;
+            try {
+                mb = LocalMobi.extract(target, txtOut);
+            } catch (LocalMobi.DrmException de) {
+                throw new ImportException("这本" + ("MOBI".equals(format) ? " mobi " : " azw3 ")
+                        + "带 DRM 加密，星辰打不开（换无 DRM 的版本）");
+            } catch (LocalMobi.UnsupportedException ue) {
+                throw new ImportException(ue.getMessage());
+            }
+            if (mb.chapters.isEmpty()) throw new ImportException("mobi 里没有可读章节");
+            book.kind = "NOVEL";
+            book.charset = "UTF-8";
+            book.title = TextUtils.isEmpty(mb.title) ? title : mb.title;
+            for (LocalMobi.Chapter mc : mb.chapters) {
+                LocalBook.ChapterRef c = new LocalBook.ChapterRef();
+                c.name = mc.name;
+                c.charMode = true;
+                c.charStart = mc.charStart;
+                c.charLength = mc.charLength;
+                book.chapters.add(c);
+            }
+        } else if ("CBR".equals(format) || "CB7".equals(format)) {
+            List<LocalBook.ChapterRef> chapters;
+            try {
+                if (LocalArchive2.isEncrypted(target, format)) {
+                    throw new ImportException("这是加密压缩包，星辰打不开（换未加密的版本）");
+                }
+                chapters = LocalArchive2.chaptersOf(target, format);
+            } catch (LocalRar.Rar5Exception r5) {
+                throw new ImportException("这是 RAR5 格式的压缩包，暂不支持（换 RAR4/zip 版）");
+            } catch (LocalSevenZ.EncryptedException ee) {
+                throw new ImportException("这是加密压缩包，星辰打不开（换未加密的版本）");
+            } catch (ImportException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new ImportException("压缩包已损坏或格式不对");
+            }
+            if (chapters.isEmpty()) throw new ImportException("压缩包里没有图片");
+            book.kind = "COMIC";
+            book.title = title;
+            book.chapters = chapters;
+            book.coverPath = extractCoverArchive2(target, format, chapters, dir);
         } else {
             // ZIP / CBZ
             try (ZipFile zip = new ZipFile(target)) {
@@ -251,6 +322,47 @@ public class LocalBookImporter {
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    private static String extractCoverArchive2(File archFile, String format,
+                                               List<LocalBook.ChapterRef> chapters, File dir) {
+        try {
+            List<String> images = LocalArchive2.imagesOf(archFile, chapters.get(0), format);
+            if (images.isEmpty()) return "";
+            File out = new File(dir, "cover.jpg");
+            LocalArchive2.extractTo(archFile, images.get(0), out, format);
+            return out.getAbsolutePath();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** PDF 封面：渲染第 1 页。 */
+    private static String renderPdfCover(File pdf, File dir) {
+        try {
+            File cache = new File(dir, "cover-tmp");
+            cache.mkdirs();
+            List<String> pages = LocalPdf.renderPages(pdf, 0, 0, cache);
+            if (pages.isEmpty()) return "";
+            File out = new File(dir, "cover.jpg");
+            copyFile(new File(pages.get(0)), out);
+            deleteDir(cache);
+            return out.getAbsolutePath();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static void deleteDir(File dir) {
+        if (dir == null || !dir.exists()) return;
+        File[] fs = dir.listFiles();
+        if (fs != null) {
+            for (File f : fs) {
+                if (f.isDirectory()) deleteDir(f);
+                else f.delete();
+            }
+        }
+        dir.delete();
     }
 
     private static String extractFirstComicImage(LocalBook book, File dir) {

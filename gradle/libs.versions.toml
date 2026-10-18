@@ -38,6 +38,8 @@ junit = "4.13.2"
 juniversalchardet = "1.0.3"
 jgit = "6.10.0.202406032230-r"
 jsoup = "1.22.2"
+junrar = "7.5.2"
+commons-compress = "1.27.1"
 logger = "2.2.0"
 lottie = "6.7.1"
 material = "1.14.0"
@@ -98,6 +100,8 @@ jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 juniversalchardet = { group = "com.googlecode.juniversalchardet", name = "juniversalchardet", version.ref = "juniversalchardet" }
 jgit = { group = "org.eclipse.jgit", name = "org.eclipse.jgit", version.ref = "jgit" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+junrar = { group = "com.github.junrar", name = "junrar", version.ref = "junrar" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commons-compress" }
 rtmp-client = { group = "com.github.mcxinyu", name = "LibRtmp-Client-for-Android", version.ref = "rtmpClient" }
 logger = { group = "com.orhanobut", name = "logger", version.ref = "logger" }
 lottie = { group = "com.airbnb.android", name = "lottie", version.ref = "lottie" }

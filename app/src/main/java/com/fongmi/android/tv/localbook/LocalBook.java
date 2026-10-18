@@ -24,6 +24,9 @@ public class LocalBook {
         /** epub：spine 条目的包内路径；zip/cbz：章节目录前缀（""=根）；dir：子目录相对路径（""=根）。 */
         public String entry = "";
         public int imageCount = 0;
+        /** PDF：本章起始页/结束页（0 起，含两端；非 PDF 格式忽略）。 */
+        public int startPage = 0;
+        public int endPage = 0;
 
         public ChapterRef() {
         }

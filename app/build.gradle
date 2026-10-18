@@ -202,6 +202,8 @@ dependencies {
     implementation libs.webkit
     implementation libs.android.gif.drawable
     implementation libs.jsoup
+    implementation libs.junrar
+    implementation libs.commons.compress
     implementation libs.bundles.glide
     implementation libs.bundles.jupnp
     implementation libs.customactivityoncrash

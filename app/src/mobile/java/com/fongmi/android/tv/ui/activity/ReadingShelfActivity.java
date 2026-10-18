@@ -308,7 +308,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private void showImportMenu() {
         new android.app.AlertDialog.Builder(this)
                 .setTitle("导入本地书")
-                .setItems(new String[]{"导入文件（txt / epub / zip / cbz）", "导入图片文件夹"},
+                .setItems(new String[]{"导入文件（txt / epub / pdf / mobi / azw3 / zip / cbz / cbr / cb7）", "导入图片文件夹"},
                         (d, which) -> {
                             if (which == 0) pickFiles();
                             else pickTree();
@@ -321,8 +321,10 @@ public class ReadingShelfActivity extends AppCompatActivity {
         it.addCategory(Intent.CATEGORY_OPENABLE);
         it.setType("*/*");
         it.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
-                "text/plain", "application/epub+zip", "application/zip",
-                "application/x-cbz", "application/x-zip-compressed"});
+                "text/plain", "application/epub+zip", "application/pdf",
+                "application/x-mobipocket-ebook", "application/zip",
+                "application/x-cbz", "application/x-cbr", "application/x-cb7",
+                "application/x-zip-compressed"});
         it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         try {
             filePicker.launch(it);

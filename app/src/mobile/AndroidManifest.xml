@@ -251,7 +251,7 @@
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:screenOrientation="fullUser" />
-        <!-- 本地书：文件管理器"用星辰打开" epub/zip/cbz 的分发页（txt 走 HomeActivity 既有链，不动） -->
+        <!-- 本地书：文件管理器"用星辰打开" epub/zip/cbz/pdf/mobi/cbr/cb7 的分发页（txt 走 HomeActivity 既有链，不动） -->
         <activity
             android:name=".localbook.LocalBookOpenActivity"
             android:exported="true"
@@ -264,8 +264,12 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/x-mobipocket-ebook" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-cbz" />
+                <data android:mimeType="application/x-cbr" />
+                <data android:mimeType="application/x-cb7" />
                 <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
         </activity>

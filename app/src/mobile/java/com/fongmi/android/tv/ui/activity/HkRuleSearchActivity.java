@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
@@ -19,6 +20,8 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -71,7 +74,11 @@ public class HkRuleSearchActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
+        // 海阔浅色页状态栏：透明＋深色图标（BaseActivity 默认白图标，浅底上看不清，这里盖掉）；
+        // 液态玻璃动态背景（LinearLayout 根走 decor 注入，画到状态栏底下）
+        EdgeToEdge.enable(this,
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT));
         HkDynamicBgView.attachTo(this);
         loadHistory();
         binding.rvResults.setLayoutManager(new GridLayoutManager(this, 2));

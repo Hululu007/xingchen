@@ -102,16 +102,18 @@ public class ThemeManager {
     private void doApply(Activity activity) {
         try {
             flog("doApply: activity=" + activity.getClass().getSimpleName());
-            // 海阔浅色页（列表页/搜索页）不跟主 App 主题走：不铺星辰壁纸，
-            // 窗口底与状态栏保持浅色不透明，避免状态栏透出壁纸。
-            // 窗口底照 8.83：列表页根布局写死纯白（activit_empty_fragment 的 viewBg=@color/white），
-            // 白底钮在纯白页上不显形；此前误用 #FAFAFA 浅灰，把白钮衬成了白块。
+            // 海阔浅色页（列表页/搜索页/聚合页/规则搜索页）不跟主 App 主题走：不铺星辰壁纸，
+            // 窗口底用动态背景顶色兜底；状态栏各页自己管（透明＋深色图标），这里不再强制不透明，
+            // 否则会盖住 decor 注入的动态背景，状态栏区又和页面断成两截
             String actName = activity.getClass().getName();
-            if (actName.endsWith(".ui.hk.HkListActivity") || actName.endsWith(".ui.hk.HkSearchActivity")) {
+            boolean hkPage = actName.endsWith(".ui.hk.HkListActivity")
+                    || actName.endsWith(".ui.hk.HkSearchActivity")
+                    || actName.endsWith(".ui.activity.HkPageActivity")
+                    || actName.endsWith(".ui.activity.HkRuleSearchActivity");
+            if (hkPage) {
                 try {
                     activity.getWindow().setBackgroundDrawable(
                             new android.graphics.drawable.ColorDrawable(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar)));
-                    activity.getWindow().setStatusBarColor(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar));
                 } catch (Exception ignored) {}
                 return;
             }

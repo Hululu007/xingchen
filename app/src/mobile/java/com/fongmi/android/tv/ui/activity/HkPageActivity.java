@@ -255,6 +255,8 @@ public class HkPageActivity extends BaseActivity {
         EdgeToEdge.enable(this,
                 SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
                 SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT));
+        // 液态玻璃动态背景：decor 注入，画到状态栏底下（XML 首孩子在 fitsSystemWindows 根里盖不住状态栏区，见 activity_hk.xml）
+        HkDynamicBgView.attachTo(this);
     }
 
     @Override

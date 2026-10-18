@@ -21,6 +21,8 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -606,8 +608,10 @@ public class HkListActivity extends AppCompatActivity
         setContentView(R.layout.activity_hk_list);
         // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
         HkDynamicBgView.attachTo(this);
-        // 海阔浅色页状态栏：与动态背景顶色融为一体，不漏白条（ThemeManager 的 resume 重刷同义处理）
-        getWindow().setStatusBarColor(getColor(R.color.hk_status_bar));
+        // 海阔浅色页状态栏：透明＋深色图标，动态背景（decor 注入）画到顶，融成一片
+        EdgeToEdge.enable(this,
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT));
         buildMiniappTabs();
         if (savedInstanceState != null) {
             androidx.fragment.app.Fragment restored =

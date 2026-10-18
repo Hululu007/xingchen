@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.hk;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -16,6 +17,8 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
@@ -117,8 +120,10 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         setContentView(R.layout.activity_hk_search);
         // 液态玻璃动态背景（LinearLayout 根走 decor 注入，视觉等同 XML 首孩子）
         HkDynamicBgView.attachTo(this);
-        // 海阔浅色页状态栏：与动态背景顶色融为一体，不漏白条（ThemeManager 的 resume 重刷同义处理）
-        getWindow().setStatusBarColor(getColor(R.color.hk_status_bar));
+        // 海阔浅色页状态栏：透明＋深色图标，动态背景（decor 注入）画到顶，融成一片
+        EdgeToEdge.enable(this,
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT));
 
         Intent intent = getIntent();
         oneRule = intent != null && intent.getBooleanExtra("oneRule", false);

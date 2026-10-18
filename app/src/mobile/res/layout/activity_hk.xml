@@ -6,11 +6,8 @@
     android:background="@android:color/transparent"
     android:fitsSystemWindows="true">
 
-    <!-- 液态玻璃动态背景：根第一个孩子，match_parent（施工图 §3.1） -->
-    <com.fongmi.android.tv.ui.hk.HkDynamicBgView
-        android:id="@+id/hk_dynamic_bg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    <!-- 液态玻璃动态背景：decor 注入（HkPageActivity.onCreate 调 HkDynamicBgView.attachTo），
+         能画到状态栏底下；XML 首孩子在 fitsSystemWindows 根里盖不住状态栏区，已迁走 -->
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -37,14 +34,14 @@
                 android:paddingBottom="8dp" />
 
             <!-- 悬浮磨砂顶栏：背景直接设在 FrameLayout 上，避免内部 match_parent 的 header_bg 测量异常撑满盖住列表 -->
-            <!-- 悬浮玻璃顶栏：左右 18dp 悬浮边距（样张定案的 margin 例外），背景代码设 HkGlassDrawable -->
+            <!-- 悬浮玻璃顶栏：左右边距与主 App 底栏对齐（外层 16dp，底栏 xc_float_margin=16dp），背景代码设 HkGlassDrawable -->
             <FrameLayout
                 android:id="@+id/header_cluster"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_alignParentTop="true"
-                android:layout_marginLeft="18dp"
-                android:layout_marginRight="18dp"
+                android:layout_marginLeft="0dp"
+                android:layout_marginRight="0dp"
                 android:background="@drawable/hk_header_glass">
 
                 <LinearLayout
@@ -52,14 +49,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <!-- 小程序列表顶栏：小程序 …… 右侧 搜索 | 排序 | 编辑 -->
+                    <!-- 小程序列表顶栏：小程序 …… 右侧 搜索 | 排序 | 编辑（内边距 24dp：胶囊 16dp 边距＋24dp 内边距，
+                         两头按钮离屏边 40dp，不贴边；与下方分组 chips 对齐） -->
                     <LinearLayout
                         android:id="@+id/top_bar_rules"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:gravity="center_vertical"
-                        android:paddingLeft="16dp"
-                        android:paddingRight="16dp">
+                        android:paddingLeft="24dp"
+                        android:paddingRight="24dp">
 
                         <TextView
                             android:id="@+id/tv_title_rule"
@@ -178,6 +176,8 @@
                         android:layout_height="40dp"
                         android:layout_marginTop="8dp"
                         android:clipToPadding="false"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
                         android:visibility="gone" />
 
                     <!-- 首页 inline 搜索条：点 🔍 展开，输入实时过滤小程序卡片，不跳页 -->

@@ -46,15 +46,18 @@ public final class LegadoSearchFlow {
         Toast.makeText(activity, "搜索中…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             List<Hit> hits = new ArrayList<>();
+            // 哪个源坏了记下来，展示时点名，不再静默吞掉
+            List<String> failures = new ArrayList<>();
             for (LegadoSource s : sources) {
                 try {
                     List<LegadoPipeline.Book> books = new LegadoPipeline(s).search(key);
                     for (LegadoPipeline.Book b : books) hits.add(new Hit(s, b));
-                } catch (Throwable ignored) {
-                    // 单源坏了只坏它自己，继续下一个
+                } catch (Throwable t) {
+                    String n = s == null || s.bookSourceName == null ? "" : s.bookSourceName;
+                    failures.add(n.isEmpty() ? "未知源" : n);
                 }
             }
-            activity.runOnUiThread(() -> showHits(activity, hits));
+            activity.runOnUiThread(() -> showHits(activity, hits, failures));
         }).start();
     }
 
@@ -74,23 +77,37 @@ public final class LegadoSearchFlow {
         return out;
     }
 
-    private static void showHits(Activity activity, List<Hit> hits) {
-        if (hits.isEmpty()) {
-            Toast.makeText(activity, "没有搜到", Toast.LENGTH_SHORT).show();
+    /**
+     * 反馈三档（不再是一闪而过的 Toast）：
+     * 有结果→弹列表；没结果→明说没搜到；有源报错→点名哪个源坏了（人话一句）。
+     */
+    private static void showHits(Activity activity, List<Hit> hits, List<String> failures) {
+        if (!hits.isEmpty()) {
+            String[] names = new String[hits.size()];
+            for (int i = 0; i < names.length; i++) {
+                Hit h = hits.get(i);
+                names[i] = h.book.name
+                        + (h.book.author.isEmpty() ? "" : " · " + h.book.author)
+                        + "（" + h.source.tag() + "）";
+            }
+            ReadDialogs.options(activity, "搜索结果（" + names.length + "）", names,
+                    which -> {
+                        Hit h = hits.get(which);
+                        openBook(activity, h.source, h.book);
+                    });
             return;
         }
-        String[] names = new String[hits.size()];
-        for (int i = 0; i < names.length; i++) {
-            Hit h = hits.get(i);
-            names[i] = h.book.name
-                    + (h.book.author.isEmpty() ? "" : " · " + h.book.author)
-                    + "（" + h.source.tag() + "）";
+        if (!failures.isEmpty()) {
+            String msg = failures.size() == 1
+                    ? "「" + failures.get(0) + "」搜书失败，换个源试试。"
+                    : failures.size() + " 个源搜书失败（"
+                    + android.text.TextUtils.join("、", failures) + "），换个源试试。";
+            new ReadDialogs(activity).setTitle("搜书").setMessage(msg)
+                    .setPositiveButton("知道了", null).show();
+            return;
         }
-        ReadDialogs.options(activity, "搜索结果（" + names.length + "）", names,
-                which -> {
-                    Hit h = hits.get(which);
-                    openBook(activity, h.source, h.book);
-                });
+        new ReadDialogs(activity).setTitle("搜书").setMessage("没有搜到，换个词试试。")
+                .setPositiveButton("知道了", null).show();
     }
 
     /** 拉目录 → 选章/选集 → 进阅读/听书（原 LegadoActivity.doOpenBook 原样搬迁）。 */

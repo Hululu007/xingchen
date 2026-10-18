@@ -79,7 +79,9 @@ public class LegadoPipeline {
                 if (o.has("charset")) spec.opt.charset = o.optString("charset", "utf-8");
                 if (o.has("body")) {
                     String b = o.optString("body", "");
-                    spec.opt.body = b.getBytes("UTF-8");
+                    // body 按该 URL 声明的 charset 编码（GBK 站按 UTF-8 发 body
+                    // 会导致服务端读到的 key 是乱码——与 legado AnalyzeUrl 行为对齐）
+                    spec.opt.body = toBytes(b, spec.opt.charset);
                 }
                 if (o.has("headers")) {
                     JSONObject h = o.optJSONObject("headers");
@@ -116,6 +118,46 @@ public class LegadoPipeline {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * 取 URL 模板尾部 ,{...} 里声明的 charset（无声明→UTF-8）。
+     * key 的 URL 编码与 POST body 编码都按它走——与 legado AnalyzeUrl 行为对齐：
+     * GBK 站若按 UTF-8 发 key，服务端按 GBK 解码得到乱码，搜索恒 0 条
+     * （m.manhuagui.com 实测：UTF-8 键回显乱码"鏂楃綏澶ч檰"0 条，GBK 键 4 条）。
+     */
+    private static String urlCharset(String template) {
+        String t = template == null ? "" : template.trim();
+        int oi = t.lastIndexOf(",{");
+        if (oi > 0 && t.endsWith("}")) {
+            try {
+                JSONObject o = new JSONObject(t.substring(oi + 1));
+                if (o.has("charset")) return normCharset(o.optString("charset", "utf-8"));
+            } catch (Throwable ignored) {
+            }
+        }
+        return "UTF-8";
+    }
+
+    private static byte[] toBytes(String s, String charset) {
+        String v = s == null ? "" : s;
+        try {
+            return v.getBytes(charset);
+        } catch (Throwable t) {
+            try {
+                return v.getBytes("UTF-8");
+            } catch (Throwable t2) {
+                return new byte[0];
+            }
+        }
+    }
+
+    private static String urlEncode(String s, String charset) {
+        try {
+            return URLEncoder.encode(s == null ? "" : s, charset);
+        } catch (Throwable e) {
+            return s == null ? "" : s;
+        }
     }
 
     // ================= 抓取 =================
@@ -225,7 +267,8 @@ public class LegadoPipeline {
             }
             try {
                 Map<String, String> vars = baseVars();
-                vars.put("key", urlEncode(key));
+                // key 按该 searchUrl 声明的 charset 编码（默认 UTF-8，保持老源行为不变）
+                vars.put("key", urlEncode(key, urlCharset(source.searchUrl)));
                 vars.put("page", String.valueOf(page));
                 UrlSpec spec = parseUrl(source.searchUrl, vars);
                 if (source.header != null) spec.opt.headers.putAll(source.header);
@@ -393,10 +436,6 @@ public class LegadoPipeline {
     }
 
     private static String urlEncode(String s) {
-        try {
-            return URLEncoder.encode(s == null ? "" : s, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            return s == null ? "" : s;
-        }
+        return urlEncode(s, "UTF-8");
     }
 }

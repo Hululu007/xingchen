@@ -20,6 +20,7 @@ import android.widget.Toast;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoException;
 import com.fongmi.android.tv.legado.LegadoPipeline;
 import com.fongmi.android.tv.legado.LegadoReading;
@@ -95,6 +96,8 @@ public class LegadoActivity extends Activity {
 
         setContentView(root);
         reload();
+        // AI 口令「导入书源」直达：打开即弹导入框
+        if (getIntent().getBooleanExtra("auto_import", false)) showImportDialog();
     }
 
     private void reload() {
@@ -266,10 +269,18 @@ public class LegadoActivity extends Activity {
                               List<LegadoPipeline.TocChapter> chapters) {
         String[] names = new String[chapters.size()];
         for (int i = 0; i < names.length; i++) names[i] = chapters.get(i).name;
-        new AlertDialog.Builder(this).setTitle(info.name + "（" + names.length + " 章）")
+        String unit = s.bookSourceType == LegadoSource.TYPE_AUDIO ? " 集" : " 章";
+        new AlertDialog.Builder(this).setTitle(info.name + "（" + names.length + unit + "）")
                 .setItems(names, (d, which) -> {
-                    ReadingSession session = LegadoReading.buildSession(s, info, chapters, which);
-                    ReadingRouter.openReading(this, session);
+                    if (s.bookSourceType == LegadoSource.TYPE_AUDIO) {
+                        // 听书：专辑进听书播放页
+                        LegadoAudio.AudioAlbum album =
+                                LegadoAudio.buildAlbum(s, info, chapters, which);
+                        AudioBookActivity.start(this, LegadoAudio.put(album));
+                    } else {
+                        ReadingSession session = LegadoReading.buildSession(s, info, chapters, which);
+                        ReadingRouter.openReading(this, session);
+                    }
                 })
                 .show();
     }

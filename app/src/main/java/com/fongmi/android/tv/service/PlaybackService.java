@@ -267,6 +267,12 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
 
     private void saveProgress() {
         if (hasNavigationCallback() || session == null) return;
+        // 听书隔离：audiobook: 开头的播放进度归 ReadingStore，不写点播历史
+        try {
+            if (player.getSpec() != null && player.getSpec().getKey() != null
+                    && player.getSpec().getKey().startsWith("audiobook:")) return;
+        } catch (Throwable ignored) {
+        }
         if (BrowseTree.saveProgress(player.getPosition(), player.getDuration(), player)) {
             session.notifyChildrenChanged("VOD", 0, null);
         }

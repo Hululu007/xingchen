@@ -293,6 +293,13 @@ public class AiActionExecutor {
                     intent = new Intent(context, Class.forName(cls));
                     intent.putExtra("auto_continue", true);
                     break;
+                case AiVoiceCommand.ACTION_NAV_BOOKSOURCE:
+                    cls = pkg + "LegadoActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    if ("import".equals(cmd.textParam)) {
+                        intent.putExtra("auto_import", true);
+                    }
+                    break;
                 case AiVoiceCommand.ACTION_NAV_DOWNLOAD:
                     cls = pkg + "DownloadActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -509,6 +516,8 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开书架");
                 case AiVoiceCommand.ACTION_NAV_CONTINUE_READING:
                     return new AiVoiceCommand.Command(action, "已继续阅读");
+                case AiVoiceCommand.ACTION_NAV_BOOKSOURCE:
+                    return new AiVoiceCommand.Command(action, "已打开书源");
                 case AiVoiceCommand.ACTION_NAV_DOWNLOAD:
                     return new AiVoiceCommand.Command(action, "已打开下载管理");
                 case AiVoiceCommand.ACTION_NAV_PLUGIN:

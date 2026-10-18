@@ -15,7 +15,8 @@ public class LegadoSource {
 
     /** 阶段一可跑：文本、图片。 */
     public static boolean runnable(int type) {
-        return type == TYPE_TEXT || type == TYPE_IMAGE;
+        // 阶段二·甲：type 1（听书）跑通；type 3 仍只存不跑
+        return type == TYPE_TEXT || type == TYPE_IMAGE || type == TYPE_AUDIO;
     }
 
     public String bookSourceUrl = "";

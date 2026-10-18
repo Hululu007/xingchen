@@ -39,6 +39,7 @@ import java.util.regex.Pattern;
  *   nav_keep        收藏 / 我的收藏
  *   nav_bookshelf   书架 / 打开书架 / 我的书架
  *   nav_continue_reading 继续读 / 继续看书
+ *   nav_booksource  书源 / 打开书源 / 书源管理 / 导入书源
  *   nav_download    下载管理 / 我的下载
  *   nav_plugin      插件管理
  *   nav_cloud       网盘 / 云盘
@@ -93,6 +94,7 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_KEEP = "nav_keep";
     public static final String ACTION_NAV_BOOKSHELF = "nav_bookshelf";
     public static final String ACTION_NAV_CONTINUE_READING = "nav_continue_reading";
+    public static final String ACTION_NAV_BOOKSOURCE = "nav_booksource";
     public static final String ACTION_NAV_DOWNLOAD = "nav_download";
     public static final String ACTION_NAV_PLUGIN = "nav_plugin";
     public static final String ACTION_NAV_CLOUD = "nav_cloud";
@@ -406,6 +408,12 @@ public class AiVoiceCommand {
         }
         if (t.contains("书架") || t.contains("打开书架") || t.contains("我的书架")) {
             return new Command(ACTION_NAV_BOOKSHELF, "已打开书架");
+        }
+        if (t.contains("导入书源")) {
+            return new Command(ACTION_NAV_BOOKSOURCE, "import", "已打开书源导入");
+        }
+        if (t.contains("书源管理") || t.contains("打开书源") || t.equals("书源")) {
+            return new Command(ACTION_NAV_BOOKSOURCE, "已打开书源");
         }
         if (t.contains("直播")) {
             return new Command(ACTION_NAV_LIVE, "已打开直播");

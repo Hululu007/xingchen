@@ -349,9 +349,14 @@ public class HkHttp {
                             // 8.83 OkHttpUrlLoader.Factory 内建 client：read/write 各 15 秒
                             .readTimeout(15, TimeUnit.SECONDS)
                             .writeTimeout(15, TimeUnit.SECONDS)
-                            // D1：与 8.83 对齐（OkHttpUrlLoader.Factory 内建 client 无 callTimeout）。
-                            // 注：OkHttp 的 connectTimeout 本就覆盖「DNS 解析 + 建连」整个阶段，
-                            // 域名解析挂起会被 connectTimeout 掐断，不需要 callTimeout 兜底。
+                            .callTimeout(45, TimeUnit.SECONDS)
+                            // W1（2026-10-18 二诊结论）：补回整次调用总超时 45 秒。8.83 内建 client 虽无 callTimeout，
+                            // 但星辰的图片 client 多了一层独有的代理选择器（SourceGate/GlobalProxy）：TLS 握手与代理
+                            // CONNECT 阶段不受 connect/read/write 约束（OkHttp 5.4.0：connectTimeout 只管 Socket.connect，
+                            // Dns.lookup/TLS/代理握手是同步阻塞无上界），请求一旦 hang 在这几阶段就永远不返回——
+                            // 1.3.44/45 真机「UU 每次进白、下拉刷新才出」的病根。DNS 阶段已由 HK_IMAGE_DNS 10 秒封顶，
+                            // callTimeout 补的是 TLS/代理握手这些真正无上界的阶段。hang 45 秒后 onFailure 进 fetcher
+                            // 自带的 3 次 refire 重试，瞬态 hang 在进页时自愈，不再靠用户下拉刷新。
                             // 按源定向：与壳子同套选择器链（SourceGate 包在 GlobalProxy 外）。
                             // to()/取数 client 由 client().newBuilder() 派生，选择器自动继承。
                             .proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())));

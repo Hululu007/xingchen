@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Emby 专属首页背景：深色纵向渐变（替代纯黑 #0B0E14）；白字系元素可读性不变 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#26314A"
+        android:centerColor="#141B2B"
+        android:endColor="#0B0E14"
+        android:type="linear" />
+</shape>

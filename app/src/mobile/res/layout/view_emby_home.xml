@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Emby 专属首页根视图：深色底；顶栏（服切换＋服名＋搜索/分类）+ 栏目滚动区；本视图常驻、只做显隐切换 -->
+<!-- Emby 专属首页根视图：深色渐变底（@drawable/emby_home_bg）；顶栏（服切换＋服名＋搜索/分类）+ 栏目滚动区；本视图常驻、只做显隐切换 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0B0E14">
+    android:background="@drawable/emby_home_bg">
 
     <LinearLayout
         android:layout_width="match_parent"

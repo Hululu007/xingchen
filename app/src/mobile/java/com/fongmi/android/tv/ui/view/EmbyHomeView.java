@@ -172,6 +172,8 @@ public class EmbyHomeView extends FrameLayout {
 
     /**
      * 视图盖满整窗：顶栏顶部让出状态栏高度，滚动区底部让出胶囊导航高度+间距。
+     * 顶栏在 XML 里是固定 56dp：这里把高度补成 56dp+状态栏高、顶部内边距取状态栏高，
+     * 内容区保持 56dp 不被挤压（之前只加内边距不加高，48dp 的胶囊/圆钮被纵向压扁成"蚂蚁"）。
      */
     private void applyWindowInsets(Context context) {
         try {
@@ -182,7 +184,16 @@ public class EmbyHomeView extends FrameLayout {
             int navMargin = context.getResources().getDimensionPixelSize(R.dimen.xc_bottombar_margin_bottom);
             int extra = (int) (24 * context.getResources().getDisplayMetrics().density + 0.5f);
             View topbar = findViewById(R.id.topbar);
-            if (topbar != null) topbar.setPadding(topbar.getPaddingLeft(), statusH, topbar.getPaddingRight(), topbar.getPaddingBottom());
+            if (topbar != null && topbar.getTag(R.id.topbar) == null) {
+                topbar.setTag(R.id.topbar, Boolean.TRUE);
+                float density = context.getResources().getDisplayMetrics().density;
+                android.view.ViewGroup.LayoutParams lp = topbar.getLayoutParams();
+                if (lp != null) {
+                    lp.height = (int) (56 * density + 0.5f) + statusH;
+                    topbar.setLayoutParams(lp);
+                }
+                topbar.setPadding(topbar.getPaddingLeft(), statusH, topbar.getPaddingRight(), 0);
+            }
             if (container != null) {
                 container.setPadding(container.getPaddingLeft(), container.getPaddingTop(),
                         container.getPaddingRight(), navH + navMargin + extra);

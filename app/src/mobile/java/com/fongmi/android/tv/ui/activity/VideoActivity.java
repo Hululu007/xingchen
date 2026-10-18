@@ -1643,6 +1643,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         detailHealthRecorded = false;
         mDetailParseSeq++;
         mReadingDetailDiverting = false;
+        mReadingDetailDivertedOnce = false;
         mNextPreloader.clear();
         mPreparsedHistoryResult = null;
         mPreparsedHistorySpec = null;
@@ -2066,7 +2067,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 补齐阅读器需要的上下文（书名/章节名/章节表）：VideoActivity 手里有详情上下文，
      * 判别层只带了数据本身。章节表取当前线路/选集列表。
      * <p>
-     * 不写视频历史、不进播放器；改道后 finish 自己（阅读器接管）。
+     * 不写视频历史、不进播放器；改道后详情页保留在阅读器之下，返回落回详情页。
      */
     private boolean divertToReader(Result result) {
         ReadingSession rs;
@@ -2080,9 +2081,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     /**
-     * 阅读器打开统一收口（自动改道 / 手动入口共用）。
+     * 阅读器打开统一收口（自动改道 / 手动入口 / 详情级改道共用）。
      * 补齐阅读器需要的上下文（书名/封面/章节表）：判别层/手动入口只带了数据本身。
-     * 不写视频历史、不进播放器；改道后 finish 自己（阅读器接管）。
+     * 不写视频历史、不进播放器；打开阅读器后不 finish——详情页留在阅读器下面，
+     * 从阅读器返回自然落回详情页（与视频「播放器返回回详情页」对称）。
+     * 防回弹的一次性抑制由调用方（详情级改道）负责，这里只管打开。
      */
     private boolean openReadingSession(ReadingSession rs, boolean manual) {
         try {
@@ -2119,7 +2122,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             SpiderDebug.log("video-flow", "reading open failed: %s", t.getMessage());
             return false;
         }
-        finish();
+        // 详情页保留在阅读器之下：从阅读器返回落回详情页，不 finish。
         return true;
     }
 
@@ -2137,6 +2140,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 探针无结果则复位回落详情页。
      */
     private volatile boolean mReadingDetailDiverting = false;
+
+    /**
+     * 本次详情访问已自动改道过一次：抑制详情级改道的二次自动触发
+     * （回到前台后不再自动跳阅读器）。用户手动点集、点手动入口不受影响，
+     * 仍可再进。生命周期与 mReadingDetailDiverting 同步，getDetail() 换书时复位。
+     */
+    private volatile boolean mReadingDetailDivertedOnce = false;
 
     /** 手动入口是否隐藏：Emby 详情/播放一律不露。 */
     private boolean isManualReadHidden() {
@@ -2225,6 +2235,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      */
     private boolean maybeDivertDetailToReading(String typeName) {
         if (mReadingDetailDiverting) return true;
+        if (mReadingDetailDivertedOnce) return false;  // 本次访问已改道过一次：回前台后不再自动改道
         try {
             if (isEmbyPlayback()) return false;           // 红线：Emby 纯视频
             String key = getKey();
@@ -2284,6 +2295,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                         return;
                     }
                     SpiderDebug.log("reading-nomiss", "detail divert key=%s why=%s kind=%s", key, why, rs.kind);
+                    // 探针结束：选集点击恢复；一次性抑制：回到详情页后不再自动改道。
+                    // 用户手动点集/点手动入口仍可再进；详情页不 finish，返回落回本页。
+                    mReadingDetailDiverting = false;
+                    mReadingDetailDivertedOnce = true;
                     openReadingSession(rs, false);
                 });
             } catch (Throwable t) {

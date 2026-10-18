@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -65,7 +64,7 @@ public class LegadoActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
+        ReadingSkin.enableEdgeToEdge(this, true);
         pageType = getIntent().getIntExtra("book_source_type", LegadoSource.TYPE_TEXT);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -162,26 +161,10 @@ public class LegadoActivity extends Activity {
         root.addView(rv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        root.addView(ReadingSkin.footnote(this, footnoteText()));
-
         setContentView(root);
         reload();
         // AI 口令「导入书源」直达：打开即弹粘贴导入框
         if (getIntent().getBooleanExtra("auto_import", false)) showPasteDialog();
-    }
-
-    /** 页脚：按类型说真话，不许再写"那边单独管"。 */
-    private String footnoteText() {
-        if (pageType == LegadoSource.TYPE_IMAGE) {
-            return "这里只列漫画源。小说源、听书源在各自栏目里管，两边不串。"
-                    + "源坏了只坏它自己，别的源照常看。";
-        }
-        if (pageType == LegadoSource.TYPE_AUDIO) {
-            return "这里只列听书源。小说源、漫画源在各自栏目里管，两边不串。"
-                    + "源坏了只坏它自己，别的源照常看。";
-        }
-        return "这里只列小说源。漫画源、听书源在各自栏目里管，两边不串。"
-                + "源坏了只坏它自己，别的源照常看。";
     }
 
     /** 添加入口小按钮：金描边暗底（走原有逻辑）。 */
@@ -242,19 +225,15 @@ public class LegadoActivity extends Activity {
     // ================= 导入（全页唯一入口：添加卡三路） =================
 
     private void showPasteDialog() {
-        EditText et = new EditText(this);
-        et.setHint("粘贴" + typeName() + " JSON");
-        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        et.setMinLines(6);
-        et.setGravity(Gravity.TOP);
+        // 定高滚动框：文本在框内滚动，弹窗不被撑满屏
+        EditText et = ReadDialogs.input(this, "粘贴" + typeName() + " JSON", true, 150);
         new ReadDialogs(this).setTitle("粘贴导入" + typeName()).setView(et)
                 .setPositiveButton("导入书源", (d, w) -> doImport(() -> LegadoStore.importText(et.getText().toString())))
                 .setNegativeButton("取消", null).show();
     }
 
     private void showUrlDialog() {
-        EditText et = new EditText(this);
-        et.setHint("https://…/xxx.json");
+        EditText et = ReadDialogs.input(this, "https://…/xxx.json", false);
         new ReadDialogs(this).setTitle("链接导入" + typeName()).setView(et)
                 .setPositiveButton("拉取", (d, w) -> doImport(() -> LegadoStore.importUrl(et.getText().toString().trim())))
                 .setNegativeButton("取消", null).show();
@@ -317,8 +296,9 @@ public class LegadoActivity extends Activity {
                     reload();
                 });
             } catch (Throwable t) {
-                runOnUiThread(() -> Toast.makeText(this,
-                        "导入失败：" + msg(t), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> failDialog("导入失败",
+                        "源没导进来。多半是 JSON 格式不对、文件损坏，或者链接打不开。"
+                                + "换一份正确的书源再试一次。详细原因已记到日志。", t));
             }
         }).start();
     }
@@ -330,8 +310,7 @@ public class LegadoActivity extends Activity {
             Toast.makeText(this, s.typeLabel() + "源暂不支持（阶段一）", Toast.LENGTH_SHORT).show();
             return;
         }
-        EditText et = new EditText(this);
-        et.setHint("输入书名/作者");
+        EditText et = ReadDialogs.input(this, "输入书名/作者", false);
         new ReadDialogs(this).setTitle("在「" + s.tag() + "」搜索").setView(et)
                 .setPositiveButton("搜索", (d, w) -> doSearch(s, et.getText().toString().trim()))
                 .setNegativeButton("取消", null).show();
@@ -345,7 +324,9 @@ public class LegadoActivity extends Activity {
                 List<LegadoPipeline.Book> books = new LegadoPipeline(s).search(key);
                 runOnUiThread(() -> showBooks(s, books));
             } catch (Throwable t) {
-                runOnUiThread(() -> Toast.makeText(this, "搜索失败：" + msg(t), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> failDialog("搜索失败",
+                        "这个源搜不动。多半是源地址失效或者网络不通。换个源再搜试试。"
+                                + "详细原因已记到日志。", t));
             }
         }).start();
     }
@@ -377,7 +358,9 @@ public class LegadoActivity extends Activity {
                 if (chapters.isEmpty()) throw new LegadoException("目录为空");
                 runOnUiThread(() -> showChapters(s, info, chapters));
             } catch (Throwable t) {
-                runOnUiThread(() -> Toast.makeText(this, "打开失败：" + msg(t), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> failDialog("打开失败",
+                        "这本书的目录拉不下来。多半是源地址失效或者网络不通。换个源再试试。"
+                                + "详细原因已记到日志。", t));
             }
         }).start();
     }
@@ -578,10 +561,14 @@ public class LegadoActivity extends Activity {
         }
     }
 
-    private static String msg(Throwable t) {
-        String m = t.getMessage();
-        if (m == null || m.isEmpty()) m = t.getClass().getSimpleName();
-        return m.length() > 120 ? m.substring(0, 120) : m;
+    /**
+     * 失败提示走深色弹窗（同族 GlassDialog）：文案只给人话＋出路，
+     * 英文原文/堆栈一律打日志，不上屏。
+     */
+    private void failDialog(String title, String body, Throwable t) {
+        android.util.Log.e("Legado", title + " raw=" + t, t);
+        new ReadDialogs(this).setTitle(title).setMessage(body)
+                .setPositiveButton("知道了", null).show();
     }
 
     private int dp(int v) {

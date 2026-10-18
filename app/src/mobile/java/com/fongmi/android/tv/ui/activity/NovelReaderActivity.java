@@ -203,8 +203,8 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void applyTheme() {
         root.setBackgroundColor(bg());
-        // 窗口底跟纸色走（夜间主题深色，状态栏不断带）
-        ReadingSkin.fitWindowBackground(this, bg(), isNightPref(theme()));
+        // 窗口底恒为壁纸（fitWindowBackground 已废弃）；这里只跟纸色切系统栏图标明暗
+        ReadingSkin.setSystemBarIconAppearance(this, isNightPref(theme()));
         if (tvContent != null) {
             tvContent.setTextColor(fg());
         }

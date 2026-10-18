@@ -43,7 +43,7 @@ import java.util.Locale;
 
 /**
  * 书架首页（对稿 reading-ui-mockup-v2/home-novel、home-comic）：
- * 小说栏＝在看的小说卡片（封面/进度/继续读）＋听书分区＋喜马拉雅卡＋我的小说源聚合卡；
+ * 小说栏＝在看的小说卡片（封面/进度/继续读）＋听书分区＋听书卡＋我的小说源聚合卡；
  * 漫画栏＝在看的漫画卡片（连载徽）＋我的漫画源聚合卡。各栏只说各栏的字。
  * 顶栏不设叉（用户规矩：所有页面不要叉，走系统返回）。
  */
@@ -86,7 +86,6 @@ public class ReadingShelfActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
         // AI 口令"继续读"中转：直接进最近一本，不在书架停留
         if (getIntent().getBooleanExtra("auto_continue", false)) {
             ReadingRouter.continueReading(this);
@@ -108,7 +107,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(ReadingSkin.pageBackground(this));
 
-        // 顶栏：标题＋书源/导入；不设叉，走系统返回
+        // 顶栏：标题＋本地导入；不设叉，走系统返回
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -135,15 +134,6 @@ public class ReadingShelfActivity extends AppCompatActivity {
         sub.setPadding(0, dp(2), 0, 0);
         titles.addView(sub);
         topBar.addView(titles);
-
-        TextView srcBtn = new TextView(this);
-        srcBtn.setText("书源");
-        srcBtn.setTextSize(16);
-        srcBtn.setTextColor(ReadingSkin.GOLD_TEXT);
-        srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
-        srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this,
-                currentType()));
-        topBar.addView(srcBtn);
 
         importBtn = new TextView(this);
         importBtn.setText("本地");
@@ -649,7 +639,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         return card;
     }
 
-    /** 喜马拉雅卡：去听书源列表逛。 */
+    /** 听书卡：去听书源列表。 */
     private View ximaCard() {
         Context c = this;
         LinearLayout card = new LinearLayout(c);
@@ -670,32 +660,29 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         meta.setLayoutParams(mlp);
         TextView n = new TextView(c);
-        n.setText("喜马拉雅");
+        n.setText("听书");
         n.setTextSize(15);
         n.getPaint().setFakeBoldText(true);
         n.setTextColor(ReadingSkin.TEXT);
         meta.addView(n);
         TextView d = new TextView(c);
-        d.setText("听书源 · 专辑 480 万＋");
+        d.setText("听书源");
         d.setTextSize(12);
         d.setTextColor(ReadingSkin.SUB);
         d.setPadding(0, dp(4), 0, 0);
         meta.addView(d);
         card.addView(meta);
 
+        // 右侧小字：照书源仓库卡那行抄（20sp/FAINT），文案「管理 ›」
         TextView go = new TextView(c);
-        go.setText("去逛逛");
-        go.setTextSize(12);
-        go.getPaint().setFakeBoldText(true);
-        go.setTextColor(0xFF0A2115);
-        go.setBackground(ReadingSkin.goldCapsule(c));
-        go.setPadding(dp(14), dp(7), dp(14), dp(7));
+        go.setText("管理 ›");
+        go.setTextSize(20);
+        go.setTextColor(ReadingSkin.FAINT);
         card.addView(go);
 
         View.OnClickListener open = v -> LegadoActivity.start(ReadingShelfActivity.this,
                 LegadoSource.TYPE_AUDIO);
         card.setOnClickListener(open);
-        go.setOnClickListener(open);
         return card;
     }
 

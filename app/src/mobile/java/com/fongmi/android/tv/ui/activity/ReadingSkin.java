@@ -75,12 +75,78 @@ public final class ReadingSkin {
     }
 
     /**
+     * 裸 {@code android.app.Activity} 用的 edge-to-edge（非 AppCompatActivity，
+     * 调不了 {@code androidx.activity.EdgeToEdge.enable(ComponentActivity)}）。
+     * 等效实现：内容延到状态栏下＋状态栏/导航栏透明；
+     * darkPage=true 时系统栏图标切浅色（深色页），false 时切深色（浅色页）。
+     */
+    public static void enableEdgeToEdge(android.app.Activity act, boolean darkPage) {
+        try {
+            android.view.Window w = act.getWindow();
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false);
+            w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            w.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                w.setStatusBarContrastEnforced(false);
+                w.setNavigationBarContrastEnforced(false);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsetsController ic = w.getInsetsController();
+                if (ic != null) {
+                    int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    ic.setSystemBarsAppearance(darkPage ? 0 : mask, mask);
+                }
+            } else {
+                android.view.View decor = w.getDecorView();
+                int f = decor.getSystemUiVisibility();
+                int bits = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                decor.setSystemUiVisibility(darkPage ? (f & ~bits) : (f | bits));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 只切系统栏图标明暗（深色页浅图标 / 浅色页深图标），不碰窗口底。
+     * 供纸色主题切换时调用；fitWindowBackground 的图标逻辑抽出，窗口底部分已废弃。
+     */
+    public static void setSystemBarIconAppearance(android.app.Activity act,
+                                                boolean darkPage) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsetsController ic =
+                        act.getWindow().getInsetsController();
+                if (ic != null) {
+                    int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    ic.setSystemBarsAppearance(darkPage ? 0 : mask, mask);
+                }
+            } else {
+                android.view.View decor = act.getWindow().getDecorView();
+                int f = decor.getSystemUiVisibility();
+                int bits = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                decor.setSystemUiVisibility(darkPage ? (f & ~bits) : (f | bits));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 窗口底对齐页面底：阅读页全挂 Theme.XingChen.HkPage，其 windowBackground
      * 是米白 #FFF4F6F8——状态栏接缝的根。调用方在 onCreate 里调一次，
      * 颜色只从这里取，各页不许各调各的。
      *
      * @param darkPage 深色页时状态栏/导航栏图标切浅色，浅色页切深色
+     * @deprecated 名存实亡，勿再调用：窗口底恒被 ThemeManager.doApply（每次
+     * onResume 的 posted 回调）重设为壁纸，本函数的窗口底设置活不过第一次
+     * resume；页面底只靠内容根视图自己的背景。状态栏压实走
+     * {@link #enableEdgeToEdge(android.app.Activity, boolean)}（裸 Activity）
+     * 或 {@code androidx.activity.EdgeToEdge.enable}（AppCompatActivity）。
      */
+    @Deprecated
     public static void fitWindowBackground(android.app.Activity act, int color,
                                           boolean darkPage) {
         try {

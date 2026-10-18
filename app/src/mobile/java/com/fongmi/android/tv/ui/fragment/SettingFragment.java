@@ -82,9 +82,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     @Override
     protected void initView() {
         EventBus.getDefault().register(this);
-        if (getActivity() != null && getActivity().getWindow() != null) {
-            getActivity().getWindow().setStatusBarColor(0xFFF5E3B8);
-        }
         mBinding.cardConfig.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.ConfigSourceActivity.start(getActivity()));
         mBinding.cardWatch.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.WatchRoomActivity.showJoinDialog(getActivity()));
         mBinding.cardPlayer.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.PlayerSettingsActivity.start(getActivity()));

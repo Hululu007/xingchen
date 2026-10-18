@@ -183,6 +183,8 @@
 
     <style name="ThemeOverlay.XingChen.GlassDialog.Dark" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
         <item name="dialogCornerRadius">16dp</item>
+        <item name="background">@drawable/dialog_glass_dark</item>
+        <item name="android:background">@drawable/dialog_glass_dark</item>
         <item name="android:windowBackground">@drawable/dialog_glass_dark</item>
         <item name="android:textColor">#F2F4F8</item>
         <item name="android:textColorPrimary">#F2F4F8</item>

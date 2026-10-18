@@ -29,6 +29,7 @@
 -keep class com.google.gson.** { *; }
 -keep class com.fongmi.android.tv.remote.** { *; }
 -keep class com.fongmi.android.tv.gitcloud.** { *; }
+-keep class com.fongmi.android.tv.legado.** { *; }
 
 # SimpleXML
 -keep interface org.simpleframework.xml.core.Label { public *; }

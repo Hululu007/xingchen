@@ -71,7 +71,8 @@ public class ComicReaderActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ReadingSkin.fitWindowBackground(this, 0xFF000000, true);
+        // fitWindowBackground 已废弃（窗口底恒被 ThemeManager.doApply 重设为壁纸）：
+        // 透明状态栏与图标明暗由下一行的 EdgeToEdge.enable 负责
         EdgeToEdge.enable(this);
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {

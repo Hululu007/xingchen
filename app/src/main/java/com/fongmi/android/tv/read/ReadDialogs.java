@@ -1,10 +1,16 @@
 package com.fongmi.android.tv.read;
 
 import android.content.Context;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.text.InputType;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -42,6 +48,59 @@ public class ReadDialogs extends AlertDialog.Builder {
     /** 选项回调。 */
     public interface OnSelect {
         void onSelect(int which);
+    }
+
+    /**
+     * 输入框工厂（阅读弹窗三处输入共用：粘贴导入 / 链接导入 / 搜书）。
+     * 用对话框 themed context 创建，显式套 {@code XingChen.DialogEditText.Dark} 样式
+     * （浅字＋暗底），光标强制可见色。
+     *
+     * @param multiLine  true=多行；heightDp&gt;0 时为定高滚动框（文本在框内滚动，
+     *                   弹窗不被撑满屏——粘贴导入走这个）
+     */
+    public static EditText input(Context context, String hint, boolean multiLine, int heightDp) {
+        Context themed = new ContextThemeWrapper(context,
+                R.style.ThemeOverlay_XingChen_GlassDialog_Dark);
+        EditText et = new EditText(themed, null, 0, R.style.XingChen_DialogEditText_Dark);
+        et.setHint(hint);
+        if (multiLine) {
+            et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            et.setGravity(Gravity.TOP | Gravity.START);
+            if (heightDp > 0) {
+                et.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ReadingSkin.dp(context, heightDp)));
+                et.setVerticalScrollBarEnabled(true);
+                et.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
+            }
+        } else {
+            et.setInputType(InputType.TYPE_CLASS_TEXT);
+            et.setSingleLine(true);
+        }
+        et.setHighlightColor(0x6645C08A);
+        applyVisibleCursor(et);
+        return et;
+    }
+
+    /** 输入框工厂：不定高（链接 / 搜索单行走这个）。 */
+    public static EditText input(Context context, String hint, boolean multiLine) {
+        return input(context, hint, multiLine, 0);
+    }
+
+    /** 光标强制可见色：29+ 走公开 API，低版本反射兜底。 */
+    private static void applyVisibleCursor(EditText et) {
+        Drawable cursor = new ColorDrawable(ReadingSkin.GOLD_TEXT);
+        if (Build.VERSION.SDK_INT >= 29) {
+            et.setTextCursorDrawable(cursor);
+            return;
+        }
+        try {
+            java.lang.reflect.Field f =
+                    android.widget.TextView.class.getDeclaredField("mCursorDrawable");
+            f.setAccessible(true);
+            f.set(et, new Drawable[]{cursor, cursor});
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 选项卡片弹窗：点选即回调并关闭（原 setItems 语义）。 */

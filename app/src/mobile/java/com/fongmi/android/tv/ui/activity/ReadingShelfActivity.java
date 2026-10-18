@@ -996,15 +996,9 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private void removeRecord(ReadingStore.Record r) {
         ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
         com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
-        if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
-            // 本地书：连书文件一起删，不在私有目录留垃圾
-            com.fongmi.android.tv.localbook.LocalBookStore.remove(r.localId);
-            Toast.makeText(ReadingShelfActivity.this, "已删除本地书",
-                    Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
-                    Toast.LENGTH_SHORT).show();
-        }
+        // 定案：长按只是移出书架；本地书文件留在私有目录，不删（改口：2026-10-18）
+        Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
+                Toast.LENGTH_SHORT).show();
         refresh();
     }
 

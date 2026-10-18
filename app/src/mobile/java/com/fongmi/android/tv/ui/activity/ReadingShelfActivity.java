@@ -268,11 +268,11 @@ public class ReadingShelfActivity extends AppCompatActivity {
         title.setEllipsize(TextUtils.TruncateAt.END);
     }
 
-    /** 漫画栏：在看的漫画＝两列海报网格（封面大图＋图下书名/话数/进度），跟小说栏文字列表一眼分家。 */
+    /** 漫画栏：在看的漫画＝三列海报网格（封面大图＋图下书名/话数/进度），跟小说栏文字列表一眼分家。 */
     private View comicGrid(List<ReadingStore.Record> comics) {
         Context c = this;
         android.widget.GridLayout grid = new android.widget.GridLayout(c);
-        int cols = 2;
+        int cols = 3;
         grid.setColumnCount(cols);
         int gap = dp(12);
         int cellW = (getResources().getDisplayMetrics().widthPixels - dp(32) - gap * (cols - 1)) / cols;
@@ -332,7 +332,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         card.addView(coverWrap);
 
         TextView tvTitle = new TextView(c);
-        tvTitle.setTextSize(13);
+        tvTitle.setTextSize(12);
         tvTitle.getPaint().setFakeBoldText(true);
         tvTitle.setTextColor(ReadingSkin.TEXT);
         tvTitle.setMaxLines(2);
@@ -342,7 +342,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         card.addView(tvTitle);
 
         TextView tvSub = new TextView(c);
-        tvSub.setTextSize(11);
+        tvSub.setTextSize(10);
         tvSub.setTextColor(ReadingSkin.SUB);
         tvSub.setSingleLine(true);
         tvSub.setEllipsize(TextUtils.TruncateAt.END);

@@ -87,11 +87,11 @@ public final class ReadingSkin {
             act.getWindow().setBackgroundDrawable(
                     new android.graphics.drawable.ColorDrawable(color));
             if (android.os.Build.VERSION.SDK_INT >= 30) {
-                android.window.WindowInsetsController ic =
+                android.view.WindowInsetsController ic =
                         act.getWindow().getInsetsController();
                 if (ic != null) {
-                    int mask = android.window.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | android.window.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
                     ic.setSystemBarsAppearance(darkPage ? 0 : mask, mask);
                 }
             } else {

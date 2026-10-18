@@ -71,6 +71,16 @@
                 app:tint="#464B53" />
 
             <androidx.appcompat.widget.AppCompatImageButton
+                android:id="@+id/btnShelf"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/xc_circle_glass"
+                android:padding="10dp"
+                android:src="@drawable/menu_book2"
+                app:tint="#464B53" />
+
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnMore"
                 android:layout_width="40dp"
                 android:layout_height="40dp"

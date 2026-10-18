@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -34,6 +36,10 @@ import java.util.Locale;
  */
 public class ReadingShelfActivity extends AppCompatActivity {
 
+    public static void start(Context context) {
+        context.startActivity(new Intent(context, ReadingShelfActivity.class));
+    }
+
     private final List<ReadingStore.Record> records = new ArrayList<>();
     private ShelfAdapter adapter;
     private TextView tvEmpty;
@@ -42,6 +48,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
+        // AI 口令"继续读"中转：直接进最近一本，不在书架停留
+        if (getIntent().getBooleanExtra("auto_continue", false)) {
+            ReadingRouter.continueReading(this);
+            finish();
+            return;
+        }
         buildUi();
         refresh();
     }

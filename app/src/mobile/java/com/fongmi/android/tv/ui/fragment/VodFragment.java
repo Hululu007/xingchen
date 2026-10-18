@@ -44,6 +44,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.fongmi.android.tv.ui.activity.HistoryActivity;
 import com.fongmi.android.tv.ui.activity.KeepActivity;
+import com.fongmi.android.tv.ui.activity.ReadingShelfActivity;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
 import com.fongmi.android.tv.ui.base.BaseFragment;
@@ -142,6 +143,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         });
         mBinding.btnFav.setOnClickListener(v -> KeepActivity.start(requireActivity()));
         mBinding.btnHistory.setOnClickListener(v -> HistoryActivity.start(requireActivity()));
+        mBinding.btnShelf.setOnClickListener(v -> ReadingShelfActivity.start(requireActivity()));
         mBinding.btnMore.setOnClickListener(v -> onMoreActions());
         mBinding.appBar.addOnOffsetChangedListener((appBarLayout, verticalOffset) -> {
             int range = appBarLayout.getTotalScrollRange();

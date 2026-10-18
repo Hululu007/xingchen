@@ -2060,6 +2060,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 rs.bookTitle = mHistory.getVodName();
             }
             if (TextUtils.isEmpty(rs.bookTitle)) rs.bookTitle = getName();
+            if (TextUtils.isEmpty(rs.coverUrl)) rs.coverUrl = getPic();
             // 章节表：判别层没带全时，用当前选集列表补（py 源章节即选集）。
             if (rs.chapters.size() <= 1) {
                 List<Episode> eps = episodeListForReader();

@@ -283,6 +283,16 @@ public class AiActionExecutor {
                     cls = pkg + "KeepActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                case AiVoiceCommand.ACTION_NAV_BOOKSHELF:
+                    cls = pkg + "ReadingShelfActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    break;
+                case AiVoiceCommand.ACTION_NAV_CONTINUE_READING:
+                    // main 源集调不到 mobile 的 ReadingRouter：经书架页中转（extra 触发继续读）
+                    cls = pkg + "ReadingShelfActivity";
+                    intent = new Intent(context, Class.forName(cls));
+                    intent.putExtra("auto_continue", true);
+                    break;
                 case AiVoiceCommand.ACTION_NAV_DOWNLOAD:
                     cls = pkg + "DownloadActivity";
                     intent = new Intent(context, Class.forName(cls));
@@ -495,6 +505,10 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开播放历史");
                 case AiVoiceCommand.ACTION_NAV_KEEP:
                     return new AiVoiceCommand.Command(action, "已打开收藏");
+                case AiVoiceCommand.ACTION_NAV_BOOKSHELF:
+                    return new AiVoiceCommand.Command(action, "已打开书架");
+                case AiVoiceCommand.ACTION_NAV_CONTINUE_READING:
+                    return new AiVoiceCommand.Command(action, "已继续阅读");
                 case AiVoiceCommand.ACTION_NAV_DOWNLOAD:
                     return new AiVoiceCommand.Command(action, "已打开下载管理");
                 case AiVoiceCommand.ACTION_NAV_PLUGIN:

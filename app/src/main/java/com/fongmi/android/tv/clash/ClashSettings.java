@@ -3,6 +3,9 @@ package com.fongmi.android.tv.clash;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
 * 节点开关与相关配置的持久化。
 * <p>
@@ -26,6 +29,8 @@ private static final String PREFS = "clash_meta";
 
 private static final String KEY_ENABLED = "node_switch_enabled";
 private static final String KEY_SUB_URL = "sub_url";
+private static final String KEY_SUB_SOURCE = "sub_source";
+private static final String KEY_SUB_LOCAL_URIS = "sub_local_uris";
 private static final String KEY_MIXED_PORT = "mixed_port";
 private static final String KEY_SELECTED_NODE = "selected_node";
 private static final String KEY_KERNEL_VERSION = "kernel_version";
@@ -51,12 +56,48 @@ public static void setEnabled(Context context, boolean enabled) {
 prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
 }
 
+/** 订阅来源：网址订阅。 */
+public static final String SUB_SOURCE_URL = "url";
+/** 订阅来源：本地文件订阅。 */
+public static final String SUB_SOURCE_LOCAL = "local";
+
 public static String getSubUrl(Context context) {
 return prefs(context).getString(KEY_SUB_URL, "");
 }
 
 public static void setSubUrl(Context context, String url) {
 prefs(context).edit().putString(KEY_SUB_URL, url == null? "": url.trim()).apply();
+}
+
+/** 订阅当前是本地文件模式。 */
+public static boolean isSubLocal(Context context) {
+return SUB_SOURCE_LOCAL.equals(prefs(context).getString(KEY_SUB_SOURCE, SUB_SOURCE_URL));
+}
+
+/** 本地模式下记住的订阅文件 Uri（字符串形式，按选入顺序）。 */
+public static List<String> getSubLocalUris(Context context) {
+String raw = prefs(context).getString(KEY_SUB_LOCAL_URIS, "");
+List<String> list = new ArrayList<>();
+for (String s : raw.split("\n")) {
+if (s != null && !s.trim().isEmpty()) list.add(s.trim());
+}
+return list;
+}
+
+/** 切到本地订阅：记住一个或多个文件的 Uri，下次刷新重读它们。 */
+public static void setSubLocal(Context context, List<String> uriStrings) {
+StringBuilder sb = new StringBuilder();
+for (String s : uriStrings) {
+if (s == null || s.isEmpty()) continue;
+if (sb.length() > 0) sb.append('\n');
+sb.append(s);
+}
+prefs(context).edit().putString(KEY_SUB_SOURCE, SUB_SOURCE_LOCAL).putString(KEY_SUB_LOCAL_URIS, sb.toString()).apply();
+}
+
+/** 切回网址订阅：清掉本地文件记录。 */
+public static void setSubUrlSource(Context context) {
+prefs(context).edit().putString(KEY_SUB_SOURCE, SUB_SOURCE_URL).remove(KEY_SUB_LOCAL_URIS).apply();
 }
 
 public static int getMixedPort(Context context) {

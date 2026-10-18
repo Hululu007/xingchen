@@ -1415,7 +1415,10 @@ public class EmbyHomeView extends FrameLayout {
             h.name.setText(v.name == null ? "" : v.name);
             h.kind.setText(h.itemView.getContext().getString(R.string.emby_cats_kind_lib));
             boolean on = checked.contains(v.id);
-            h.check.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+            // 未选中也保留空圈可见，只换背景与勾，不整体隐藏
+            h.check.setVisibility(View.VISIBLE);
+            h.check.setBackgroundResource(on ? R.drawable.xc_circle_glass : R.drawable.xc_circle_ring);
+            h.check.setText(on ? "✓" : "");
             h.itemView.setOnClickListener(x -> {
                 if (checked.contains(v.id)) checked.remove(v.id);
                 else checked.add(v.id);

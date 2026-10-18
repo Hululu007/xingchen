@@ -2120,6 +2120,29 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
      * x5:// 合成规则开页、X5/Webkit 嗅探、pics:// 图集、磁力/迅雷、.torrent、scheme 外部处理、图片预览、
      * 视频/音乐（直达播放或选集交接）、apk 下载、http/file 网页、未知链接 toast。
      */
+    /** P2 取证：dealWithUrl 分支标记（点条目后空规则预取案的自证证据）。
+     * 只记分支名/规则标题/URL 的 host 与扩展名，不记完整 URL；失败不影响主流程。 */
+    private void dealBranchMark(String branch, String url) {
+        try {
+            String host = "", ext = "", title = "";
+            try {
+                android.net.Uri u = android.net.Uri.parse(url == null ? "" : url);
+                host = u.getHost() == null ? "" : u.getHost();
+                String seg = u.getLastPathSegment();
+                if (seg != null) {
+                    int q = seg.indexOf('?');
+                    if (q >= 0) seg = seg.substring(0, q);
+                    int d = seg.lastIndexOf('.');
+                    if (d >= 0 && d < seg.length() - 1) ext = seg.substring(d + 1).toLowerCase(java.util.Locale.ROOT);
+                }
+            } catch (Throwable ignored) {}
+            try {
+                title = articleListRule != null && articleListRule.getTitle() != null ? articleListRule.getTitle() : "";
+            } catch (Throwable ignored) {}
+            SpiderDebug.log("hk", "dealWithUrl branch=%s rule=%s host=%s ext=%s", branch, title, host, ext);
+        } catch (Throwable ignored) {}
+    }
+
     private void dealWithUrl(View view, String url, int position, String codeAndHeader) {
         if (position < 0 || adapter == null || position >= adapter.getList().size()) return;
         if (getContext() == null) return;
@@ -2130,11 +2153,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             memoryPos = false;
         }
         if (isPageUrl(url)) {
+            dealBranchMark("page", url);
             toNextPage(position, url);
             return;
         }
         if (detailBridge != null && detailBridge.dealUrlSimply(getActivity(), view, articleListRuleDTO, item, url,
                 result -> dealWithUrl(view, result, position, codeAndHeader), null)) {
+            dealBranchMark("scheme", url);
             if (webViewHolder != null) {
                 String itemUrl = item.getUrl();
                 if (itemUrl != null && (itemUrl.contains("refreshX5WebView") || itemUrl.contains("refreshPage"))) {
@@ -2150,15 +2175,18 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         String titlePrefix = !TextUtils.isEmpty(actTitle) ? actTitle + "-" : actTitle;
         String lower = url.toLowerCase(java.util.Locale.ROOT);
         if (lower.startsWith("javascript")) {
+            dealBranchMark("javascript", url);
             memoryPosition(position);
             if (detailBridge != null) detailBridge.goWeb(getContext(), url);
             return;
         }
         if (lower.startsWith("func://background")) {
+            dealBranchMark("background", url);
             if (listHost && hostListener != null) hostListener.onBackground();
             return;
         }
         if (url.startsWith("x5://")) {
+            dealBranchMark("x5-sublist", url);
             String inner = url.replaceFirst("(?i)x5://", "");
             HkRule r = new HkRule();
             r.setUrl("hiker://empty");
@@ -2184,6 +2212,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (detailBridge != null && detailBridge.canParseX5(url)) {
+            dealBranchMark("x5parse", url);
             // 照原版 X5 支：inList 命中且 goWeb 成功才 return，否则继续 parse0
             if (HkFuck.inList(getActivity()) && HkFuck.goWeb(getContext(), myUrl, url)) return;
             boolean started = detailBridge.parseX5(getActivity(), url, extraJson(item),
@@ -2195,6 +2224,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (detailBridge != null && detailBridge.canParseWebkit(url)) {
+            dealBranchMark("webkitparse", url);
             // 照原版 Webkit 支：inList 命中即 goWeb 后无条件 return（不看 goWeb 结果，原版不对称怪癖照抄）
             if (HkFuck.inList(getActivity())) {
                 HkFuck.goWeb(getContext(), myUrl, url);
@@ -2209,6 +2239,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (lower.startsWith("pics://")) {
+            dealBranchMark("pics", url);
             boolean fromLast = isClickLastPageBtn(articleListRule.getUrl(), actTitle, position);
             memoryPosition(position);
             String body = url.replaceFirst("(?i)pics://", "");
@@ -2232,14 +2263,17 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (url.startsWith("magnet:?") || url.startsWith("thunder://")) {
+            dealBranchMark("magnet", url);
             if (detailBridge != null) detailBridge.startDownloadMagnet(getContext(), url);
             return;
         }
         if (url.split(";")[0].endsWith(".torrent")) {
+            dealBranchMark("torrent", url);
             if (detailBridge != null) detailBridge.startParseTorrent(getContext(), url);
             return;
         }
         if (detailBridge != null && detailBridge.isFTPOrEd2k(url)) {
+            dealBranchMark("ftped2k", url);
             detailBridge.startParseFTPOrEd2k(getContext(), url,
                     result -> {
                         dismissLoadingPopup();
@@ -2248,11 +2282,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (detailBridge != null && detailBridge.isScheme(url)) {
+            dealBranchMark("scheme-chooser", url);
             detailBridge.findChooserToDeal(getContext(), url);
             return;
         }
         String ext = detailBridge == null ? "" : detailBridge.getFileExtensionFromUrl(url);
         if (detailBridge != null && detailBridge.isImage(url)) {
+            dealBranchMark("image", url);
             android.widget.ImageView srcView = null;
             if (view instanceof android.widget.ImageView) {
                 srcView = (android.widget.ImageView) view;
@@ -2270,6 +2306,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (detailBridge != null && detailBridge.isVideoOrMusic(url)) {
+            dealBranchMark("play", url);
             memoryPosition(position);
             if (url.startsWith("video://") && HkFuck.inList(getActivity())
                     && HkFuck.goWeb(getContext(), myUrl, url)) return;
@@ -2310,10 +2347,12 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (lower.startsWith("http") && "apk".equalsIgnoreCase(ext)) {
+            dealBranchMark("apk", url);
             if (detailBridge != null) detailBridge.showDownloadDialog(getActivity(), item.getTitle(), url, null, com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(url));
             return;
         }
         if (lower.startsWith("http") || lower.startsWith("file://")) {
+            dealBranchMark("web", url);
             memoryPosition(position);
             android.os.Bundle bundle = new android.os.Bundle();
             if (detailBridge != null) {
@@ -2327,9 +2366,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             return;
         }
         if (detailBridge != null && detailBridge.isCannotHandleScheme(lower)) {
+            dealBranchMark("cannot-handle", url);
             detailBridge.findChooserToDeal(getContext(), url);
             return;
         }
+        dealBranchMark("unhandled", url);
         if (detailBridge != null) detailBridge.toastBottom("未知链接：" + url);
     }
 

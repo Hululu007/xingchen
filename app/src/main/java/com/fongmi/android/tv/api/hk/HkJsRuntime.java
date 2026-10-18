@@ -1627,10 +1627,34 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         });
         putFunction(storage0, "getVar", args -> storage0Get(vars, args));
         putFunction(storage0, "putMyVar", args -> {
-            if (args != null && args.length > 1) myVars.put(argStr(args[0]), stringifyArg(args[1]));
+            // P0：与全局 putMyVar 同命名空间（myVarKeyFor＋myVarsFor，含第三参规则名口径）。
+            // 此前裸键存、全局版「规则名@键」存，写读分家 → 分类页签永不切换。
+            if (args != null && args.length > 1) {
+                String rt3 = args.length > 2 ? argStr(args[2]) : null;
+                Map<String, String> target = myVarsFor(rt3);
+                target.put(myVarKeyFor(argStr(args[0]), rt3), stringifyArg(args[1]));
+                // 取证日志（与全局版同格式）：只记规则标题/键/值，超长截断，抛错不影响主流程
+                try {
+                    String pv = stringifyArg(args[1]);
+                    SpiderDebug.log("hk", "putMyVar rule=%s key=%s value=%s", rule.getTitle(), argStr(args[0]), pv != null && pv.length() > 100 ? pv.substring(0, 100) + "…" : pv);
+                } catch (Throwable ignored) {}
+            }
             return null;
         });
-        putFunction(storage0, "getMyVar", args -> storage0Get(myVars, args));
+        putFunction(storage0, "getMyVar", args -> {
+            // P0：与全局 getMyVar 同键处理；保留 storage0 的 JSON 回解析语义（见 storage0GetByKey）。
+            if (args == null || args.length == 0) return "";
+            String rt3 = args.length > 2 ? argStr(args[2]) : null;
+            Map<String, String> target = myVarsFor(rt3);
+            String resolved = myVarKeyFor(argStr(args[0]), rt3);
+            Object r = storage0GetByKey(target, resolved, args);
+            // 取证日志（与全局版同格式）：存里没读到标「空」，超长截断，抛错不影响主流程
+            try {
+                String raw = String.valueOf(r);
+                SpiderDebug.log("hk", "getMyVar rule=%s key=%s value=%s", rule.getTitle(), argStr(args[0]), target.get(resolved) == null ? "空" : (raw.length() > 100 ? raw.substring(0, 100) + "…" : raw));
+            } catch (Throwable ignored) {}
+            return r;
+        });
         putFunction(storage0, "setItem", args -> {
             if (args != null && args.length > 1) {
                 kv.put(argStr(args[0]), stringifyArg(args[1]));
@@ -5591,7 +5615,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      */
     private Object storage0Get(java.util.Map<String, String> map, Object[] args) {
         if (args == null || args.length == 0) return "";
-        String v = map.get(argStr(args[0]));
+        return storage0GetByKey(map, argStr(args[0]), args);
+    }
+
+    /**
+     * P0：按已算好的键取值的 storage0.get*（供 storage0.getMyVar 用：
+     * 键走与全局版相同的 myVarKeyFor 命名空间，表走 myVarsFor，解析语义不变）。
+     */
+    private Object storage0GetByKey(java.util.Map<String, String> map, String key, Object[] args) {
+        String v = map.get(key);
         if (v == null) {
             if (args.length > 1 && args[1] != null) return args[1];
             return "";

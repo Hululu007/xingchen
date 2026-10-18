@@ -96,6 +96,13 @@ public class LegadoAudio {
         }
         String url = firstHttpLine(c == null ? null : c.text);
         if (url.isEmpty()) throw new LegadoException("本集未解析出音频地址");
+        // 节点认领：Exo 取流跑在无打点线程，登记音频 host → 书源归属，
+        // SourceGate 的 HostClaim 按 host 反查（与 EmbyPoster 同口径）。
+        try {
+            com.fongmi.android.tv.clash.ReadingProxyGate.recordUrl(
+                    url, com.fongmi.android.tv.clash.SourceProxyPolicy.KIND_BOOK, source.bookSourceUrl);
+        } catch (Throwable ignored) {
+        }
         return url;
     }
 

@@ -22,6 +22,9 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okio.ByteString;
 
+import com.github.catvod.net.GlobalProxy;
+import com.github.catvod.net.SourceGate;
+
 /**
  * Edge 大声朗读合成客户端（「阅读」生态在线朗读同款通路）。
  * <p>
@@ -48,7 +51,14 @@ public class EdgeTtsClient {
     private static final String TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
     private static final String OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 
+    /**
+     * 合成连接走节点门：挂 SourceGate 选择器链，无线程打点——
+     * 判据：合成服务是固定基础设施端点，不归属任何书源，逐源开关不适用；
+     * 默认直连，只有「全部走节点」总开关能把它带走（与门内其它无归属流量同口径）。
+     */
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
+            .proxySelector(SourceGate.wrapSelector(
+                    GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build();

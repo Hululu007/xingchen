@@ -42,10 +42,24 @@ public final class ClashGate {
             }
         });
         // Emby 按 host 认领：Exo 取流线程、Glide 线程无打点，按请求 host 反查开了走节点的服
+        // 阅读按 host 认领：漫画图片（Glide 线程）、听书音频（Exo 取流线程）无打点，
+        // 按请求 host 反查图片/音频登记时的书源归属（ReadingProxyGate）。
+        // 两路都走同一套 Provider 决策，不另起平行开关。
+        ReadingProxyGate.setPolicy(ReadingProxyPolicy.android(app));
         SourceGate.registerHostClaim(new SourceGate.HostClaim() {
             @Override
             public String claim(String host) {
-                return com.fongmi.android.tv.emby.EmbyProxyGate.claim(host, app);
+                String e = com.fongmi.android.tv.emby.EmbyProxyGate.claim(host, app);
+                if (e != null) return e;
+                String r = ReadingProxyGate.claim(host);
+                if (r == null) return null;
+                try {
+                    if (!MihomoManager.get().isRunning()
+                            && !MihomoManager.get().ensureRunning(app)) return null;
+                } catch (Throwable ignored) {
+                    return null;
+                }
+                return r;
             }
         });
     }

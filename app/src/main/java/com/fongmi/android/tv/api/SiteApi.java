@@ -91,16 +91,38 @@ public class SiteApi {
         return SourceProxyPolicy.KIND_VOD;
     }
 
-    /** 包一层源归属打点：当前线程的 spider 同步请求走按源定向决策，finally 里清掉。 */
+    /** 包一层源归属打点：当前线程的 spider 同步请求走按源定向决策，进出按栈恢复。 */
     private static String marked(Site site, Callable<String> call) throws Exception {
         String kind = proxyKindOf(site);
         if (kind == null) return call.call();
-        SourceGate.mark(kind, site.getKey());
+        SourceGate.Mark prev = SourceGate.push(kind, site.getKey());
         try {
             return call.call();
         } finally {
-            SourceGate.clear();
+            SourceGate.pop(prev);
         }
+    }
+
+    /**
+     * 站点 key → 节点 kind（公开给阅读模块用）：先查配置里的站点按 api 判，
+     * 查不到时按 key 前缀/后缀启发式兜底，默认 vod。
+     */
+    public static String proxyKindForKey(String siteKey) {
+        try {
+            Site site = VodConfig.get().getSite(siteKey);
+            if (site != null) {
+                String k = proxyKindOf(site);
+                if (k != null) return k;
+            }
+        } catch (Throwable ignored) {
+        }
+        if (siteKey != null) {
+            if (siteKey.startsWith("py_")) return SourceProxyPolicy.KIND_PY;
+            String k = siteKey.toLowerCase();
+            if (k.contains(".py")) return SourceProxyPolicy.KIND_PY;
+            if (k.contains(".js") || k.contains(".wv")) return SourceProxyPolicy.KIND_JS;
+        }
+        return SourceProxyPolicy.KIND_VOD;
     }
 
 

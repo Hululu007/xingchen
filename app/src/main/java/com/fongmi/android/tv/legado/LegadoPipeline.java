@@ -146,6 +146,28 @@ public class LegadoPipeline {
         }
     }
 
+    /**
+     * 节点归属作用域：整个书源操作（抓取＋规则求值＋JS 桥 ajax）记到具体书源名下，
+     * LegadoHttpAndroid 打点用。公共入口用 try-with-resources 包住整个操作。
+     */
+    public final class SourceScope implements AutoCloseable {
+        private final String prevKey;
+
+        SourceScope() {
+            this.prevKey = LegadoHttpAndroid.swapSourceKey(source.bookSourceUrl);
+        }
+
+        @Override
+        public void close() {
+            LegadoHttpAndroid.restoreSourceKey(prevKey);
+        }
+    }
+
+    /** 打开一次书源操作的作用域。 */
+    public SourceScope scope() {
+        return new SourceScope();
+    }
+
     private String charsetOf(LegadoHttp.Result r, String fallback) {
         String ct = r.contentType == null ? "" : r.contentType.toLowerCase();
         int i = ct.indexOf("charset=");
@@ -195,159 +217,171 @@ public class LegadoPipeline {
     }
 
     public List<Book> search(String key, int page) {
-        if (source.ruleSearch == null || isEmpty(source.ruleSearch.bookList)) {
-            throw new LegadoException(source.tag() + " 未配置搜索规则");
-        }
-        try {
-            Map<String, String> vars = baseVars();
-            vars.put("key", urlEncode(key));
-            vars.put("page", String.valueOf(page));
-            UrlSpec spec = parseUrl(source.searchUrl, vars);
-            if (source.header != null) spec.opt.headers.putAll(source.header);
-            String text = fetchText(spec);
-            LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
-            List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, source.ruleSearch.bookList);
-            List<Book> out = new ArrayList<>();
-            for (LegadoRuleEvaluator.Sel el : els) {
-                Book b = new Book();
-                b.name = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.name, false);
-                b.author = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.author, false);
-                b.coverUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.coverUrl, true);
-                b.bookUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.bookUrl, true);
-                if (!b.name.isEmpty() && !b.bookUrl.isEmpty()) out.add(b);
+        // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
+        try (SourceScope ignored = scope()) {
+            if (source.ruleSearch == null || isEmpty(source.ruleSearch.bookList)) {
+                throw new LegadoException(source.tag() + " 未配置搜索规则");
             }
-            return out;
-        } catch (LegadoException e) {
-            throw e;
-        } catch (Throwable t) {
-            throw new LegadoException(source.tag() + " 搜索失败: " + t.getMessage());
-        }
+            try {
+                Map<String, String> vars = baseVars();
+                vars.put("key", urlEncode(key));
+                vars.put("page", String.valueOf(page));
+                UrlSpec spec = parseUrl(source.searchUrl, vars);
+                if (source.header != null) spec.opt.headers.putAll(source.header);
+                String text = fetchText(spec);
+                LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
+                List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, source.ruleSearch.bookList);
+                List<Book> out = new ArrayList<>();
+                for (LegadoRuleEvaluator.Sel el : els) {
+                    Book b = new Book();
+                    b.name = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.name, false);
+                    b.author = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.author, false);
+                    b.coverUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.coverUrl, true);
+                    b.bookUrl = LegadoRuleEvaluator.str(el, ctx, source.ruleSearch.bookUrl, true);
+                    if (!b.name.isEmpty() && !b.bookUrl.isEmpty()) out.add(b);
+                }
+                return out;
+            } catch (LegadoException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new LegadoException(source.tag() + " 搜索失败: " + t.getMessage());
+            }
+            }
     }
 
     // ================= 详情 =================
 
     public BookInfo bookInfo(String bookUrl) {
-        if (source.ruleBookInfo == null) throw new LegadoException(source.tag() + " 未配置详情规则");
-        try {
-            UrlSpec spec = parseUrl(bookUrl, baseVars());
-            if (source.header != null) spec.opt.headers.putAll(source.header);
-            String text = fetchText(spec);
-            LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
-            LegadoSource.RuleBookInfo r = source.ruleBookInfo;
-            BookInfo info = new BookInfo();
-            info.name = LegadoRuleEvaluator.str(ctx.root, ctx, r.name, false);
-            info.author = LegadoRuleEvaluator.str(ctx.root, ctx, r.author, false);
-            info.coverUrl = LegadoRuleEvaluator.str(ctx.root, ctx, r.coverUrl, true);
-            info.intro = LegadoRuleEvaluator.str(ctx.root, ctx, r.intro, false);
-            info.tocUrl = LegadoRuleEvaluator.str(ctx.root, ctx, r.tocUrl, true);
-            return info;
-        } catch (LegadoException e) {
-            throw e;
-        } catch (Throwable t) {
-            throw new LegadoException(source.tag() + " 详情失败: " + t.getMessage());
-        }
+        // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
+        try (SourceScope ignored = scope()) {
+            if (source.ruleBookInfo == null) throw new LegadoException(source.tag() + " 未配置详情规则");
+            try {
+                UrlSpec spec = parseUrl(bookUrl, baseVars());
+                if (source.header != null) spec.opt.headers.putAll(source.header);
+                String text = fetchText(spec);
+                LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
+                LegadoSource.RuleBookInfo r = source.ruleBookInfo;
+                BookInfo info = new BookInfo();
+                info.name = LegadoRuleEvaluator.str(ctx.root, ctx, r.name, false);
+                info.author = LegadoRuleEvaluator.str(ctx.root, ctx, r.author, false);
+                info.coverUrl = LegadoRuleEvaluator.str(ctx.root, ctx, r.coverUrl, true);
+                info.intro = LegadoRuleEvaluator.str(ctx.root, ctx, r.intro, false);
+                info.tocUrl = LegadoRuleEvaluator.str(ctx.root, ctx, r.tocUrl, true);
+                return info;
+            } catch (LegadoException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new LegadoException(source.tag() + " 详情失败: " + t.getMessage());
+            }
+            }
     }
 
     // ================= 目录 =================
 
     public List<TocChapter> toc(String tocUrl) {
-        if (source.ruleToc == null || isEmpty(source.ruleToc.chapterList)) {
-            throw new LegadoException(source.tag() + " 未配置目录规则");
-        }
-        List<TocChapter> out = new ArrayList<>();
-        String next = tocUrl;
-        int pages = 0;
-        try {
-            while (next != null && !next.isEmpty() && pages < MAX_TOC_PAGES) {
-                pages++;
-                UrlSpec spec = parseUrl(next, baseVars());
-                if (source.header != null) spec.opt.headers.putAll(source.header);
-                String text = fetchText(spec);
-                LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
-                LegadoSource.RuleToc r = source.ruleToc;
-                // 优先逐元素；元素口径取空时退化为列表 zip
-                List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, r.chapterList);
-                boolean usedElements = false;
-                for (LegadoRuleEvaluator.Sel el : els) {
-                    String name = LegadoRuleEvaluator.str(el, ctx, r.chapterName, false);
-                    if (!name.isEmpty()) usedElements = true;
-                }
-                if (usedElements) {
-                    for (LegadoRuleEvaluator.Sel el : els) {
-                        TocChapter c = new TocChapter();
-                        c.name = LegadoRuleEvaluator.str(el, ctx, r.chapterName, false);
-                        c.url = LegadoRuleEvaluator.str(el, ctx, r.chapterUrl, true);
-                        if (!c.name.isEmpty()) out.add(c);
-                    }
-                } else {
-                    List<String> names = LegadoRuleEvaluator.strList(ctx.root, ctx, r.chapterName);
-                    List<String> urls = new ArrayList<>();
-                    for (String u : LegadoRuleEvaluator.strList(ctx.root, ctx, r.chapterUrl)) {
-                        urls.add(LegadoRuleEvaluator.absUrl(spec.url, u));
-                    }
-                    int n = Math.min(names.size(), urls.size());
-                    for (int i = 0; i < n; i++) {
-                        TocChapter c = new TocChapter();
-                        c.name = names.get(i);
-                        c.url = urls.get(i);
-                        out.add(c);
-                    }
-                }
-                next = LegadoRuleEvaluator.str(ctx.root, ctx, r.nextTocUrl, true);
+        // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
+        try (SourceScope ignored = scope()) {
+            if (source.ruleToc == null || isEmpty(source.ruleToc.chapterList)) {
+                throw new LegadoException(source.tag() + " 未配置目录规则");
             }
-            return out;
-        } catch (LegadoException e) {
-            throw e;
-        } catch (Throwable t) {
-            throw new LegadoException(source.tag() + " 目录失败: " + t.getMessage());
-        }
+            List<TocChapter> out = new ArrayList<>();
+            String next = tocUrl;
+            int pages = 0;
+            try {
+                while (next != null && !next.isEmpty() && pages < MAX_TOC_PAGES) {
+                    pages++;
+                    UrlSpec spec = parseUrl(next, baseVars());
+                    if (source.header != null) spec.opt.headers.putAll(source.header);
+                    String text = fetchText(spec);
+                    LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
+                    LegadoSource.RuleToc r = source.ruleToc;
+                    // 优先逐元素；元素口径取空时退化为列表 zip
+                    List<LegadoRuleEvaluator.Sel> els = LegadoRuleEvaluator.elements(ctx, r.chapterList);
+                    boolean usedElements = false;
+                    for (LegadoRuleEvaluator.Sel el : els) {
+                        String name = LegadoRuleEvaluator.str(el, ctx, r.chapterName, false);
+                        if (!name.isEmpty()) usedElements = true;
+                    }
+                    if (usedElements) {
+                        for (LegadoRuleEvaluator.Sel el : els) {
+                            TocChapter c = new TocChapter();
+                            c.name = LegadoRuleEvaluator.str(el, ctx, r.chapterName, false);
+                            c.url = LegadoRuleEvaluator.str(el, ctx, r.chapterUrl, true);
+                            if (!c.name.isEmpty()) out.add(c);
+                        }
+                    } else {
+                        List<String> names = LegadoRuleEvaluator.strList(ctx.root, ctx, r.chapterName);
+                        List<String> urls = new ArrayList<>();
+                        for (String u : LegadoRuleEvaluator.strList(ctx.root, ctx, r.chapterUrl)) {
+                            urls.add(LegadoRuleEvaluator.absUrl(spec.url, u));
+                        }
+                        int n = Math.min(names.size(), urls.size());
+                        for (int i = 0; i < n; i++) {
+                            TocChapter c = new TocChapter();
+                            c.name = names.get(i);
+                            c.url = urls.get(i);
+                            out.add(c);
+                        }
+                    }
+                    next = LegadoRuleEvaluator.str(ctx.root, ctx, r.nextTocUrl, true);
+                }
+                return out;
+            } catch (LegadoException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new LegadoException(source.tag() + " 目录失败: " + t.getMessage());
+            }
+            }
     }
 
     // ================= 正文 =================
 
     public Content content(String chapterUrl) {
-        if (source.ruleContent == null || isEmpty(source.ruleContent.content)) {
-            throw new LegadoException(source.tag() + " 未配置正文规则");
-        }
-        Content c = new Content();
-        StringBuilder sb = new StringBuilder();
-        String next = chapterUrl;
-        int pages = 0;
-        try {
-            while (next != null && !next.isEmpty() && pages < MAX_CONTENT_PAGES) {
-                pages++;
-                UrlSpec spec = parseUrl(next, baseVars());
-                if (source.header != null) spec.opt.headers.putAll(source.header);
-                String text = fetchText(spec);
-                LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
-                LegadoSource.RuleContent r = source.ruleContent;
-                if (pages == 1) c.title = LegadoRuleEvaluator.str(ctx.root, ctx, r.title, false);
-                String part;
-                if (source.bookSourceType == LegadoSource.TYPE_IMAGE) {
-                    // 漫画：图片 URL 列表（换行分隔为社区共识；JSON [*] 走列表口径）
-                    List<String> imgs = LegadoRuleEvaluator.strList(ctx.root, ctx, r.content);
-                    part = String.join("\n", imgs);
-                    for (String line : part.split("\n")) {
-                        String u = line.trim();
-                        if (u.startsWith("http")) {
-                            if (sb.length() > 0) sb.append('\n');
-                            sb.append(u);
-                        }
-                    }
-                } else {
-                    part = LegadoRuleEvaluator.str(ctx.root, ctx, r.content, false);
-                    if (sb.length() > 0) sb.append("\n");
-                    sb.append(part.trim());
-                }
-                next = LegadoRuleEvaluator.str(ctx.root, ctx, r.nextContentUrl, true);
+        // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
+        try (SourceScope ignored = scope()) {
+            if (source.ruleContent == null || isEmpty(source.ruleContent.content)) {
+                throw new LegadoException(source.tag() + " 未配置正文规则");
             }
-            c.text = sb.toString().trim();
-            return c;
-        } catch (LegadoException e) {
-            throw e;
-        } catch (Throwable t) {
-            throw new LegadoException(source.tag() + " 正文失败: " + t.getMessage());
-        }
+            Content c = new Content();
+            StringBuilder sb = new StringBuilder();
+            String next = chapterUrl;
+            int pages = 0;
+            try {
+                while (next != null && !next.isEmpty() && pages < MAX_CONTENT_PAGES) {
+                    pages++;
+                    UrlSpec spec = parseUrl(next, baseVars());
+                    if (source.header != null) spec.opt.headers.putAll(source.header);
+                    String text = fetchText(spec);
+                    LegadoRuleEvaluator.Ctx ctx = ctxOf(text, spec.url);
+                    LegadoSource.RuleContent r = source.ruleContent;
+                    if (pages == 1) c.title = LegadoRuleEvaluator.str(ctx.root, ctx, r.title, false);
+                    String part;
+                    if (source.bookSourceType == LegadoSource.TYPE_IMAGE) {
+                        // 漫画：图片 URL 列表（换行分隔为社区共识；JSON [*] 走列表口径）
+                        List<String> imgs = LegadoRuleEvaluator.strList(ctx.root, ctx, r.content);
+                        part = String.join("\n", imgs);
+                        for (String line : part.split("\n")) {
+                            String u = line.trim();
+                            if (u.startsWith("http")) {
+                                if (sb.length() > 0) sb.append('\n');
+                                sb.append(u);
+                            }
+                        }
+                    } else {
+                        part = LegadoRuleEvaluator.str(ctx.root, ctx, r.content, false);
+                        if (sb.length() > 0) sb.append("\n");
+                        sb.append(part.trim());
+                    }
+                    next = LegadoRuleEvaluator.str(ctx.root, ctx, r.nextContentUrl, true);
+                }
+                c.text = sb.toString().trim();
+                return c;
+            } catch (LegadoException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new LegadoException(source.tag() + " 正文失败: " + t.getMessage());
+            }
+            }
     }
 
     // ================= 杂项 =================

@@ -9,15 +9,16 @@ import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.ui.activity.ComicReaderActivity;
 import com.fongmi.android.tv.ui.activity.NovelReaderActivity;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.net.GlobalProxy;
+import com.github.catvod.net.SourceGate;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 章节缓存：按书把后续章节落到私有目录，供离线看。
@@ -27,6 +28,32 @@ import java.util.Locale;
 public final class ReadingDownload {
 
     private ReadingDownload() {
+    }
+
+    /**
+     * 章节缓存下载专用 OkHttp：挂 SourceGate 选择器链（与 HkHttp/Exo 同门），
+     * 调用线程的打点（书源/规则/站点归属）决定走节点还是直连。
+     * 原先的裸 HttpURLConnection 走系统默认选择器，门管不到，一直裸奔。
+     */
+    private static volatile okhttp3.OkHttpClient dlClient;
+
+    private static okhttp3.OkHttpClient dlClient() {
+        okhttp3.OkHttpClient c = dlClient;
+        if (c == null) {
+            synchronized (ReadingDownload.class) {
+                c = dlClient;
+                if (c == null) {
+                    c = new okhttp3.OkHttpClient.Builder()
+                            .proxySelector(SourceGate.wrapSelector(
+                                    GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())))
+                            .connectTimeout(15, TimeUnit.SECONDS)
+                            .readTimeout(20, TimeUnit.SECONDS)
+                            .build();
+                    dlClient = c;
+                }
+            }
+        }
+        return c;
     }
 
     /** 全量上限 150MB。 */
@@ -117,29 +144,30 @@ public final class ReadingDownload {
     }
 
     private static String downloadToFile(String url, String referer, File target) {
-        HttpURLConnection conn = null;
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) return null;
+        File tmp = new File(target.getParent(), target.getName() + ".part");
         try {
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(20000);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14)");
-            if (!TextUtils.isEmpty(referer)) conn.setRequestProperty("Referer", referer);
-            conn.connect();
-            if (conn.getResponseCode() / 100 != 2) return null;
-            File tmp = new File(target.getParent(), target.getName() + ".part");
-            try (InputStream in = conn.getInputStream();
-                 FileOutputStream out = new FileOutputStream(tmp)) {
-                byte[] buf = new byte[32768];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14)");
+            if (!TextUtils.isEmpty(referer)) rb.header("Referer", referer);
+            try (okhttp3.Response resp = dlClient().newCall(rb.build()).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) {
+                    tmp.delete();
+                    return null;
+                }
+                try (InputStream in = resp.body().byteStream();
+                     FileOutputStream out = new FileOutputStream(tmp)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
             }
             if (tmp.renameTo(target)) return target.getAbsolutePath();
             tmp.delete();
             return null;
         } catch (Throwable ignored) {
+            tmp.delete();
             return null;
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
@@ -231,6 +259,10 @@ public final class ReadingDownload {
                                          String bookKey, int count, Handler ui, Progress cb) {
         Task.execute(() -> {
             int ok = 0, total = 0;
+            // 节点打点：整批下载归属本书的来源（书源/规则/站点），内层各抓取点
+            // 按自己的精确归属覆盖（push/pop 栈恢复，不吞外层）。
+            String[] own = ReadingProxy.ownership(session);
+            SourceGate.Mark prev = ReadingProxy.push(own);
             try {
                 int from = session.chapterIndex + 1;
                 int to = Math.min(session.chapters.size() - 1, from + count - 1);
@@ -249,6 +281,8 @@ public final class ReadingDownload {
                 }
                 enforceQuota(ctx);
             } catch (Throwable ignored) {
+            } finally {
+                ReadingProxy.pop(own, prev);
             }
             final int fOk = ok, fTotal = total;
             ui.post(() -> cb.onDone(fOk, fTotal));
@@ -260,6 +294,9 @@ public final class ReadingDownload {
                                          String bookKey, int count, Handler ui, Progress cb) {
         Task.execute(() -> {
             int ok = 0, total = 0;
+            // 节点打点：同上，整批下载归属本书的来源。
+            String[] own = ReadingProxy.ownership(session);
+            SourceGate.Mark prev = ReadingProxy.push(own);
             try {
                 int from = session.chapterIndex + 1;
                 int to = Math.min(session.chapters.size() - 1, from + count - 1);
@@ -291,6 +328,8 @@ public final class ReadingDownload {
                 }
                 enforceQuota(ctx);
             } catch (Throwable ignored) {
+            } finally {
+                ReadingProxy.pop(own, prev);
             }
             final int fOk = ok, fTotal = total;
             ui.post(() -> cb.onDone(fOk, fTotal));

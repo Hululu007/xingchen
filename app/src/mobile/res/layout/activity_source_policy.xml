@@ -95,6 +95,19 @@
                 android:text="Emby"
                 android:textSize="15sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tab_book"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="8dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="书源"
+                android:textSize="15sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <TextView
@@ -182,6 +195,24 @@
 
         <LinearLayout
             android:id="@+id/group_emby"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/tv_title_book"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp"
+            android:text="书源（小说/漫画/听书）"
+            android:textColor="#29B6F6"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/group_book"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"

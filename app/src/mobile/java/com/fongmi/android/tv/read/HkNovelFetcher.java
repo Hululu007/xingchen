@@ -41,7 +41,16 @@ public class HkNovelFetcher {
                 SpiderDebug.log("reading", "novel fetch no rule: %s", ruleTitle);
                 return "";
             }
-            String html = HkHttp.get(chapterUrl, rule.resolvedUa());
+            // 节点打点：归属当前规则（kind=hk、id=规则名），与「按源定向」海阔栏一致。
+            com.github.catvod.net.SourceGate.Mark prevMark =
+                    com.github.catvod.net.SourceGate.push(
+                            com.fongmi.android.tv.clash.SourceProxyPolicy.KIND_HK, ruleTitle);
+            String html;
+            try {
+                html = HkHttp.get(chapterUrl, rule.resolvedUa());
+            } finally {
+                com.github.catvod.net.SourceGate.pop(prevMark);
+            }
             if (TextUtils.isEmpty(html)) {
                 SpiderDebug.log("reading", "novel fetch empty html");
                 return "";

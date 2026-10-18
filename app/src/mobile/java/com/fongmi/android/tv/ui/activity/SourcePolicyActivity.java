@@ -23,7 +23,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 按源定向：顶部五切换（PY / JS / 点播 / 海阔 / Emby），点哪个只看哪个；默认全部直连。 */
+/** 按源定向：顶部六切换（PY / JS / 点播 / 海阔 / Emby / 书源），点哪个只看哪个；默认全部直连。 */
 public class SourcePolicyActivity extends BaseActivity {
 
     private ActivitySourcePolicyBinding binding;
@@ -33,6 +33,7 @@ public class SourcePolicyActivity extends BaseActivity {
     private int countVod;
     private int countHk;
     private int countEmby;
+    private int countBook;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SourcePolicyActivity.class));
@@ -66,8 +67,13 @@ public class SourcePolicyActivity extends BaseActivity {
             currentTab = SourceProxyPolicy.KIND_EMBY;
             applyTab();
         });
+        binding.tabBook.setOnClickListener(v -> {
+            currentTab = SourceProxyPolicy.KIND_BOOK;
+            applyTab();
+        });
         countHk = fillHk();
         countEmby = fillEmby();
+        countBook = fillBook();
         countPy = fillSites(SourceProxyPolicy.KIND_PY, binding.groupPy, binding.tvTitlePy);
         countJs = fillSites(SourceProxyPolicy.KIND_JS, binding.groupJs, binding.tvTitleJs);
         countVod = fillVod();
@@ -77,6 +83,7 @@ public class SourcePolicyActivity extends BaseActivity {
             else if (countVod > 0) currentTab = SourceProxyPolicy.KIND_VOD;
             else if (countHk > 0) currentTab = SourceProxyPolicy.KIND_HK;
             else if (countEmby > 0) currentTab = SourceProxyPolicy.KIND_EMBY;
+            else if (countBook > 0) currentTab = SourceProxyPolicy.KIND_BOOK;
         }
         applyTab();
     }
@@ -86,7 +93,8 @@ public class SourcePolicyActivity extends BaseActivity {
         boolean js = SourceProxyPolicy.KIND_JS.equals(currentTab);
         boolean vod = SourceProxyPolicy.KIND_VOD.equals(currentTab);
         boolean emby = SourceProxyPolicy.KIND_EMBY.equals(currentTab);
-        boolean hk = !py && !js && !vod && !emby;
+        boolean book = SourceProxyPolicy.KIND_BOOK.equals(currentTab);
+        boolean hk = !py && !js && !vod && !emby && !book;
         binding.tvTitlePy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.groupPy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.tvTitleJs.setVisibility(js ? View.VISIBLE : View.GONE);
@@ -97,13 +105,16 @@ public class SourcePolicyActivity extends BaseActivity {
         binding.groupHk.setVisibility(hk ? View.VISIBLE : View.GONE);
         binding.tvTitleEmby.setVisibility(emby ? View.VISIBLE : View.GONE);
         binding.groupEmby.setVisibility(emby ? View.VISIBLE : View.GONE);
-        int count = py ? countPy : (js ? countJs : (vod ? countVod : (emby ? countEmby : countHk)));
+        binding.tvTitleBook.setVisibility(book ? View.VISIBLE : View.GONE);
+        binding.groupBook.setVisibility(book ? View.VISIBLE : View.GONE);
+        int count = py ? countPy : (js ? countJs : (vod ? countVod : (emby ? countEmby : (book ? countBook : countHk))));
         binding.tvNone.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
         styleTab(binding.tabPy, py);
         styleTab(binding.tabJs, js);
         styleTab(binding.tabVod, vod);
         styleTab(binding.tabHk, hk);
         styleTab(binding.tabEmby, emby);
+        styleTab(binding.tabBook, book);
     }
 
     /** 点播源组：配置站点里 api 不是 .py/.js 的全部（jar 蜘蛛、接口站等），id=站点 key（与打点一致）。 */
@@ -222,6 +233,52 @@ public class SourcePolicyActivity extends BaseActivity {
             }
         }
         return n;
+    }
+
+    /**
+     * 书源分区：列书源仓库里启用的书源（id=bookSourceUrl），开关走框架表 book: 前缀。
+     * 阅读取数（正文/图片/音频/章节缓存/更新检查）按此归属走节点。
+     */
+    private int fillBook() {
+        List<com.fongmi.android.tv.legado.LegadoStore.Entry> entries;
+        try {
+            entries = com.fongmi.android.tv.legado.LegadoStore.all();
+        } catch (Throwable t) {
+            entries = new ArrayList<>();
+        }
+        int n = 0;
+        if (entries != null) {
+            for (com.fongmi.android.tv.legado.LegadoStore.Entry e : entries) {
+                if (e == null || !e.enabled) continue;
+                String key = null;
+                String name = null;
+                try {
+                    com.fongmi.android.tv.legado.LegadoSource src =
+                            com.fongmi.android.tv.legado.LegadoStore.get(sourceKeyOf(e));
+                    if (src != null) {
+                        key = src.bookSourceUrl;
+                        name = src.bookSourceName;
+                    }
+                } catch (Throwable ignored) {
+                }
+                if (key == null || key.isEmpty()) continue;
+                if (name == null || name.isEmpty()) name = key;
+                addRow(binding.groupBook, name, SourceProxyPolicy.KIND_BOOK, key);
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 书源条目的 key：先解析 json 取 bookSourceUrl（免得逐条走 get 的解析缓存）。 */
+    private static String sourceKeyOf(com.fongmi.android.tv.legado.LegadoStore.Entry e) {
+        try {
+            com.fongmi.android.tv.legado.LegadoSource src =
+                    com.fongmi.android.tv.legado.LegadoStore.parse(e.json);
+            return src == null ? "" : src.bookSourceUrl;
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     /** Emby 行：开关读 EmbyStore.isProxyEnabled，写走 EmbyStore.setProxyEnabled（唯一入口）。 */

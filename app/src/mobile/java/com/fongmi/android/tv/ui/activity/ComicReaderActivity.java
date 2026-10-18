@@ -593,8 +593,23 @@ public class ComicReaderActivity extends AppCompatActivity {
     /**
      * 解析某章图片：缓存 → 会话自带（首载）→ 本地书 → py 内嵌串 → 海阔懒取 → 书源规则。
      * 静态化供章节缓存复用（同口径，不另起炉灶）。
+     * <p>
+     * 含节点认领：解析出的图片 URL 的 host 登记到书源/规则/站点归属，
+     * Glide 取图跑在无打点线程，SourceGate 的 HostClaim 按 host 反查
+     * （与 Emby 海报同口径）。本地书 file:// 无 host，不登记。
      */
     public static List<String> resolveImages(ReadingSession session,
+                                             ReadingSession.Chapter ch,
+                                             boolean preferSessionImages) {
+        List<String> out = resolveImagesInner(session, ch, preferSessionImages);
+        try {
+            com.fongmi.android.tv.read.ReadingProxy.recordUrls(out, session);
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    private static List<String> resolveImagesInner(ReadingSession session,
                                              ReadingSession.Chapter ch,
                                              boolean preferSessionImages) {
         // 0. 缓存优先（阅读器侧按 bookKey 查，见 loadChapter）

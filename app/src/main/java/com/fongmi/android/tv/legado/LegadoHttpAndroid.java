@@ -45,13 +45,34 @@ public class LegadoHttpAndroid implements LegadoHttp {
                 .build();
     }
 
+    /**
+     * 当前线程正在抓取的书源 key（bookSourceUrl）：LegadoPipeline 在抓取前后
+     * 设置/恢复，打点精确到具体书源（设置页「书源」栏逐个开关）。
+     * 用 push/pop 语义，外层打点（如章节缓存下载的外层归属）不会被吞。
+     */
+    private static final ThreadLocal<String> SOURCE_KEY = new ThreadLocal<>();
+
+    public static String swapSourceKey(String key) {
+        String prev = SOURCE_KEY.get();
+        if (key == null || key.isEmpty()) SOURCE_KEY.remove();
+        else SOURCE_KEY.set(key);
+        return prev;
+    }
+
+    public static void restoreSourceKey(String prev) {
+        if (prev == null || prev.isEmpty()) SOURCE_KEY.remove();
+        else SOURCE_KEY.set(prev);
+    }
+
     @Override
     public LegadoHttp.Result fetch(String url, String method, Map<String, String> headers, byte[] body) throws IOException {
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new IOException("不支持的协议: " + url);
         }
-        // 节点打点：书源走 KIND_VOD 口径（与点播源同链）。
-        SourceGate.mark(SourceProxyPolicy.KIND_VOD, "legado");
+        // 节点打点：书源走 KIND_BOOK 口径（id=具体书源 key），与「按源定向」书源栏一致。
+        // 无 key（如导入时校验地址）时 id 为空串 → 只有「全部走节点」能带走它。
+        String key = SOURCE_KEY.get();
+        SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_BOOK, key == null ? "" : key);
         try {
             Request.Builder rb = new Request.Builder().url(url)
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
@@ -92,7 +113,7 @@ public class LegadoHttpAndroid implements LegadoHttp {
             }
             return r;
         } finally {
-            SourceGate.clear();
+            SourceGate.pop(prev);
         }
     }
 }

@@ -17,6 +17,7 @@ import java.util.List;
  * <li>{@link #KIND_JS}：JS 点播源，按源标识；
  * <li>{@link #KIND_HK}：海阔小程序，按规则名；
  * <li>{@link #KIND_EMBY}：Emby 服务器，按服 id（EmbyStore 镜像一份，本表是框架决策用的唯一真相）。
+ * <li>{@link #KIND_BOOK}：书源（Legado 书源仓库），按 bookSourceUrl；阅读取数（正文/图片/音频/缓存下载）用。
  * </ul>
  * 决策统一走 {@link #shouldProxy}：总开关（ClashSettings）关 → 一律直连；
  * 总开关开 → 查本表。
@@ -28,6 +29,8 @@ public final class SourceProxyPolicy {
     public static final String KIND_JS = "js";
     public static final String KIND_HK = "hk";
     public static final String KIND_EMBY = "emby";
+    /** 书源（Legado 书源仓库）：id=bookSourceUrl，与阅读打点一致。 */
+    public static final String KIND_BOOK = "book";
 
     private static final String PREFS = "clash_source_policy";
 

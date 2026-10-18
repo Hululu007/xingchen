@@ -10,6 +10,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -40,9 +41,18 @@ public class NovelReaderActivity extends AppCompatActivity {
     private static final String KEY_VOLUME_PAGE = "novel_volume_page";
     private static final String KEY_KEEP_SCREEN = "novel_keep_screen";
 
-    // 主题：白 / 米色 / 深色
-    private static final int[] BG = {0xFFFFFFFF, 0xFFF6ECD9, 0xFF141414};
-    private static final int[] FG = {0xFF222222, 0xFF4E3A28, 0xFFCFCFCF};
+    // 主题（2026-10-18 他拍板 8 个全上）：老用户 pref 值 0/1/2 含义不变
+    // （0纯白/1米纸/2墨黑夜），新主题 pref 值 3-7 追加；展示按浅到深。
+    private static final String[] THEME_NAMES =
+            {"纯白", "米纸", "羊皮纸", "豆绿", "青灰", "浅灰", "深灰夜", "墨黑夜"};
+    private static final int[] THEME_BG =
+            {0xFFFFFFFF, 0xFFF6ECD9, 0xFFEFE0BC, 0xFFDDE8D0,
+             0xFFD8DEE2, 0xFFE8E8E8, 0xFF2A2A2E, 0xFF141414};
+    private static final int[] THEME_FG =
+            {0xFF222222, 0xFF4E3A28, 0xFF4A3A24, 0xFF2E4630,
+             0xFF2C3438, 0xFF333333, 0xFFB9B9B9, 0xFFCFCFCF};
+    /** 展示序（浅→深）→ pref 值。 */
+    private static final int[] THEME_PREF = {0, 1, 3, 4, 5, 6, 7, 2};
 
     private ReadingSession session;
     private SharedPreferences prefs;
@@ -59,6 +69,7 @@ public class NovelReaderActivity extends AppCompatActivity {
     private android.widget.ProgressBar progressBar;
     private TextView tvFontSize;
     private LinearLayout themeRow;
+    private HorizontalScrollView themeScroll;
     private LinearLayout pageSeg;
     private TextView tvTtsSub;
     private boolean barsShown = false;
@@ -150,18 +161,50 @@ public class NovelReaderActivity extends AppCompatActivity {
         return prefs.getInt(KEY_THEME, 0);
     }
 
+    /** pref 值→纸色：0/1/2 老含义不变，新值 3-7 追加。 */
+    private static int bgForPref(int pref) {
+        switch (pref) {
+            case 1: return 0xFFF6ECD9;
+            case 2: return 0xFF141414;
+            case 3: return 0xFFEFE0BC;
+            case 4: return 0xFFDDE8D0;
+            case 5: return 0xFFD8DEE2;
+            case 6: return 0xFFE8E8E8;
+            case 7: return 0xFF2A2A2E;
+            default: return 0xFFFFFFFF;
+        }
+    }
+
+    private static int fgForPref(int pref) {
+        switch (pref) {
+            case 1: return 0xFF4E3A28;
+            case 2: return 0xFFCFCFCF;
+            case 3: return 0xFF4A3A24;
+            case 4: return 0xFF2E4630;
+            case 5: return 0xFF2C3438;
+            case 6: return 0xFF333333;
+            case 7: return 0xFFB9B9B9;
+            default: return 0xFF222222;
+        }
+    }
+
+    /** 是否夜主题（2 墨黑夜 / 7 深灰夜）：状态栏图标切浅色。 */
+    private static boolean isNightPref(int pref) {
+        return pref == 2 || pref == 7;
+    }
+
     private int bg() {
-        return BG[theme() % BG.length];
+        return bgForPref(theme());
     }
 
     private int fg() {
-        return FG[theme() % FG.length];
+        return fgForPref(theme());
     }
 
     private void applyTheme() {
         root.setBackgroundColor(bg());
         // 窗口底跟纸色走（夜间主题深色，状态栏不断带）
-        ReadingSkin.fitWindowBackground(this, bg(), theme() == 2);
+        ReadingSkin.fitWindowBackground(this, bg(), isNightPref(theme()));
         if (tvContent != null) {
             tvContent.setTextColor(fg());
         }
@@ -298,15 +341,23 @@ public class NovelReaderActivity extends AppCompatActivity {
         bar.addView(fsRow);
         refreshFontSize();
 
-        // 主题：纸白 / 米黄 / 墨夜（三圆，选中金描边＋金字）
+        // 主题：8 纸色单行横滑（圆点 44dp 与旧三圆一致，不缩小），
+        // 选中青绿描边＋青绿字，打开面板滚动定位到选中项
         LinearLayout thRow = new LinearLayout(this);
         thRow.setOrientation(LinearLayout.HORIZONTAL);
         thRow.setGravity(Gravity.CENTER_VERTICAL);
         thRow.setPadding(0, dp(12), 0, 0);
         thRow.addView(sheetLabel("主题"));
+        themeScroll = new HorizontalScrollView(this);
+        themeScroll.setHorizontalScrollBarEnabled(false);
+        themeScroll.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         themeRow = new LinearLayout(this);
         themeRow.setOrientation(LinearLayout.HORIZONTAL);
-        thRow.addView(themeRow);
+        themeScroll.addView(themeRow, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        thRow.addView(themeScroll);
         bar.addView(thRow);
         refreshThemeRow();
 
@@ -452,11 +503,14 @@ public class NovelReaderActivity extends AppCompatActivity {
     private void refreshThemeRow() {
         if (themeRow == null) return;
         themeRow.removeAllViews();
-        String[] names = {"纸白", "米黄", "墨夜"};
-        int[] colors = {0xFFF5F2EA, 0xFFEDE3D0, 0xFF1C1B22};
-        int cur = theme();
-        for (int i = 0; i < names.length; i++) {
-            final int idx = i;
+        int curPref = theme();
+        int curDisp = 0;
+        for (int i = 0; i < THEME_PREF.length; i++) {
+            if (THEME_PREF[i] == curPref) curDisp = i;
+        }
+        for (int i = 0; i < THEME_NAMES.length; i++) {
+            final int pref = THEME_PREF[i];
+            final boolean sel = (i == curDisp);
             LinearLayout cell = new LinearLayout(this);
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -465,25 +519,32 @@ public class NovelReaderActivity extends AppCompatActivity {
             android.graphics.drawable.GradientDrawable bg =
                     new android.graphics.drawable.GradientDrawable();
             bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            bg.setColor(colors[i]);
-            bg.setStroke(dp(i == cur ? 3 : 2),
-                    i == cur ? ReadingSkin.GOLD : 0x40FFFFFF);
+            bg.setColor(THEME_BG[i]);
+            bg.setStroke(dp(sel ? 3 : 2),
+                    sel ? ReadingSkin.GOLD : 0x40FFFFFF);
             dot.setBackground(bg);
             int sz = dp(44);
             cell.addView(dot, new LinearLayout.LayoutParams(sz, sz));
             TextView l = new TextView(this);
-            l.setText(names[i]);
+            l.setText(THEME_NAMES[i]);
             l.setTextSize(11);
-            l.setTextColor(i == cur ? ReadingSkin.GOLD_TEXT : ReadingSkin.FAINT);
+            l.setTextColor(sel ? ReadingSkin.GOLD_TEXT : ReadingSkin.FAINT);
             l.setPadding(0, dp(4), 0, 0);
             cell.addView(l);
             cell.setOnClickListener(v -> {
-                prefs.edit().putInt(KEY_THEME, idx).apply();
+                prefs.edit().putInt(KEY_THEME, pref).apply();
                 applyTheme();
                 refreshThemeRow();
                 Toast.makeText(this, "已切换主题", Toast.LENGTH_SHORT).show();
             });
             themeRow.addView(cell);
+            if (sel && themeScroll != null) {
+                // 定位到当前主题项（打开面板时滚过来）
+                final LinearLayout selCell = cell;
+                themeScroll.post(() -> themeScroll.smoothScrollTo(
+                        Math.max(0, selCell.getLeft()
+                                - themeScroll.getWidth() / 3), 0));
+            }
         }
     }
 

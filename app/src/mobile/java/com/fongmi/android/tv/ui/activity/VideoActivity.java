@@ -105,6 +105,7 @@ import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityVideoBinding;
+import com.fongmi.android.tv.databinding.DialogPlayerMoreBinding;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.emby.EmbyApi;
 import com.fongmi.android.tv.emby.EmbyItem;
@@ -161,9 +162,11 @@ import com.fongmi.android.tv.ui.custom.KaraokeResultView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
+import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
+import com.fongmi.android.tv.ui.dialog.DanmakuSettingDialog;
 import com.fongmi.android.tv.ui.dialog.EmbyQualityDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
@@ -993,37 +996,19 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.right.castVertical.setOnClickListener(view -> onCast());
         mBinding.control.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
+        mBinding.control.fineSetting.setOnClickListener(view -> onFineSetting());
         mBinding.control.action.text.setOnClickListener(this::onTrack);
-        mBinding.control.action.audio.setOnClickListener(this::onTrack);
-        mBinding.control.action.video.setOnClickListener(this::onTrack);
-        mBinding.control.action.scale.setOnClickListener(view -> onScale());
-        mBinding.control.action.lut.setOnClickListener(view -> onLut());
-        mBinding.control.action.karaoke.setOnClickListener(view -> onKaraokeMode());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.reset.setOnClickListener(view -> onReset());
-        mBinding.control.action.change2.setOnClickListener(view -> onChange());
-        mBinding.control.action.title.setOnClickListener(view -> onTitle());
-        mBinding.control.action.discMenu.setOnClickListener(view -> {
-            hideControl();
-            openDiscMenu();
-        });
-        mBinding.control.action.discMenu.setOnLongClickListener(view -> {
-            hideControl();
-            showDiscMenuControls();
-            return true;
-        });
         mBinding.discTools.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.player.setOnClickListener(view -> onPlayerKernel());
         mBinding.control.action.player.setOnLongClickListener(view -> onChooseLong());
-        mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
-        mBinding.control.action.next.setOnClickListener(view -> checkNext());
         mBinding.control.action.decode.setOnClickListener(view -> onDecode());
-        mBinding.control.action.playParams.setOnClickListener(view -> onPlayParams());
-        mBinding.control.action.ending.setOnClickListener(view -> onEnding());
+        mBinding.control.action.endingItem.setOnClickListener(view -> onEnding());
         mBinding.control.action.repeat.setOnClickListener(view -> onRepeat());
-        mBinding.control.action.opening.setOnClickListener(view -> onOpening());
+        mBinding.control.action.openingItem.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
+        mBinding.control.action.more.setOnClickListener(view -> onMore());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
@@ -1044,8 +1029,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.text.setOnLongClickListener(view -> onTextLong());
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
         mBinding.control.action.reset.setOnLongClickListener(view -> onResetToggle());
-        mBinding.control.action.ending.setOnLongClickListener(view -> onEndingReset());
-        mBinding.control.action.opening.setOnLongClickListener(view -> onOpeningReset());
+        mBinding.control.action.endingItem.setOnLongClickListener(view -> onEndingReset());
+        mBinding.control.action.openingItem.setOnLongClickListener(view -> onOpeningReset());
         mBinding.video.setOnTouchListener((view, event) -> {
             if (mLongPressDetector != null) mLongPressDetector.onTouchEvent(event);
             if ((event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) && mLongPressActive) {
@@ -1235,7 +1220,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setVideoView() {
         mBinding.control.action.danmaku.setVisibility(View.VISIBLE);
-        mBinding.control.action.reset.setText(ResUtil.getStringArray(R.array.select_reset)[Setting.getReset()]);
         setupActionButtons();
         mBinding.video.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             mPiP.update(this, view);
@@ -1253,23 +1237,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mActionButtons = new HashMap<>();
         addActionButton(PlayerButtonSetting.PLAYER, mBinding.control.action.player);
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
-        addActionButton(PlayerButtonSetting.PLAY_PARAMS, mBinding.control.action.playParams);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
-        addActionButton(PlayerButtonSetting.SCALE, mBinding.control.action.scale);
-        addActionButton(PlayerButtonSetting.LUT, mBinding.control.action.lut);
-        addActionButton(PlayerButtonSetting.RESET, mBinding.control.action.reset);
-        addActionButton(PlayerButtonSetting.REPEAT, mBinding.control.action.repeat);
         addActionButton(PlayerButtonSetting.TEXT, mBinding.control.action.text);
-        addActionButton(PlayerButtonSetting.AUDIO, mBinding.control.action.audio);
-        addActionButton(PlayerButtonSetting.VIDEO, mBinding.control.action.video);
-        addActionButton(PlayerButtonSetting.OPENING, mBinding.control.action.opening);
-        addActionButton(PlayerButtonSetting.ENDING, mBinding.control.action.ending);
         addActionButton(PlayerButtonSetting.DANMAKU, mBinding.control.action.danmaku);
-        addActionButton(PlayerButtonSetting.TITLE, mBinding.control.action.title);
-        addActionButton(PlayerButtonSetting.PREV, mBinding.control.action.prev);
-        addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
+        addActionButton(PlayerButtonSetting.OPENING, mBinding.control.action.openingItem);
+        addActionButton(PlayerButtonSetting.ENDING, mBinding.control.action.endingItem);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);
-        addActionButton(PlayerButtonSetting.CHANGE, mBinding.control.action.change2);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         setupCustomActionButtons();
     }
@@ -1454,11 +1427,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (SiteApi.PUSH.equals(getKey())) PlayerSetting.putScale(scale);
         applyResizeMode(scale);
         mBinding.exo.post(() -> applyResizeMode(scale));
-        mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
     private void setLut() {
-        mBinding.control.action.lut.setText(player().getLutText());
     }
 
     private void setViewModel() {
@@ -2721,8 +2692,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
         int size = items.size();
         mBinding.control.action.episodes.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
-        mBinding.control.action.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
-        mBinding.control.action.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         applyActionButtonVisibility();
         mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
@@ -3270,6 +3239,68 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player())
                 .embyPlayback(isEmbyPlayback() || isEmbyEpisode()).show(this);
     }
+
+    /** 更多面板：9 宫格，每格接现有行为方法（定稿口径 4） */
+    private void onMore() {
+        DialogPlayerMoreBinding binding = DialogPlayerMoreBinding.inflate(getLayoutInflater());
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setContentView(binding.getRoot());
+        binding.moreClose.setOnClickListener(v -> dialog.dismiss());
+        binding.moreWatch.setOnClickListener(v -> { dialog.dismiss(); onWatchButton(); });
+        binding.morePlayParams.setOnClickListener(v -> { dialog.dismiss(); onPlayParams(); });
+        binding.moreScale.setOnClickListener(v -> { dialog.dismiss(); onScale(); });
+        binding.moreLut.setOnClickListener(v -> { dialog.dismiss(); onLut(); });
+        binding.moreReset.setOnClickListener(v -> { dialog.dismiss(); onReset(); });
+        binding.moreRepeat.setOnClickListener(v -> { dialog.dismiss(); onRepeat(); });
+        binding.moreAudio.setOnClickListener(v -> { dialog.dismiss(); onTrack(C.TRACK_TYPE_AUDIO); });
+        binding.moreVideo.setOnClickListener(v -> { dialog.dismiss(); onTrack(C.TRACK_TYPE_VIDEO); });
+        binding.moreSubtitleSetting.setOnClickListener(v -> { dialog.dismiss(); onSubtitleClick(); });
+        // 音轨/视轨无轨时隐藏（原 setTrackVisible 逻辑）
+        binding.moreAudio.setVisibility(player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
+        binding.moreVideo.setVisibility(player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
+        dialog.show();
+        hideControl();
+    }
+
+    /** 新增：右上角弹幕/字幕细设入口（横屏全屏＋竖屏全屏） */
+    private void onFineSetting() {
+        ChoiceDialog.showSingle(this, R.string.player_fine_setting,
+                new CharSequence[]{"弹幕设置", "字幕设置"}, -1, which -> {
+                    if (which == 0) DanmakuSettingDialog.create().player(player()).show(this);
+                    else onSubtitleClick();
+                });
+        hideControl();
+    }
+
+    /** 网速小字刷新（TrafficStats 采样，仅显示） */
+    private long mNetSpeedLastRx;
+    private long mNetSpeedLastTime;
+
+    private void startNetSpeedTick() {
+        mNetSpeedLastRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid());
+        mNetSpeedLastTime = System.currentTimeMillis();
+        mBinding.control.netSpeed.removeCallbacks(mNetSpeedTick);
+        mBinding.control.netSpeed.postDelayed(mNetSpeedTick, 1000);
+    }
+
+    private final Runnable mNetSpeedTick = new Runnable() {
+        @Override
+        public void run() {
+            if (mBinding == null || mBinding.control == null) return;
+            long rx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid());
+            long now = System.currentTimeMillis();
+            if (mNetSpeedLastTime > 0 && now > mNetSpeedLastTime && rx >= mNetSpeedLastRx) {
+                long kbps = (rx - mNetSpeedLastRx) * 1000 / (now - mNetSpeedLastTime) / 1024;
+                mBinding.control.netSpeed.setText(Math.max(0, kbps) + " KB/s");
+            }
+            mNetSpeedLastRx = rx;
+            mNetSpeedLastTime = now;
+            if (mBinding.control.netSpeed.getVisibility() == View.VISIBLE
+                    && mBinding.control.getRoot().getVisibility() == View.VISIBLE) {
+                mBinding.control.netSpeed.postDelayed(this, 1000);
+            }
+        }
+    };
 
     private void onAudioQueue() {
         restoreActiveAudioPlaylist();
@@ -4945,10 +4976,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setKaraokeActionState() {
-        if (mBinding.control.action.karaoke != null) {
-            mBinding.control.action.karaoke.setSelected(PlayerSetting.isKaraokeMode());
-            mBinding.control.action.karaoke.setVisibility(View.GONE);
-        }
         if (mBinding.audioKaraokeAction != null) mBinding.audioKaraokeAction.setSelected(PlayerSetting.isKaraokeMode());
         applyActionButtonVisibility();
     }
@@ -5094,13 +5121,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void onRepeat() {
         player().setRepeatOne(!player().isRepeatOne());
-        mBinding.control.action.repeat.setSelected(player().isRepeatOne());
         setAudioRepeatSelected(player().isRepeatOne());
     }
 
     @Override
     public void onRepeatModeChanged(int repeatMode) {
-        mBinding.control.action.repeat.setSelected(player().isRepeatOne());
         setAudioRepeatSelected(player().isRepeatOne());
     }
 
@@ -5222,7 +5247,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private boolean onResetToggle() {
         Setting.putReset(Math.abs(Setting.getReset() - 1));
-        mBinding.control.action.reset.setText(ResUtil.getStringArray(R.array.select_reset)[Setting.getReset()]);
         return true;
     }
 
@@ -5293,7 +5317,23 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setEnding(long ending) {
         mHistory.setEnding(ending);
-        mBinding.control.action.ending.setText(ending <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
+        refreshOpeningEnding();
+    }
+
+    /** 片头/片尾打点态：变金＋挂记住的时间；取消打点恢复 */
+    private void refreshOpeningEnding() {
+        boolean hasOpening = mHistory != null && mHistory.getOpening() > 0;
+        boolean hasEnding = mHistory != null && mHistory.getEnding() > 0;
+        int gold = getResources().getColor(R.color.player_gold);
+        int white = getResources().getColor(R.color.white);
+        mBinding.control.action.opening.setTextColor(hasOpening ? gold : white);
+        mBinding.control.action.openingIcon.setColorFilter(hasOpening ? gold : white);
+        mBinding.control.action.openingTime.setVisibility(hasOpening ? View.VISIBLE : View.GONE);
+        if (hasOpening) mBinding.control.action.openingTime.setText(Util.timeMs(mHistory.getOpening()));
+        mBinding.control.action.ending.setTextColor(hasEnding ? gold : white);
+        mBinding.control.action.endingIcon.setColorFilter(hasEnding ? gold : white);
+        mBinding.control.action.endingTime.setVisibility(hasEnding ? View.VISIBLE : View.GONE);
+        if (hasEnding) mBinding.control.action.endingTime.setText(Util.timeMs(mHistory.getEnding()));
     }
 
     private void onOpening() {
@@ -5311,7 +5351,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setOpening(long opening) {
         mHistory.setOpening(opening);
-        mBinding.control.action.opening.setText(opening <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
+        refreshOpeningEnding();
     }
 
     private void onEpisodes() {
@@ -5559,28 +5599,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !DanmakuSetting.isShow() ? View.GONE : View.VISIBLE);
         boolean isVerticalFullscreen = isFullscreen() && player().isPortrait();
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        // 新增细设入口：横屏全屏＋竖屏全屏均显示
+        mBinding.control.fineSetting.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.fullscreen.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
-        boolean showPlayParams = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
-        mBinding.control.action.playParams.setVisibility(showPlayParams ? View.VISIBLE : View.GONE);
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS) && !player().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.osdDiagnostics.setAlpha(mOsd != null && mOsd.isDiagnosticsVisible() ? 1f : 0.30f);
-        mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
-        if (isVerticalFullscreen) {
-            mBinding.control.action.playParams.setVisibility(View.GONE);
-            mBinding.control.action.scale.setVisibility(View.GONE);
-            mBinding.control.action.lut.setVisibility(View.GONE);
-            mBinding.control.action.repeat.setVisibility(View.GONE);
-        } else {
-            boolean showPlayParams2 = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
-            mBinding.control.action.playParams.setVisibility(showPlayParams2 ? View.VISIBLE : View.GONE);
-            mBinding.control.action.scale.setVisibility(View.VISIBLE);
-            mBinding.control.action.lut.setVisibility(View.VISIBLE);
-            mBinding.control.action.repeat.setVisibility(View.VISIBLE);
-        }
+        // 更多面板为独立弹窗（定稿 9 宫格），不再随竖屏全屏隐藏其中按钮
         mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
@@ -5596,6 +5624,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mOsd != null) mOsd.setControlsVisible(true);
         checkFullscreenImg();
         checkDanmakuImg();
+        // 网速小字：仅小窗（非全屏）左下显示
+        mBinding.control.netSpeed.setVisibility(!isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
+        if (!isFullscreen() && !isLock()) startNetSpeedTick();
         setR1Callback();
     }
 
@@ -5823,8 +5854,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
-        mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
-        mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
+        refreshOpeningEnding();
         mHistory.setVodName(item.getName());
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
@@ -5971,17 +6001,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         boolean kept = HkDetailBridge.isHkKey(getKey())
                 ? HkFavoriteStore.isFavorite(hkRuleTitle(), getId())
                 : Keep.find(getHistoryKey()) != null;
-        mBinding.control.keep.setImageResource(kept ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
+        mBinding.control.keep.setImageResource(kept ? R.drawable.ic_player_star_on : R.drawable.ic_player_star);
         mBinding.audioKeepAction.setSelected(kept);
         if (mBinding.keepBtn != null) mBinding.keepBtn.setIconResource(kept ? R.drawable.ic_control_keep_on : R.drawable.ic_control_keep_off);
     }
 
     private void checkLockImg() {
-        mBinding.control.right.lock.setImageResource(isLock() ? R.drawable.ic_control_lock_on : R.drawable.ic_control_lock_off);
+        mBinding.control.right.lock.setImageResource(isLock() ? R.drawable.ic_player_lock_on : R.drawable.ic_player_lock);
     }
 
     private void checkFullscreenImg() {
-        mBinding.control.fullscreen.setImageResource(isFullscreen() ? R.drawable.ic_control_fullscreen_exit : R.drawable.ic_control_fullscreen);
+        mBinding.control.fullscreen.setImageResource(isFullscreen() ? R.drawable.ic_player_full_exit : R.drawable.ic_player_full);
     }
 
     private void checkDanmakuImg() {
@@ -8276,11 +8306,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setTrackVisible() {
-        mBinding.control.action.discMenu.setVisibility(hasDiscMenu() ? View.VISIBLE : View.GONE);
         updateDiscMenuTools();
         mBinding.control.action.text.setVisibility(player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod() ? View.VISIBLE : View.GONE);
-        mBinding.control.action.audio.setVisibility(player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
-        mBinding.control.action.video.setVisibility(player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
+        // 音轨/视轨已移至更多面板，显隐在打开面板时应用（见 onMore）
         applyActionButtonVisibility();
         updateAudioStageControls();
     }
@@ -8304,7 +8332,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setTitleVisible() {
-        mBinding.control.action.title.setVisibility(player().haveTitle() ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
     }
 
@@ -8684,7 +8711,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void refreshWatchButton() {
         if (mBinding == null || mBinding.control == null) return;
-        mBinding.control.action.watch.setText(R.string.watch_together);
         mBinding.watchDetail.setText(R.string.watch_together);
     }
 

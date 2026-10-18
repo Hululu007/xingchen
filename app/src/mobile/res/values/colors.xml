@@ -11,4 +11,6 @@
     <color name="little_yellow">#f0e6f3e6</color>
     <!-- 液态玻璃：淡色场顶色，海阔页状态栏/窗背景统一取它，不漏白条 -->
     <color name="hk_status_bar">#FFF4F6F8</color>
+    <!-- 播放器点缀金（定稿 #F2B33D）：进度已播段/选中态/打点态 -->
+    <color name="player_gold">#FFF2B33D</color>
 </resources>

@@ -132,4 +132,7 @@
         <item>Standard</item>
     </string-array>
 
+    <string name="player_more">更多</string>
+    <string name="player_fine_setting">弹幕字幕设置</string>
+
 </resources>

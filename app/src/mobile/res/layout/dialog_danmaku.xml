@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 弹幕弹窗：深色毛玻璃换皮；源列表＋搜索/选择/设置一项不丢。
+     搜索由标题栏图标改为底部「搜索弹幕」行（id 不变，接同一 onSearch）。 -->
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/shape_dialog_glass_white_sheet"
+    android:background="@drawable/dialog_glass_dark"
     android:orientation="vertical">
 
     <androidx.appcompat.widget.LinearLayoutCompat
@@ -12,9 +14,9 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="24dp"
-        android:paddingTop="24dp"
-        android:paddingBottom="16dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="12dp">
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/title"
@@ -22,34 +24,28 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/danmaku_select"
-            android:textColor="#B3000000"
-            android:textSize="16sp" />
-
-        <androidx.appcompat.widget.AppCompatImageView
-            android:id="@+id/search"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_action_search"
-            app:tint="#B3000000" />
+            android:textColor="@color/white"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/choose"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="10dp"
             android:src="@drawable/ic_action_choose"
-            app:tint="#B3000000" />
+            app:tint="#B3FFFFFF" />
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/setting"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="10dp"
             android:src="@drawable/ic_danmaku_setting"
-            app:tint="#B3000000" />
+            app:tint="#B3FFFFFF" />
 
     </androidx.appcompat.widget.LinearLayoutCompat>
 
@@ -60,11 +56,30 @@
         android:clipChildren="false"
         android:clipToPadding="false"
         android:overScrollMode="never"
-        android:paddingStart="24dp"
-        android:paddingEnd="24dp"
-        android:paddingBottom="24dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-        app:maxHeight="204dp"
-        tools:listitem="@layout/adapter_track" />
+        app:maxHeight="320dp"
+        tools:listitem="@layout/adapter_danmaku" />
+
+    <!-- 搜索弹幕行：接原 binding.search 的 onSearch（有接口走输入/搜索框，无接口走弹弹Play搜索） -->
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/search"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="20dp"
+        android:background="@drawable/selector_player_child_sheet_button"
+        android:drawableStart="@drawable/ic_action_search"
+        android:drawablePadding="10dp"
+        android:drawableTint="#B3FFFFFF"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="搜索弹幕"
+        android:textColor="@color/white"
+        android:textSize="15sp" />
 
 </androidx.appcompat.widget.LinearLayoutCompat>

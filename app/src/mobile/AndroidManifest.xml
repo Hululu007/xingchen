@@ -7,11 +7,6 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- 实验室运行记录/导包：Android 9 及以下写下载目录用；10+ 走 MediaStore 不需要 -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
-
     <supports-screens
         android:anyDensity="true"
         android:largeScreens="true"

@@ -61,7 +61,7 @@ public final class ReadingDownload {
 
     public static String loadNovelChapter(Context ctx, String bookKey, int chapterIndex) {
         try {
-            File f = novelFile(ctx, chapterIndex < 0 ? "" : bookKey, chapterIndex);
+            File f = novelFile(ctx, bookKey, chapterIndex);
             if (!f.exists()) return "";
             byte[] b = java.nio.file.Files.readAllBytes(f.toPath());
             return new String(b, StandardCharsets.UTF_8);

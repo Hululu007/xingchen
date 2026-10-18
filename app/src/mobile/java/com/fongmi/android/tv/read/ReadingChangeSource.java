@@ -140,10 +140,8 @@ public final class ReadingChangeSource {
                     s.startPage = Math.max(0, oldPage);
                 }
                 // 覆盖书架记录里的进度（同书同键，换源不丢书）
-                ReadingStore.Record r = "NOVEL".equals(
-                        s.kind == ReadingSession.Kind.NOVEL ? "NOVEL" : "COMIC")
-                        ? ReadingStore.find("NOVEL", s.sourceName, s.bookTitle)
-                        : ReadingStore.find("COMIC", s.sourceName, s.bookTitle);
+                String kind = s.kind == ReadingSession.Kind.NOVEL ? "NOVEL" : "COMIC";
+                ReadingStore.Record r = ReadingStore.find(kind, s.sourceName, s.bookTitle);
                 if (r != null) {
                     r.chapterIndex = aligned;
                     if (s.kind == ReadingSession.Kind.NOVEL) r.position = s.startFraction;

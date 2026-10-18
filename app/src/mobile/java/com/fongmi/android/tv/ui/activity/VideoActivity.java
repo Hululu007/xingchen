@@ -83,6 +83,7 @@ import com.fongmi.android.tv.api.hk.HkDetailBridge;
 import com.fongmi.android.tv.api.hk.HkFavorite;
 import com.fongmi.android.tv.api.hk.HkFavoriteStore;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.api.hk.HkProxyPrewarm;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
 import com.fongmi.android.tv.read.ReadingGate;
@@ -1537,6 +1538,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 直接播放带选集（HkPageActivity 拼的列表选集）：先渲染线路/选集 UI，再解析当前集播放
         setupDirectEpisodes("hk_episodes", "hk_episode_idx");
         String flag = Objects.toString(getIntent().getStringExtra("hk_line"), "");
+        // P0 红果类预热：后台预解析当前集懒地址，命中本地代理则预下加密文件
+        // （等价文章页 hgWarm 的下载部分；只对 127.0.0.1 代理形态生效，其它规则 no-op）
+        HkProxyPrewarm.prewarm(getKey(), getId());
         mViewModel.playerContent(getKey(), flag, getId());
     }
 

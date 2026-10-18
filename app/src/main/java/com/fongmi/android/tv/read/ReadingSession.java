@@ -55,6 +55,8 @@ public class ReadingSession {
     public String localId = "";
     /** 起始页（漫画第几张图；阅读器打开时定位用）。 */
     public int startPage = 0;
+    /** 起始进度万分比（小说换源对位后带入，阅读器恢复用）。 */
+    public int startFraction = -1;
 
     // ---- 进程内静态仓：大数据不走 Intent ----
     private static final ConcurrentHashMap<String, ReadingSession> STORE = new ConcurrentHashMap<>();

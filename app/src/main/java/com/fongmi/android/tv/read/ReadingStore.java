@@ -48,6 +48,14 @@ public class ReadingStore {
         public int position = 0;
         /** 神经朗读：当前章内第几段（kind="TTS" 时有效）。 */
         public int segIndex = 0;
+        /** 连载追更：记录的书地址（Legado 书源 bookUrl，有它才能查更新）。 */
+        public String bookUrl = "";
+        /** 连载追更：上次查到的总章节数。 */
+        public int totalChapters = 0;
+        /** 连载追更：上次检查时间（节流用）。 */
+        public long lastCheckedAt = 0L;
+        /** 连载追更：是否有未读新章。 */
+        public boolean hasUpdate = false;
         public long updatedAt = 0L;
 
         public String key() {

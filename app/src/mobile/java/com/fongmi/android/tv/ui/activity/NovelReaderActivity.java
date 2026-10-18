@@ -22,7 +22,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.fongmi.android.tv.read.HkNovelFetcher;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
-import com.fongmi.android.tv.ui.hk.HkDialogs;
 import com.fongmi.android.tv.utils.Task;
 
 /**
@@ -34,6 +33,12 @@ public class NovelReaderActivity extends AppCompatActivity {
     private static final String PREFS = "reading_pref";
     private static final String KEY_TEXT_SIZE = "novel_text_size";
     private static final String KEY_THEME = "novel_theme";
+    private static final String KEY_PAGE_MODE = "novel_page_mode"; // 0纵滑 1覆盖 2滑动
+    private static final String KEY_FONT = "novel_font"; // 0默认 1衬线 2等宽 3导入
+    private static final String KEY_FONT_PATH = "novel_font_path";
+    private static final String KEY_SPACING = "novel_spacing"; // 0紧凑 1标准 2疏朗
+    private static final String KEY_VOLUME_PAGE = "novel_volume_page";
+    private static final String KEY_KEEP_SCREEN = "novel_keep_screen";
 
     // 主题：白 / 米色 / 深色
     private static final int[] BG = {0xFFFFFFFF, 0xFFF6ECD9, 0xFF141414};
@@ -65,6 +70,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         }
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         buildUi();
+        applyKeepScreen();
         loadChapter(session.chapterIndex, true);
     }
 
@@ -83,7 +89,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         int pad = dp(20);
         tvContent.setPadding(pad, dp(56), pad, dp(64));
         tvContent.setTextSize(prefs.getFloat(KEY_TEXT_SIZE, 18));
-        tvContent.setLineSpacing(dp(8), 1.0f);
+        applyTextStyle();
         tvContent.setTextColor(fg());
         scrollView.addView(tvContent);
         root.addView(scrollView);
@@ -92,13 +98,13 @@ public class NovelReaderActivity extends AppCompatActivity {
                 new GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public boolean onSingleTapUp(MotionEvent e) {
-                        toggleBars();
-                        return true;
+                        return onContentTap(e.getX());
                     }
                 });
         scrollView.setOnTouchListener((v, e) -> {
             gd.onTouchEvent(e);
-            return false;
+            // 覆盖/滑动模式：手势被翻页接管，不自由滚动
+            return pageMode() != 0;
         });
         scrollView.getViewTreeObserver().addOnScrollChangedListener(this::updateProgressLabel);
 
@@ -223,8 +229,172 @@ public class NovelReaderActivity extends AppCompatActivity {
         TextView ttsBtn = btn("朗读");
         ttsBtn.setOnClickListener(v -> startTts());
         row2.addView(ttsBtn);
+
+        TextView markBtn = btn("书签");
+        markBtn.setOnClickListener(v -> showBookmarks());
+        row2.addView(markBtn);
+
+        TextView csBtn = btn("换源");
+        csBtn.setOnClickListener(v -> changeSource());
+        row2.addView(csBtn);
+
+        TextView setBtn = btn("设置");
+        setBtn.setOnClickListener(v -> showSettings());
+        row2.addView(setBtn);
         bar.addView(row2);
         return bar;
+    }
+
+    // ---------------- 设置 ----------------
+
+    private void showSettings() {
+        String[] items = {
+                "翻页模式：" + new String[]{"纵滑", "覆盖", "滑动"}[pageMode()],
+                "字体：" + new String[]{"默认", "衬线", "等宽", "导入的字体"}[prefs.getInt(KEY_FONT, 0)],
+                "行距：" + new String[]{"紧凑", "标准", "疏朗"}[prefs.getInt(KEY_SPACING, 1)],
+                "音量键翻页：" + (prefs.getBoolean(KEY_VOLUME_PAGE, false) ? "开" : "关"),
+                "屏幕常亮：" + (prefs.getBoolean(KEY_KEEP_SCREEN, true) ? "开" : "关"),
+                "清除本书缓存"
+        };
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("阅读设置")
+                .setItems(items, (d, which) -> {
+                    d.dismiss();
+                    switch (which) {
+                        case 0: pickPageMode(); break;
+                        case 1: pickFont(); break;
+                        case 2: pickSpacing(); break;
+                        case 3:
+                            prefs.edit().putBoolean(KEY_VOLUME_PAGE,
+                                    !prefs.getBoolean(KEY_VOLUME_PAGE, false)).apply();
+                            showSettings();
+                            break;
+                        case 4:
+                            prefs.edit().putBoolean(KEY_KEEP_SCREEN,
+                                    !prefs.getBoolean(KEY_KEEP_SCREEN, true)).apply();
+                            applyKeepScreen();
+                            showSettings();
+                            break;
+                        case 5:
+                            com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
+                            Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
+                            break;
+                    }
+                })
+                .setPositiveButton("关闭", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    private void pickPageMode() {
+        String[] modes = {"纵滑", "覆盖", "滑动"};
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("翻页模式")
+                .setSingleChoiceItems(modes, pageMode(), (d, which) -> {
+                    d.dismiss();
+                    prefs.edit().putInt(KEY_PAGE_MODE, which).apply();
+                    Toast.makeText(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton("取消", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    private void pickFont() {
+        String[] fonts = {"默认", "衬线", "等宽", "导入 ttf 字体…"};
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("字体")
+                .setItems(fonts, (d, which) -> {
+                    d.dismiss();
+                    if (which == 3) {
+                        pickFontFile();
+                        return;
+                    }
+                    prefs.edit().putInt(KEY_FONT, which).apply();
+                    applyTextStyle();
+                })
+                .setPositiveButton("取消", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    private void pickSpacing() {
+        String[] items = {"紧凑", "标准", "疏朗"};
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("行距")
+                .setSingleChoiceItems(items, prefs.getInt(KEY_SPACING, 1), (d, which) -> {
+                    d.dismiss();
+                    prefs.edit().putInt(KEY_SPACING, which).apply();
+                    float frac = currentFraction();
+                    applyTextStyle();
+                    scrollView.post(() -> scrollToFraction(frac));
+                })
+                .setPositiveButton("取消", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    // ---------------- 屏幕常亮 ----------------
+
+    private void applyKeepScreen() {
+        boolean on = prefs.getBoolean(KEY_KEEP_SCREEN, true);
+        if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    // ---------------- 书签 ----------------
+
+    /** 书 key：与 ReadingStore.Record.key() 同口径。 */
+    private String bookKey() {
+        if (!TextUtils.isEmpty(session.localId)) return "local|" + session.localId;
+        return "NOVEL|" + session.sourceName + "|" + session.bookTitle;
+    }
+
+    private void showBookmarks() {
+        java.util.List<com.fongmi.android.tv.read.ReadingBookmarkStore.Mark> marks =
+                com.fongmi.android.tv.read.ReadingBookmarkStore.list(bookKey());
+        com.fongmi.android.tv.read.ReaderDialogs.showBookmarks(this, session.bookTitle, marks,
+                this::addBookmarkAtCurrent,
+                m -> goChapter(m.chapterIndex, m.position),
+                m -> com.fongmi.android.tv.read.ReadingBookmarkStore.remove(m.bookKey, m.createdAt));
+    }
+
+    private void addBookmarkAtCurrent() {
+        com.fongmi.android.tv.read.ReadingBookmarkStore.Mark m =
+                new com.fongmi.android.tv.read.ReadingBookmarkStore.Mark();
+        m.bookKey = bookKey();
+        m.bookTitle = session.bookTitle;
+        m.kind = "NOVEL";
+        m.chapterName = session.currentChapter().name;
+        m.chapterIndex = session.chapterIndex;
+        m.position = Math.round(currentFraction() * 10000);
+        m.excerpt = com.fongmi.android.tv.read.ReadingBookmarkStore.excerptOf(currentText);
+        com.fongmi.android.tv.read.ReadingBookmarkStore.add(m);
+        Toast.makeText(this, "书签已保存", Toast.LENGTH_SHORT).show();
+    }
+
+    /** AI 口令"书签"：打开书签列表。 */
+    public void aiBookmarks() {
+        setBarsVisible(false);
+        showBookmarks();
+    }
+
+    // ---------------- 换源 ----------------
+
+    private void changeSource() {
+        if (!com.fongmi.android.tv.read.ReadingChangeSource.supported(session)) {
+            Toast.makeText(this, "当前这本书不支持换源（仅书源的书可换）",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "正在其它书源里找这本书…", Toast.LENGTH_SHORT).show();
+        android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+        com.fongmi.android.tv.read.ReadingChangeSource.search(this, session, ui, candidates ->
+                com.fongmi.android.tv.read.ReadingChangeSource.pickAndSwitch(
+                        this, session, candidates, session.chapterIndex,
+                        currentFraction(), 0));
+    }
+
+    /** AI 口令"换源"。 */
+    public void aiChangeSource() {
+        setBarsVisible(false);
+        changeSource();
     }
 
     /** 朗读本章：把会话递给朗读播放页（调用关系，阅读器本身不动）。 */
@@ -274,6 +444,109 @@ public class NovelReaderActivity extends AppCompatActivity {
         setBarsVisible(!barsShown);
     }
 
+    // ---------------- 翻页模式 ----------------
+
+    private int pageMode() {
+        return prefs.getInt(KEY_PAGE_MODE, 0);
+    }
+
+    /**
+     * 内容区点按：纵滑模式点哪都呼出控制栏；
+     * 覆盖/滑动模式左1/3上一页、右1/3下一页、中间呼出控制栏。
+     */
+    private boolean onContentTap(float x) {
+        if (pageMode() == 0) {
+            toggleBars();
+            return true;
+        }
+        float w = scrollView.getWidth();
+        if (x < w / 3f) pageBy(-1);
+        else if (x > w * 2f / 3f) pageBy(1);
+        else toggleBars();
+        return true;
+    }
+
+    /** 整屏翻页：覆盖=直接跳，滑动=带动画。 */
+    private void pageBy(int dir) {
+        int amount = Math.max(1, scrollView.getHeight() - dp(48));
+        if (pageMode() == 2) scrollView.smoothScrollBy(0, dir * amount);
+        else scrollView.scrollBy(0, dir * amount);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if (prefs.getBoolean(KEY_VOLUME_PAGE, false)
+                && (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP
+                || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            pageBy(keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN ? 1 : -1);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    // ---------------- 字体与行距 ----------------
+
+    /** 字体：0默认 1衬线 2等宽 3导入ttf。 */
+    private void applyTextStyle() {
+        if (tvContent == null) return;
+        int font = prefs.getInt(KEY_FONT, 0);
+        android.graphics.Typeface tf = android.graphics.Typeface.DEFAULT;
+        if (font == 1) tf = android.graphics.Typeface.SERIF;
+        else if (font == 2) tf = android.graphics.Typeface.MONOSPACE;
+        else if (font == 3) {
+            String path = prefs.getString(KEY_FONT_PATH, "");
+            try {
+                if (!TextUtils.isEmpty(path) && new java.io.File(path).exists()) {
+                    tf = android.graphics.Typeface.createFromFile(path);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        tvContent.setTypeface(tf);
+        int sp = prefs.getInt(KEY_SPACING, 1);
+        if (sp == 0) tvContent.setLineSpacing(0, 1.0f);       // 紧凑
+        else if (sp == 2) tvContent.setLineSpacing(dp(14), 1.35f); // 疏朗
+        else tvContent.setLineSpacing(dp(8), 1.15f);          // 标准
+    }
+
+    private final androidx.activity.result.ActivityResultLauncher<android.content.Intent> fontPicker =
+            registerForActivityResult(
+                    new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() != RESULT_OK || result.getData() == null
+                                || result.getData().getData() == null) return;
+                        android.net.Uri uri = result.getData().getData();
+                        try {
+                            java.io.File dir = new java.io.File(getFilesDir(), "fonts");
+                            if (!dir.exists()) dir.mkdirs();
+                            java.io.File out = new java.io.File(dir, "custom.ttf");
+                            try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+                                 java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                                byte[] buf = new byte[32768];
+                                int n;
+                                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                            }
+                            prefs.edit().putInt(KEY_FONT, 3)
+                                    .putString(KEY_FONT_PATH, out.getAbsolutePath()).apply();
+                            applyTextStyle();
+                            Toast.makeText(this, "已应用导入的字体", Toast.LENGTH_SHORT).show();
+                        } catch (Throwable t) {
+                            Toast.makeText(this, "字体导入失败", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+
+    private void pickFontFile() {
+        try {
+            android.content.Intent it = new android.content.Intent(
+                    android.content.Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            it.setType("*/*");
+            fontPicker.launch(it);
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void setBarsVisible(boolean show) {
         barsShown = show;
         topBar.setVisibility(show ? View.VISIBLE : View.GONE);
@@ -306,7 +579,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         tvContent.setText("加载中…");
         refreshTitle();
         Task.execute(() -> {
-            String text = resolveText(session, ch);
+            String text = cachedOrResolve(ch);
             runOnUiThread(() -> {
                 loading = false;
                 currentText = text;
@@ -316,7 +589,11 @@ public class NovelReaderActivity extends AppCompatActivity {
                     tvContent.setText(text);
                 }
                 scrollView.post(() -> {
-                    if (restoreProgress) {
+                    if (session.startFraction >= 0) {
+                        // 换源/书签带入的进度优先
+                        scrollToFraction(session.startFraction / 10000f);
+                        session.startFraction = -1;
+                    } else if (restoreProgress) {
                         ReadingStore.Record prog = !TextUtils.isEmpty(session.localId)
                                 ? ReadingStore.findLocal(session.localId)
                                 : ReadingStore.find("NOVEL", session.sourceName, session.bookTitle);
@@ -336,10 +613,10 @@ public class NovelReaderActivity extends AppCompatActivity {
     }
 
     /**
-     * 取正文：本地书 → 会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。
-     * 静态化供朗读引擎复用（同口径，不另起炉灶）。
+     * 取正文：缓存 → 本地书 → 会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。
+     * 静态化供朗读引擎与章节缓存复用（同口径，不另起炉灶）。
      */
-    static String resolveText(ReadingSession session, ReadingSession.Chapter ch) {
+    public static String resolveText(ReadingSession session, ReadingSession.Chapter ch) {
         // 本地书：按章从私有目录懒读
         if (com.fongmi.android.tv.localbook.LocalBookReader.isLocal(ch.url)) {
             return com.fongmi.android.tv.localbook.LocalBookReader.textOf(ch.url);
@@ -374,7 +651,23 @@ public class NovelReaderActivity extends AppCompatActivity {
         return "";
     }
 
+    /** 取正文：先看缓存（本地书本身就在本地，不走缓存）。 */
+    private String cachedOrResolve(ReadingSession.Chapter ch) {
+        if (TextUtils.isEmpty(session.localId)) {
+            String cached = com.fongmi.android.tv.read.ReadingDownload.loadNovelChapter(
+                    this, bookKey(), session.chapterIndex);
+            if (!TextUtils.isEmpty(cached)) return cached;
+        }
+        return resolveText(session, ch);
+    }
+
     private void goChapter(int index) {
+        loadChapter(index, false);
+    }
+
+    /** 书签跳转：可带章内进度。 */
+    private void goChapter(int index, int fraction) {
+        session.startFraction = fraction;
         loadChapter(index, false);
     }
 
@@ -383,15 +676,35 @@ public class NovelReaderActivity extends AppCompatActivity {
             Toast.makeText(this, "没有章节列表", Toast.LENGTH_SHORT).show();
             return;
         }
-        String[] names = new String[session.chapters.size()];
-        for (int i = 0; i < names.length; i++) names[i] = session.chapters.get(i).name;
-        new HkDialogs(this)
-                .setTitle("章节（" + names.length + "）")
-                .setSingleChoiceItems(names, session.chapterIndex, (d, which) -> {
+        java.util.List<String> names = new java.util.ArrayList<>(session.chapters.size());
+        for (ReadingSession.Chapter c : session.chapters) names.add(c.name);
+        boolean local = !TextUtils.isEmpty(session.localId);
+        String cacheStatus = local ? null : com.fongmi.android.tv.read.ReadingDownload
+                .statusText(this, bookKey(), session.chapters.size());
+        com.fongmi.android.tv.read.ReaderDialogs.showChapters(this, session.bookTitle, names,
+                session.chapterIndex, cacheStatus,
+                local ? null : this::askCacheRange,
+                this::goChapter);
+    }
+
+    /** 缓存范围选择：后续 20 / 50 / 全部。 */
+    private void askCacheRange() {
+        String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
+        int[] counts = {20, 50, Integer.MAX_VALUE};
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("缓存章节（离线看）")
+                .setItems(items, (d, which) -> {
                     d.dismiss();
-                    goChapter(which);
+                    Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+                    android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+                    com.fongmi.android.tv.read.ReadingDownload.downloadNextNovel(
+                            this, session, bookKey(), counts[which], ui,
+                            (ok, total) -> Toast.makeText(this,
+                                    total == 0 ? "没有可缓存的新章节"
+                                            : "已缓存 " + ok + " / " + total + " 章",
+                                    Toast.LENGTH_SHORT).show());
                 })
-                .setPositiveButton("关闭", (d, w) -> d.dismiss())
+                .setPositiveButton("取消", (d, w) -> d.dismiss())
                 .show();
     }
 
@@ -464,6 +777,13 @@ public class NovelReaderActivity extends AppCompatActivity {
     protected void onPause() {
         lastSaveAt = 0;
         saveProgress();
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyKeepScreen();
     }
 }

@@ -59,6 +59,7 @@ public class LegadoReading {
                 r.chapterUrl = ch.url;
             }
             r.legadoKey = s.legadoKey;
+            r.bookUrl = info.bookUrl == null ? "" : info.bookUrl;
             r.updatedAt = System.currentTimeMillis();
             ReadingStore.save(r);
         } catch (Throwable ignored) {

@@ -1288,6 +1288,48 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             logImpl(args);
             return null;
         });
+        // 聚阅库兼容垫片（1.3.45 聚阅聚合页卡白案）：聚阅 SrcJuPublic.js:11 在全新作用域里调用
+        // downloadPlugins()，该函数只定义在 SrcJuMethod.js:1237，而该文件在本加载链从未被 require；
+        // 8.83 靠进程单例持久作用域跨求值泄漏得到它，星辰逐次新作用域直接报 ReferenceError，
+        // parseList 异常被吞成空列表＝聚合页白页。照 xlog 垫片先例在宿主侧实现，按原函数逐行语义
+        // （~/workspace/juyue/libs/ea2ea7f49c1d87b8d19784fa4206921f.js:1237-1250）：从代码仓下载
+        // 6 个插件/模板文件到 hiker://files/data/聚阅/ 本地化，自身 try/catch、失败只记日志不抛。
+        putFunction("downloadPlugins", args -> {
+            try {
+                boolean update = false;
+                if (args != null && args.length > 0) {
+                    Object u = args[0];
+                    update = Boolean.TRUE.equals(u)
+                            || (u instanceof Number && ((Number) u).intValue() != 0);
+                }
+                // 原文：(config.聚阅||getPublicItem('聚阅','')) — 规则配置对象，公共 KV 回退
+                String repo = "";
+                try {
+                    Object cfg = scope.get("config", scope);
+                    if (cfg instanceof Scriptable) repo = scriptableString((Scriptable) cfg, "聚阅");
+                } catch (Throwable ignored) {
+                }
+                if (repo.isEmpty()) {
+                    String v = publicKv.get("聚阅");
+                    if (v != null) repo = v;
+                }
+                // 原文：.replace(/[^/]*$/,'') — 去掉末尾最后一个 / 之后的部分，保留末尾斜杠
+                String base = repo.replaceAll("/[^/]*$", "/");
+                String libsPath = "hiker://files/data/聚阅/"; // 原 SrcJuMethod.js:2 let libspath
+                String[] files = {"plugins/hikerPop.js", "plugins/gzip.js", "plugins/pinyin-match.js",
+                        "template/GetAppApi.js", "template/parseCode.js", "template/采集cms.js"};
+                for (String it : files) {
+                    String dest = resolveHikerPath(libsPath + it);
+                    if (update) new File(dest).delete(); // 原文：deleteFile(libspath + it)
+                    if (new File(dest).exists()) continue; // 宿主 requireDownload 语义：已存在跳过
+                    downloadToFile(base + it, dest, "{}");
+                }
+            } catch (Throwable e) {
+                // 原文：catch(e){ xlog('插件文件本地化失败>' + e.message) }
+                logImpl(new Object[]{"插件文件本地化失败>" + e.getMessage()});
+            }
+            return null;
+        });
 
         // ---- 交互/配置（海阔规则常用，preRule 里调） ----
         putFunction("confirm", args -> {

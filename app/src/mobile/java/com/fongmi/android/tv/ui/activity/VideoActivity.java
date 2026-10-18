@@ -102,6 +102,7 @@ import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.emby.EmbyApi;
 import com.fongmi.android.tv.emby.EmbyItem;
 import com.fongmi.android.tv.emby.EmbyNavigator;
+import com.fongmi.android.tv.emby.EmbySpider;
 import com.fongmi.android.tv.emby.EmbyStore;
 import com.fongmi.android.tv.event.CastEvent;
 import com.fongmi.android.tv.event.ConfigEvent;
@@ -376,6 +377,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mEmby410Key = "";
     /** 当前在播的 Emby 版本选项（410 重取时按"同一源→同分辨率档"优先匹配）。 */
     private EmbyApi.PlayOption mEmbyCurrentOpt;
+    /**
+     * 详情页 Emby 画质行：当前集的 MediaSources 候选（后台拉的）与用户选择。
+     * key = sid:iid + "|D"(直放线路) / "|T"(转码线路)；选择只活在本次详情会话。
+     */
+    private List<EmbyApi.PlayOption> mEmbyQOptions;
+    private final Map<String, EmbyApi.PlayOption> mEmbyQPick = new HashMap<>();
+    private String mEmbyQKey = "";
+    private long mEmbyQSeq = 0;
+    private boolean mEmbyQShowing = false;
     /** 详情页 Emby 收藏按钮态：null=还没拉到，防详情切换串台用 gen。 */
     private Boolean mEmbyFavState;
     private String mEmbyFavSid;
@@ -1703,6 +1713,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 // addAll 换了新 Flags 丢了选中态，seamless 再 onItemClick 一遍，onRefresh
                 // stop+clear 重起——用户体感「暂停一下再播」（双 input.open）。
                 renderFlagSelection(vod);
+                // Emby 画质行：线路/选集后补上时刷新
+                refreshEmbyQualityRow();
             }
             return;
         }
@@ -2140,6 +2152,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         scrollEpisodeToSelected();
         setQualityVisible(false);
         seamless(item);
+        // Emby 画质行跟线路走：换线路重拉本集版本
+        refreshEmbyQualityRow();
     }
 
     @Override
@@ -2180,6 +2194,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         String sid = EmbyNavigator.serverIdOf(item.getUrl());
         String iid = EmbyNavigator.itemIdOf(item.getUrl());
         if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) return false;
+        // 画质行已选过本集：直接用行里的版本，不再重拉
+        EmbyApi.PlayOption picked = mEmbyQPick.get(sid + ":" + iid + "|D");
+        if (picked != null && !TextUtils.isEmpty(picked.url)) {
+            playPickedEmbyVersion(item, picked);
+            return true;
+        }
         Notify.show(getString(R.string.emby_quality_loading));
         Task.execute(() -> {
             try {
@@ -2238,6 +2258,141 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         getIntent().putExtra("id", opt.url);
         // 固定走 PUSH 直链口径：版本地址已解析好，不进 spider
         mViewModel.playerContent(SiteApi.PUSH, "", opt.url);
+    }
+
+    /**
+     * Emby 详情页画质行：线路行下面，多版本（MediaSources）各一档。
+     * 单版本/取数失败/非 Emby → 按"该藏的藏"不露脸。
+     * 默认选中沿用现链默认（直放线路=pickDefaultDirect，转码线路=首个非直放），不自创优先级。
+     */
+    private void refreshEmbyQualityRow() {
+        Vod item = mAiVod;
+        boolean emby = item != null && isEmbyDetail(item);
+        if (!emby) {
+            clearEmbyQualityRow();
+            return;
+        }
+        Flag flag = getFlag();
+        Episode ep = getEpisode();
+        if (flag == null || ep == null || ep.getUrl() == null || !ep.getUrl().startsWith("emby:")) {
+            clearEmbyQualityRow();
+            return;
+        }
+        String sid = EmbyNavigator.serverIdOf(ep.getUrl());
+        String iid = EmbyNavigator.itemIdOf(ep.getUrl());
+        if (TextUtils.isEmpty(sid) || TextUtils.isEmpty(iid)) {
+            clearEmbyQualityRow();
+            return;
+        }
+        boolean transcode = flag.getFlag() != null && flag.getFlag().contains("转码");
+        String key = sid + ":" + iid + "|" + (transcode ? "T" : "D");
+        if (key.equals(mEmbyQKey) && mEmbyQOptions != null) {
+            renderEmbyQualityRow();
+            return;
+        }
+        mEmbyQKey = key;
+        mEmbyQOptions = null;
+        if (mEmbyQShowing) setQualityVisible(false);
+        if (transcode) {
+            // 转码线路走 spider：先清掉旧选择，取数完成前点播走现链默认
+            EmbySpider.setPreferredSource("emby:" + sid + ":" + iid, null);
+        }
+        long seq = ++mEmbyQSeq;
+        final String fSid = sid;
+        final String fIid = iid;
+        final boolean fTrans = transcode;
+        final String fKey = key;
+        Task.execute(() -> {
+            List<EmbyApi.PlayOption> options = null;
+            try {
+                EmbyStore.EmbyServer s = EmbyStore.getServer(fSid);
+                if (s == null || !s.isLogin()) throw new Exception("未登录");
+                EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
+                options = api.playbackCandidates(fIid, "").options;
+            } catch (Throwable ignored) {
+            }
+            final List<EmbyApi.PlayOption> opts = options;
+            App.post(() -> {
+                if (seq != mEmbyQSeq || isFinishing() || isDestroyed()) return;
+                if (!fKey.equals(mEmbyQKey)) return;
+                if (opts == null || opts.size() <= 1) {
+                    clearEmbyQualityRow();
+                    return;
+                }
+                if (player() != null && !player().isEmpty()) return;
+                int def = defaultEmbyQualityIndex(opts, fTrans);
+                mEmbyQOptions = opts;
+                EmbyApi.PlayOption pick = opts.get(def);
+                mEmbyQPick.put(fKey, pick);
+                if (fTrans) {
+                    // 转码线路走 spider：把默认版本记过去，播放按行选择走
+                    EmbySpider.setPreferredSource("emby:" + fSid + ":" + fIid, pick.mediaSourceId);
+                }
+                renderEmbyQualityRow();
+            });
+        });
+    }
+
+    /** 现链默认：直放线路取 pickDefaultDirect 在列表中的下标；转码线路取首个非直放，否则 0。 */
+    private int defaultEmbyQualityIndex(List<EmbyApi.PlayOption> opts, boolean transcode) {
+        if (transcode) {
+            for (int i = 0; i < opts.size(); i++) if (!opts.get(i).direct) return i;
+            return 0;
+        }
+        List<EmbyApi.PlayOption> direct = new ArrayList<>();
+        for (EmbyApi.PlayOption o : opts) if (o.direct) direct.add(o);
+        EmbyApi.PlayOption best = EmbyApi.pickDefaultDirect(direct);
+        if (best != null) {
+            for (int i = 0; i < opts.size(); i++) if (opts.get(i) == best) return i;
+        }
+        return 0;
+    }
+
+    private void renderEmbyQualityRow() {
+        if (mEmbyQOptions == null || mEmbyQOptions.size() <= 1 || mQualityAdapter == null) {
+            clearEmbyQualityRow();
+            return;
+        }
+        boolean transcode = mEmbyQKey.endsWith("|T");
+        List<String> labels = new ArrayList<>();
+        for (EmbyApi.PlayOption o : mEmbyQOptions) labels.add(o.qualityRowLabel(transcode));
+        int sel = defaultEmbyQualityIndex(mEmbyQOptions, transcode);
+        EmbyApi.PlayOption pick = mEmbyQPick.get(mEmbyQKey);
+        if (pick != null) {
+            for (int i = 0; i < mEmbyQOptions.size(); i++) {
+                if (pick.mediaSourceId.equals(mEmbyQOptions.get(i).mediaSourceId)) {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+        mQualityAdapter.setSimpleItems(labels, sel, this::onEmbyQualityPick);
+        mEmbyQShowing = true;
+        setQualityVisible(true);
+    }
+
+    /** 画质行点选：记下本集本线路的选择；转码线路同步给 spider。 */
+    private void onEmbyQualityPick(int pos) {
+        if (mEmbyQOptions == null || pos < 0 || pos >= mEmbyQOptions.size() || TextUtils.isEmpty(mEmbyQKey)) return;
+        EmbyApi.PlayOption opt = mEmbyQOptions.get(pos);
+        mEmbyQPick.put(mEmbyQKey, opt);
+        int p = mEmbyQKey.indexOf('|');
+        String epId = p > 0 ? mEmbyQKey.substring(0, p) : "";
+        if (mEmbyQKey.endsWith("|T") && epId.startsWith("emby:")) {
+            EmbySpider.setPreferredSource(epId, opt.mediaSourceId);
+        }
+        renderEmbyQualityRow();
+    }
+
+    /** 非 Emby / 单版本 / 失败时收起画质行；非 Emby 时不动通用 Result 模式。 */
+    private void clearEmbyQualityRow() {
+        mEmbyQOptions = null;
+        mEmbyQKey = "";
+        if (mEmbyQShowing && mQualityAdapter != null) {
+            mQualityAdapter.setSimpleItems(null, 0, null);
+            mEmbyQShowing = false;
+            setQualityVisible(false);
+        }
     }
 
     @Override
@@ -7643,6 +7798,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } catch (Throwable e) {
             e.printStackTrace();
         }
+        // Emby 画质行：线路行下面，多版本各一档；单版本/失败不露脸
+        refreshEmbyQualityRow();
     }
 
     /**
@@ -8888,6 +9045,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onDestroy() {
         hasPlayer = false;
+        // Emby 画质行选择只活在本次详情会话，销毁时清掉
+        try {
+            EmbySpider.clearPreferredSources();
+        } catch (Throwable ignored) {
+        }
         // 释放 AI 本地字幕
         try {
             com.fongmi.android.tv.ai.asr.AiAsrController.get().onPlayerRelease(this);

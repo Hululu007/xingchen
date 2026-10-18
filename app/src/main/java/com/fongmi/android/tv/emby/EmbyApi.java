@@ -136,6 +136,29 @@ public class EmbyApi {
         public int height = 0;
         /** 同次 PlaybackInfo 里 MediaSource 的 Id（410 重取时按源匹配）。 */
         public String mediaSourceId = "";
+        /** 视频编码（MediaStreams 里 Video 流 Codec；""=未知）。 */
+        public String videoCodec = "";
+
+        /**
+         * 详情页画质行标签：只用源数据实际字段拼，不编造。
+         * 例：「直链 · 4K 2160p · 25.0 Mbps · H264」「转码 · 1080p · 8.5 Mbps」。
+         * forceTranscode=true 时（转码线路行）全部标转码。
+         */
+        public String qualityRowLabel(boolean forceTranscode) {
+            StringBuilder sb = new StringBuilder(forceTranscode || !direct ? "转码" : "直链");
+            String q;
+            if (height >= 2160 || width >= 3800) q = "4K " + (height > 0 ? height + "p" : width + "x" + height);
+            else if (height >= 1440) q = "1440p";
+            else if (height >= 1080) q = "1080p";
+            else if (height >= 720) q = "720p";
+            else if (height > 0) q = height + "p";
+            else if (width > 0) q = width + "x" + height;
+            else q = "未知";
+            sb.append(" · ").append(q);
+            sb.append(EmbyApi.bitrateText(bitrate));
+            if (!TextUtils.isEmpty(videoCodec)) sb.append(" · ").append(videoCodec.toUpperCase());
+            return sb.toString();
+        }
     }
 
     /**
@@ -881,7 +904,33 @@ public class EmbyApi {
         body.put("MaxStreamingBitrate", 120_000_000);
         body.put("StartTimeTicks", 0);
         body.put("DeviceProfile", deviceProfile());
-        return new JSONObject(post("/Items/" + itemId + "/PlaybackInfo?UserId=" + userId, body.toString()));
+        JSONObject resp = new JSONObject(post("/Items/" + itemId + "/PlaybackInfo?UserId=" + userId, body.toString()));
+        try {
+            JSONArray sources = resp.optJSONArray("MediaSources");
+            java.util.TreeSet<String> keys = new java.util.TreeSet<>();
+            java.util.Iterator<String> it = resp.keys();
+            while (it.hasNext()) keys.add(it.next());
+            com.github.catvod.crawler.SpiderDebug.log("emby-play", "PlaybackInfo sources=%d keys=%s",
+                    sources == null ? -1 : sources.length(), TextUtils.join(",", keys));
+        } catch (Throwable ignored) {
+        }
+        return resp;
+    }
+
+    /**
+     * 指定版本（MediaSourceId）的转码地址：详情画质行在转码线路上选了直放版时用。
+     * 只在这种情形多调一次 PlaybackInfo，平时不走。
+     */
+    public String transcodeUrlFor(String itemId, String mediaSourceId) throws Exception {
+        JSONObject info = playbackInfo(itemId);
+        JSONArray sources = info.optJSONArray("MediaSources");
+        if (sources != null) for (int i = 0; i < sources.length(); i++) {
+            JSONObject ms = sources.optJSONObject(i);
+            if (ms != null && mediaSourceId.equals(ms.optString("Id", ""))) {
+                return absolute(base, token, transcodeUrl(itemId, mediaSourceId, ms));
+            }
+        }
+        throw new Exception("没找到该版本的转码地址");
     }
 
     private static String absolute(String base, String token, String url) {
@@ -1089,6 +1138,7 @@ public class EmbyApi {
                 int[] size = videoSize(ms);
                 o.width = size[0];
                 o.height = size[1];
+                o.videoCodec = videoCodecOf(ms);
                 String q = qualityLabel(ms);
                 if (canDirect) {
                     o.label = "直链" + (q.isEmpty() ? "" : " · " + q) + bitrateText(bitrate);
@@ -1150,6 +1200,18 @@ public class EmbyApi {
             }
         }
         return new int[]{0, 0};
+    }
+
+    /** MediaStreams 里第一个 Video 流的编码；取不到返回 ""。 */
+    private static String videoCodecOf(JSONObject ms) {
+        JSONArray streams = ms.optJSONArray("MediaStreams");
+        if (streams != null) for (int i = 0; i < streams.length(); i++) {
+            JSONObject s = streams.optJSONObject(i);
+            if (s != null && "Video".equals(s.optString("Type", ""))) {
+                return s.optString("Codec", "");
+            }
+        }
+        return "";
     }
 
     private static String qualityLabel(JSONObject ms) {

@@ -27,6 +27,37 @@ public class EmbySpider extends Spider {
     private static final int LIMIT = 50;
     private static final String NEED_LOGIN = "请先去设置-个性功能登录 Emby";
 
+    /**
+     * 详情页画质行选中的版本（epId "emby:sid:iid" → MediaSourceId），只活在本次详情会话。
+     * 直放线路的点击在 VideoActivity 里直接走版本地址，不进这里；这里只服务转码线路。
+     */
+    private static final Map<String, String> preferredSource = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static void setPreferredSource(String epId, String mediaSourceId) {
+        try {
+            if (TextUtils.isEmpty(epId)) return;
+            if (TextUtils.isEmpty(mediaSourceId)) preferredSource.remove(epId);
+            else preferredSource.put(epId, mediaSourceId);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String preferredSource(String epId) {
+        try {
+            return preferredSource.get(epId);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 详情页销毁时清掉本次会话的选择，不带到下一次。 */
+    public static void clearPreferredSources() {
+        try {
+            preferredSource.clear();
+        } catch (Throwable ignored) {
+        }
+    }
+
     private EmbyApi activeApi() throws Exception {
         EmbyStore.EmbyServer s = EmbyStore.active();
         if (s == null || !s.isLogin()) {
@@ -287,12 +318,29 @@ public class EmbySpider extends Spider {
         if (forceTranscode) {
             List<EmbyApi.PlayOption> options = api.playbackOptions(sp[1], "");
             EmbyApi.PlayOption pick = null;
-            for (EmbyApi.PlayOption o : options) if (!o.direct) {
-                pick = o;
-                break;
+            String want = preferredSource(id);
+            if (!TextUtils.isEmpty(want)) {
+                for (EmbyApi.PlayOption o : options) {
+                    if (want.equals(o.mediaSourceId)) {
+                        pick = o;
+                        break;
+                    }
+                }
+                if (pick != null && pick.direct) {
+                    // 画质行在转码线路上选了直放版：该版本按转码地址播
+                    playUrl = api.transcodeUrlFor(sp[1], want);
+                } else if (pick != null) {
+                    playUrl = pick.url;
+                }
             }
-            if (pick == null) pick = options.get(0);
-            playUrl = pick.url;
+            if (TextUtils.isEmpty(playUrl)) {
+                for (EmbyApi.PlayOption o : options) if (!o.direct) {
+                    pick = o;
+                    break;
+                }
+                if (pick == null) pick = options.get(0);
+                playUrl = pick.url;
+            }
         } else {
             EmbyApi.PlayTarget t = api.playback(sp[1], "");
             playUrl = t.url;

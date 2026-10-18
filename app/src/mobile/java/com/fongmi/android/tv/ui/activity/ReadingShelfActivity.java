@@ -3,15 +3,16 @@ package com.fongmi.android.tv.ui.activity;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -19,24 +20,31 @@ import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.legado.LegadoAudio;
+import com.fongmi.android.tv.legado.LegadoSource;
+import com.fongmi.android.tv.legado.LegadoStore;
 import com.fongmi.android.tv.localbook.LocalBookImporter;
 import com.fongmi.android.tv.read.ReadingRouter;
+import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
+import com.fongmi.android.tv.tts.EdgeVoice;
+import com.fongmi.android.tv.tts.EdgeVoiceCatalog;
+import com.fongmi.android.tv.tts.TtsJob;
 import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * 书架：在看的书＋进度＋继续读。全新设计，干净列表。
- * 点条目继续读（按记录重建会话）；长按移除。
+ * 书架首页（对稿 reading-ui-mockup-v2/home-novel、home-comic）：
+ * 小说栏＝在看的小说卡片（封面/进度/继续读）＋听书分区＋喜马拉雅卡＋我的小说源聚合卡；
+ * 漫画栏＝在看的漫画卡片（连载徽）＋我的漫画源聚合卡。各栏只说各栏的字。
+ * 顶栏不设叉（用户规矩：所有页面不要叉，走系统返回）。
  */
 public class ReadingShelfActivity extends AppCompatActivity {
 
@@ -44,16 +52,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
         context.startActivity(new Intent(context, ReadingShelfActivity.class));
     }
 
-    private final List<ReadingStore.Record> records = new ArrayList<>();
-    private ShelfAdapter adapter;
-    private TextView tvEmpty;
     /** 当前栏："NOVEL"/"COMIC"，小说漫画分开归栏。 */
     private String currentTab = "NOVEL";
     private TextView tabNovel;
     private TextView tabComic;
     private TextView importBtn;
-    private TextView secTitle;
-    private TextView comicNote;
+    private LinearLayout contentBox;
 
     private final ActivityResultLauncher<android.content.Intent> filePicker =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -102,19 +106,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(ReadingSkin.pageBackground(this));
 
+        // 顶栏：标题＋书源/导入；不设叉，走系统返回
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         int pad = dp(12);
         topBar.setPadding(pad, dp(16), pad, pad);
         ReadingSkin.applyTopInset(topBar, this, 16);
-
-        ImageButton back = new ImageButton(this);
-        back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        back.setBackgroundColor(Color.TRANSPARENT);
-        back.setColorFilter(ReadingSkin.SUB);
-        back.setOnClickListener(v -> finish());
-        topBar.addView(back);
 
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
@@ -172,96 +170,547 @@ public class ReadingShelfActivity extends AppCompatActivity {
         root.addView(tabs);
         refreshTabs();
 
-        root.addView(ReadingSkin.sectionHeader(this, "在看的小说", "长按移除",
-                null));
-        secTitle = (TextView) ((LinearLayout) root.getChildAt(
-                root.getChildCount() - 1)).getChildAt(0);
-
-        FrameLayout content = new FrameLayout(this);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
+        LinearLayout.LayoutParams svlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
-        content.setLayoutParams(clp);
-
-        RecyclerView rv = new RecyclerView(this);
-        rv.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        rv.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new ShelfAdapter();
-        rv.setAdapter(adapter);
-        content.addView(rv);
-
-        tvEmpty = new TextView(this);
-        tvEmpty.setText("还没有在看的书\n去看一本漫画或小说，它会出现在这里");
-        tvEmpty.setTextSize(15);
-        tvEmpty.setTextColor(ReadingSkin.FAINT);
-        tvEmpty.setGravity(Gravity.CENTER);
-        tvEmpty.setLineSpacing(dp(6), 1f);
-        FrameLayout.LayoutParams elp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        tvEmpty.setLayoutParams(elp);
-        content.addView(tvEmpty);
-        root.addView(content);
-
-        TextView note = new TextView(this);
-        note.setText("漫画栏只收漫画：源、书架、添加入口都在这边，"
-                + "小说那边的东西不会串过来。");
-        note.setTextSize(12);
-        note.setTextColor(ReadingSkin.FAINT);
-        note.setLineSpacing(dp(4), 1f);
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+        sv.setLayoutParams(svlp);
+        contentBox = new LinearLayout(this);
+        contentBox.setOrientation(LinearLayout.VERTICAL);
+        contentBox.setPadding(0, 0, 0, dp(24));
+        sv.addView(contentBox, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        nlp.leftMargin = dp(20);
-        nlp.rightMargin = dp(20);
-        nlp.topMargin = dp(8);
-        nlp.bottomMargin = dp(16);
-        note.setLayoutParams(nlp);
-        note.setTag("comic_note");
-        note.setVisibility(View.GONE);
-        root.addView(note);
-        this.comicNote = note;
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(sv);
 
         setContentView(root);
     }
 
+    /** 整页按当前栏重建（书卡片＋分区＋源聚合卡）。 */
     private void refresh() {
-        records.clear();
+        List<ReadingStore.Record> novels = new ArrayList<>();
+        List<ReadingStore.Record> comics = new ArrayList<>();
+        ReadingStore.Record latestAudio = null;
         for (ReadingStore.Record r : ReadingStore.list()) {
-            // 听书（AUDIO）归小说栏：小说栏分"看"和"听"（用户结构定案）
-            if (currentTab.equals(r.kind) || ("NOVEL".equals(currentTab) && "AUDIO".equals(r.kind))) {
-                records.add(r);
+            if ("NOVEL".equals(r.kind)) novels.add(r);
+            else if ("COMIC".equals(r.kind)) comics.add(r);
+            else if ("AUDIO".equals(r.kind) || "TTS".equals(r.kind)) {
+                if (latestAudio == null || r.updatedAt > latestAudio.updatedAt) latestAudio = r;
             }
         }
-        tvEmpty.setText("NOVEL".equals(currentTab)
-                ? "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说"
-                : "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画");
-        tvEmpty.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
-        if (secTitle != null) {
-            secTitle.setText("NOVEL".equals(currentTab) ? "在看的小说" : "在看的漫画");
+        boolean novel = "NOVEL".equals(currentTab);
+        contentBox.removeAllViews();
+        if (novel) {
+            contentBox.addView(ReadingSkin.sectionHeader(this, "在看的小说", "长按移除", null));
+            if (novels.isEmpty()) contentBox.addView(emptyView(
+                    "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说"));
+            else for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));
+            if (latestAudio != null) {
+                contentBox.addView(ReadingSkin.sectionHeader(this, "听书", "小说直接听", null));
+                contentBox.addView(audioCard(latestAudio));
+            }
+            contentBox.addView(ximaCard());
+            contentBox.addView(ReadingSkin.sectionHeader(this, "我的小说源", "管理", null));
+            contentBox.addView(sourceCard(true));
+        } else {
+            contentBox.addView(ReadingSkin.sectionHeader(this, "在看的漫画", "长按移除", null));
+            if (comics.isEmpty()) contentBox.addView(emptyView(
+                    "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画"));
+            else for (ReadingStore.Record r : comics) contentBox.addView(bookCard(r, true));
+            contentBox.addView(ReadingSkin.sectionHeader(this, "我的漫画源", "管理", null));
+            contentBox.addView(sourceCard(false));
+            TextView note = new TextView(this);
+            note.setText("漫画栏只收漫画：源、书架、添加入口都在这边，"
+                    + "小说那边的东西不会串过来。");
+            note.setTextSize(12);
+            note.setTextColor(ReadingSkin.FAINT);
+            note.setLineSpacing(dp(4), 1f);
+            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            nlp.leftMargin = dp(20);
+            nlp.rightMargin = dp(20);
+            nlp.topMargin = dp(8);
+            note.setLayoutParams(nlp);
+            contentBox.addView(note);
         }
-        if (comicNote != null) {
-            comicNote.setVisibility("COMIC".equals(currentTab)
-                    ? View.VISIBLE : View.GONE);
+        List<ReadingStore.Record> cands = new ArrayList<>(novels);
+        cands.addAll(comics);
+        checkUpdates(cands);
+    }
+
+    private TextView emptyView(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(15);
+        tv.setTextColor(ReadingSkin.FAINT);
+        tv.setGravity(Gravity.CENTER);
+        tv.setLineSpacing(dp(6), 1f);
+        tv.setPadding(0, dp(48), 0, dp(48));
+        return tv;
+    }
+
+    /** 书卡片：封面＋书名＋看到第 X 章/话·全 Y＋金色进度条＋百分比·人话时间＋继续读。 */
+    private View bookCard(ReadingStore.Record r, boolean comic) {
+        Context c = this;
+        LinearLayout item = new LinearLayout(c);
+        item.setOrientation(LinearLayout.HORIZONTAL);
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = dp(14);
+        item.setPadding(pad, pad, pad, pad);
+        item.setBackground(ReadingSkin.glassCard(c, 16));
+        try {
+            item.setElevation(dp(4));
+        } catch (Throwable ignored) {
         }
-        adapter.notifyDataSetChanged();
-        checkUpdates();
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(12);
+        item.setLayoutParams(lp);
+
+        // 封面：渐变占位＋白字书名（无图时）；漫画加连载徽
+        FrameLayout coverWrap = new FrameLayout(c);
+        int cw = dp(64);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cw,
+                (int) (cw * 1.32));
+        coverWrap.setLayoutParams(clp);
+        ImageView cover = new ImageView(c);
+        cover.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF2C2118, 0xFF6B4A2E, 0xFFC99A5E}));
+        ReadingSkin.roundClip(cover, c, 8);
+        coverWrap.addView(cover);
+        TextView coverTitle = new TextView(c);
+        coverTitle.setTextSize(13);
+        coverTitle.getPaint().setFakeBoldText(true);
+        coverTitle.setTextColor(0xFFFFFFFF);
+        coverTitle.setGravity(Gravity.CENTER);
+        coverTitle.setPadding(dp(6), 0, dp(6), 0);
+        coverTitle.setMaxLines(3);
+        coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        if (comic && r.totalChapters > 0) {
+            TextView badge = new TextView(c);
+            badge.setText(r.chapterIndex + 1 >= r.totalChapters ? "已完结" : "连载中");
+            badge.setTextSize(10);
+            badge.setTextColor(0xFFFFFFFF);
+            badge.setGravity(Gravity.CENTER);
+            badge.setPadding(dp(6), dp(3), dp(6), dp(3));
+            GradientDrawable bbg = new GradientDrawable();
+            bbg.setColor(0x99000000);
+            bbg.setCornerRadius(dp(6));
+            badge.setBackground(bbg);
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp.leftMargin = dp(4);
+            blp.topMargin = dp(4);
+            blp.gravity = Gravity.START | Gravity.TOP;
+            coverWrap.addView(badge, blp);
+        }
+        item.addView(coverWrap);
+
+        LinearLayout mid = new LinearLayout(c);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        mlp.leftMargin = dp(14);
+        mid.setLayoutParams(mlp);
+
+        TextView tvTitle = new TextView(c);
+        tvTitle.setTextSize(16);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setTextColor(ReadingSkin.TEXT);
+        tvTitle.setSingleLine(true);
+        tvTitle.setEllipsize(TextUtils.TruncateAt.END);
+        tvTitle.setText(r.bookTitle);
+        mid.addView(tvTitle);
+
+        String unit = comic ? "话" : "章";
+        TextView tvSub = new TextView(c);
+        tvSub.setTextSize(13);
+        tvSub.setTextColor(ReadingSkin.SUB);
+        tvSub.setSingleLine(true);
+        tvSub.setEllipsize(TextUtils.TruncateAt.END);
+        tvSub.setPadding(0, dp(6), 0, 0);
+        tvSub.setText("看到第 " + (r.chapterIndex + 1) + " " + unit
+                + (r.totalChapters > 0 ? " · 全 " + r.totalChapters + " " + unit : ""));
+        mid.addView(tvSub);
+
+        android.widget.ProgressBar bar =
+                new android.widget.ProgressBar(c, null,
+                        android.R.attr.progressBarStyleHorizontal);
+        bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
+        bar.setMax(100);
+        int pct = progressPct(r);
+        bar.setProgress(Math.max(0, Math.min(100, pct)));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+        blp.topMargin = dp(10);
+        mid.addView(bar, blp);
+
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, 0);
+        TextView tvProgress = new TextView(c);
+        tvProgress.setTextSize(12);
+        tvProgress.setTextColor(ReadingSkin.SUB);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        tvProgress.setLayoutParams(plp);
+        tvProgress.setText((pct >= 0 ? pct + "% · " : "")
+                + humanTime(r.updatedAt) + (r.hasUpdate ? " · 有更新" : ""));
+        row.addView(tvProgress);
+        TextView btnGo = new TextView(c);
+        btnGo.setText("继续读");
+        btnGo.setTextSize(13);
+        btnGo.getPaint().setFakeBoldText(true);
+        btnGo.setTextColor(0xFF1A1408);
+        btnGo.setBackground(ReadingSkin.goldCapsule(c));
+        btnGo.setPadding(dp(16), dp(8), dp(16), dp(8));
+        row.addView(btnGo);
+        mid.addView(row);
+
+        item.addView(mid);
+
+        if (!TextUtils.isEmpty(r.coverUrl)) {
+            ImgUtil.load(r.bookTitle, r.coverUrl, cover, true);
+            coverTitle.setVisibility(View.GONE);
+        } else {
+            cover.setImageDrawable(null);
+            coverTitle.setVisibility(View.VISIBLE);
+            coverTitle.setText(r.bookTitle);
+        }
+        View.OnClickListener open = v -> {
+            com.fongmi.android.tv.read.ReadingUpdateChecker.clearUpdate(r);
+            ReadingRouter.openRecord(ReadingShelfActivity.this, r);
+        };
+        item.setOnClickListener(open);
+        btnGo.setOnClickListener(open);
+        item.setOnLongClickListener(v -> {
+            removeRecord(r);
+            return true;
+        });
+        return item;
+    }
+
+    /** 进度百分比：优先按章节数算，缺总数时按千分比回退，缺数据时 -1。 */
+    private int progressPct(ReadingStore.Record r) {
+        if (r.totalChapters > 0) {
+            return Math.round((r.chapterIndex + 1) * 100f / r.totalChapters);
+        }
+        if (r.position > 0) return Math.round(r.position / 100f);
+        return -1;
+    }
+
+    /** 听书卡：圆盘＋书名·章节＋上次听到＋音色标签＋大金色播放钮。 */
+    private View audioCard(ReadingStore.Record r) {
+        Context c = this;
+        boolean isTts = "TTS".equals(r.kind);
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = dp(14);
+        card.setPadding(pad, pad, pad, pad);
+        card.setBackground(ReadingSkin.glassCard(c, 16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+
+        // 圆盘：深色盘面＋金色盘心
+        FrameLayout disc = new FrameLayout(c);
+        int ds = dp(60);
+        disc.setLayoutParams(new LinearLayout.LayoutParams(ds, ds));
+        GradientDrawable discBg = new GradientDrawable();
+        discBg.setShape(GradientDrawable.OVAL);
+        discBg.setColor(0xFF2B2B34);
+        discBg.setStroke(dp(1), 0xFF454550);
+        disc.setBackground(discBg);
+        View hub = new View(c);
+        int hs = dp(17);
+        GradientDrawable hubBg = new GradientDrawable();
+        hubBg.setShape(GradientDrawable.OVAL);
+        hubBg.setColor(ReadingSkin.GOLD);
+        hub.setBackground(hubBg);
+        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(hs, hs);
+        hlp.gravity = Gravity.CENTER;
+        disc.addView(hub, hlp);
+        card.addView(disc);
+
+        LinearLayout meta = new LinearLayout(c);
+        meta.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        mlp.leftMargin = dp(14);
+        mlp.rightMargin = dp(8);
+        meta.setLayoutParams(mlp);
+        TextView at = new TextView(c);
+        at.setTextSize(17);
+        at.getPaint().setFakeBoldText(true);
+        at.setTextColor(ReadingSkin.TEXT);
+        at.setSingleLine(true);
+        at.setEllipsize(TextUtils.TruncateAt.END);
+        at.setText(r.bookTitle + " · " + (TextUtils.isEmpty(r.chapterName)
+                ? "" : r.chapterName));
+        meta.addView(at);
+        TextView ak = new TextView(c);
+        ak.setTextSize(13);
+        ak.setTextColor(ReadingSkin.SUB);
+        ak.setPadding(0, dp(6), 0, 0);
+        ak.setText(r.position > 0 ? "上次听到 " + fmtMs(r.position) : "还没开始听");
+        meta.addView(ak);
+        if (isTts) {
+            TextView pill = new TextView(c);
+            pill.setTextSize(12);
+            pill.setTextColor(ReadingSkin.GOLD);
+            pill.setPadding(dp(10), dp(4), dp(10), dp(4));
+            GradientDrawable pbg = new GradientDrawable();
+            pbg.setCornerRadius(dp(999));
+            pbg.setStroke(dp(2), 0x80F2B33D);
+            pbg.setColor(0x1AF2B33D);
+            pill.setBackground(pbg);
+            pill.setText(defaultVoiceLabel());
+            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            plp.topMargin = dp(8);
+            pill.setLayoutParams(plp);
+            meta.addView(pill);
+        }
+        card.addView(meta);
+
+        TextView play = new TextView(c);
+        play.setText("▶");
+        play.setTextSize(20);
+        play.setTextColor(0xFF1A1408);
+        play.setGravity(Gravity.CENTER);
+        int ps = dp(52);
+        GradientDrawable playBg = new GradientDrawable();
+        playBg.setShape(GradientDrawable.OVAL);
+        playBg.setColors(new int[]{0xFFF6C65E, 0xFFE8A93B});
+        playBg.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+        play.setBackground(playBg);
+        play.setLayoutParams(new LinearLayout.LayoutParams(ps, ps));
+        play.setOnClickListener(v -> {
+            if (isTts) openTtsRecord(r);
+            else openAudioRecord(r);
+        });
+        card.addView(play);
+        card.setOnClickListener(v -> {
+            if (isTts) openTtsRecord(r);
+            else openAudioRecord(r);
+        });
+        return card;
+    }
+
+    /** 喜马拉雅卡：去听书源列表逛。 */
+    private View ximaCard() {
+        Context c = this;
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackground(ReadingSkin.glassCard(c, 16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+
+        LinearLayout meta = new LinearLayout(c);
+        meta.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        meta.setLayoutParams(mlp);
+        TextView n = new TextView(c);
+        n.setText("喜马拉雅");
+        n.setTextSize(15);
+        n.getPaint().setFakeBoldText(true);
+        n.setTextColor(ReadingSkin.TEXT);
+        meta.addView(n);
+        TextView d = new TextView(c);
+        d.setText("听书源 · 专辑 480 万＋");
+        d.setTextSize(12);
+        d.setTextColor(ReadingSkin.SUB);
+        d.setPadding(0, dp(4), 0, 0);
+        meta.addView(d);
+        card.addView(meta);
+
+        TextView go = new TextView(c);
+        go.setText("去逛逛");
+        go.setTextSize(12);
+        go.getPaint().setFakeBoldText(true);
+        go.setTextColor(0xFF1A1408);
+        go.setBackground(ReadingSkin.goldCapsule(c));
+        go.setPadding(dp(14), dp(7), dp(14), dp(7));
+        card.addView(go);
+
+        View.OnClickListener open = v -> LegadoActivity.start(ReadingShelfActivity.this);
+        card.setOnClickListener(open);
+        go.setOnClickListener(open);
+        return card;
+    }
+
+    /** 书源聚合卡：书源仓库·N 个源，点进书源管理。 */
+    private View sourceCard(boolean novelTab) {
+        Context c = this;
+        int[] counts = sourceCounts();
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackground(ReadingSkin.glassCard(c, 16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+
+        TextView icon = new TextView(c);
+        icon.setText(novelTab ? "书" : "漫");
+        icon.setTextSize(20);
+        icon.getPaint().setFakeBoldText(true);
+        icon.setTextColor(ReadingSkin.GOLD);
+        icon.setGravity(Gravity.CENTER);
+        int is = dp(44);
+        GradientDrawable ibg = new GradientDrawable();
+        ibg.setCornerRadius(dp(11));
+        ibg.setColors(new int[]{0x4DF2B33D, 0x14F2B33D});
+        ibg.setOrientation(GradientDrawable.Orientation.TL_BR);
+        ibg.setStroke(dp(2), 0x66F2B33D);
+        icon.setBackground(ibg);
+        icon.setLayoutParams(new LinearLayout.LayoutParams(is, is));
+        card.addView(icon);
+
+        LinearLayout meta = new LinearLayout(c);
+        meta.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        mlp.leftMargin = dp(12);
+        meta.setLayoutParams(mlp);
+        TextView a = new TextView(c);
+        a.setTextSize(15);
+        a.getPaint().setFakeBoldText(true);
+        a.setTextColor(ReadingSkin.TEXT);
+        int total = counts[0] + counts[1] + counts[2];
+        a.setText((novelTab ? "书源仓库 · " : "漫画源 · ") + total + " 个源");
+        meta.addView(a);
+        TextView b = new TextView(c);
+        b.setTextSize(12);
+        b.setTextColor(ReadingSkin.SUB);
+        b.setPadding(0, dp(4), 0, 0);
+        String sub = novelTab
+                ? ("文本源 " + counts[0] + " · 听书源 " + counts[1])
+                : ("图片源 " + counts[2]);
+        String sync = syncText();
+        b.setText(sub + (TextUtils.isEmpty(sync) ? "" : " · " + sync));
+        meta.addView(b);
+        card.addView(meta);
+
+        TextView arrow = new TextView(c);
+        arrow.setText("›");
+        arrow.setTextSize(20);
+        arrow.setTextColor(ReadingSkin.FAINT);
+        card.addView(arrow);
+
+        card.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
+        return card;
+    }
+
+    /** 书源计数：[文本, 听书, 图片]（只计启用的）。 */
+    private int[] sourceCounts() {
+        int[] r = new int[3];
+        try {
+            for (LegadoStore.Entry e : LegadoStore.all()) {
+                if (!e.enabled) continue;
+                LegadoSource s = LegadoStore.parse(e.json);
+                if (s == null) continue;
+                if (s.bookSourceType == LegadoSource.TYPE_TEXT) r[0]++;
+                else if (s.bookSourceType == LegadoSource.TYPE_AUDIO) r[1]++;
+                else if (s.bookSourceType == LegadoSource.TYPE_IMAGE) r[2]++;
+            }
+        } catch (Throwable ignored) {
+        }
+        return r;
+    }
+
+    /** 同步文案：按最近一次添加源的人话时间；无源时空。 */
+    private String syncText() {
+        try {
+            long latest = 0;
+            for (LegadoStore.Entry e : LegadoStore.all()) {
+                if (e.enabled && e.addedAt > latest) latest = e.addedAt;
+            }
+            if (latest <= 0) return "";
+            return humanTime(latest) + "同步";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** 人话时间：刚刚 / X 分钟前 / X 小时前 / 昨天 HH:mm / X 天前 / MM-dd。 */
+    private String humanTime(long ts) {
+        if (ts <= 0) return "";
+        long d = System.currentTimeMillis() - ts;
+        long min = d / 60000;
+        if (min < 1) return "刚刚";
+        if (min < 60) return min + " 分钟前";
+        long h = min / 60;
+        if (h < 24) return h + " 小时前";
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(ts);
+        Calendar now = Calendar.getInstance();
+        Calendar y = (Calendar) now.clone();
+        y.add(Calendar.DAY_OF_YEAR, -1);
+        if (c.get(Calendar.YEAR) == y.get(Calendar.YEAR)
+                && c.get(Calendar.DAY_OF_YEAR) == y.get(Calendar.DAY_OF_YEAR)) {
+            return "昨天 " + new SimpleDateFormat("HH:mm", Locale.getDefault())
+                    .format(new Date(ts));
+        }
+        long days = h / 24;
+        if (days < 30) return days + " 天前";
+        return new SimpleDateFormat("MM-dd", Locale.getDefault()).format(new Date(ts));
+    }
+
+    /** 默认朗读的音色标签（续播将用的音色）。 */
+    private String defaultVoiceLabel() {
+        try {
+            String id = EdgeVoiceCatalog.defaultVoice();
+            EdgeVoice v = EdgeVoiceCatalog.find(EdgeVoiceCatalog.builtIn(), id);
+            if (v != null) return v.label();
+        } catch (Throwable ignored) {
+        }
+        return "神经朗读";
     }
 
     /**
      * 连载更新检查：低频（每书 6 小时节流）、失败静默，有新章给角标。
      * 只查书源的书（本地书/听书不查）。
      */
-    private void checkUpdates() {
-        java.util.List<ReadingStore.Record> cands = new java.util.ArrayList<>();
-        for (ReadingStore.Record r : records) {
+    private void checkUpdates(List<ReadingStore.Record> cands) {
+        java.util.List<ReadingStore.Record> list = new java.util.ArrayList<>();
+        for (ReadingStore.Record r : cands) {
             if (!android.text.TextUtils.isEmpty(r.legadoKey)
                     && !android.text.TextUtils.isEmpty(r.bookUrl)) {
-                cands.add(r);
+                list.add(r);
             }
         }
-        if (cands.isEmpty()) return;
+        if (list.isEmpty()) return;
         android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
-        com.fongmi.android.tv.read.ReadingUpdateChecker.check(cands, ui, changed -> {
+        com.fongmi.android.tv.read.ReadingUpdateChecker.check(list, ui, changed -> {
             if (changed) refresh();
         });
     }
@@ -407,8 +856,19 @@ public class ReadingShelfActivity extends AppCompatActivity {
         }).start();
     }
 
-    private int dp(int v) {
-        return ReadingSkin.dp(this, v);
+    private void removeRecord(ReadingStore.Record r) {
+        ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
+        com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
+        if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
+            // 本地书：连书文件一起删，不在私有目录留垃圾
+            com.fongmi.android.tv.localbook.LocalBookStore.remove(r.localId);
+            Toast.makeText(ReadingShelfActivity.this, "已删除本地书",
+                    Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
+                    Toast.LENGTH_SHORT).show();
+        }
+        refresh();
     }
 
     /**
@@ -432,202 +892,40 @@ public class ReadingShelfActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 朗读续播：按记录重建最小朗读任务（与听书续播同口径：章节表缺失时单章模式）。
+     * TtsReadActivity 进页后按同书 TTS 记录自动恢复章节/段。
+     */
+    private void openTtsRecord(ReadingStore.Record r) {
+        try {
+            TtsJob job = new TtsJob();
+            job.bookTitle = r.bookTitle == null ? "" : r.bookTitle;
+            job.coverUrl = r.coverUrl == null ? "" : r.coverUrl;
+            job.sourceName = r.sourceName == null ? "" : r.sourceName;
+            job.siteKey = r.siteKey == null ? "" : r.siteKey;
+            job.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            job.ruleTitle = r.ruleTitle == null ? "" : r.ruleTitle;
+            job.localId = r.localId == null ? "" : r.localId;
+            job.inlineText = r.content == null ? "" : r.content;
+            job.chapters.add(new ReadingSession.Chapter(
+                    r.chapterName == null ? "" : r.chapterName,
+                    r.chapterUrl == null ? "" : r.chapterUrl));
+            job.startChapter = 0;
+            job.startFraction = 0;
+            job.voiceId = EdgeVoiceCatalog.defaultVoice();
+            job.rate = 1.0f;
+            TtsReadActivity.start(this, TtsJob.put(job));
+        } catch (Throwable t) {
+            Toast.makeText(this, "打开失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private String fmtMs(int ms) {
         long s = Math.max(0, ms) / 1000;
         return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
     }
 
-    private class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.Holder> {
-
-        class Holder extends RecyclerView.ViewHolder {
-            final ImageView cover;
-            final TextView coverTitle;
-            final TextView tvTitle;
-            final TextView tvSub;
-            final TextView tvProgress;
-            final android.widget.ProgressBar bar;
-            final TextView btnGo;
-
-            Holder(View itemView, ImageView cover, TextView coverTitle,
-                   TextView tvTitle, TextView tvSub, TextView tvProgress,
-                   android.widget.ProgressBar bar, TextView btnGo) {
-                super(itemView);
-                this.cover = cover;
-                this.coverTitle = coverTitle;
-                this.tvTitle = tvTitle;
-                this.tvSub = tvSub;
-                this.tvProgress = tvProgress;
-                this.bar = bar;
-                this.btnGo = btnGo;
-            }
-        }
-
-        @Override
-        public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
-            android.content.Context c = parent.getContext();
-            LinearLayout item = new LinearLayout(c);
-            item.setOrientation(LinearLayout.HORIZONTAL);
-            item.setGravity(Gravity.CENTER_VERTICAL);
-            int pad = dp(14);
-            item.setPadding(pad, pad, pad, pad);
-            item.setBackground(ReadingSkin.glassCard(c, 16));
-            try {
-                item.setElevation(dp(4));
-            } catch (Throwable ignored) {
-            }
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.leftMargin = dp(16);
-            lp.rightMargin = dp(16);
-            lp.bottomMargin = dp(12);
-            item.setLayoutParams(lp);
-
-            // 封面：渐变占位＋白字书名（无图时）
-            FrameLayout coverWrap = new FrameLayout(c);
-            int cw = dp(64);
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cw,
-                    (int) (cw * 1.32));
-            coverWrap.setLayoutParams(clp);
-            ImageView cover = new ImageView(c);
-            cover.setLayoutParams(new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
-            cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setBackground(new android.graphics.drawable.GradientDrawable(
-                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                    new int[]{0xFF2C2118, 0xFF6B4A2E, 0xFFC99A5E}));
-            ReadingSkin.roundClip(cover, c, 8);
-            coverWrap.addView(cover);
-            TextView coverTitle = new TextView(c);
-            coverTitle.setTextSize(13);
-            coverTitle.getPaint().setFakeBoldText(true);
-            coverTitle.setTextColor(0xFFFFFFFF);
-            coverTitle.setGravity(Gravity.CENTER);
-            coverTitle.setPadding(dp(6), 0, dp(6), 0);
-            coverTitle.setMaxLines(3);
-            coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
-            item.addView(coverWrap);
-
-            LinearLayout mid = new LinearLayout(c);
-            mid.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            mlp.leftMargin = dp(14);
-            mid.setLayoutParams(mlp);
-
-            TextView tvTitle = new TextView(c);
-            tvTitle.setTextSize(16);
-            tvTitle.getPaint().setFakeBoldText(true);
-            tvTitle.setTextColor(ReadingSkin.TEXT);
-            tvTitle.setSingleLine(true);
-            tvTitle.setEllipsize(TextUtils.TruncateAt.END);
-            mid.addView(tvTitle);
-
-            TextView tvSub = new TextView(c);
-            tvSub.setTextSize(13);
-            tvSub.setTextColor(ReadingSkin.SUB);
-            tvSub.setSingleLine(true);
-            tvSub.setEllipsize(TextUtils.TruncateAt.END);
-            tvSub.setPadding(0, dp(6), 0, 0);
-            mid.addView(tvSub);
-
-            android.widget.ProgressBar bar =
-                    new android.widget.ProgressBar(c, null,
-                            android.R.attr.progressBarStyleHorizontal);
-            bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
-            bar.setMax(100);
-            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
-            blp.topMargin = dp(10);
-            mid.addView(bar, blp);
-
-            LinearLayout row = new LinearLayout(c);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(10), 0, 0);
-            TextView tvProgress = new TextView(c);
-            tvProgress.setTextSize(12);
-            tvProgress.setTextColor(ReadingSkin.SUB);
-            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            tvProgress.setLayoutParams(plp);
-            row.addView(tvProgress);
-            TextView btnGo = new TextView(c);
-            btnGo.setText("继续读");
-            btnGo.setTextSize(13);
-            btnGo.getPaint().setFakeBoldText(true);
-            btnGo.setTextColor(0xFF1A1408);
-            btnGo.setBackground(ReadingSkin.goldCapsule(c));
-            btnGo.setPadding(dp(16), dp(8), dp(16), dp(8));
-            row.addView(btnGo);
-            mid.addView(row);
-
-            item.addView(mid);
-            return new Holder(item, cover, coverTitle, tvTitle, tvSub,
-                    tvProgress, bar, btnGo);
-        }
-
-        @Override
-        public void onBindViewHolder(Holder h, int position) {
-            ReadingStore.Record r = records.get(position);
-            h.tvTitle.setText(r.bookTitle);
-            String time = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-                    .format(new Date(r.updatedAt));
-            h.tvSub.setText(r.sourceName + " · " + r.chapterName + " · " + time);
-            boolean isAudio = "AUDIO".equals(r.kind);
-            boolean isNovel = "NOVEL".equals(r.kind);
-            if (isNovel) {
-                int pct = Math.round(r.position / 100f);
-                h.tvProgress.setText("已读 " + pct + "%"
-                        + (r.hasUpdate ? " · 有更新" : ""));
-                h.bar.setVisibility(View.VISIBLE);
-                h.bar.setProgress(Math.max(0, Math.min(100, pct)));
-            } else if (isAudio) {
-                h.tvProgress.setText(r.position > 0 ? "已听 " + fmtMs(r.position) : "开始听");
-                h.bar.setVisibility(View.GONE);
-            } else {
-                h.tvProgress.setText((r.position > 0 ? "看到第 " + (r.position + 1) + " 张" : "开始看")
-                        + (r.hasUpdate ? " · 有更新" : ""));
-                h.bar.setVisibility(View.GONE);
-            }
-            h.btnGo.setText(isAudio ? "继续听" : "继续读");
-            if (!TextUtils.isEmpty(r.coverUrl)) {
-                ImgUtil.load(r.bookTitle, r.coverUrl, h.cover, true);
-                h.coverTitle.setVisibility(View.GONE);
-            } else {
-                h.cover.setImageDrawable(null);
-                h.coverTitle.setVisibility(View.VISIBLE);
-                h.coverTitle.setText(r.bookTitle);
-            }
-            View.OnClickListener open = v -> {
-                com.fongmi.android.tv.read.ReadingUpdateChecker.clearUpdate(r);
-                if (isAudio) openAudioRecord(r);
-                else ReadingRouter.openRecord(ReadingShelfActivity.this, r);
-            };
-            h.itemView.setOnClickListener(open);
-            h.btnGo.setOnClickListener(open);
-            h.itemView.setOnLongClickListener(v -> {
-                ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
-                com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
-                if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
-                    // 本地书：连书文件一起删，不在私有目录留垃圾
-                    com.fongmi.android.tv.localbook.LocalBookStore.remove(r.localId);
-                    Toast.makeText(ReadingShelfActivity.this, "已删除本地书",
-                            Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
-                            Toast.LENGTH_SHORT).show();
-                }
-                refresh();
-                return true;
-            });
-        }
-
-        @Override
-        public int getItemCount() {
-            return records.size();
-        }
+    private int dp(int v) {
+        return ReadingSkin.dp(this, v);
     }
 }

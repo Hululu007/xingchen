@@ -34,7 +34,11 @@ public class ReadingStore {
         public int chapterIndex = 0;
         /** 当前章地址（继续读时重建会话用）。 */
         public String chapterUrl = "";
-        /** 漫画：看到第几张图；小说：字符偏移。 */
+        /** py 源 key（继续读后按章重取用）。 */
+        public String siteKey = "";
+        /** 小说正文快照（py 小说继续读时用，海阔小说按章重抓）。 */
+        public String content = "";
+        /** 漫画：看到第几张图（下标）；小说：进度万分比（0~10000，换字号也准）。 */
         public int position = 0;
         public long updatedAt = 0L;
 

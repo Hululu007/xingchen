@@ -54,6 +54,37 @@ public class ReadingRouter {
     }
 
     /**
+     * 按书架记录重建会话并打开。章节表缺失时单章模式（切章按钮收起），不崩。
+     * 海阔：阅读器按规则/章节地址懒取；py 漫画：章节地址即图片串现场拆；
+     * py 小说：用记录里的正文快照。
+     */
+    public static void openRecord(Context context, ReadingStore.Record r) {
+        if (context == null || r == null || TextUtils.isEmpty(r.bookTitle)) return;
+        ReadingSession s = new ReadingSession();
+        s.kind = "NOVEL".equals(r.kind) ? ReadingSession.Kind.NOVEL : ReadingSession.Kind.COMIC;
+        s.sourceName = r.sourceName == null ? "" : r.sourceName;
+        s.bookTitle = r.bookTitle;
+        s.coverUrl = r.coverUrl == null ? "" : r.coverUrl;
+        s.chapterIndex = 0;
+        ReadingSession.Chapter c = new ReadingSession.Chapter(
+                r.chapterName == null ? "" : r.chapterName,
+                r.chapterUrl == null ? "" : r.chapterUrl);
+        s.chapters.add(c);
+        s.chapterUrl = c.url;
+        s.siteKey = r.siteKey == null ? "" : r.siteKey;
+        // 海阔记录的 sourceName 即规则名；py 源不走规则（ruleTitle 置空防误查）
+        s.ruleTitle = TextUtils.isEmpty(s.siteKey) ? s.sourceName : "";
+        if (s.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(r.content)) {
+            s.text = r.content;
+        }
+        if (s.kind == ReadingSession.Kind.COMIC && r.position > 0) {
+            openReadingWithStartPage(context, s, r.position);
+        } else {
+            openReading(context, s);
+        }
+    }
+
+    /**
      * 继续读：最近一本。记录里带章节地址，重建最小会话；
      * 章节表缺失时阅读器按单章打开（切章按钮收起），不崩。
      */
@@ -65,14 +96,6 @@ public class ReadingRouter {
             openShelf(context);
             return;
         }
-        ReadingSession s = new ReadingSession();
-        s.kind = "NOVEL".equals(r.kind) ? ReadingSession.Kind.NOVEL : ReadingSession.Kind.COMIC;
-        s.sourceName = r.sourceName;
-        s.bookTitle = r.bookTitle;
-        s.coverUrl = r.coverUrl;
-        s.chapterIndex = 0;
-        ReadingSession.Chapter c = new ReadingSession.Chapter(r.chapterName, r.chapterUrl);
-        s.chapters.add(c);
-        openReading(context, s);
+        openRecord(context, r);
     }
 }

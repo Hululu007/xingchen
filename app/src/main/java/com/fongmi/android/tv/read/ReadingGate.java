@@ -13,42 +13,81 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * 阅读分流判别层（阶段一·地基）。
+ * 阅读分流判别层（阶段一·地基，加固版）。
  * <p>
  * 职责：在 playerContent 产出 Result、进 Source.fetch / 播放器之前，
  * 识别"漫画/小说"数据并改道去阅读器。
  * <p>
- * <b>红线（视频三链不误伤）</b>：判别条件全部是"非视频数据"的充分条件——
+ * <b>零容忍红线（用户令）</b>：视频被误判劫去阅读器不可容忍——
+ * <b>宁可漏认、绝不错认</b>。判别策略：
  * <ul>
- * <li>海阔漫画：HkPlay.pics 非空。pics 只由 {@code pics://} 解析分支产出，
- * 视频规则永远不走该分支（HkRouter 第 1.5 步），误判不可能。</li>
- * <li>海阔小说：规则 type == "小说"。视频/漫画规则的 type 不是小说，误判不可能。</li>
- * <li>py 漫画：地址串按 [#/换行/逗号] 拆后 ≥2 段且<b>每段</b>都是图片 URL
- * （扩展名必须在 path 部分，不在 query 里）。视频地址（m3u8/mp4/磁力/解析口）
- * 永远满足不了"全是图片"。</li>
- * <li>py 小说：返回串不含任何 URL 特征（无 ://、无 magnet:/ed2k:/thunder: 等协议头、
- * 不是 JSON），且长度 > 200。视频地址必带协议头，误判不可能。</li>
+ * <li>显式信号直认：{@code pics://}（8.83 语义＝非视频，HkRouter 第 1.5 步）、
+ * 规则 type == "小说"（规则自声明）。</li>
+ * <li>启发式信号必须交叉到"不可能与视频形态重叠"：
+ * 漫画要求 ≥3 段全图片 URL＋同 host＋全串无视频标记；
+ * 小说要求无 URL 特征、非 JSON、长度 ＞200、且有可读文本结构（中文或成句），
+ * 并排除失败标记文本。</li>
+ * <li>拿不准一律不改道；判别抛错 fail-open（调用方 try/catch 兜底）。</li>
+ * <li>每次改道在日志留一行（形态＋判据），真机可回溯。</li>
  * </ul>
  * Emby（csp_Emby）与 push_agent 链调用点直接跳过本层，不进判别。
  */
 public class ReadingGate {
+
+    private static final String LOG_TAG = "reading-gate";
 
     /** 图片 URL：扩展名必须在 path 部分（query 里的 ?x=a.jpg 不算，防 m3u8 误判）。 */
     private static final Pattern IMAGE_URL = Pattern.compile(
             "^https?://[^\\s?#]+\\.(jpg|jpeg|png|webp|gif|bmp)([?#].*)?$",
             Pattern.CASE_INSENSITIVE);
 
+    /** 漫画：最少段数（2 段太容易撞，提到 3）。 */
+    private static final int COMIC_MIN_SEGMENTS = 3;
+
     private static final int NOVEL_MIN_LEN = 200;
+
+    /** 视频标记：全串出现任一即拒绝漫画判别（防混串）。 */
+    private static final String[] VIDEO_MARKERS = {
+            ".mp4", ".m3u8", ".mkv", ".avi", ".flv", ".mov", ".webm", ".iso",
+            "magnet:", "ed2k:", "thunder:", "rtmp://", "rtsp://", "video://",
+            "application/x-mpegurl"
+    };
+
+    /** 失败标记：正文含任一即拒绝小说判别（错杀方向是漏认，符合宁可漏认）。 */
+    private static final String[] NOVEL_FAIL_MARKERS = {
+            "解析失败", "播放失败", "获取失败", "加载失败", "请求失败",
+            "failed", "failure", "error", "exception", "timeout", "超时", "404"
+    };
+
+    private static final Pattern CJK = Pattern.compile("[\\u4e00-\\u9fff]");
 
     private ReadingGate() {
     }
 
+    private static void logDivert(String fmt, Object... args) {
+        try {
+            com.github.catvod.crawler.SpiderDebug.log(LOG_TAG, fmt, args);
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ---------------- 海阔 ----------------
 
-    /** 海阔漫画：pics 非空即漫画（pics:// 分支是漫画专用标记）。 */
+    /**
+     * 海阔漫画：pics 非空即漫画（pics:// 分支是漫画专用标记，视频永不进）。
+     * 加固：至少一段含 "."，过滤 "pics://封面图" 这类占位文本（否则走原链，旧行为）。
+     */
     public static ReadingSession fromHkComic(String ruleTitle, String bookTitle, String chapterName,
                                              String chapterUrl, HkPlay play, String referer) {
         if (play == null || play.getPics().isEmpty()) return null;
+        boolean anyReal = false;
+        for (String p : play.getPics()) {
+            if (p != null && p.contains(".")) {
+                anyReal = true;
+                break;
+            }
+        }
+        if (!anyReal) return null;
         ReadingSession s = new ReadingSession();
         s.kind = ReadingSession.Kind.COMIC;
         s.sourceName = ruleTitle == null ? "" : ruleTitle;
@@ -60,10 +99,11 @@ public class ReadingGate {
         s.chapterIndex = 0;
         s.images = new ArrayList<>(play.getPics());
         s.referer = referer == null ? "" : referer;
+        logDivert("divert kind=COMIC rule=%s pics=%d why=pics-scheme", s.sourceName, play.getPics().size());
         return s;
     }
 
-    /** 海阔小说规则判定（type == "小说"）。 */
+    /** 海阔小说规则判定（type == "小说"，规则自声明，显式信号直认）。 */
     public static boolean isHkNovelRule(String ruleTitle) {
         if (TextUtils.isEmpty(ruleTitle)) return false;
         try {
@@ -87,6 +127,7 @@ public class ReadingGate {
         ReadingSession.Chapter c = s.currentChapter();
         s.chapterUrl = c.url;
         s.referer = "";
+        logDivert("divert kind=NOVEL rule=%s why=rule-type-novel", s.sourceName);
         return s;
     }
 
@@ -100,31 +141,25 @@ public class ReadingGate {
                                           String episodeName, String rawUrl) {
         if (TextUtils.isEmpty(rawUrl)) return null;
         String raw = rawUrl.trim();
-        // 漫画：多段且每段都是图片 URL
+        // 漫画：≥3 段、全图片 URL、全段同 host、全串无视频标记
         List<String> images = splitImages(raw);
-        if (images.size() >= 2) {
-            boolean allImage = true;
-            for (String u : images) {
-                if (!isImageUrl(u)) {
-                    allImage = false;
-                    break;
-                }
-            }
-            if (allImage) {
-                ReadingSession s = new ReadingSession();
-                s.kind = ReadingSession.Kind.COMIC;
-                s.sourceName = siteName == null ? "" : siteName;
-                s.siteKey = siteKey == null ? "" : siteKey;
-                s.bookTitle = bookTitle == null ? "" : bookTitle;
-                s.images = images;
-                ReadingSession.Chapter c = new ReadingSession.Chapter(episodeName, raw);
-                s.chapters.add(c);
-                s.chapterIndex = 0;
-                return s;
-            }
+        if (images.size() >= COMIC_MIN_SEGMENTS && allImageUrl(images)
+                && sameHost(images) && !containsVideoMarker(raw)) {
+            ReadingSession s = new ReadingSession();
+            s.kind = ReadingSession.Kind.COMIC;
+            s.sourceName = siteName == null ? "" : siteName;
+            s.siteKey = siteKey == null ? "" : siteKey;
+            s.bookTitle = bookTitle == null ? "" : bookTitle;
+            s.images = images;
+            ReadingSession.Chapter c = new ReadingSession.Chapter(episodeName, raw);
+            s.chapters.add(c);
+            s.chapterIndex = 0;
+            logDivert("divert kind=COMIC site=%s segs=%d host=%s why=multi-image-same-host",
+                    s.siteKey, images.size(), hostOf(images.get(0)));
+            return s;
         }
-        // 小说：纯文本（无任何 URL 特征、非 JSON、够长）
-        if (!looksLikeUrl(raw) && !raw.startsWith("{") && raw.length() > NOVEL_MIN_LEN) {
+        // 小说：纯文本（无任何 URL 特征、非 JSON、够长、有可读结构、无失败标记）
+        if (isNovelText(raw)) {
             ReadingSession s = new ReadingSession();
             s.kind = ReadingSession.Kind.NOVEL;
             s.sourceName = siteName == null ? "" : siteName;
@@ -134,9 +169,88 @@ public class ReadingGate {
             ReadingSession.Chapter c = new ReadingSession.Chapter(episodeName, "");
             s.chapters.add(c);
             s.chapterIndex = 0;
+            logDivert("divert kind=NOVEL site=%s len=%d why=plain-readable-text",
+                    s.siteKey, raw.length());
             return s;
         }
         return null;
+    }
+
+    private static boolean allImageUrl(List<String> segs) {
+        for (String u : segs) {
+            if (!isImageUrl(u)) return false;
+        }
+        return true;
+    }
+
+    /** 全段同 host（漫画章节图一般同源；分片多源的漏认，符合宁可漏认）。 */
+    private static boolean sameHost(List<String> segs) {
+        String host = hostOf(segs.get(0));
+        if (host.isEmpty()) return false;
+        for (int i = 1; i < segs.size(); i++) {
+            if (!host.equals(hostOf(segs.get(i)))) return false;
+        }
+        return true;
+    }
+
+    private static String hostOf(String url) {
+        try {
+            String t = url.trim().toLowerCase(Locale.ROOT);
+            int p = t.indexOf("://");
+            if (p < 0) return "";
+            String rest = t.substring(p + 3);
+            int end = rest.length();
+            for (int i = 0; i < rest.length(); i++) {
+                char c = rest.charAt(i);
+                if (c == '/' || c == '?' || c == '#') {
+                    end = i;
+                    break;
+                }
+            }
+            return rest.substring(0, end);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static boolean containsVideoMarker(String raw) {
+        String low = raw.toLowerCase(Locale.ROOT);
+        for (String m : VIDEO_MARKERS) {
+            if (low.contains(m)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 小说文本判别（启发式，交叉到不可能与视频形态重叠）：
+     * 无 URL 特征、非 JSON、够长、有可读结构（中文或成句）、无失败标记。
+     * base64/加密 blob/纯 token 因无可读结构被拒；长错误文本因失败标记被拒。
+     */
+    private static boolean isNovelText(String raw) {
+        if (looksLikeUrl(raw)) return false;
+        if (raw.startsWith("{") || raw.startsWith("[") || raw.startsWith("\"")) return false;
+        if (raw.length() <= NOVEL_MIN_LEN) return false;
+        if (hasFailMarker(raw)) return false;
+        return hasReadableStructure(raw);
+    }
+
+    private static boolean hasFailMarker(String raw) {
+        String low = raw.toLowerCase(Locale.ROOT);
+        for (String m : NOVEL_FAIL_MARKERS) {
+            if (low.contains(m.toLowerCase(Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    /** 可读结构：中文，或（有空格的拉丁文且带句读）；且至少有一个句子标点/换行。 */
+    private static boolean hasReadableStructure(String raw) {
+        boolean cjk = CJK.matcher(raw).find();
+        boolean spacedLatin = raw.contains(" ");
+        boolean punct = raw.indexOf('。') >= 0 || raw.indexOf('！') >= 0
+                || raw.indexOf('？') >= 0 || raw.indexOf('!') >= 0
+                || raw.indexOf('?') >= 0 || raw.indexOf('\n') >= 0
+                || raw.indexOf('…') >= 0 || raw.indexOf('.') >= 0;
+        return (cjk || spacedLatin) && punct;
     }
 
     /**
@@ -165,6 +279,7 @@ public class ReadingGate {
     /**
      * 取某章的图片列表：章节 url 本身就是图片串（py 生态约定）时现场拆分；
      * 海阔章节走 HkPlay.pics（已在会话 images 里），这里只处理 url 内嵌串。
+     * （阅读器内部二次判别，非改道决策，保持原口径。）
      */
     public static List<String> imagesOfChapter(ReadingSession.Chapter chapter) {
         List<String> out = new ArrayList<>();

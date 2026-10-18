@@ -139,8 +139,17 @@ public final class LabRegistry {
         return runtimes.containsKey(name);
     }
 
+    public synchronized Runtime runtime(String name) {
+        return runtimes.get(name);
+    }
+
     public synchronized void upsertRuntime(Context c, Runtime r) {
         runtimes.put(r.name, r);
+        save(c);
+    }
+
+    public synchronized void removeRuntime(Context c, String name) {
+        runtimes.remove(name);
         save(c);
     }
 

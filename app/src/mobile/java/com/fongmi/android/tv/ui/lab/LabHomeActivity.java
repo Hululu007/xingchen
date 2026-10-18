@@ -29,6 +29,7 @@ public class LabHomeActivity extends AppCompatActivity {
 
     private LinearLayout listBox;
     private Switch masterSwitch;
+    private TextView runningStrip;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, LabHomeActivity.class));
@@ -37,6 +38,7 @@ public class LabHomeActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        LabSkin.edgeToEdge(this);
         buildUi();
     }
 
@@ -53,13 +55,13 @@ public class LabHomeActivity extends AppCompatActivity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(LabSkin.pageBackground(this));
 
-        // 顶栏：标题＋副标题＋右上「＋」装包
+        // 顶栏：标题＋设置＋「＋」（霜条打底，深浅壁纸都看得清）
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(18), dp(16), dp(18), dp(4));
+        top.setBackground(LabScrim.bar(this));
+        top.setPadding(dp(18), dp(16) + LabSkin.statusBarHeight(this), dp(18), dp(4));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -69,20 +71,31 @@ public class LabHomeActivity extends AppCompatActivity {
         h1.setTextColor(LabSkin.TEXT_MAIN);
         h1.getPaint().setFakeBoldText(true);
         titles.addView(h1);
+        top.addView(titles);
+        TextView settings = new TextView(this);
+        settings.setText("设置");
+        settings.setTextSize(15);
+        settings.setTextColor(LabSkin.TEXT_SUB);
+        settings.setPadding(dp(12), dp(12), dp(12), dp(12));
+        settings.setOnClickListener(v -> LabSettingsActivity.start(this));
+        top.addView(settings);
         TextView add = new TextView(this);
         add.setText("＋");
-        add.setTextSize(26);
-        add.setTextColor(LabSkin.YELLOW);
-        add.setPadding(dp(12), dp(12), dp(12), dp(12));
-        add.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setItems(new String[]{"选文件", "粘贴文本", "链接"}, (d, which) -> {
-                    if (which == 0) LabInstallActivity.pickFile(this);
-                    else if (which == 1) LabPasteImportActivity.start(this);
-                    else LabPasteImportActivity.startLink(this);
-                }).show());
-        top.addView(titles);
+        add.setTextSize(22);
+        add.setTextColor(LabSkin.ON_YELLOW);
+        add.setBackground(LabSkin.buttonYellow(this));
+        add.setGravity(Gravity.CENTER);
+        add.setPadding(dp(10), dp(6), dp(10), dp(6));
+        add.setMinWidth(dp(44));
+        add.setOnClickListener(v -> LabStoreActivity.start(this));
         top.addView(add);
         root.addView(top);
+
+        // 设置区：自动启动总开关＋全部停止＋运行中入口（霜条打底）
+        LinearLayout zone = new LinearLayout(this);
+        zone.setOrientation(LinearLayout.VERTICAL);
+        zone.setBackground(LabScrim.bar(this));
+        zone.setPadding(0, dp(2), 0, dp(6));
 
         // 设置条：自动启动总开关＋全部停止
         LinearLayout strip = new LinearLayout(this);
@@ -110,13 +123,22 @@ public class LabHomeActivity extends AppCompatActivity {
         strip.addView(lab);
         strip.addView(masterSwitch);
         strip.addView(stopAll);
-        root.addView(strip);
+        zone.addView(strip);
+
+        // 运行中入口：有谁在跑，点开看列表
+        runningStrip = new TextView(this);
+        runningStrip.setTextSize(14);
+        runningStrip.setTextColor(LabSkin.TEXT_SUB);
+        runningStrip.setPadding(dp(18), dp(8), dp(18), dp(8));
+        runningStrip.setOnClickListener(v -> LabRunningDialog.show(this));
+        zone.addView(runningStrip);
+        root.addView(zone);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
-        listBox.setPadding(0, dp(6), 0, dp(24));
+        listBox.setPadding(0, dp(6), 0, dp(24) + LabSkin.navBarHeight(this));
         scroll.addView(listBox, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -128,6 +150,9 @@ public class LabHomeActivity extends AppCompatActivity {
         masterSwitch.setOnCheckedChangeListener(null);
         masterSwitch.setChecked(LabRegistry.get(this).masterAutoStart);
         masterSwitch.setOnCheckedChangeListener((b, on) -> LabRegistry.get(this).setMasterAutoStart(this, on));
+        int n = LabRunner.runningCount(this);
+        runningStrip.setText(n > 0 ? "运行中（" + n + "） ›" : "运行中 ›");
+        runningStrip.setTextColor(n > 0 ? LabSkin.GREEN : LabSkin.TEXT_SUB);
         for (String env : LabRegistry.ENVS) {
             listBox.addView(envCard(env));
         }

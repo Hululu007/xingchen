@@ -36,6 +36,8 @@ public class LabManifest {
     public String runtime = "none";
     public boolean autoStart = false;
     public final List<LabCommand> commands = new ArrayList<>();
+    /** 包设置项（复用变量表 UI）：{key,name,type,defaultValue,hint,required,...} */
+    public final List<LabVar> settings = new ArrayList<>();
     public LabOutput output;
 
     public static class LabCommand {
@@ -45,6 +47,37 @@ public class LabManifest {
         public String command;
         public boolean background = true;
         public boolean autoExecute = false;
+        /** 包声明最低 App versionCode，不够就提示升级 */
+        public int minVersion = 0;
+        /** 运行前依赖：先把 url 下到包内 file 再跑 */
+        public LabDownload download;
+        /** 命令变量表（上游 Variable 口径）：text/text_multiline/number/select/switch/file/directory */
+        public final List<LabVar> variables = new ArrayList<>();
+    }
+
+    /** 命令变量一项（名字＋必填标记渲染；hint 只做输入框 placeholder，不单独成行） */
+    public static class LabVar {
+        public String key;
+        public String name;
+        public String type = "text";
+        public String defaultValue;
+        public String hint;
+        public boolean required;
+        public String filter;
+        public String min;
+        public String max;
+        public final List<LabOption> options = new ArrayList<>();
+    }
+
+    public static class LabOption {
+        public String label;
+        public String value;
+    }
+
+    /** 命令依赖下载：运行前把 url 落到包内 file（相对包目录），缺了才下 */
+    public static class LabDownload {
+        public String url;
+        public String file;
     }
 
     public static class LabOutput {
@@ -94,10 +127,20 @@ public class LabManifest {
                 cmd.command = c.optString("command", "");
                 cmd.background = c.optBoolean("background", true);
                 cmd.autoExecute = c.optBoolean("autoExecute", false);
+                cmd.minVersion = c.optInt("min_version", 0);
+                JSONObject dl = c.optJSONObject("download");
+                if (dl != null) {
+                    LabDownload d = new LabDownload();
+                    d.url = dl.optString("url", "");
+                    d.file = dl.optString("file", "");
+                    if (!TextUtils.isEmpty(d.url)) cmd.download = d;
+                }
+                cmd.variables.addAll(parseVars(c.optJSONArray("variables")));
                 m.commands.add(cmd);
             }
         }
         if (m.commands.isEmpty()) throw new Exception("lab.json 没有可运行的命令");
+        m.settings.addAll(parseVars(o.optJSONArray("settings")));
         JSONObject out = o.optJSONObject("output");
         if (out != null) {
             LabOutput op = new LabOutput();
@@ -108,6 +151,39 @@ public class LabManifest {
             m.output = op;
         }
         return m;
+    }
+
+    /** 解析变量表（上游 Variable 口径，子集） */
+    private static List<LabVar> parseVars(JSONArray arr) {
+        List<LabVar> out = new ArrayList<>();
+        if (arr == null) return out;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject v = arr.optJSONObject(i);
+            if (v == null) continue;
+            LabVar var = new LabVar();
+            var.key = v.optString("key", "").trim();
+            var.name = v.optString("name", var.key);
+            var.type = v.optString("type", "text").trim().toLowerCase();
+            var.defaultValue = v.has("default") ? v.optString("default", null) : null;
+            var.hint = v.optString("hint", null);
+            var.required = v.optBoolean("required", false);
+            var.filter = v.optString("filter", null);
+            var.min = v.has("min") ? v.optString("min", null) : null;
+            var.max = v.has("max") ? v.optString("max", null) : null;
+            JSONArray opts = v.optJSONArray("options");
+            if (opts != null) {
+                for (int j = 0; j < opts.length(); j++) {
+                    JSONObject o2 = opts.optJSONObject(j);
+                    if (o2 == null) continue;
+                    LabOption op = new LabOption();
+                    op.label = o2.optString("label", "");
+                    op.value = o2.optString("value", op.label);
+                    var.options.add(op);
+                }
+            }
+            if (!TextUtils.isEmpty(var.key)) out.add(var);
+        }
+        return out;
     }
 
     /** 人话地址：http://127.0.0.1:{port}/live.m3u8 →「手机自己 : 8787 /live.m3u8」 */

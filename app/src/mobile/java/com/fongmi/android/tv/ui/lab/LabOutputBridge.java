@@ -100,6 +100,37 @@ public final class LabOutputBridge {
         }
     }
 
+    /** 分享文本（服务地址）：走系统分享 */
+    public static void shareText(Activity act, String text) {
+        try {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, text);
+            act.startActivity(Intent.createChooser(i, "分享"));
+        } catch (Exception e) {
+            Notify.show("分享不起来");
+        }
+    }
+
+    /** 二维码位图（服务地址扫码打开） */
+    public static android.graphics.Bitmap qrBitmap(String text, int size) {
+        try {
+            com.google.zxing.Writer writer = new com.google.zxing.qrcode.QRCodeWriter();
+            com.google.zxing.common.BitMatrix m = writer.encode(
+                    text, com.google.zxing.BarcodeFormat.QR_CODE, size, size);
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                    size, size, android.graphics.Bitmap.Config.RGB_565);
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    bmp.setPixel(x, y, m.get(x, y) ? 0xFF000000 : 0xFFFFFFFF);
+                }
+            }
+            return bmp;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static void runUi(Activity act, Runnable r) {
         try {
             act.runOnUiThread(r);

@@ -72,6 +72,71 @@ public class LegadoPipeline {
     }
 
     /**
+     * 选项 JSON 解析：先严格 JSON；失败则做单引号归一化再试（生态源常见单引号/
+     * 单双引号混写；严格合法的 JSON 归一化后原样，不受影响）。
+     * 两次都失败返回 null（调用方按纯 URL 走）。
+     */
+    static JSONObject optJson(String json) {
+        try {
+            return new JSONObject(json);
+        } catch (Throwable t1) {
+            try {
+                return new JSONObject(normalizeQuotes(json));
+            } catch (Throwable t2) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 把单引号定界的 JSON 字符串归一化为双引号：
+     * 双引号串里的单引号不动；单引号串里的双引号转义为 \"；\' 还原为 '。
+     * 合法 JSON 走一遍原样返回。
+     */
+    static String normalizeQuotes(String json) {
+        if (json == null) return "";
+        StringBuilder sb = new StringBuilder(json.length());
+        boolean inD = false;
+        int i = 0, n = json.length();
+        while (i < n) {
+            char c = json.charAt(i);
+            if (inD) {
+                if (c == '\\' && i + 1 < n) { sb.append(c).append(json.charAt(i + 1)); i += 2; continue; }
+                if (c == '"') inD = false;
+                appendJsonChar(sb, c, true);
+                i++; continue;
+            }
+            if (c == '"') { inD = true; sb.append(c); i++; continue; }
+            if (c == '\'') {
+                sb.append('"'); i++;
+                while (i < n) {
+                    char d = json.charAt(i);
+                    if (d == '\\' && i + 1 < n && json.charAt(i + 1) == '\'') { sb.append('\''); i += 2; continue; }
+                    if (d == '\\' && i + 1 < n) { sb.append(d).append(json.charAt(i + 1)); i += 2; continue; }
+                    if (d == '\'') { sb.append('"'); i++; break; }
+                    if (d == '"') sb.append("\\\"");
+                    else appendJsonChar(sb, d, true);
+                    i++;
+                }
+                continue;
+            }
+            sb.append(c); i++;
+        }
+        return sb.toString();
+    }
+
+    /** 往 JSON 字符串内容里追加字符：字面控制字符必须转义（org.json 严格拒绝）。 */
+    private static void appendJsonChar(StringBuilder sb, char c, boolean inString) {
+        if (inString) {
+            if (c == '\n') { sb.append("\\n"); return; }
+            if (c == '\r') { sb.append("\\r"); return; }
+            if (c == '\t') { sb.append("\\t"); return; }
+            if (c < 0x20) { sb.append(String.format("\\u%04x", (int) c)); return; }
+        }
+        sb.append(c);
+    }
+
+    /**
      * 解析「url,{json}」形态。charsetOverride 非空时，body 编码与响应解码回退
      * 都按它走（GBK 重试用；声明优先，override 只在没声明时由壳子传）。
      */
@@ -80,9 +145,9 @@ public class LegadoPipeline {
         String t = template == null ? "" : template.trim();
         int oi = t.lastIndexOf(",{");
         if (oi > 0 && t.endsWith("}")) {
-            String json = t.substring(oi + 1);
+            JSONObject o = optJson(t.substring(oi + 1));
+            if (o == null) return finishUrl(spec, t, vars, charsetOverride);
             try {
-                JSONObject o = new JSONObject(json);
                 if (o.has("method")) spec.opt.method = o.optString("method", "GET");
                 if (o.has("charset")) spec.opt.charset = o.optString("charset", "utf-8");
                 if (charsetOverride != null) spec.opt.charset = charsetOverride;
@@ -103,6 +168,11 @@ public class LegadoPipeline {
                 // JSON 解析失败：按纯 URL 走
             }
         }
+        return finishUrl(spec, t, vars, charsetOverride);
+    }
+
+    /** parseUrl 尾段：变量渲染＋body 二次渲染。 */
+    private static UrlSpec finishUrl(UrlSpec spec, String t, Map<String, String> vars, String charsetOverride) {
         spec.url = renderVars(t, vars);
         // body 里的变量也渲染（重试时按 override 编码重发）
         if (spec.opt.body != null) {
@@ -150,11 +220,8 @@ public class LegadoPipeline {
         String t = template == null ? "" : template.trim();
         int oi = t.lastIndexOf(",{");
         if (oi > 0 && t.endsWith("}")) {
-            try {
-                JSONObject o = new JSONObject(t.substring(oi + 1));
-                if (o.has("charset")) return normCharset(o.optString("charset", "utf-8"));
-            } catch (Throwable ignored) {
-            }
+            JSONObject o = optJson(t.substring(oi + 1));
+            if (o != null && o.has("charset")) return normCharset(o.optString("charset", "utf-8"));
         }
         return null;
     }
@@ -199,7 +266,14 @@ public class LegadoPipeline {
 
     private String fetchText(UrlSpec spec) {
         try {
-            LegadoHttp.Result r = http.fetch(spec.url, spec.opt.method, spec.opt.headers, spec.opt.body);
+            String url = spec.url;
+            // 相对请求地址按书源站地址补全：生态源 searchUrl 常写相对路
+            //（如 /api/search?q={{key}}）；原版 AnalyzeUrl 也是按源地址解析的。
+            // 不补的话 LegadoHttpAndroid 直接报"不支持的协议"，这类源永远搜不出。
+            if (url != null && !url.regionMatches(true, 0, "http", 0, 4)) {
+                url = LegadoRuleEvaluator.absUrl(source.bookSourceUrl, url);
+            }
+            LegadoHttp.Result r = http.fetch(url, spec.opt.method, spec.opt.headers, spec.opt.body);
             String charset = charsetOf(r, spec.opt.charset);
             return new String(r.body, charset);
         } catch (LegadoException e) {

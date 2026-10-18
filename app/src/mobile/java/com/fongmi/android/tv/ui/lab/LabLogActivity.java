@@ -1,11 +1,19 @@
 package com.fongmi.android.tv.ui.lab;
 
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -15,17 +23,33 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.utils.Notify;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
- * 运行记录页：每包一份自己的日志，留全但平时藏着（从详情页「查看运行记录」进来）。
- * 不设叉，走系统返回。
+ * 运行记录页（定稿 lab-log.png）：
+ * 标题＝服务名，副标题＝运行中（绿）/已停止；
+ * 记录卡：每行一个点（绿/黄/红按内容）＋时间＋正文；
+ * 底部两白钮：清空记录 / 导出记录（导出进下载目录）。
+ * 顶栏只留标题，走系统返回。
  */
 public class LabLogActivity extends AppCompatActivity {
 
     private static final String EXTRA_ID = "id";
     private static final String EXTRA_NAME = "name";
+    private static final Pattern TIME_HEAD = Pattern.compile("^(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s+(.*)$");
 
     private String pkgId;
-    private TextView logView;
+    private String svcName;
+    private TextView stateLine;
+    private LinearLayout logBox;
     private ScrollView scroll;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable ticker = new Runnable() {
@@ -47,48 +71,67 @@ public class LabLogActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         pkgId = getIntent().getStringExtra(EXTRA_ID);
-        String name = getIntent().getStringExtra(EXTRA_NAME);
+        svcName = getIntent().getStringExtra(EXTRA_NAME);
+        LabSkin.edgeToEdge(this);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(LabSkin.pageBackground(this));
 
+        // 顶栏：只留标题（霜条打底）
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setPadding(LabSkin.dp(this, 10), LabSkin.dp(this, 14), LabSkin.dp(this, 18), LabSkin.dp(this, 6));
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextSize(30);
-        back.setTextColor(0xFFC9C9D2);
-        back.setPadding(LabSkin.dp(this, 8), LabSkin.dp(this, 8), LabSkin.dp(this, 14), LabSkin.dp(this, 8));
-        back.setOnClickListener(v -> onBackPressed());
+        nav.setBackground(LabScrim.bar(this));
+        nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(2));
         TextView title = new TextView(this);
-        title.setText("运行记录" + (name == null ? "" : " · " + name));
+        title.setText(svcName == null ? "运行记录" : svcName);
         title.setTextSize(20);
         title.setTextColor(LabSkin.TEXT_MAIN);
         title.getPaint().setFakeBoldText(true);
-        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        TextView clear = new TextView(this);
-        clear.setText("清空");
-        clear.setTextSize(14);
-        clear.setTextColor(LabSkin.TEXT_DIM);
-        clear.setPadding(LabSkin.dp(this, 12), LabSkin.dp(this, 8), LabSkin.dp(this, 12), LabSkin.dp(this, 8));
+        nav.addView(title);
+        root.addView(nav);
+
+        stateLine = new TextView(this);
+        stateLine.setTextSize(14);
+        stateLine.setBackground(LabScrim.bar(this));
+        stateLine.setPadding(dp(18), dp(2), dp(18), dp(8));
+        root.addView(stateLine);
+
+        scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(0, 0, 0, dp(16) + LabSkin.navBarHeight(this));
+
+        logBox = new LinearLayout(this);
+        logBox.setOrientation(LinearLayout.VERTICAL);
+        logBox.setBackground(LabSkin.cardBackground(this, false));
+        logBox.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(dp(18), dp(4), dp(18), 0);
+        logBox.setLayoutParams(clp);
+        wrap.addView(logBox);
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.setMargins(dp(18), dp(14), dp(18), 0);
+        btns.setLayoutParams(blp);
+        TextView clear = whiteButton("清空记录");
         clear.setOnClickListener(v -> {
             LabRunner.clearLog(this, pkgId);
             refresh();
             Notify.show("清掉了");
         });
-        nav.addView(back);
-        nav.addView(title);
-        nav.addView(clear);
-        root.addView(nav);
+        TextView export = whiteButton("导出记录");
+        export.setOnClickListener(v -> exportLog());
+        btns.addView(clear);
+        btns.addView(export);
+        wrap.addView(btns);
 
-        scroll = new ScrollView(this);
-        logView = new TextView(this);
-        logView.setTextSize(13);
-        logView.setTextColor(LabSkin.TEXT_SUB);
-        logView.setPadding(LabSkin.dp(this, 18), LabSkin.dp(this, 8), LabSkin.dp(this, 18), LabSkin.dp(this, 18));
-        scroll.addView(logView, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        scroll.addView(wrap, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(root);
@@ -106,9 +149,151 @@ public class LabLogActivity extends AppCompatActivity {
         handler.removeCallbacks(ticker);
     }
 
+    private int dp(int v) {
+        return LabSkin.dp(this, v);
+    }
+
     private void refresh() {
+        boolean running = LabRunner.isRunning(this, pkgId);
+        stateLine.setText(running ? "运行中" : "已停止");
+        stateLine.setTextColor(running ? LabSkin.GREEN : LabSkin.TEXT_DIM);
+
+        logBox.removeAllViews();
         String log = LabRunner.getLog(this, pkgId);
-        logView.setText(log.isEmpty() ? "还没有记录，启动一次就有" : log);
+        if (TextUtils.isEmpty(log)) {
+            TextView empty = new TextView(this);
+            empty.setText("还没有记录，启动一次就有");
+            empty.setTextSize(15);
+            empty.setTextColor(LabSkin.TEXT_DIM);
+            empty.setPadding(0, dp(6), 0, dp(6));
+            logBox.addView(empty);
+            return;
+        }
+        String[] lines = log.split("\n");
+        int start = Math.max(0, lines.length - 300);
+        for (int i = start; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) continue;
+            logBox.addView(logRow(line));
+        }
         scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
+    }
+
+    /** 记录行：点＋时间＋正文（颜色按内容：红错/黄警告/绿正常） */
+    private View logRow(String line) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+
+        View dot = new View(this);
+        dot.setBackground(LabSkin.dot(this, dotColor(line)));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dlp.topMargin = dp(6);
+        dlp.rightMargin = dp(10);
+        dot.setLayoutParams(dlp);
+        row.addView(dot);
+
+        String time = null;
+        String text = line;
+        Matcher m = TIME_HEAD.matcher(line);
+        if (m.matches()) {
+            time = m.group(1);
+            text = m.group(2);
+        }
+        if (time != null) {
+            TextView tv = new TextView(this);
+            tv.setText(time);
+            tv.setTextSize(14);
+            tv.setTextColor(LabSkin.TEXT_DIM);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            tlp.rightMargin = dp(12);
+            tv.setLayoutParams(tlp);
+            row.addView(tv);
+        }
+        TextView body = new TextView(this);
+        body.setText(text);
+        body.setTextSize(15);
+        body.setTextColor(isSystemLine(text) ? LabSkin.TEXT_DIM : LabSkin.TEXT_MAIN);
+        body.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(body);
+        return row;
+    }
+
+    private int dotColor(String line) {
+        String l = line.toLowerCase(Locale.US);
+        if (l.contains("失败") || l.contains("错误") || l.contains("异常")
+                || l.contains("error") || l.contains("exception") || l.contains("退出")) {
+            return LabSkin.RED;
+        }
+        if (l.contains("重试") || l.contains("警告") || l.contains("warn")) {
+            return LabSkin.AMBER;
+        }
+        return LabSkin.GREEN_DOT;
+    }
+
+    private boolean isSystemLine(String text) {
+        return text.startsWith("$ ") || text.startsWith("[进程退出");
+    }
+
+    private TextView whiteButton(String text) {
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextSize(16);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(LabSkin.TEXT_MAIN);
+        b.setBackground(LabSkin.cardBackground(this, false));
+        b.setPadding(0, dp(16), 0, dp(16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        int m = dp(7);
+        lp.leftMargin = m;
+        lp.rightMargin = m;
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    /** 导出记录：写进下载目录（Q+ 走 MediaStore，Q 以下走 Download 文件） */
+    private void exportLog() {
+        String log = LabRunner.getLog(this, pkgId);
+        if (TextUtils.isEmpty(log)) {
+            Notify.show("还没有记录可导出");
+            return;
+        }
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
+        String fileName = "运行记录-" + (svcName == null ? pkgId : svcName) + "-" + stamp + ".txt";
+        new Thread(() -> {
+            boolean ok = writeDownload(fileName, log);
+            runOnUiThread(() -> Notify.show(ok ? "已存到下载目录：" + fileName : "导出失败，换个方式试试"));
+        }).start();
+    }
+
+    private boolean writeDownload(String fileName, String content) {
+        try {
+            byte[] data = content.getBytes(StandardCharsets.UTF_8);
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                v.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/星辰实验室");
+                ContentResolver cr = getContentResolver();
+                Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) return false;
+                try (OutputStream out = cr.openOutputStream(uri)) {
+                    if (out == null) return false;
+                    out.write(data);
+                }
+                return true;
+            }
+            File dir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS), "星辰实验室");
+            if (!dir.exists() && !dir.mkdirs()) return false;
+            try (OutputStream out = new FileOutputStream(new File(dir, fileName))) {
+                out.write(data);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

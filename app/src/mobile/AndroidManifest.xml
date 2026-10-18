@@ -7,6 +7,10 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 实验室运行记录/导包：Android 9 及以下写下载目录用；10+ 走 MediaStore 不需要 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <supports-screens
         android:anyDensity="true"
@@ -279,6 +283,16 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
+            android:name=".ui.activity.SearchPageActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.activity.SearchTocActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
             android:name=".ui.activity.AllNovelsActivity"
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
@@ -292,33 +306,33 @@
         <!-- 实验室：独立包 ui.lab -->
         <activity
             android:name=".ui.lab.LabHomeActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabEnvActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabServiceActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabLogActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabPasteImportActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabInstallActivity"
             android:exported="true"
-            android:theme="@style/Theme.XingChen.HkPage"
+            android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser">
             <!-- .lab 包文件打开方式：点开进安装确认（照 JSON 打开方式的落点） -->
@@ -336,6 +350,27 @@
         <service
             android:name=".ui.lab.LabKeepAlive"
             android:exported="false" />
+        <activity
+            android:name=".ui.lab.LabSettingsActivity"
+            android:theme="@style/Theme.XingChen.LabPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabStoreActivity"
+            android:theme="@style/Theme.XingChen.LabPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabLiveOutputActivity"
+            android:theme="@style/Theme.XingChen.LabPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabTerminalActivity"
+            android:theme="@style/Theme.XingChen.LabPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:screenOrientation="fullUser"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".ui.activity.AudioBookActivity"
             android:theme="@style/Theme.XingChen.HkPage"

@@ -21,6 +21,7 @@ import java.io.Reader;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -188,27 +189,30 @@ public class LegadoStore {
         ParseResult pr = parseListTolerant(json);
         List<LegadoSource> srcs = pr.ok;
         List<Entry> list = all();
+        // 去重索引：bookSourceUrl → 首个条目。旧写法每源扫全表重解析，3907 源整包
+        // 约 8 分钟（平方复杂度）；一次建表后整包为线性，语义不变（首个命中覆盖）。
+        Map<String, Entry> index = new HashMap<>();
+        for (Entry e : list) {
+            try {
+                String u = parse(e.json).bookSourceUrl;
+                if (u != null && !index.containsKey(u)) index.put(u, e);
+            } catch (Throwable ignored) {
+            }
+        }
         int added = 0, replaced = 0;
         for (LegadoSource s : srcs) {
             String one = GSON.toJson(s);
-            boolean hit = false;
-            for (Entry e : list) {
-                try {
-                    if (s.bookSourceUrl.equals(parse(e.json).bookSourceUrl)) {
-                        e.json = one;
-                        hit = true;
-                        replaced++;
-                        break;
-                    }
-                } catch (Throwable ignored) {
-                }
-            }
-            if (!hit) {
+            Entry hit = s.bookSourceUrl == null ? null : index.get(s.bookSourceUrl);
+            if (hit != null) {
+                hit.json = one;
+                replaced++;
+            } else {
                 Entry e = new Entry();
                 e.json = one;
                 e.enabled = true;
                 e.addedAt = System.currentTimeMillis();
                 list.add(e);
+                if (s.bookSourceUrl != null) index.put(s.bookSourceUrl, e);
                 added++;
             }
         }

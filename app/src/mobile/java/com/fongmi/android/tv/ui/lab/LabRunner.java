@@ -12,11 +12,14 @@ import java.io.OutputStreamWriter;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 服务起停（照参照物 LabRunner 的做法）：
@@ -72,6 +75,208 @@ public final class LabRunner {
         return p == null ? 0 : p.port;
     }
 
+    // ---------------- 按命令起停（上游 LabCommandSheet 口径） ----------------
+
+    /** 命令键：pkg/<pkgId>/cmd/<cmdId>（服务默认命令沿用旧 keyOf 语义，不动） */
+    public static String commandKey(String pkgId, String cmdId) {
+        return "cmd/" + pkgId + "/" + cmdId;
+    }
+
+    public static boolean isCommandRunning(Context c, String pkgId, String cmdId) {
+        String key = commandKey(pkgId, cmdId);
+        Process p = RUNNING.get(key);
+        if (LabProc.alive(p)) return true;
+        return LabProc.recoveredAliveKeys(c).contains(key);
+    }
+
+    public static void stopCommand(Context c, String pkgId, String cmdId) {
+        stopKey(c, commandKey(pkgId, cmdId));
+    }
+
+    /** 运行中条目（运行中对话框用）：key → 人话名 */
+    public static List<String[]> runningEntries(Context c) {
+        List<String[]> out = new ArrayList<>();
+        Set<String> keys = new LinkedHashSet<>(RUNNING.keySet());
+        keys.addAll(LabProc.recoveredAliveKeys(c));
+        for (String key : keys) {
+            out.add(new String[]{key, keyLabel(c, key)});
+        }
+        return out;
+    }
+
+    private static String keyLabel(Context c, String key) {
+        try {
+            if (key.startsWith("cmd/")) {
+                String[] parts = key.split("/", 3);
+                if (parts.length == 3) {
+                    LabRegistry.Svc s = LabRegistry.get(c).svc(parts[1]);
+                    String name = s == null ? parts[1] : s.name;
+                    return name + " / " + parts[2];
+                }
+            } else if (key.startsWith("pkg/")) {
+                String id = key.substring(4);
+                LabRegistry.Svc s = LabRegistry.get(c).svc(id);
+                return s == null ? id : s.name;
+            } else if (key.startsWith("term/")) {
+                String id = key.substring(5);
+                LabRegistry.Svc s = LabRegistry.get(c).svc(id);
+                return "终端：" + (s == null ? id : s.name);
+            }
+        } catch (Exception ignored) {
+        }
+        return key;
+    }
+
+    /**
+     * 按命令启动（变量表/自定义命令/快捷运行都走这里）。
+     *
+     * @param cmd    命令（包命令或自定义命令转成的 LabCommand）
+     * @param vars   变量值（可为 null）
+     */
+    public static void startCommand(Context ctx, String pkgId, LabManifest.LabCommand cmd,
+                                    Map<String, String> vars, Listener listener) {
+        final Context c = ctx.getApplicationContext();
+        new Thread(() -> {
+            try {
+                LabRegistry.Svc pkg = LabRegistry.get(c).svc(pkgId);
+                if (pkg == null) throw new Exception("这个包已经不在了");
+                String runtime = pkg.runtime == null ? "none" : pkg.runtime;
+                if (!"none".equals(runtime) && !LabRuntimeManager.isInstalled(c, runtime)) {
+                    throw new Exception("缺" + LabRuntimeManager.label(runtime) + "，先把它装上");
+                }
+                checkMinVersion(c, cmd);
+                String key = commandKey(pkgId, cmd.id == null ? "cmd" : cmd.id);
+                stopKey(c, key);
+                int port = allocPort(c, pkg, readManifestQuiet(c, pkgId));
+                // 包设置值先垫底，同名变量再覆盖（上游变量值缓存复用口径）
+                Map<String, String> merged = new java.util.HashMap<>(LabCustomCommands.settingsOf(c, pkgId));
+                if (vars != null) merged.putAll(vars);
+                ensureDependency(c, pkgId, cmd);
+                String command = expand(c, pkgId, cmd.command, port, merged);
+                ERRORS.remove(key);
+                runShell(c, pkgId, key, command, pkgId, listener);
+            } catch (Exception e) {
+                String m = e.getMessage();
+                if (listener != null) {
+                    listener.onOutput("启动失败：" + (m == null ? "未知原因" : m) + "\n");
+                    listener.onExit(-1);
+                }
+            }
+        }).start();
+    }
+
+    /** min_version 门控：App 版本不够就提示升级（上游 Command.isSupported 口径） */
+    private static void checkMinVersion(Context c, LabManifest.LabCommand cmd) throws Exception {
+        if (cmd == null || cmd.minVersion <= 0) return;
+        try {
+            int vc = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode;
+            if (vc < cmd.minVersion) {
+                throw new Exception("这条命令要新版星辰才跑得动，先更新 App");
+            }
+        } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("新版星辰")) throw e;
+        }
+    }
+
+    /** 命令依赖下载：download 声明的文件缺了就先下后跑 */
+    private static void ensureDependency(Context c, String pkgId, LabManifest.LabCommand cmd) throws Exception {
+        if (cmd == null || cmd.download == null || TextUtils.isEmpty(cmd.download.url)) return;
+        String rel = TextUtils.isEmpty(cmd.download.file) ? fileNameOf(cmd.download.url) : cmd.download.file;
+        File dest = new File(LabPaths.packageDir(c, pkgId), rel);
+        if (dest.exists()) return;
+        downloadFile(cmd.download.url, dest);
+    }
+
+    private static String fileNameOf(String url) {
+        String u = url.split("\\?")[0];
+        int i = u.lastIndexOf('/');
+        return i >= 0 ? u.substring(i + 1) : "dep.bin";
+    }
+
+    private static void downloadFile(String url, File dest) throws Exception {
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(120000);
+            conn.setInstanceFollowRedirects(true);
+            applyProxyConn(conn);
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("依赖下不下来（" + code + "）");
+            if (dest.getParentFile() != null) dest.getParentFile().mkdirs();
+            try (java.io.InputStream in = new java.io.BufferedInputStream(conn.getInputStream());
+                 java.io.OutputStream out = new java.io.BufferedOutputStream(new FileOutputStream(dest))) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static void applyProxyConn(java.net.HttpURLConnection conn) {
+        // 走 JVM 全局代理太重；下载走直连（与既有 importFromUrl 行为一致）
+    }
+
+    // ---------------- 交互终端 ----------------
+
+    /**
+     * 给包开一个交互 shell（终端页用）：cwd=包目录，环境与服务进程一致。
+     * 返回 stdin 输出流写把柄由调用方持有；进程按 term/<pkgId> 跟踪，随「全部停止」一起停。
+     */
+    public static Process startTerminal(Context ctx, String pkgId) throws Exception {
+        final Context c = ctx.getApplicationContext();
+        LabRegistry.Svc pkg = LabRegistry.get(c).svc(pkgId);
+        if (pkg == null) throw new Exception("这个包已经不在了");
+        File cwd = LabPaths.packageDir(c, pkgId);
+        cwd.mkdirs();
+        String key = "term/" + pkgId;
+        stopKey(c, key);
+        ProcessBuilder builder = new ProcessBuilder("/system/bin/sh");
+        builder.directory(cwd);
+        builder.redirectErrorStream(true);
+        applyEnv(c, pkgId, builder.environment());
+        Process p = builder.start();
+        RUNNING.put(key, p);
+        try {
+            STDIN.put(key, p.getOutputStream());
+        } catch (Exception ignored) {
+        }
+        LabProc.track(c, key, LabProc.pidOf(p), LabProc.logFile(c, key).getAbsolutePath());
+        LabKeepAlive.refresh(c);
+        return p;
+    }
+
+    /** 往指定 key 的进程 stdin 写字节（终端页用） */
+    public static void writeStdin(String key, byte[] data) throws Exception {
+        java.io.OutputStream out = STDIN.get(key);
+        if (out == null) throw new Exception("进程不在了");
+        out.write(data);
+        out.flush();
+    }
+
+    /** 停止任意 key（pkg/cmd/term 通用） */
+    public static void stopKey(Context c, String key) {
+        Process p = RUNNING.remove(key);
+        java.io.OutputStream stdin = STDIN.remove(key);
+        if (stdin != null) {
+            try {
+                stdin.close();
+            } catch (Exception ignored) {
+            }
+        }
+        if (p != null) {
+            try {
+                p.destroy();
+            } catch (Exception ignored) {
+            }
+            LabProc.killTree(LabProc.pidOf(p));
+        }
+        LabProc.stopByState(c, key);
+        LabKeepAlive.refresh(c);
+    }
+
     // ---------------- 启动 ----------------
 
     /**
@@ -108,7 +313,7 @@ public final class LabRunner {
     }
 
     private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) {
-        String policy = manifest.output == null ? "auto" : manifest.output.port;
+        String policy = manifest == null || manifest.output == null ? "auto" : manifest.output.port;
         if (policy != null && policy.matches("\\d+")) {
             int fixed = Integer.parseInt(policy);
             if (pkg.port != fixed) {
@@ -141,10 +346,56 @@ public final class LabRunner {
     }
 
     private static String expand(Context c, String pkgId, String command, int port) {
+        return expand(c, pkgId, command, port, null);
+    }
+
+    /**
+     * 命令展开（上游 LabRunner.expand 口径的精简版）：
+     * 1) {var} 变量替换（vars 优先，包设置值已在调用方合并进来），支持嵌套（最多 5 层），
+     *    ${...} 跳过不碰；没值的占位原样保留（缺失变量由调用方先弹变量表补齐）。
+     * 2) 特殊占位：{serverPort}＝本次分配端口；{tvPath}{dataPath}{cachePath}
+     *    {envRootPath}{wwwroot}{sdcard}；旧 {port}{pkgDir}{filesDir} 照旧。
+     */
+    private static String expand(Context c, String pkgId, String command, int port,
+                                 Map<String, String> vars) {
+        if (command == null) return "";
+        String out = expandVars(command, vars, 0);
         File pkgDir = LabPaths.packageDir(c, pkgId);
-        return command.replace("{port}", String.valueOf(port))
+        File labRoot = LabPaths.root(c);
+        return out
+                .replace("{serverPort}", String.valueOf(port))
+                .replace("{tvPath}", new File(c.getFilesDir(), "TV").getAbsolutePath())
+                .replace("{dataPath}", new File(pkgDir, "data").getAbsolutePath())
+                .replace("{cachePath}", c.getCacheDir().getAbsolutePath())
+                .replace("{envRootPath}", pkgDir.getAbsolutePath())
+                .replace("{wwwroot}", new File(labRoot, "wwwroot").getAbsolutePath())
+                .replace("{sdcard}", "/storage/emulated/0")
+                .replace("{port}", String.valueOf(port))
                 .replace("{pkgDir}", pkgDir.getAbsolutePath())
                 .replace("{filesDir}", c.getFilesDir().getAbsolutePath());
+    }
+
+    private static String expandVars(String text, Map<String, String> vars, int depth) {
+        if (text == null || depth > 5) return text;
+        Matcher m = Pattern.compile("\\{([a-zA-Z0-9_]+)\\}").matcher(text);
+        StringBuffer sb = new StringBuffer();
+        boolean changed = false;
+        while (m.find()) {
+            if (m.start() > 0 && text.charAt(m.start() - 1) == '$') {
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
+                continue;
+            }
+            String val = vars == null ? null : vars.get(m.group(1));
+            if (val == null) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
+                continue;
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(expandVars(val, vars, depth + 1)));
+            changed = true;
+        }
+        m.appendTail(sb);
+        if (!changed) return sb.toString();
+        return expandVars(sb.toString(), vars, depth + 1);
     }
 
     private static void runShell(Context c, String pkgId, String key, String command, String logName, Listener listener) {
@@ -190,7 +441,23 @@ public final class LabRunner {
         env.put("PATH", join(path, ":"));
         String bin = new File(LabPaths.packageDir(c, pkgId), "bin").getAbsolutePath();
         String oldLd = env.get("LD_LIBRARY_PATH");
-        env.put("LD_LIBRARY_PATH", TextUtils.isEmpty(oldLd) ? bin : bin + ":" + oldLd);
+        String lib = LabRuntimeManager.libDir(c, runtime).getAbsolutePath();
+        String ld = bin + File.pathSeparator + lib;
+        env.put("LD_LIBRARY_PATH", TextUtils.isEmpty(oldLd) ? ld : ld + File.pathSeparator + oldLd);
+        // 全局代理（实验室设置页）：开着就给进程 http_proxy/https_proxy/no_proxy
+        if (LabSettings.proxyOn(c)) {
+            String port = LabSettings.proxyPort(c);
+            String proxy = "http://127.0.0.1:" + port;
+            env.put("http_proxy", proxy);
+            env.put("https_proxy", proxy);
+            env.put("HTTP_PROXY", proxy);
+            env.put("HTTPS_PROXY", proxy);
+            String no = LabSettings.proxyNoProxy(c);
+            if (!TextUtils.isEmpty(no)) {
+                env.put("no_proxy", no);
+                env.put("NO_PROXY", no);
+            }
+        }
     }
 
     private static String join(Set<String> s, String sep) {
@@ -255,24 +522,7 @@ public final class LabRunner {
     // ---------------- 停止 ----------------
 
     public static void stop(Context c, String pkgId) {
-        String key = keyOf(pkgId);
-        Process p = RUNNING.remove(key);
-        java.io.OutputStream stdin = STDIN.remove(key);
-        if (stdin != null) {
-            try {
-                stdin.close();
-            } catch (Exception ignored) {
-            }
-        }
-        if (p != null) {
-            try {
-                p.destroy();
-            } catch (Exception ignored) {
-            }
-            LabProc.killTree(LabProc.pidOf(p));
-        }
-        LabProc.stopByState(c, key);
-        LabKeepAlive.refresh(c);
+        stopKey(c, keyOf(pkgId));
     }
 
     public static void stopAll(Context c) {
@@ -314,6 +564,14 @@ public final class LabRunner {
 
     private static String pkgIdOf(String key) {
         return key.startsWith("pkg/") ? key.substring(4) : key;
+    }
+
+    private static LabManifest readManifestQuiet(Context c, String pkgId) {
+        try {
+            return readManifest(c, pkgId);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static LabManifest readManifest(Context c, String pkgId) throws Exception {

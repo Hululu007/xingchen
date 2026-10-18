@@ -9,7 +9,6 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -26,7 +25,6 @@ import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.legado.LegadoStore;
 import com.fongmi.android.tv.localbook.LocalBookImporter;
-import com.fongmi.android.tv.read.LegadoSearchFlow;
 import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
@@ -898,13 +896,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
     /** 搜书：作用域跟着当前页签走（小说→小说源，漫画→漫画源），各搜各的不混。 */
     private void showHomeSearch() {
-        int type = currentType();
-        boolean comic = type == LegadoSource.TYPE_IMAGE;
-        EditText et = ReadDialogs.input(this, "输入书名/作者", false);
-        new ReadDialogs(this).setTitle(comic ? "搜漫画" : "搜小说").setView(et)
-                .setPositiveButton("搜索", (d, w) ->
-                        LegadoSearchFlow.search(this, type, et.getText().toString().trim()))
-                .setNegativeButton("取消", null).show();
+        SearchPageActivity.start(this, currentType());
     }
 
     private void showImportMenu() {        boolean comic = "COMIC".equals(currentTab);

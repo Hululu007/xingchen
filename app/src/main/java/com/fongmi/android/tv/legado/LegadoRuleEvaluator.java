@@ -93,10 +93,30 @@ public class LegadoRuleEvaluator {
         return elements(ctx.root, preprocess(ctx, ctx.root, rule));
     }
 
-    /** 取单字符串。isUrl=true 时无后缀默认取 href 并转绝对地址。 */
+    /**
+     * 取单字符串。isUrl=true 时无后缀默认取 href 并转绝对地址。
+     * 永不返回 null（正则可选分组未参与匹配等形态会产出 null；
+     * 下游 search()/showHits() 在主线程拼串，null 会闪退——壳子侧兜住）。
+     */
     public static String str(Sel scope, Ctx ctx, String rule, boolean isUrl) {
+        String v = strInner(scope, ctx, rule, isUrl);
+        return v == null ? "" : v;
+    }
+
+    private static String strInner(Sel scope, Ctx ctx, String rule, boolean isUrl) {
         rule = preprocess(ctx, scope, rule);
         if (rule.isEmpty()) return "";
+        // URL 规则里的 {expr} 模板（如 bookUrl 中的 {$.id}）：原版阅读会按当前节点求值。
+        // 只在 isUrl 时展开——正则规则里的 {n} 量词（如 :\d{3}）不能碰。
+        if (isUrl) {
+            rule = expandBraces(scope, ctx, rule);
+            // 展开后若已是干净 URL，直接返回，不再走选择器求值
+            //（http 串按 CSS/JSONPath 求值只会得到空）。
+            if (!rule.contains("{") && !rule.contains("}")
+                    && rule.regionMatches(true, 0, "http", 0, 4)) {
+                return rule;
+            }
+        }
         String gv = pureGet(ctx, rule);
         if (gv != null) {
             if (isUrl && !gv.isEmpty() && !gv.startsWith("http") && !gv.startsWith("data:")) {
@@ -213,9 +233,51 @@ public class LegadoRuleEvaluator {
         return r.trim();
     }
 
+    /**
+     * URL 规则中的 {expr} 单花括号模板求值（原版阅读行为）。
+     * {{...}} 是 JS 占位，跳过不碰（由各自调用方处理）；@put:{...} 已在 preprocess 摘除。
+     * 花括号不配对时原样保留，不抛错（容错优先）。
+     */
+    private static String expandBraces(Sel scope, Ctx ctx, String rule) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < rule.length()) {
+            char c = rule.charAt(i);
+            if (c == '{' && i + 1 < rule.length() && rule.charAt(i + 1) == '{') {
+                int end = rule.indexOf("}}", i + 2);
+                if (end < 0) { sb.append(rule.substring(i)); break; }
+                sb.append(rule, i, end + 2);
+                i = end + 2;
+                continue;
+            }
+            if (c == '{') {
+                int depth = 1, j = i + 1;
+                while (j < rule.length() && depth > 0) {
+                    char d = rule.charAt(j);
+                    if (d == '{') depth++;
+                    else if (d == '}') depth--;
+                    j++;
+                }
+                if (depth != 0) { sb.append(rule.substring(i)); break; }
+                String inner = rule.substring(i + 1, j - 1);
+                String val;
+                try {
+                    val = strInner(scope, ctx, inner, false);
+                } catch (Throwable t) {
+                    val = "";
+                }
+                sb.append(val == null ? "" : val);
+                i = j;
+                continue;
+            }
+            sb.append(c);
+            i++;
+        }
+        return sb.toString();
+    }
+
     /** 纯 @get:{k} 引用：直接返回值，不进规则求值。 */
-    private static String pureGet(Ctx ctx, String rule) {
-        String t = rule.trim();
+    private static String pureGet(Ctx ctx, String rule) {        String t = rule.trim();
         if (t.startsWith("@get:{") && t.endsWith("}") && t.indexOf('{', 6) < 0) {
             String key = t.substring(6, t.length() - 1).trim();
             String v = ctx.vars.get(key);
@@ -522,6 +584,17 @@ public class LegadoRuleEvaluator {
             else return out;
         }
         if (idx == null) {
+            // JSONPath 语义：$.a.b 中 b 若是数组，逐元素展开为多条结果
+            //（原版阅读行为）。旧写法把整个数组包成一条，bookList 永远只出 1 项
+            // 且逐项取字段全空——JSON API 源全灭。
+            if (v instanceof JSONArray) {
+                JSONArray arr = (JSONArray) v;
+                for (int i = 0; i < arr.length(); i++) {
+                    Object e = arr.opt(i);
+                    if (e != null && e != JSONObject.NULL) out.add(e);
+                }
+                return out;
+            }
             if (v != null && v != JSONObject.NULL) out.add(v);
             return out;
         }

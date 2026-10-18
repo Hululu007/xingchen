@@ -45,6 +45,24 @@ public final class LabBoot {
             } catch (Exception ignored) {
             }
         }
+        // 自启的对：自定义命令里开了开机自动运行的，也拉起来（变量值走缓存）
+        for (LabRegistry.Svc p : pkgs) {
+            try {
+                if (!LabRegistry.autoStartOf(p)) continue;
+                List<LabCustomCommands.CustomCommand> customs = LabCustomCommands.list(c, p.id);
+                if (customs.isEmpty()) continue;
+                java.util.Map<String, String> cached = LabCustomCommands.varCache(c, p.id);
+                for (LabCustomCommands.CustomCommand cc : customs) {
+                    try {
+                        if (!cc.autoExecute) continue;
+                        if (LabRunner.isCommandRunning(c, p.id, cc.id)) continue;
+                        LabRunner.startCommand(c, p.id, LabCustomCommands.toCommand(cc), cached, null);
+                    } catch (Exception ignored) {
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
         LabKeepAlive.refresh(c);
     }
 }

@@ -233,4 +233,11 @@
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
+    <!-- 实验室页：跟星辰全局壁纸走（ThemeManager.doApply 给窗口铺壁纸，内容根透明）。
+         windowBackground 只做壁纸没贴上前的兜底＝定稿底色 #FBFBFA；
+         运行时窗口背景会被全局壁纸 drawable 替换，这里不决定最终底色。 -->
+    <style name="Theme.XingChen.LabPage" parent="Theme.XingChen.HkPage">
+        <item name="android:windowBackground">#FFFBFBFA</item>
+    </style>
+
 </resources>

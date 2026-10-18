@@ -8,6 +8,9 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -18,8 +21,9 @@ import java.util.zip.ZipInputStream;
 /**
  * 运行环境管理：python / nodejs / php / mihomo / alist / frp / aria2 / ubuntu / java / bun / ffmpeg。
  * 照参照物：装到 files/lab/runtimes/<name>/，二进制归位 bin/，整目录 chmod 755。
- * 本轮只做「从本地 zip 文件导入」；下载地址留一处集中常量（公开仓未建，先留空）。
- * ubuntu 例外：rootfs 不是 bin/ 布局，proot 跑法基座还没接（见报告），卡先上、装与跑待后续。
+ * 安装两条路：在线（从下载地址拉包）/ 本地（选 zip）。都走 installFromFile 同一条管线：
+ * 解压 → 755 → bin 校验 → 登记注册表。校验失败只报人话，不抛技术栈、不静默。
+ * ubuntu 例外：rootfs 不是 bin/ 布局，proot 跑法基座还没接——装与跑都过不了校验，如实报错，不开后门。
  */
 public final class LabRuntimeManager {
 
@@ -27,8 +31,243 @@ public final class LabRuntimeManager {
             "python", "nodejs", "php", "mihomo", "alist", "frp", "aria2",
             "ubuntu", "java", "bun", "ffmpeg");
 
-    /** 环境包下载地址（公开仓未建，先留空；建好后填这里，全 App 只这一处） */
+    /** 环境包下载地址（公开仓 XingChenApp/xingchen-lab-assets 已建，按清单回填；ubuntu 留空等 proot） */
     public static final Map<String, String> DOWNLOAD_URLS = new HashMap<>();
+    /** 包版本（更新检测＋安装登记用，与清单一致） */
+    private static final Map<String, String> PKG_VERSION = new HashMap<>();
+    /** 包大小（≤20MB 的走 jsDelivr 镜像优先） */
+    private static final Map<String, Long> PKG_SIZE = new HashMap<>();
+    /** 整包 sha256（下载后校验用） */
+    private static final Map<String, String> PKG_SHA256 = new HashMap<>();
+
+    /** 仓侧包 id：运行时叫 nodejs、仓里叫 node，查表前先对齐 */
+    private static String pkgKey(String runtime) {
+        return "nodejs".equals(runtime) ? "node" : runtime;
+    }
+
+    private static final String REPO_RAW = "https://raw.githubusercontent.com/XingChenApp/xingchen-lab-assets/main/env/";
+    private static final String REPO_JSD = "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-lab-assets@main/env/";
+
+    static {
+        // 整包：raw 直链
+        DOWNLOAD_URLS.put("python", REPO_RAW + "env-python.zip");
+        DOWNLOAD_URLS.put("mihomo", REPO_RAW + "env-mihomo.zip");
+        DOWNLOAD_URLS.put("frp", REPO_RAW + "env-frp.zip");
+        DOWNLOAD_URLS.put("aria2", REPO_RAW + "env-aria2.zip");
+        DOWNLOAD_URLS.put("bun", REPO_RAW + "env-bun.zip");
+        DOWNLOAD_URLS.put("ffmpeg", REPO_RAW + "env-ffmpeg.zip");
+        // 分片包：填清单 JSON 地址（下载层识别 .json 走分片拼接＋校验）
+        DOWNLOAD_URLS.put("node", REPO_RAW + "env-node.json");
+        DOWNLOAD_URLS.put("php", REPO_RAW + "env-php.json");
+        DOWNLOAD_URLS.put("java", REPO_RAW + "env-java.json");
+        DOWNLOAD_URLS.put("alist", REPO_RAW + "env-alist.json");
+        // ubuntu 留空：rootfs 过不了 bin/ 校验、proot 未接，填了是骗点击
+
+        PKG_VERSION.put("python", "3.14.8");
+        PKG_VERSION.put("node", "26.4.0");
+        PKG_VERSION.put("php", "8.5.1");
+        PKG_VERSION.put("mihomo", "1.19.30");
+        PKG_VERSION.put("alist", "3.63.0");
+        PKG_VERSION.put("frp", "0.71.0");
+        PKG_VERSION.put("aria2", "1.37.0");
+        PKG_VERSION.put("java", "17.0.20");
+        PKG_VERSION.put("bun", "1.4.3");
+        PKG_VERSION.put("ffmpeg", "5.1");
+
+        PKG_SIZE.put("python", 14116073L);
+        PKG_SIZE.put("node", 51475599L);
+        PKG_SIZE.put("php", 49136207L);
+        PKG_SIZE.put("mihomo", 17932610L);
+        PKG_SIZE.put("alist", 43917406L);
+        PKG_SIZE.put("frp", 13065311L);
+        PKG_SIZE.put("aria2", 2481027L);
+        PKG_SIZE.put("java", 66186060L);
+        PKG_SIZE.put("bun", 39196506L);
+        PKG_SIZE.put("ffmpeg", 8686722L);
+
+        PKG_SHA256.put("python", "08939ad4606b06389628dd1eca7f251f1e26c4f765b19605057e0c2cf170f9be");
+        PKG_SHA256.put("node", "74df95356c84225fcbd3415104994b1dfff30af2ba3cf4c8b7d2e672832e5212");
+        PKG_SHA256.put("php", "776c92d5828673c23b794b3af16714c3fb8e98b7f6af312bf81a44e4f99e422a");
+        PKG_SHA256.put("mihomo", "69c7e0c8d1f23e41e0656a4dac912267b0fb2db91c9274536506b2bfc759b473");
+        PKG_SHA256.put("alist", "5dcacda0d3105188eb142363424d9c35c55f3cfd49875e86996e0ac5e9c840b4");
+        PKG_SHA256.put("frp", "3204e9df734107ff960d77a588443def83017d38a9f212fdeb4ef444be50772f");
+        PKG_SHA256.put("aria2", "272ebf5c717a337ea86e27007ff5dbb07875993d2d4a20277622956641780580");
+        PKG_SHA256.put("java", "38fb0699ce4ff746d302d8dc82985abf6c86384b7755827ff665f35414f4800f");
+        PKG_SHA256.put("bun", "8ff4385d826a9d5a6c3f7efe93375e6586a1cd6127d012952ea992266de2da0d");
+        PKG_SHA256.put("ffmpeg", "4b5395abc8b4e6a238fe47c6bcaac2dc6664478bf13cfd5f60e2b91bf7598868");
+    }
+
+    /** jsDelivr 镜像（gh 端点单文件 ≤20MB 才吃得下）：raw 域名换过去即得 */
+    private static String jsdelivrOf(String rawUrl) {
+        if (rawUrl != null && rawUrl.startsWith(REPO_RAW)) {
+            return REPO_JSD + rawUrl.substring(REPO_RAW.length());
+        }
+        return null;
+    }
+
+    /** 候选地址：≤20MB 的镜像优先、直链兜底；大的只走直链 */
+    private static List<String> candidates(String url, long size) {
+        List<String> out = new ArrayList<>();
+        String jsd = jsdelivrOf(url);
+        if (size > 0 && size <= 20L * 1024 * 1024 && jsd != null) {
+            out.add(jsd);
+            out.add(url);
+        } else {
+            out.add(url);
+        }
+        return out;
+    }
+
+    /**
+     * 在线安装统一入口（新口径）：
+     * 资产目录有条目 → 走目录制（架构/镜像/本地搜索）；否则走 DOWNLOAD_URLS 回填表
+     * （.json 结尾＝分片清单：拉清单→逐分片下→拼接→sha256 校验→安装）。
+     */
+    public static void installOnline(Context ctx, String runtime, Listener listener) {
+        LabEnvCatalog.EnvEntry e = LabEnvCatalog.entry(ctx, runtime);
+        if (e != null && !e.downloads.isEmpty()) {
+            installFromCatalog(ctx, runtime, listener);
+            return;
+        }
+        String url = DOWNLOAD_URLS.get(pkgKey(runtime));
+        if (url == null || url.isEmpty()) {
+            fail(listener, "下载地址还没准备好");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                if (url.endsWith(".json")) {
+                    downloadSharded(url, tmp, listener);
+                } else {
+                    downloadWhole(url, tmp, listener, runtime);
+                }
+                installFromFile(ctx.getApplicationContext(), runtime, tmp,
+                        PKG_VERSION.get(pkgKey(runtime)), listener);
+                tmp.delete();
+            } catch (Exception ex) {
+                String m = ex.getMessage();
+                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            }
+        }).start();
+    }
+
+    /** 整包下载：镜像优先＋直链兜底，sha256 校验 */
+    private static void downloadWhole(String url, File dest, Listener listener, String runtime) throws Exception {
+        long size = PKG_SIZE.get(pkgKey(runtime)) == null ? 0 : PKG_SIZE.get(pkgKey(runtime));
+        progress(listener, "正在下载环境包…");
+        Exception last = null;
+        for (String u : candidates(url, size)) {
+            try {
+                download(u, dest);
+                last = null;
+                break;
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        if (last != null) throw last;
+        String sha = PKG_SHA256.get(pkgKey(runtime));
+        if (sha != null && !sha.isEmpty() && !sha256Of(dest).equalsIgnoreCase(sha)) {
+            throw new Exception("包校验没过，重新下一次试试");
+        }
+    }
+
+    /**
+     * 分片下载：拉清单 JSON → 按 parts 逐个下（每分片 8MB，镜像优先）→ 拼接 → sha256 校验。
+     * 进度按分片走（「正在下载（3/8）…」），不断了干等。
+     */
+    private static void downloadSharded(String manifestUrl, File dest, Listener listener) throws Exception {
+        // 清单本身也走镜像优先（JSON 很小）
+        String json = null;
+        Exception last = null;
+        for (String u : candidates(manifestUrl, 1024)) {
+            try {
+                json = downloadText(u);
+                last = null;
+                break;
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        if (last != null || json == null) throw new Exception("分片清单拉不到，换本地安装试试");
+        org.json.JSONObject o = new org.json.JSONObject(json);
+        String sha = o.optString("sha256", "");
+        org.json.JSONArray parts = o.optJSONArray("parts");
+        if (parts == null || parts.length() == 0) throw new Exception("分片清单里没有分片表");
+        int n = parts.length();
+        File tmpDir = new File(dest.getParentFile(), dest.getName() + ".parts");
+        tmpDir.mkdirs();
+        try {
+            for (int i = 0; i < n; i++) {
+                String partUrl = parts.optString(i, "");
+                if (partUrl.isEmpty()) throw new Exception("分片表第 " + (i + 1) + " 个地址是空的");
+                progress(listener, "正在下载（" + (i + 1) + "/" + n + "）…");
+                File partFile = new File(tmpDir, "p" + i);
+                Exception pe = null;
+                for (String u : candidates(partUrl, 8L * 1024 * 1024)) {
+                    try {
+                        download(u, partFile);
+                        pe = null;
+                        break;
+                    } catch (Exception e) {
+                        pe = e;
+                    }
+                }
+                if (pe != null) throw new Exception("第 " + (i + 1) + "/" + n + " 片下不下来，重试一次试试");
+            }
+            // 拼接
+            try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
+                byte[] buf = new byte[8192];
+                for (int i = 0; i < n; i++) {
+                    File partFile = new File(tmpDir, "p" + i);
+                    try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(partFile))) {
+                        int r;
+                        while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                    }
+                }
+            }
+            if (!sha.isEmpty() && !sha256Of(dest).equalsIgnoreCase(sha)) {
+                throw new Exception("包校验没过，重新下一次试试");
+            }
+        } finally {
+            LabPackageInstaller.deleteDir(tmpDir);
+        }
+    }
+
+    private static String downloadText(String url) throws Exception {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setInstanceFollowRedirects(true);
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("拉不到（" + code + "）");
+            try (BufferedInputStream in = new BufferedInputStream(c.getInputStream());
+                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                return out.toString("UTF-8");
+            }
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static String sha256Of(File f) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(f))) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        byte[] d = md.digest();
+        StringBuilder sb = new StringBuilder();
+        for (byte b : d) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
 
     public interface Listener {
         void onProgress(String text);
@@ -75,26 +314,14 @@ public final class LabRuntimeManager {
         return bin.isDirectory() && bin.list() != null && bin.list().length > 0;
     }
 
-    /** 从本地 zip 导入环境包 */
+    /** 从本地 zip 导入环境包（在线下载落盘后也走同一条安装管线） */
     public static void importFromUri(Context ctx, String runtime, Uri uri, Listener listener) {
         new Thread(() -> {
             try {
-                progress(listener, "正在准备环境…");
                 File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
                 copyUri(ctx, uri, tmp);
-                File dest = LabPaths.runtimeDir(ctx, runtime);
-                LabPackageInstaller.deleteDir(dest);
-                dest.mkdirs();
-                unzip(tmp, dest, listener);
-                chmod755(dest);
+                installFromFile(ctx.getApplicationContext(), runtime, tmp, listener);
                 tmp.delete();
-                if (!isInstalled(ctx, runtime)) throw new Exception("环境包里没有 bin，换一个压缩包试试");
-                LabRegistry.Runtime r = new LabRegistry.Runtime();
-                r.name = runtime;
-                r.version = "";
-                r.installTime = System.currentTimeMillis();
-                LabRegistry.get(ctx).upsertRuntime(ctx, r);
-                ok(listener);
             } catch (Exception e) {
                 String m = e.getMessage();
                 fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
@@ -102,9 +329,245 @@ public final class LabRuntimeManager {
         }).start();
     }
 
+    /** 在线安装：从下载地址拉包，落盘后走与本地安装同一条管线 */
+    public static void importFromUrl(Context ctx, String runtime, String url, Listener listener) {
+        new Thread(() -> {
+            try {
+                progress(listener, "正在下载环境包…");
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                download(url, tmp);
+                installFromFile(ctx.getApplicationContext(), runtime, tmp, listener);
+                tmp.delete();
+            } catch (Exception e) {
+                String m = e.getMessage();
+                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            }
+        }).start();
+    }
+
+    /** 环境包下载地址（公开仓未建，先留空；建好后填这里，全 App 只这一处） */
+    public static String downloadUrl(String runtime) {
+        return DOWNLOAD_URLS.get(pkgKey(runtime));
+    }
+
+    /** 安装管线唯一入口：解压 → 755 → bin 校验 → 软链 → 登记注册表。在线/本地都走这里。 */
+    private static void installFromFile(Context ctx, String runtime, File zip, Listener listener) {
+        installFromFile(ctx, runtime, zip, "", listener);
+    }
+
+    private static void installFromFile(Context ctx, String runtime, File zip, String version, Listener listener) {
+        try {
+            progress(listener, "正在准备环境…");
+            File dest = LabPaths.runtimeDir(ctx, runtime);
+            LabPackageInstaller.deleteDir(dest);
+            dest.mkdirs();
+            unzip(zip, dest, listener);
+            chmod755(dest);
+            if (!isInstalled(ctx, runtime)) throw new Exception("环境包里没有 bin，换一个压缩包试试");
+            symlinkShared(ctx, runtime, dest);
+            LabRegistry.Runtime r = new LabRegistry.Runtime();
+            r.name = runtime;
+            r.version = version == null ? "" : version;
+            r.installTime = System.currentTimeMillis();
+            LabRegistry.get(ctx).upsertRuntime(ctx, r);
+            ok(listener);
+        } catch (Exception e) {
+            String m = e.getMessage();
+            fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+        }
+    }
+
+    /**
+     * 共享库软链（上游 LabEnv.symlinkShared 口径的轻量版）：
+     * 把包内各级 lib 目录下的 .so 软链到 runtimes/<name>/lib/，进程 LD_LIBRARY_PATH 已指向它。
+     * proot 那套重型软链（ubuntu rootfs）等 proot 钩子一起做，见报告。
+     */
+    private static void symlinkShared(Context ctx, String runtime, File dest) {
+        try {
+            File lib = libDir(ctx, runtime);
+            lib.mkdirs();
+            List<File> sos = new ArrayList<>();
+            collectSo(dest, sos, 0);
+            for (File so : sos) {
+                File link = new File(lib, so.getName());
+                if (link.exists()) link.delete();
+                new ProcessBuilder("ln", "-sf", so.getAbsolutePath(), link.getAbsolutePath())
+                        .start().waitFor();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void collectSo(File dir, List<File> out, int depth) {
+        if (depth > 4 || dir == null || !dir.isDirectory()) return;
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File k : kids) {
+            if (k.isDirectory()) collectSo(k, out, depth + 1);
+            else if (k.getName().endsWith(".so")) out.add(k);
+        }
+    }
+
+    private static String fileNameOf(String url) {
+        String u = url.split("\\?")[0];
+        int i = u.lastIndexOf('/');
+        return i >= 0 ? u.substring(i + 1) : "env.zip";
+    }
+
+    private static void copyFile(File src, File dest) throws Exception {
+        try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(src));
+             BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+    }
+
     /** 环境 bin 目录：给服务进程拼 PATH 用 */
     public static File binDir(Context c, String runtime) {
         return new File(LabPaths.runtimeDir(c, runtime), "bin");
+    }
+
+    /** 环境共享库目录（软链落点，供 LD_LIBRARY_PATH） */
+    public static File libDir(Context c, String runtime) {
+        return new File(LabPaths.runtimeDir(c, runtime), "lib");
+    }
+
+    // ---------------- 目录制安装（架构/镜像/本地自动搜索/版本） ----------------
+
+    /**
+     * 从公开仓目录安装（新口径）：
+     * 架构匹配 → 本地包自动搜索（常见目录找同名包）→ 主地址/镜像依次下载 → 同一管线安装。
+     * 目录没到或该环境没条目时，回退旧 downloadUrl 路径。
+     */
+    public static void installFromCatalog(Context ctx, String runtime, Listener listener) {
+        LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(ctx, runtime);
+        if (entry == null || entry.downloads.isEmpty()) {
+            // 目录没到：走旧路（下载地址占位时如实说）
+            String url = downloadUrl(runtime);
+            if (url == null || url.isEmpty()) {
+                fail(listener, "下载地址还没准备好");
+                return;
+            }
+            importFromUrl(ctx, runtime, url, listener);
+            return;
+        }
+        LabEnvCatalog.Download dl = LabEnvCatalog.chooseDownload(entry);
+        if (dl == null) {
+            fail(listener, "这个环境没有你手机架构的包");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String fileName = fileNameOf(dl.url);
+                File local = findLocalArchive(ctx, fileName);
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                if (dl.url.endsWith(".json")) {
+                    // 分片清单型：走分片拼接＋校验
+                    downloadSharded(dl.url, tmp, listener);
+                } else if (local != null) {
+                    progress(listener, "找到本地包，直接装…");
+                    copyFile(local, tmp);
+                } else {
+                    progress(listener, "正在下载环境包…");
+                    boolean ok = false;
+                    Exception last = null;
+                    // ≤20MB 镜像优先、直链兜底；大的只走直链
+                    List<String> urls = new ArrayList<>();
+                    String jsd = jsdelivrOf(dl.url);
+                    if (dl.size > 0 && dl.size <= 20L * 1024 * 1024 && jsd != null) {
+                        urls.add(jsd);
+                    }
+                    urls.add(dl.url);
+                    urls.addAll(dl.mirrors);
+                    for (String u : urls) {
+                        try {
+                            download(u, tmp);
+                            ok = true;
+                            break;
+                        } catch (Exception e) {
+                            last = e;
+                        }
+                    }
+                    if (!ok) throw last == null ? new Exception("下不动") : last;
+                }
+                installFromFile(ctx.getApplicationContext(), runtime, tmp, entry.version, listener);
+                tmp.delete();
+            } catch (Exception e) {
+                String m = e.getMessage();
+                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            }
+        }).start();
+    }
+
+    /** 本地包自动搜索（上游 findLocalArchive 口径，星辰目录版）：常见目录找同名包 */
+    public static File findLocalArchive(Context c, String fileName) {
+        if (fileName == null || fileName.isEmpty()) return null;
+        List<File> dirs = new ArrayList<>();
+        dirs.add(new File(LabPaths.root(c), "EnvFiles"));
+        dirs.add(new File(LabPaths.root(c), "EnvFiles/二进制"));
+        dirs.add(new File(LabPaths.root(c), "Download"));
+        dirs.add(new File("/storage/emulated/0/Download"));
+        dirs.add(new File("/storage/emulated/0/EnvFiles"));
+        dirs.add(new File("/storage/emulated/0/EnvFiles/二进制"));
+        dirs.add(LabPaths.root(c));
+        for (File dir : dirs) {
+            File f = new File(dir, fileName);
+            if (f.isFile()) return f;
+        }
+        return null;
+    }
+
+    /** 已装版本（版本更新检测用） */
+    public static String installedVersion(Context c, String runtime) {
+        LabRegistry.Runtime r = LabRegistry.get(c).runtime(runtime);
+        return r == null || r.version == null ? "" : r.version;
+    }
+
+    /** 目录里有没有新版 */
+    public static boolean hasUpdate(Context c, String runtime) {
+        if (!isInstalled(c, runtime)) return false;
+        LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(c, runtime);
+        if (entry == null || entry.version.isEmpty()) return false;
+        return LabEnvCatalog.compareVersions(entry.version, installedVersion(c, runtime)) > 0;
+    }
+
+    /** 目录里的版本号（更新确认框用） */
+    public static String catalogVersion(Context c, String runtime) {
+        LabEnvCatalog.EnvEntry e = LabEnvCatalog.entry(c, runtime);
+        return e == null ? "" : e.version;
+    }
+
+    /** 卸载环境：先停掉依赖它的运行中服务，再删环境目录、注销登记 */
+    public static void uninstall(Context ctx, String runtime) {
+        for (LabRegistry.Svc s : LabRegistry.get(ctx).services(runtime)) {
+            try {
+                LabRunner.stop(ctx, s.id);
+            } catch (Exception ignored) {
+            }
+        }
+        LabPackageInstaller.deleteDir(LabPaths.runtimeDir(ctx, runtime));
+        LabRegistry.get(ctx).removeRuntime(ctx, runtime);
+    }
+
+    private static void download(String url, File dest) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(120000);
+            c.setInstanceFollowRedirects(true);
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("下不动这个地址（" + code + "）");
+            try (BufferedInputStream in = new BufferedInputStream(c.getInputStream());
+                 BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+        } finally {
+            if (c != null) c.disconnect();
+        }
     }
 
     private static void unzip(File zip, File dest, Listener listener) throws Exception {

@@ -38,6 +38,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
 
     private static final String EXTRA_URI = "uri";
     private static final String EXTRA_MODE = "mode";
+    private static final String EXTRA_URL = "url";
     /** 粘贴模式：多行文本框 */
     private static final String MODE_PASTE = "paste";
     /** 链接模式：单行 URL 输入框 */
@@ -60,6 +61,14 @@ public class LabPasteImportActivity extends AppCompatActivity {
         startMode(activity, MODE_LINK);
     }
 
+    /** 添加服务页的链接卡跳过来：链接模式＋输入框预填 */
+    public static void startWithUrl(Activity activity, String url) {
+        Intent i = new Intent(activity, LabPasteImportActivity.class);
+        i.putExtra(EXTRA_MODE, MODE_LINK);
+        i.putExtra(EXTRA_URL, url);
+        activity.startActivity(i);
+    }
+
     private static void startMode(Activity activity, String mode) {
         Intent i = new Intent(activity, LabPasteImportActivity.class);
         i.putExtra(EXTRA_MODE, mode);
@@ -77,7 +86,10 @@ public class LabPasteImportActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         String m = getIntent().getStringExtra(EXTRA_MODE);
         if (MODE_LINK.equals(m)) mode = MODE_LINK;
+        LabSkin.edgeToEdge(this);
         buildUi();
+        String prefill = getIntent().getStringExtra(EXTRA_URL);
+        if (!TextUtils.isEmpty(prefill) && input != null) input.setText(prefill);
         String uriStr = getIntent().getStringExtra(EXTRA_URI);
         if (!TextUtils.isEmpty(uriStr)) {
             loadFromUri(Uri.parse(uriStr));
@@ -91,25 +103,18 @@ public class LabPasteImportActivity extends AppCompatActivity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(LabSkin.pageBackground(this));
 
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setPadding(dp(10), dp(14), dp(18), dp(6));
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextSize(30);
-        back.setTextColor(0xFFC9C9D2);
-        back.setPadding(dp(8), dp(8), dp(14), dp(8));
-        back.setOnClickListener(v -> onBackPressed());
+        nav.setBackground(LabScrim.bar(this));
+        nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
         TextView title = new TextView(this);
         boolean linkMode = MODE_LINK.equals(mode);
         title.setText(linkMode ? "链接导入" : "粘贴导入");
         title.setTextSize(20);
         title.setTextColor(LabSkin.TEXT_MAIN);
         title.getPaint().setFakeBoldText(true);
-        nav.addView(back);
         nav.addView(title);
         root.addView(nav);
 
@@ -118,6 +123,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 : "把服务清单、命令条目或脚本粘进来，自动识别");
         hint.setTextSize(14);
         hint.setTextColor(LabSkin.TEXT_SUB);
+        hint.setBackground(LabScrim.bar(this));
         hint.setPadding(dp(18), dp(4), dp(18), dp(8));
         root.addView(hint);
 
@@ -125,7 +131,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
         scroll.setFillViewport(true);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(0, 0, 0, dp(30));
+        body.setPadding(0, 0, 0, dp(30) + LabSkin.navBarHeight(this));
 
         input = new EditText(this);
         if (MODE_LINK.equals(mode)) {
@@ -155,7 +161,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
 
         status = new TextView(this);
         status.setTextSize(14);
-        status.setTextColor(LabSkin.YELLOW);
+        status.setTextColor(LabSkin.AMBER);
         status.setPadding(dp(18), dp(10), dp(18), 0);
         status.setVisibility(View.GONE);
         body.addView(status);
@@ -307,7 +313,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
             TextView warn = new TextView(this);
             warn.setText("要确认：\n" + it.needsReview);
             warn.setTextSize(13);
-            warn.setTextColor(LabSkin.YELLOW);
+            warn.setTextColor(LabSkin.AMBER);
             warn.setPadding(0, dp(8), 0, 0);
             card.addView(warn);
         }

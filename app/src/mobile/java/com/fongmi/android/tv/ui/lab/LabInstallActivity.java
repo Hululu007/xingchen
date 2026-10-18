@@ -53,6 +53,7 @@ public class LabInstallActivity extends AppCompatActivity {
         if (uri == null && getIntent().hasExtra(EXTRA_URI)) {
             uri = Uri.parse(getIntent().getStringExtra(EXTRA_URI));
         }
+        LabSkin.edgeToEdge(this);
         buildUi();
         if (uri != null) peek();
         else {
@@ -68,36 +69,30 @@ public class LabInstallActivity extends AppCompatActivity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(LabSkin.pageBackground(this));
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setPadding(dp(10), dp(14), dp(18), dp(6));
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextSize(30);
-        back.setTextColor(0xFFC9C9D2);
-        back.setPadding(dp(8), dp(8), dp(14), dp(8));
-        back.setOnClickListener(v -> onBackPressed());
+        nav.setBackground(LabScrim.bar(this));
+        nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
         TextView title = new TextView(this);
         title.setText("安装服务包");
         title.setTextSize(20);
         title.setTextColor(LabSkin.TEXT_MAIN);
         title.getPaint().setFakeBoldText(true);
-        nav.addView(back);
         nav.addView(title);
         root.addView(nav);
 
         progressText = new TextView(this);
         progressText.setTextSize(14);
-        progressText.setTextColor(LabSkin.YELLOW);
+        progressText.setTextColor(LabSkin.AMBER);
+        progressText.setBackground(LabScrim.bar(this));
         progressText.setPadding(dp(18), dp(8), dp(18), dp(8));
         progressText.setVisibility(View.GONE);
         root.addView(progressText);
 
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(0, dp(8), 0, dp(24));
+        body.setPadding(0, dp(8), 0, dp(24) + LabSkin.navBarHeight(this));
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);

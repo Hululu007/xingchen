@@ -43,12 +43,16 @@ public final class ReadingChangeSource {
         return s != null && !TextUtils.isEmpty(s.legadoKey);
     }
 
+    public interface CandidatesDone {
+        void onDone(List<Candidate> candidates);
+    }
+
     /**
      * 搜候选源（后台线程）：在已启用的同类型书源里搜书名，过滤出同书。
      * 回调在主线程。
      */
     public static void search(Activity act, ReadingSession session, Handler ui,
-                              java.util.function.Consumer<List<Candidate>> done) {
+                              CandidatesDone done) {
         Task.execute(() -> {
             List<Candidate> out = new ArrayList<>();
             try {
@@ -79,7 +83,7 @@ public final class ReadingChangeSource {
             } catch (Throwable ignored) {
             }
             final List<Candidate> fOut = out;
-            ui.post(() -> done.accept(fOut));
+            ui.post(() -> done.onDone(fOut));
         });
     }
 

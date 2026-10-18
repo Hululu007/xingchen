@@ -192,6 +192,26 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 : "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画");
         tvEmpty.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
         adapter.notifyDataSetChanged();
+        checkUpdates();
+    }
+
+    /**
+     * 连载更新检查：低频（每书 6 小时节流）、失败静默，有新章给角标。
+     * 只查书源的书（本地书/听书不查）。
+     */
+    private void checkUpdates() {
+        java.util.List<ReadingStore.Record> cands = new java.util.ArrayList<>();
+        for (ReadingStore.Record r : records) {
+            if (!android.text.TextUtils.isEmpty(r.legadoKey)
+                    && !android.text.TextUtils.isEmpty(r.bookUrl)) {
+                cands.add(r);
+            }
+        }
+        if (cands.isEmpty()) return;
+        android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+        com.fongmi.android.tv.read.ReadingUpdateChecker.check(cands, ui, changed -> {
+            if (changed) refresh();
+        });
     }
 
     private TextView makeTab(String text, String tab) {
@@ -421,11 +441,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
                     .format(new Date(r.updatedAt));
             h.tvSub.setText(r.sourceName + " · " + r.chapterName + " · " + time);
             if ("NOVEL".equals(r.kind)) {
-                h.tvProgress.setText("已读 " + Math.round(r.position / 100f) + "%");
+                h.tvProgress.setText("已读 " + Math.round(r.position / 100f) + "%"
+                        + (r.hasUpdate ? " · 有更新" : ""));
             } else if ("AUDIO".equals(r.kind)) {
                 h.tvProgress.setText(r.position > 0 ? "已听 " + fmtMs(r.position) : "开始听");
             } else {
-                h.tvProgress.setText(r.position > 0 ? "看到第 " + (r.position + 1) + " 张" : "开始看");
+                h.tvProgress.setText((r.position > 0 ? "看到第 " + (r.position + 1) + " 张" : "开始看")
+                        + (r.hasUpdate ? " · 有更新" : ""));
             }
             if (!TextUtils.isEmpty(r.coverUrl)) {
                 ImgUtil.load(r.bookTitle, r.coverUrl, h.cover, true);
@@ -433,11 +455,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 h.cover.setImageDrawable(null);
             }
             h.itemView.setOnClickListener(v -> {
+                com.fongmi.android.tv.read.ReadingUpdateChecker.clearUpdate(r);
                 if ("AUDIO".equals(r.kind)) openAudioRecord(r);
                 else ReadingRouter.openRecord(ReadingShelfActivity.this, r);
             });
             h.itemView.setOnLongClickListener(v -> {
                 ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
+                com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
                 if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
                     // 本地书：连书文件一起删，不在私有目录留垃圾
                     com.fongmi.android.tv.localbook.LocalBookStore.remove(r.localId);

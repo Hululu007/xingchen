@@ -40,6 +40,8 @@ import java.util.regex.Pattern;
  *   nav_bookshelf   书架 / 打开书架 / 我的书架
  *   nav_continue_reading 继续读 / 继续看书
  *   nav_booksource  书源 / 打开书源 / 书源管理 / 导入书源
+ *   reading_bookmark 书签 / 我的书签 / 打开书签（阅读器内打开书签列表）
+ *   reading_changesource 换源 / 换书源 / 切换书源（阅读器内换源）
  *   nav_download    下载管理 / 我的下载
  *   nav_plugin      插件管理
  *   nav_cloud       网盘 / 云盘
@@ -95,6 +97,8 @@ public class AiVoiceCommand {
     public static final String ACTION_NAV_BOOKSHELF = "nav_bookshelf";
     public static final String ACTION_NAV_CONTINUE_READING = "nav_continue_reading";
     public static final String ACTION_NAV_BOOKSOURCE = "nav_booksource";
+    public static final String ACTION_READING_BOOKMARK = "reading_bookmark";
+    public static final String ACTION_READING_CHANGESOURCE = "reading_changesource";
     public static final String ACTION_NAV_DOWNLOAD = "nav_download";
     public static final String ACTION_NAV_PLUGIN = "nav_plugin";
     public static final String ACTION_NAV_CLOUD = "nav_cloud";
@@ -402,6 +406,12 @@ public class AiVoiceCommand {
         }
         if (t.contains("我的收藏") || t.contains("打开收藏") || t.equals("收藏")) {
             return new Command(ACTION_NAV_KEEP, "已打开收藏");
+        }
+        if (t.contains("书签") || t.contains("我的书签") || t.contains("打开书签")) {
+            return new Command(ACTION_READING_BOOKMARK, "已打开书签");
+        }
+        if (t.contains("换源") || t.contains("换书源") || t.contains("切换书源")) {
+            return new Command(ACTION_READING_CHANGESOURCE, "正在换源");
         }
         if (t.contains("继续读") || t.contains("继续看书")) {
             return new Command(ACTION_NAV_CONTINUE_READING, "已继续阅读");

@@ -594,6 +594,20 @@ public class AiActionExecutor {
             if (roomCls.isInstance(activity)) {
                 return dispatchToRoom(activity, cmd);
             }
+            // 阅读器内指令：书签 / 换源（阅读器自己声明支持哪些口令）
+            Class<?> novelCls = Class.forName("com.fongmi.android.tv.ui.activity.NovelReaderActivity");
+            Class<?> comicCls = Class.forName("com.fongmi.android.tv.ui.activity.ComicReaderActivity");
+            if (novelCls.isInstance(activity) || comicCls.isInstance(activity)) {
+                String a = cmd.action;
+                if (AiVoiceCommand.ACTION_READING_BOOKMARK.equals(a)) {
+                    activity.getClass().getMethod("aiBookmarks").invoke(activity);
+                    return true;
+                }
+                if (AiVoiceCommand.ACTION_READING_CHANGESOURCE.equals(a)) {
+                    activity.getClass().getMethod("aiChangeSource").invoke(activity);
+                    return true;
+                }
+            }
         } catch (Exception ignored) {
         }
         return false;

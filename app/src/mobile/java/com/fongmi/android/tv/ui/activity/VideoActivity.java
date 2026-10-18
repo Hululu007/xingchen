@@ -2352,6 +2352,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setEpisodeItems(List<Episode> items) {
+        mEpisodeAdapter.setCompactEnabled(!HkDetailBridge.isHkKey(getKey()));
         updateEpisodeSpan(items);
         mEpisodeAdapter.addAll(items);
         selectEpisodeGroupByPosition(mEpisodeAdapter.getPosition());
@@ -2416,7 +2417,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private int getEpisodeSpan(List<Episode> items) {
-        EpisodeTitleCompact.apply(items);
+        if (!HkDetailBridge.isHkKey(getKey())) EpisodeTitleCompact.apply(items);
         if (items.size() == 1) return 1;
         int maxLen = 0;
         for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());

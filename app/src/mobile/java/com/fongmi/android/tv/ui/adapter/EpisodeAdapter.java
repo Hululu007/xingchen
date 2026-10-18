@@ -23,6 +23,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     private final OnClickListener listener;
     private final List<Episode> mItems;
     private final int viewType;
+    private boolean compactEnabled = true;
 
     public EpisodeAdapter(OnClickListener listener, int viewType) {
         this(listener, viewType, new ArrayList<>());
@@ -32,6 +33,10 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
         this.listener = listener;
         this.viewType = viewType;
         this.mItems = items;
+    }
+
+    public void setCompactEnabled(boolean enabled) {
+        this.compactEnabled = enabled;
     }
 
     public interface OnClickListener {
@@ -44,7 +49,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     }
 
     public void addAll(List<Episode> items) {
-        EpisodeTitleCompact.apply(items);
+        if (compactEnabled) EpisodeTitleCompact.apply(items);
         mItems.clear();
         mItems.addAll(items);
         notifyDataSetChanged();

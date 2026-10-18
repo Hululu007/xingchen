@@ -2455,9 +2455,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         // 没有「遇不同 type 就停」的窗口。此前星辰自加了同 type 窗口，详情页里
         // 播放按钮与数字选集格 type 不同时，整排选集被窗口丢掉（1.3.11 录屏实证）。
         int start = 0;
+        String clickedRawUrl = clicked.getUrl();
         for (int i = start; i < position; i++) {
             HkItem it = list.get(i);
             if (!chapterCandidate(it, playList, playListCls)) continue;
+            if (isDupTitleEntry(it, clickedRawUrl)) continue;
             chapters.add(buildChapter(it, i, titlePrefix, codeAndHeader, false));
         }
         HkChapter cur = new HkChapter();
@@ -2476,9 +2478,35 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         for (int i = position + 1; i < list.size(); i++) {
             HkItem it = list.get(i);
             if (!chapterCandidate(it, playList, playListCls)) continue;
+            if (isDupTitleEntry(it, clickedRawUrl)) continue;
             chapters.add(buildChapter(it, i, titlePrefix, codeAndHeader, false));
         }
         return chapters;
+    }
+
+    /**
+     * P1（用户拍板、偏离原版的自主优化）：海阔详情转点播选集时，去掉与被点条目同址的
+     * 标题/文本类条目。两个条件同时满足才丢：①剥标记后 url 与被点条目的原始 url
+     * 相同（丢的是重复地址，不丢内容）；②col_type 是文本类（text_1..5/text_center_1/
+     * text_icon/rich_text/long_text，即详情页里渲染为标题区/文本行的那类，见官方
+     * ArticleColTypeEnum 清单）。
+     * 被点条目本身走 cur 分支恒保留、use 标记不动，选中索引不受影响。
+     * 判别拿不准时宁可不丢：标题条目若用了另一种 url 形态（剥标记后与被点条目不等），
+     * 照旧收进选集，不回退。
+     */
+    private boolean isDupTitleEntry(HkItem item, String clickedRawUrl) {
+        if (item == null || TextUtils.isEmpty(clickedRawUrl)) return false;
+        String a = HkUrlDetector.clearTag(item.getUrl());
+        String b = HkUrlDetector.clearTag(clickedRawUrl);
+        if (TextUtils.isEmpty(a) || !a.equals(b)) return false;
+        String t = item.getColType();
+        boolean textClass = t.startsWith("text") || "rich_text".equals(t) || "long_text".equals(t);
+        if (!textClass) return false;
+        try {
+            SpiderDebug.log("hk", "drop-title-entry title=%s", item.getTitle());
+        } catch (Throwable ignored) {
+        }
+        return true;
     }
 
     /**

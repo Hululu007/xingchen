@@ -4427,6 +4427,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 if (res.isSuccessful() && res.body() != null) {
                     java.nio.file.Files.write(f.toPath(), res.body().bytes());
                     Logger.t(TAG).d("downloadToFile ok: %s", f.getAbsolutePath());
+                    // 落盘视频自动清理（潇洒哥 2026-10-18 定：6 小时/8 个文件/400MB 删最旧）：
+                    // 后台线程跑，不阻塞规则当前执行；落盘根与 downloadFile 一致。
+                    HkMediaCacheCleaner.scheduleClean(new File(getFilePath("hiker://files/")));
                 } else {
                     throw new RuntimeException("下载文件失败：HTTP " + res.code());
                 }

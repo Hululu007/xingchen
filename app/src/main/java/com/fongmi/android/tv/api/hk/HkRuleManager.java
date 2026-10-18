@@ -81,7 +81,17 @@ public class HkRuleManager {
     public static HkRuleManager get() {
         if (instance == null) {
             synchronized (HkRuleManager.class) {
-                if (instance == null) instance = new HkRuleManager();
+                if (instance == null) {
+                    instance = new HkRuleManager();
+                    // 海阔引擎起家：落盘视频清一遍（潇洒哥 2026-10-18 定：6 小时/8 个文件/400MB 删最旧）。
+                    // get() 是引擎进程级唯一入口、每个进程只建一次；清理走后台线程，不阻塞调用方。
+                    // 不选 HkJsRuntime.init()：实例按规则创建，init 跑在规则单线程 executor 上，
+                    // 放那会重复扫还占规则的执行线程。
+                    try {
+                        HkMediaCacheCleaner.scheduleClean(new File(HkJsRuntime.getFilePath("hiker://files/")));
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
         }
         return instance;

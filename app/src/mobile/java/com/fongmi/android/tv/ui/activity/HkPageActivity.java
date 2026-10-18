@@ -6333,14 +6333,9 @@ public class HkPageActivity extends BaseActivity {
          * 标题 16sp 最多 2 行省略，描述最多 2 行底部对齐。点击走通用条目点击。
          */
         private void bindDetailHeader(Holder h, HkItem item) {
-            // 液态玻璃：详情头卡底包玻璃（圆角 20dp，视觉边距沿用原 inset 12/4dp，不动内部约束）；简介字色不动
-            if (!(h.itemView.getBackground() instanceof android.graphics.drawable.InsetDrawable)) {
-                android.graphics.drawable.InsetDrawable inset =
-                        new android.graphics.drawable.InsetDrawable(
-                                new HkGlassDrawable(h.itemView.getContext(), 20),
-                                dp(12), dp(4), dp(12), dp(4));
-                h.itemView.setBackground(inset);
-            }
+            // 白带修复（从简）：详情头背景透明，透出页面顶部渐变底色（#F4F6F8），不再盖白；
+            // 原玻璃底在真机渲染为实白，与页顶接不上，按潇洒哥定案只换色、不动布局
+            h.itemView.setBackground(null);
             if (h.title == null || h.cover == null) return;
             h.title.setText(titleSpan(item.getTitle()));
             String d = stripHtml(item.getDesc());

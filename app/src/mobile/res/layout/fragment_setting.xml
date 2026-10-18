@@ -314,7 +314,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="源健康检测"
+                    android:text="实验室"
                     android:textColor="#0C0E12"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -323,7 +323,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
-                    android:text="上次检测：2 个可用·1 个不可用"
+                    android:text="装服务、跑服务，一点就用"
                     android:textColor="#1B2431"
                     android:textSize="13sp" />
             </LinearLayout>

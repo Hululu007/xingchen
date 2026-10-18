@@ -308,6 +308,10 @@ public class AiActionExecutor {
                     cls = pkg + "PluginActivity";
                     intent = new Intent(context, Class.forName(cls));
                     break;
+                case AiVoiceCommand.ACTION_NAV_LAB:
+                    // 实验室在独立包 ui.lab，不走上面的 activity 前缀
+                    intent = new Intent(context, Class.forName("com.fongmi.android.tv.ui.lab.LabHomeActivity"));
+                    break;
                 case AiVoiceCommand.ACTION_NAV_CLOUD:
                     // 网盘入口：网盘登录页（各网盘从此处进入）
                     cls = pkg + "PanLoginActivity";
@@ -522,6 +526,8 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已打开下载管理");
                 case AiVoiceCommand.ACTION_NAV_PLUGIN:
                     return new AiVoiceCommand.Command(action, "已打开插件管理");
+                case AiVoiceCommand.ACTION_NAV_LAB:
+                    return new AiVoiceCommand.Command(action, "已打开实验室");
                 case AiVoiceCommand.ACTION_NAV_EMBY:
                     return new AiVoiceCommand.Command(action, "已打开 Emby 媒体库");
                 case AiVoiceCommand.ACTION_EMBY_SEARCH:

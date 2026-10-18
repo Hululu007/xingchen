@@ -1,0 +1,174 @@
+package com.fongmi.android.tv.ui.lab;
+
+import android.content.Context;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 实验室注册表（两层）：files/lab/registry.json。
+ * 第一层＝环境（python / nodejs / php / tool，无环境需求的服务归「工具」一类）；
+ * 第二层＝服务，带 runtime 归属字段，只出现在所属环境页里。
+ * lab.json 里的 icon 字段保留（格式 v1 定死），UI 本轮不画头像位。
+ */
+public final class LabRegistry {
+
+    /** 四个环境：python / nodejs / php / tool（无环境需求） */
+    public static final List<String> ENVS = Arrays.asList("python", "nodejs", "php", "tool");
+
+    /** 服务记录 */
+    public static class Svc {
+        public String id;
+        public String name;
+        public String desc;
+        public String icon;
+        public String version;
+        /** python | nodejs | php | none（none 归 tool 环境） */
+        public String runtime;
+        public boolean autoStartDefault;
+        /** null=随包声明，true/false=用户手动覆盖 */
+        public Boolean autoStart;
+        public long installTime;
+        /** 分配到的端口（port=auto 时由壳子分配并记住） */
+        public int port;
+    }
+
+    public static class Runtime {
+        public String name;
+        public String version;
+        public long installTime;
+    }
+
+    private final Map<String, Svc> svcs = new LinkedHashMap<>();
+    private final Map<String, Runtime> runtimes = new LinkedHashMap<>();
+    /** 实验室总开关（自动启动） */
+    public boolean masterAutoStart = true;
+
+    private static LabRegistry cache;
+
+    private LabRegistry() {
+    }
+
+    public static synchronized LabRegistry get(Context c) {
+        if (cache == null) cache = load(c);
+        return cache;
+    }
+
+    /** 服务归属的环境 id：none → tool */
+    public static String envOf(Svc s) {
+        String r = s == null || s.runtime == null ? "none" : s.runtime;
+        if ("python".equals(r)) return "python";
+        if ("nodejs".equals(r)) return "nodejs";
+        if ("php".equals(r)) return "php";
+        return "tool";
+    }
+
+    public static String envLabel(String env) {
+        if ("python".equals(env)) return "Python 环境";
+        if ("nodejs".equals(env)) return "Node 环境";
+        if ("php".equals(env)) return "PHP 环境";
+        return "工具";
+    }
+
+    public static String envDesc(String env) {
+        if ("python".equals(env)) return "跑脚本的底子，很多服务靠它";
+        if ("nodejs".equals(env)) return "JS 服务的底子";
+        if ("php".equals(env)) return "PHP 程序的底子";
+        return "不用装环境，装上就能跑";
+    }
+
+    /** 某环境是否就绪：tool 恒为 true，其余看环境包装没装 */
+    public static boolean envReady(Context c, String env) {
+        if ("tool".equals(env)) return true;
+        return LabRuntimeManager.isInstalled(c, env);
+    }
+
+    public synchronized List<Svc> services(String env) {
+        List<Svc> out = new ArrayList<>();
+        for (Svc s : svcs.values()) {
+            if (env.equals(envOf(s))) out.add(s);
+        }
+        return out;
+    }
+
+    public synchronized List<Svc> allServices() {
+        return new ArrayList<>(svcs.values());
+    }
+
+    public synchronized Svc svc(String id) {
+        return svcs.get(id);
+    }
+
+    public synchronized void upsertSvc(Context c, Svc s) {
+        svcs.put(s.id, s);
+        save(c);
+    }
+
+    public synchronized void removeSvc(Context c, String id) {
+        svcs.remove(id);
+        save(c);
+    }
+
+    public synchronized boolean hasRuntime(String name) {
+        return runtimes.containsKey(name);
+    }
+
+    public synchronized void upsertRuntime(Context c, Runtime r) {
+        runtimes.put(r.name, r);
+        save(c);
+    }
+
+    public synchronized void setMasterAutoStart(Context c, boolean on) {
+        masterAutoStart = on;
+        save(c);
+    }
+
+    public static boolean autoStartOf(Svc s) {
+        if (s.autoStart != null) return s.autoStart;
+        return s.autoStartDefault;
+    }
+
+    private static LabRegistry load(Context c) {
+        LabRegistry r = new LabRegistry();
+        File f = LabPaths.registry(c);
+        if (!f.exists()) return r;
+        try (FileInputStream in = new FileInputStream(f);
+             InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            Type t = new TypeToken<LabRegistry>() {
+            }.getType();
+            LabRegistry saved = new Gson().fromJson(reader, t);
+            if (saved != null) {
+                r.svcs.putAll(saved.svcs);
+                r.runtimes.putAll(saved.runtimes);
+                r.masterAutoStart = saved.masterAutoStart;
+            }
+        } catch (Exception ignored) {
+        }
+        return r;
+    }
+
+    private synchronized void save(Context c) {
+        try {
+            File f = LabPaths.registry(c);
+            if (f.getParentFile() != null) f.getParentFile().mkdirs();
+            try (FileOutputStream out = new FileOutputStream(f);
+                 OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+                new Gson().toJson(this, writer);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+}

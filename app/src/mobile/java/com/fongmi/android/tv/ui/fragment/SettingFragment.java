@@ -82,6 +82,9 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     @Override
     protected void initView() {
         EventBus.getDefault().register(this);
+        if (getActivity() != null && getActivity().getWindow() != null) {
+            getActivity().getWindow().setStatusBarColor(0xFFF5E3B8);
+        }
         mBinding.cardConfig.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.ConfigSourceActivity.start(getActivity()));
         mBinding.cardWatch.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.WatchRoomActivity.showJoinDialog(getActivity()));
         mBinding.cardPlayer.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.PlayerSettingsActivity.start(getActivity()));
@@ -89,7 +92,8 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.cardPlugin.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.PluginActivity.start(getActivity()));
         mBinding.cardDownload.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.DownloadActivity.start(getActivity()));
         mBinding.cardFeatures.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.FeaturesActivity.start(getActivity()));
-        mBinding.cardHealth.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.HealthActivity.start(getActivity()));
+        // 实验室入口：原「源健康检测」卡的位置与样式保留，文案换实验室（2026-10-18 定）
+        mBinding.cardHealth.setOnClickListener(v -> com.fongmi.android.tv.ui.lab.LabHomeActivity.start(getActivity()));
         mBinding.cardXingchen.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.XingChenSettingsActivity.start(getActivity()));
         updateSubtitles();
     }
@@ -396,19 +400,20 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
                 mBinding.textFeaturesSub.setText(s == null ? "Emby：未登录" : s);
             }
         } catch (Exception e) { e.printStackTrace(); }
-        // Health subtitle - isolated
+        // Lab subtitle：里面几个服务、几个运行中（原健康检测文案随入口一起换掉）
         try {
-            android.content.SharedPreferences sp = requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE);
-            long time = sp.getLong("health_time", 0);
-            if (time > 0 && mBinding.textHealthSub != null) {
-                int ok = sp.getInt("health_ok", 0);
-                int fail = sp.getInt("health_fail", 0);
-                mBinding.textHealthSub.setText("上次检测：" + ok + " 个可用·" + fail + " 个不可用");
-            } else if (mBinding.textHealthSub != null) {
-                mBinding.textHealthSub.setText("暂未检测");
+            if (mBinding.textHealthSub != null) {
+                java.util.List<com.fongmi.android.tv.ui.lab.LabRegistry.Svc> svcs =
+                        com.fongmi.android.tv.ui.lab.LabRegistry.get(requireActivity()).allServices();
+                int running = 0;
+                for (com.fongmi.android.tv.ui.lab.LabRegistry.Svc s : svcs) {
+                    if (com.fongmi.android.tv.ui.lab.LabRunner.isRunning(requireActivity(), s.id)) running++;
+                }
+                mBinding.textHealthSub.setText(svcs.isEmpty() ? "装服务、跑服务，一点就用"
+                        : "里面 " + svcs.size() + " 个服务、" + running + " 个运行中");
             }
             if (mBinding.textHealthTime != null) {
-                mBinding.textHealthTime.setText(relativeHealthTime(time));
+                mBinding.textHealthTime.setText("");
             }
         } catch (Exception e) { e.printStackTrace(); }
     }

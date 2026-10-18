@@ -48,6 +48,7 @@ import java.util.regex.Pattern;
  *   nav_settings    设置 / 打开设置
  *   nav_features    个性功能
  *   nav_emby        打开Emby（已登录→进 Emby 首页，未登录→提示去登录）
+ *   nav_lab         打开实验室
  *   emby_search     搜索Emby+片名（text=片名，进搜索页限定 Emby 源）
  *   emby_play       Emby播放+片名（text=片名，多服搜到就播）
  *   emby_resume     Emby继续看（进 Emby 首页继续观看）
@@ -113,6 +114,7 @@ public class AiVoiceCommand {
     public static final String ACTION_WATCH_VOICE_ON = "watch_voice_on";
     public static final String ACTION_NAV_MUSIC = "nav_music";
     public static final String ACTION_NAV_EMBY = "nav_emby";
+    public static final String ACTION_NAV_LAB = "nav_lab";
     public static final String ACTION_EMBY_SEARCH = "emby_search";
     public static final String ACTION_EMBY_PLAY = "emby_play";
     public static final String ACTION_EMBY_RESUME = "emby_resume";
@@ -397,6 +399,10 @@ public class AiVoiceCommand {
         }
         if (t.contains("插件管理") || t.contains("打开插件")) {
             return new Command(ACTION_NAV_PLUGIN, "已打开插件管理");
+        }
+        // 实验室（新功能必注册口令，老规矩）
+        if (t.contains("打开实验室") || t.equals("实验室")) {
+            return new Command(ACTION_NAV_LAB, "已打开实验室");
         }
         if (t.contains("网盘") || t.contains("云盘")) {
             return new Command(ACTION_NAV_CLOUD, "已打开网盘");

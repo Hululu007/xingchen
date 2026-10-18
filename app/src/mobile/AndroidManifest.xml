@@ -288,6 +288,49 @@
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
+
+        <!-- 实验室：独立包 ui.lab -->
+        <activity
+            android:name=".ui.lab.LabHomeActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabEnvActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabServiceActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabLogActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.lab.LabInstallActivity"
+            android:exported="true"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser">
+            <!-- .lab 包文件打开方式：点开进安装确认（照 JSON 打开方式的落点） -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.lab" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".ui.lab.LabKeepAlive"
+            android:exported="false" />
         <activity
             android:name=".ui.activity.AudioBookActivity"
             android:theme="@style/Theme.XingChen.HkPage"

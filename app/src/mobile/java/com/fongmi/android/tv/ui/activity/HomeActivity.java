@@ -112,6 +112,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
         initConfig();
+        // 实验室自启恢复：App 启动后延迟拉起（后台线程，不影响首页行为）
+        try {
+            com.fongmi.android.tv.ui.lab.LabBoot.schedule(this);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

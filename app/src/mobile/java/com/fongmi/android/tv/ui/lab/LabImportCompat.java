@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
  */
 public final class LabImportCompat {
 
-    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON }
+    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE }
 
     /** 归一后的一个服务（安装前形态） */
     public static class ImportItem {
@@ -80,6 +80,15 @@ public final class LabImportCompat {
                 for (int i = 0; i < a.length(); i++) r.items.add(fromWebhtv(a.getJSONObject(i), i));
                 return r;
             }
+            if (isSiteSource(first)) {
+                r.kind = Kind.SITE_SOURCE;
+                r.note = "认出来了：站源片段（" + a.length() + " 个），归到 Python 环境";
+                for (int i = 0; i < a.length(); i++) {
+                    JSONObject o = a.optJSONObject(i);
+                    if (o != null && isSiteSource(o)) r.items.add(fromSiteSource(o));
+                }
+                return r;
+            }
             throw new Exception("这个 JSON 数组认不出来：里面不是服务命令条目");
         }
         JSONObject o = new JSONObject(t);
@@ -102,7 +111,44 @@ public final class LabImportCompat {
             r.items.add(fromLabJson(o));
             return r;
         }
+        if (isSiteSource(o)) {
+            r.kind = Kind.SITE_SOURCE;
+            r.note = "认出来了：站源片段（py），归到 Python 环境";
+            r.items.add(fromSiteSource(o));
+            return r;
+        }
         throw new Exception("这段 JSON 认不出来：不是服务清单、不是命令条目，也不是实验室包说明");
+    }
+
+    // ---------------- 站源片段（key/name/type/api，api 指向 .py） ----------------
+
+    /** 站源片段：有 api（指向 .py）且有 key 或 name；归到 Python 环境下登记 */
+    private static boolean isSiteSource(JSONObject o) {
+        if (o == null || !o.has("api")) return false;
+        String api = o.optString("api", "").trim();
+        int q = api.indexOf('?');
+        if (q >= 0) api = api.substring(0, q);
+        int h = api.indexOf('#');
+        if (h >= 0) api = api.substring(0, h);
+        if (!api.trim().toLowerCase().endsWith(".py")) return false;
+        return o.has("key") || o.has("name");
+    }
+
+    private static ImportItem fromSiteSource(JSONObject o) {
+        ImportItem it = new ImportItem();
+        it.kind = Kind.SITE_SOURCE;
+        String key = o.optString("key", "").trim();
+        String name = o.optString("name", "").trim();
+        it.id = "site_" + sanitize(key.isEmpty() ? name : key);
+        it.name = name.isEmpty() ? it.id : name;
+        it.desc = "";
+        it.runtime = "python";
+        it.command = "";
+        it.background = true;
+        it.autoStart = false;
+        it.portPolicy = "auto";
+        it.needsReview = addLine(it.needsReview, "这是站源脚本（py 插件源），已归到 Python 环境下登记；它不是后台服务，没有启动命令");
+        return it;
     }
 
     // ---------------- 路1：默影视命令条目 ----------------

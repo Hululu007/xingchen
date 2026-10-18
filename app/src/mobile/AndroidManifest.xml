@@ -311,6 +311,11 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
+            android:name=".ui.lab.LabPasteImportActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
             android:name=".ui.lab.LabInstallActivity"
             android:exported="true"
             android:theme="@style/Theme.XingChen.HkPage"

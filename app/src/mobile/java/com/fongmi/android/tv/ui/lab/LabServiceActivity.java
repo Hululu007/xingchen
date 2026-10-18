@@ -158,6 +158,16 @@ public class LabServiceActivity extends AppCompatActivity {
         }
         body.addView(card);
 
+        // 兼容导入时没映射完、要用户人工确认的事项（有才显示）
+        if (!TextUtils.isEmpty(s.needsReview)) {
+            TextView warn = new TextView(this);
+            warn.setText("导入时有没对上的地方，启动前看一眼：\n" + s.needsReview);
+            warn.setTextSize(13);
+            warn.setTextColor(LabSkin.YELLOW);
+            warn.setPadding(dp(18), dp(10), dp(18), 0);
+            body.addView(warn);
+        }
+
         // 主动作大黄钮（按产出声明；缺声明给两钮）
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

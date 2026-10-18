@@ -85,6 +85,67 @@ public final class LabPackageInstaller {
         LabRegistry.get(ctx).removeSvc(ctx, id);
     }
 
+    /** 兼容导入（默影视命令 / Termux 清单 / 裸脚本 / lab.json 粘贴）：归一后的条目直接落盘 */
+    public interface CompatListener {
+        void onProgress(String text);
+
+        void onDone(int count);
+
+        void onFail(String reason);
+    }
+
+    public static void installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, CompatListener listener) {
+        new Thread(() -> {
+            try {
+                int ok = 0;
+                for (LabImportCompat.ImportItem it : items) {
+                    progress2(listener, "正在装：" + it.name + "…");
+                    LabManifest m = LabImportCompat.toManifest(it);
+                    File dest = LabPaths.packageDir(ctx, m.id);
+                    deleteDir(dest);
+                    dest.mkdirs();
+                    writeJson(new File(dest, "lab.json"), m);
+                    if (it.assetBytes != null && it.assetBytes.length > 0
+                            && it.assetName != null && !it.assetName.isEmpty()) {
+                        File f = new File(dest, it.assetName);
+                        if (f.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) {
+                            try (FileOutputStream out = new FileOutputStream(f)) {
+                                out.write(it.assetBytes);
+                            }
+                        }
+                    }
+                    chmod755(dest);
+                    LabRegistry.Svc pkg = new LabRegistry.Svc();
+                    pkg.id = m.id;
+                    pkg.name = m.name;
+                    pkg.desc = m.desc;
+                    pkg.icon = m.icon;
+                    pkg.version = m.version;
+                    pkg.runtime = m.runtime;
+                    pkg.autoStartDefault = m.autoStart;
+                    pkg.installTime = System.currentTimeMillis();
+                    pkg.needsReview = it.needsReview;
+                    LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                    ok++;
+                }
+                if (listener != null) listener.onDone(ok);
+            } catch (Exception e) {
+                if (listener != null) listener.onFail(human(e));
+            }
+        }).start();
+    }
+
+    private static void writeJson(File f, LabManifest m) throws Exception {
+        try (FileOutputStream out = new FileOutputStream(f);
+             java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+            new com.google.gson.Gson().toJson(m, w);
+        }
+    }
+
+    private static void progress2(CompatListener l, String s) {
+        if (l != null) l.onProgress(s);
+    }
+
     /** 预读包说明（安装确认页用），不安装 */
     public static LabManifest peekManifest(File zip) throws Exception {
         return LabManifest.parse(readManifestJson(zip));

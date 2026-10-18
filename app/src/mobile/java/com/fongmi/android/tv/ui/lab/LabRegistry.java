@@ -44,6 +44,8 @@ public final class LabRegistry {
         public long installTime;
         /** 分配到的端口（port=auto 时由壳子分配并记住） */
         public int port;
+        /** 兼容导入时映射不了、要用户人工确认的人话（一条一行），空=无 */
+        public String needsReview;
     }
 
     public static class Runtime {

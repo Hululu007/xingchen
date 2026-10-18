@@ -107,6 +107,15 @@ public class LabInstallActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 File tmp = copyToTemp(uri);
+                if (!isZip(tmp)) {
+                    // 文本类（服务清单/命令条目/脚本）：转粘贴导入页按内容识别
+                    tmp.delete();
+                    runOnUiThread(() -> {
+                        LabPasteImportActivity.startWithUri(this, uri);
+                        finish();
+                    });
+                    return;
+                }
                 final LabManifest m = LabPackageInstaller.peekManifest(tmp);
                 tmp.delete();
                 runOnUiThread(() -> showConfirm(m));
@@ -118,6 +127,17 @@ public class LabInstallActivity extends AppCompatActivity {
                 });
             }
         }).start();
+    }
+
+    /** zip 魔数 PK\x03\x04 */
+    private boolean isZip(File f) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] head = new byte[4];
+            if (in.read(head) < 4) return false;
+            return head[0] == 0x50 && head[1] == 0x4B && head[2] == 0x03 && head[3] == 0x04;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void showConfirm(LabManifest m) {

@@ -12,7 +12,7 @@
     <LinearLayout
         android:layout_width="fill_parent"
         android:layout_height="52.0dip"
-        android:background="#FFFFFF"
+        android:background="@android:color/transparent"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="4.0dip"
@@ -90,7 +90,7 @@
             android:id="@+id/hk_search_suggest"
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
-            android:background="#FFF8E8"
+            android:background="@android:color/transparent"
             android:maxHeight="280.0dip"
             android:visibility="gone" />
     </FrameLayout>
@@ -99,7 +99,7 @@
         android:id="@+id/hk_search_bottom"
         android:layout_width="fill_parent"
         android:layout_height="42.0dip"
-        android:background="#F2FFF8E8"
+        android:background="@android:color/transparent"
         android:paddingStart="6.0dip"
         android:paddingEnd="6.0dip" />
 </LinearLayout>

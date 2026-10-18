@@ -83,6 +83,12 @@ public class MusicActivity extends BaseActivity {
         super.onResume();
         retryCount = 0;
         if (binding != null) refresh();
+        // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（停播＋落盘）
+        try {
+            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)
+                    .musicPageEnter();
+        } catch (Throwable ignored) {
+        }
     }
 
     private void refresh() {

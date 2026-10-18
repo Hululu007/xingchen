@@ -71,7 +71,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
+public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host, com.fongmi.android.tv.ui.minibar.MiniBarHost {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_CURRENT_POSITION = "currentPosition";
@@ -307,6 +307,18 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             return insets;
         });
         ViewCompat.requestApplyInsets(mBinding.navigation);
+    }
+
+    /** MiniBarHost：迷你条贴在底栏上方，多留底栏高度。 */
+    @Override
+    public int miniBarBottomExtraPx() {
+        try {
+            int h = mBinding.navigation.getHeight();
+            if (h > 0) return h;
+            return Math.round(72 * getResources().getDisplayMetrics().density);
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     public void setNavigationVisible(boolean visible) {

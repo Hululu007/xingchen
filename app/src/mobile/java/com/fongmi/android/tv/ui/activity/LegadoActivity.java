@@ -10,7 +10,6 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -44,6 +43,7 @@ public class LegadoActivity extends Activity {
     private SrcAdapter adapter;
     private final List<LegadoStore.Entry> entries = new ArrayList<>();
     private final List<LegadoSource> parsed = new ArrayList<>();
+    private TextView countTitle;
 
     public static void start(android.content.Context context) {
         context.startActivity(new Intent(context, LegadoActivity.class));
@@ -54,38 +54,104 @@ public class LegadoActivity extends Activity {
         super.onCreate(savedInstanceState);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF5F3EF);
+        root.setBackground(ReadingSkin.pageBackground(this));
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(12), dp(28), dp(12), dp(12));
-        topBar.setBackgroundColor(Color.WHITE);
+        topBar.setPadding(dp(12), dp(16), dp(12), dp(12));
+        ReadingSkin.applyTopInset(topBar, this, 16);
 
         ImageButton back = new ImageButton(this);
         back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
         back.setBackgroundColor(Color.TRANSPARENT);
+        back.setColorFilter(ReadingSkin.SUB);
         back.setOnClickListener(v -> finish());
         topBar.addView(back);
 
-        TextView title = new TextView(this);
-        title.setText("书源");
-        title.setTextSize(18);
-        title.setTextColor(0xFF222222);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         tlp.leftMargin = dp(8);
-        title.setLayoutParams(tlp);
-        topBar.addView(title);
+        titles.setLayoutParams(tlp);
+        TextView title = new TextView(this);
+        title.setText("小说源");
+        title.setTextSize(20);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(ReadingSkin.TEXT);
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("源文件存在本地，自己加自己管");
+        sub.setTextSize(12);
+        sub.setTextColor(ReadingSkin.SUB);
+        sub.setPadding(0, dp(2), 0, 0);
+        titles.addView(sub);
+        topBar.addView(titles);
 
         TextView importBtn = new TextView(this);
         importBtn.setText("＋ 导入");
-        importBtn.setTextSize(15);
-        importBtn.setTextColor(0xFFB8860B);
+        importBtn.setTextSize(14);
+        importBtn.setTextColor(ReadingSkin.GOLD);
         importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         importBtn.setOnClickListener(v -> showImportDialog());
         topBar.addView(importBtn);
         root.addView(topBar);
+
+        // 添加大卡：两个并排入口（走原有导入逻辑）
+        LinearLayout addBox = new LinearLayout(this);
+        addBox.setOrientation(LinearLayout.VERTICAL);
+        addBox.setBackground(ReadingSkin.glassCard(this, 16));
+        try {
+            addBox.setElevation(dp(4));
+        } catch (Throwable ignored) {
+        }
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.leftMargin = dp(16);
+        alp.rightMargin = dp(16);
+        alp.topMargin = dp(12);
+        addBox.setLayoutParams(alp);
+        addBox.setPadding(dp(16), dp(16), dp(16), dp(16));
+        TextView addTitle = new TextView(this);
+        addTitle.setText("＋ 添加小说源");
+        addTitle.setTextSize(17);
+        addTitle.getPaint().setFakeBoldText(true);
+        addTitle.setTextColor(ReadingSkin.GOLD);
+        addTitle.setGravity(Gravity.CENTER);
+        addTitle.setOnClickListener(v -> showImportDialog());
+        addBox.addView(addTitle);
+        LinearLayout addRow = new LinearLayout(this);
+        addRow.setOrientation(LinearLayout.HORIZONTAL);
+        addRow.setPadding(0, dp(12), 0, 0);
+        addRow.addView(addButton("📁 导入文件", "选手机里的源文件",
+                v -> pickFile()));
+        addRow.addView(addButton("🔗 贴链接导入", "粘贴源地址导入",
+                v -> showUrlDialog()));
+        addBox.addView(addRow);
+        root.addView(addBox);
+
+        countTitle = new TextView(this);
+        LinearLayout secRow = new LinearLayout(this);
+        secRow.setOrientation(LinearLayout.HORIZONTAL);
+        secRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.leftMargin = dp(20);
+        slp.rightMargin = dp(20);
+        slp.topMargin = dp(20);
+        slp.bottomMargin = dp(10);
+        secRow.setLayoutParams(slp);
+        countTitle.setTextSize(17);
+        countTitle.getPaint().setFakeBoldText(true);
+        countTitle.setTextColor(ReadingSkin.TEXT);
+        LinearLayout.LayoutParams ctlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        countTitle.setLayoutParams(ctlp);
+        secRow.addView(countTitle);
+        root.addView(secRow);
 
         RecyclerView rv = new RecyclerView(this);
         rv.setLayoutManager(new LinearLayoutManager(this));
@@ -94,10 +160,50 @@ public class LegadoActivity extends Activity {
         root.addView(rv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
+        root.addView(ReadingSkin.footnote(this,
+                "漫画源在漫画栏那边单独管，两边不串。"
+                        + "源坏了只坏它自己，别的源照常看。"));
+
         setContentView(root);
         reload();
         // AI 口令「导入书源」直达：打开即弹导入框
         if (getIntent().getBooleanExtra("auto_import", false)) showImportDialog();
+    }
+
+    /** 添加入口小按钮：金描边暗底（走原有逻辑）。 */
+    private LinearLayout addButton(String a, String b,
+                                   View.OnClickListener onClick) {
+        LinearLayout btn = new LinearLayout(this);
+        btn.setOrientation(LinearLayout.VERTICAL);
+        btn.setGravity(Gravity.CENTER_HORIZONTAL);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x1FF2B33D);
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(2), 0x80F2B33D);
+        btn.setBackground(bg);
+        btn.setPadding(dp(8), dp(14), dp(8), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        lp.leftMargin = dp(6);
+        lp.rightMargin = dp(6);
+        btn.setLayoutParams(lp);
+        btn.setOnClickListener(onClick);
+        TextView ta = new TextView(this);
+        ta.setText(a);
+        ta.setTextSize(15);
+        ta.getPaint().setFakeBoldText(true);
+        ta.setTextColor(ReadingSkin.TEXT);
+        ta.setGravity(Gravity.CENTER);
+        btn.addView(ta);
+        TextView tb = new TextView(this);
+        tb.setText(b);
+        tb.setTextSize(11);
+        tb.setTextColor(ReadingSkin.SUB);
+        tb.setGravity(Gravity.CENTER);
+        tb.setPadding(0, dp(6), 0, 0);
+        btn.addView(tb);
+        return btn;
     }
 
     private void reload() {
@@ -112,6 +218,9 @@ public class LegadoActivity extends Activity {
             }
         }
         adapter.notifyDataSetChanged();
+        if (countTitle != null) {
+            countTitle.setText("已装 " + entries.size() + " 个");
+        }
     }
 
     // ================= 导入 =================
@@ -290,15 +399,21 @@ public class LegadoActivity extends Activity {
     private class SrcAdapter extends RecyclerView.Adapter<SrcAdapter.Holder> {
 
         class Holder extends RecyclerView.ViewHolder {
+            final View dot;
             final TextView name;
             final TextView sub;
-            final CheckBox enabled;
+            final TextView pill;
+            final android.widget.Switch enabled;
             final TextView del;
 
-            Holder(View v, TextView name, TextView sub, CheckBox enabled, TextView del) {
+            Holder(View v, View dot, TextView name, TextView sub,
+                   TextView pill, android.widget.Switch enabled,
+                   TextView del) {
                 super(v);
+                this.dot = dot;
                 this.name = name;
                 this.sub = sub;
+                this.pill = pill;
                 this.enabled = enabled;
                 this.del = del;
             }
@@ -306,39 +421,118 @@ public class LegadoActivity extends Activity {
 
         @Override
         public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
-            LinearLayout row = new LinearLayout(parent.getContext());
+            android.content.Context c = parent.getContext();
+            LinearLayout row = new LinearLayout(c);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(14), dp(12), dp(14), dp(12));
-            row.setBackgroundColor(Color.WHITE);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setBackground(ReadingSkin.glassCard(c, 16));
+            try {
+                row.setElevation(dp(4));
+            } catch (Throwable ignored) {
+            }
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.leftMargin = dp(16);
+            rlp.rightMargin = dp(16);
+            rlp.bottomMargin = dp(10);
+            row.setLayoutParams(rlp);
 
-            LinearLayout info = new LinearLayout(parent.getContext());
+            // 状态灯：开绿 / 关灰（稿里的黄灯需延迟数据，代码没有，未加）
+            View dot = new View(c);
+            int ds = dp(10);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ds, ds);
+            dlp.rightMargin = dp(12);
+            dot.setLayoutParams(dlp);
+            row.addView(dot);
+
+            LinearLayout info = new LinearLayout(c);
             info.setOrientation(LinearLayout.VERTICAL);
             info.setLayoutParams(new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-            TextView name = new TextView(parent.getContext());
-            name.setTextSize(16);
-            name.setTextColor(0xFF222222);
+            TextView name = new TextView(c);
+            name.setTextSize(15);
+            name.getPaint().setFakeBoldText(true);
+            name.setTextColor(ReadingSkin.TEXT);
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             info.addView(name);
 
-            TextView sub = new TextView(parent.getContext());
+            TextView sub = new TextView(c);
             sub.setTextSize(12);
-            sub.setTextColor(0xFF999999);
+            sub.setTextColor(ReadingSkin.SUB);
+            sub.setSingleLine(true);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            sub.setPadding(0, dp(4), 0, 0);
             info.addView(sub);
             row.addView(info);
 
-            CheckBox enabled = new CheckBox(parent.getContext());
+            TextView pill = new TextView(c);
+            pill.setTextSize(11);
+            pill.setPadding(dp(8), dp(5), dp(8), dp(5));
+            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            plp.rightMargin = dp(8);
+            pill.setLayoutParams(plp);
+            row.addView(pill);
+
+            android.widget.Switch enabled = new android.widget.Switch(c);
+            ReadingSkin.styleSwitch(enabled);
             row.addView(enabled);
 
-            TextView del = new TextView(parent.getContext());
+            TextView del = new TextView(c);
             del.setText("删除");
-            del.setTextSize(14);
-            del.setTextColor(0xFFCC3333);
-            del.setPadding(dp(12), dp(8), dp(4), dp(8));
+            del.setTextSize(13);
+            del.setTextColor(0xFFCC7777);
+            del.setPadding(dp(10), dp(8), dp(2), dp(8));
             row.addView(del);
 
-            return new Holder(row, name, sub, enabled, del);
+            return new Holder(row, dot, name, sub, pill, enabled, del);
+        }
+
+        /** 状态灯底：绿/灰。 */
+        private android.graphics.drawable.Drawable dotBg(boolean on) {
+            android.graphics.drawable.GradientDrawable d =
+                    new android.graphics.drawable.GradientDrawable();
+            d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            d.setColor(on ? 0xFF35B558 : 0xFF4A4A55);
+            return d;
+        }
+
+        /** 类型胶囊：小说蓝 / 听书金 / 漫画粉 / 文件灰（稿语言）。 */
+        private void stylePill(TextView pill, int type) {
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(dp(8));
+            int tc, bc;
+            switch (type) {
+                case LegadoSource.TYPE_AUDIO:
+                    tc = ReadingSkin.GOLD;
+                    bc = 0x66F2B33D;
+                    bg.setColor(0x1AF2B33D);
+                    break;
+                case LegadoSource.TYPE_IMAGE:
+                    tc = 0xFFFFC4DA;
+                    bc = 0x52FF8CB4;
+                    bg.setColor(0x1AFF8CB4);
+                    break;
+                case LegadoSource.TYPE_FILE:
+                    tc = 0xFFAAAAAA;
+                    bc = 0x55AAAAAA;
+                    bg.setColor(0x14FFFFFF);
+                    break;
+                default:
+                    tc = 0xFF9FD8FF;
+                    bc = 0x5978B4FF;
+                    bg.setColor(0x1F78B4FF);
+                    break;
+            }
+            bg.setStroke(1, bc);
+            pill.setBackground(bg);
+            pill.setTextColor(tc);
         }
 
         @Override
@@ -349,11 +543,15 @@ public class LegadoActivity extends Activity {
             String typeLabel = s.typeLabel();
             if (!LegadoSource.runnable(s.bookSourceType)) typeLabel += "·暂不支持";
             h.sub.setText(typeLabel + (s.bookSourceGroup.isEmpty() ? "" : " · " + s.bookSourceGroup));
+            h.dot.setBackground(dotBg(e.enabled));
+            h.pill.setText(s.typeLabel());
+            stylePill(h.pill, s.bookSourceType);
             h.enabled.setOnCheckedChangeListener(null);
             h.enabled.setChecked(e.enabled);
             h.enabled.setOnCheckedChangeListener((v, checked) -> {
                 LegadoStore.setEnabled(s.bookSourceUrl, checked);
                 e.enabled = checked;
+                h.dot.setBackground(dotBg(checked));
             });
             h.del.setOnClickListener(v -> {
                 new AlertDialog.Builder(LegadoActivity.this)
@@ -380,6 +578,6 @@ public class LegadoActivity extends Activity {
     }
 
     private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
+        return ReadingSkin.dp(this, v);
     }
 }

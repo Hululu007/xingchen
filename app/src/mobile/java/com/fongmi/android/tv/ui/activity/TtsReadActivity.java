@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.net.Uri;
@@ -31,6 +32,8 @@ import com.fongmi.android.tv.tts.EdgeVoice;
 import com.fongmi.android.tv.tts.EdgeVoiceCatalog;
 import com.fongmi.android.tv.tts.TtsEngine;
 import com.fongmi.android.tv.tts.TtsJob;
+import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
+import com.fongmi.android.tv.ui.minibar.ListenSession;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -85,6 +88,9 @@ public class TtsReadActivity extends Activity
     private TextView tvChapter, tvSeg, tvPos, tvDur, tvSpeed, tvTimer, tvVoice;
     private SeekBar seekBar;
     private TextView btnPlay;
+    /** 迷你条会话（与 AudioBookActivity 共用一套条）。 */
+    private ListenSession miniSession;
+    private static final String MINI_ID = "tts";
 
     public static void start(Activity activity, String jobId) {
         Intent i = new Intent(activity, TtsReadActivity.class);
@@ -115,7 +121,209 @@ public class TtsReadActivity extends Activity
         buildUi();
         loadVoices();
         bindPlaybackService();
+        setupMiniBar();
         handler.post(ticker);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        try {
+            ListenMiniBar.get(this).pagePaused(MINI_ID);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            ListenMiniBar.get(this).pageResumed(MINI_ID);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ================= 迷你条（与 AudioBookActivity 共用一套条） =================
+
+    private void setupMiniBar() {
+        miniSession = new ListenSession(MINI_ID);
+        miniSession.setKeyPrefix("tts:");
+        miniSession.setMeta(job.bookTitle, miniSub(), job.coverUrl);
+        miniSession.setReopenIntent(new Intent(this, TtsReadActivity.class)
+                .putExtra("job", jobId));
+        miniSession.setControl(new ListenSession.Control() {
+            @Override public boolean isPlaying() {
+                return mService != null && player().isPlaying();
+            }
+
+            @Override public void toggle() {
+                TtsReadActivity.this.toggle();
+            }
+
+            @Override public void next() {
+                jumpChapter(1);
+            }
+
+            @Override public boolean canNext() {
+                return true;
+            }
+
+            @Override public void prev() {
+                jumpChapter(-1);
+            }
+
+            @Override public boolean canPrev() {
+                return true;
+            }
+
+            @Override public void saveProgress() {
+                TtsReadActivity.this.saveProgress();
+            }
+
+            @Override public void stopPlayback() {
+                try {
+                    if (mService != null) player().stop();
+                } catch (Throwable ignored) {
+                }
+            }
+
+            @Override public void onClosed() {
+                unregisterNav();
+                TtsJob.remove(jobId);
+                try {
+                    if (engine != null) engine.shutdown();
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+        try {
+            ListenMiniBar.get(this).register(miniSession, this);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private String miniSub() {
+        try {
+            ReadingSession.Chapter c = job.chapters.get(
+                    Math.min(ci, job.chapters.size() - 1));
+            return c.name + " · 第" + (si + 1) + "段";
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /**
+     * 页销毁后兜底（静态类，不持有页实例，防泄漏）：
+     * 真关闭＝停播＋进度落盘；点条身＝用 jobId 重开页。
+     */
+    static class TtsDetached implements ListenSession.DetachedOps {
+        final String jobId, bookTitle, sourceName, coverUrl, siteKey,
+                legadoKey, ruleTitle, localId, chapterName, chapterUrl, navKey;
+        final int ci, si;
+
+        TtsDetached(String jobId, TtsJob job, int ci, int si,
+                    String navKey) {
+            this.jobId = jobId;
+            this.bookTitle = job.bookTitle;
+            this.sourceName = job.sourceName;
+            this.coverUrl = job.coverUrl;
+            this.siteKey = job.siteKey;
+            this.legadoKey = job.legadoKey;
+            this.ruleTitle = job.ruleTitle;
+            this.localId = job.localId;
+            this.navKey = navKey;
+            this.ci = ci;
+            this.si = si;
+            try {
+                ReadingSession.Chapter c = job.chapters.get(
+                        Math.min(ci, job.chapters.size() - 1));
+                this.chapterName = c.name;
+                this.chapterUrl = c.url;
+            } catch (Throwable t) {
+                this.chapterName = "";
+                this.chapterUrl = "";
+            }
+        }
+
+        private boolean keyMatch(PlaybackService svc) {
+            try {
+                String k = svc.player().getKey();
+                return k != null && k.startsWith("tts:");
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        @Override public boolean isPlaying(PlaybackService svc) {
+            try {
+                return keyMatch(svc) && svc.player().isPlaying();
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        @Override public void toggle(PlaybackService svc) {
+            try {
+                if (svc.player().isPlaying()) svc.player().pause();
+                else svc.player().play();
+            } catch (Throwable ignored) {
+            }
+        }
+
+        @Override public void close(Context ctx, PlaybackService svc) {
+            int pos = 0;
+            try {
+                pos = (int) svc.player().getPosition();
+            } catch (Throwable ignored) {
+            }
+            try {
+                ReadingStore.Record r = null;
+                for (ReadingStore.Record x : ReadingStore.list()) {
+                    if ("TTS".equals(x.kind)
+                            && sourceName.equals(x.sourceName)
+                            && bookTitle.equals(x.bookTitle)) {
+                        r = x;
+                        break;
+                    }
+                }
+                if (r == null) r = new ReadingStore.Record();
+                r.kind = "TTS";
+                r.sourceName = sourceName;
+                r.bookTitle = bookTitle;
+                r.coverUrl = coverUrl;
+                r.chapterName = chapterName;
+                r.chapterIndex = ci;
+                r.segIndex = si;
+                r.chapterUrl = chapterUrl;
+                r.siteKey = siteKey;
+                r.legadoKey = legadoKey;
+                r.ruleTitle = ruleTitle;
+                r.localId = localId;
+                r.origin = TextUtils.isEmpty(localId) ? "" : "local";
+                r.position = Math.max(0, pos);
+                r.updatedAt = System.currentTimeMillis();
+                ReadingStore.save(r);
+            } catch (Throwable ignored) {
+            }
+            try {
+                svc.player().stop();
+            } catch (Throwable ignored) {
+            }
+            try {
+                svc.setNavigationCallback(null, navKey);
+            } catch (Throwable ignored) {
+            }
+            TtsJob.remove(jobId);
+        }
+
+        @Override public void reopen(Context ctx) {
+            try {
+                if (TtsJob.get(jobId) != null) {
+                    TtsReadActivity.start((Activity) ctx, jobId);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private void buildSession() {
@@ -273,6 +481,11 @@ public class TtsReadActivity extends Activity
         tvChapter.setText(c.name);
         tvSeg.setText("第 " + (si + 1) + " 段" + (segCount > 0 ? " / 共 " + segCount + " 段" : ""));
         tvVoice.setText(curVoice == null ? "音色" : curVoice.name);
+        try {
+            ListenMiniBar.get(this).updateMeta(MINI_ID, job.bookTitle,
+                    miniSub());
+        } catch (Throwable ignored) {
+        }
     }
 
     // ================= 服务绑定 =================
@@ -616,6 +829,12 @@ public class TtsReadActivity extends Activity
                     tvPos.setText(fmt(pos));
                     tvDur.setText(fmt(dur));
                     btnPlay.setText(player().isPlaying() ? "⏸" : "▶");
+                    // 迷你条：播放状态变化上报（恢复播放取消 10 秒计时）
+                    try {
+                        ListenMiniBar.get(TtsReadActivity.this)
+                                .playingChanged(MINI_ID, player().isPlaying());
+                    } catch (Throwable ignored) {
+                    }
                     if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) {
                         sleepAt = 0;
                         tvTimer.setText("定时关");
@@ -684,17 +903,22 @@ public class TtsReadActivity extends Activity
 
     private void onClose() {
         closed = true;
-        TtsJob.remove(jobId);
-        saveProgress();
+        // 真关闭走迷你条策略：停播＋落盘＋注销（performClose 调页 control）
         try {
-            if (engine != null) engine.shutdown();
-        } catch (Throwable ignored) {
+            ListenMiniBar.get(this).closeSession(MINI_ID);
+        } catch (Throwable t) {
+            TtsJob.remove(jobId);
+            saveProgress();
+            try {
+                if (engine != null) engine.shutdown();
+            } catch (Throwable ignored) {
+            }
+            try {
+                if (mService != null) player().stop();
+            } catch (Throwable ignored) {
+            }
+            unregisterNav();
         }
-        try {
-            if (mService != null) player().stop();
-        } catch (Throwable ignored) {
-        }
-        unregisterNav();
         finish();
     }
 
@@ -703,6 +927,16 @@ public class TtsReadActivity extends Activity
         released = true;
         saveProgress();
         handler.removeCallbacks(ticker);
+        // 页销毁：控制权交给条（detached 兜底，不持有页实例），会话不注销——
+        // 后台续播时条就是主；真关闭（10秒/音乐页/点封面）才停播。
+        if (miniSession != null) {
+            try {
+                miniSession.setDetached(new TtsDetached(jobId, job, ci, si,
+                        playbackKey()));
+            } catch (Throwable ignored) {
+            }
+            miniSession.setControl(null);
+        }
         // 页面销毁即停合成引擎（防泄漏）；当前段在后台服务里播到段尾。
         // 用户点关闭才 stop 播放＋注销锁屏回调（与 AudioBookActivity 同口径）。
         try {

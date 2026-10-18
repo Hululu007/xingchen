@@ -49,6 +49,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private TextView tabNovel;
     private TextView tabComic;
     private TextView importBtn;
+    private TextView secTitle;
+    private TextView comicNote;
 
     private final ActivityResultLauncher<android.content.Intent> filePicker =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -95,60 +97,82 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF5F3EF);
+        root.setBackground(ReadingSkin.pageBackground(this));
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         int pad = dp(12);
-        topBar.setPadding(pad, dp(28), pad, pad);
-        topBar.setBackgroundColor(Color.WHITE);
+        topBar.setPadding(pad, dp(16), pad, pad);
+        ReadingSkin.applyTopInset(topBar, this, 16);
 
         ImageButton back = new ImageButton(this);
         back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
         back.setBackgroundColor(Color.TRANSPARENT);
-        back.setColorFilter(0xFF333333);
+        back.setColorFilter(ReadingSkin.SUB);
         back.setOnClickListener(v -> finish());
         topBar.addView(back);
 
-        TextView title = new TextView(this);
-        title.setText("书架");
-        title.setTextSize(18);
-        title.setTextColor(0xFF222222);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         tlp.leftMargin = dp(8);
-        title.setLayoutParams(tlp);
-        topBar.addView(title);
+        titles.setLayoutParams(tlp);
+        TextView title = new TextView(this);
+        title.setText("阅读");
+        title.setTextSize(22);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(ReadingSkin.TEXT);
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("小说 · 漫画，各看各的");
+        sub.setTextSize(12);
+        sub.setTextColor(ReadingSkin.SUB);
+        sub.setPadding(0, dp(2), 0, 0);
+        titles.addView(sub);
+        topBar.addView(titles);
 
         TextView srcBtn = new TextView(this);
         srcBtn.setText("书源");
-        srcBtn.setTextSize(15);
-        srcBtn.setTextColor(0xFFB8860B);
+        srcBtn.setTextSize(14);
+        srcBtn.setTextColor(ReadingSkin.GOLD);
         srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
         srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
         topBar.addView(srcBtn);
 
         importBtn = new TextView(this);
         importBtn.setText("导入");
-        importBtn.setTextSize(15);
-        importBtn.setTextColor(0xFFB8860B);
+        importBtn.setTextSize(14);
+        importBtn.setTextColor(ReadingSkin.GOLD);
         importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         importBtn.setOnClickListener(v -> showImportMenu());
         topBar.addView(importBtn);
         root.addView(topBar);
 
-        // 小说/漫画分栏
+        // 小说/漫画分栏：胶囊切换（选中金字＋金描边）
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setBackgroundColor(Color.WHITE);
-        tabs.setPadding(0, 0, 0, dp(4));
-        tabNovel = makeTab("小说", "NOVEL");
-        tabComic = makeTab("漫画", "COMIC");
+        tabs.setBackground(ReadingSkin.segContainer(this));
+        LinearLayout.LayoutParams tabslp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        tabslp.leftMargin = dp(20);
+        tabslp.rightMargin = dp(20);
+        tabslp.topMargin = dp(12);
+        tabs.setLayoutParams(tabslp);
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabNovel = makeTab("小 说", "NOVEL");
+        tabComic = makeTab("漫 画", "COMIC");
         tabs.addView(tabNovel);
         tabs.addView(tabComic);
         root.addView(tabs);
         refreshTabs();
+
+        root.addView(ReadingSkin.sectionHeader(this, "在看的小说", "长按移除",
+                null));
+        secTitle = (TextView) ((LinearLayout) root.getChildAt(
+                root.getChildCount() - 1)).getChildAt(0);
 
         FrameLayout content = new FrameLayout(this);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
@@ -166,15 +190,33 @@ public class ReadingShelfActivity extends AppCompatActivity {
         tvEmpty = new TextView(this);
         tvEmpty.setText("还没有在看的书\n去看一本漫画或小说，它会出现在这里");
         tvEmpty.setTextSize(15);
-        tvEmpty.setTextColor(0xFF999999);
+        tvEmpty.setTextColor(ReadingSkin.FAINT);
         tvEmpty.setGravity(Gravity.CENTER);
         tvEmpty.setLineSpacing(dp(6), 1f);
         FrameLayout.LayoutParams elp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         tvEmpty.setLayoutParams(elp);
-        tvEmpty.setGravity(Gravity.CENTER);
         content.addView(tvEmpty);
         root.addView(content);
+
+        TextView note = new TextView(this);
+        note.setText("漫画栏只收漫画：源、书架、添加入口都在这边，"
+                + "小说那边的东西不会串过来。");
+        note.setTextSize(12);
+        note.setTextColor(ReadingSkin.FAINT);
+        note.setLineSpacing(dp(4), 1f);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.leftMargin = dp(20);
+        nlp.rightMargin = dp(20);
+        nlp.topMargin = dp(8);
+        nlp.bottomMargin = dp(16);
+        note.setLayoutParams(nlp);
+        note.setTag("comic_note");
+        note.setVisibility(View.GONE);
+        root.addView(note);
+        this.comicNote = note;
 
         setContentView(root);
     }
@@ -191,6 +233,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 ? "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说"
                 : "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画");
         tvEmpty.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
+        if (secTitle != null) {
+            secTitle.setText("NOVEL".equals(currentTab) ? "在看的小说" : "在看的漫画");
+        }
+        if (comicNote != null) {
+            comicNote.setVisibility("COMIC".equals(currentTab)
+                    ? View.VISIBLE : View.GONE);
+        }
         adapter.notifyDataSetChanged();
         checkUpdates();
     }
@@ -218,8 +267,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(16);
+        tv.getPaint().setFakeBoldText(true);
         tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(24), dp(10), dp(24), dp(10));
+        tv.setPadding(dp(24), dp(12), dp(24), dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        tv.setLayoutParams(lp);
         tv.setOnClickListener(v -> {
             currentTab = tab;
             refreshTabs();
@@ -230,10 +283,26 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
     private void refreshTabs() {
         boolean novel = "NOVEL".equals(currentTab);
-        tabNovel.setTextColor(novel ? 0xFFB8860B : 0xFF999999);
-        tabNovel.getPaint().setFakeBoldText(novel);
-        tabComic.setTextColor(novel ? 0xFF999999 : 0xFFB8860B);
-        tabComic.getPaint().setFakeBoldText(!novel);
+        styleTab(tabNovel, novel);
+        styleTab(tabComic, !novel);
+    }
+
+    /** 胶囊切换：选中金字＋金描边深色胶囊（稿语言）。 */
+    private void styleTab(TextView tv, boolean selected) {
+        if (selected) {
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable
+                                    .Orientation.TOP_BOTTOM,
+                            new int[]{0x4DF2B33D, 0x29F2B33D});
+            bg.setCornerRadius(dp(999));
+            bg.setStroke(dp(2), 0x8CF2B33D);
+            tv.setBackground(bg);
+            tv.setTextColor(ReadingSkin.GOLD);
+        } else {
+            tv.setBackgroundColor(Color.TRANSPARENT);
+            tv.setTextColor(ReadingSkin.SUB);
+        }
     }
 
     private void showImportMenu() {
@@ -334,7 +403,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
     }
 
     private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density);
+        return ReadingSkin.dp(this, v);
     }
 
     /**
@@ -367,70 +436,132 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
         class Holder extends RecyclerView.ViewHolder {
             final ImageView cover;
+            final TextView coverTitle;
             final TextView tvTitle;
             final TextView tvSub;
             final TextView tvProgress;
+            final android.widget.ProgressBar bar;
+            final TextView btnGo;
 
-            Holder(View itemView, ImageView cover, TextView tvTitle, TextView tvSub, TextView tvProgress) {
+            Holder(View itemView, ImageView cover, TextView coverTitle,
+                   TextView tvTitle, TextView tvSub, TextView tvProgress,
+                   android.widget.ProgressBar bar, TextView btnGo) {
                 super(itemView);
                 this.cover = cover;
+                this.coverTitle = coverTitle;
                 this.tvTitle = tvTitle;
                 this.tvSub = tvSub;
                 this.tvProgress = tvProgress;
+                this.bar = bar;
+                this.btnGo = btnGo;
             }
         }
 
         @Override
         public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
-            LinearLayout item = new LinearLayout(parent.getContext());
+            android.content.Context c = parent.getContext();
+            LinearLayout item = new LinearLayout(c);
             item.setOrientation(LinearLayout.HORIZONTAL);
             item.setGravity(Gravity.CENTER_VERTICAL);
-            int pad = dp(12);
+            int pad = dp(14);
             item.setPadding(pad, pad, pad, pad);
-            item.setBackgroundColor(Color.WHITE);
+            item.setBackground(ReadingSkin.glassCard(c, 16));
+            try {
+                item.setElevation(dp(4));
+            } catch (Throwable ignored) {
+            }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dp(8);
+            lp.leftMargin = dp(16);
+            lp.rightMargin = dp(16);
+            lp.bottomMargin = dp(12);
             item.setLayoutParams(lp);
 
-            ImageView cover = new ImageView(parent.getContext());
-            int cw = dp(56);
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cw, (int) (cw * 1.3));
-            cover.setLayoutParams(clp);
+            // 封面：渐变占位＋白字书名（无图时）
+            FrameLayout coverWrap = new FrameLayout(c);
+            int cw = dp(64);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cw,
+                    (int) (cw * 1.32));
+            coverWrap.setLayoutParams(clp);
+            ImageView cover = new ImageView(c);
+            cover.setLayoutParams(new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setBackgroundColor(0xFFE8E2D9);
-            item.addView(cover);
+            cover.setBackground(new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xFF2C2118, 0xFF6B4A2E, 0xFFC99A5E}));
+            ReadingSkin.roundClip(cover, c, 8);
+            coverWrap.addView(cover);
+            TextView coverTitle = new TextView(c);
+            coverTitle.setTextSize(13);
+            coverTitle.getPaint().setFakeBoldText(true);
+            coverTitle.setTextColor(0xFFFFFFFF);
+            coverTitle.setGravity(Gravity.CENTER);
+            coverTitle.setPadding(dp(6), 0, dp(6), 0);
+            coverTitle.setMaxLines(3);
+            coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            item.addView(coverWrap);
 
-            LinearLayout mid = new LinearLayout(parent.getContext());
+            LinearLayout mid = new LinearLayout(c);
             mid.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            mlp.leftMargin = dp(12);
+            mlp.leftMargin = dp(14);
             mid.setLayoutParams(mlp);
 
-            TextView tvTitle = new TextView(parent.getContext());
+            TextView tvTitle = new TextView(c);
             tvTitle.setTextSize(16);
-            tvTitle.setTextColor(0xFF222222);
+            tvTitle.getPaint().setFakeBoldText(true);
+            tvTitle.setTextColor(ReadingSkin.TEXT);
             tvTitle.setSingleLine(true);
             tvTitle.setEllipsize(TextUtils.TruncateAt.END);
             mid.addView(tvTitle);
 
-            TextView tvSub = new TextView(parent.getContext());
+            TextView tvSub = new TextView(c);
             tvSub.setTextSize(13);
-            tvSub.setTextColor(0xFF888888);
+            tvSub.setTextColor(ReadingSkin.SUB);
             tvSub.setSingleLine(true);
             tvSub.setEllipsize(TextUtils.TruncateAt.END);
-            tvSub.setPadding(0, dp(4), 0, 0);
+            tvSub.setPadding(0, dp(6), 0, 0);
             mid.addView(tvSub);
 
-            TextView tvProgress = new TextView(parent.getContext());
-            tvProgress.setTextSize(13);
-            tvProgress.setTextColor(0xFFB8860B);
-            tvProgress.setPadding(0, dp(4), 0, 0);
-            mid.addView(tvProgress);
+            android.widget.ProgressBar bar =
+                    new android.widget.ProgressBar(c, null,
+                            android.R.attr.progressBarStyleHorizontal);
+            bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
+            bar.setMax(100);
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+            blp.topMargin = dp(10);
+            mid.addView(bar, blp);
+
+            LinearLayout row = new LinearLayout(c);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(10), 0, 0);
+            TextView tvProgress = new TextView(c);
+            tvProgress.setTextSize(12);
+            tvProgress.setTextColor(ReadingSkin.SUB);
+            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            tvProgress.setLayoutParams(plp);
+            row.addView(tvProgress);
+            TextView btnGo = new TextView(c);
+            btnGo.setText("继续读");
+            btnGo.setTextSize(13);
+            btnGo.getPaint().setFakeBoldText(true);
+            btnGo.setTextColor(0xFF1A1408);
+            btnGo.setBackground(ReadingSkin.goldCapsule(c));
+            btnGo.setPadding(dp(16), dp(8), dp(16), dp(8));
+            row.addView(btnGo);
+            mid.addView(row);
 
             item.addView(mid);
-            return new Holder(item, cover, tvTitle, tvSub, tvProgress);
+            return new Holder(item, cover, coverTitle, tvTitle, tvSub,
+                    tvProgress, bar, btnGo);
         }
 
         @Override
@@ -440,25 +571,38 @@ public class ReadingShelfActivity extends AppCompatActivity {
             String time = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
                     .format(new Date(r.updatedAt));
             h.tvSub.setText(r.sourceName + " · " + r.chapterName + " · " + time);
-            if ("NOVEL".equals(r.kind)) {
-                h.tvProgress.setText("已读 " + Math.round(r.position / 100f) + "%"
+            boolean isAudio = "AUDIO".equals(r.kind);
+            boolean isNovel = "NOVEL".equals(r.kind);
+            if (isNovel) {
+                int pct = Math.round(r.position / 100f);
+                h.tvProgress.setText("已读 " + pct + "%"
                         + (r.hasUpdate ? " · 有更新" : ""));
-            } else if ("AUDIO".equals(r.kind)) {
+                h.bar.setVisibility(View.VISIBLE);
+                h.bar.setProgress(Math.max(0, Math.min(100, pct)));
+            } else if (isAudio) {
                 h.tvProgress.setText(r.position > 0 ? "已听 " + fmtMs(r.position) : "开始听");
+                h.bar.setVisibility(View.GONE);
             } else {
                 h.tvProgress.setText((r.position > 0 ? "看到第 " + (r.position + 1) + " 张" : "开始看")
                         + (r.hasUpdate ? " · 有更新" : ""));
+                h.bar.setVisibility(View.GONE);
             }
+            h.btnGo.setText(isAudio ? "继续听" : "继续读");
             if (!TextUtils.isEmpty(r.coverUrl)) {
                 ImgUtil.load(r.bookTitle, r.coverUrl, h.cover, true);
+                h.coverTitle.setVisibility(View.GONE);
             } else {
                 h.cover.setImageDrawable(null);
+                h.coverTitle.setVisibility(View.VISIBLE);
+                h.coverTitle.setText(r.bookTitle);
             }
-            h.itemView.setOnClickListener(v -> {
+            View.OnClickListener open = v -> {
                 com.fongmi.android.tv.read.ReadingUpdateChecker.clearUpdate(r);
-                if ("AUDIO".equals(r.kind)) openAudioRecord(r);
+                if (isAudio) openAudioRecord(r);
                 else ReadingRouter.openRecord(ReadingShelfActivity.this, r);
-            });
+            };
+            h.itemView.setOnClickListener(open);
+            h.btnGo.setOnClickListener(open);
             h.itemView.setOnLongClickListener(v -> {
                 ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
                 com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());

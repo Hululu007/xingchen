@@ -10,7 +10,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -49,10 +48,18 @@ public class NovelReaderActivity extends AppCompatActivity {
     private FrameLayout root;
     private ScrollView scrollView;
     private TextView tvContent;
+    private TextView tvChapterHead;
     private View topBar;
     private View bottomBar;
-    private TextView tvTitle;
+    private TextView tvStatus;
     private TextView tvProgress;
+    private TextView tvChapterBottom;
+    private TextView tvChapterMid;
+    private android.widget.ProgressBar progressBar;
+    private TextView tvFontSize;
+    private LinearLayout themeRow;
+    private LinearLayout pageSeg;
+    private TextView tvTtsSub;
     private boolean barsShown = false;
     private boolean loading = false;
     private String currentText = "";
@@ -83,15 +90,37 @@ public class NovelReaderActivity extends AppCompatActivity {
         scrollView = new ScrollView(this);
         scrollView.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout contentCol = new LinearLayout(this);
+        contentCol.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        contentCol.setPadding(pad, dp(56), pad, dp(64));
+        tvChapterHead = new TextView(this);
+        tvChapterHead.setGravity(Gravity.CENTER);
+        tvChapterHead.setTextSize(21);
+        tvChapterHead.getPaint().setFakeBoldText(true);
+        tvChapterHead.setTextColor(fg());
+        tvChapterHead.setPadding(0, 0, 0, dp(14));
+        contentCol.addView(tvChapterHead);
+        View divider = new View(this);
+        android.graphics.drawable.GradientDrawable divBg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                        new int[]{0x00F2B33D, 0xFFF2B33D, 0x00F2B33D});
+        divBg.setCornerRadius(dp(2));
+        divider.setBackground(divBg);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                dp(120), dp(3));
+        dlp.gravity = Gravity.CENTER_HORIZONTAL;
+        dlp.bottomMargin = dp(26);
+        contentCol.addView(divider, dlp);
         tvContent = new TextView(this);
         tvContent.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        int pad = dp(20);
-        tvContent.setPadding(pad, dp(56), pad, dp(64));
         tvContent.setTextSize(prefs.getFloat(KEY_TEXT_SIZE, 18));
         applyTextStyle();
         tvContent.setTextColor(fg());
-        scrollView.addView(tvContent);
+        contentCol.addView(tvContent);
+        scrollView.addView(contentCol);
         root.addView(scrollView);
 
         GestureDetector gd = new GestureDetector(this,
@@ -135,6 +164,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         }
     }
 
+    /** 顶栏（稿）：‹ 返回 ｜ 第 N 章 · x% ｜ 目录，灰字浮于内容上。 */
     private View buildTopBar() {
         LinearLayout bar = new LinearLayout(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -143,31 +173,41 @@ public class NovelReaderActivity extends AppCompatActivity {
         bar.setLayoutParams(lp);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(0xCC000000);
-        int pad = dp(12);
-        bar.setPadding(pad, dp(28), pad, pad);
+        int pad = dp(8);
+        bar.setPadding(pad, dp(8), pad, pad);
+        ReadingSkin.applyTopInset(bar, this, 8);
 
-        ImageButton back = new ImageButton(this);
-        back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        back.setBackgroundColor(Color.TRANSPARENT);
-        back.setColorFilter(Color.WHITE);
+        TextView back = new TextView(this);
+        back.setText("‹ 返回");
+        back.setTextSize(14);
+        back.setTextColor(0x80D9D3C6);
+        back.setPadding(dp(12), dp(12), dp(12), dp(12));
         back.setOnClickListener(v -> finish());
         bar.addView(back);
 
-        tvTitle = new TextView(this);
-        tvTitle.setTextColor(Color.WHITE);
-        tvTitle.setTextSize(15);
-        tvTitle.setSingleLine(true);
-        tvTitle.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
+        tvStatus = new TextView(this);
+        tvStatus.setTextColor(0x80D9D3C6);
+        tvStatus.setTextSize(13);
+        tvStatus.setGravity(Gravity.CENTER);
+        tvStatus.setSingleLine(true);
+        tvStatus.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tlp.leftMargin = dp(8);
-        tvTitle.setLayoutParams(tlp);
-        bar.addView(tvTitle);
+        tvStatus.setLayoutParams(slp);
+        bar.addView(tvStatus);
+
+        TextView toc = new TextView(this);
+        toc.setText("目录");
+        toc.setTextSize(14);
+        toc.setTextColor(0x80D9D3C6);
+        toc.setPadding(dp(12), dp(12), dp(12), dp(12));
+        toc.setOnClickListener(v -> showChapters());
+        bar.addView(toc);
         refreshTitle();
         return bar;
     }
 
+    /** 底栏（稿）：毛玻璃设置面板。所有原有功能一个不少，只是换了皮。 */
     private View buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -175,74 +215,348 @@ public class NovelReaderActivity extends AppCompatActivity {
         lp.gravity = Gravity.BOTTOM;
         bar.setLayoutParams(lp);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(0xCC000000);
-        int pad = dp(12);
-        bar.setPadding(pad, pad, pad, dp(28));
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xC7121219);
+        bg.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
+        bg.setStroke(dp(2), 0x2EFFFFFF);
+        bar.setBackground(bg);
+        bar.setPadding(dp(20), dp(8), dp(20), dp(12));
+        ReadingSkin.applyBottomInset(bar, this, 12);
 
+        // 顶部小灰横条
+        View grab = new View(this);
+        android.graphics.drawable.GradientDrawable grabBg =
+                new android.graphics.drawable.GradientDrawable();
+        grabBg.setColor(0x40FFFFFF);
+        grabBg.setCornerRadius(dp(4));
+        grab.setBackground(grabBg);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                dp(60), dp(4));
+        glp.gravity = Gravity.CENTER_HORIZONTAL;
+        glp.bottomMargin = dp(6);
+        bar.addView(grab, glp);
+
+        // 上一章 / 章名 / 下一章
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView prev = btn("上一章");
+        TextView prev = sheetBtn("上一章");
         prev.setOnClickListener(v -> goChapter(session.chapterIndex - 1));
         row.addView(prev);
-
-        tvProgress = new TextView(this);
-        tvProgress.setTextColor(Color.WHITE);
-        tvProgress.setTextSize(13);
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
+        tvChapterMid = new TextView(this);
+        tvChapterMid.setTextColor(ReadingSkin.TEXT);
+        tvChapterMid.setTextSize(14);
+        tvChapterMid.setGravity(Gravity.CENTER);
+        tvChapterMid.setSingleLine(true);
+        tvChapterMid.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tvProgress.setLayoutParams(plp);
-        tvProgress.setGravity(Gravity.CENTER);
-        row.addView(tvProgress);
-
-        TextView next = btn("下一章");
+        tvChapterMid.setLayoutParams(mlp);
+        row.addView(tvChapterMid);
+        TextView next = sheetBtn("下一章");
         next.setOnClickListener(v -> goChapter(session.chapterIndex + 1));
         row.addView(next);
         bar.addView(row);
 
+        // 字号：− / 金色数字 / ＋ ＋ 右侧 13 - 26（范围与行为不动）
+        LinearLayout fsRow = new LinearLayout(this);
+        fsRow.setOrientation(LinearLayout.HORIZONTAL);
+        fsRow.setGravity(Gravity.CENTER_VERTICAL);
+        fsRow.setPadding(0, dp(12), 0, 0);
+        fsRow.addView(sheetLabel("字号"));
+        LinearLayout stepper = new LinearLayout(this);
+        stepper.setOrientation(LinearLayout.HORIZONTAL);
+        stepper.setGravity(Gravity.CENTER_VERTICAL);
+        TextView minus = stepBtn("－");
+        minus.setOnClickListener(v -> changeTextSize(-1));
+        stepper.addView(minus);
+        tvFontSize = new TextView(this);
+        tvFontSize.setTextSize(19);
+        tvFontSize.getPaint().setFakeBoldText(true);
+        tvFontSize.setTextColor(ReadingSkin.GOLD);
+        tvFontSize.setGravity(Gravity.CENTER);
+        tvFontSize.setMinWidth(dp(48));
+        tvFontSize.setPadding(dp(8), 0, dp(8), 0);
+        stepper.addView(tvFontSize);
+        TextView plus = stepBtn("＋");
+        plus.setOnClickListener(v -> changeTextSize(1));
+        stepper.addView(plus);
+        fsRow.addView(stepper);
+        TextView range = new TextView(this);
+        range.setText("13 - 26");
+        range.setTextSize(12);
+        range.setTextColor(ReadingSkin.FAINT);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        range.setLayoutParams(rlp);
+        range.setGravity(Gravity.END);
+        fsRow.addView(range);
+        bar.addView(fsRow);
+        refreshFontSize();
+
+        // 主题：纸白 / 米黄 / 墨夜（三圆，选中金描边＋金字）
+        LinearLayout thRow = new LinearLayout(this);
+        thRow.setOrientation(LinearLayout.HORIZONTAL);
+        thRow.setGravity(Gravity.CENTER_VERTICAL);
+        thRow.setPadding(0, dp(12), 0, 0);
+        thRow.addView(sheetLabel("主题"));
+        themeRow = new LinearLayout(this);
+        themeRow.setOrientation(LinearLayout.HORIZONTAL);
+        thRow.addView(themeRow);
+        bar.addView(thRow);
+        refreshThemeRow();
+
+        // 翻页：三档全保留（纵滑/覆盖/滑动），同语言补样式
+        LinearLayout pgRow = new LinearLayout(this);
+        pgRow.setOrientation(LinearLayout.HORIZONTAL);
+        pgRow.setGravity(Gravity.CENTER_VERTICAL);
+        pgRow.setPadding(0, dp(12), 0, 0);
+        pgRow.addView(sheetLabel("翻页"));
+        pageSeg = new LinearLayout(this);
+        pageSeg.setOrientation(LinearLayout.HORIZONTAL);
+        pageSeg.setBackground(ReadingSkin.segContainer(this));
+        pageSeg.setPadding(dp(3), dp(3), dp(3), dp(3));
+        pgRow.addView(pageSeg);
+        bar.addView(pgRow);
+        refreshPageSeg();
+
+        // 朗读本章：金色大钮（点＝朗读）＋副（点＝换音色）
+        LinearLayout ttsBtn = new LinearLayout(this);
+        ttsBtn.setOrientation(LinearLayout.VERTICAL);
+        ttsBtn.setGravity(Gravity.CENTER_HORIZONTAL);
+        ttsBtn.setBackground(ReadingSkin.goldCapsule(this));
+        try {
+            ttsBtn.setElevation(dp(6));
+        } catch (Throwable ignored) {
+        }
+        LinearLayout.LayoutParams ttslp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        ttslp.topMargin = dp(16);
+        ttsBtn.setLayoutParams(ttslp);
+        ttsBtn.setPadding(0, dp(14), 0, dp(12));
+        ttsBtn.setOnClickListener(v -> startTts());
+        TextView ttsT = new TextView(this);
+        ttsT.setText("▶  朗读本章");
+        ttsT.setTextSize(17);
+        ttsT.getPaint().setFakeBoldText(true);
+        ttsT.setTextColor(0xFF1A1408);
+        ttsT.setGravity(Gravity.CENTER);
+        ttsBtn.addView(ttsT);
+        tvTtsSub = new TextView(this);
+        tvTtsSub.setTextSize(12);
+        tvTtsSub.setTextColor(0xA61A1408);
+        tvTtsSub.setGravity(Gravity.CENTER);
+        tvTtsSub.setPadding(0, dp(4), 0, 0);
+        tvTtsSub.setOnClickListener(v -> pickVoice());
+        ttsBtn.addView(tvTtsSub);
+        bar.addView(ttsBtn);
+        refreshTtsSub();
+
+        // 目录 / 书签 / 换源 / 设置（功能保留）
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView chapters = btn("目录");
+        row2.setGravity(Gravity.CENTER);
+        row2.setPadding(0, dp(10), 0, 0);
+        TextView chapters = sheetBtn("目录");
         chapters.setOnClickListener(v -> showChapters());
         row2.addView(chapters);
-
-        TextView smaller = btn("A-");
-        smaller.setOnClickListener(v -> changeTextSize(-1));
-        row2.addView(smaller);
-
-        TextView bigger = btn("A+");
-        bigger.setOnClickListener(v -> changeTextSize(1));
-        row2.addView(bigger);
-
-        TextView themeBtn = btn("主题");
-        themeBtn.setOnClickListener(v -> {
-            prefs.edit().putInt(KEY_THEME, (theme() + 1) % BG.length).apply();
-            applyTheme();
-            Toast.makeText(this, "已切换主题", Toast.LENGTH_SHORT).show();
-        });
-        row2.addView(themeBtn);
-
-        // 朗读入口（功能线；视觉随后换皮）：神经朗读从当前章当前位置起读
-        TextView ttsBtn = btn("朗读");
-        ttsBtn.setOnClickListener(v -> startTts());
-        row2.addView(ttsBtn);
-
-        TextView markBtn = btn("书签");
+        TextView markBtn = sheetBtn("书签");
         markBtn.setOnClickListener(v -> showBookmarks());
         row2.addView(markBtn);
-
-        TextView csBtn = btn("换源");
+        TextView csBtn = sheetBtn("换源");
         csBtn.setOnClickListener(v -> changeSource());
         row2.addView(csBtn);
-
-        TextView setBtn = btn("设置");
+        TextView setBtn = sheetBtn("设置");
         setBtn.setOnClickListener(v -> showSettings());
         row2.addView(setBtn);
         bar.addView(row2);
+
+        // 底部：章节 / 金进度条 / 百分比
+        LinearLayout prog = new LinearLayout(this);
+        prog.setOrientation(LinearLayout.HORIZONTAL);
+        prog.setGravity(Gravity.CENTER_VERTICAL);
+        prog.setPadding(0, dp(10), 0, 0);
+        tvChapterBottom = new TextView(this);
+        tvChapterBottom.setTextSize(12);
+        tvChapterBottom.setTextColor(ReadingSkin.SUB);
+        prog.addView(tvChapterBottom);
+        progressBar = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        progressBar.setProgressDrawable(ReadingSkin.goldProgressBar(this));
+        progressBar.setMax(10000);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
+                dp(5), 1);
+        plp.leftMargin = dp(12);
+        plp.rightMargin = dp(12);
+        prog.addView(progressBar, plp);
+        tvProgress = new TextView(this);
+        tvProgress.setTextColor(ReadingSkin.SUB);
+        tvProgress.setTextSize(12);
+        prog.addView(tvProgress);
+        bar.addView(prog);
+        updateProgressLabel();
         return bar;
+    }
+
+    private TextView sheetLabel(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(15);
+        t.setTextColor(ReadingSkin.TEXT);
+        t.setPadding(0, 0, dp(16), 0);
+        return t;
+    }
+
+    private TextView sheetBtn(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(14);
+        t.setTextColor(ReadingSkin.TEXT);
+        t.setPadding(dp(14), dp(10), dp(14), dp(10));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    private TextView stepBtn(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(20);
+        t.setTextColor(ReadingSkin.TEXT);
+        t.setGravity(Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(0x0FFFFFFF);
+        bg.setStroke(dp(2), 0x4DFFFFFF);
+        t.setBackground(bg);
+        int sz = dp(44);
+        t.setLayoutParams(new LinearLayout.LayoutParams(sz, sz));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    private void refreshFontSize() {
+        if (tvFontSize != null) {
+            tvFontSize.setText(
+                    String.valueOf(Math.round(prefs.getFloat(KEY_TEXT_SIZE, 18))));
+        }
+    }
+
+    private void refreshThemeRow() {
+        if (themeRow == null) return;
+        themeRow.removeAllViews();
+        String[] names = {"纸白", "米黄", "墨夜"};
+        int[] colors = {0xFFF5F2EA, 0xFFEDE3D0, 0xFF1C1B22};
+        int cur = theme();
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            cell.setPadding(dp(6), 0, dp(6), 0);
+            View dot = new View(this);
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            bg.setColor(colors[i]);
+            bg.setStroke(dp(i == cur ? 3 : 2),
+                    i == cur ? ReadingSkin.GOLD : 0x40FFFFFF);
+            dot.setBackground(bg);
+            int sz = dp(44);
+            cell.addView(dot, new LinearLayout.LayoutParams(sz, sz));
+            TextView l = new TextView(this);
+            l.setText(names[i]);
+            l.setTextSize(11);
+            l.setTextColor(i == cur ? ReadingSkin.GOLD : ReadingSkin.FAINT);
+            l.setPadding(0, dp(4), 0, 0);
+            cell.addView(l);
+            cell.setOnClickListener(v -> {
+                prefs.edit().putInt(KEY_THEME, idx).apply();
+                applyTheme();
+                refreshThemeRow();
+                Toast.makeText(this, "已切换主题", Toast.LENGTH_SHORT).show();
+            });
+            themeRow.addView(cell);
+        }
+    }
+
+    private void refreshPageSeg() {
+        if (pageSeg == null) return;
+        pageSeg.removeAllViews();
+        String[] modes = {"纵滑", "覆盖", "滑动"};
+        int cur = pageMode();
+        for (int i = 0; i < modes.length; i++) {
+            final int idx = i;
+            TextView t = new TextView(this);
+            t.setText(modes[i]);
+            t.setTextSize(14);
+            t.setPadding(dp(20), dp(10), dp(20), dp(10));
+            t.setGravity(Gravity.CENTER);
+            if (i == cur) {
+                t.setBackground(ReadingSkin.segSelectedTint(this));
+                t.setTextColor(ReadingSkin.GOLD);
+                t.getPaint().setFakeBoldText(true);
+            } else {
+                t.setBackgroundColor(Color.TRANSPARENT);
+                t.setTextColor(ReadingSkin.SUB);
+            }
+            t.setOnClickListener(v -> {
+                prefs.edit().putInt(KEY_PAGE_MODE, idx).apply();
+                refreshPageSeg();
+                Toast.makeText(this, "已切换为" + modes[idx] + "翻页",
+                        Toast.LENGTH_SHORT).show();
+            });
+            pageSeg.addView(t);
+        }
+    }
+
+    /** 朗读钮副文案：真·当前默认音色（画像），点副文案换音色。 */
+    private void refreshTtsSub() {
+        if (tvTtsSub == null) return;
+        String id = com.fongmi.android.tv.tts.EdgeVoiceCatalog.defaultVoice();
+        com.fongmi.android.tv.tts.EdgeVoice v =
+                com.fongmi.android.tv.tts.EdgeVoiceCatalog.find(
+                        com.fongmi.android.tv.tts.EdgeVoiceCatalog.builtIn(), id);
+        String name = v == null ? "默认音色" : v.name;
+        String portrait = v == null ? "" : v.portrait;
+        tvTtsSub.setText("神经人声 · " + name
+                + (portrait.isEmpty() ? "" : "（" + portrait + "）")
+                + " · 可换音色");
+    }
+
+    /** 换音色：与 TtsReadActivity 同口径（改共享默认，本段起生效）。 */
+    private void pickVoice() {
+        java.util.List<com.fongmi.android.tv.tts.EdgeVoice> voices =
+                com.fongmi.android.tv.tts.EdgeVoiceCatalog.builtIn();
+        if (voices.isEmpty()) {
+            Toast.makeText(this, "音色列表为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String cur = com.fongmi.android.tv.tts.EdgeVoiceCatalog.defaultVoice();
+        String[] items = new String[voices.size()];
+        int checked = 0;
+        for (int i = 0; i < voices.size(); i++) {
+            com.fongmi.android.tv.tts.EdgeVoice v = voices.get(i);
+            items[i] = v.label() + (v.storyteller ? " ★" : "");
+            if (v.id.equals(cur)) checked = i;
+        }
+        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
+                .setTitle("选择音色（神经人声）")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    d.dismiss();
+                    com.fongmi.android.tv.tts.EdgeVoice v = voices.get(which);
+                    com.fongmi.android.tv.tts.EdgeVoiceCatalog
+                            .setDefaultVoice(v.id);
+                    refreshTtsSub();
+                    Toast.makeText(this, "已换「" + v.name + "」，下次朗读生效",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton("关闭", (d, w) -> d.dismiss())
+                .show();
     }
 
     // ---------------- 设置 ----------------
@@ -428,18 +742,6 @@ public class NovelReaderActivity extends AppCompatActivity {
         }
     }
 
-    private TextView btn(String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(14);
-        int hp = dp(12), vp = dp(8);
-        tv.setPadding(hp, vp, hp, vp);
-        tv.setClickable(true);
-        tv.setFocusable(true);
-        return tv;
-    }
-
     private void toggleBars() {
         setBarsVisible(!barsShown);
     }
@@ -555,9 +857,29 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void refreshTitle() {
         ReadingSession.Chapter c = session.currentChapter();
-        String t = session.bookTitle;
-        if (!TextUtils.isEmpty(c.name) && !c.name.equals(t)) t = t + " · " + c.name;
-        tvTitle.setText(t);
+        String name = TextUtils.isEmpty(c.name) ? session.bookTitle : c.name;
+        if (tvChapterHead != null) {
+            tvChapterHead.setText(name);
+            tvChapterHead.setTextColor(fg());
+        }
+        updateProgressLabel();
+    }
+
+    /** 首字下沉（稿）：首个非空白字放大＋金色，纯皮，不改正文。 */
+    private CharSequence dropCap(String text) {
+        android.text.SpannableString ss =
+                new android.text.SpannableString(text);
+        int i = 0;
+        while (i < text.length()
+                && Character.isWhitespace(text.charAt(i))) i++;
+        if (i < text.length()) {
+            ss.setSpan(new android.text.style.RelativeSizeSpan(2.0f), i,
+                    i + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ss.setSpan(new android.text.style.ForegroundColorSpan(
+                    ReadingSkin.GOLD), i, i + 1,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return ss;
     }
 
     private int dp(int v) {
@@ -586,7 +908,7 @@ public class NovelReaderActivity extends AppCompatActivity {
                 if (TextUtils.isEmpty(text)) {
                     tvContent.setText("正文抓取失败，换一章试试");
                 } else {
-                    tvContent.setText(text);
+                    tvContent.setText(dropCap(text));
                 }
                 scrollView.post(() -> {
                     if (session.startFraction >= 0) {
@@ -714,6 +1036,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         prefs.edit().putFloat(KEY_TEXT_SIZE, next).apply();
         float frac = currentFraction();
         tvContent.setTextSize(next);
+        refreshFontSize();
         scrollView.post(() -> scrollToFraction(frac));
     }
 
@@ -737,11 +1060,20 @@ public class NovelReaderActivity extends AppCompatActivity {
     }
 
     private void updateProgressLabel() {
-        if (tvProgress == null) return;
+        if (session == null) return;
         int pct = Math.round(currentFraction() * 100);
         ReadingSession.Chapter c = session.currentChapter();
-        String name = TextUtils.isEmpty(c.name) ? "" : c.name + " · ";
-        tvProgress.setText(name + pct + "%");
+        String name = TextUtils.isEmpty(c.name) ? "" : c.name;
+        if (tvStatus != null) {
+            tvStatus.setText((name.isEmpty() ? "" : name + " · ") + pct + "%");
+        }
+        if (tvChapterMid != null) tvChapterMid.setText(name);
+        if (tvChapterBottom != null) tvChapterBottom.setText(name);
+        if (tvProgress != null) tvProgress.setText(pct + "%");
+        if (progressBar != null) {
+            progressBar.setProgress(
+                    Math.round(currentFraction() * 10000));
+        }
     }
 
     private void saveProgress() {
@@ -785,5 +1117,6 @@ public class NovelReaderActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         applyKeepScreen();
+        refreshTtsSub();
     }
 }

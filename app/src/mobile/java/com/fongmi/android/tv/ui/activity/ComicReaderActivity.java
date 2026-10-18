@@ -55,8 +55,13 @@ public class ComicReaderActivity extends AppCompatActivity {
     private View topBar;
     private View bottomBar;
     private TextView tvTitle;
-    private TextView tvPage;
+    private TextView tvSub;
+    private TextView tvPageLeft;
+    private TextView tvPct;
     private SeekBar seekBar;
+    private LinearLayout modeSeg;
+    private TextView dirSegA;
+    private TextView dirSegB;
     private boolean barsShown = false;
     private boolean horizontal = false;
     private boolean loading = false;
@@ -201,6 +206,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         setContentView(root);
     }
 
+    /** 顶栏（稿）：书名白大＋话数灰，渐隐底。 */
     private View buildTopBar() {
         LinearLayout bar = new LinearLayout(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -209,31 +215,47 @@ public class ComicReaderActivity extends AppCompatActivity {
         bar.setLayoutParams(lp);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(0xCC000000);
-        int pad = dp(12);
-        bar.setPadding(pad, dp(28), pad, pad);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xEB08080C, 0x0008080C});
+        bar.setBackground(bg);
+        bar.setPadding(dp(8), dp(8), dp(16), dp(28));
+        ReadingSkin.applyTopInset(bar, this, 8);
 
         ImageButton back = new ImageButton(this);
         back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
         back.setBackgroundColor(Color.TRANSPARENT);
-        back.setColorFilter(Color.WHITE);
+        back.setColorFilter(0xA6F4F2EC);
         back.setOnClickListener(v -> finish());
         bar.addView(back);
 
-        tvTitle = new TextView(this);
-        tvTitle.setTextColor(Color.WHITE);
-        tvTitle.setTextSize(15);
-        tvTitle.setSingleLine(true);
-        tvTitle.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tlp.leftMargin = dp(8);
-        tvTitle.setLayoutParams(tlp);
-        bar.addView(tvTitle);
+        tlp.leftMargin = dp(4);
+        titles.setLayoutParams(tlp);
+        tvTitle = new TextView(this);
+        tvTitle.setTextColor(ReadingSkin.TEXT);
+        tvTitle.setTextSize(17);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setSingleLine(true);
+        tvTitle.setEllipsize(TextUtils.TruncateAt.END);
+        titles.addView(tvTitle);
+        tvSub = new TextView(this);
+        tvSub.setTextColor(ReadingSkin.SUB);
+        tvSub.setTextSize(13);
+        tvSub.setSingleLine(true);
+        tvSub.setEllipsize(TextUtils.TruncateAt.END);
+        tvSub.setPadding(0, dp(4), 0, 0);
+        titles.addView(tvSub);
+        bar.addView(titles);
         refreshTitle();
         return bar;
     }
 
+    /** 底栏（稿·呼出态）：金进度行＋上一话/目录/下一话＋竖滑/横滑。 */
     private View buildBottomBar() {
         LinearLayout bar = new LinearLayout(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -241,22 +263,29 @@ public class ComicReaderActivity extends AppCompatActivity {
         lp.gravity = Gravity.BOTTOM;
         bar.setLayoutParams(lp);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(0xCC000000);
-        int pad = dp(12);
-        bar.setPadding(pad, pad, pad, dp(28));
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+                        new int[]{0xF208080C, 0x0008080C});
+        bar.setBackground(bg);
+        bar.setPadding(dp(20), dp(28), dp(20), dp(12));
+        ReadingSkin.applyBottomInset(bar, this, 12);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView prev = chapterButton("上一章");
-        prev.setOnClickListener(v -> goChapter(session.chapterIndex - 1));
-        row.addView(prev);
-
+        // 进度行：「36 / 52」金左、金进度条、「69%」金右
+        LinearLayout prow = new LinearLayout(this);
+        prow.setOrientation(LinearLayout.HORIZONTAL);
+        prow.setGravity(Gravity.CENTER_VERTICAL);
+        tvPageLeft = new TextView(this);
+        tvPageLeft.setTextColor(ReadingSkin.GOLD);
+        tvPageLeft.setTextSize(13);
+        prow.addView(tvPageLeft);
         seekBar = new SeekBar(this);
+        ReadingSkin.styleGoldSeekBar(this, seekBar);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        row.addView(seekBar, slp);
+        slp.leftMargin = dp(12);
+        slp.rightMargin = dp(12);
+        prow.addView(seekBar, slp);
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
@@ -271,52 +300,128 @@ public class ComicReaderActivity extends AppCompatActivity {
                 scrollToPage(s.getProgress());
             }
         });
+        tvPct = new TextView(this);
+        tvPct.setTextColor(ReadingSkin.GOLD);
+        tvPct.setTextSize(13);
+        prow.addView(tvPct);
+        bar.addView(prow);
 
-        tvPage = new TextView(this);
-        tvPage.setTextColor(Color.WHITE);
-        tvPage.setTextSize(13);
-        tvPage.setPadding(dp(8), 0, dp(8), 0);
-        row.addView(tvPage);
-
-        TextView next = chapterButton("下一章");
+        // 上一话 / 目录 / 下一话：深色圆钮
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.CENTER);
+        btns.setPadding(0, dp(18), 0, 0);
+        TextView prev = roundBtn("⏮", dp(56), dp(56));
+        prev.setOnClickListener(v -> goChapter(session.chapterIndex - 1));
+        TextView toc = roundBtn("目录", dp(84), dp(56));
+        toc.setOnClickListener(v -> showChapters());
+        TextView next = roundBtn("⏭", dp(56), dp(56));
         next.setOnClickListener(v -> goChapter(session.chapterIndex + 1));
-        row.addView(next);
-        bar.addView(row);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.leftMargin = dp(22);
+        gap.rightMargin = dp(22);
+        btns.addView(prev);
+        btns.addView(toc, gap);
+        btns.addView(next);
+        bar.addView(btns);
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setGravity(Gravity.CENTER_VERTICAL);
+        // 竖滑 / 横滑：两段切换（选中金底深字）
+        LinearLayout modeWrap = new LinearLayout(this);
+        modeWrap.setOrientation(LinearLayout.HORIZONTAL);
+        modeWrap.setGravity(Gravity.CENTER);
+        modeWrap.setPadding(0, dp(16), 0, 0);
+        modeSeg = new LinearLayout(this);
+        modeSeg.setOrientation(LinearLayout.HORIZONTAL);
+        modeSeg.setBackground(ReadingSkin.segContainer(this));
+        modeSeg.setPadding(dp(3), dp(3), dp(3), dp(3));
+        dirSegA = segItem("竖滑");
+        dirSegB = segItem("横滑");
+        dirSegA.setOnClickListener(v -> setDirection(false));
+        dirSegB.setOnClickListener(v -> setDirection(true));
+        modeSeg.addView(dirSegA);
+        modeSeg.addView(dirSegB);
+        modeWrap.addView(modeSeg);
+        bar.addView(modeWrap);
+        refreshModeSeg();
 
-        TextView chapters = chapterButton("目录");
-        chapters.setOnClickListener(v -> showChapters());
-        row2.addView(chapters);
-
-        TextView dir = chapterButton(horizontal ? "横向" : "竖向");
-        dir.setOnClickListener(v -> {
-            horizontal = !horizontal;
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_DIRECTION, horizontal).apply();
-            dir.setText(horizontal ? "横向" : "竖向");
-            applyLayoutManager();
-        });
-        row2.addView(dir);
-
+        // 书签 / 换源 / 设置（功能保留，素字）
         LinearLayout row3 = new LinearLayout(this);
         row3.setOrientation(LinearLayout.HORIZONTAL);
-        row3.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView markBtn = chapterButton("书签");
+        row3.setGravity(Gravity.CENTER);
+        row3.setPadding(0, dp(12), 0, 0);
+        TextView markBtn = plainBtn("书签");
         markBtn.setOnClickListener(v -> showBookmarks());
         row3.addView(markBtn);
-
-        TextView csBtn = chapterButton("换源");
+        TextView csBtn = plainBtn("换源");
         csBtn.setOnClickListener(v -> changeSource());
         row3.addView(csBtn);
-
-        TextView setBtn = chapterButton("设置");
+        TextView setBtn = plainBtn("设置");
         setBtn.setOnClickListener(v -> showSettings());
         row3.addView(setBtn);
         bar.addView(row3);
         return bar;
+    }
+
+    private TextView roundBtn(String s, int w, int h) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(15);
+        t.setTextColor(ReadingSkin.TEXT);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(ReadingSkin.darkCircle(this));
+        t.setLayoutParams(new LinearLayout.LayoutParams(w, h));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    private TextView segItem(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(13);
+        t.setPadding(dp(22), dp(9), dp(22), dp(9));
+        t.setGravity(Gravity.CENTER);
+        return t;
+    }
+
+    private void refreshModeSeg() {
+        boolean h = horizontal;
+        styleSegItem(dirSegA, !h);
+        styleSegItem(dirSegB, h);
+    }
+
+    private void styleSegItem(TextView t, boolean selected) {
+        if (selected) {
+            t.setBackground(ReadingSkin.segSelectedSolid(this));
+            t.setTextColor(0xFF1A1408);
+            t.getPaint().setFakeBoldText(true);
+        } else {
+            t.setBackgroundColor(Color.TRANSPARENT);
+            t.setTextColor(ReadingSkin.SUB);
+            t.getPaint().setFakeBoldText(false);
+        }
+    }
+
+    private void setDirection(boolean h) {
+        if (horizontal == h) return;
+        horizontal = h;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putBoolean(KEY_DIRECTION, horizontal).apply();
+        refreshModeSeg();
+        applyLayoutManager();
+    }
+
+    private TextView plainBtn(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(13);
+        t.setTextColor(ReadingSkin.SUB);
+        t.setPadding(dp(16), dp(8), dp(16), dp(8));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
     }
 
     // ---------------- 设置 ----------------
@@ -427,19 +532,6 @@ public class ComicReaderActivity extends AppCompatActivity {
         changeSource();
     }
 
-    /** 轻量文字按钮：字大好点，阅读器控制栏用。 */
-    private TextView chapterButton(String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(14);
-        int hp = dp(12), vp = dp(8);
-        tv.setPadding(hp, vp, hp, vp);
-        tv.setClickable(true);
-        tv.setFocusable(true);
-        return tv;
-    }
-
     private void toggleBars() {
         setBarsVisible(!barsShown);
     }
@@ -452,9 +544,12 @@ public class ComicReaderActivity extends AppCompatActivity {
 
     private void refreshTitle() {
         ReadingSession.Chapter c = session.currentChapter();
-        String t = session.bookTitle;
-        if (!TextUtils.isEmpty(c.name) && !c.name.equals(t)) t = t + " · " + c.name;
-        tvTitle.setText(t);
+        tvTitle.setText(session.bookTitle);
+        int total = session.chapters.size();
+        String chName = TextUtils.isEmpty(c.name) ? "" : c.name;
+        tvSub.setText(chName + (total > 1
+                ? "（" + (session.chapterIndex + 1) + " / " + total + " 话）"
+                : ""));
     }
 
     private int dp(int v) {
@@ -610,7 +705,11 @@ public class ComicReaderActivity extends AppCompatActivity {
     private void updatePageLabel() {
         int total = images.size();
         int cur = total == 0 ? 0 : Math.min(currentPage() + 1, total);
-        tvPage.setText(cur + " / " + total);
+        if (tvPageLeft != null) tvPageLeft.setText(cur + " / " + total);
+        if (tvPct != null) {
+            tvPct.setText(total == 0 ? "0%"
+                    : Math.round(cur * 100f / total) + "%");
+        }
         if (seekBar != null && total > 0) {
             seekBar.setProgress(Math.min(currentPage(), total - 1));
         }

@@ -165,11 +165,21 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onActivityResumed(@NonNull Activity activity) {
         if (activity != activity()) this.activity = activity;
-    
+        // 听书迷你条：跟人走（贴各页底部、全局底栏上方）
+        try {
+            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)
+                    .onActivityResumed(activity);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
     public void onActivityPaused(@NonNull Activity activity) {
+        try {
+            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)
+                    .onActivityPaused(activity);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override

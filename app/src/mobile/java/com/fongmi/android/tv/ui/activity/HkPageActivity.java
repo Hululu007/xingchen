@@ -2337,7 +2337,7 @@ public class HkPageActivity extends BaseActivity {
         }
 
         /** 图标：URL 则加载图片，# 开头则按主色做渐变瓷砖，否则默认"海"字（v5 质感）。 */
-        private void applyIconBg(Holder h, String iconDef) {
+        private void applyIconBg(Holder h, String title, String iconDef) {
             TextView icon = h.icon;
             android.widget.ImageView ivIcon = h.ivIcon;
             // 图标形态：http(s) 地址、data: 内嵌图（很多规则的图标是 base64 内嵌，原先被当非图丢了）、
@@ -2358,13 +2358,11 @@ public class HkPageActivity extends BaseActivity {
                 // 圆角裁剪跟文字版一致
                 ivIcon.setClipToOutline(true);
                 ivIcon.setBackgroundResource(R.drawable.hk_miniapp_icon_bg);
-                try {
-                    com.fongmi.android.tv.utils.ImgUtil.load("", imgSrc, ivIcon);
-                } catch (Exception ignored) {
-                    // 加载失败回退到"海"字
-                    ivIcon.setVisibility(View.GONE);
-                    icon.setVisibility(View.VISIBLE);
-                }
+                // 小程序列表图标走 8.83 同款链：图标自身 URL 当 ruleUrl
+                // （getGlideUrl(getIcon(), getIcon())：@js= 剥离+流式解密、各 @后缀剥离组装），
+                // 异步失败回退默认图标（loadRuleIcon 内部兜底，8.83"永不空白砖"同款）。
+                // "海"字只留给 icon 字段本来就没可用 URL 的规则（下面的分支），图片分支不再回退"海"字。
+                com.fongmi.android.tv.utils.ImgUtil.loadRuleIcon(title, imgSrc, ivIcon);
                 return;
             }
             // 非 URL：显示"海"字（v5 质感：渐变底＋顶部内高光）
@@ -2431,7 +2429,7 @@ public class HkPageActivity extends BaseActivity {
             HkRule rule = (HkRule) items.get(position);
             String title = rule.getTitle();
             h.name.setText(android.text.TextUtils.isEmpty(title) ? "未命名规则" : title);
-            applyIconBg(h, rule.getIcon());
+            applyIconBg(h, title, rule.getIcon());
             // 液态玻璃卡面：共享缓冲裁剪（圆角 20dp），整卡淡染已去（样张是白透玻璃＋彩色图标砖）；图标砖取色保留
             if (h.cardBg != null) {
                 if (!(h.cardBg.getBackground() instanceof HkGlassDrawable))

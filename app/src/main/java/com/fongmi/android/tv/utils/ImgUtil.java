@@ -192,7 +192,17 @@ public class ImgUtil {
             return;
         }
         try {
-            Glide.with(view).load(getUrl(url)).listener(new RequestListener<Drawable>() {
+            // 8.83 ArticleListRuleAdapter: getGlideUrl(getIcon(), getIcon())——图标自身 URL 当 ruleUrl，
+            // 走完整后缀链（@js= 剥离+流式解密、@Headers=/@Cookie=/@Referer=/@User-Agent= 剥离组装）。
+            // line173 边界：最终 URL==ruleUrl 时自动 Referer 置空，与原版逐行一致，不自创。
+            // data:/本地文件等非 http 沿用原单参数逻辑，行为不变。
+            Object model = (url.startsWith("http://") || url.startsWith("https://"))
+                    ? getUrl(url, url) : getUrl(url);
+            if (model == null) {
+                view.setImageDrawable(defaultMiniIcon(view));
+                return;
+            }
+            Glide.with(view).load(model).listener(new RequestListener<Drawable>() {
                 @Override
                 public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
                     view.setImageDrawable(defaultMiniIcon(view));

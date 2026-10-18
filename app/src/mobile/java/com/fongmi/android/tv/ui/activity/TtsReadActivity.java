@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import com.fongmi.android.tv.read.ReadDialogs;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -352,16 +352,7 @@ public class TtsReadActivity extends Activity
         root.setBackgroundColor(0xFFF5F3EF);
         root.setPadding(dp(20), dp(48), dp(20), dp(24));
 
-        TextView close = new TextView(this);
-        close.setText("✕ 关闭");
-        close.setTextSize(14);
-        close.setTextColor(0xFF999999);
-        close.setGravity(Gravity.END);
-        close.setPadding(0, 0, 0, dp(8));
-        close.setOnClickListener(v -> onClose());
-        root.addView(close, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
+        // 顶栏不设叉：走系统返回
         TextView tvTitle = new TextView(this);
         tvTitle.setText(job.bookTitle);
         tvTitle.setTextSize(20);
@@ -707,12 +698,11 @@ public class TtsReadActivity extends Activity
     }
 
     private void pickTimer() {
-        new AlertDialog.Builder(this).setTitle("定时关闭")
-                .setItems(TIMER_ITEMS, (d, which) -> {
-                    long[] ms = {15 * 60000L, 30 * 60000L, 60 * 60000L, 0};
-                    sleepAt = ms[which] == 0 ? 0 : System.currentTimeMillis() + ms[which];
-                    tvTimer.setText(ms[which] == 0 ? "定时关" : "剩" + TIMER_ITEMS[which]);
-                }).show();
+        ReadDialogs.options(this, "定时关闭", TIMER_ITEMS, which -> {
+            long[] ms = {15 * 60000L, 30 * 60000L, 60 * 60000L, 0};
+            sleepAt = ms[which] == 0 ? 0 : System.currentTimeMillis() + ms[which];
+            tvTimer.setText(ms[which] == 0 ? "定时关" : "剩" + TIMER_ITEMS[which]);
+        });
     }
 
     private void pickVoice() {
@@ -728,9 +718,8 @@ public class TtsReadActivity extends Activity
             items[i] = v.label() + (v.storyteller ? " ★" : "");
             if (v.id.equals(cur)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("选择音色（神经人声）")
-                .setSingleChoiceItems(items, checked, (d, which) -> {
-                    d.dismiss();
+        ReadDialogs.optionsChecked(this, "选择音色（神经人声）", items, checked,
+                which -> {
                     EdgeVoice v = voices.get(which);
                     curVoice = v;
                     EdgeVoiceCatalog.setDefaultVoice(v.id);
@@ -741,10 +730,7 @@ public class TtsReadActivity extends Activity
                         Toast.makeText(this, "已换「" + v.name + "」，本段起生效",
                                 Toast.LENGTH_SHORT).show();
                     }
-                })
-                .setNeutralButton("试听当前音色", (d, w) -> trialVoice())
-                .setNegativeButton("关闭", null)
-                .show();
+                }, "试听当前音色", this::trialVoice);
     }
 
     private void trialVoice() {
@@ -786,12 +772,12 @@ public class TtsReadActivity extends Activity
     private void showToc() {
         String[] names = new String[job.chapters.size()];
         for (int i = 0; i < names.length; i++) names[i] = job.chapters.get(i).name;
-        new AlertDialog.Builder(this).setTitle(job.bookTitle + "（" + names.length + " 章）")
-                .setItems(names, (d, which) -> {
+        ReadDialogs.options(this, job.bookTitle + "（" + names.length + " 章）", names,
+                which -> {
                     saveProgress();
                     if (mService != null) player().stop();
                     prepareChapter(which, 0, false);
-                }).show();
+                });
     }
 
     private void loadVoices() {

@@ -1026,7 +1026,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.watch.setOnClickListener(view -> onWatchButton());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
-        mBinding.readDetail.setOnClickListener(view -> onManualReadEntry());
         mBinding.readMark.setOnClickListener(view -> onToggleSourceMark());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
@@ -1809,7 +1808,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setText(item);
         updateKeep();
         embyBindDetailExtras(item);
-        refreshReadDetailVisibility();
         refreshReadMarkVisibility();
         bindEmbyAiEpisodes();
         // 不漏认两层：详情打开时整页改道判定（选集已同步画出时）。
@@ -2126,13 +2124,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return true;
     }
 
-    // ================= 阅读手动入口（"用阅读器打开"） =================
-    // 判别层按"宁可漏认绝不错认"加固后，漏认的书（2 图章节、多 host 分片、
-    // <200 字短文本、正文含 URL 的小说）从这里手动补进。
-    // 本入口绕过自动判别层：放宽口径只为这一次分发阅读器（见 ReadingManual），
-    // 自动判别层一字未动。Emby 是纯视频，红线，不露入口。
-
-    private volatile boolean mManualReadingBusy = false;
+    // ================= 阅读不漏认两层（源级标记 / 详情级判别） =================
+    // 「用阅读器打开」手动兜底已摘除（2026-10-18 他拍板）：识别靠自动判别层做准。
 
     /**
      * 详情级改道进行中（不漏认两层）：源标记 / 整书判别命中后，
@@ -2143,22 +2136,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     /**
      * 本次详情访问已自动改道过一次：抑制详情级改道的二次自动触发
-     * （回到前台后不再自动跳阅读器）。用户手动点集、点手动入口不受影响，
+     * （回到前台后不再自动跳阅读器）。用户手动点集不受影响，
      * 仍可再进。生命周期与 mReadingDetailDiverting 同步，getDetail() 换书时复位。
      */
     private volatile boolean mReadingDetailDivertedOnce = false;
-
-    /** 手动入口是否隐藏：Emby 详情/播放一律不露。 */
-    private boolean isManualReadHidden() {
-        String key = getKey();
-        return isEmbyPlayback() || EmbyNavigator.SITE_KEY.equals(key) || key.startsWith("emby:");
-    }
-
-    /** 手动入口显隐：随详情绑定刷新（Emby 不露，其余常驻）。 */
-    private void refreshReadDetailVisibility() {
-        if (mBinding == null || mBinding.readDetail == null) return;
-        mBinding.readDetail.setVisibility(isManualReadHidden() ? View.GONE : View.VISIBLE);
-    }
 
     private String siteNameOf() {
         try {
@@ -2169,63 +2150,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return "";
     }
 
-    private void onManualReadEntry() {
-        if (isManualReadHidden()) return;
-        Episode episode = getEpisode();
-        if (episode == null || TextUtils.isEmpty(episode.getUrl())) {
-            Notify.show(R.string.reading_manual_none);
-            return;
-        }
-        if (mManualReadingBusy) return;
-        // 便宜通道：章节 URL 本身就是图片串（py 漫画 2 图章节 / 多 host 分片）——免解析直进。
-        if (ReadingManual.isComicRelaxed(episode.getUrl())) {
-            ReadingSession rs = ReadingManual.comicFromImages(getKey(), siteNameOf(), null,
-                    episode.getName(), episode.getUrl(), ReadingManual.realImages(episode.getUrl()));
-            openReadingSession(rs, true);
-            return;
-        }
-        mManualReadingBusy = true;
-        Notify.show(R.string.reading_manual_fetching);
-        final String key = getKey();
-        final Flag flag = getFlag();
-        final String episodeName = episode.getName();
-        final String chapterId = episode.getUrl();
-        new Thread(() -> {
-            try {
-                final ReadingSession rs = probeManualSession(key, flag, episodeName, chapterId);
-                App.post(() -> {
-                    mManualReadingBusy = false;
-                    if (isFinishing() || isDestroyed()) return;
-                    if (rs == null) {
-                        Notify.show(R.string.reading_manual_none);
-                        return;
-                    }
-                    openReadingSession(rs, true);
-                });
-            } catch (Throwable t) {
-                SpiderDebug.log("video-flow", "reading manual probe failed: %s", t.getMessage());
-                App.post(() -> {
-                    mManualReadingBusy = false;
-                    if (!isFinishing() && !isDestroyed()) Notify.show(R.string.reading_manual_none);
-                });
-            }
-        }).start();
-    }
-
-    /**
-     * 手动入口的探针分发（委托共用实现）。
-     * 与详情级改道共用 {@link ReadingManual#probeSession}：只取解析产出，
-     * 不做 Source.fetch、不写播放缓存；都不中返回 null（不打开、不入架）。
-     */
-    private ReadingSession probeManualSession(String key, Flag flag, String episodeName, String chapterId) throws Exception {
-        String playFlag = getEpisodePlayFlag(flag, findEpisode(chapterId));
-        String ruleTitle = HkDetailBridge.isHkKey(key) ? key.substring(HkDetailBridge.KEY_PREFIX.length()) : "";
-        return ReadingManual.probeSession(key, playFlag, siteNameOf(), ruleTitle, episodeName, chapterId);
-    }
-
     // ================= 阅读不漏认两层（源级标记 / 详情级判别） =================
-    // 优先级：源标记 ＞ 详情判别 ＞ 内容判别（playerContent 内） ＞ 手动入口兜底。
-    // 命中→后台探针确认内容形态（与手动入口同一分发）→开阅读器整页改道。
+    // 优先级：源标记 ＞ 详情判别 ＞ 内容判别（playerContent 内）。
+    // 命中→后台探针确认内容形态→开阅读器整页改道。
 
     /**
      * 详情级改道判定（详情打开 / 缓存展开后调用）。
@@ -2310,11 +2237,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     /**
      * 标记入口显隐：Emby / push / 海阔规则不露（只给 py、接口源）。
-     * 与 readDetail 同一判别口径，叠加：Emby 不许被标记。
      */
     private boolean isMarkHidden() {
-        if (isManualReadHidden()) return true;
         String key = getKey();
+        if (isEmbyPlayback() || EmbyNavigator.SITE_KEY.equals(key) || key.startsWith("emby:")) return true;
         if (SiteApi.PUSH.equals(key)) return true;
         return HkDetailBridge.isHkKey(key);
     }

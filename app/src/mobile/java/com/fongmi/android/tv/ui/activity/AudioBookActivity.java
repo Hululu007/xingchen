@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import com.fongmi.android.tv.read.ReadDialogs;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -297,18 +297,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         tvChapter.setGravity(Gravity.CENTER);
         tvChapter.setPadding(0, dp(6), 0, 0);
         titles.addView(tvChapter);
-        TextView close = new TextView(this);
-        close.setText("✕");
-        close.setTextSize(16);
-        close.setTextColor(ReadingSkin.FAINT);
-        close.setPadding(dp(16), dp(16), dp(16), dp(16));
-        close.setOnClickListener(v -> onClose());
-        android.widget.FrameLayout.LayoutParams clp =
-                new android.widget.FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.gravity = Gravity.END | Gravity.TOP;
-        topWrap.addView(close, clp);
+        // 顶栏不设叉：走系统返回（离页转迷你条，关闭走迷你条三路径）
         ReadingSkin.applyTopInset(topWrap, this, 8);
 
         // 专辑大封面
@@ -525,7 +514,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         t.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                 sizeDp, sizeDp));
         if (gold) {
-            t.setTextColor(0xFF1A1408);
+            t.setTextColor(0xFF0A2115);
             t.setBackground(ReadingSkin.goldCircle(this));
             try {
                 t.setElevation(dp(8));
@@ -568,7 +557,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         TextView v = new TextView(this);
         v.setText(value);
         v.setTextSize(14);
-        v.setTextColor(ReadingSkin.GOLD);
+        v.setTextColor(ReadingSkin.GOLD_TEXT);
         v.getPaint().setFakeBoldText(true);
         box.addView(v);
         box.setTag(v);
@@ -660,7 +649,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         android.graphics.drawable.GradientDrawable bg =
                 new android.graphics.drawable.GradientDrawable();
         if (selected) {
-            bg.setColor(0x38F2B33D);
+            bg.setColor(0x3845C08A);
             bg.setStroke(dp(2), ReadingSkin.GOLD);
         } else {
             bg.setColor(0x0DFFFFFF);
@@ -676,7 +665,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         n.setText(v.name);
         n.setTextSize(15);
         n.getPaint().setFakeBoldText(true);
-        n.setTextColor(selected ? ReadingSkin.GOLD : ReadingSkin.TEXT);
+        n.setTextColor(selected ? ReadingSkin.GOLD_TEXT : ReadingSkin.TEXT);
         card.addView(n);
         TextView d = new TextView(this);
         d.setText(v.portrait);
@@ -827,25 +816,24 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
 
     private void pickTimer() {
         String[] items = {"15 分钟", "30 分钟", "60 分钟", "关闭定时"};
-        new AlertDialog.Builder(this).setTitle("定时关闭")
-                .setItems(items, (d, which) -> {
-                    long[] ms = {15 * 60000L, 30 * 60000L, 60 * 60000L, 0};
-                    sleepAt = ms[which] == 0 ? 0 : System.currentTimeMillis() + ms[which];
-                    setOptValue(tvTimerVal, ms[which] == 0 ? "定时关"
-                            : "剩" + items[which]);
-                    if (ms[which] == 0) Toast.makeText(this, "已关闭定时",
-                            Toast.LENGTH_SHORT).show();
-                }).show();
+        ReadDialogs.options(this, "定时关闭", items, which -> {
+            long[] ms = {15 * 60000L, 30 * 60000L, 60 * 60000L, 0};
+            sleepAt = ms[which] == 0 ? 0 : System.currentTimeMillis() + ms[which];
+            setOptValue(tvTimerVal, ms[which] == 0 ? "定时关"
+                    : "剩" + items[which]);
+            if (ms[which] == 0) Toast.makeText(this, "已关闭定时",
+                    Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void showToc() {
         String[] names = new String[album.chapters.size()];
         for (int i = 0; i < names.length; i++) names[i] = album.chapters.get(i).name;
-        new AlertDialog.Builder(this).setTitle(album.title + "（" + names.length + " 集）")
-                .setItems(names, (d, which) -> {
+        ReadDialogs.options(this, album.title + "（" + names.length + " 集）", names,
+                which -> {
                     saveProgress();
                     playChapter(which, 0);
-                }).show();
+                });
     }
 
     private void refreshChapterLabel() {

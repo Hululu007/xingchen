@@ -19,6 +19,7 @@ import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.read.HkNovelFetcher;
+import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.utils.Task;
@@ -105,7 +106,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         android.graphics.drawable.GradientDrawable divBg =
                 new android.graphics.drawable.GradientDrawable(
                         android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-                        new int[]{0x00F2B33D, 0xFFF2B33D, 0x00F2B33D});
+                        new int[]{0x0045C08A, 0xFF45C08A, 0x0045C08A});
         divBg.setCornerRadius(dp(2));
         divider.setBackground(divBg);
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
@@ -276,7 +277,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         tvFontSize = new TextView(this);
         tvFontSize.setTextSize(19);
         tvFontSize.getPaint().setFakeBoldText(true);
-        tvFontSize.setTextColor(ReadingSkin.GOLD);
+        tvFontSize.setTextColor(ReadingSkin.GOLD_TEXT);
         tvFontSize.setGravity(Gravity.CENTER);
         tvFontSize.setMinWidth(dp(48));
         tvFontSize.setPadding(dp(8), 0, dp(8), 0);
@@ -343,12 +344,12 @@ public class NovelReaderActivity extends AppCompatActivity {
         ttsT.setText("▶  朗读本章");
         ttsT.setTextSize(17);
         ttsT.getPaint().setFakeBoldText(true);
-        ttsT.setTextColor(0xFF1A1408);
+        ttsT.setTextColor(0xFF0A2115);
         ttsT.setGravity(Gravity.CENTER);
         ttsBtn.addView(ttsT);
         tvTtsSub = new TextView(this);
         tvTtsSub.setTextSize(12);
-        tvTtsSub.setTextColor(0xA61A1408);
+        tvTtsSub.setTextColor(0xA60A2115);
         tvTtsSub.setGravity(Gravity.CENTER);
         tvTtsSub.setPadding(0, dp(4), 0, 0);
         tvTtsSub.setOnClickListener(v -> pickVoice());
@@ -473,7 +474,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             TextView l = new TextView(this);
             l.setText(names[i]);
             l.setTextSize(11);
-            l.setTextColor(i == cur ? ReadingSkin.GOLD : ReadingSkin.FAINT);
+            l.setTextColor(i == cur ? ReadingSkin.GOLD_TEXT : ReadingSkin.FAINT);
             l.setPadding(0, dp(4), 0, 0);
             cell.addView(l);
             cell.setOnClickListener(v -> {
@@ -500,7 +501,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             t.setGravity(Gravity.CENTER);
             if (i == cur) {
                 t.setBackground(ReadingSkin.segSelectedTint(this));
-                t.setTextColor(ReadingSkin.GOLD);
+                t.setTextColor(ReadingSkin.GOLD_TEXT);
                 t.getPaint().setFakeBoldText(true);
             } else {
                 t.setBackgroundColor(Color.TRANSPARENT);
@@ -546,19 +547,15 @@ public class NovelReaderActivity extends AppCompatActivity {
             items[i] = v.label() + (v.storyteller ? " ★" : "");
             if (v.id.equals(cur)) checked = i;
         }
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("选择音色（神经人声）")
-                .setSingleChoiceItems(items, checked, (d, which) -> {
-                    d.dismiss();
+        ReadDialogs.optionsChecked(this, "选择音色（神经人声）", items, checked,
+                which -> {
                     com.fongmi.android.tv.tts.EdgeVoice v = voices.get(which);
                     com.fongmi.android.tv.tts.EdgeVoiceCatalog
                             .setDefaultVoice(v.id);
                     refreshTtsSub();
                     Toast.makeText(this, "已换「" + v.name + "」，下次朗读生效",
                             Toast.LENGTH_SHORT).show();
-                })
-                .setPositiveButton("关闭", (d, w) -> d.dismiss())
-                .show();
+                });
     }
 
     // ---------------- 设置 ----------------
@@ -572,78 +569,59 @@ public class NovelReaderActivity extends AppCompatActivity {
                 "屏幕常亮：" + (prefs.getBoolean(KEY_KEEP_SCREEN, true) ? "开" : "关"),
                 "清除本书缓存"
         };
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("阅读设置")
-                .setItems(items, (d, which) -> {
-                    d.dismiss();
-                    switch (which) {
-                        case 0: pickPageMode(); break;
-                        case 1: pickFont(); break;
-                        case 2: pickSpacing(); break;
-                        case 3:
-                            prefs.edit().putBoolean(KEY_VOLUME_PAGE,
-                                    !prefs.getBoolean(KEY_VOLUME_PAGE, false)).apply();
-                            showSettings();
-                            break;
-                        case 4:
-                            prefs.edit().putBoolean(KEY_KEEP_SCREEN,
-                                    !prefs.getBoolean(KEY_KEEP_SCREEN, true)).apply();
-                            applyKeepScreen();
-                            showSettings();
-                            break;
-                        case 5:
-                            com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
-                            Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
-                            break;
-                    }
-                })
-                .setPositiveButton("关闭", (d, w) -> d.dismiss())
-                .show();
+        ReadDialogs.options(this, "阅读设置", items, which -> {
+            switch (which) {
+                case 0: pickPageMode(); break;
+                case 1: pickFont(); break;
+                case 2: pickSpacing(); break;
+                case 3:
+                    prefs.edit().putBoolean(KEY_VOLUME_PAGE,
+                            !prefs.getBoolean(KEY_VOLUME_PAGE, false)).apply();
+                    showSettings();
+                    break;
+                case 4:
+                    prefs.edit().putBoolean(KEY_KEEP_SCREEN,
+                            !prefs.getBoolean(KEY_KEEP_SCREEN, true)).apply();
+                    applyKeepScreen();
+                    showSettings();
+                    break;
+                case 5:
+                    com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
+                    Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
+                    break;
+            }
+        });
     }
 
     private void pickPageMode() {
         String[] modes = {"纵滑", "覆盖", "滑动"};
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("翻页模式")
-                .setSingleChoiceItems(modes, pageMode(), (d, which) -> {
-                    d.dismiss();
-                    prefs.edit().putInt(KEY_PAGE_MODE, which).apply();
-                    Toast.makeText(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT).show();
-                })
-                .setPositiveButton("取消", (d, w) -> d.dismiss())
-                .show();
+        ReadDialogs.optionsChecked(this, "翻页模式", modes, pageMode(), which -> {
+            prefs.edit().putInt(KEY_PAGE_MODE, which).apply();
+            Toast.makeText(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void pickFont() {
         String[] fonts = {"默认", "衬线", "等宽", "导入 ttf 字体…"};
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("字体")
-                .setItems(fonts, (d, which) -> {
-                    d.dismiss();
-                    if (which == 3) {
-                        pickFontFile();
-                        return;
-                    }
-                    prefs.edit().putInt(KEY_FONT, which).apply();
-                    applyTextStyle();
-                })
-                .setPositiveButton("取消", (d, w) -> d.dismiss())
-                .show();
+        ReadDialogs.options(this, "字体", fonts, which -> {
+            if (which == 3) {
+                pickFontFile();
+                return;
+            }
+            prefs.edit().putInt(KEY_FONT, which).apply();
+            applyTextStyle();
+        });
     }
 
     private void pickSpacing() {
         String[] items = {"紧凑", "标准", "疏朗"};
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("行距")
-                .setSingleChoiceItems(items, prefs.getInt(KEY_SPACING, 1), (d, which) -> {
-                    d.dismiss();
+        ReadDialogs.optionsChecked(this, "行距", items, prefs.getInt(KEY_SPACING, 1),
+                which -> {
                     prefs.edit().putInt(KEY_SPACING, which).apply();
                     float frac = currentFraction();
                     applyTextStyle();
                     scrollView.post(() -> scrollToFraction(frac));
-                })
-                .setPositiveButton("取消", (d, w) -> d.dismiss())
-                .show();
+                });
     }
 
     // ---------------- 屏幕常亮 ----------------
@@ -1015,11 +993,8 @@ public class NovelReaderActivity extends AppCompatActivity {
     private void askCacheRange() {
         String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
         int[] counts = {20, 50, Integer.MAX_VALUE};
-        new com.fongmi.android.tv.ui.hk.HkDialogs(this)
-                .setTitle("缓存章节（离线看）")
-                .setItems(items, (d, which) -> {
-                    d.dismiss();
-                    Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+        ReadDialogs.options(this, "缓存章节（离线看）", items, which -> {
+            Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
                     android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
                     com.fongmi.android.tv.read.ReadingDownload.downloadNextNovel(
                             this, session, bookKey(), counts[which], ui,
@@ -1027,9 +1002,7 @@ public class NovelReaderActivity extends AppCompatActivity {
                                     total == 0 ? "没有可缓存的新章节"
                                             : "已缓存 " + ok + " / " + total + " 章",
                                     Toast.LENGTH_SHORT).show());
-                })
-                .setPositiveButton("取消", (d, w) -> d.dismiss())
-                .show();
+        });
     }
 
     private void changeTextSize(float delta) {

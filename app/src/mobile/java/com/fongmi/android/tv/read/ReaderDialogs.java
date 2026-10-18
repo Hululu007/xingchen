@@ -16,8 +16,6 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 
-import com.fongmi.android.tv.ui.hk.HkDialogs;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -111,7 +109,7 @@ public final class ReaderDialogs {
             }
         });
 
-        AlertDialog dialog = new HkDialogs(act)
+        AlertDialog dialog = new ReadDialogs(act)
                 .setTitle(bookTitle + "（" + names.size() + "章）")
                 .setView(root)
                 .setPositiveButton("关闭", (di, w) -> di.dismiss())
@@ -236,7 +234,7 @@ public final class ReaderDialogs {
             list.addView(row);
         }
 
-        AlertDialog dialog = new HkDialogs(act)
+        AlertDialog dialog = new ReadDialogs(act)
                 .setTitle(bookTitle + " 的书签（" + marks.size() + "）")
                 .setView(root)
                 .setPositiveButton("关闭", (di, w) -> di.dismiss())

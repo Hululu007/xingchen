@@ -1,9 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
@@ -11,7 +9,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -25,6 +22,7 @@ import com.fongmi.android.tv.legado.LegadoPipeline;
 import com.fongmi.android.tv.legado.LegadoReading;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.legado.LegadoStore;
+import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
 
@@ -39,6 +37,8 @@ import java.util.List;
 public class LegadoActivity extends Activity {
 
     private static final int REQ_PICK_FILE = 1001;
+    /** 进页类型：LegadoSource.TYPE_TEXT / TYPE_IMAGE / TYPE_AUDIO（书架按栏传）。 */
+    private int pageType = LegadoSource.TYPE_TEXT;
 
     private SrcAdapter adapter;
     private final List<LegadoStore.Entry> entries = new ArrayList<>();
@@ -46,13 +46,27 @@ public class LegadoActivity extends Activity {
     private TextView countTitle;
 
     public static void start(android.content.Context context) {
-        context.startActivity(new Intent(context, LegadoActivity.class));
+        start(context, LegadoSource.TYPE_TEXT);
+    }
+
+    public static void start(android.content.Context context, int bookSourceType) {
+        Intent intent = new Intent(context, LegadoActivity.class);
+        intent.putExtra("book_source_type", bookSourceType);
+        context.startActivity(intent);
+    }
+
+    /** 类型名：小说源 / 漫画源 / 听书源（标题/添加卡/文案全跟它走）。 */
+    private String typeName() {
+        if (pageType == LegadoSource.TYPE_IMAGE) return "漫画源";
+        if (pageType == LegadoSource.TYPE_AUDIO) return "听书源";
+        return "小说源";
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ReadingSkin.fitWindowBackground(this, ReadingSkin.PAGE_BG_TOP, true);
+        pageType = getIntent().getIntExtra("book_source_type", LegadoSource.TYPE_TEXT);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(ReadingSkin.pageBackground(this));
@@ -63,13 +77,6 @@ public class LegadoActivity extends Activity {
         topBar.setPadding(dp(12), dp(16), dp(12), dp(12));
         ReadingSkin.applyTopInset(topBar, this, 16);
 
-        ImageButton back = new ImageButton(this);
-        back.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        back.setBackgroundColor(Color.TRANSPARENT);
-        back.setColorFilter(ReadingSkin.SUB);
-        back.setOnClickListener(v -> finish());
-        topBar.addView(back);
-
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
@@ -77,7 +84,7 @@ public class LegadoActivity extends Activity {
         tlp.leftMargin = dp(8);
         titles.setLayoutParams(tlp);
         TextView title = new TextView(this);
-        title.setText("小说源");
+        title.setText(typeName());
         title.setTextSize(20);
         title.getPaint().setFakeBoldText(true);
         title.setTextColor(ReadingSkin.TEXT);
@@ -89,17 +96,10 @@ public class LegadoActivity extends Activity {
         sub.setPadding(0, dp(2), 0, 0);
         titles.addView(sub);
         topBar.addView(titles);
-
-        TextView importBtn = new TextView(this);
-        importBtn.setText("＋ 导入");
-        importBtn.setTextSize(14);
-        importBtn.setTextColor(ReadingSkin.GOLD);
-        importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
-        importBtn.setOnClickListener(v -> showImportDialog());
-        topBar.addView(importBtn);
+        // 右上角「＋ 导入」已删：全页只剩添加卡一个入口（他定的单一入口）
         root.addView(topBar);
 
-        // 添加大卡：两个并排入口（走原有导入逻辑）
+        // 添加大卡：唯一的导入入口，三路并排（文件 / 链接 / 粘贴）
         LinearLayout addBox = new LinearLayout(this);
         addBox.setOrientation(LinearLayout.VERTICAL);
         addBox.setBackground(ReadingSkin.glassCard(this, 16));
@@ -116,12 +116,11 @@ public class LegadoActivity extends Activity {
         addBox.setLayoutParams(alp);
         addBox.setPadding(dp(16), dp(16), dp(16), dp(16));
         TextView addTitle = new TextView(this);
-        addTitle.setText("＋ 添加小说源");
+        addTitle.setText("＋ 添加" + typeName());
         addTitle.setTextSize(17);
         addTitle.getPaint().setFakeBoldText(true);
-        addTitle.setTextColor(ReadingSkin.GOLD);
+        addTitle.setTextColor(ReadingSkin.GOLD_TEXT);
         addTitle.setGravity(Gravity.CENTER);
-        addTitle.setOnClickListener(v -> showImportDialog());
         addBox.addView(addTitle);
         LinearLayout addRow = new LinearLayout(this);
         addRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -130,6 +129,8 @@ public class LegadoActivity extends Activity {
                 v -> pickFile()));
         addRow.addView(addButton("🔗 贴链接导入", "粘贴源地址导入",
                 v -> showUrlDialog()));
+        addRow.addView(addButton("📋 粘贴导入", "粘贴源 JSON 文本",
+                v -> showPasteDialog()));
         addBox.addView(addRow);
         root.addView(addBox);
 
@@ -161,14 +162,26 @@ public class LegadoActivity extends Activity {
         root.addView(rv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        root.addView(ReadingSkin.footnote(this,
-                "漫画源在漫画栏那边单独管，两边不串。"
-                        + "源坏了只坏它自己，别的源照常看。"));
+        root.addView(ReadingSkin.footnote(this, footnoteText()));
 
         setContentView(root);
         reload();
-        // AI 口令「导入书源」直达：打开即弹导入框
-        if (getIntent().getBooleanExtra("auto_import", false)) showImportDialog();
+        // AI 口令「导入书源」直达：打开即弹粘贴导入框
+        if (getIntent().getBooleanExtra("auto_import", false)) showPasteDialog();
+    }
+
+    /** 页脚：按类型说真话，不许再写"那边单独管"。 */
+    private String footnoteText() {
+        if (pageType == LegadoSource.TYPE_IMAGE) {
+            return "这里只列漫画源。小说源、听书源在各自栏目里管，两边不串。"
+                    + "源坏了只坏它自己，别的源照常看。";
+        }
+        if (pageType == LegadoSource.TYPE_AUDIO) {
+            return "这里只列听书源。小说源、漫画源在各自栏目里管，两边不串。"
+                    + "源坏了只坏它自己，别的源照常看。";
+        }
+        return "这里只列小说源。漫画源、听书源在各自栏目里管，两边不串。"
+                + "源坏了只坏它自己，别的源照常看。";
     }
 
     /** 添加入口小按钮：金描边暗底（走原有逻辑）。 */
@@ -179,9 +192,9 @@ public class LegadoActivity extends Activity {
         btn.setGravity(Gravity.CENTER_HORIZONTAL);
         android.graphics.drawable.GradientDrawable bg =
                 new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0x1FF2B33D);
+        bg.setColor(0x1F45C08A);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(2), 0x80F2B33D);
+        bg.setStroke(dp(2), 0x8045C08A);
         btn.setBackground(bg);
         btn.setPadding(dp(8), dp(14), dp(8), dp(14));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
@@ -213,6 +226,8 @@ public class LegadoActivity extends Activity {
         for (LegadoStore.Entry e : LegadoStore.all()) {
             try {
                 LegadoSource s = LegadoStore.parse(e.json);
+                // 按进页类型过滤：两边不串
+                if (s.bookSourceType != pageType) continue;
                 entries.add(e);
                 parsed.add(s);
             } catch (Throwable ignored) {
@@ -224,34 +239,23 @@ public class LegadoActivity extends Activity {
         }
     }
 
-    // ================= 导入 =================
-
-    private void showImportDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle("导入书源")
-                .setItems(new String[]{"粘贴 JSON 文本", "选择本地文件", "输入链接"}, (d, which) -> {
-                    if (which == 0) showPasteDialog();
-                    else if (which == 1) pickFile();
-                    else showUrlDialog();
-                })
-                .show();
-    }
+    // ================= 导入（全页唯一入口：添加卡三路） =================
 
     private void showPasteDialog() {
         EditText et = new EditText(this);
-        et.setHint("粘贴书源 JSON");
+        et.setHint("粘贴" + typeName() + " JSON");
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         et.setMinLines(6);
         et.setGravity(Gravity.TOP);
-        new AlertDialog.Builder(this).setTitle("粘贴导入").setView(et)
-                .setPositiveButton("导入", (d, w) -> doImport(() -> LegadoStore.importText(et.getText().toString())))
+        new ReadDialogs(this).setTitle("粘贴导入" + typeName()).setView(et)
+                .setPositiveButton("导入书源", (d, w) -> doImport(() -> LegadoStore.importText(et.getText().toString())))
                 .setNegativeButton("取消", null).show();
     }
 
     private void showUrlDialog() {
         EditText et = new EditText(this);
         et.setHint("https://…/xxx.json");
-        new AlertDialog.Builder(this).setTitle("链接导入").setView(et)
+        new ReadDialogs(this).setTitle("链接导入" + typeName()).setView(et)
                 .setPositiveButton("拉取", (d, w) -> doImport(() -> LegadoStore.importUrl(et.getText().toString().trim())))
                 .setNegativeButton("取消", null).show();
     }
@@ -263,7 +267,7 @@ public class LegadoActivity extends Activity {
             i.addCategory(Intent.CATEGORY_OPENABLE);
             startActivityForResult(Intent.createChooser(i, "选择书源文件"), REQ_PICK_FILE);
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "打不开文件选择器（选书源文件）", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -328,7 +332,7 @@ public class LegadoActivity extends Activity {
         }
         EditText et = new EditText(this);
         et.setHint("输入书名/作者");
-        new AlertDialog.Builder(this).setTitle("在「" + s.tag() + "」搜索").setView(et)
+        new ReadDialogs(this).setTitle("在「" + s.tag() + "」搜索").setView(et)
                 .setPositiveButton("搜索", (d, w) -> doSearch(s, et.getText().toString().trim()))
                 .setNegativeButton("取消", null).show();
     }
@@ -356,9 +360,8 @@ public class LegadoActivity extends Activity {
             LegadoPipeline.Book b = books.get(i);
             names[i] = b.name + (b.author.isEmpty() ? "" : " · " + b.author);
         }
-        new AlertDialog.Builder(this).setTitle("搜索结果（" + names.length + "）")
-                .setItems(names, (d, which) -> doOpenBook(s, books.get(which)))
-                .show();
+        ReadDialogs.options(this, "搜索结果（" + names.length + "）", names,
+                which -> doOpenBook(s, books.get(which)));
     }
 
     private void doOpenBook(LegadoSource s, LegadoPipeline.Book book) {
@@ -384,8 +387,8 @@ public class LegadoActivity extends Activity {
         String[] names = new String[chapters.size()];
         for (int i = 0; i < names.length; i++) names[i] = chapters.get(i).name;
         String unit = s.bookSourceType == LegadoSource.TYPE_AUDIO ? " 集" : " 章";
-        new AlertDialog.Builder(this).setTitle(info.name + "（" + names.length + unit + "）")
-                .setItems(names, (d, which) -> {
+        ReadDialogs.options(this, info.name + "（" + names.length + unit + "）", names,
+                which -> {
                     if (s.bookSourceType == LegadoSource.TYPE_AUDIO) {
                         // 听书：专辑进听书播放页
                         LegadoAudio.AudioAlbum album =
@@ -395,8 +398,7 @@ public class LegadoActivity extends Activity {
                         ReadingSession session = LegadoReading.buildSession(s, info, chapters, which);
                         ReadingRouter.openReading(this, session);
                     }
-                })
-                .show();
+                });
     }
 
     // ================= 列表 =================
@@ -515,9 +517,9 @@ public class LegadoActivity extends Activity {
             int tc, bc;
             switch (type) {
                 case LegadoSource.TYPE_AUDIO:
-                    tc = ReadingSkin.GOLD;
-                    bc = 0x66F2B33D;
-                    bg.setColor(0x1AF2B33D);
+                    tc = ReadingSkin.GOLD_TEXT;
+                    bc = 0x6645C08A;
+                    bg.setColor(0x1A45C08A);
                     break;
                 case LegadoSource.TYPE_IMAGE:
                     tc = 0xFFFFC4DA;
@@ -559,7 +561,7 @@ public class LegadoActivity extends Activity {
                 h.dot.setBackground(dotBg(checked));
             });
             h.del.setOnClickListener(v -> {
-                new AlertDialog.Builder(LegadoActivity.this)
+                new ReadDialogs(LegadoActivity.this)
                         .setTitle("删除书源「" + s.tag() + "」？")
                         .setPositiveButton("删除", (d, w) -> {
                             LegadoStore.delete(s.bookSourceUrl);

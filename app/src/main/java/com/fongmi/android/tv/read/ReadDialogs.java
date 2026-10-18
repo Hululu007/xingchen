@@ -1,0 +1,151 @@
+package com.fongmi.android.tv.read;
+
+import android.content.Context;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+
+import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ui.activity.ReadingSkin;
+
+/**
+ * 阅读弹窗统一入口：深色毛玻璃主题＋统一淡入淡出。
+ * 用法：把 new AlertDialog.Builder(...) / new HkDialogs(...) 换成 new ReadDialogs(...)，
+ * 其余链式调用一字不动。只换弹窗的皮（主题背景/圆角/按钮与列表字色/淡入动画）；
+ * 文案、按钮个数与顺序、点击回调逻辑一律不动。
+ *
+ * 选项类弹窗（原 setItems / setSingleChoiceItems）走 {@link #options} /
+ * {@link #optionsChecked}：选项为独立卡片、有间距（他 2026-10-10 定的规矩）。
+ */
+public class ReadDialogs extends AlertDialog.Builder {
+
+    public ReadDialogs(@NonNull Context context) {
+        super(context, R.style.ThemeOverlay_XingChen_GlassDialog_Dark);
+    }
+
+    @NonNull
+    @Override
+    public AlertDialog create() {
+        AlertDialog dialog = super.create();
+        Window window = dialog.getWindow();
+        if (window != null) window.setWindowAnimations(R.style.HkDialogFade);
+        return dialog;
+    }
+
+    /** 选项回调。 */
+    public interface OnSelect {
+        void onSelect(int which);
+    }
+
+    /** 选项卡片弹窗：点选即回调并关闭（原 setItems 语义）。 */
+    public static void options(Context context, String title, String[] items,
+                               OnSelect onSelect) {
+        optionsChecked(context, title, items, -1, onSelect);
+    }
+
+    /**
+     * 单选卡片弹窗：checked 项金色描边高亮（原 setSingleChoiceItems 语义：
+     * 本阅读域内调用处均为"点选即生效并关闭"，故不保留 radio 常驻形态）。
+     */
+    public static void optionsChecked(Context context, String title, String[] items,
+                                      int checked, OnSelect onSelect) {
+        optionsChecked(context, title, items, checked, onSelect, null, null);
+    }
+
+    /**
+     * 带页脚按钮的单选卡片弹窗（对齐原 neutralButton，如"试听当前音色"）。
+     * 页脚按钮只执行回调，不关闭弹窗（调用方自行决定）。
+     */
+    public static void optionsChecked(Context context, String title, String[] items,
+                                      int checked, OnSelect onSelect,
+                                      String footerText, Runnable onFooter) {
+        final AlertDialog[] holder = new AlertDialog[1];
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = ReadingSkin.dp(context, 20);
+        root.setPadding(pad, pad, pad, pad);
+
+        TextView tvTitle = new TextView(context);
+        tvTitle.setText(title);
+        tvTitle.setTextSize(17);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setTextColor(ReadingSkin.TEXT);
+        tvTitle.setPadding(0, 0, 0, ReadingSkin.dp(context, 12));
+        root.addView(tvTitle);
+
+        ScrollView sv = new ScrollView(context);
+        LinearLayout list = new LinearLayout(context);
+        list.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < items.length; i++) {
+            final int which = i;
+            TextView card = new TextView(context);
+            card.setText(items[i]);
+            card.setTextSize(15);
+            card.setTextColor(i == checked ? ReadingSkin.GOLD_TEXT : ReadingSkin.TEXT);
+            card.setGravity(Gravity.CENTER_VERTICAL);
+            int cp = ReadingSkin.dp(context, 14);
+            card.setPadding(cp, ReadingSkin.dp(context, 13), cp,
+                    ReadingSkin.dp(context, 13));
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(ReadingSkin.dp(context, 12));
+            if (i == checked) {
+                bg.setColor(0x1A45C08A);
+                bg.setStroke(ReadingSkin.dp(context, 2), 0x8C45C08A);
+            } else {
+                bg.setColor(0x14FFFFFF);
+                bg.setStroke(1, 0x29FFFFFF);
+            }
+            card.setBackground(bg);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = ReadingSkin.dp(context, 8);
+            card.setLayoutParams(lp);
+            card.setOnClickListener(v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                onSelect.onSelect(which);
+            });
+            list.addView(card);
+        }
+        sv.addView(list, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(sv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        holder[0] = new ReadDialogs(context).setView(root).create();
+        // 卡片列表自带滚动：项多时限高 70% 屏高，避免超长列表顶出屏幕
+        if (items.length > 8) {
+            int maxH = (int) (context.getResources().getDisplayMetrics().heightPixels * 0.7);
+            sv.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, maxH));
+        }
+        if (footerText != null && onFooter != null) {
+            TextView footer = new TextView(context);
+            footer.setText(footerText);
+            footer.setTextSize(14);
+            footer.getPaint().setFakeBoldText(true);
+            footer.setTextColor(ReadingSkin.GOLD_TEXT);
+            footer.setGravity(Gravity.CENTER);
+            int fp = ReadingSkin.dp(context, 12);
+            footer.setPadding(fp, fp, fp, fp);
+            LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            flp.topMargin = ReadingSkin.dp(context, 4);
+            footer.setLayoutParams(flp);
+            footer.setOnClickListener(v -> onFooter.run());
+            root.addView(footer);
+        }
+        holder[0].show();
+    }
+}

@@ -25,6 +25,7 @@ import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.legado.LegadoStore;
 import com.fongmi.android.tv.localbook.LocalBookImporter;
+import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
@@ -138,15 +139,16 @@ public class ReadingShelfActivity extends AppCompatActivity {
         TextView srcBtn = new TextView(this);
         srcBtn.setText("书源");
         srcBtn.setTextSize(16);
-        srcBtn.setTextColor(ReadingSkin.GOLD);
+        srcBtn.setTextColor(ReadingSkin.GOLD_TEXT);
         srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
-        srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
+        srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this,
+                currentType()));
         topBar.addView(srcBtn);
 
         importBtn = new TextView(this);
         importBtn.setText("本地");
         importBtn.setTextSize(16);
-        importBtn.setTextColor(ReadingSkin.GOLD);
+        importBtn.setTextColor(ReadingSkin.GOLD_TEXT);
         importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         importBtn.setOnClickListener(v -> showImportMenu());
         topBar.addView(importBtn);
@@ -204,7 +206,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         if (novel) {
             contentBox.addView(ReadingSkin.sectionHeader(this, "在看的小说", "长按移除", null));
             if (novels.isEmpty()) contentBox.addView(emptyView(
-                    "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说"));
+                    "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说，或去听一本书"));
             else for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));
             if (latestAudio != null) {
                 contentBox.addView(ReadingSkin.sectionHeader(this, "听书", "小说直接听", null));
@@ -374,7 +376,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         btnGo.setText("继续读");
         btnGo.setTextSize(13);
         btnGo.getPaint().setFakeBoldText(true);
-        btnGo.setTextColor(0xFF1A1408);
+        btnGo.setTextColor(0xFF0A2115);
         btnGo.setBackground(ReadingSkin.goldCapsule(c));
         btnGo.setPadding(dp(16), dp(8), dp(16), dp(8));
         row.addView(btnGo);
@@ -474,12 +476,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
         if (isTts) {
             TextView pill = new TextView(c);
             pill.setTextSize(12);
-            pill.setTextColor(ReadingSkin.GOLD);
+            pill.setTextColor(ReadingSkin.GOLD_TEXT);
             pill.setPadding(dp(10), dp(4), dp(10), dp(4));
             GradientDrawable pbg = new GradientDrawable();
             pbg.setCornerRadius(dp(999));
-            pbg.setStroke(dp(2), 0x80F2B33D);
-            pbg.setColor(0x1AF2B33D);
+            pbg.setStroke(dp(2), 0x8045C08A);
+            pbg.setColor(0x1A45C08A);
             pill.setBackground(pbg);
             pill.setText(defaultVoiceLabel());
             LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
@@ -494,12 +496,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
         TextView play = new TextView(c);
         play.setText("▶");
         play.setTextSize(20);
-        play.setTextColor(0xFF1A1408);
+        play.setTextColor(0xFF0A2115);
         play.setGravity(Gravity.CENTER);
         int ps = dp(52);
         GradientDrawable playBg = new GradientDrawable();
         playBg.setShape(GradientDrawable.OVAL);
-        playBg.setColors(new int[]{0xFFF6C65E, 0xFFE8A93B});
+        playBg.setColors(new int[]{0xFF63D99D, 0xFF379B63});
         playBg.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
         play.setBackground(playBg);
         play.setLayoutParams(new LinearLayout.LayoutParams(ps, ps));
@@ -553,12 +555,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
         go.setText("去逛逛");
         go.setTextSize(12);
         go.getPaint().setFakeBoldText(true);
-        go.setTextColor(0xFF1A1408);
+        go.setTextColor(0xFF0A2115);
         go.setBackground(ReadingSkin.goldCapsule(c));
         go.setPadding(dp(14), dp(7), dp(14), dp(7));
         card.addView(go);
 
-        View.OnClickListener open = v -> LegadoActivity.start(ReadingShelfActivity.this);
+        View.OnClickListener open = v -> LegadoActivity.start(ReadingShelfActivity.this,
+                LegadoSource.TYPE_AUDIO);
         card.setOnClickListener(open);
         go.setOnClickListener(open);
         return card;
@@ -584,14 +587,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
         icon.setText(novelTab ? "书" : "漫");
         icon.setTextSize(20);
         icon.getPaint().setFakeBoldText(true);
-        icon.setTextColor(ReadingSkin.GOLD);
+        icon.setTextColor(ReadingSkin.GOLD_TEXT);
         icon.setGravity(Gravity.CENTER);
         int is = dp(44);
         GradientDrawable ibg = new GradientDrawable();
         ibg.setCornerRadius(dp(11));
-        ibg.setColors(new int[]{0x4DF2B33D, 0x14F2B33D});
+        ibg.setColors(new int[]{0x4D45C08A, 0x1445C08A});
         ibg.setOrientation(GradientDrawable.Orientation.TL_BR);
-        ibg.setStroke(dp(2), 0x66F2B33D);
+        ibg.setStroke(dp(2), 0x6645C08A);
         icon.setBackground(ibg);
         icon.setLayoutParams(new LinearLayout.LayoutParams(is, is));
         card.addView(icon);
@@ -627,7 +630,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         arrow.setTextColor(ReadingSkin.FAINT);
         card.addView(arrow);
 
-        card.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
+        card.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this,
+                novelTab ? LegadoSource.TYPE_TEXT : LegadoSource.TYPE_IMAGE));
         return card;
     }
 
@@ -747,33 +751,43 @@ public class ReadingShelfActivity extends AppCompatActivity {
                     new android.graphics.drawable.GradientDrawable(
                             android.graphics.drawable.GradientDrawable
                                     .Orientation.TOP_BOTTOM,
-                            new int[]{0x4DF2B33D, 0x29F2B33D});
+                            new int[]{0x4D45C08A, 0x2945C08A});
             bg.setCornerRadius(dp(999));
-            bg.setStroke(dp(2), 0x8CF2B33D);
+            bg.setStroke(dp(2), 0x8C45C08A);
             tv.setBackground(bg);
-            tv.setTextColor(ReadingSkin.GOLD);
+            tv.setTextColor(ReadingSkin.GOLD_TEXT);
         } else {
             tv.setBackgroundColor(Color.TRANSPARENT);
             tv.setTextColor(ReadingSkin.SUB);
         }
     }
 
-    private void showImportMenu() {
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("导入本地书")
-                .setItems(new String[]{"导入文件（txt / epub / pdf / mobi / azw3 / zip / cbz / cbr / cb7）", "导入图片文件夹"},
-                        (d, which) -> {
-                            if (which == 0) pickFiles();
-                            else pickTree();
-                        })
-                .show();
+    /** 当前栏对应的书源类型：小说栏→文本源，漫画栏→图片源。 */
+    private int currentType() {
+        return "COMIC".equals(currentTab) ? LegadoSource.TYPE_IMAGE : LegadoSource.TYPE_TEXT;
     }
 
-    private void pickFiles() {
+    private void showImportMenu() {
+        boolean comic = "COMIC".equals(currentTab);
+        String[] items = comic
+                ? new String[]{"导入文件（zip / cbz / cbr / cb7 图包）", "导入图片文件夹"}
+                : new String[]{"导入文件（txt / epub / pdf / mobi / azw3 / zip / cbz / cbr / cb7）",
+                        "导入图片文件夹"};
+        ReadDialogs.options(this, comic ? "导入本地漫画" : "导入本地书", items,
+                which -> {
+                    if (which == 0) pickFiles(comic);
+                    else pickTree();
+                });
+    }
+
+    private void pickFiles(boolean comic) {
         Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         it.addCategory(Intent.CATEGORY_OPENABLE);
         it.setType("*/*");
-        it.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+        it.putExtra(Intent.EXTRA_MIME_TYPES, comic ? new String[]{
+                "application/zip",
+                "application/x-cbz", "application/x-cbr", "application/x-cb7",
+                "application/x-zip-compressed"} : new String[]{
                 "text/plain", "application/epub+zip", "application/pdf",
                 "application/x-mobipocket-ebook", "application/zip",
                 "application/x-cbz", "application/x-cbr", "application/x-cb7",
@@ -782,7 +796,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         try {
             filePicker.launch(it);
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "打不开文件选择器（选书）", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -790,7 +804,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         try {
             treePicker.launch(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE));
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件夹选择器", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "打不开文件夹选择器（选书）", Toast.LENGTH_SHORT).show();
         }
     }
 

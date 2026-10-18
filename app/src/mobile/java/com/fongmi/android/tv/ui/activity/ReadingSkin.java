@@ -26,9 +26,17 @@ public final class ReadingSkin {
     private ReadingSkin() {
     }
 
-    public static final int GOLD = 0xFFF2B33D;
-    public static final int GOLD_DARK = 0xFFD89A2B;
-    public static final int GOLD_DEEP = 0xFFE8A93B;
+    /**
+     * 点缀色（2026-10-18 他选 B 青绿，gen.py VARIANTS B）：
+     * GOLD＝主色 #45C08A；GOLD_TEXT＝深底提亮字 #6FE0A8；
+     * GOLD_BTN_TEXT＝渐变钮上的深字 #0A2115。
+     * 常量名沿用 GOLD 系（调用方不动），小说阅读器三种纸色主题是内容色、不在此列。
+     */
+    public static final int GOLD = 0xFF45C08A;
+    public static final int GOLD_TEXT = 0xFF6FE0A8;
+    public static final int GOLD_BTN_TEXT = 0xFF0A2115;
+    public static final int GOLD_DARK = 0xFF1F7A4D;
+    public static final int GOLD_DEEP = 0xFF2FA36C;
     public static final int TEXT = 0xFFF4F2EC;
     public static final int SUB = 0x99F4F2EC;
     public static final int FAINT = 0x66F4F2EC;
@@ -55,7 +63,7 @@ public final class ReadingSkin {
         glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         glow.setGradientRadius(dp(c, 380));
         glow.setGradientCenter(0.5f, 0f);
-        glow.setColors(new int[]{0x2BF2B33D, 0x00000000});
+        glow.setColors(new int[]{0x2B45C08A, 0x00000000});
         GradientDrawable base = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{PAGE_BG_TOP, PAGE_BG_BOTTOM});
@@ -103,21 +111,21 @@ public final class ReadingSkin {
         return d;
     }
 
-    /** 金胶囊钮底：金渐变。 */
+    /** 青绿胶囊钮底：B 方案 btn_top→btn_bot 渐变（字用 GOLD_BTN_TEXT）。 */
     public static GradientDrawable goldCapsule(Context c) {
         GradientDrawable d = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFFF6C65E, 0xFFE8A93B});
+                new int[]{0xFF63D99D, 0xFF379B63});
         d.setCornerRadius(dp(c, 999));
         return d;
     }
 
-    /** 金虚线框（添加卡）。 */
+    /** 青绿虚线框（添加卡）。 */
     public static GradientDrawable goldDashed(Context c, int radiusDp) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(0x0DF2B33D);
+        d.setColor(0x0D45C08A);
         d.setCornerRadius(dp(c, radiusDp));
-        d.setStroke(dp(c, 2), 0x73F2B33D, dp(c, 10), dp(c, 7));
+        d.setStroke(dp(c, 2), 0x7345C08A, dp(c, 10), dp(c, 7));
         return d;
     }
 
@@ -130,11 +138,11 @@ public final class ReadingSkin {
         return d;
     }
 
-    /** 金圆钮底。 */
+    /** 青绿圆钮底。 */
     public static GradientDrawable goldCircle(Context c) {
         GradientDrawable d = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFFF6C65E, 0xFFDE9A26});
+                new int[]{0xFF63D99D, 0xFF379B63});
         d.setShape(GradientDrawable.OVAL);
         return d;
     }
@@ -148,20 +156,20 @@ public final class ReadingSkin {
         return d;
     }
 
-    /** 分段选中：金底（漫画稿）或金 tint＋金字（小说稿），调用方选。 */
+    /** 分段选中：青绿底（漫画稿）或青绿 tint＋青绿字（小说稿），调用方选。 */
     public static GradientDrawable segSelectedSolid(Context c) {
         GradientDrawable d = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFFF6C65E, 0xFFE8A93B});
+                new int[]{0xFF63D99D, 0xFF379B63});
         d.setCornerRadius(dp(c, 999));
         return d;
     }
 
     public static GradientDrawable segSelectedTint(Context c) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(0x38F2B33D);
+        d.setColor(0x3845C08A);
         d.setCornerRadius(dp(c, 999));
-        d.setStroke(dp(c, 2), 0x8CF2B33D);
+        d.setStroke(dp(c, 2), 0x8C45C08A);
         return d;
     }
 
@@ -172,7 +180,7 @@ public final class ReadingSkin {
         track.setCornerRadius(dp(c, 999));
         GradientDrawable fill = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{GOLD_DARK, 0xFFF2C95D});
+                new int[]{GOLD_DEEP, 0xFF63D99D});
         fill.setCornerRadius(dp(c, 999));
         ClipDrawable clip = new ClipDrawable(fill, Gravity.START,
                 ClipDrawable.HORIZONTAL);

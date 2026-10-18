@@ -27,7 +27,7 @@ import com.fongmi.android.tv.api.hk.HkRouter;
 import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
-import com.fongmi.android.tv.ui.hk.HkDialogs;
+import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Task;
 
@@ -277,7 +277,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         prow.setOrientation(LinearLayout.HORIZONTAL);
         prow.setGravity(Gravity.CENTER_VERTICAL);
         tvPageLeft = new TextView(this);
-        tvPageLeft.setTextColor(ReadingSkin.GOLD);
+        tvPageLeft.setTextColor(ReadingSkin.GOLD_TEXT);
         tvPageLeft.setTextSize(13);
         prow.addView(tvPageLeft);
         seekBar = new SeekBar(this);
@@ -302,7 +302,7 @@ public class ComicReaderActivity extends AppCompatActivity {
             }
         });
         tvPct = new TextView(this);
-        tvPct.setTextColor(ReadingSkin.GOLD);
+        tvPct.setTextColor(ReadingSkin.GOLD_TEXT);
         tvPct.setTextSize(13);
         prow.addView(tvPct);
         bar.addView(prow);
@@ -396,7 +396,7 @@ public class ComicReaderActivity extends AppCompatActivity {
     private void styleSegItem(TextView t, boolean selected) {
         if (selected) {
             t.setBackground(ReadingSkin.segSelectedSolid(this));
-            t.setTextColor(0xFF1A1408);
+            t.setTextColor(0xFF0A2115);
             t.getPaint().setFakeBoldText(true);
         } else {
             t.setBackgroundColor(Color.TRANSPARENT);
@@ -437,10 +437,7 @@ public class ComicReaderActivity extends AppCompatActivity {
                         .getBoolean(KEY_KEEP_SCREEN, true) ? "开" : "关"),
                 "清除本书缓存"
         };
-        new HkDialogs(this)
-                .setTitle("漫画设置")
-                .setItems(items, (d, which) -> {
-                    d.dismiss();
+        ReadDialogs.options(this, "漫画设置", items, which -> {
                     android.content.SharedPreferences p =
                             getSharedPreferences(PREFS, MODE_PRIVATE);
                     switch (which) {
@@ -471,9 +468,7 @@ public class ComicReaderActivity extends AppCompatActivity {
                             Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
                             break;
                     }
-                })
-                .setPositiveButton("关闭", (d, w) -> d.dismiss())
-                .show();
+        });
     }
 
     // ---------------- 书签 ----------------
@@ -683,11 +678,8 @@ public class ComicReaderActivity extends AppCompatActivity {
     private void askCacheRange() {
         String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
         int[] counts = {20, 50, Integer.MAX_VALUE};
-        new HkDialogs(this)
-                .setTitle("缓存章节（离线看）")
-                .setItems(items, (d, which) -> {
-                    d.dismiss();
-                    Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+        ReadDialogs.options(this, "缓存章节（离线看）", items, which -> {
+            Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
                     android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
                     com.fongmi.android.tv.read.ReadingDownload.downloadNextComic(
                             this, session, bookKey(), counts[which], ui,
@@ -695,9 +687,7 @@ public class ComicReaderActivity extends AppCompatActivity {
                                     total == 0 ? "没有可缓存的新章节"
                                             : "已缓存 " + ok + " / " + total + " 章",
                                     Toast.LENGTH_SHORT).show());
-                })
-                .setPositiveButton("取消", (d, w) -> d.dismiss())
-                .show();
+        });
     }
 
     // ---------------- 进度 ----------------

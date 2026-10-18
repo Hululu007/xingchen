@@ -20,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -43,6 +44,33 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private final List<ReadingStore.Record> records = new ArrayList<>();
     private ShelfAdapter adapter;
     private TextView tvEmpty;
+    /** 当前栏："NOVEL"/"COMIC"，小说漫画分开归栏。 */
+    private String currentTab = "NOVEL";
+    private TextView tabNovel;
+    private TextView tabComic;
+    private TextView importBtn;
+
+    private final ActivityResultLauncher<android.content.Intent> filePicker =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
+                List<android.net.Uri> uris = new ArrayList<>();
+                if (result.getData().getClipData() != null) {
+                    int n = result.getData().getClipData().getItemCount();
+                    for (int i = 0; i < n; i++) {
+                        uris.add(result.getData().getClipData().getItemAt(i).getUri());
+                    }
+                } else if (result.getData().getData() != null) {
+                    uris.add(result.getData().getData());
+                }
+                importFiles(uris);
+            });
+
+    private final ActivityResultLauncher<android.content.Intent> treePicker =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != RESULT_OK || result.getData() == null
+                        || result.getData().getData() == null) return;
+                importTree(result.getData().getData());
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -100,7 +128,27 @@ public class ReadingShelfActivity extends AppCompatActivity {
         srcBtn.setPadding(dp(12), dp(8), dp(4), dp(8));
         srcBtn.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this));
         topBar.addView(srcBtn);
+
+        importBtn = new TextView(this);
+        importBtn.setText("导入");
+        importBtn.setTextSize(15);
+        importBtn.setTextColor(0xFFB8860B);
+        importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        importBtn.setOnClickListener(v -> showImportMenu());
+        topBar.addView(importBtn);
         root.addView(topBar);
+
+        // 小说/漫画分栏
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setBackgroundColor(Color.WHITE);
+        tabs.setPadding(0, 0, 0, dp(4));
+        tabNovel = makeTab("小说", "NOVEL");
+        tabComic = makeTab("漫画", "COMIC");
+        tabs.addView(tabNovel);
+        tabs.addView(tabComic);
+        root.addView(tabs);
+        refreshTabs();
 
         FrameLayout content = new FrameLayout(this);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
@@ -133,13 +181,166 @@ public class ReadingShelfActivity extends AppCompatActivity {
 
     private void refresh() {
         records.clear();
-        records.addAll(ReadingStore.list());
+        for (ReadingStore.Record r : ReadingStore.list()) {
+            // 听书（AUDIO）归小说栏：小说栏分"看"和"听"（用户结构定案）
+            if (currentTab.equals(r.kind) || ("NOVEL".equals(currentTab) && "AUDIO".equals(r.kind))) {
+                records.add(r);
+            }
+        }
+        tvEmpty.setText("NOVEL".equals(currentTab)
+                ? "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说"
+                : "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画");
         tvEmpty.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
         adapter.notifyDataSetChanged();
     }
 
+    private TextView makeTab(String text, String tab) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(16);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(dp(24), dp(10), dp(24), dp(10));
+        tv.setOnClickListener(v -> {
+            currentTab = tab;
+            refreshTabs();
+            refresh();
+        });
+        return tv;
+    }
+
+    private void refreshTabs() {
+        boolean novel = "NOVEL".equals(currentTab);
+        tabNovel.setTextColor(novel ? 0xFFB8860B : 0xFF999999);
+        tabNovel.getPaint().setFakeBoldText(novel);
+        tabComic.setTextColor(novel ? 0xFF999999 : 0xFFB8860B);
+        tabComic.getPaint().setFakeBoldText(!novel);
+    }
+
+    private void showImportMenu() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("导入本地书")
+                .setItems(new String[]{"导入文件（txt / epub / zip / cbz）", "导入图片文件夹"},
+                        (d, which) -> {
+                            if (which == 0) pickFiles();
+                            else pickTree();
+                        })
+                .show();
+    }
+
+    private void pickFiles() {
+        Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        it.addCategory(Intent.CATEGORY_OPENABLE);
+        it.setType("*/*");
+        it.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                "text/plain", "application/epub+zip", "application/zip",
+                "application/x-cbz", "application/x-zip-compressed"});
+        it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try {
+            filePicker.launch(it);
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void pickTree() {
+        try {
+            treePicker.launch(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE));
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开文件夹选择器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void setImporting(boolean on) {
+        importBtn.setEnabled(!on);
+        importBtn.setText(on ? "导入中…" : "导入");
+    }
+
+    private void importFiles(List<android.net.Uri> uris) {
+        if (uris.isEmpty()) return;
+        setImporting(true);
+        new Thread(() -> {
+            int ok = 0;
+            String err = "";
+            for (android.net.Uri u : uris) {
+                try {
+                    LocalBookImporter.importUri(getApplicationContext(), u);
+                    ok++;
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+            }
+            final int fOk = ok;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                setImporting(false);
+                if (fOk > 0) {
+                    Toast.makeText(ReadingShelfActivity.this,
+                            "导入成功 " + fOk + " 本" + (fErr.isEmpty() ? "" : "；失败：" + fErr),
+                            Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(ReadingShelfActivity.this, "导入失败：" + fErr,
+                            Toast.LENGTH_LONG).show();
+                }
+                refresh();
+            });
+        }).start();
+    }
+
+    private void importTree(android.net.Uri treeUri) {
+        setImporting(true);
+        new Thread(() -> {
+            String err = "";
+            int ok = 0;
+            try {
+                getContentResolver().takePersistableUriPermission(treeUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignored) {
+            }
+            try {
+                LocalBookImporter.importTree(getApplicationContext(), treeUri);
+                ok = 1;
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final int fOk = ok;
+            final String fErr = err;
+            runOnUiThread(() -> {
+                setImporting(false);
+                Toast.makeText(ReadingShelfActivity.this,
+                        fOk > 0 ? "导入成功" : "导入失败：" + fErr, Toast.LENGTH_LONG).show();
+                refresh();
+            });
+        }).start();
+    }
+
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * 听书续播：按记录重建单集专辑（与阅读续读同口径：章节表缺失时单章模式）。
+     * AudioBookActivity 进页后按 AUDIO 记录自动恢复位置。
+     */
+    private void openAudioRecord(ReadingStore.Record r) {
+        try {
+            LegadoAudio.AudioAlbum a = new LegadoAudio.AudioAlbum();
+            a.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            a.sourceName = r.sourceName == null ? "" : r.sourceName;
+            a.title = r.bookTitle == null ? "" : r.bookTitle;
+            a.coverUrl = r.coverUrl == null ? "" : r.coverUrl;
+            a.chapters.add(new LegadoAudio.Chapter(
+                    r.chapterName == null ? "" : r.chapterName,
+                    r.chapterUrl == null ? "" : r.chapterUrl));
+            a.index = 0;
+            AudioBookActivity.start(this, LegadoAudio.put(a));
+        } catch (Throwable t) {
+            Toast.makeText(this, "打开失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String fmtMs(int ms) {
+        long s = Math.max(0, ms) / 1000;
+        return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
     }
 
     private class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.Holder> {
@@ -221,6 +422,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
             h.tvSub.setText(r.sourceName + " · " + r.chapterName + " · " + time);
             if ("NOVEL".equals(r.kind)) {
                 h.tvProgress.setText("已读 " + Math.round(r.position / 100f) + "%");
+            } else if ("AUDIO".equals(r.kind)) {
+                h.tvProgress.setText(r.position > 0 ? "已听 " + fmtMs(r.position) : "开始听");
             } else {
                 h.tvProgress.setText(r.position > 0 ? "看到第 " + (r.position + 1) + " 张" : "开始看");
             }
@@ -230,11 +433,20 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 h.cover.setImageDrawable(null);
             }
             h.itemView.setOnClickListener(v -> {
-                ReadingRouter.openRecord(ReadingShelfActivity.this, r);
+                if ("AUDIO".equals(r.kind)) openAudioRecord(r);
+                else ReadingRouter.openRecord(ReadingShelfActivity.this, r);
             });
             h.itemView.setOnLongClickListener(v -> {
                 ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
-                Toast.makeText(ReadingShelfActivity.this, "已从书架移除", Toast.LENGTH_SHORT).show();
+                if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
+                    // 本地书：连书文件一起删，不在私有目录留垃圾
+                    com.fongmi.android.tv.localbook.LocalBookStore.remove(r.localId);
+                    Toast.makeText(ReadingShelfActivity.this, "已删除本地书",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
+                            Toast.LENGTH_SHORT).show();
+                }
                 refresh();
                 return true;
             });

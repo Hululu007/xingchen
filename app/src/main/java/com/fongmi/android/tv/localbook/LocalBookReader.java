@@ -1,0 +1,160 @@
+package com.fongmi.android.tv.localbook;
+
+import android.text.TextUtils;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.zip.ZipFile;
+
+/**
+ * 阅读器懒取面：小说取正文、漫画取图片，都只读当前章，不整本进内存。
+ * 图包图片按章解到缓存目录（读前清空上一章），图片文件夹直接给 file://。
+ */
+public class LocalBookReader {
+
+    /** 单章图片上限（防畸形包）。 */
+    private static final int MAX_IMAGES_PER_CHAPTER = 3000;
+
+    public static boolean isLocal(String url) {
+        return LocalBook.isLocalUrl(url);
+    }
+
+    private static LocalBook bookOf(String url) {
+        String[] p = LocalBook.parseUrl(url);
+        if (p == null) return null;
+        return LocalBookStore.get(p[0]);
+    }
+
+    private static LocalBook.ChapterRef chapterOf(LocalBook book, String url) {
+        try {
+            String[] p = LocalBook.parseUrl(url);
+            int idx = Integer.parseInt(p[1]);
+            if (idx < 0 || idx >= book.chapters.size()) return null;
+            return book.chapters.get(idx);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 小说：取某章正文。 */
+    public static String textOf(String url) {
+        try {
+            LocalBook book = bookOf(url);
+            if (book == null) return "";
+            LocalBook.ChapterRef ref = chapterOf(book, url);
+            if (ref == null) return "";
+            if ("TXT".equals(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists()) return "";
+                return ref.charMode
+                        ? LocalTxtIndex.readChapterCharMode(f, book.charset, ref)
+                        : LocalTxtIndex.readChapter(f, book.charset, ref);
+            }
+            if ("EPUB".equals(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists() || TextUtils.isEmpty(ref.entry)) return "";
+                LocalEpub.Book eb = LocalEpub.parse(f);
+                for (LocalEpub.SpineItem item : eb.spine) {
+                    if (item.path.equals(ref.entry)) return LocalEpub.textOf(f, item);
+                }
+            }
+            return "";
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 漫画：取某章图片（file:// 绝对路径，阅读器直接加载）。 */
+    public static List<String> imagesOf(String url) {
+        List<String> out = new ArrayList<>();
+        try {
+            LocalBook book = bookOf(url);
+            if (book == null) return out;
+            LocalBook.ChapterRef ref = chapterOf(book, url);
+            if (ref == null) return out;
+            if ("DIR".equals(book.format)) {
+                File files = new File(book.dir, "files");
+                if (!files.exists()) return out;
+                out.addAll(LocalBookImporter.dirImages(files, ref.entry));
+            } else if ("ZIP".equals(book.format) || "CBZ".equals(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists()) return out;
+                out.addAll(extractChapterImages(f, book, ref));
+            } else if ("EPUB".equals(book.format)) {
+                File f = new File(book.dir, book.fileName);
+                if (!f.exists() || TextUtils.isEmpty(ref.entry)) return out;
+                out.addAll(extractEpubChapterImages(f, book, ref));
+            }
+            if (out.size() > MAX_IMAGES_PER_CHAPTER) {
+                return new ArrayList<>(out.subList(0, MAX_IMAGES_PER_CHAPTER));
+            }
+            return out;
+        } catch (Throwable t) {
+            return out;
+        }
+    }
+
+    private static List<String> extractChapterImages(File zipFile, LocalBook book,
+                                                     LocalBook.ChapterRef ref) throws Exception {
+        List<String> out = new ArrayList<>();
+        File cache = chapterCache(book.id);
+        try (ZipFile zip = new ZipFile(zipFile)) {
+            List<String> entries = LocalArchive.imagesOf(zip, ref);
+            int i = 0;
+            for (String name : entries) {
+                if (i >= MAX_IMAGES_PER_CHAPTER) break;
+                String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : ".jpg";
+                File target = new File(cache, String.format("%04d%s", i, ext));
+                LocalArchive.extractTo(zip, name, target);
+                out.add("file://" + target.getAbsolutePath());
+                i++;
+            }
+        }
+        return out;
+    }
+
+    private static List<String> extractEpubChapterImages(File epubFile, LocalBook book,
+                                                         LocalBook.ChapterRef ref) throws Exception {
+        List<String> out = new ArrayList<>();
+        File cache = chapterCache(book.id);
+        LocalEpub.Book eb = LocalEpub.parse(epubFile);
+        LocalEpub.SpineItem hit = null;
+        for (LocalEpub.SpineItem item : eb.spine) {
+            if (item.path.equals(ref.entry)) {
+                hit = item;
+                break;
+            }
+        }
+        if (hit == null) return out;
+        List<String> entries = LocalEpub.imagesOf(epubFile, hit, eb.opfDir);
+        try (ZipFile zip = new ZipFile(epubFile)) {
+            int i = 0;
+            for (String name : entries) {
+                if (i >= MAX_IMAGES_PER_CHAPTER) break;
+                byte[] raw = LocalEpub.rawOf(zip, name);
+                if (raw == null || raw.length == 0) continue;
+                String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : ".jpg";
+                File target = new File(cache, String.format("%04d%s", i, ext));
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(target)) {
+                    fos.write(raw);
+                }
+                out.add("file://" + target.getAbsolutePath());
+                i++;
+            }
+        }
+        return out;
+    }
+
+    private static File chapterCache(String bookId) {
+        File cache = new File(LocalBookStore.cacheDir(), bookId);
+        // 读前清空上一章，保持缓存有界
+        File[] fs = cache.listFiles();
+        if (fs != null) {
+            for (File f : fs) f.delete();
+        } else {
+            cache.mkdirs();
+        }
+        return cache;
+    }
+}

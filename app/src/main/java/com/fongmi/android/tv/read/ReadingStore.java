@@ -38,6 +38,10 @@ public class ReadingStore {
         public String siteKey = "";
         /** Legado 书源 bookSourceUrl（继续读后按章重取用）。 */
         public String legadoKey = "";
+        /** 来源：""=在线源，"local"=本地书（纯加法，老记录读回为空）。 */
+        public String origin = "";
+        /** 本地书 id（origin=local 时有效）。 */
+        public String localId = "";
         /** 小说正文快照（py 小说继续读时用，海阔小说按章重抓）。 */
         public String content = "";
         /** 漫画：看到第几张图（下标）；小说：进度万分比（0~10000，换字号也准）。 */
@@ -45,6 +49,10 @@ public class ReadingStore {
         public long updatedAt = 0L;
 
         public String key() {
+            // 本地书可能重名，按书 id 区分；在线书走老键（行为不变）
+            if ("local".equals(origin) && !TextUtils.isEmpty(localId)) {
+                return "local|" + localId;
+            }
             return kind + "|" + sourceName + "|" + bookTitle;
         }
     }
@@ -91,6 +99,15 @@ public class ReadingStore {
 
     public static boolean contains(String kind, String sourceName, String bookTitle) {
         return find(kind, sourceName, bookTitle) != null;
+    }
+
+    /** 按本地书 id 找记录。 */
+    public static Record findLocal(String localId) {
+        if (TextUtils.isEmpty(localId)) return null;
+        for (Record r : readAll()) {
+            if ("local".equals(r.origin) && localId.equals(r.localId)) return r;
+        }
+        return null;
     }
 
     /** 新增或更新进度（同键覆盖）。 */

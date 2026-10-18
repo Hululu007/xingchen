@@ -51,6 +51,8 @@ public class ReadingSession {
     public String siteKey = "";
     /** Legado 书源 bookSourceUrl（书源懒取正文/图片用）。 */
     public String legadoKey = "";
+    /** 本地书 id（localbook 包；非空=本地书，懒取走 LocalBookReader）。 */
+    public String localId = "";
     /** 起始页（漫画第几张图；阅读器打开时定位用）。 */
     public int startPage = 0;
 

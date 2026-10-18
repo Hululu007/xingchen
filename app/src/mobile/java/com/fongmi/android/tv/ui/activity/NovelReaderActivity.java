@@ -281,8 +281,9 @@ public class NovelReaderActivity extends AppCompatActivity {
                 }
                 scrollView.post(() -> {
                     if (restoreProgress) {
-                        ReadingStore.Record prog = ReadingStore.find("NOVEL",
-                                session.sourceName, session.bookTitle);
+                        ReadingStore.Record prog = !TextUtils.isEmpty(session.localId)
+                                ? ReadingStore.findLocal(session.localId)
+                                : ReadingStore.find("NOVEL", session.sourceName, session.bookTitle);
                         if (prog != null && prog.chapterIndex == session.chapterIndex && prog.position > 0) {
                             scrollToFraction(prog.position / 10000f);
                         } else {
@@ -298,8 +299,12 @@ public class NovelReaderActivity extends AppCompatActivity {
         });
     }
 
-    /** 取正文：会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。 */
+    /** 取正文：本地书 → 会话自带（py 内联首章）→ py 按章重跑解析 → 海阔按规则抓。 */
     private String resolveText(ReadingSession.Chapter ch) {
+        // 本地书：按章从私有目录懒读
+        if (com.fongmi.android.tv.localbook.LocalBookReader.isLocal(ch.url)) {
+            return com.fongmi.android.tv.localbook.LocalBookReader.textOf(ch.url);
+        }
         // py 小说首章：正文随会话内联
         if (!TextUtils.isEmpty(session.text) && ch == session.currentChapter()
                 && session.chapterIndex == 0) {
@@ -402,9 +407,12 @@ public class NovelReaderActivity extends AppCompatActivity {
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
             r.legadoKey = session.legadoKey;
+            r.localId = session.localId;
+            r.origin = TextUtils.isEmpty(session.localId) ? "" : "local";
             r.position = Math.round(currentFraction() * 10000);
-            // py 小说：正文存快照，继续读时不用重跑解析
-            if (TextUtils.isEmpty(session.ruleTitle) && !TextUtils.isEmpty(currentText)) {
+            // py 小说：正文存快照，继续读时不用重跑解析（本地书从磁盘懒读，不存快照）
+            if (TextUtils.isEmpty(session.ruleTitle) && TextUtils.isEmpty(session.localId)
+                    && !TextUtils.isEmpty(currentText)) {
                 r.content = currentText.length() > 60000
                         ? currentText.substring(0, 60000) : currentText;
             }

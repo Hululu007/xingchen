@@ -306,11 +306,15 @@ public class ComicReaderActivity extends AppCompatActivity {
         });
     }
 
-    /** 解析某章图片：会话自带（首载）→ py 内嵌串 → 海阔懒取。 */
+    /** 解析某章图片：会话自带（首载）→ 本地书 → py 内嵌串 → 海阔懒取。 */
     private List<String> resolveImages(ReadingSession.Chapter ch) {
         // 1. 首载用会话自带（判别层/入口已带入）
         if (firstLoad && !session.images.isEmpty()) {
             return new ArrayList<>(session.images);
+        }
+        // 2. 本地书：按章从私有目录懒读（图包按需解到缓存）
+        if (com.fongmi.android.tv.localbook.LocalBookReader.isLocal(ch.url)) {
+            return com.fongmi.android.tv.localbook.LocalBookReader.imagesOf(ch.url);
         }
         // 2. py：章节 url 本身就是图片串
         List<String> fromUrl = ReadingGate.imagesOfChapter(ch);
@@ -420,6 +424,8 @@ public class ComicReaderActivity extends AppCompatActivity {
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
             r.legadoKey = session.legadoKey;
+            r.localId = session.localId;
+            r.origin = TextUtils.isEmpty(session.localId) ? "" : "local";
             r.position = currentPage();
             ReadingStore.save(r);
         } catch (Throwable ignored) {

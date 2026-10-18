@@ -60,6 +60,18 @@ public class ReadingRouter {
      */
     public static void openRecord(Context context, ReadingStore.Record r) {
         if (context == null || r == null || TextUtils.isEmpty(r.bookTitle)) return;
+        // 本地书：按书 id 重建完整会话（章节表一次带入）；书没了给人话提示
+        if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
+            ReadingSession ls = com.fongmi.android.tv.localbook.LocalBookSession.fromRecord(r);
+            if (ls == null) {
+                Toast.makeText(context, "这本本地书找不到了，请重新导入", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            int sp = com.fongmi.android.tv.localbook.LocalBookSession.startPageOf(r);
+            if (sp > 0) openReadingWithStartPage(context, ls, sp);
+            else openReading(context, ls);
+            return;
+        }
         ReadingSession s = new ReadingSession();
         s.kind = "NOVEL".equals(r.kind) ? ReadingSession.Kind.NOVEL : ReadingSession.Kind.COMIC;
         s.sourceName = r.sourceName == null ? "" : r.sourceName;

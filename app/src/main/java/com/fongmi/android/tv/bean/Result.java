@@ -98,6 +98,22 @@ public class Result implements Parcelable {
     @SerializedName("drm")
     private Drm drm;
 
+    /**
+     * 阅读分流标记（transient：Gson 跳过、Parcel 不碰，只在进程内 Result 流转时携带）。
+     * 由 SiteApi 的 playerContent 判别层置入，VideoActivity.setPlayer 消费后改道阅读器。
+     */
+    private transient com.fongmi.android.tv.read.ReadingSession readingSession;
+
+    /** 取阅读会话（无则 null）。 */
+    public com.fongmi.android.tv.read.ReadingSession getReadingSession() {
+        return readingSession;
+    }
+
+    /** 置阅读会话（判别层专用）。 */
+    public void setReadingSession(com.fongmi.android.tv.read.ReadingSession session) {
+        this.readingSession = session;
+    }
+
     public Result() {
     }
 

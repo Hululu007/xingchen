@@ -240,6 +240,23 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 阅读模块：漫画阅读器 / 小说阅读器 / 书架（干净阅读体验，不堆控件） -->
+        <activity
+            android:name=".ui.activity.ComicReaderActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.activity.NovelReaderActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name=".ui.activity.ReadingShelfActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <activity
             android:name=".ui.activity.PanLoginActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

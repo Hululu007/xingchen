@@ -85,6 +85,9 @@ import com.fongmi.android.tv.api.hk.HkFavoriteStore;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkRuleManager;
+import com.fongmi.android.tv.read.ReadingGate;
+import com.fongmi.android.tv.read.ReadingRouter;
+import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Episode;
@@ -2006,7 +2009,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private boolean isUsableParseResult(Result r) {
-        return r != null && r.getUrl() != null && !TextUtils.isEmpty(r.getUrl().v());
+        // 阅读会话不进视频预解析复用：改道只发生在用户点集后的 setPlayer，
+        // 打开详情时的后台预解析命中阅读会话也不跳转（避免打开漫画详情就被拽进阅读器）。
+        return r != null && r.getUrl() != null && !TextUtils.isEmpty(r.getUrl().v())
+                && ReadingGate.extract(r) == null;
     }
 
     /**
@@ -2034,12 +2040,81 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     /**
+     * 阅读改道：判别层命中的漫画/小说 Result 在此改道阅读器。
+     * <p>
+     * 补齐阅读器需要的上下文（书名/章节名/章节表）：VideoActivity 手里有详情上下文，
+     * 判别层只带了数据本身。章节表取当前线路/选集列表。
+     * <p>
+     * 不写视频历史、不进播放器；改道后 finish 自己（阅读器接管）。
+     */
+    private boolean divertToReader(Result result) {
+        ReadingSession rs;
+        try {
+            rs = ReadingGate.extract(result);
+        } catch (Throwable t) {
+            return false;
+        }
+        if (rs == null) return false;
+        try {
+            if (TextUtils.isEmpty(rs.bookTitle) && mHistory != null) {
+                rs.bookTitle = mHistory.getVodName();
+            }
+            if (TextUtils.isEmpty(rs.bookTitle)) rs.bookTitle = getName();
+            // 章节表：判别层没带全时，用当前选集列表补（py 源章节即选集）。
+            if (rs.chapters.size() <= 1) {
+                List<Episode> eps = episodeListForReader();
+                if (eps != null && eps.size() > 1) {
+                    ReadingSession cur = rs.currentChapter();
+                    String curUrl = cur.url;
+                    rs.chapters.clear();
+                    int idx = 0;
+                    for (int i = 0; i < eps.size(); i++) {
+                        Episode e = eps.get(i);
+                        rs.chapters.add(new ReadingSession.Chapter(e.getName(), e.getUrl()));
+                        if (!TextUtils.isEmpty(curUrl) && curUrl.equals(e.getUrl())) idx = i;
+                        else if (e.isSelected()) idx = i;
+                    }
+                    rs.chapterIndex = idx;
+                }
+            }
+            ReadingSession cur = rs.currentChapter();
+            if (TextUtils.isEmpty(rs.chapterUrl)) rs.chapterUrl = cur.url;
+            SpiderDebug.log("video-flow", "reading divert open kind=%s book=%s chapters=%d",
+                    rs.kind, rs.bookTitle, rs.chapters.size());
+            ReadingRouter.openReading(this, rs);
+        } catch (Throwable t) {
+            SpiderDebug.log("video-flow", "reading divert failed: %s", t.getMessage());
+            return false;
+        }
+        finish();
+        return true;
+    }
+
+    /** 阅读器用章节表：当前线路的选集列表。 */
+    private List<Episode> episodeListForReader() {
+        try {
+            Flag flag = getFlag();
+            if (flag != null && flag.getEpisodes() != null && !flag.getEpisodes().isEmpty()) {
+                return flag.getEpisodes();
+            }
+            if (mEpisodeAdapter != null && !mEpisodeAdapter.isEmpty()) {
+                return mEpisodeAdapter.getItems();
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
      * 打点说明：replay=true 只用于 onReclaim 重播旧解析结果。此时 playerStartTime 是过期
      * 时间戳（上次 getPlayer 留的），不能再拿它算耗时——否则会算出几十秒的虚假 cost。
      * 回放单独记一行 player replay，不复用 player finish。
      */
     private void setPlayer(Result result, boolean replay) {
         if (isFinishing() || isDestroyed()) return;
+        // 阅读分流：判别层命中的漫画/小说改道阅读器，不进播放器。
+        // replay（进程重建回放）不改道：Result 序列化会丢 transient 会话。
+        if (!replay && divertToReader(result)) return;
         mUserExitedFullscreenForThisVideo = false;
         if (service() == null) {
             mPendingPlayerResult = result;

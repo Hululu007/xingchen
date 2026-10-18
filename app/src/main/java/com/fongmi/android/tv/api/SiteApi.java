@@ -22,6 +22,8 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.Source;
+import com.fongmi.android.tv.read.ReadingGate;
+import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.utils.PushNameClean;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -612,6 +614,19 @@ public class SiteApi {
         return site != null && "csp_Emby".equals(site.getApi());
     }
 
+    /**
+     * py/接口源阅读分流：只认"非视频数据"（见 {@link ReadingGate} 红线说明），
+     * Emby 源直接放行（不进判别）。
+     */
+    private static ReadingSession divertPyReading(String key, Site site, String rawUrl) {
+        try {
+            if (site == null || isEmbySite(site)) return null;
+            return ReadingGate.detectPy(key, site.getName(), null, null, rawUrl);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private static long playerCacheTtl(Site site, String finalUrl) {
         if (isEmbySite(site)) return PLAYER_CACHE_TTL_EMBY;
         try {
@@ -657,6 +672,15 @@ public class SiteApi {
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);
             if (result.getFlag().isEmpty()) result.setFlag(flag);
+            // 阅读分流（漫画/小说）：原始地址串判别，命中则跳过 Source.fetch，直接改道阅读器。
+            // 红线见 ReadingGate：Emby 链不进此分支（isEmbySite 在别处），判别只认"非视频数据"。
+            ReadingSession reading = divertPyReading(key, site, result.getUrl() == null ? null : result.getUrl().v());
+            if (reading != null) {
+                result.setReadingSession(reading);
+                result.setKey(key);
+                SpiderDebug.log("player", "reading diverted kind=%s key=%s", reading.kind, key);
+                return result;
+            }
             long fetchStart = System.currentTimeMillis();
             result.setUrl(Source.get().fetch(result, playerType));
             SpiderDebug.log("player", "fetch done key=%s cost=%dms empty=%s", key, System.currentTimeMillis() - fetchStart, result.getUrl() == null || TextUtils.isEmpty(result.getUrl().v()));
@@ -674,6 +698,14 @@ public class SiteApi {
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);
             if (result.getFlag().isEmpty()) result.setFlag(flag);
+            // 阅读分流（漫画/小说）：接口源返回同样可能带漫画图片串/小说正文，判别口径与蜘蛛源一致。
+            ReadingSession reading4 = divertPyReading(key, site, result.getUrl() == null ? null : result.getUrl().v());
+            if (reading4 != null) {
+                result.setReadingSession(reading4);
+                result.setKey(key);
+                SpiderDebug.log("player", "reading diverted kind=%s key=%s", reading4.kind, key);
+                return result;
+            }
             long fetchStart = System.currentTimeMillis();
             result.setUrl(Source.get().fetch(result, playerType));
             SpiderDebug.log("player", "fetch done key=%s cost=%dms empty=%s", key, System.currentTimeMillis() - fetchStart, result.getUrl() == null || TextUtils.isEmpty(result.getUrl().v()));
@@ -855,7 +887,29 @@ public class SiteApi {
         String title = key.substring(HkDetailBridge.KEY_PREFIX.length());
         // 路由缓存复用：不再每次播放重建 QuickJS 上下文+跑 preRule（之前点封面等几秒的主因）
         HkRouter router = acquireHkRouter(title);
+        // 阅读分流（小说规则）：直接返回阅读会话，正文在阅读器里懒取，不跑 play 分流链。
+        // 视频规则不受影响（type 不是"小说"）。
+        if (ReadingGate.isHkNovelRule(title)) {
+            Result novelResult = new Result();
+            novelResult.setReadingSession(ReadingGate.fromHkNovel(title, "", null, 0));
+            novelResult.setKey(key);
+            novelResult.setFlag(flag);
+            SpiderDebug.log("player", "hk reading diverted kind=NOVEL rule=%s", title);
+            return novelResult;
+        }
         HkPlay play = router.play(id);
+        // 阅读分流（漫画 pics://）：命中则直接返回带会话的 Result，不再组装视频地址。
+        // pics 只由 pics:// 分支产出，视频规则永远不走该分支。
+        ReadingSession comic = ReadingGate.fromHkComic(title, "", "", id, play,
+                play.getHeaders() != null ? play.getHeaders().get("Referer") : "");
+        if (comic != null) {
+            Result comicResult = new Result();
+            comicResult.setReadingSession(comic);
+            comicResult.setKey(key);
+            comicResult.setFlag(flag);
+            SpiderDebug.log("player", "hk reading diverted kind=COMIC rule=%s pics=%d", title, play.getPics().size());
+            return comicResult;
+        }
         // P2 多线路：按 (规则名,剧集) 记忆的线路下标取线（默认首线），
         // 该线路的地址+请求头按下标取、不跨线路合并（8.83 getPlayData/getHeaders 语义）
         int line = HkRouter.lineIndex(title, id);

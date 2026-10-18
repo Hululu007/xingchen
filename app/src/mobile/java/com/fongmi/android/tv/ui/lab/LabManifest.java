@@ -18,7 +18,7 @@ import java.util.List;
  *   desc          一句人话简介
  *   icon          图标字（1-2 个字，如 Py/Js/网/剧）
  *   version       包版本
- *   runtime       python | nodejs | php | none（必填）
+ *   runtime       python | nodejs | php | mihomo | alist | frp | aria2 | ubuntu | java | bun | ffmpeg | none（必填）
  *   autoStart     默认是否自动启动
  *   commands[]    命令列表：{id,name,desc,command,background,autoExecute}
  *                 command 支持占位：{port}（端口自动分配时替换）、{pkgDir}、{filesDir}

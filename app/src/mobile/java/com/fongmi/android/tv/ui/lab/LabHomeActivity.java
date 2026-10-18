@@ -20,7 +20,8 @@ import java.util.List;
 
 /**
  * 实验室首页：只列环境（新口径）。
- * 环境卡＝名字＋一句人话＋已装/未装＋一行小字「里面 N 个服务、M 个运行中」，
+ * 十一个环境各一张卡平铺（Python/Node/PHP/mihomo/alist/frp/aria2/Ubuntu/Java/Bun/ffmpeg）；
+ * 环境卡＝名字＋已装/未装＋一行小字「里面 N 个服务、M 个运行中」，
  * 点卡进环境页；卡片不带头像位。
  * 顶栏「＋」进包安装；设置条＝自动启动总开关＋全部停止。不设叉，走系统返回。
  */
@@ -67,13 +68,7 @@ public class LabHomeActivity extends AppCompatActivity {
         h1.setTextSize(24);
         h1.setTextColor(LabSkin.TEXT_MAIN);
         h1.getPaint().setFakeBoldText(true);
-        TextView sub = new TextView(this);
-        sub.setText("想玩点花样，在这装。装好点一下就能用。");
-        sub.setTextSize(15);
-        sub.setTextColor(LabSkin.TEXT_SUB);
-        sub.setPadding(0, dp(6), 0, 0);
         titles.addView(h1);
-        titles.addView(sub);
         TextView add = new TextView(this);
         add.setText("＋");
         add.setTextSize(26);
@@ -138,7 +133,7 @@ public class LabHomeActivity extends AppCompatActivity {
         }
     }
 
-    /** 环境卡：名字＋人话＋已装/未装＋「里面 N 个服务、M 个运行中」 */
+    /** 环境卡：名字＋已装/未装＋「里面 N 个服务、M 个运行中」 */
     private View envCard(String env) {
         boolean ready = LabRegistry.envReady(this, env);
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
@@ -169,21 +164,13 @@ public class LabHomeActivity extends AppCompatActivity {
         name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         row.addView(name);
         TextView tag = new TextView(this);
-        boolean isTool = "tool".equals(env);
-        tag.setText(isTool ? "随时可用" : (ready ? "已装" : "未装"));
+        tag.setText(ready ? "已装" : "未装");
         tag.setTextSize(12);
-        tag.setTextColor(ready || isTool ? LabSkin.GREEN : LabSkin.TEXT_DIM);
-        tag.setBackground(ready || isTool ? LabSkin.tagGreen(this) : LabSkin.tagGray(this));
+        tag.setTextColor(ready ? LabSkin.GREEN : LabSkin.TEXT_DIM);
+        tag.setBackground(ready ? LabSkin.tagGreen(this) : LabSkin.tagGray(this));
         tag.setPadding(dp(12), dp(5), dp(12), dp(5));
         row.addView(tag);
         card.addView(row);
-
-        TextView desc = new TextView(this);
-        desc.setText(LabRegistry.envDesc(env));
-        desc.setTextSize(14);
-        desc.setTextColor(LabSkin.TEXT_SUB);
-        desc.setPadding(0, dp(6), 0, 0);
-        card.addView(desc);
 
         TextView line = new TextView(this);
         line.setText("里面 " + svcs.size() + " 个服务、" + running + " 个运行中");

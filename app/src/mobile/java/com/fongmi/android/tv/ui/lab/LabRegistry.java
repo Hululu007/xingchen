@@ -20,14 +20,16 @@ import java.util.Map;
 
 /**
  * 实验室注册表（两层）：files/lab/registry.json。
- * 第一层＝环境（python / nodejs / php / tool，无环境需求的服务归「工具」一类）；
+ * 第一层＝环境（python / nodejs / php / mihomo / alist / frp / aria2 七张卡平铺）；
  * 第二层＝服务，带 runtime 归属字段，只出现在所属环境页里。
  * lab.json 里的 icon 字段保留（格式 v1 定死），UI 本轮不画头像位。
  */
 public final class LabRegistry {
 
-    /** 四个环境：python / nodejs / php / tool（无环境需求） */
-    public static final List<String> ENVS = Arrays.asList("python", "nodejs", "php", "tool");
+    /** 十一个环境，平铺十一张卡 */
+    public static final List<String> ENVS = Arrays.asList(
+            "python", "nodejs", "php", "mihomo", "alist", "frp", "aria2",
+            "ubuntu", "java", "bun", "ffmpeg");
 
     /** 服务记录 */
     public static class Svc {
@@ -36,7 +38,7 @@ public final class LabRegistry {
         public String desc;
         public String icon;
         public String version;
-        /** python | nodejs | php | none（none 归 tool 环境） */
+        /** python | nodejs | php | mihomo | alist | frp | aria2 | ubuntu | java | bun | ffmpeg | none（none 归 tool，兼容老数据） */
         public String runtime;
         public boolean autoStartDefault;
         /** null=随包声明，true/false=用户手动覆盖 */
@@ -69,12 +71,20 @@ public final class LabRegistry {
         return cache;
     }
 
-    /** 服务归属的环境 id：none → tool */
+    /** 服务归属的环境 id：none → tool（兼容老数据；首页不设卡） */
     public static String envOf(Svc s) {
         String r = s == null || s.runtime == null ? "none" : s.runtime;
         if ("python".equals(r)) return "python";
         if ("nodejs".equals(r)) return "nodejs";
         if ("php".equals(r)) return "php";
+        if ("mihomo".equals(r)) return "mihomo";
+        if ("alist".equals(r)) return "alist";
+        if ("frp".equals(r)) return "frp";
+        if ("aria2".equals(r)) return "aria2";
+        if ("ubuntu".equals(r)) return "ubuntu";
+        if ("java".equals(r)) return "java";
+        if ("bun".equals(r)) return "bun";
+        if ("ffmpeg".equals(r)) return "ffmpeg";
         return "tool";
     }
 
@@ -82,17 +92,18 @@ public final class LabRegistry {
         if ("python".equals(env)) return "Python 环境";
         if ("nodejs".equals(env)) return "Node 环境";
         if ("php".equals(env)) return "PHP 环境";
+        if ("mihomo".equals(env)) return "mihomo";
+        if ("alist".equals(env)) return "alist";
+        if ("frp".equals(env)) return "frp";
+        if ("aria2".equals(env)) return "aria2";
+        if ("ubuntu".equals(env)) return "Ubuntu 环境";
+        if ("java".equals(env)) return "Java 环境";
+        if ("bun".equals(env)) return "Bun 环境";
+        if ("ffmpeg".equals(env)) return "ffmpeg";
         return "工具";
     }
 
-    public static String envDesc(String env) {
-        if ("python".equals(env)) return "跑脚本的底子，很多服务靠它";
-        if ("nodejs".equals(env)) return "JS 服务的底子";
-        if ("php".equals(env)) return "PHP 程序的底子";
-        return "不用装环境，装上就能跑";
-    }
-
-    /** 某环境是否就绪：tool 恒为 true，其余看环境包装没装 */
+    /** 某环境是否就绪：tool 恒为 true（兼容），其余看环境包装没装 */
     public static boolean envReady(Context c, String env) {
         if ("tool".equals(env)) return true;
         return LabRuntimeManager.isInstalled(c, env);

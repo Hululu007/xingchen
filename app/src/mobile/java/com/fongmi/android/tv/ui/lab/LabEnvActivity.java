@@ -82,13 +82,6 @@ public class LabEnvActivity extends AppCompatActivity {
         nav.addView(title);
         root.addView(nav);
 
-        TextView sub = new TextView(this);
-        sub.setText(LabRegistry.envDesc(env));
-        sub.setTextSize(14);
-        sub.setTextColor(LabSkin.TEXT_SUB);
-        sub.setPadding(dp(18), 0, dp(18), dp(8));
-        root.addView(sub);
-
         progressText = new TextView(this);
         progressText.setTextSize(14);
         progressText.setTextColor(LabSkin.YELLOW);
@@ -116,22 +109,6 @@ public class LabEnvActivity extends AppCompatActivity {
         for (LabRegistry.Svc s : svcs) {
             listBox.addView(serviceCard(s));
         }
-        if (svcs.isEmpty() && ("tool".equals(env) || LabRuntimeManager.isInstalled(this, env))) {
-            TextView empty = new TextView(this);
-            empty.setText("这里还没有服务，点实验室右上角「＋」装一个");
-            empty.setTextSize(14);
-            empty.setTextColor(LabSkin.TEXT_DIM);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(18), dp(30), dp(18), dp(30));
-            listBox.addView(empty);
-        }
-        TextView foot = new TextView(this);
-        foot.setText("长按卡片可卸载");
-        foot.setTextSize(13);
-        foot.setTextColor(LabSkin.TEXT_DIM);
-        foot.setGravity(Gravity.CENTER);
-        foot.setPadding(0, dp(10), 0, 0);
-        listBox.addView(foot);
     }
 
     /** 环境没装：露一键安装（从本地 zip 导入，进度条呈现「正在准备环境」） */
@@ -143,12 +120,6 @@ public class LabEnvActivity extends AppCompatActivity {
         t.setTextColor(LabSkin.TEXT_MAIN);
         t.getPaint().setFakeBoldText(true);
         card.addView(t);
-        TextView d = new TextView(this);
-        d.setText("从你手机里的压缩包导入，装一次以后都能用");
-        d.setTextSize(14);
-        d.setTextColor(LabSkin.TEXT_SUB);
-        d.setPadding(0, dp(6), 0, dp(12));
-        card.addView(d);
         TextView btn = button("一键安装", true);
         btn.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);

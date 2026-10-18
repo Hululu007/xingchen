@@ -16,13 +16,16 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * 运行环境管理：python / nodejs / php。
+ * 运行环境管理：python / nodejs / php / mihomo / alist / frp / aria2 / ubuntu / java / bun / ffmpeg。
  * 照参照物：装到 files/lab/runtimes/<name>/，二进制归位 bin/，整目录 chmod 755。
  * 本轮只做「从本地 zip 文件导入」；下载地址留一处集中常量（公开仓未建，先留空）。
+ * ubuntu 例外：rootfs 不是 bin/ 布局，proot 跑法基座还没接（见报告），卡先上、装与跑待后续。
  */
 public final class LabRuntimeManager {
 
-    public static final List<String> RUNTIMES = Arrays.asList("python", "nodejs", "php");
+    public static final List<String> RUNTIMES = Arrays.asList(
+            "python", "nodejs", "php", "mihomo", "alist", "frp", "aria2",
+            "ubuntu", "java", "bun", "ffmpeg");
 
     /** 环境包下载地址（公开仓未建，先留空；建好后填这里，全 App 只这一处） */
     public static final Map<String, String> DOWNLOAD_URLS = new HashMap<>();
@@ -42,6 +45,14 @@ public final class LabRuntimeManager {
         if ("python".equals(runtime)) return "Python 环境";
         if ("nodejs".equals(runtime)) return "Node 环境";
         if ("php".equals(runtime)) return "PHP 环境";
+        if ("mihomo".equals(runtime)) return "mihomo";
+        if ("alist".equals(runtime)) return "alist";
+        if ("frp".equals(runtime)) return "frp";
+        if ("aria2".equals(runtime)) return "aria2";
+        if ("ubuntu".equals(runtime)) return "Ubuntu 环境";
+        if ("java".equals(runtime)) return "Java 环境";
+        if ("bun".equals(runtime)) return "Bun 环境";
+        if ("ffmpeg".equals(runtime)) return "ffmpeg";
         return runtime;
     }
 

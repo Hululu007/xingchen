@@ -58,7 +58,7 @@ public class HkUpdateLogPopup {
             TextView titleView = new TextView(activity);
             titleView.setText(log.title);
             titleView.setTextSize(16);
-            titleView.setTextColor(Color.parseColor("#ff222222"));
+            titleView.setTextColor(0xFFF2F4F8);
             titleView.getPaint().setFakeBoldText(true);
             LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -70,7 +70,7 @@ public class HkUpdateLogPopup {
                 TextView recordView = new TextView(activity);
                 recordView.setText("• " + record);
                 recordView.setTextSize(14);
-                recordView.setTextColor(Color.parseColor("#ff555555"));
+                recordView.setTextColor(0xFFA8B0C0);
                 recordView.setLineSpacing(dp(2), 1.0f);
                 LinearLayout.LayoutParams recordLp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);

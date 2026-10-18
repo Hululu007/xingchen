@@ -43,7 +43,7 @@ public class HkFavoriteDialogs {
         root.setPadding(dp(ctx, 20), dp(ctx, 16), dp(ctx, 20), dp(ctx, 16));
         TextView tv = new TextView(ctx);
         tv.setText(title);
-        tv.setTextColor(0xFF1A1D24);
+        tv.setTextColor(0xFFF2F4F8);
         tv.setTextSize(16);
         tv.setTypeface(null, Typeface.BOLD);
         tv.setGravity(Gravity.CENTER);
@@ -90,7 +90,7 @@ public class HkFavoriteDialogs {
 
         TextView title = new TextView(ctx);
         title.setText(dialogTitle);
-        title.setTextColor(0xFF1A1D24);
+        title.setTextColor(0xFFF2F4F8);
         title.setTextSize(16);
         title.setTypeface(null, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
@@ -100,7 +100,7 @@ public class HkFavoriteDialogs {
         EditText et = new EditText(ctx);
         et.setText(initTitle == null ? "" : initTitle);
         et.setSelection(et.getText().length());
-        et.setTextColor(0xFF1A1D24);
+        et.setTextColor(0xFFF2F4F8);
         et.setTextSize(15);
         et.setHint("请输入标题，不能为空");
         et.setBackgroundResource(R.drawable.dialog_option_card_light);
@@ -112,7 +112,7 @@ public class HkFavoriteDialogs {
 
         TextView groupLabel = new TextView(ctx);
         groupLabel.setText("分组");
-        groupLabel.setTextColor(0xFF8A8F98);
+        groupLabel.setTextColor(0xFFA8B0C0);
         groupLabel.setTextSize(13);
         LinearLayout.LayoutParams glLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -155,14 +155,14 @@ public class HkFavoriteDialogs {
 
         TextView cancel = new TextView(ctx);
         cancel.setText("取消");
-        cancel.setTextColor(0xFF8A8F98);
+        cancel.setTextColor(0xFFA8B0C0);
         cancel.setTextSize(15);
         cancel.setPadding(dp(ctx, 16), dp(ctx, 10), dp(ctx, 16), dp(ctx, 10));
         cancel.setOnClickListener(v -> dialog.dismiss());
 
         TextView ok = new TextView(ctx);
         ok.setText("确定");
-        ok.setTextColor(0xFF7A5A00);
+        ok.setTextColor(0xFFD9A420);
         ok.setTypeface(null, Typeface.BOLD);
         ok.setTextSize(15);
         ok.setPadding(dp(ctx, 16), dp(ctx, 10), dp(ctx, 16), dp(ctx, 10));

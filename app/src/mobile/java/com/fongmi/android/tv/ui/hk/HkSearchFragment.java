@@ -528,7 +528,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             android.widget.TextView text = new android.widget.TextView(activity);
             text.setText("动态解析规则中，请稍候");
             text.setTextSize(15);
-            text.setTextColor(0xFF222222);
+            text.setTextColor(0xFFF2F4F8);
             text.setPadding(48, 40, 48, 40);
             loadingDialog = new com.fongmi.android.tv.ui.hk.HkDialogs(activity)
                     .setView(text).setCancelable(false).create();
@@ -842,11 +842,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         if (getContext() == null || adapter == null
                 || position < 0 || position >= adapter.getList().size()) return;
         String[] data = getDetailData(position);
-        new HkDialogs(getContext())
-                .setTitle("调试数据")
-                .setItems(data, (dialog, which) -> copyToClipboard(data[which]))
-                .setNegativeButton("关闭", null)
-                .show();
+        HkDialogs.cards(getContext(), "调试数据", data, "关闭",
+                (dialog, which) -> copyToClipboard(data[which]));
     }
 
     /** 照 ClipboardUtil.copyToClipboardForce：直接写主剪贴板。 */

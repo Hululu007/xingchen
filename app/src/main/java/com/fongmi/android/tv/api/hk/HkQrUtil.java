@@ -58,14 +58,14 @@ public class HkQrUtil {
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundResource(R.drawable.dialog_glass_light);
+        root.setBackgroundResource(R.drawable.dialog_glass_dark);
         int pad = dp(activity, 16);
         root.setPadding(pad, pad, pad, pad / 2);
 
         TextView titleView = new TextView(activity);
         titleView.setText("扫描结果");
         titleView.setTextSize(17);
-        titleView.setTextColor(0xff222222);
+        titleView.setTextColor(0xFFF2F4F8);
         titleView.getPaint().setFakeBoldText(true);
         titleView.setGravity(Gravity.CENTER);
         root.addView(titleView, new LinearLayout.LayoutParams(
@@ -75,7 +75,7 @@ public class HkQrUtil {
         TextView contentView = new TextView(activity);
         contentView.setText(content);
         contentView.setTextSize(15);
-        contentView.setTextColor(0xff333333);
+        contentView.setTextColor(0xFFA8B0C0);
         contentView.setTextIsSelectable(true);
         int cp = dp(activity, 4);
         contentView.setPadding(cp, dp(activity, 12), cp, dp(activity, 12));
@@ -86,7 +86,7 @@ public class HkQrUtil {
         root.addView(scrollView, slp);
 
         View divider = new View(activity);
-        divider.setBackgroundColor(0xffeeeeee);
+        divider.setBackgroundColor(0x33FFFFFF);
         root.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1));
 
@@ -97,7 +97,7 @@ public class HkQrUtil {
         TextView btnCancel = new TextView(activity);
         btnCancel.setText("取消");
         btnCancel.setTextSize(16);
-        btnCancel.setTextColor(0xff666666);
+        btnCancel.setTextColor(0xFFF2F4F8);
         btnCancel.setGravity(Gravity.CENTER);
         btnCancel.setBackgroundResource(android.R.drawable.list_selector_background);
         int bp = dp(activity, 12);
@@ -108,7 +108,7 @@ public class HkQrUtil {
         TextView btnCopy = new TextView(activity);
         btnCopy.setText("复制");
         btnCopy.setTextSize(16);
-        btnCopy.setTextColor(0xff666666);
+        btnCopy.setTextColor(0xFFF2F4F8);
         btnCopy.setGravity(Gravity.CENTER);
         btnCopy.setBackgroundResource(android.R.drawable.list_selector_background);
         btnCopy.setPadding(bp * 2, bp, bp * 2, bp);

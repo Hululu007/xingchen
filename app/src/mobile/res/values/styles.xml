@@ -219,9 +219,9 @@
         <item name="android:windowExitAnimation">@anim/hk_dialog_fade_out</item>
     </style>
 
-    <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走浅色 -->
+    <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走深色毛玻璃（用户不要白色底） -->
     <style name="Theme.XingChen.HkPage" parent="Theme.XingChen">
-        <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.HkLight</item>
+        <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.Dark</item>
         <!-- 液态玻璃：窗背景同步动态背景顶色，透明状态栏下不断带 -->
         <item name="android:windowBackground">@color/hk_status_bar</item>
         <item name="android:windowLightStatusBar">true</item>

@@ -1056,24 +1056,17 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         act.runOnUiThread(() -> {
             android.app.Activity a = getActivity();
             if (a == null || a.isFinishing()) return;
-            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(a)
+            androidx.appcompat.app.AlertDialog dialog = new HkDialogs(a)
                     .setTitle(title == null ? "" : title)
                     .setMessage(content == null ? "" : content)
                     .setPositiveButton("确定", (d, w) -> routeConfirmResult(rt, rule, confirmJs))
                     .setNegativeButton("取消", (d, w) -> routeConfirmResult(rt, rule, cancelJs))
                     .create();
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_glass_light);
-            }
             dialog.setOnShowListener(d -> {
-                android.widget.TextView tvTitle = dialog.findViewById(android.R.id.title);
-                if (tvTitle != null) tvTitle.setTextColor(0xFF1A1D24);
-                android.widget.TextView tvMsg = dialog.findViewById(android.R.id.message);
-                if (tvMsg != null) tvMsg.setTextColor(0xFF1A1D24);
-                android.widget.Button b1 = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+                android.widget.Button b1 = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
                 if (b1 != null) b1.setTextColor(0xFFD9A420);
-                android.widget.Button b2 = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
-                if (b2 != null) b2.setTextColor(0xFF666666);
+                android.widget.Button b2 = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE);
+                if (b2 != null) b2.setTextColor(0xFFA8B0C0);
             });
             dialog.show();
         });
@@ -2714,12 +2707,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         String type = item.getType();
         if (HkColType.RICH_TEXT.code.equals(type) || HkColType.LONG_TEXT.code.equals(type)) {
             String[] items = {"自由复制", "调试数据"};
-            new HkDialogs(requireContext())
-                    .setItems(items, (dialog, which) -> {
-                        dealLongMenuClick(view, which == 0 ? "自由复制" : "调试数据", position, lazySplit);
-                        dialog.dismiss();
-                    })
-                    .show();
+            HkDialogs.cards(requireContext(), null, items, null,
+                    (dialog, which) -> dealLongMenuClick(view, which == 0 ? "自由复制" : "调试数据", position, lazySplit));
             return;
         }
         java.util.List<String> titles = new ArrayList<>(java.util.Arrays.asList(

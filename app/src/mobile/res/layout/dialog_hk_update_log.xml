@@ -3,7 +3,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/dialog_glass_light"
+    android:background="@drawable/dialog_glass_dark"
     android:orientation="vertical"
     android:paddingTop="16dp"
     android:paddingBottom="8dp">
@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:text="更新日志"
-        android:textColor="#ff222222"
+        android:textColor="#F2F4F8"
         android:textSize="18sp"
         android:textStyle="bold" />
 

@@ -12,7 +12,7 @@
         android:layout_marginStart="15dp"
         android:layout_marginEnd="15dp"
         android:layout_marginBottom="50dp"
-        android:background="@drawable/dialog_glass_light"
+        android:background="@drawable/dialog_glass_dark"
         android:paddingEnd="5dp"
         android:paddingBottom="16dp">
 
@@ -25,7 +25,7 @@
             android:maxLines="3"
             android:padding="10dp"
             android:text="规则执行过程中出现错误"
-            android:textColor="#ff000000"
+            android:textColor="#F2F4F8"
             android:textSize="16sp" />
 
         <TextView

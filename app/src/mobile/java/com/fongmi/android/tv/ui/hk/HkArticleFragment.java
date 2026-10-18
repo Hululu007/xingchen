@@ -19,7 +19,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.api.hk.HkDetailCache;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.github.catvod.crawler.SpiderDebug;
@@ -268,22 +267,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             bindArrayToView("ARTICLE_LIST_NEW", list);
             return;
         }
-        // 详情短时缓存兜底读：预取没走到的路（异常回落、直接打开），5 分钟内点过同一条也秒开
-        if (listHost && page == 1 && articleListRuleDTO != null) {
-            HkDetailCache.Hit cacheHit = HkDetailCache.get(getContext(),
-                    articleListRuleDTO.getTitle(), articleListRuleDTO.getUrl());
-            if (cacheHit != null) {
-                if (!TextUtils.isEmpty(cacheHit.parsedUrl)) myUrl = cacheHit.parsedUrl;
-                bindArrayToView("ARTICLE_LIST_NEW", cacheHit.items, true);
-                return;
-            }
-        }
         loading(true);
         loadingPage = page;
-        // 子页（listHost）首屏结果进短时缓存：5 分钟内重开秒出（bindArrayToView 门里 saveAutoCache）
-        if (listHost && page == 1 && articleListRuleDTO != null && TextUtils.isEmpty(autoCacheMd5)) {
-            autoCacheMd5 = HkDetailCache.keyOf(articleListRuleDTO.getTitle(), articleListRuleDTO.getUrl());
-        }
         articleListModel.params(requireContext(), page, false, articleListRuleDTO,
                         notLoadPreRule(), isFromHistory())
                 .process("ARTICLE_LIST_NEW", this);
@@ -502,11 +487,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     /** 照抄原版 refresh()：回第一页；onRefreshJS 非空时先在后台跑该 JS（切片 2 补全后续），否则直接走模型。 */
     private void refresh() {
         page = 1;
-        // 详情短时缓存：下拉刷新即作废本页缓存，清掉重抓（抓完 saveAutoCache 会重新写入）
-        if (articleListRuleDTO != null) {
-            HkDetailCache.invalidateKey(getContext(), articleListRuleDTO.getTitle(),
-                    articleListRuleDTO.getUrl());
-        }
         loading(true);
         if (onRefreshJS != null && !onRefreshJS.isEmpty()) {
             Task.execute(() -> runOnRefreshJs());
@@ -580,7 +560,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     private boolean mainHost;
     private boolean listHost;
     private int cacheMergeState;
-    private String autoCacheMd5;
     private String cacheCode;
 
     public void setHostListener(HostListener hostListener) {
@@ -605,9 +584,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         boolean isNew = !TextUtils.isEmpty(key) && key.endsWith("ARTICLE_LIST_NEW");
         boolean isPre = !TextUtils.isEmpty(key) && key.startsWith("ARTICLE_LIST_PRE");
         boolean isAfter = !TextUtils.isEmpty(key) && key.startsWith("ARTICLE_LIST_AFTER");
-        if (!fromCache && isNew && !TextUtils.isEmpty(autoCacheMd5) && !isPre && !isAfter) {
-            saveAutoCache(list);
-        }
         updateReadData(isNew && !isAfter, list);
         if (isNew) hookHomeData(list);
         if (isNew && !isPre && listHost) injectReverseMode(list);
@@ -972,16 +948,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     // —— 子系统占位（原版对应物不在移植范围内，已在施工图登记）——
-
-    /**
-     * 原版 AutoCacheUtilKt.saveCache 的星辰实现：子页首屏结果写短时缓存（5 分钟 TTL）。
-     * 只在 bindArrayToView 门里被调（isNew 且非 PRE/AFTER，即 page==1 的详情首屏），异步写、不挡 UI。
-     */
-    private void saveAutoCache(List<HkItem> list) {
-        if (articleListRuleDTO == null || list == null || list.isEmpty()) return;
-        HkDetailCache.put(getContext(), articleListRuleDTO.getTitle(), articleListRuleDTO.getUrl(),
-                list, myUrl);
-    }
 
     /** 原版 updateReadData：阅读数据子系统不移植。 */
     private void updateReadData(boolean isNew, List<HkItem> list) {

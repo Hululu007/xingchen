@@ -41,33 +41,37 @@ public final class ReadingSkin {
     public static final int SUB = 0x99F4F2EC;
     public static final int FAINT = 0x66F4F2EC;
     /**
-     * 暖棕黑基底（2026-10-18 他定调对稿）：
-     * 取色依据——小说阅读器稿整套里最暖的页面底 #141318 压暗为顶色；
-     * 封面占位暖棕渐变（#2C2118→#6B4A2E 系）取暖调；
-     * 顶部暖色柔光取稿内金色 #F2B33D 降透明度。
-     * 层次要看得出来，但不压字。
+     * 深蓝黑基底（2026-10-18 他看 home-blue.png 拍板；暖棕黑曾短暂定案、同日晚被他改口推翻「底色还是蓝色吧」）：
+     * 取色依据——home-blue.html 中间稿：linear-gradient(180deg,#0E1622→#0A0E16)，
+     * 顶部淡蓝柔光 radial rgba(120,170,255,.18)。
      */
-    public static final int PAGE_BG_TOP = 0xFF171310;
-    public static final int PAGE_BG_BOTTOM = 0xFF0D0B08;
-    /** 兼容旧引用：页面主底色＝暖棕黑顶色。 */
+    public static final int PAGE_BG_TOP = 0xFF0E1622;
+    public static final int PAGE_BG_BOTTOM = 0xFF0A0E16;
+    /** 兼容旧引用：页面主底色＝深蓝黑顶色。 */
     public static final int PAGE_BG = PAGE_BG_TOP;
 
     public static int dp(Context c, int v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }
 
-    /** 页面底：暖棕黑纵向渐变＋顶部一道暖金柔光（对稿，层次不压字）。 */
+    /** 页面底：深蓝黑纵向渐变＋顶部两道淡蓝柔光（home-blue 稿：rgba(120,170,255,.18) 顶部、rgba(90,140,220,.12) 右中）。 */
     public static Drawable pageBackground(Context c) {
-        GradientDrawable glow = new GradientDrawable();
-        glow.setShape(GradientDrawable.RECTANGLE);
-        glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        glow.setGradientRadius(dp(c, 380));
-        glow.setGradientCenter(0.5f, 0f);
-        glow.setColors(new int[]{0x2B45C08A, 0x00000000});
+        GradientDrawable glow1 = new GradientDrawable();
+        glow1.setShape(GradientDrawable.RECTANGLE);
+        glow1.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        glow1.setGradientRadius(dp(c, 420));
+        glow1.setGradientCenter(0.12f, 0f);
+        glow1.setColors(new int[]{0x2E78AAFF, 0x00000000});
+        GradientDrawable glow2 = new GradientDrawable();
+        glow2.setShape(GradientDrawable.RECTANGLE);
+        glow2.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        glow2.setGradientRadius(dp(c, 480));
+        glow2.setGradientCenter(0.92f, 0.2f);
+        glow2.setColors(new int[]{0x1F5A8CDC, 0x00000000});
         GradientDrawable base = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{PAGE_BG_TOP, PAGE_BG_BOTTOM});
-        return new LayerDrawable(new Drawable[]{base, glow});
+        return new LayerDrawable(new Drawable[]{base, glow1, glow2});
     }
 
     /**

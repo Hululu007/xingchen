@@ -100,6 +100,41 @@ public class PyLoader {
         return resolved + "#missing";
     }
 
+    /**
+     * 健康检查用：与 getSpider 同逻辑，但加载失败时静默返回 SpiderNull，不弹 Toast
+     *（批量检测时逐个 Toast 会刷屏；检测结果由调用方统一展示）。
+     */
+    public Spider getSpiderQuiet(String key, String api, String ext) {
+        String resolvedApi = resolve(api);
+        boolean localFile = !api.startsWith("http");
+        if (localFile) {
+            File f = new File(resolvedApi);
+            if (!f.exists()) {
+                remove(key);
+                return new SpiderNull();
+            }
+            if (fileStamps.containsKey(key) && stampOf(f) != fileStamps.get(key)) {
+                remove(key);
+            }
+        }
+        return spiders.computeIfAbsent(key, k -> {
+            try {
+                Spider spider = loader.spider(resolvedApi);
+                spider.siteKey = key;
+                spider.init(App.get(), normalizeExt(ext));
+                File f = new File(resolvedApi);
+                if (localFile && f.exists()) fileStamps.put(k, stampOf(f));
+                else fileStamps.remove(k);
+                return spider;
+            } catch (Throwable e) {
+                e.printStackTrace();
+                spiders.remove(key);
+                fileStamps.remove(key);
+                return new SpiderNull();
+            }
+        });
+    }
+
     public Spider getSpider(String key, String api, String ext) {
         String resolvedApi = resolve(api);
         boolean localFile = !api.startsWith("http");

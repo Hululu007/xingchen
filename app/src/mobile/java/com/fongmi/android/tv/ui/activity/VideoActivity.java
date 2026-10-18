@@ -1007,8 +1007,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.endingItem.setOnClickListener(view -> onEnding());
         mBinding.control.action.repeat.setOnClickListener(view -> onRepeat());
         mBinding.control.action.openingItem.setOnClickListener(view -> onOpening());
-        mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.more.setOnClickListener(view -> onMorePanel());
+        mBinding.control.action.danmakuText.setOnClickListener(view -> onDanmaku());
+        mBinding.control.action.moreText.setOnClickListener(view -> onMorePanel());
         mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
@@ -1219,7 +1219,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setVideoView() {
-        mBinding.control.action.danmaku.setVisibility(View.VISIBLE);
+        mBinding.control.action.danmakuText.setVisibility(View.VISIBLE);
         setupActionButtons();
         mBinding.video.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             mPiP.update(this, view);
@@ -1239,7 +1239,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
         addActionButton(PlayerButtonSetting.TEXT, mBinding.control.action.text);
-        addActionButton(PlayerButtonSetting.DANMAKU, mBinding.control.action.danmaku);
+        addActionButton(PlayerButtonSetting.DANMAKU, mBinding.control.action.danmakuText);
         addActionButton(PlayerButtonSetting.OPENING, mBinding.control.action.openingItem);
         addActionButton(PlayerButtonSetting.ENDING, mBinding.control.action.endingItem);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);

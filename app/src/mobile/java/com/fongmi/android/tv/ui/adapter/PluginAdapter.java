@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.bean.Plugin;
+import com.fongmi.android.tv.bean.PluginHealth;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.utils.ShortDramaHelper;
 import java.io.File;
@@ -39,6 +40,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         Plugin p = plugins.get(position);
         holder.tvName.setText(p.getName());
         holder.tvVersion.setText(p.isEnabled() ? "已启用" : "已停用");
+        bindHealth(holder, p);
         holder.cbSelect.setOnCheckedChangeListener(null);
         holder.cbSelect.setChecked(p.isSelected());
         holder.switchEnable.setOnCheckedChangeListener(null);
@@ -102,9 +104,42 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         return result;
     }
 
+    /** 健康检测结果：插件名下直接出档位（持久化的上次结果；检测中由 Activity 标记）。 */
+    private void bindHealth(ViewHolder holder, Plugin p) {
+        android.content.Context c = holder.itemView.getContext();
+        int grade;
+        long ms = 0;
+        if (testingPaths.contains(p.getPath())) {
+            grade = PluginHealth.TESTING;
+        } else {
+            PluginHealth.Result r = PluginHealth.get(c, p.getPath());
+            grade = r.grade;
+            ms = r.ms;
+        }
+        if (grade == PluginHealth.UNKNOWN) {
+            holder.tvHealth.setVisibility(View.GONE);
+            return;
+        }
+        holder.tvHealth.setVisibility(View.VISIBLE);
+        String label = PluginHealth.label(grade);
+        if (grade == PluginHealth.OK || grade == PluginHealth.SLOW) {
+            label += " · " + String.format(java.util.Locale.US, "%.1fs", ms / 1000f);
+        }
+        holder.tvHealth.setText(label);
+        holder.tvHealth.setTextColor(PluginHealth.color(grade));
+    }
+
+    /** 检测中集合（Activity 维护，Adapter 只读）。 */
+    private final java.util.Set<String> testingPaths = new java.util.HashSet<>();
+
+    public void setTesting(java.util.Set<String> paths) {
+        testingPaths.clear();
+        if (paths != null) testingPaths.addAll(paths);
+    }
+
     static class ViewHolder extends RecyclerView.ViewHolder {
         CheckBox cbSelect;
-        TextView tvName, tvVersion, tvDelete, tvShortDrama;
+        TextView tvName, tvVersion, tvDelete, tvShortDrama, tvHealth;
         Switch switchEnable;
         ViewHolder(View itemView) {
             super(itemView);
@@ -113,6 +148,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             tvVersion = itemView.findViewById(R.id.tv_version);
             tvDelete = itemView.findViewById(R.id.tv_delete);
             tvShortDrama = itemView.findViewById(R.id.tv_short_drama);
+            tvHealth = itemView.findViewById(R.id.tv_health);
             switchEnable = itemView.findViewById(R.id.switch_enable);
         }
     }

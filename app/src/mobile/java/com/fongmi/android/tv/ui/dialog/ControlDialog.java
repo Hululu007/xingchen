@@ -324,7 +324,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setLut();
         setEpisodeColumn();
         binding.decode.setVisibility(parent.control.action.decode.getVisibility());
-        binding.danmaku.setVisibility(parent.control.action.danmaku.getVisibility());
+        binding.danmaku.setVisibility(parent.control.action.danmakuText.getVisibility());
         setImmersiveAudioVisible();
         setTrackVisible();
     }

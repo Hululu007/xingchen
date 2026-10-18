@@ -15,15 +15,10 @@ import android.widget.Toast;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoException;
-import com.fongmi.android.tv.legado.LegadoPipeline;
-import com.fongmi.android.tv.legado.LegadoReading;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.legado.LegadoStore;
 import com.fongmi.android.tv.read.ReadDialogs;
-import com.fongmi.android.tv.read.ReadingRouter;
-import com.fongmi.android.tv.read.ReadingSession;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -303,87 +298,6 @@ public class LegadoActivity extends Activity {
         }).start();
     }
 
-    // ================= 搜索 → 读 =================
-
-    private void onSourceTap(LegadoSource s) {
-        if (!LegadoSource.runnable(s.bookSourceType)) {
-            Toast.makeText(this, s.typeLabel() + "源暂不支持（阶段一）", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        EditText et = ReadDialogs.input(this, "输入书名/作者", false);
-        new ReadDialogs(this).setTitle("在「" + s.tag() + "」搜索").setView(et)
-                .setPositiveButton("搜索", (d, w) -> doSearch(s, et.getText().toString().trim()))
-                .setNegativeButton("取消", null).show();
-    }
-
-    private void doSearch(LegadoSource s, String key) {
-        if (key.isEmpty()) return;
-        Toast.makeText(this, "搜索中…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                List<LegadoPipeline.Book> books = new LegadoPipeline(s).search(key);
-                runOnUiThread(() -> showBooks(s, books));
-            } catch (Throwable t) {
-                runOnUiThread(() -> failDialog("搜索失败",
-                        "这个源搜不动。多半是源地址失效或者网络不通。换个源再搜试试。"
-                                + "详细原因已记到日志。", t));
-            }
-        }).start();
-    }
-
-    private void showBooks(LegadoSource s, List<LegadoPipeline.Book> books) {
-        if (books.isEmpty()) {
-            Toast.makeText(this, "没有搜到", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String[] names = new String[books.size()];
-        for (int i = 0; i < names.length; i++) {
-            LegadoPipeline.Book b = books.get(i);
-            names[i] = b.name + (b.author.isEmpty() ? "" : " · " + b.author);
-        }
-        ReadDialogs.options(this, "搜索结果（" + names.length + "）", names,
-                which -> doOpenBook(s, books.get(which)));
-    }
-
-    private void doOpenBook(LegadoSource s, LegadoPipeline.Book book) {
-        Toast.makeText(this, "拉取目录中…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                LegadoPipeline p = new LegadoPipeline(s);
-                LegadoPipeline.BookInfo info = p.bookInfo(book.bookUrl);
-                if (info.name.isEmpty()) info.name = book.name;
-                if (info.coverUrl.isEmpty()) info.coverUrl = book.coverUrl;
-                String tocUrl = info.tocUrl.isEmpty() ? book.bookUrl : info.tocUrl;
-                List<LegadoPipeline.TocChapter> chapters = p.toc(tocUrl);
-                if (chapters.isEmpty()) throw new LegadoException("目录为空");
-                runOnUiThread(() -> showChapters(s, info, chapters));
-            } catch (Throwable t) {
-                runOnUiThread(() -> failDialog("打开失败",
-                        "这本书的目录拉不下来。多半是源地址失效或者网络不通。换个源再试试。"
-                                + "详细原因已记到日志。", t));
-            }
-        }).start();
-    }
-
-    private void showChapters(LegadoSource s, LegadoPipeline.BookInfo info,
-                              List<LegadoPipeline.TocChapter> chapters) {
-        String[] names = new String[chapters.size()];
-        for (int i = 0; i < names.length; i++) names[i] = chapters.get(i).name;
-        String unit = s.bookSourceType == LegadoSource.TYPE_AUDIO ? " 集" : " 章";
-        ReadDialogs.options(this, info.name + "（" + names.length + unit + "）", names,
-                which -> {
-                    if (s.bookSourceType == LegadoSource.TYPE_AUDIO) {
-                        // 听书：专辑进听书播放页
-                        LegadoAudio.AudioAlbum album =
-                                LegadoAudio.buildAlbum(s, info, chapters, which);
-                        AudioBookActivity.start(this, LegadoAudio.put(album));
-                    } else {
-                        ReadingSession session = LegadoReading.buildSession(s, info, chapters, which);
-                        ReadingRouter.openReading(this, session);
-                    }
-                });
-    }
-
     // ================= 列表 =================
 
     private class SrcAdapter extends RecyclerView.Adapter<SrcAdapter.Holder> {
@@ -552,7 +466,7 @@ public class LegadoActivity extends Activity {
                         })
                         .setNegativeButton("取消", null).show();
             });
-            h.itemView.setOnClickListener(v -> onSourceTap(s));
+            // 搜书入口已搬走：行点击不再进搜索（搜书统一走阅读首页右上角）
         }
 
         @Override

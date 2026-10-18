@@ -78,7 +78,7 @@
         tools:text="字幕" />
 
     <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/danmaku"
+        android:id="@+id/danmakuText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -194,7 +194,7 @@
         tools:text="选集" />
 
     <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/more"
+        android:id="@+id/moreText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"

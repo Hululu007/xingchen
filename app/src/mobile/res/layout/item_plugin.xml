@@ -52,6 +52,13 @@
             android:textColor="#1B2431"
             android:textSize="12sp"
             android:layout_marginTop="2dp" />
+        <TextView
+            android:id="@+id/tv_health"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <Switch

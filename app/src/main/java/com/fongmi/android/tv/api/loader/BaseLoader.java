@@ -86,6 +86,13 @@ public class BaseLoader {
         else return new SpiderNull();
     }
 
+    /** 健康检查用：静默加载（PY 失败不弹 Toast，结果由调用方统一展示）。 */
+    public Spider getSpiderQuiet(String key, String api, String ext, String jar) {
+        if (isPy(api)) return pyLoader.getSpiderQuiet(key, api, ext);
+        else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
+        else return new SpiderNull();
+    }
+
     public Spider getSpider(String key) {
         Site site = VodConfig.get().getSite(key);
         Live live = LiveConfig.get().getLive(key);

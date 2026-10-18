@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.Toast;
 import androidx.viewbinding.ViewBinding;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import com.fongmi.android.tv.api.loader.BaseLoader;
@@ -12,15 +13,28 @@ import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.ui.adapter.PluginAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.bean.Plugin;
+import com.fongmi.android.tv.bean.PluginHealth;
+import com.github.catvod.crawler.Spider;
+import com.github.catvod.crawler.SpiderNull;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PluginActivity extends BaseActivity {
     private ActivityPluginBinding binding;
     private PluginAdapter adapter;
     private boolean isPy = true;
     private List<Plugin> plugins = new ArrayList<>();
+    /** 健康检测进行中标记（防重入）；结果逐行回刷，退出重进只看持久化的上次结果。 */
+    private boolean testing = false;
+    private final Set<String> testingPaths = new HashSet<>();
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, PluginActivity.class));
@@ -37,6 +51,7 @@ public class PluginActivity extends BaseActivity {
         binding.tabPy.setOnClickListener(v -> switchTab(true));
         binding.tabJs.setOnClickListener(v -> switchTab(false));
         binding.btnImport.setOnClickListener(v -> importPlugins());
+        binding.btnHealth.setOnClickListener(v -> runHealthCheck());
         binding.btnDeleteSelected.setOnClickListener(v -> deleteSelected());
         binding.cbSelectAll.setOnCheckedChangeListener((btn, checked) -> {
             if (adapter != null) adapter.selectAll(checked);
@@ -72,7 +87,26 @@ public class PluginActivity extends BaseActivity {
             }
         }
         adapter.notifyDataSetChanged();
-        binding.tvCount.setText("共 " + plugins.size() + " 个插件");
+        updateCount();
+    }
+
+    /** 计数行：共 N 个插件 · 上次检测时间（结果持久，进页直接看上次，不自动重测）。 */
+    private void updateCount() {
+        String s = "共 " + plugins.size() + " 个插件";
+        long last = PluginHealth.lastCheck(this, isPy ? "py" : "js");
+        if (last > 0) s += " · 上次检测" + humanTime(last);
+        binding.tvCount.setText(s);
+    }
+
+    /** 人话时间：刚刚 / X 分钟前 / X 小时前 / X 天前。 */
+    private static String humanTime(long ts) {
+        long d = System.currentTimeMillis() - ts;
+        long min = d / 60000;
+        if (min < 1) return "刚刚";
+        if (min < 60) return min + "分钟前";
+        long h = min / 60;
+        if (h < 24) return h + "小时前";
+        return (h / 24) + "天前";
     }
 
     private void importPlugins() {
@@ -102,7 +136,106 @@ public class PluginActivity extends BaseActivity {
     }
 
     private void onPluginChanged() {
-        binding.tvCount.setText("共 " + plugins.size() + " 个插件");
+        updateCount();
+    }
+
+    // ================= 插件健康检测（简化版） =================
+    //
+    // 测法：当前页签的插件一起测（10 并发，不排队）。每个插件：静默加载 spider
+    // （失败不弹 Toast）＋ 调一次 homeContent(true) 验证真能出数据。
+    // 档位：≤5s 能用；5~15s 慢；异常/超时/空数据 挂了（标红）。
+    // 阈值依据：壳子自己给 spider 首页的耐心是 35s（SiteApi.HOME_SUB_TIMEOUT_SECONDS，
+    // 交互式等待天花板）；节点测延迟用 2s 纯 TCP 超时（网络基线）。探针取 15s 超时——
+    // 超过 15s 没回首页数据的源交互式已没法用；5s 是"感觉不卡"的分界（健康站点手机流量下
+    // 一般 1~3s 回来）。结果按插件路径持久化，只有点检测钮才重测，进页绝不自动测。
+
+    private static final long PROBE_TIMEOUT_MS = 15000;
+    private static final long SLOW_LINE_MS = 5000;
+
+    private void runHealthCheck() {
+        if (testing) return;
+        final List<Plugin> all = new ArrayList<>(plugins);
+        if (all.isEmpty()) {
+            Toast.makeText(this, "没有插件可测", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        testing = true;
+        testingPaths.clear();
+        for (Plugin p : all) testingPaths.add(p.getPath());
+        adapter.setTesting(testingPaths);
+        adapter.notifyDataSetChanged();
+        final String type = isPy ? "py" : "js";
+        Toast.makeText(this, "开始检测，共 " + all.size() + " 个插件", Toast.LENGTH_SHORT).show();
+        ExecutorService pool = Executors.newFixedThreadPool(Math.min(10, all.size()));
+        AtomicInteger done = new AtomicInteger();
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger slow = new AtomicInteger();
+        AtomicInteger dead = new AtomicInteger();
+        for (Plugin p : all) {
+            pool.execute(() -> {
+                int grade;
+                long ms;
+                try {
+                    ms = probeOne(p);
+                    grade = ms <= SLOW_LINE_MS ? PluginHealth.OK : PluginHealth.SLOW;
+                } catch (Throwable t) {
+                    grade = PluginHealth.DEAD;
+                    ms = 0;
+                }
+                PluginHealth.save(PluginActivity.this, p.getPath(), grade, ms);
+                if (grade == PluginHealth.OK) ok.incrementAndGet();
+                else if (grade == PluginHealth.SLOW) slow.incrementAndGet();
+                else dead.incrementAndGet();
+                int finished = done.incrementAndGet();
+                runOnUiThread(() -> {
+                    adapter.notifyDataSetChanged();
+                    if (finished == all.size()) {
+                        testing = false;
+                        testingPaths.clear();
+                        adapter.setTesting(null);
+                        PluginHealth.setLastCheck(PluginActivity.this, type);
+                        updateCount();
+                        adapter.notifyDataSetChanged();
+                        Toast.makeText(PluginActivity.this,
+                                "检测完成：能用 " + ok.get() + "，慢 " + slow.get() + "，挂了 " + dead.get(),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
+            });
+        }
+        pool.shutdown();
+    }
+
+    /**
+     * 探一个插件：静默加载＋一次 homeContent；返回耗时毫秒。
+     * 抛异常 = 挂了（加载失败 / 超时 / 空数据）。
+     */
+    private long probeOne(Plugin p) throws Exception {
+        long start = System.nanoTime();
+        ExecutorService one = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> f = one.submit(() -> {
+                Spider spider = BaseLoader.get().getSpiderQuiet(
+                        "health:" + p.getPath(), p.getPath(), "", null);
+                try {
+                    if (spider instanceof SpiderNull) throw new RuntimeException("spider load failed");
+                    String home = spider.homeContent(true);
+                    if (home == null || home.trim().isEmpty()) throw new RuntimeException("empty home");
+                    return home;
+                } finally {
+                    // 不污染正常缓存：健康检查用的 key 用完即清
+                    try {
+                        if ("py".equals(p.getType())) BaseLoader.get().removePySpider("health:" + p.getPath());
+                        else BaseLoader.get().removeJsSpider("health:" + p.getPath());
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+            f.get(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            return (System.nanoTime() - start) / 1_000_000;
+        } finally {
+            one.shutdownNow();
+        }
     }
 
     @Override

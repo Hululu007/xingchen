@@ -9,6 +9,7 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -25,6 +26,7 @@ import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.legado.LegadoStore;
 import com.fongmi.android.tv.localbook.LocalBookImporter;
+import com.fongmi.android.tv.read.LegadoSearchFlow;
 import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
@@ -141,6 +143,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
         importBtn.setTextColor(ReadingSkin.GOLD_TEXT);
         importBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         importBtn.setOnClickListener(v -> showImportMenu());
+        // 搜书：从书源管理页搬过来；搜什么跟着当前页签走（小说→小说源，漫画→漫画源）
+        TextView searchBtn = new TextView(this);
+        searchBtn.setText("搜书");
+        searchBtn.setTextSize(16);
+        searchBtn.setTextColor(ReadingSkin.GOLD_TEXT);
+        searchBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        searchBtn.setOnClickListener(v -> showHomeSearch());
+        topBar.addView(searchBtn);
         topBar.addView(importBtn);
         root.addView(topBar);
 
@@ -213,14 +223,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 contentBox.addView(audioCard(latestAudio));
             }
             contentBox.addView(ximaCard());
-            contentBox.addView(ReadingSkin.sectionHeader(this, "我的小说源", "管理", null));
+            contentBox.addView(ReadingSkin.sectionHeader(this, "我的小说源", null, null));
             contentBox.addView(sourceCard(true));
         } else {
             contentBox.addView(ReadingSkin.sectionHeader(this, "在看的漫画", "长按移除", null));
             if (comics.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画"));
             else contentBox.addView(comicGrid(comics));
-            contentBox.addView(ReadingSkin.sectionHeader(this, "我的漫画源", "管理", null));
+            contentBox.addView(ReadingSkin.sectionHeader(this, "我的漫画源", null, null));
             contentBox.addView(sourceCard(false));
             TextView note = new TextView(this);
             note.setText("漫画栏只收漫画：源、书架、添加入口都在这边，"
@@ -728,8 +738,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         a.setTextSize(15);
         a.getPaint().setFakeBoldText(true);
         a.setTextColor(ReadingSkin.TEXT);
-        int total = counts[0] + counts[1] + counts[2];
-        a.setText((novelTab ? "书源仓库 · " : "漫画源 · ") + total + " 个源");
+        int titleCount = novelTab ? counts[0] : counts[2];
+        a.setText((novelTab ? "书源仓库 · " : "漫画源 · ") + titleCount + " 个源");
         meta.addView(a);
         TextView b = new TextView(c);
         b.setTextSize(12);
@@ -886,8 +896,18 @@ public class ReadingShelfActivity extends AppCompatActivity {
         return "COMIC".equals(currentTab) ? LegadoSource.TYPE_IMAGE : LegadoSource.TYPE_TEXT;
     }
 
-    private void showImportMenu() {
-        boolean comic = "COMIC".equals(currentTab);
+    /** 搜书：作用域跟着当前页签走（小说→小说源，漫画→漫画源），各搜各的不混。 */
+    private void showHomeSearch() {
+        int type = currentType();
+        boolean comic = type == LegadoSource.TYPE_IMAGE;
+        EditText et = ReadDialogs.input(this, "输入书名/作者", false);
+        new ReadDialogs(this).setTitle(comic ? "搜漫画" : "搜小说").setView(et)
+                .setPositiveButton("搜索", (d, w) ->
+                        LegadoSearchFlow.search(this, type, et.getText().toString().trim()))
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void showImportMenu() {        boolean comic = "COMIC".equals(currentTab);
         String[] items = comic
                 ? new String[]{"导入文件（zip / cbz / cbr / cb7 图包）", "导入图片文件夹"}
                 : new String[]{"导入文件（txt / epub / pdf / mobi / azw3 / zip / cbz / cbr / cb7）",

@@ -12,6 +12,11 @@
     <string name="nav_miniapp">Mini App</string>
     <string name="nav_setting">Setting</string>
 
+    <!-- Reading manual entry -->
+    <string name="reading_open_manual">用阅读器打开</string>
+    <string name="reading_manual_fetching">正在取内容…</string>
+    <string name="reading_manual_none">这集没有可读内容</string>
+
     <!-- Menu -->
     <string name="menu_sync">Sync</string>
     <string name="menu_delete">Delete</string>

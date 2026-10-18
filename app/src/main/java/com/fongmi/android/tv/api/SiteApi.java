@@ -992,6 +992,54 @@ public class SiteApi {
         if (!types.isEmpty()) result.setTypes(types);
     }
 
+    /**
+     * 手动阅读入口的解析探针（只取解析产出，不做 {@code Source.fetch}，
+     * 不写播放缓存，不进自动判别层）。供"用阅读器打开"在后台线程调用。
+     *
+     * @return 探针载荷；不支持的 key（如 push_agent）返回 null。
+     */
+    public static ReadingProbe readingProbe(@NonNull String key, @NonNull String flag, @NonNull String id) throws Exception {
+        if (HkDetailBridge.isHkKey(key)) {
+            String title = key.substring(HkDetailBridge.KEY_PREFIX.length());
+            HkRouter router = getHkRouter(title);
+            return ReadingProbe.hk(router.play(id));
+        }
+        Site site = VodConfig.get().getSite(key);
+        if (site == null) return null;
+        if (isSpider(key, site)) {
+            String json = marked(site, () -> site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags()));
+            Result r = Result.fromJson(json);
+            return ReadingProbe.py(r.getUrl() == null ? null : r.getUrl().v());
+        } else if (site.getType() == 4) {
+            ArrayMap<String, String> params = new ArrayMap<>();
+            params.put("play", id);
+            params.put("flag", flag);
+            String json = call(site, params);
+            Result r = Result.fromJson(json);
+            return ReadingProbe.py(r.getUrl() == null ? null : r.getUrl().v());
+        }
+        return null;
+    }
+
+    /** 手动阅读入口的探针载荷：海阔带 HkPlay，py/接口源带解析前的原始地址串。 */
+    public static class ReadingProbe {
+        public final com.fongmi.android.tv.api.hk.HkPlay hkPlay;
+        public final String pyRaw;
+
+        private ReadingProbe(com.fongmi.android.tv.api.hk.HkPlay hkPlay, String pyRaw) {
+            this.hkPlay = hkPlay;
+            this.pyRaw = pyRaw;
+        }
+
+        public static ReadingProbe hk(com.fongmi.android.tv.api.hk.HkPlay play) {
+            return new ReadingProbe(play, null);
+        }
+
+        public static ReadingProbe py(String rawUrl) {
+            return new ReadingProbe(null, rawUrl);
+        }
+    }
+
 }
 
 

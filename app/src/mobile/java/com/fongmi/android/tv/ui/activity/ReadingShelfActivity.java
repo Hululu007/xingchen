@@ -219,7 +219,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
             contentBox.addView(ReadingSkin.sectionHeader(this, "在看的漫画", "长按移除", null));
             if (comics.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画"));
-            else for (ReadingStore.Record r : comics) contentBox.addView(bookCard(r, true));
+            else contentBox.addView(comicGrid(comics));
             contentBox.addView(ReadingSkin.sectionHeader(this, "我的漫画源", "管理", null));
             contentBox.addView(sourceCard(false));
             TextView note = new TextView(this);
@@ -253,6 +253,137 @@ public class ReadingShelfActivity extends AppCompatActivity {
         return tv;
     }
 
+    /** 素封面垫（没封面时用）：深暖灰纯色底＋书名居中暖白色正经排字，不花哨。 */
+    private void plainCover(Context c, ImageView cover, TextView title, int radiusDp) {
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF2E2822);
+        bg.setCornerRadius(dp(radiusDp));
+        cover.setBackground(bg);
+        title.setTextSize(13);
+        title.setTextColor(0xFFE9DFD0);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(dp(8), dp(8), dp(8), dp(8));
+        title.setMaxLines(4);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+    }
+
+    /** 漫画栏：在看的漫画＝两列海报网格（封面大图＋图下书名/话数/进度），跟小说栏文字列表一眼分家。 */
+    private View comicGrid(List<ReadingStore.Record> comics) {
+        Context c = this;
+        android.widget.GridLayout grid = new android.widget.GridLayout(c);
+        int cols = 2;
+        grid.setColumnCount(cols);
+        int gap = dp(12);
+        int cellW = (getResources().getDisplayMetrics().widthPixels - dp(32) - gap * (cols - 1)) / cols;
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        glp.leftMargin = dp(16);
+        glp.rightMargin = dp(16);
+        glp.bottomMargin = dp(4);
+        grid.setLayoutParams(glp);
+        for (int i = 0; i < comics.size(); i++) {
+            grid.addView(comicPoster(comics.get(i), cellW, i % cols != cols - 1 ? gap : 0, gap));
+        }
+        return grid;
+    }
+
+    /** 漫画海报卡：大封面（连载徽）＋图下书名＋看到第 X 话＋细进度条。点击继续看，长按移除。 */
+    private View comicPoster(ReadingStore.Record r, int cellW, int gapRight, int gapBottom) {
+        Context c = this;
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        android.widget.GridLayout.LayoutParams clp = new android.widget.GridLayout.LayoutParams();
+        clp.width = cellW;
+        clp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        clp.rightMargin = gapRight;
+        clp.bottomMargin = gapBottom;
+        card.setLayoutParams(clp);
+
+        FrameLayout coverWrap = new FrameLayout(c);
+        coverWrap.setLayoutParams(new LinearLayout.LayoutParams(cellW, (int) (cellW * 1.33)));
+        ImageView cover = new ImageView(c);
+        cover.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        TextView coverTitle = new TextView(c);
+        plainCover(c, cover, coverTitle, 10);
+        ReadingSkin.roundClip(cover, c, 10);
+        coverWrap.addView(cover);
+        coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (r.totalChapters > 0) {
+            TextView badge = new TextView(c);
+            badge.setText(r.chapterIndex + 1 >= r.totalChapters ? "已完结" : "连载中");
+            badge.setTextSize(10);
+            badge.setTextColor(0xFFFFFFFF);
+            badge.setGravity(Gravity.CENTER);
+            badge.setPadding(dp(6), dp(3), dp(6), dp(3));
+            GradientDrawable bbg = new GradientDrawable();
+            bbg.setColor(0x99000000);
+            bbg.setCornerRadius(dp(6));
+            badge.setBackground(bbg);
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp.leftMargin = dp(6);
+            blp.topMargin = dp(6);
+            blp.gravity = Gravity.START | Gravity.TOP;
+            coverWrap.addView(badge, blp);
+        }
+        card.addView(coverWrap);
+
+        TextView tvTitle = new TextView(c);
+        tvTitle.setTextSize(13);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setTextColor(ReadingSkin.TEXT);
+        tvTitle.setMaxLines(2);
+        tvTitle.setEllipsize(TextUtils.TruncateAt.END);
+        tvTitle.setPadding(0, dp(6), 0, 0);
+        tvTitle.setText(r.bookTitle);
+        card.addView(tvTitle);
+
+        TextView tvSub = new TextView(c);
+        tvSub.setTextSize(11);
+        tvSub.setTextColor(ReadingSkin.SUB);
+        tvSub.setSingleLine(true);
+        tvSub.setEllipsize(TextUtils.TruncateAt.END);
+        tvSub.setPadding(0, dp(2), 0, 0);
+        tvSub.setText("看到第 " + (r.chapterIndex + 1) + " 话"
+                + (r.totalChapters > 0 ? " · 全 " + r.totalChapters + " 话" : ""));
+        card.addView(tvSub);
+
+        int pct = progressPct(r);
+        if (pct >= 0) {
+            android.widget.ProgressBar bar = new android.widget.ProgressBar(c, null,
+                    android.R.attr.progressBarStyleHorizontal);
+            bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
+            bar.setMax(100);
+            bar.setProgress(Math.max(0, Math.min(100, pct)));
+            LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
+            blp2.topMargin = dp(6);
+            card.addView(bar, blp2);
+        }
+
+        if (!TextUtils.isEmpty(r.coverUrl)) {
+            ImgUtil.load(r.bookTitle, r.coverUrl, cover, true);
+            coverTitle.setVisibility(View.GONE);
+        } else {
+            cover.setImageDrawable(null);
+            coverTitle.setVisibility(View.VISIBLE);
+            coverTitle.setText(r.bookTitle);
+        }
+        View.OnClickListener open = v -> {
+            com.fongmi.android.tv.read.ReadingUpdateChecker.clearUpdate(r);
+            ReadingRouter.openRecord(ReadingShelfActivity.this, r);
+        };
+        card.setOnClickListener(open);
+        card.setOnLongClickListener(v -> {
+            removeRecord(r);
+            return true;
+        });
+        return card;
+    }
+
     /** 书卡片：封面＋书名＋看到第 X 章/话·全 Y＋金色进度条＋百分比·人话时间＋继续读。 */
     private View bookCard(ReadingStore.Record r, boolean comic) {
         Context c = this;
@@ -283,19 +414,10 @@ public class ReadingShelfActivity extends AppCompatActivity {
         cover.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        cover.setBackground(new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF2C2118, 0xFF6B4A2E, 0xFFC99A5E}));
+        TextView coverTitle = new TextView(c);
+        plainCover(c, cover, coverTitle, 8);
         ReadingSkin.roundClip(cover, c, 8);
         coverWrap.addView(cover);
-        TextView coverTitle = new TextView(c);
-        coverTitle.setTextSize(13);
-        coverTitle.getPaint().setFakeBoldText(true);
-        coverTitle.setTextColor(0xFFFFFFFF);
-        coverTitle.setGravity(Gravity.CENTER);
-        coverTitle.setPadding(dp(6), 0, dp(6), 0);
-        coverTitle.setMaxLines(3);
         coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));

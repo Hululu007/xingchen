@@ -406,6 +406,16 @@ public final class LabRunner {
             if (TextUtils.isEmpty(command)) throw new Exception("命令为空");
             File cwd = LabPaths.packageDir(c, pkgId);
             cwd.mkdirs();
+            File log = LabProc.logFile(c, logName);
+            // 相对路径兜底：接在 expand() 之后（命令已是最终形态，{pkgDir} 等已展开成绝对路径），
+            // ProcessBuilder 拼 shell 之前。包根下找不到、files/ 下有的相对路径补上 files/ 前缀。
+            String aligned = LabPathAlign.align(cwd, command);
+            if (!aligned.equals(command)) {
+                String pathNote = "命令路径自动对齐到 files/：原命令里的脚本在包根下找不到、files/ 下有，已补上 files/ 前缀";
+                appendLog(key, pathNote + "\n");
+                appendFile(log, pathNote + "\n");
+                command = aligned;
+            }
             ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", command);
             builder.directory(cwd);
             builder.redirectErrorStream(true);
@@ -417,7 +427,6 @@ public final class LabRunner {
                 STDIN.put(key, process.getOutputStream());
             } catch (Exception ignored) {
             }
-            File log = LabProc.logFile(c, logName);
             if (nodeNote != null) {
                 appendLog(key, nodeNote + "\n");
                 appendFile(log, nodeNote + "\n");

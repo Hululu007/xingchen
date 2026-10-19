@@ -97,7 +97,8 @@ public final class ReadingDownload {
         }
     }
 
-    private static void saveNovelChapter(Context ctx, String bookKey, int chapterIndex, String text) {
+    /** 读完即写回：下次打开/重进同章直接命中文件，不再重跑源解析。 */
+    public static void saveNovelChapter(Context ctx, String bookKey, int chapterIndex, String text) {
         try {
             File f = novelFile(ctx, bookKey, chapterIndex);
             File tmp = new File(f.getParent(), f.getName() + ".part");

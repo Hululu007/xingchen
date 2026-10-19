@@ -77,11 +77,14 @@ public class NovelReaderActivity extends AppCompatActivity {
     private boolean barsShown = false;
     private boolean loading = false;
     private String currentText = "";
-    private long lastSaveAt = 0;
+    private volatile long lastSaveAt = 0; // saveProgressAt 跑在后台线程，加 volatile
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // prefs 必须先于任何 theme()/pageMode() 等读取：1.3.56 曾在它之后调
+        // isNightPref(theme()) 导致 getInt 掉空指针，阅读页每次起屏必崩。
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         ReadingSkin.enableEdgeToEdge(this, isNightPref(theme()));
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {
@@ -89,7 +92,6 @@ public class NovelReaderActivity extends AppCompatActivity {
             finish();
             return;
         }
-        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         buildUi();
         applyKeepScreen();
         loadChapter(session.chapterIndex, true);
@@ -966,6 +968,20 @@ public class NovelReaderActivity extends AppCompatActivity {
         refreshTitle();
         Task.execute(() -> {
             String text = cachedOrResolve(ch);
+            // 进度恢复查记录：整 blob 读写放后台，主线程只管按算好的位置滚动
+            float restoreFrac = -1f;
+            if (restoreProgress) {
+                com.fongmi.android.tv.read.ReadingStore.Record prog =
+                        !TextUtils.isEmpty(session.localId)
+                                ? com.fongmi.android.tv.read.ReadingStore.findLocal(session.localId)
+                                : com.fongmi.android.tv.read.ReadingStore.find(
+                                        "NOVEL", session.sourceName, session.bookTitle);
+                if (prog != null && prog.chapterIndex == session.chapterIndex
+                        && prog.position > 0) {
+                    restoreFrac = prog.position / 10000f;
+                }
+            }
+            final float frac0 = restoreFrac;
             runOnUiThread(() -> {
                 loading = false;
                 currentText = text;
@@ -980,14 +996,8 @@ public class NovelReaderActivity extends AppCompatActivity {
                         scrollToFraction(session.startFraction / 10000f);
                         session.startFraction = -1;
                     } else if (restoreProgress) {
-                        ReadingStore.Record prog = !TextUtils.isEmpty(session.localId)
-                                ? ReadingStore.findLocal(session.localId)
-                                : ReadingStore.find("NOVEL", session.sourceName, session.bookTitle);
-                        if (prog != null && prog.chapterIndex == session.chapterIndex && prog.position > 0) {
-                            scrollToFraction(prog.position / 10000f);
-                        } else {
-                            scrollView.scrollTo(0, 0);
-                        }
+                        if (frac0 >= 0) scrollToFraction(frac0);
+                        else scrollView.scrollTo(0, 0);
                     } else {
                         scrollView.scrollTo(0, 0);
                     }
@@ -1037,12 +1047,19 @@ public class NovelReaderActivity extends AppCompatActivity {
         return "";
     }
 
-    /** 取正文：先看缓存（本地书本身就在本地，不走缓存）。 */
+    /** 取正文：先看缓存（本地书本身就在本地，不走缓存）。未命中时解析完写回缓存。 */
     private String cachedOrResolve(ReadingSession.Chapter ch) {
         if (TextUtils.isEmpty(session.localId)) {
             String cached = com.fongmi.android.tv.read.ReadingDownload.loadNovelChapter(
                     this, bookKey(), session.chapterIndex);
             if (!TextUtils.isEmpty(cached)) return cached;
+            String text = resolveText(session, ch);
+            if (!TextUtils.isEmpty(text)) {
+                // 读完即写回：重进/切回同章不再重跑源解析（配额与原子写由 ReadingDownload 管）
+                com.fongmi.android.tv.read.ReadingDownload.saveNovelChapter(
+                        this, bookKey(), session.chapterIndex, text);
+            }
+            return text;
         }
         return resolveText(session, ch);
     }
@@ -1135,7 +1152,16 @@ public class NovelReaderActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 存进度：滚动位置在主线程取（要读视图），整 blob 的读写串行放单线程后台，
+     * 不许在主线程做——记录里带正文快照时 blob 可达数 MB。
+     */
     private void saveProgress() {
+        final float frac = currentFraction();
+        Task.scheduler().execute(() -> saveProgressAt(frac));
+    }
+
+    private void saveProgressAt(float fraction) {
         long now = System.currentTimeMillis();
         if (now - lastSaveAt < 2000) return;
         lastSaveAt = now;
@@ -1152,7 +1178,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             r.legadoKey = session.legadoKey;
             r.localId = session.localId;
             r.origin = TextUtils.isEmpty(session.localId) ? "" : "local";
-            r.position = Math.round(currentFraction() * 10000);
+            r.position = Math.round(fraction * 10000);
             // py 小说：正文存快照，继续读时不用重跑解析（本地书从磁盘懒读，不存快照）
             if (TextUtils.isEmpty(session.ruleTitle) && TextUtils.isEmpty(session.localId)
                     && !TextUtils.isEmpty(currentText)) {

@@ -18,8 +18,14 @@ import java.util.Map;
 /**
  * 环境包公开仓目录（上游 lab_template 口径的星辰版）：
  * assets/lab_env_catalog.json —— 11 个环境的 id/name/version/downloads[]，
- * downloads[] 每项 {arch, url, size, mirrors[]}。
+ * downloads[] 每项 {arch, url, size, sha256, mirrors[], file?}。
  * 目录还没生成时全空，安装回退旧下载地址口径（见 LabRuntimeManager）。
+ *
+ * 仓包命名约定（大改包换新文件名，禁止原名覆盖，防 CDN 按 URL 缓存旧包）：
+ * 整包 env-<包id>-<版本号>.zip（如 env-python-3.14.8-1.zip），
+ * 分片清单 env-<包id>-<版本号>.json；版本号用条目 version 原样。
+ * downloads[] 的 url 尾段即包名；也可显式给 file 字段（优先用它）。
+ * 老文件名文件保留（老版本 App 还指着它），只增不覆盖。
  *
  * 对接点：仓代理产出 ~/workspace/lab-assets-manifest.json 后，主会话转成此资产文件打包。
  */
@@ -30,6 +36,8 @@ public final class LabEnvCatalog {
         public String url = "";
         public long size = 0;
         public String sha256 = "";
+        /** 包文件名（可选）：显式给就优先用它；不给从 url 尾段取 */
+        public String file = "";
         public final List<String> mirrors = new ArrayList<>();
 
         /** 主地址＋镜像依次试 */
@@ -81,6 +89,7 @@ public final class LabEnvCatalog {
                             dl.url = d.optString("url", "");
                             dl.size = d.optLong("size", 0);
                             dl.sha256 = d.optString("sha256", "");
+                            dl.file = d.optString("file", "").trim();
                             JSONArray ms = d.optJSONArray("mirrors");
                             if (ms != null) {
                                 for (int k = 0; k < ms.length(); k++) {

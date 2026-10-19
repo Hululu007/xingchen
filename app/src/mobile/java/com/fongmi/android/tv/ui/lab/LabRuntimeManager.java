@@ -152,15 +152,54 @@ public final class LabRuntimeManager {
         }).start();
     }
 
-    /** 整包下载：镜像↔直链换着重试（默认 2 轮），sha256 校验 */
+    /** 整包下载：镜像↔直链换着重试（默认 2 轮），每路下完都验 sha256，不对就换下一路 */
     private static void downloadWhole(String url, File dest, Listener listener, String runtime) throws Exception {
         long size = PKG_SIZE.get(pkgKey(runtime)) == null ? 0 : PKG_SIZE.get(pkgKey(runtime));
         progress(listener, "正在下载环境包…");
-        downloadRetry(candidates(url, size), dest, 2);
         String sha = PKG_SHA256.get(pkgKey(runtime));
-        if (sha != null && !sha.isEmpty() && !sha256Of(dest).equalsIgnoreCase(sha)) {
-            throw new Exception("包校验没过，重新下一次试试");
+        downloadVerified(candidates(url, size), dest, sha, 2, listener);
+    }
+
+    /**
+     * 跨源重试下载＋逐路 sha 校验（校验链落点 1）：
+     * 某一路下完但 sha 不过，视同该路失败，直接换下一路，不在同一路死磕；
+     * 全路跑满 rounds 轮都没拿到对的包才抛。sha 为空时退化成纯下载重试。
+     */
+    private static void downloadVerified(List<String> urls, File dest, String sha256,
+                                         int rounds, Listener listener) throws Exception {
+        Exception last = null;
+        boolean shaFailed = false;
+        boolean needSha = sha256 != null && !sha256.isEmpty();
+        for (int r = 0; r < rounds; r++) {
+            for (String u : urls) {
+                try {
+                    download(u, dest);
+                } catch (Exception e) {
+                    last = e;
+                    continue;
+                }
+                if (!needSha) return;
+                boolean ok = false;
+                try {
+                    ok = sha256Of(dest).equalsIgnoreCase(sha256);
+                } catch (Exception e) {
+                    last = e;
+                }
+                if (ok) return;
+                // 这一路下是下下来了，但包不对（旧缓存/错包），换下一路
+                shaFailed = true;
+                progress(listener, "这一路包不对，换一路再下…");
+            }
+            if (r + 1 < rounds) {
+                try {
+                    Thread.sleep(400);
+                } catch (InterruptedException ignored) {
+                }
+            }
         }
+        if (shaFailed) throw new Exception("包校验没过，重新下一次试试");
+        if (last != null) throw last;
+        throw new Exception("下不动");
     }
 
     /**
@@ -510,28 +549,32 @@ public final class LabRuntimeManager {
         }
         new Thread(() -> {
             try {
-                String fileName = fileNameOf(dl.url);
-                File local = findLocalArchive(ctx, fileName);
+                // 文件名：目录给了 file 字段就用它（版本化新名），没给从 URL 尾段取
+                String fileName = !dl.file.isEmpty() ? dl.file : fileNameOf(dl.url);
                 File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
                 if (dl.url.endsWith(".json")) {
                     // 分片清单型：走分片拼接＋校验
                     downloadSharded(dl.url, tmp, listener);
-                } else if (local != null) {
-                    progress(listener, "找到本地包，直接装…");
-                    copyFile(local, tmp);
                 } else {
-                    progress(listener, "正在下载环境包…");
-                    // ≤20MB 镜像优先、直链兜底；大的只走直链；2 轮跨源重试
-                    List<String> urls = new ArrayList<>();
-                    String jsd = jsdelivrOf(dl.url);
-                    if (dl.size > 0 && dl.size <= 20L * 1024 * 1024 && jsd != null) {
-                        urls.add(jsd);
+                    File local = verifyLocalArchive(ctx, fileName, dl.sha256, listener);
+                    if (local != null) {
+                        progress(listener, "找到本地包，直接装…");
+                        copyFile(local, tmp);
+                    } else {
+                        progress(listener, "正在下载环境包…");
+                        // ≤20MB 镜像优先、直链兜底；大的只走直链；2 轮跨源重试；
+                        // 某一路下完 sha 不对就换下一路，全路不对才报错
+                        List<String> urls = new ArrayList<>();
+                        String jsd = jsdelivrOf(dl.url);
+                        if (dl.size > 0 && dl.size <= 20L * 1024 * 1024 && jsd != null) {
+                            urls.add(jsd);
+                        }
+                        urls.add(dl.url);
+                        urls.addAll(dl.mirrors);
+                        downloadVerified(urls, tmp, dl.sha256, 2, listener);
                     }
-                    urls.add(dl.url);
-                    urls.addAll(dl.mirrors);
-                    downloadRetry(urls, tmp, 2);
                 }
-                // 整包 sha 校验（目录里有就验，没有不硬拦）
+                // 整包 sha 校验（目录里有就验，没有不硬拦；最后一道保险）
                 if (!dl.sha256.isEmpty() && !sha256Of(tmp).equalsIgnoreCase(dl.sha256)) {
                     throw new Exception("包校验没过，重新下一次试试");
                 }
@@ -560,6 +603,39 @@ public final class LabRuntimeManager {
             if (f.isFile()) return f;
         }
         return null;
+    }
+
+    /**
+     * 本地包先验 sha 再用（校验链落点 3）：
+     * 找到同名包后先比 sha256——对得上才用；对不上就删掉（旧包/错包留着只会再炸），
+     * 返回 null 走下载。目录里没给 sha 时无法验，直接用。
+     */
+    private static File verifyLocalArchive(Context ctx, String fileName, String sha256, Listener listener) {
+        File local = findLocalArchive(ctx, fileName);
+        if (local == null) return null;
+        if (sha256 != null && !sha256.isEmpty()) {
+            boolean ok = false;
+            try {
+                ok = sha256Of(local).equalsIgnoreCase(sha256);
+            } catch (Exception ignored) {
+            }
+            if (!ok) {
+                progress(listener, "本地包对不上新版，删掉重下…");
+                local.delete();
+                return null;
+            }
+        }
+        return local;
+    }
+
+    /**
+     * 仓包命名约定（校验链落点 2）：大改包必须换新文件名，禁止原名覆盖——
+     * 整包 env-包id-版本号.zip（如 env-python-3.14.8-1.zip），
+     * 分片清单 env-包id-版本号.json；版本号用目录 version 原样。
+     * 壳子从目录的 file/url 读名；仓侧动作见 lab-verify-chain-fix-report.md。
+     */
+    public static String packageFileName(String pkgId, String version) {
+        return "env-" + pkgKey(pkgId) + "-" + (version == null ? "" : version) + ".zip";
     }
 
     /** 已装版本（版本更新检测用） */

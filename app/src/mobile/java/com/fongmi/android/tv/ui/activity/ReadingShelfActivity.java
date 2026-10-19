@@ -44,7 +44,8 @@ import java.util.Locale;
 /**
  * 书架首页（对稿 reading-ui-mockup-v2/home-novel、home-comic）：
  * 小说栏＝在看的小说卡片（封面/进度/继续读）＋听书分区＋听书卡＋我的小说源聚合卡；
- * 漫画栏＝在看的漫画卡片（连载徽）＋我的漫画源聚合卡。各栏只说各栏的字。
+ * 漫画栏＝在看的漫画卡片（连载徽）＋我的漫画源聚合卡；
+ * 听书栏＝在听的听书卡片＋我的听书源聚合卡。各栏只说各栏的字。
  * 顶栏不设叉（用户规矩：所有页面不要叉，走系统返回）。
  */
 public class ReadingShelfActivity extends AppCompatActivity {
@@ -53,10 +54,11 @@ public class ReadingShelfActivity extends AppCompatActivity {
         context.startActivity(new Intent(context, ReadingShelfActivity.class));
     }
 
-    /** 当前栏："NOVEL"/"COMIC"，小说漫画分开归栏。 */
+    /** 当前栏："NOVEL"/"COMIC"/"AUDIO"，小说漫画听书分开归栏。 */
     private String currentTab = "NOVEL";
     private TextView tabNovel;
     private TextView tabComic;
+    private TextView tabAudio;
     private TextView importBtn;
     private LinearLayout contentBox;
 
@@ -128,7 +130,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         title.setTextColor(ReadingSkin.TEXT);
         titles.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("小说 · 漫画，各看各的");
+        sub.setText("小说 · 漫画 · 听书，各看各的");
         sub.setTextSize(12);
         sub.setTextColor(ReadingSkin.SUB);
         sub.setPadding(0, dp(2), 0, 0);
@@ -166,8 +168,10 @@ public class ReadingShelfActivity extends AppCompatActivity {
         tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
         tabNovel = makeTab("小 说", "NOVEL");
         tabComic = makeTab("漫 画", "COMIC");
+        tabAudio = makeTab("听 书", "AUDIO");
         tabs.addView(tabNovel);
         tabs.addView(tabComic);
+        tabs.addView(tabAudio);
         root.addView(tabs);
         refreshTabs();
 
@@ -191,15 +195,21 @@ public class ReadingShelfActivity extends AppCompatActivity {
     private void refresh() {
         List<ReadingStore.Record> novels = new ArrayList<>();
         List<ReadingStore.Record> comics = new ArrayList<>();
+        List<ReadingStore.Record> audios = new ArrayList<>();
         ReadingStore.Record latestAudio = null;
         for (ReadingStore.Record r : ReadingStore.list()) {
             if ("NOVEL".equals(r.kind)) novels.add(r);
             else if ("COMIC".equals(r.kind)) comics.add(r);
             else if ("AUDIO".equals(r.kind) || "TTS".equals(r.kind)) {
                 if (latestAudio == null || r.updatedAt > latestAudio.updatedAt) latestAudio = r;
+                audios.add(r);
             }
         }
+        audios.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         boolean novel = "NOVEL".equals(currentTab);
+        boolean comic = "COMIC".equals(currentTab);
+        // 听书栏没有本地导入：隐藏"本地"按钮，小说漫画栏照旧
+        importBtn.setVisibility(novel || comic ? View.VISIBLE : View.GONE);
         contentBox.removeAllViews();
         if (novel) {
             // 在看的小说：标题栏右侧「全部 ›」进完整小说页（横滑只管接着读，书多了走全量页）
@@ -223,7 +233,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
             contentBox.addView(ximaCard());
             contentBox.addView(ReadingSkin.sectionHeader(this, "我的小说源", null, null));
             contentBox.addView(sourceCard(true));
-        } else {
+        } else if (comic) {
             contentBox.addView(ReadingSkin.sectionHeader(this, "在看的漫画", "长按移除", null));
             if (comics.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的漫画\n导入一个图包 / 图片文件夹，或去看一本在线漫画"));
@@ -244,6 +254,29 @@ public class ReadingShelfActivity extends AppCompatActivity {
             nlp.topMargin = dp(8);
             note.setLayoutParams(nlp);
             contentBox.addView(note);
+        } else {
+            contentBox.addView(ReadingSkin.sectionHeader(this, "在听的听书", null, null));
+            if (audios.isEmpty()) contentBox.addView(emptyView(
+                    "还没有在听的听书\n去搜一本，或先装一个听书源"));
+            else for (ReadingStore.Record r : audios) contentBox.addView(audioCard(r));
+            contentBox.addView(ReadingSkin.sectionHeader(this, "我的听书源", null, null));
+            int[] counts = sourceCounts();
+            contentBox.addView(audioSourceCard(counts[1]));
+            if (counts[1] == 0) {
+                TextView note = new TextView(this);
+                note.setText("还没装听书源，点上面的卡片进去添加。");
+                note.setTextSize(12);
+                note.setTextColor(ReadingSkin.FAINT);
+                note.setLineSpacing(dp(4), 1f);
+                LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                nlp.leftMargin = dp(20);
+                nlp.rightMargin = dp(20);
+                nlp.topMargin = dp(8);
+                note.setLayoutParams(nlp);
+                contentBox.addView(note);
+            }
         }
         List<ReadingStore.Record> cands = new ArrayList<>(novels);
         cands.addAll(comics);
@@ -762,6 +795,69 @@ public class ReadingShelfActivity extends AppCompatActivity {
         return card;
     }
 
+    /** 听书源聚合卡：听书源 · N 个源，点进听书源管理（与书源聚合卡同口径）。 */
+    private View audioSourceCard(int count) {
+        Context c = this;
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackground(ReadingSkin.glassCard(c, 16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        lp.rightMargin = dp(16);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+
+        TextView icon = new TextView(c);
+        icon.setText("听");
+        icon.setTextSize(20);
+        icon.getPaint().setFakeBoldText(true);
+        icon.setTextColor(ReadingSkin.GOLD_TEXT);
+        icon.setGravity(Gravity.CENTER);
+        int is = dp(44);
+        GradientDrawable ibg = new GradientDrawable();
+        ibg.setCornerRadius(dp(11));
+        ibg.setColors(new int[]{0x4D45C08A, 0x1445C08A});
+        ibg.setOrientation(GradientDrawable.Orientation.TL_BR);
+        ibg.setStroke(dp(2), 0x6645C08A);
+        icon.setBackground(ibg);
+        icon.setLayoutParams(new LinearLayout.LayoutParams(is, is));
+        card.addView(icon);
+
+        LinearLayout meta = new LinearLayout(c);
+        meta.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        mlp.leftMargin = dp(12);
+        meta.setLayoutParams(mlp);
+        TextView a = new TextView(c);
+        a.setTextSize(15);
+        a.getPaint().setFakeBoldText(true);
+        a.setTextColor(ReadingSkin.TEXT);
+        a.setText("听书源 · " + count + " 个源");
+        meta.addView(a);
+        TextView b = new TextView(c);
+        b.setTextSize(12);
+        b.setTextColor(ReadingSkin.SUB);
+        b.setPadding(0, dp(4), 0, 0);
+        String sync = syncText();
+        b.setText("听书源 " + count + (TextUtils.isEmpty(sync) ? "" : " · " + sync));
+        meta.addView(b);
+        card.addView(meta);
+
+        TextView arrow = new TextView(c);
+        arrow.setText("›");
+        arrow.setTextSize(20);
+        arrow.setTextColor(ReadingSkin.FAINT);
+        card.addView(arrow);
+
+        card.setOnClickListener(v -> LegadoActivity.start(ReadingShelfActivity.this,
+                LegadoSource.TYPE_AUDIO));
+        return card;
+    }
+
     /** 书源计数：[文本, 听书, 图片]（只计启用的）。 */
     private int[] sourceCounts() {
         int[] r = new int[3];
@@ -866,9 +962,9 @@ public class ReadingShelfActivity extends AppCompatActivity {
     }
 
     private void refreshTabs() {
-        boolean novel = "NOVEL".equals(currentTab);
-        styleTab(tabNovel, novel);
-        styleTab(tabComic, !novel);
+        styleTab(tabNovel, "NOVEL".equals(currentTab));
+        styleTab(tabComic, "COMIC".equals(currentTab));
+        styleTab(tabAudio, "AUDIO".equals(currentTab));
     }
 
     /** 胶囊切换：选中金字＋金描边深色胶囊（稿语言）。 */
@@ -889,9 +985,11 @@ public class ReadingShelfActivity extends AppCompatActivity {
         }
     }
 
-    /** 当前栏对应的书源类型：小说栏→文本源，漫画栏→图片源。 */
+    /** 当前栏对应的书源类型：小说栏→文本源，漫画栏→图片源，听书栏→听书源。 */
     private int currentType() {
-        return "COMIC".equals(currentTab) ? LegadoSource.TYPE_IMAGE : LegadoSource.TYPE_TEXT;
+        if ("COMIC".equals(currentTab)) return LegadoSource.TYPE_IMAGE;
+        if ("AUDIO".equals(currentTab)) return LegadoSource.TYPE_AUDIO;
+        return LegadoSource.TYPE_TEXT;
     }
 
     /** 搜书：作用域跟着当前页签走（小说→小说源，漫画→漫画源），各搜各的不混。 */

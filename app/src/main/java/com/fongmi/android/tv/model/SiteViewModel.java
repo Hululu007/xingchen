@@ -128,6 +128,8 @@ public class SiteViewModel extends ViewModel {
         // 否则慢网下进一次详情、返回首页就"打不开"（1.3.30 回归）；切源时新源的
         // homeContent 同样会作废旧源任务，原"切源不等旧源"意图不受影响。
         SiteApi.cancelHomeLoads();
+        // 冷启动第一次 py 首页加载：外层给 90 秒预算（冷链：蜘蛛首次加载＋依赖下载＋站点取数），
+        // 热了之后一律 30 秒不动。预算由 SiteApi.homeTimeoutFor 按冷热判定。
         execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null,
                 // 超时/被取消：外层只给了空列表，子任务还在池里继续跑、继续打站点，
                 // 用户一重试就再叠一层——连带作废。正常慢加载（没超时没取消）不受影响。
@@ -135,7 +137,7 @@ public class SiteViewModel extends ViewModel {
                     if (error instanceof TimeoutException || error instanceof CancellationException)
                         SiteApi.cancelHomeLoads();
                 },
-                Constant.TIMEOUT_VOD, home == null ? "" : home.getKey());
+                SiteApi.homeTimeoutFor(home), home == null ? "" : home.getKey());
     }
 
     public void categoryContent(String key, String tid, String page, boolean filter, HashMap<String, String> extend) {
@@ -256,6 +258,8 @@ public class SiteViewModel extends ViewModel {
                     SpiderDebug.log("viewmodel", "execute failed type=%s site=%s error=%s", type, siteKey, error);
                     if (error instanceof ExtractException) liveData.postValue(Result.error(error.getMessage()));
                     else if (type == TaskType.PLAYER && error instanceof TimeoutException) liveData.postValue(Result.error(ResUtil.getString(R.string.error_play_timeout)));
+                    // 冷启动首次 py 首页加载超时：给明确错误，不许再吞成空结果。
+                    else if (error instanceof SiteApi.ColdHomeTimeoutException) liveData.postValue(Result.error(error.getMessage()));
                     else liveData.postValue(Result.empty());
                     error.printStackTrace();
                 }

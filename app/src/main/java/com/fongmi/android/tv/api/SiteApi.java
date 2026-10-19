@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.collection.ArrayMap;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.hk.HkDetail;
@@ -284,6 +285,34 @@ public class SiteApi {
     private static final long HOME_SUB_TIMEOUT_SECONDS = 35;
 
     /**
+     * 冷启动首次 py 首页加载的加长预算：冷链（蜘蛛首次编译加载＋依赖下载＋
+     * init＋站点取数）全跑在 UI 超时里，慢网下 30 秒不够、静默变空。
+     * 只有本进程第一次 py 首页加载用这个口径，热了之后一律 30/35 秒不动。
+     */
+    public static final long COLD_HOME_TIMEOUT_MS = 90_000;
+    private static final long COLD_HOME_SUB_TIMEOUT_SECONDS = 80;
+
+    /**
+     * 冷启动首次 py 首页加载超时：单独类型，调用方必须给明确错误，
+     * 不许再吞成空结果。
+     */
+    public static class ColdHomeTimeoutException extends TimeoutException {
+        public ColdHomeTimeoutException(String message) {
+            super(message);
+        }
+    }
+
+    /** 是否本进程第一次 py 首页加载：py 源且还没有蜘蛛成功创建过。 */
+    public static boolean isColdPyHomeLoad(Site site) {
+        return site != null && isPySpiderSite(site) && !PyLoader.hasAnySpider();
+    }
+
+    /** 首页加载的外层超时：冷启动第一次 py 加载给 90 秒，其余走常规 30 秒。 */
+    public static long homeTimeoutFor(Site site) {
+        return isColdPyHomeLoad(site) ? COLD_HOME_TIMEOUT_MS : Constant.TIMEOUT_VOD;
+    }
+
+    /**
      * 作废所有在途的首页 spider 子任务，并开启一个新代次。
      * 由 SiteViewModel 在发起新的 RESULT 任务前调用（切源/刷新/进分类/进详情）；
      * ViewModel 侧已有代次校验，旧结果回来直接丢弃。
@@ -331,6 +360,8 @@ public class SiteApi {
 
     @NonNull
     public static Result homeContent(@NonNull Site site, boolean forceRefresh) throws Exception {
+        // 冷热判定必须在 site.recent().spider() 创建蜘蛛之前：创建成功即算已热。
+        boolean coldPy = isColdPyHomeLoad(site);
         if (isSpider(site.getKey(), site)) {
             Spider spider = site.recent().spider();
             boolean crash = Prefers.getBoolean("crash");
@@ -378,6 +409,8 @@ public class SiteApi {
             String video;
             int gen = homeLoadGen.get();
             long loadStart = System.currentTimeMillis(); // 耗时记账：只统计真正跑了脚本的加载
+            // 冷启动第一次：子任务也给加长预算（外层 90 秒由调用方按 homeTimeoutFor 给）。
+            long subTimeout = coldPy ? COLD_HOME_SUB_TIMEOUT_SECONDS : HOME_SUB_TIMEOUT_SECONDS;
             if (crash) {
                 home = "";
                 video = "";
@@ -387,13 +420,15 @@ public class SiteApi {
                 Future<String> fVideo = spiderHomePool.submit(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));
                 trackHomeFuture(gen, fVideo);
                 try {
-                    home = fHome.get(HOME_SUB_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                    video = fVideo.get(HOME_SUB_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    home = fHome.get(subTimeout, TimeUnit.SECONDS);
+                    video = fVideo.get(subTimeout, TimeUnit.SECONDS);
                 } catch (TimeoutException e) {
                     // 子任务超时：外层按超时处理（空列表）；这里先把两个子任务都掐掉，
                     // 不让它们继续占池线程、继续打站点——否则用户一重试就再叠一层。
                     fHome.cancel(true);
                     fVideo.cancel(true);
+                    // 冷启动第一次超时：抛明确错误，不许再吞成空结果。
+                    if (coldPy) throw new ColdHomeTimeoutException("首次加载超时，请重试");
                     throw e;
                 } catch (java.util.concurrent.ExecutionException e) {
                     Throwable cause = e.getCause();

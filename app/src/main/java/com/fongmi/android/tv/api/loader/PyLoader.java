@@ -12,6 +12,7 @@ import com.github.catvod.crawler.SpiderNull;
 import java.io.File;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PyLoader {
 
@@ -20,6 +21,20 @@ public class PyLoader {
     private final Loader loader;
     private volatile String recent;
     private FileObserver watcher;
+
+    /** 本进程是否有蜘蛛成功创建过：给首页冷热预算判定用（SiteApi.isColdPyHomeLoad）。 */
+    private static final AtomicBoolean anySpider = new AtomicBoolean(false);
+
+    public static boolean hasAnySpider() {
+        return anySpider.get();
+    }
+
+    /** 蜘蛛创建失败的包装（unchecked）：穿过 computeIfAbsent 时不被缓存，下次调用可重试。 */
+    private static class SpiderLoadFailed extends RuntimeException {
+        SpiderLoadFailed(Throwable cause) {
+            super(cause);
+        }
+    }
 
     public PyLoader() {
         spiders = new ConcurrentHashMap<>();
@@ -117,22 +132,33 @@ public class PyLoader {
                 remove(key);
             }
         }
-        return spiders.computeIfAbsent(key, k -> {
-            try {
-                Spider spider = loader.spider(resolvedApi);
-                spider.siteKey = key;
-                spider.init(App.get(), normalizeExt(ext));
-                File f = new File(resolvedApi);
-                if (localFile && f.exists()) fileStamps.put(k, stampOf(f));
-                else fileStamps.remove(k);
-                return spider;
-            } catch (Throwable e) {
-                e.printStackTrace();
-                spiders.remove(key);
-                fileStamps.remove(key);
-                return new SpiderNull();
-            }
-        });
+        try {
+            return spiders.computeIfAbsent(key, k -> createSpider(k, resolvedApi, ext, localFile));
+        } catch (SpiderLoadFailed e) {
+            // 失败不缓存（computeIfAbsent 在映射函数抛异常时不写入），下次调用重试。
+            return new SpiderNull();
+        }
+    }
+
+    /**
+     * 创建并初始化一只蜘蛛（computeIfAbsent 的映射函数体）。
+     * 成功才写入缓存并标记 anySpider；失败抛 SpiderLoadFailed 穿透出去，
+     * 外层负责提示并返回未缓存的 SpiderNull——一次失败不再毒化该源整个进程。
+     */
+    private Spider createSpider(String key, String api, String ext, boolean localFile) {
+        try {
+            Spider spider = loader.spider(api);
+            spider.siteKey = key;
+            spider.init(App.get(), normalizeExt(ext));
+            File f = new File(api);
+            if (localFile && f.exists()) fileStamps.put(key, stampOf(f));
+            else fileStamps.remove(key);
+            anySpider.set(true);
+            return spider;
+        } catch (Throwable t) {
+            t.printStackTrace();
+            throw new SpiderLoadFailed(t);
+        }
     }
 
     public Spider getSpider(String key, String api, String ext) {
@@ -152,25 +178,17 @@ public class PyLoader {
                 remove(key);
             }
         }
-        return spiders.computeIfAbsent(key, k -> {
-            try {
-                Spider spider = loader.spider(resolvedApi);
-                spider.siteKey = key;
-                spider.init(App.get(), normalizeExt(ext));
-                File f = new File(resolvedApi);
-                if (localFile && f.exists()) fileStamps.put(k, stampOf(f));
-                else fileStamps.remove(k);
-                return spider;
-            } catch (Throwable e) {
-                e.printStackTrace();
-                String msg = "PY加载失败 [" + key + "]: " + e.getClass().getSimpleName() + ": " + e.getMessage();
-                android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-                h.post(() -> android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_LONG).show());
-                spiders.remove(key);
-                fileStamps.remove(key);
-                return new SpiderNull();
-            }
-        });
+        try {
+            return spiders.computeIfAbsent(key, k -> createSpider(k, resolvedApi, ext, localFile));
+        } catch (SpiderLoadFailed e) {
+            // 失败不缓存：下次打开重试。computeIfAbsent 在映射函数抛异常时不写入，
+            // 此前这里返回 SpiderNull 会被写进缓存，一次失败毒化该源整个进程。
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String msg = "PY加载失败 [" + key + "]: " + cause.getClass().getSimpleName() + ": " + cause.getMessage();
+            android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+            h.post(() -> android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_LONG).show());
+            return new SpiderNull();
+        }
     }
 
     private String normalizeExt(String ext) {

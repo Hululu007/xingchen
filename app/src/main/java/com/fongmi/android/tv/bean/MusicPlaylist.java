@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.bean;
 
 import androidx.room.Entity;
+import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
 /** 自建歌单 */
@@ -12,6 +13,9 @@ public class MusicPlaylist {
     private String name;
     private long createTime;
     private long updateTime;
+    /** 运行时：曲目数（不落库） */
+    @Ignore
+    public int trackCount = -1;
 
     public long getId() {
         return id;

@@ -49,40 +49,43 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
     protected void initView() {
         binding.tvTitle.setText(title == null ? "" : title);
         binding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
-        binding.recycler.setAdapter(new RecyclerView.Adapter<Holder>() {
-            @NonNull
-            @Override
-            public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_music_option, parent, false);
-                return new Holder(v);
-            }
+        binding.recycler.setAdapter(new OptionsAdapter());
+    }
 
-            @Override
-            public void onBindViewHolder(@NonNull Holder h, int position) {
-                String text = options.get(position);
-                boolean isChecked = position == checked;
-                h.option.setText(text);
-                h.option.setTextColor(isChecked ? 0xFFF2B33D : 0xFFFFFFFF);
-                h.option.getPaint().setFakeBoldText(isChecked);
-                h.itemView.setOnClickListener(v -> {
-                    if (callback != null) callback.onPick(position);
-                    dismissAllowingStateLoss();
-                });
-            }
+    private class OptionsAdapter extends RecyclerView.Adapter<OptionsAdapter.Holder> {
 
-            @Override
-            public int getItemCount() {
-                return options == null ? 0 : options.size();
-            }
+        @NonNull
+        @Override
+        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_music_option, parent, false);
+            return new Holder(v);
+        }
 
-            class Holder extends RecyclerView.ViewHolder {
-                final TextView option;
+        @Override
+        public void onBindViewHolder(@NonNull Holder h, int position) {
+            String text = options.get(position);
+            boolean isChecked = position == checked;
+            h.option.setText(text);
+            h.option.setTextColor(isChecked ? 0xFFF2B33D : 0xFFFFFFFF);
+            h.option.getPaint().setFakeBoldText(isChecked);
+            h.itemView.setOnClickListener(v -> {
+                if (callback != null) callback.onPick(position);
+                dismissAllowingStateLoss();
+            });
+        }
 
-                Holder(View v) {
-                    super(v);
-                    option = v.findViewById(R.id.option);
-                }
+        @Override
+        public int getItemCount() {
+            return options == null ? 0 : options.size();
+        }
+
+        class Holder extends RecyclerView.ViewHolder {
+            final TextView option;
+
+            Holder(View v) {
+                super(v);
+                option = v.findViewById(R.id.option);
             }
-        });
+        }
     }
 }

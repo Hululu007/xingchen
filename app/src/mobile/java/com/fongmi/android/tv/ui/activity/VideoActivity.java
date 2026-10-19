@@ -161,6 +161,8 @@ import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.KaraokeResultView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.ui.custom.TopProgressRule;
+import com.fongmi.android.tv.ui.custom.TopProgressView;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
@@ -757,6 +759,19 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     @Override
+    protected TopProgressView getTopProgressView() {
+        return mBinding == null ? null : mBinding.topProgress;
+    }
+
+    /** 顶部细进度条显隐：控制栏藏着＋全屏＋点播（有时长）才显示。 */
+    private void updateTopProgress() {
+        if (mBinding == null) return;
+        boolean controlsVisible = mBinding.control.getRoot().getVisibility() == View.VISIBLE;
+        boolean hasDuration = service() != null && !player().isEmpty() && player().isVod();
+        mBinding.topProgress.setVisibility(TopProgressRule.shouldShow(isFullscreen(), controlsVisible, hasDuration) ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
     protected void onServiceConnected() {
         player().setDanmakuController(mBinding.exo.getDanmakuController());
         syncDesktopLyricsAudioContent();
@@ -780,6 +795,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setDecode();
         setLut();
         refreshControlDialog();
+        updateTopProgress();
     }
 
     private void refreshControlDialog() {
@@ -5629,6 +5645,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.netSpeed.setVisibility(!isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         if (!isFullscreen() && !isLock()) startNetSpeedTick();
         setR1Callback();
+        updateTopProgress();
     }
 
     private void hideControl() {
@@ -5637,6 +5654,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         updateCustomButtonVisibility();
         if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
+        updateTopProgress();
     }
 
     private void onOsdDiagnostics() {
@@ -6119,6 +6137,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         refreshLyrics();
         setTrackVisible();
         mClock.setCallback(this);
+        updateTopProgress();
     }
 
     private void updateAudioOnlyState() {

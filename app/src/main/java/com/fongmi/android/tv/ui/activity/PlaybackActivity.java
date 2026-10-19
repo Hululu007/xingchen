@@ -50,6 +50,7 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.DiscMenuDialog;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
+import com.fongmi.android.tv.ui.custom.TopProgressView;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -150,6 +151,16 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected abstract PlaybackService.NavigationCallback getNavigationCallback();
 
     protected abstract CustomSeekView getSeekView();
+
+    /** 顶部细进度条：子类覆写提供视图；默认不提供则不接进度监听（投屏/直播页）。 */
+    protected TopProgressView getTopProgressView() {
+        return null;
+    }
+
+    private void setTopProgressPlayer(Player player) {
+        TopProgressView v = getTopProgressView();
+        if (v != null) v.setProgressPlayer(player);
+    }
 
     protected abstract PlayerView getExoView();
 
@@ -404,6 +415,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         try {
             mController = mControllerFuture.get();
             getSeekView().setPlayer(mController);
+            setTopProgressPlayer(mController);
             onControllerReady(mController);
             mController.addListener(this);
         } catch (Exception ignored) {
@@ -627,6 +639,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         bound = false;
         if (mService != null) mService.removePlayerCallback(mPlayerCallback);
         getSeekView().setProgressPlayer(null);
+        setTopProgressPlayer(null);
         unbindService(this);
         mService = null;
     }
@@ -724,6 +737,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (isOwner()) {
                 nativeOutputPending = player().shouldKeepVideoShutterClosed();
                 getSeekView().setProgressPlayer(player);
+                setTopProgressPlayer(player);
                 if (resetVideoSurface) resetVideoSurfaceForDecoderSwitch();
                 setRender();
                 applyResizeMode(requestedResizeMode);
@@ -871,6 +885,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
         mService.addPlayerCallback(mPlayerCallback);
         getSeekView().setProgressPlayer(player().getPlayer());
+        setTopProgressPlayer(player().getPlayer());
         player().setLutAllowed(isLutAllowed());
         player().setDanmakuForeground(true);
         publishRenderTarget(getExoView().getVideoSurfaceView());
@@ -884,6 +899,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     public void onServiceDisconnected(ComponentName name) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
         getSeekView().setProgressPlayer(null);
+        setTopProgressPlayer(null);
         mService = null;
     }
 

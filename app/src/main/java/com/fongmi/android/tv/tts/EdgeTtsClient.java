@@ -29,12 +29,17 @@ import com.github.catvod.net.SourceGate;
 /**
  * Edge 大声朗读合成客户端（「阅读」生态在线朗读同款通路）。
  * <p>
- * 协议：wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1（微软 v2 端点），
+ * 协议：wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1，
  * 先发 speech.config，再发 ssml；音频以二进制帧回传，turn.end 收尾。
- * 自 2025 年起服务端要求 Sec-MS-GEC v2 头（<CS64>-<SHA256> 时间戳挑战），算法见 secMsGec()。
+ * 鉴权（TrustedClientToken / Sec-MS-GEC / Sec-MS-GEC-Version / ConnectionId）
+ * <b>必须全拼进查询串</b>（浏览器形状）：微软服务端只认查询串，放 HTTP 头一律 403。
  * <p>
- * 2026-10-19：微软正在关停 v1（speech.platform.bing.com）——已升级节点对 v1 的 WS 握手直接 403，
- * 故整体迁到 v2。v2 在国内直连可达性只能真机验证，本机机房出口被微软封（全 403）。
+ * GEC 算法见 secMsGec()（edge-tts drm.py generate_sec_ms_gec_v2 的 Java 等价实现，
+ * 输出 "<CS64 16位大写>-<SHA256 64位大写>"）。
+ * <p>
+ * 2026-10-19 教训两条：①迁 v2 时把 Sec-MS-GEC 抄成请求头，服务端拒握手 403；
+ * ②api.msedgeservices.com 的 v1 路径是 Azure 订阅密钥口，不认浏览器 token，
+ * 查询串形状在它上面照样 403——必须走 speech.platform.bing.com 的 edge/v1。
  * <p>
  * 失败一律抛 TtsException（人话），调用方不许回退系统机械声。
  */
@@ -65,14 +70,13 @@ public class EdgeTtsClient {
                     + "(KHTML, like Gecko) Chrome/" + EDGE_CHROMIUM_MAJOR + ".0.0.0 Safari/537.36 Edg/"
                     + EDGE_CHROMIUM_MAJOR + ".0.0.0";
 
-    /** Sec-MS-GEC 版本头：v2-<Chromium 完整版本>，与 UA 配套。 */
+    /** Sec-MS-GEC 版本（查询串参数：v2-<Chromium 完整版本>，与 UA 配套）。 */
     public static final String GEC_VERSION = "2-" + EDGE_CHROMIUM_FULL;
 
     private static final String TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
-    private static final String WS_URL =
-            "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
-                    + "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN;
+    private static final String WS_BASE =
+            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
     private static final String ORIGIN =
             "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold";
     private static final String OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
@@ -391,9 +395,24 @@ public class EdgeTtsClient {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
+    /**
+     * 握手地址：wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1，
+     * 鉴权全拼进查询串（浏览器形状，服务端只认这一形）。
+     * 每次现算 GEC（300 秒窗口）与 ConnectionId。
+     * 注意：api.msedgeservices.com 的 v1 路径是 Azure 订阅密钥口，不认浏览器 token，
+     * 查询串形状在它上面照样 403（2026-10-19 本机实测）——必须走 speech.platform.bing.com。
+     */
+    static String wsUrl() {
+        return WS_BASE
+                + "?TrustedClientToken=" + TRUSTED_CLIENT_TOKEN
+                + "&Sec-MS-GEC=" + secMsGec()
+                + "&Sec-MS-GEC-Version=" + GEC_VERSION
+                + "&ConnectionId=" + noDashes();
+    }
+
     /** 握手请求拼装（抽出来，方便抓包单测）。 */
     static Request newRequest() {
-        return newRequest(WS_URL);
+        return newRequest(wsUrl());
     }
 
     /** 握手请求拼装（测试用：把地址指到本地 mock 服务）。 */
@@ -403,9 +422,6 @@ public class EdgeTtsClient {
                 .header("User-Agent", EDGE_UA)
                 .header("Pragma", "no-cache")
                 .header("Cache-Control", "no-cache")
-                .header("Sec-MS-GEC", secMsGec())
-                .header("Sec-MS-GEC-Version", GEC_VERSION)
-                .header("X-ConnectionId", noDashes())
                 .build();
     }
 

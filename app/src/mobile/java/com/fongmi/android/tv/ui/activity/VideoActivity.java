@@ -1681,11 +1681,30 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             boolean hadCache = mDetailCacheShown;
             mDetailCacheShown = false;
             Vod vod = result.getVod();
+            sanitizeDetailName(vod);
             setDetail(vod, hadCache);
             // 选集展开后置：磁力/网盘展开好了再补列表并写缓存
             startSourceParse(vod, hadCache);
         }
         Notify.show(result.getMsg());
+    }
+
+    /**
+     * 详情回退名守卫：源脚本详情解析失败时，常把站名填进 vod_name 做回退
+     * （如河马影视源返回 vod_name="河马影视"）。片名恰好等于站名、又与用户
+     * 点开的标题不一致时，保留列表带过来的正确标题，不让回退覆盖首屏。
+     * 空名仍走 checkName 的原有回填口径，这里不碰。
+     */
+    private void sanitizeDetailName(Vod vod) {
+        if (vod == null) return;
+        String requested = getName();
+        String returned = vod.getName();
+        String siteName = getSite() != null ? getSite().getName() : "";
+        if (requested.isEmpty() || returned.isEmpty() || siteName.isEmpty()) return;
+        if (returned.equals(siteName) && !requested.equals(siteName)) {
+            SpiderDebug.log("video-flow", "detail name is site fallback, keep requested name key=%s id=%s", getKey(), getId());
+            vod.setName(requested);
+        }
     }
 
     /**

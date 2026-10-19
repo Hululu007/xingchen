@@ -310,6 +310,15 @@ public class LegadoRuleEvaluator {
         }
         String sel = rule;
         if (sel.startsWith("@css:")) sel = sel.substring(5); // 阶段一：退化为普通 CSS
+        // || 备选（与 cssStr 一致）：首个非空胜出
+        String[] alts = splitTop(sel, "||");
+        if (alts.length > 1) {
+            for (String alt : alts) {
+                List<Sel> r = elements(scope, alt);
+                if (!r.isEmpty()) return r;
+            }
+            return out;
+        }
         // 取第一个 %% 之前的选择器部分
         String[] parts = splitTop(sel, "%%");
         String chain = parts[0];
@@ -317,7 +326,11 @@ public class LegadoRuleEvaluator {
         Element rootEl = ((HtmlSel) scope).el;
         for (String part : splitTop(chain, "&&")) {
             String p = stripSuffix(part).trim();
-            if (p.isEmpty()) continue;
+            if (p.isEmpty()) {
+                // 空选择器 = 作用域元素自身（@href/@text 裸写法）
+                if (current == null) { current = new Elements(); current.add(rootEl); }
+                continue;
+            }
             try {
                 if (current == null) current = rootEl.select(p);
                 else {

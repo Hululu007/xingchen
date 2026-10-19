@@ -140,8 +140,12 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 : "把服务清单、命令条目或脚本粘进来，自动识别");
         hint.setTextSize(14);
         hint.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
-        hint.setBackground(LabSkin.addrBox(this));
-        hint.setPadding(dp(18), dp(4), dp(18), dp(8));
+        hint.setBackground(LabSkin.glassDark(this));
+        hint.setPadding(dp(14), dp(10), dp(14), dp(10));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.setMargins(dp(18), dp(2), dp(18), 0);
+        hint.setLayoutParams(hlp);
         root.addView(hint);
 
         ScrollView scroll = new ScrollView(this);
@@ -159,9 +163,9 @@ public class LabPasteImportActivity extends AppCompatActivity {
             input.setHint("粘在这里…");
         }
         input.setTextSize(13);
-        input.setTextColor(LabSkin.TEXT_MAIN);
-        input.setHintTextColor(LabSkin.TEXT_DIM);
-        input.setBackground(LabSkin.cardBackground(this, false));
+        input.setTextColor(LabSkin.TEXT_ON_DARK);
+        input.setHintTextColor(LabSkin.HINT_ON_DARK);
+        input.setBackground(LabSkin.darkInput(this));
         input.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -178,8 +182,13 @@ public class LabPasteImportActivity extends AppCompatActivity {
 
         status = new TextView(this);
         status.setTextSize(14);
-        status.setTextColor(LabSkin.AMBER);
-        status.setPadding(dp(18), dp(10), dp(18), 0);
+        status.setTextColor(LabSkin.COUNT_YELLOW);
+        status.setBackground(LabSkin.glassDark(this));
+        status.setPadding(dp(14), dp(10), dp(14), dp(10));
+        LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stlp.setMargins(dp(18), dp(10), dp(18), 0);
+        status.setLayoutParams(stlp);
         status.setVisibility(View.GONE);
         body.addView(status);
 

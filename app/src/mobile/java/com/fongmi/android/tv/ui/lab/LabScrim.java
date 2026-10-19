@@ -5,19 +5,19 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 
 /**
- * 壁纸衬底：直接铺在壁纸上的文字，背后垫一层白 72% 的霜条，
- * 深浅两种壁纸下字都看得清；浅壁纸上近乎隐形，不破坏定稿观感。
- * （LabSkin 不许动，衬底逻辑收在这里。）
+ * 壁纸衬底：页面正文里直接铺在壁纸上的文字，背后垫一层深色霜条，
+ * 深浅两种壁纸下字都看得清。
+ * 顶栏的那条带已撤（潇洒哥：标题直接落在壁纸上），这里只收正文垫字。
  */
 public final class LabScrim {
 
     private LabScrim() {
     }
 
-    /** 通栏霜条：白 72%，无圆角，顶栏/小字行直接用 */
+    /** 通栏霜条：黑 54%，无圆角，正文垫字行用 */
     public static GradientDrawable bar(Context c) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(0xB8FFFFFF); // rgba(255,255,255,.72)，与卡面同料
+        d.setColor(0x8C000000); // rgba(0,0,0,.54)
         return d;
     }
 

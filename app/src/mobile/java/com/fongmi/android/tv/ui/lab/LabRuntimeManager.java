@@ -152,21 +152,11 @@ public final class LabRuntimeManager {
         }).start();
     }
 
-    /** 整包下载：镜像优先＋直链兜底，sha256 校验 */
+    /** 整包下载：镜像↔直链换着重试（默认 2 轮），sha256 校验 */
     private static void downloadWhole(String url, File dest, Listener listener, String runtime) throws Exception {
         long size = PKG_SIZE.get(pkgKey(runtime)) == null ? 0 : PKG_SIZE.get(pkgKey(runtime));
         progress(listener, "正在下载环境包…");
-        Exception last = null;
-        for (String u : candidates(url, size)) {
-            try {
-                download(u, dest);
-                last = null;
-                break;
-            } catch (Exception e) {
-                last = e;
-            }
-        }
-        if (last != null) throw last;
+        downloadRetry(candidates(url, size), dest, 2);
         String sha = PKG_SHA256.get(pkgKey(runtime));
         if (sha != null && !sha.isEmpty() && !sha256Of(dest).equalsIgnoreCase(sha)) {
             throw new Exception("包校验没过，重新下一次试试");
@@ -174,23 +164,66 @@ public final class LabRuntimeManager {
     }
 
     /**
+     * 跨源重试下载：同一批候选地址（镜像/直链/镜像站）跑满 rounds 轮，
+     * 每轮内部按序换源，不在同一个源上死磕；轮间歇 400ms。
+     * 全部用尽才抛最后一次的异常（调用方转人话＋报错弹窗）。
+     */
+    private static void downloadRetry(List<String> urls, File dest, int rounds) throws Exception {
+        Exception last = null;
+        for (int r = 0; r < rounds; r++) {
+            for (String u : urls) {
+                try {
+                    download(u, dest);
+                    return;
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            if (r + 1 < rounds) {
+                try {
+                    Thread.sleep(400);
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }
+        if (last != null) throw last;
+        throw new Exception("下不动");
+    }
+
+    /** 文本拉取（分片清单）：同样跨源重试 */
+    private static String downloadTextRetry(String url) throws Exception {
+        List<String> urls = candidates(url, 1024);
+        Exception last = null;
+        for (int r = 0; r < 2; r++) {
+            for (String u : urls) {
+                try {
+                    return downloadText(u);
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            if (r == 0) {
+                try {
+                    Thread.sleep(400);
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }
+        throw last == null ? new Exception("分片清单拉不到，换本地安装试试") : last;
+    }
+
+    /**
      * 分片下载：拉清单 JSON → 按 parts 逐个下（每分片 8MB，镜像优先）→ 拼接 → sha256 校验。
      * 进度按分片走（「正在下载（3/8）…」），不断了干等。
      */
     private static void downloadSharded(String manifestUrl, File dest, Listener listener) throws Exception {
-        // 清单本身也走镜像优先（JSON 很小）
-        String json = null;
-        Exception last = null;
-        for (String u : candidates(manifestUrl, 1024)) {
-            try {
-                json = downloadText(u);
-                last = null;
-                break;
-            } catch (Exception e) {
-                last = e;
-            }
+        // 清单本身也走镜像优先（JSON 很小），跨源重试
+        String json;
+        try {
+            json = downloadTextRetry(manifestUrl);
+        } catch (Exception e) {
+            throw new Exception("分片清单拉不到，换本地安装试试");
         }
-        if (last != null || json == null) throw new Exception("分片清单拉不到，换本地安装试试");
         org.json.JSONObject o = new org.json.JSONObject(json);
         String sha = o.optString("sha256", "");
         org.json.JSONArray parts = o.optJSONArray("parts");
@@ -200,21 +233,16 @@ public final class LabRuntimeManager {
         tmpDir.mkdirs();
         try {
             for (int i = 0; i < n; i++) {
-                String partUrl = parts.optString(i, "");
+                String partUrl = resolvePart(manifestUrl, parts.optString(i, ""));
                 if (partUrl.isEmpty()) throw new Exception("分片表第 " + (i + 1) + " 个地址是空的");
-                progress(listener, "正在下载（" + (i + 1) + "/" + n + "）…");
+                if (listener != null) listener.onShard(i + 1, n);
                 File partFile = new File(tmpDir, "p" + i);
-                Exception pe = null;
-                for (String u : candidates(partUrl, 8L * 1024 * 1024)) {
-                    try {
-                        download(u, partFile);
-                        pe = null;
-                        break;
-                    } catch (Exception e) {
-                        pe = e;
-                    }
+                try {
+                    // 每片都在镜像/直链之间换着重试 2 轮，单片失败才算整包失败
+                    downloadRetry(candidates(partUrl, 8L * 1024 * 1024), partFile, 2);
+                } catch (Exception pe) {
+                    throw new Exception("第 " + (i + 1) + "/" + n + " 片下不下来，重试一次试试");
                 }
-                if (pe != null) throw new Exception("第 " + (i + 1) + "/" + n + " 片下不下来，重试一次试试");
             }
             // 拼接
             try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
@@ -233,6 +261,23 @@ public final class LabRuntimeManager {
         } finally {
             LabPackageInstaller.deleteDir(tmpDir);
         }
+    }
+
+    /**
+     * 分片地址解析：仓清单里的 parts 是仓根相对路径（如 "env/chunks/node/p00"），
+     * 不解析直接 new URL 就抛无协议异常（1.3.50 Node 在线装第一片必废的真根）。
+     * http(s) 开头原样；否则按「清单地址去掉 /env/ 之后的部分＋part」拼仓根绝对地址；
+     * 清单地址是 raw 还是 jsDelivr 域名两种都成立（都按原清单的根拼）。
+     */
+    private static String resolvePart(String manifestUrl, String part) {
+        if (part == null) return "";
+        part = part.trim();
+        if (part.isEmpty()) return "";
+        if (part.startsWith("http://") || part.startsWith("https://")) return part;
+        int k = manifestUrl.indexOf("/env/");
+        if (k > 0) return manifestUrl.substring(0, k + 1) + part;
+        int s = manifestUrl.lastIndexOf('/');
+        return s > 0 ? manifestUrl.substring(0, s + 1) + part : part;
     }
 
     private static String downloadText(String url) throws Exception {
@@ -275,6 +320,11 @@ public final class LabRuntimeManager {
         void onOk();
 
         void onFail(String reason);
+
+        /** 分片进度（默认实现转成人话，供安装中弹窗拼「第 N 片 / 共 M 片 · P%」） */
+        default void onShard(int done, int total) {
+            onProgress("正在下载（" + done + "/" + total + "）…");
+        }
     }
 
     private LabRuntimeManager() {
@@ -329,13 +379,14 @@ public final class LabRuntimeManager {
         }).start();
     }
 
-    /** 在线安装：从下载地址拉包，落盘后走与本地安装同一条管线 */
+    /** 在线安装：从下载地址拉包，落盘后走与本地安装同一条管线（跨源重试） */
     public static void importFromUrl(Context ctx, String runtime, String url, Listener listener) {
         new Thread(() -> {
             try {
                 progress(listener, "正在下载环境包…");
                 File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
-                download(url, tmp);
+                downloadRetry(candidates(url, PKG_SIZE.get(pkgKey(runtime)) == null
+                        ? 0 : PKG_SIZE.get(pkgKey(runtime))), tmp, 2);
                 installFromFile(ctx.getApplicationContext(), runtime, tmp, listener);
                 tmp.delete();
             } catch (Exception e) {
@@ -470,9 +521,7 @@ public final class LabRuntimeManager {
                     copyFile(local, tmp);
                 } else {
                     progress(listener, "正在下载环境包…");
-                    boolean ok = false;
-                    Exception last = null;
-                    // ≤20MB 镜像优先、直链兜底；大的只走直链
+                    // ≤20MB 镜像优先、直链兜底；大的只走直链；2 轮跨源重试
                     List<String> urls = new ArrayList<>();
                     String jsd = jsdelivrOf(dl.url);
                     if (dl.size > 0 && dl.size <= 20L * 1024 * 1024 && jsd != null) {
@@ -480,16 +529,11 @@ public final class LabRuntimeManager {
                     }
                     urls.add(dl.url);
                     urls.addAll(dl.mirrors);
-                    for (String u : urls) {
-                        try {
-                            download(u, tmp);
-                            ok = true;
-                            break;
-                        } catch (Exception e) {
-                            last = e;
-                        }
-                    }
-                    if (!ok) throw last == null ? new Exception("下不动") : last;
+                    downloadRetry(urls, tmp, 2);
+                }
+                // 整包 sha 校验（目录里有就验，没有不硬拦）
+                if (!dl.sha256.isEmpty() && !sha256Of(tmp).equalsIgnoreCase(dl.sha256)) {
+                    throw new Exception("包校验没过，重新下一次试试");
                 }
                 installFromFile(ctx.getApplicationContext(), runtime, tmp, entry.version, listener);
                 tmp.delete();

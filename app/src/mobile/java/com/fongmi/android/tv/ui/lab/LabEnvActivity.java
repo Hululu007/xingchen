@@ -7,9 +7,9 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -19,10 +19,11 @@ import com.fongmi.android.tv.utils.Notify;
 import java.util.List;
 
 /**
- * 环境页：该环境下的服务卡列表。
- * 服务卡＝名字＋人话简介＋状态＋唯一主按钮＋自动启动小开关＋长按卸载；
- * 不带头像位。环境没装时先露安装入口。
- * 不设叉，走系统返回。
+ * 环境页（定稿 lab-design-sets2/a2/env-uninstalled + env-installed）：
+ * 标题行＝环境名＋安装/卸载小胶囊紧跟名字＋行尾「＋」（加服务，三选一）；
+ * 副行只写「X 个服务」（已装：「已安装 · X 个服务」）；
+ * 服务＝两列深玻璃格（名＋状态徽＋启/停钮＋自启开关），点格进服务详情，长按卸载服务。
+ * 没介绍文字。顶栏只留标题，走系统返回。
  */
 public class LabEnvActivity extends AppCompatActivity {
 
@@ -31,7 +32,9 @@ public class LabEnvActivity extends AppCompatActivity {
 
     private String env;
     private LinearLayout listBox;
-    private TextView progressText;
+    private TextView headAction;
+    private TextView subLine;
+    private TextView addBtn;
 
     public static void start(Activity activity, String env) {
         Intent i = new Intent(activity, LabEnvActivity.class);
@@ -62,33 +65,60 @@ public class LabEnvActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // 顶栏：只留环境名，走系统返回（霜条打底）
+        // 标题行：环境名＋安装/卸载胶囊紧跟＋行尾「＋」
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
-        nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
+        nav.setPadding(dp(18), dp(9) + LabSkin.statusBarHeight(this), dp(18), dp(5));
         TextView title = new TextView(this);
         title.setText(LabRegistry.envLabel(env));
-        title.setTextSize(20);
-        title.setTextColor(LabSkin.TEXT_MAIN);
+        title.setTextSize(24);
+        title.setTextColor(LabSkin.WALL_TITLE);
         title.getPaint().setFakeBoldText(true);
+        LabSkin.halo(title);
         nav.addView(title);
+        headAction = new TextView(this);
+        headAction.setTextSize(12);
+        headAction.getPaint().setFakeBoldText(true);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.leftMargin = dp(11);
+        headAction.setLayoutParams(hlp);
+        headAction.setClickable(true);
+        headAction.setFocusable(true);
+        nav.addView(headAction);
+        LinearLayout spacer = new LinearLayout(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        nav.addView(spacer);
+        addBtn = new TextView(this);
+        addBtn.setText("＋");
+        addBtn.setTextSize(23);
+        addBtn.setTextColor(LabSkin.WALL_DIM);
+        LabSkin.halo(addBtn);
+        addBtn.setPadding(dp(12), dp(4), dp(4), dp(4));
+        addBtn.setClickable(true);
+        addBtn.setFocusable(true);
+        addBtn.setOnClickListener(v -> LabAddMenu.show(this, env));
+        nav.addView(addBtn);
         root.addView(nav);
 
-        progressText = new TextView(this);
-        progressText.setTextSize(14);
-        progressText.setTextColor(LabSkin.AMBER);
-        progressText.setBackground(LabScrim.bar(this));
-        progressText.setPadding(dp(18), dp(4), dp(18), dp(4));
-        progressText.setVisibility(View.GONE);
-        root.addView(progressText);
+        // 副行：只写「X 个服务」
+        subLine = new TextView(this);
+        subLine.setTextSize(13);
+        subLine.setTextColor(LabSkin.WALL_SUB);
+        LabSkin.halo(subLine);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.leftMargin = dp(18);
+        slp.bottomMargin = dp(20);
+        subLine.setLayoutParams(slp);
+        root.addView(subLine);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
-        listBox.setPadding(0, dp(4), 0, dp(24) + LabSkin.navBarHeight(this));
+        listBox.setPadding(0, 0, 0, dp(46) + LabSkin.navBarHeight(this));
         scroll.addView(listBox, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -98,159 +128,117 @@ public class LabEnvActivity extends AppCompatActivity {
     private void reload() {
         listBox.removeAllViews();
         boolean installed = !"tool".equals(env) && LabRuntimeManager.isInstalled(this, env);
-        if (!"tool".equals(env) && !installed) {
-            listBox.addView(installCard());
-        }
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
-        for (LabRegistry.Svc s : svcs) {
-            listBox.addView(serviceCard(s));
-        }
+        // 头部动作：没装→黄色「安装」，已装→中性「卸载」（卸载确认照稿弹窗）
         if (installed) {
-            listBox.addView(uninstallCard());
+            headAction.setText("卸载");
+            headAction.setTextColor(LabSkin.WALL_DIM);
+            headAction.setBackground(LabSkin.capsuleNeutral(this));
+            headAction.setPadding(dp(18), dp(6), dp(18), dp(6));
+            headAction.setOnClickListener(v -> LabInstallDialog.showConfirm(this,
+                    "卸载「" + LabRegistry.envLabel(env) + "」？",
+                    "依赖它的服务会停掉，环境文件删干净。", "卸载", () -> {
+                        LabRuntimeManager.uninstall(this, env);
+                        Notify.show("卸掉了");
+                        reload();
+                    }));
+            subLine.setText("已安装 · " + svcs.size() + " 个服务");
+        } else {
+            headAction.setText("安装");
+            headAction.setTextColor(LabSkin.ON_YELLOW);
+            headAction.setBackground(LabSkin.capsuleYellow(this));
+            headAction.setPadding(dp(18), dp(6), dp(18), dp(6));
+            headAction.setOnClickListener(v -> LabInstallDialog.showChoice(this,
+                    "安装「" + LabRegistry.envLabel(env) + "」",
+                    new String[]{"在线安装", "本地安装"}, which -> {
+                        if (which == 0) installOnline();
+                        else pickLocalZip();
+                    }));
+            subLine.setText(svcs.size() + " 个服务");
         }
+        // 服务两列格
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(2);
+        grid.setPadding(dp(18), 0, dp(18), 0);
+        for (LabRegistry.Svc s : svcs) {
+            grid.addView(serviceTile(s));
+        }
+        listBox.addView(grid);
     }
 
-    /** 环境没装：安装入口，在线/本地二选一（选择卡样式照首页「＋」） */
-    private View installCard() {
-        LinearLayout card = cardBox(false);
-        TextView t = new TextView(this);
-        t.setText(LabRegistry.envLabel(env) + "还没装");
-        t.setTextSize(17);
-        t.setTextColor(LabSkin.TEXT_MAIN);
-        t.getPaint().setFakeBoldText(true);
-        t.setPadding(0, 0, 0, dp(12));
-        card.addView(t);
-        TextView btn = button("安装", true);
-        btn.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setItems(new String[]{"在线安装", "本地安装"}, (d, which) -> {
-                    if (which == 0) installOnline();
-                    else pickLocalZip();
-                }).show());
-        card.addView(btn);
-        return card;
-    }
-
-    /** 已装环境：补「卸载」，落点在服务卡列表最下方 */
-    private View uninstallCard() {
-        LinearLayout card = cardBox(false);
-        TextView btn = button("卸载", false);
-        btn.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setTitle("卸载「" + LabRegistry.envLabel(env) + "」？")
-                .setMessage("依赖它的服务会停掉，环境文件删干净。")
-                .setPositiveButton("卸载", (d, w) -> {
-                    LabRuntimeManager.uninstall(this, env);
-                    Notify.show("卸掉了");
-                    reload();
-                })
-                .setNegativeButton("算了", null)
-                .create().show());
-        card.addView(btn);
-        return card;
-    }
-
-    /** 本地安装：选本地 zip 文件，走环境安装管线 */
-    private void pickLocalZip() {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        startActivityForResult(i, REQ_RT);
-    }
-
-    /** 在线安装：统一入口（目录制/回填表/分片/镜像都在 LabRuntimeManager 里） */
-    private void installOnline() {
-        progressText.setVisibility(View.VISIBLE);
-        progressText.setText("正在准备…");
-        LabRuntimeManager.installOnline(this, env, installListener());
-    }
-
-    private LabRuntimeManager.Listener installListener() {
-        return new LabRuntimeManager.Listener() {
-            @Override
-            public void onProgress(String text) {
-                runOnUiThread(() -> progressText.setText(text));
-            }
-
-            @Override
-            public void onOk() {
-                runOnUiThread(() -> {
-                    progressText.setVisibility(View.GONE);
-                    Notify.show("环境装好了");
-                    reload();
-                });
-            }
-
-            @Override
-            public void onFail(String reason) {
-                runOnUiThread(() -> {
-                    progressText.setVisibility(View.GONE);
-                    Notify.show(reason);
-                });
-            }
-        };
-    }
-
-    /** 服务卡：名字＋人话简介＋状态＋唯一主按钮＋自动启动小开关＋长按卸载 */
-    private View serviceCard(LabRegistry.Svc s) {
+    /** 服务格：深玻璃＋名＋状态徽＋启/停钮＋自启开关（稿 env-installed .tile） */
+    private View serviceTile(LabRegistry.Svc s) {
         boolean running = LabRunner.isRunning(this, s.id);
-        String err = LabRunner.lastError(s.id);
-        LinearLayout card = cardBox(running);
-        card.setOnClickListener(v -> LabServiceActivity.start(this, s.id));
-        card.setOnLongClickListener(v -> {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setBackground(LabSkin.glassDark(this));
+        tile.setPadding(dp(14), dp(15), dp(14), dp(15));
+        GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+        lp.width = 0;
+        lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        int gap = dp(5);
+        lp.setMargins(gap, 0, gap, dp(9));
+        tile.setLayoutParams(lp);
+        tile.setClickable(true);
+        tile.setFocusable(true);
+        tile.setOnClickListener(v -> LabServiceActivity.start(this, s.id));
+        tile.setOnLongClickListener(v -> {
             confirmUninstall(s);
             return true;
         });
 
+        TextView name = new TextView(this);
+        name.setText(s.name);
+        name.setTextSize(15);
+        name.setTextColor(LabSkin.TEXT_ON_DARK);
+        name.getPaint().setFakeBoldText(true);
+        name.setPadding(0, 0, 0, dp(11));
+        tile.addView(name);
+
+        TextView chip = new TextView(this);
+        chip.setTextSize(11);
+        chip.getPaint().setFakeBoldText(true);
+        if (running) {
+            chip.setText("运行中");
+            chip.setTextColor(LabSkin.GREEN_ON_DARK);
+            chip.setBackground(LabSkin.chipRun(this));
+        } else {
+            chip.setText("已停止");
+            chip.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+            chip.setBackground(LabSkin.chipStop(this));
+        }
+        chip.setPadding(dp(11), dp(4), dp(11), dp(4));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.bottomMargin = dp(11);
+        chip.setLayoutParams(clp);
+        tile.addView(chip);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = new TextView(this);
-        name.setText(s.name);
-        name.setTextSize(17);
-        name.setTextColor(LabSkin.TEXT_MAIN);
-        name.getPaint().setFakeBoldText(true);
-        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(name);
-        TextView tag = new TextView(this);
+        TextView go = new TextView(this);
+        go.setText(running ? "停止" : "启动");
+        go.setTextSize(12);
+        go.getPaint().setFakeBoldText(true);
         if (running) {
-            tag.setText("● 运行中");
-            tag.setTextColor(LabSkin.GREEN);
-            tag.setBackground(LabSkin.tagGreen(this));
-        } else if (err != null) {
-            tag.setText("出错了");
-            tag.setTextColor(LabSkin.RED);
-            tag.setBackground(LabSkin.tagGray(this));
+            go.setTextColor(LabSkin.TEXT_ON_DARK);
+            go.setBackground(LabSkin.rowDark(this));
         } else {
-            tag.setText("已安装");
-            tag.setTextColor(LabSkin.TEXT_DIM);
-            tag.setBackground(LabSkin.tagGray(this));
+            go.setTextColor(LabSkin.ON_YELLOW);
+            go.setBackground(LabSkin.capsuleYellow(this));
         }
-        tag.setTextSize(12);
-        tag.setPadding(dp(12), dp(5), dp(12), dp(5));
-        row.addView(tag);
-        card.addView(row);
-
-        TextView desc = new TextView(this);
-        desc.setText(s.desc == null ? "" : s.desc);
-        desc.setTextSize(14);
-        desc.setTextColor(LabSkin.TEXT_SUB);
-        desc.setPadding(0, dp(6), 0, dp(12));
-        card.addView(desc);
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
-        TextView main;
-        if (running) {
-            main = button("停止", false);
-            main.setOnClickListener(v -> {
+        go.setPadding(dp(18), dp(6), dp(18), dp(6));
+        go.setClickable(true);
+        go.setFocusable(true);
+        go.setOnClickListener(v -> {
+            if (LabRunner.isRunning(this, s.id)) {
                 LabRunner.stop(this, s.id);
                 reload();
-            });
-        } else {
-            main = button(err != null ? "重试" : "启动", true);
-            main.setOnClickListener(v -> {
-                main.setText("启动中…");
-                main.setEnabled(false);
+            } else {
+                go.setText("启动中…");
+                go.setEnabled(false);
                 LabRunner.start(this, s.id, new LabRunner.Listener() {
                     @Override
                     public void onOutput(String text) {
@@ -266,85 +254,109 @@ public class LabEnvActivity extends AppCompatActivity {
                         });
                     }
                 });
-            });
-        }
-        actions.addView(main);
+            }
+        });
+        row.addView(go);
 
-        // 自动启动小开关
-        LinearLayout sw = new LinearLayout(this);
-        sw.setOrientation(LinearLayout.HORIZONTAL);
-        sw.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        slp.leftMargin = dp(12);
-        sw.setLayoutParams(slp);
         TextView swLab = new TextView(this);
-        swLab.setText("自动启动");
-        swLab.setTextSize(13);
-        swLab.setTextColor(LabSkin.TEXT_DIM);
-        Switch swv = new Switch(this);
-        swv.setChecked(LabRegistry.autoStartOf(s));
-        swv.setOnCheckedChangeListener((b, on) -> {
+        swLab.setText("自启");
+        swLab.setTextSize(11);
+        swLab.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.leftMargin = dp(9);
+        slp.rightMargin = dp(5);
+        swLab.setLayoutParams(slp);
+        row.addView(swLab);
+        View sw = LabSkin.miniSwitch(this, LabRegistry.autoStartOf(s), on -> {
             LabRegistry.Svc cur = LabRegistry.get(this).svc(s.id);
             if (cur != null) {
                 cur.autoStart = on;
                 LabRegistry.get(this).upsertSvc(this, cur);
             }
         });
-        sw.addView(swLab);
-        sw.addView(swv);
-        actions.addView(sw);
-        card.addView(actions);
-        return card;
+        row.addView(sw);
+        tile.addView(row);
+        return tile;
     }
 
     private void confirmUninstall(LabRegistry.Svc s) {
-        android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
-                .setTitle("卸载「" + s.name + "」？")
-                .setMessage("服务会停掉，包文件删干净。")
-                .setPositiveButton("卸载", (d, w) -> {
+        LabInstallDialog.showConfirm(this,
+                "卸载「" + s.name + "」？", "服务会停掉，包文件删干净。", "卸载", () -> {
                     LabPackageInstaller.uninstall(this, s.id);
                     reload();
-                })
-                .setNegativeButton("算了", null)
-                .create();
-        dlg.show();
+                });
     }
 
-    private LinearLayout cardBox(boolean running) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(LabSkin.cardBackground(this, running));
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), 0, dp(18), dp(14));
-        card.setLayoutParams(lp);
-        card.setClickable(true);
-        card.setFocusable(true);
-        return card;
+    // ---------------- 安装管线（上一批已对，不动逻辑） ----------------
+
+    /** 本地安装：选本地 zip 文件，走环境安装管线 */
+    private void pickLocalZip() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(i, REQ_RT);
     }
 
-    private TextView button(String text, boolean yellow) {
-        TextView b = new TextView(this);
-        b.setText(text);
-        b.setTextSize(15);
-        b.getPaint().setFakeBoldText(true);
-        b.setGravity(Gravity.CENTER);
-        b.setTextColor(yellow ? 0xFF171310 : LabSkin.TEXT_MAIN);
-        b.setBackground(yellow ? LabSkin.buttonYellow(this) : LabSkin.buttonGray(this));
-        b.setPadding(dp(28), dp(12), dp(28), dp(12));
-        b.setMinWidth(dp(96));
-        return b;
+    /** 在线安装：统一入口（目录制/回填表/分片/镜像/跨源重试都在 LabRuntimeManager 里），照稿弹安装中弹窗 */
+    private void installOnline() {
+        LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(
+                this, "正在安装「" + LabRegistry.envLabel(env) + "」");
+        Runnable[] retry = new Runnable[1];
+        retry[0] = () -> LabRuntimeManager.installOnline(this, env, installListener(dlg, retry[0]));
+        retry[0].run();
+    }
+
+    /** 本地 zip 安装：同样走安装中弹窗，失败可再试一次 */
+    private void importLocalZip(Uri uri) {
+        LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(
+                this, "正在安装「" + LabRegistry.envLabel(env) + "」");
+        Runnable[] retry = new Runnable[1];
+        retry[0] = () -> LabRuntimeManager.importFromUri(this, env, uri, installListener(dlg, retry[0]));
+        retry[0].run();
+    }
+
+    private LabRuntimeManager.Listener installListener(LabInstallDialog.Installing dlg, Runnable retry) {
+        return new LabRuntimeManager.Listener() {
+            @Override
+            public void onProgress(String text) {
+                String pct = LabInstallDialog.shardLine(text);
+                if (pct != null) dlg.progress(pct, text);
+                else dlg.busy(text);
+            }
+
+            @Override
+            public void onShard(int done, int total) {
+                int pct = total <= 0 ? 0 : Math.min(99, done * 100 / total);
+                dlg.progress("第 " + done + " 片 / 共 " + total + " 片 · " + pct + "%",
+                        "正在下载第 " + done + " 片…");
+            }
+
+            @Override
+            public void onOk() {
+                runOnUiThread(() -> {
+                    dlg.ok();
+                    Notify.show("环境装好了");
+                    reload();
+                });
+            }
+
+            @Override
+            public void onFail(String reason) {
+                runOnUiThread(() -> dlg.error(reason, retry));
+            }
+        };
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_RT && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            Uri uri = data.getData();
-            progressText.setVisibility(View.VISIBLE);
-            progressText.setText("正在准备环境…");
-            LabRuntimeManager.importFromUri(this, env, uri, installListener());
+            importLocalZip(data.getData());
+        } else if (requestCode == LabInstallActivity.REQ_PICK && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            // 环境页「＋」→选文件：默认落当前环境
+            LabInstallActivity.startWithUri(this, data.getData(), env);
         }
     }
 }

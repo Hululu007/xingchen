@@ -81,7 +81,7 @@ public class LabLogActivity extends AppCompatActivity {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
+        
         nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(2));
         TextView title = new TextView(this);
         title.setText(svcName == null ? "运行记录" : svcName);
@@ -93,7 +93,7 @@ public class LabLogActivity extends AppCompatActivity {
 
         stateLine = new TextView(this);
         stateLine.setTextSize(14);
-        stateLine.setBackground(LabScrim.bar(this));
+        
         stateLine.setPadding(dp(18), dp(2), dp(18), dp(8));
         root.addView(stateLine);
 

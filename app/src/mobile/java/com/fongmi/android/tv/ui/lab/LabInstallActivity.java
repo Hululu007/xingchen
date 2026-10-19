@@ -27,6 +27,7 @@ public class LabInstallActivity extends AppCompatActivity {
 
     public static final int REQ_PICK = 0x2102;
     private static final String EXTRA_URI = "uri";
+    private static final String EXTRA_DEFAULT_ENV = "default_env";
 
     private Uri uri;
     private LinearLayout body;
@@ -41,8 +42,14 @@ public class LabInstallActivity extends AppCompatActivity {
     }
 
     public static void startWithUri(Activity activity, Uri uri) {
+        startWithUri(activity, uri, null);
+    }
+
+    /** 环境页「＋」→选文件：默认落当前环境（包没声明运行时才用） */
+    public static void startWithUri(Activity activity, Uri uri, String defaultEnv) {
         Intent i = new Intent(activity, LabInstallActivity.class);
         i.setData(uri);
+        if (defaultEnv != null) i.putExtra(EXTRA_DEFAULT_ENV, defaultEnv);
         activity.startActivity(i);
     }
 
@@ -72,7 +79,7 @@ public class LabInstallActivity extends AppCompatActivity {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
+        
         nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
         TextView title = new TextView(this);
         title.setText("安装服务包");
@@ -85,7 +92,7 @@ public class LabInstallActivity extends AppCompatActivity {
         progressText = new TextView(this);
         progressText.setTextSize(14);
         progressText.setTextColor(LabSkin.AMBER);
-        progressText.setBackground(LabScrim.bar(this));
+        
         progressText.setPadding(dp(18), dp(8), dp(18), dp(8));
         progressText.setVisibility(View.GONE);
         root.addView(progressText);
@@ -189,37 +196,46 @@ public class LabInstallActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         blp.setMargins(dp(18), dp(16), dp(18), 0);
         install.setLayoutParams(blp);
-        install.setOnClickListener(v -> {
-            install.setEnabled(false);
-            install.setText("安装中…");
-            progressText.setVisibility(View.VISIBLE);
-            LabPackageInstaller.installFromUri(this, uri, new LabPackageInstaller.Listener() {
-                @Override
-                public void onProgress(String text) {
-                    runOnUiThread(() -> progressText.setText(text));
-                }
-
-                @Override
-                public void onOk(LabRegistry.Svc pkg) {
-                    runOnUiThread(() -> {
-                        Notify.show("装好了");
-                        finish();
-                        LabEnvActivity.start(LabInstallActivity.this, LabRegistry.envOf(pkg));
-                    });
-                }
-
-                @Override
-                public void onFail(String reason) {
-                    runOnUiThread(() -> {
-                        install.setEnabled(true);
-                        install.setText("安装");
-                        progressText.setText(reason);
-                        Notify.show(reason);
-                    });
-                }
-            });
-        });
+        install.setOnClickListener(v -> startInstall(uri, install));
         body.addView(install);
+    }
+
+    /** 走安装中弹窗：包声明的环境没装会自动先装环境（进度同样进这个弹窗），失败切报错态 */
+    private void startInstall(Uri uri, TextView installBtn) {
+        installBtn.setEnabled(false);
+        installBtn.setText("安装中…");
+        String defaultEnv = getIntent().getStringExtra(EXTRA_DEFAULT_ENV);
+        LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(this, "正在安装服务");
+        Runnable[] retry = new Runnable[1];
+        retry[0] = () -> LabPackageInstaller.installFromUri(this, uri, defaultEnv,
+                new LabPackageInstaller.Listener() {
+                    @Override
+                    public void onProgress(String text) {
+                        String pct = LabInstallDialog.shardLine(text);
+                        if (pct != null) dlg.progress(pct, text);
+                        else dlg.busy(text);
+                    }
+
+                    @Override
+                    public void onOk(LabRegistry.Svc pkg) {
+                        runOnUiThread(() -> {
+                            dlg.ok();
+                            Notify.show("装好了");
+                            finish();
+                            LabEnvActivity.start(LabInstallActivity.this, LabRegistry.envOf(pkg));
+                        });
+                    }
+
+                    @Override
+                    public void onFail(String reason) {
+                        runOnUiThread(() -> {
+                            installBtn.setEnabled(true);
+                            installBtn.setText("安装");
+                            dlg.error(reason, retry[0]);
+                        });
+                    }
+                });
+        retry[0].run();
     }
 
     private File copyToTemp(Uri u) throws Exception {

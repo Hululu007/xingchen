@@ -2,34 +2,34 @@ package com.fongmi.android.tv.ui.lab;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.fongmi.android.tv.utils.Notify;
-
 import java.util.List;
 
 /**
- * 实验室首页：只列环境（新口径）。
- * 十一个环境各一张卡平铺（Python/Node/PHP/mihomo/alist/frp/aria2/Ubuntu/Java/Bun/ffmpeg）；
- * 环境卡＝名字＋已装/未装＋一行小字「里面 N 个服务、M 个运行中」，
- * 点卡进环境页；卡片不带头像位。
- * 顶栏「＋」进包安装；设置条＝自动启动总开关＋全部停止。不设叉，走系统返回。
+ * 实验室首页（定稿 lab-design-sets2/a2/home）：
+ * 标题行＝「实验室」＋右端「自动启动」小开关；
+ * 第二行＝「全部停止」「运行中 N ›」两颗深胶囊；
+ * 下面＝两列宫格（深玻璃格：环境名＋圆点＋「X 个服务」），点格进环境页。
+ * 右上不放任何东西（无＋无设置入口）；顶栏只留标题，走系统返回。
  */
 public class LabHomeActivity extends AppCompatActivity {
 
-    private LinearLayout listBox;
-    private Switch masterSwitch;
-    private TextView runningStrip;
+    private LinearLayout gridBox;
+    private LinearLayout headBox;
+    private View masterSw;
+    private TextView runningPill;
+    private TextView runningNum;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, LabHomeActivity.class));
@@ -56,162 +56,171 @@ public class LabHomeActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // 顶栏：标题＋设置＋「＋」（霜条打底，深浅壁纸都看得清）
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setBackground(LabScrim.bar(this));
-        top.setPadding(dp(18), dp(16) + LabSkin.statusBarHeight(this), dp(18), dp(4));
-        LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        // 标题行：实验室＋右端 自动启动 开关（字直接落在壁纸上，带衬影）
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(18), dp(9) + LabSkin.statusBarHeight(this), dp(18), dp(14));
         TextView h1 = new TextView(this);
         h1.setText("实验室");
         h1.setTextSize(24);
-        h1.setTextColor(LabSkin.TEXT_MAIN);
+        h1.setTextColor(LabSkin.WALL_TITLE);
         h1.getPaint().setFakeBoldText(true);
-        titles.addView(h1);
-        top.addView(titles);
-        TextView settings = new TextView(this);
-        settings.setText("设置");
-        settings.setTextSize(15);
-        settings.setTextColor(LabSkin.TEXT_SUB);
-        settings.setPadding(dp(12), dp(12), dp(12), dp(12));
-        settings.setOnClickListener(v -> LabSettingsActivity.start(this));
-        top.addView(settings);
-        TextView add = new TextView(this);
-        add.setText("＋");
-        add.setTextSize(22);
-        add.setTextColor(LabSkin.ON_YELLOW);
-        add.setBackground(LabSkin.buttonYellow(this));
-        add.setGravity(Gravity.CENTER);
-        add.setPadding(dp(10), dp(6), dp(10), dp(6));
-        add.setMinWidth(dp(44));
-        add.setOnClickListener(v -> LabStoreActivity.start(this));
-        top.addView(add);
-        root.addView(top);
+        LabSkin.halo(h1);
+        h1.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        head.addView(h1);
+        TextView arLab = new TextView(this);
+        arLab.setText("自动启动");
+        arLab.setTextSize(12);
+        arLab.setTextColor(LabSkin.WALL_DIM);
+        LabSkin.halo(arLab);
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.rightMargin = dp(8);
+        arLab.setLayoutParams(alp);
+        head.addView(arLab);
+        masterSw = LabSkin.miniSwitch(this, false, on -> LabRegistry.get(this).setMasterAutoStart(this, on));
+        head.addView(masterSw);
+        headBox = head;
+        root.addView(head);
 
-        // 设置区：自动启动总开关＋全部停止＋运行中入口（霜条打底）
-        LinearLayout zone = new LinearLayout(this);
-        zone.setOrientation(LinearLayout.VERTICAL);
-        zone.setBackground(LabScrim.bar(this));
-        zone.setPadding(0, dp(2), 0, dp(6));
-
-        // 设置条：自动启动总开关＋全部停止
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setGravity(Gravity.CENTER_VERTICAL);
-        strip.setPadding(dp(18), dp(8), dp(18), dp(8));
-        TextView lab = new TextView(this);
-        lab.setText("自动启动");
-        lab.setTextSize(14);
-        lab.setTextColor(LabSkin.TEXT_SUB);
-        lab.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        masterSwitch = new Switch(this);
-        masterSwitch.setOnCheckedChangeListener((b, on) -> LabRegistry.get(this).setMasterAutoStart(this, on));
-        TextView stopAll = new TextView(this);
-        stopAll.setText("全部停止");
-        stopAll.setTextSize(14);
-        stopAll.setTextColor(LabSkin.TEXT_MAIN);
-        stopAll.setBackground(LabSkin.buttonGray(this));
-        stopAll.setPadding(dp(16), dp(8), dp(16), dp(8));
+        // 胶囊行：全部停止 / 运行中 N ›
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setPadding(dp(18), 0, dp(18), dp(14));
+        TextView stopAll = pill("全部停止");
         stopAll.setOnClickListener(v -> {
             LabRunner.stopAll(this);
             reload();
-            Notify.show("都停了");
+            com.fongmi.android.tv.utils.Notify.show("都停了");
         });
-        strip.addView(lab);
-        strip.addView(masterSwitch);
-        strip.addView(stopAll);
-        zone.addView(strip);
+        controls.addView(stopAll);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.leftMargin = dp(9);
+        LinearLayout runWrap = new LinearLayout(this);
+        runWrap.setOrientation(LinearLayout.HORIZONTAL);
+        runWrap.setGravity(Gravity.CENTER_VERTICAL);
+        runWrap.setBackground(LabSkin.pillDark(this));
+        runWrap.setPadding(dp(14), dp(8), dp(14), dp(8));
+        runWrap.setLayoutParams(rlp);
+        runningPill = new TextView(this);
+        runningPill.setText("运行中");
+        runningPill.setTextSize(12);
+        runningPill.getPaint().setFakeBoldText(true);
+        runningPill.setTextColor(LabSkin.TEXT_ON_DARK);
+        runWrap.addView(runningPill);
+        runningNum = new TextView(this);
+        runningNum.setTextSize(12);
+        runningNum.getPaint().setFakeBoldText(true);
+        runningNum.setTextColor(LabSkin.COUNT_YELLOW);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.leftMargin = dp(5);
+        runningNum.setLayoutParams(nlp);
+        runWrap.addView(runningNum);
+        TextView chev = new TextView(this);
+        chev.setText("›");
+        chev.setTextSize(12);
+        chev.setTextColor(LabSkin.TEXT_ON_DARK);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.leftMargin = dp(5);
+        chev.setLayoutParams(clp);
+        runWrap.addView(chev);
+        runWrap.setOnClickListener(v -> LabRunningDialog.show(this));
+        controls.addView(runWrap);
+        root.addView(controls);
 
-        // 运行中入口：有谁在跑，点开看列表
-        runningStrip = new TextView(this);
-        runningStrip.setTextSize(14);
-        runningStrip.setTextColor(LabSkin.TEXT_SUB);
-        runningStrip.setPadding(dp(18), dp(8), dp(18), dp(8));
-        runningStrip.setOnClickListener(v -> LabRunningDialog.show(this));
-        zone.addView(runningStrip);
-        root.addView(zone);
-
+        // 宫格
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        listBox = new LinearLayout(this);
-        listBox.setOrientation(LinearLayout.VERTICAL);
-        listBox.setPadding(0, dp(6), 0, dp(24) + LabSkin.navBarHeight(this));
-        scroll.addView(listBox, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        gridBox = new LinearLayout(this);
+        gridBox.setOrientation(LinearLayout.VERTICAL);
+        gridBox.setPadding(0, 0, 0, dp(46) + LabSkin.navBarHeight(this));
+        scroll.addView(gridBox, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(root);
     }
 
-    private void reload() {
-        listBox.removeAllViews();
-        masterSwitch.setOnCheckedChangeListener(null);
-        masterSwitch.setChecked(LabRegistry.get(this).masterAutoStart);
-        masterSwitch.setOnCheckedChangeListener((b, on) -> LabRegistry.get(this).setMasterAutoStart(this, on));
-        int n = LabRunner.runningCount(this);
-        runningStrip.setText(n > 0 ? "运行中（" + n + "） ›" : "运行中 ›");
-        runningStrip.setTextColor(n > 0 ? LabSkin.GREEN : LabSkin.TEXT_SUB);
-        for (String env : LabRegistry.ENVS) {
-            listBox.addView(envCard(env));
-        }
+    private TextView pill(String text) {
+        TextView p = new TextView(this);
+        p.setText(text);
+        p.setTextSize(12);
+        p.getPaint().setFakeBoldText(true);
+        p.setTextColor(LabSkin.TEXT_ON_DARK);
+        p.setBackground(LabSkin.pillDark(this));
+        p.setPadding(dp(14), dp(8), dp(14), dp(8));
+        p.setClickable(true);
+        p.setFocusable(true);
+        return p;
     }
 
-    /** 环境卡：名字＋已装/未装＋「里面 N 个服务、M 个运行中」 */
-    private View envCard(String env) {
-        boolean ready = LabRegistry.envReady(this, env);
+    private void reload() {
+        gridBox.removeAllViews();
+        // 开关重建（miniSwitch 是自绘 View，无 setChecked 口）
+        headBox.removeView(masterSw);
+        masterSw = LabSkin.miniSwitch(this, LabRegistry.get(this).masterAutoStart,
+                on -> LabRegistry.get(this).setMasterAutoStart(this, on));
+        headBox.addView(masterSw);
+        int n = LabRunner.runningCount(this);
+        runningNum.setText(String.valueOf(n));
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(2);
+        grid.setPadding(dp(18), 0, dp(18), 0);
+        for (String env : LabRegistry.ENVS) {
+            grid.addView(envTile(env));
+        }
+        gridBox.addView(grid);
+    }
+
+    /** 环境格：深玻璃＋环境名＋圆点＋「X 个服务」（稿 .tile） */
+    private View envTile(String env) {
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
         int running = 0;
         for (LabRegistry.Svc s : svcs) {
             if (LabRunner.isRunning(this, s.id)) running++;
         }
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(LabSkin.cardBackground(this, running > 0));
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), 0, dp(18), dp(14));
-        card.setLayoutParams(lp);
-        card.setClickable(true);
-        card.setFocusable(true);
-        card.setOnClickListener(v -> LabEnvActivity.start(this, env));
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setBackground(LabSkin.glassDark(this));
+        tile.setPadding(dp(14), dp(17), dp(14), dp(17));
+        GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+        lp.width = 0;
+        lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        int gap = dp(5);
+        lp.setMargins(gap, 0, gap, dp(9));
+        tile.setLayoutParams(lp);
+        tile.setMinimumHeight(dp(114));
+        tile.setClickable(true);
+        tile.setFocusable(true);
+        tile.setOnClickListener(v -> LabEnvActivity.start(this, env));
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
         TextView name = new TextView(this);
         name.setText(LabRegistry.envLabel(env));
-        name.setTextSize(18);
-        name.setTextColor(LabSkin.TEXT_MAIN);
+        name.setTextSize(15);
+        name.setTextColor(LabSkin.TEXT_ON_DARK);
         name.getPaint().setFakeBoldText(true);
-        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(name);
-        TextView tag = new TextView(this);
-        tag.setText(ready ? "已装" : "未装");
-        tag.setTextSize(12);
-        tag.setTextColor(ready ? LabSkin.GREEN : LabSkin.TEXT_DIM);
-        tag.setBackground(ready ? LabSkin.tagGreen(this) : LabSkin.tagGray(this));
-        tag.setPadding(dp(12), dp(5), dp(12), dp(5));
-        row.addView(tag);
-        card.addView(row);
+        name.setPadding(0, 0, 0, dp(7));
+        tile.addView(name);
 
-        TextView line = new TextView(this);
-        line.setText("里面 " + svcs.size() + " 个服务、" + running + " 个运行中");
-        line.setTextSize(12);
-        line.setTextColor(LabSkin.TEXT_DIM);
-        line.setPadding(0, dp(8), 0, 0);
-        card.addView(line);
-        return card;
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == LabInstallActivity.REQ_PICK && resultCode == RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            if (uri != null) LabInstallActivity.startWithUri(this, uri);
-        }
+        LinearLayout st = new LinearLayout(this);
+        st.setOrientation(LinearLayout.HORIZONTAL);
+        st.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView dot = new ImageView(this);
+        dot.setBackground(LabSkin.dot(this, running > 0 ? LabSkin.GREEN_DOT : 0xFF8A93A3));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dlp.rightMargin = dp(5);
+        dot.setLayoutParams(dlp);
+        st.addView(dot);
+        TextView cnt = new TextView(this);
+        cnt.setText(svcs.size() + " 个服务");
+        cnt.setTextSize(11);
+        cnt.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        st.addView(cnt);
+        tile.addView(st);
+        return tile;
     }
 }

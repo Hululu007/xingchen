@@ -29,6 +29,7 @@ public final class LabEnvCatalog {
         public String arch = "";
         public String url = "";
         public long size = 0;
+        public String sha256 = "";
         public final List<String> mirrors = new ArrayList<>();
 
         /** 主地址＋镜像依次试 */
@@ -79,6 +80,7 @@ public final class LabEnvCatalog {
                             dl.arch = d.optString("arch", "").trim().toLowerCase();
                             dl.url = d.optString("url", "");
                             dl.size = d.optLong("size", 0);
+                            dl.sha256 = d.optString("sha256", "");
                             JSONArray ms = d.optJSONArray("mirrors");
                             if (ms != null) {
                                 for (int k = 0; k < ms.length(); k++) {

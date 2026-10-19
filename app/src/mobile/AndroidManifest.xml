@@ -346,16 +346,6 @@
             android:name=".ui.lab.LabKeepAlive"
             android:exported="false" />
         <activity
-            android:name=".ui.lab.LabSettingsActivity"
-            android:theme="@style/Theme.XingChen.LabPage"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
-        <activity
-            android:name=".ui.lab.LabStoreActivity"
-            android:theme="@style/Theme.XingChen.LabPage"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
-        <activity
             android:name=".ui.lab.LabLiveOutputActivity"
             android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

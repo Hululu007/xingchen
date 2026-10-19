@@ -38,6 +38,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
 
     private static final String EXTRA_URI = "uri";
     private static final String EXTRA_MODE = "mode";
+    private static final String EXTRA_DEFAULT_ENV = "default_env";
     private static final String EXTRA_URL = "url";
     /** 粘贴模式：多行文本框 */
     private static final String MODE_PASTE = "paste";
@@ -53,12 +54,28 @@ public class LabPasteImportActivity extends AppCompatActivity {
     private String mode = MODE_PASTE;
 
     public static void start(Activity activity) {
-        startMode(activity, MODE_PASTE);
+        start(activity, null);
+    }
+
+    /** 环境页「＋」→粘贴：默认落当前环境（条目没声明运行时才用） */
+    public static void start(Activity activity, String defaultEnv) {
+        Intent i = new Intent(activity, LabPasteImportActivity.class);
+        i.putExtra(EXTRA_MODE, MODE_PASTE);
+        if (defaultEnv != null) i.putExtra(EXTRA_DEFAULT_ENV, defaultEnv);
+        activity.startActivity(i);
     }
 
     /** 链接入口：单行输入框，拉下来再识别 */
     public static void startLink(Activity activity) {
-        startMode(activity, MODE_LINK);
+        startLink(activity, null);
+    }
+
+    /** 环境页「＋」→链接：默认落当前环境（条目没声明运行时才用） */
+    public static void startLink(Activity activity, String defaultEnv) {
+        Intent i = new Intent(activity, LabPasteImportActivity.class);
+        i.putExtra(EXTRA_MODE, MODE_LINK);
+        if (defaultEnv != null) i.putExtra(EXTRA_DEFAULT_ENV, defaultEnv);
+        activity.startActivity(i);
     }
 
     /** 添加服务页的链接卡跳过来：链接模式＋输入框预填 */
@@ -107,7 +124,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
+        
         nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
         TextView title = new TextView(this);
         boolean linkMode = MODE_LINK.equals(mode);
@@ -122,8 +139,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
         hint.setText(linkMode ? "粘贴服务清单的链接，拉下来自动识别"
                 : "把服务清单、命令条目或脚本粘进来，自动识别");
         hint.setTextSize(14);
-        hint.setTextColor(LabSkin.TEXT_SUB);
-        hint.setBackground(LabScrim.bar(this));
+        hint.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        hint.setBackground(LabSkin.addrBox(this));
         hint.setPadding(dp(18), dp(4), dp(18), dp(8));
         root.addView(hint);
 
@@ -324,30 +341,38 @@ public class LabPasteImportActivity extends AppCompatActivity {
         if (items == null || items.isEmpty()) return;
         importBtn.setEnabled(false);
         importBtn.setText("导入中…");
-        LabPackageInstaller.installCompat(this, items, new LabPackageInstaller.CompatListener() {
-            @Override
-            public void onProgress(String text) {
-                runOnUiThread(() -> showStatus(text));
-            }
+        String defaultEnv = getIntent().getStringExtra(EXTRA_DEFAULT_ENV);
+        // 照稿弹安装中弹窗：条目声明的环境没装会自动先装（进度同样进这个弹窗）
+        LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(this, "正在导入服务");
+        Runnable[] retry = new Runnable[1];
+        retry[0] = () -> LabPackageInstaller.installCompat(this, items, defaultEnv,
+                new LabPackageInstaller.CompatListener() {
+                    @Override
+                    public void onProgress(String text) {
+                        String pct = LabInstallDialog.shardLine(text);
+                        if (pct != null) dlg.progress(pct, text);
+                        else dlg.busy(text);
+                    }
 
-            @Override
-            public void onDone(int count) {
-                runOnUiThread(() -> {
-                    Notify.show("装好了 " + count + " 个");
-                    finish();
-                });
-            }
+                    @Override
+                    public void onDone(int count) {
+                        runOnUiThread(() -> {
+                            dlg.ok();
+                            Notify.show("装好了 " + count + " 个");
+                            finish();
+                        });
+                    }
 
-            @Override
-            public void onFail(String reason) {
-                runOnUiThread(() -> {
-                    importBtn.setEnabled(true);
-                    importBtn.setText("导入这 " + items.size() + " 个服务");
-                    showStatus(reason);
-                    Notify.show(reason);
+                    @Override
+                    public void onFail(String reason) {
+                        runOnUiThread(() -> {
+                            importBtn.setEnabled(true);
+                            importBtn.setText("导入这 " + items.size() + " 个服务");
+                            dlg.error(reason, retry[0]);
+                        });
+                    }
                 });
-            }
-        });
+        retry[0].run();
     }
 
     private void showStatus(String s) {

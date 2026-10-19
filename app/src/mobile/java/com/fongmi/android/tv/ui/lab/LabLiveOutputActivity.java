@@ -87,7 +87,7 @@ public class LabLiveOutputActivity extends AppCompatActivity {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
+        
         nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
         TextView t = new TextView(this);
         t.setText(title);

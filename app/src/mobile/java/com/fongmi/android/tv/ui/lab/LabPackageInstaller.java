@@ -35,11 +35,19 @@ public final class LabPackageInstaller {
 
     /** 从 content/file Uri 安装 */
     public static void installFromUri(Context ctx, Uri uri, Listener listener) {
+        installFromUri(ctx, uri, null, listener);
+    }
+
+    /**
+     * 从 content/file Uri 安装：defaultRuntime（环境页「＋」进来时传当前环境）只在
+     * 包自己没声明运行时（runtime 为 none）时用，声明了的听声明。
+     */
+    public static void installFromUri(Context ctx, Uri uri, String defaultRuntime, Listener listener) {
         new Thread(() -> {
             try {
                 File tmp = new File(ctx.getCacheDir(), "lab-install-" + System.currentTimeMillis() + ".lab");
                 copyStream(ctx.getContentResolver().openInputStream(uri), tmp, null);
-                installFromFile(ctx.getApplicationContext(), tmp, listener);
+                installFromFile(ctx.getApplicationContext(), tmp, defaultRuntime, listener);
                 tmp.delete();
             } catch (Exception e) {
                 fail(listener, "读不到这个包文件：" + human(e));
@@ -49,26 +57,54 @@ public final class LabPackageInstaller {
 
     /** 从本地 zip 文件安装（.lab） */
     public static void installFromFile(Context ctx, File zip, Listener listener) {
+        installFromFile(ctx, zip, null, listener);
+    }
+
+    /** 同上，带默认运行时（包没声明时才用）；声明的环境没装会自动先装环境 */
+    public static void installFromFile(Context ctx, File zip, String defaultRuntime, Listener listener) {
         new Thread(() -> {
             try {
                 progress(listener, "正在读包说明…");
                 String manifestJson = readManifestJson(zip);
                 LabManifest manifest = LabManifest.parse(manifestJson);
-                File dest = LabPaths.packageDir(ctx, manifest.id);
-                progress(listener, "正在解压…");
-                unzip(zip, dest);
-                chmod755(dest);
-                LabRegistry.Svc pkg = new LabRegistry.Svc();
-                pkg.id = manifest.id;
-                pkg.name = manifest.name;
-                pkg.desc = manifest.desc;
-                pkg.icon = manifest.icon;
-                pkg.version = manifest.version;
-                pkg.runtime = manifest.runtime;
-                pkg.autoStartDefault = manifest.autoStart;
-                pkg.installTime = System.currentTimeMillis();
-                LabRegistry.get(ctx).upsertSvc(ctx, pkg);
-                ok(listener, pkg);
+                ensureRuntime(ctx.getApplicationContext(), manifest.runtime, defaultRuntime,
+                        new RuntimeEnsure() {
+                            @Override
+                            public void onEnvProgress(String runtime, String text) {
+                                progress(listener, "正在装「"
+                                        + LabRuntimeManager.label(runtime) + "」：" + text);
+                            }
+
+                            @Override
+                            public void onReady(String runtime, String hint) {
+                                try {
+                                    if (hint != null) progress(listener, hint);
+                                    manifest.runtime = runtime;
+                                    File dest = LabPaths.packageDir(ctx, manifest.id);
+                                    progress(listener, "正在解压…");
+                                    unzip(zip, dest);
+                                    chmod755(dest);
+                                    LabRegistry.Svc pkg = new LabRegistry.Svc();
+                                    pkg.id = manifest.id;
+                                    pkg.name = manifest.name;
+                                    pkg.desc = manifest.desc;
+                                    pkg.icon = manifest.icon;
+                                    pkg.version = manifest.version;
+                                    pkg.runtime = manifest.runtime;
+                                    pkg.autoStartDefault = manifest.autoStart;
+                                    pkg.installTime = System.currentTimeMillis();
+                                    LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                                    ok(listener, pkg);
+                                } catch (Exception e) {
+                                    fail(listener, human(e));
+                                }
+                            }
+
+                            @Override
+                            public void onFail(String reason) {
+                                fail(listener, reason);
+                            }
+                        });
             } catch (Exception e) {
                 fail(listener, human(e));
             }
@@ -85,6 +121,59 @@ public final class LabPackageInstaller {
         LabRegistry.get(ctx).removeSvc(ctx, id);
     }
 
+    /** 环境自检回调：导入/添加服务时读包声明的运行时 */
+    public interface RuntimeEnsure {
+        /** 需要的环境没装、正在自动走在线安装：text 是安装进度人话 */
+        void onEnvProgress(String runtime, String text);
+
+        /** 环境就绪：runtime 为最终运行时；hint 为兜底提示（可空，调 progress 透给用户） */
+        void onReady(String runtime, String hint);
+
+        void onFail(String reason);
+    }
+
+    /**
+     * 读包里声明的运行时：该环境没装就自动走在线安装（调用方弹安装中弹窗），
+     * 装好服务直接就位能跑。声明缺失/认不出来才落回 defaultRuntime（环境页当前环境），
+     * 并给一句人话提示；连兜底都没有就按 "none" 走老路。
+     */
+    public static void ensureRuntime(Context ctx, String runtime, String defaultRuntime, RuntimeEnsure cb) {
+        final Context app = ctx.getApplicationContext();
+        String rt = runtime;
+        String hint = null;
+        if (rt == null || rt.isEmpty() || "none".equals(rt) || !LabRuntimeManager.RUNTIMES.contains(rt)) {
+            if (defaultRuntime != null && LabRuntimeManager.RUNTIMES.contains(defaultRuntime)) {
+                hint = "包里没写要什么环境，先放在「" + LabRuntimeManager.label(defaultRuntime) + "」里";
+                rt = defaultRuntime;
+            } else {
+                cb.onReady("none", null);
+                return;
+            }
+        }
+        final String need = rt;
+        final String readyHint = hint;
+        if (LabRuntimeManager.isInstalled(app, need)) {
+            cb.onReady(need, readyHint);
+            return;
+        }
+        LabRuntimeManager.installOnline(app, need, new LabRuntimeManager.Listener() {
+            @Override
+            public void onProgress(String text) {
+                cb.onEnvProgress(need, text);
+            }
+
+            @Override
+            public void onOk() {
+                cb.onReady(need, readyHint);
+            }
+
+            @Override
+            public void onFail(String reason) {
+                cb.onFail("「" + LabRuntimeManager.label(need) + "」没装上：" + reason);
+            }
+        });
+    }
+
     /** 兼容导入（默影视命令 / Termux 清单 / 裸脚本 / lab.json 粘贴）：归一后的条目直接落盘 */
     public interface CompatListener {
         void onProgress(String text);
@@ -95,12 +184,35 @@ public final class LabPackageInstaller {
     }
 
     public static void installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, CompatListener listener) {
-        new Thread(() -> {
-            try {
-                int ok = 0;
-                for (LabImportCompat.ImportItem it : items) {
-                    progress2(listener, "正在装：" + it.name + "…");
-                    LabManifest m = LabImportCompat.toManifest(it);
+        installCompat(ctx, items, null, listener);
+    }
+
+    /** 同上，带默认运行时（条目没声明时才用）；每条先保证环境就绪再落盘 */
+    public static void installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, String defaultRuntime, CompatListener listener) {
+        new Thread(() -> installCompatNext(ctx.getApplicationContext(), items, 0, defaultRuntime, listener, 0)).start();
+    }
+
+    /** 逐条链式安装：前一条的环境没装就先自动装好，再装下一条 */
+    private static void installCompatNext(Context ctx, java.util.List<LabImportCompat.ImportItem> items,
+                                          int idx, String defaultRuntime, CompatListener listener, int okCount) {
+        if (idx >= items.size()) {
+            if (listener != null) listener.onDone(okCount);
+            return;
+        }
+        LabImportCompat.ImportItem it = items.get(idx);
+        progress2(listener, "正在装：" + it.name + "…");
+        final LabManifest m = LabImportCompat.toManifest(it);
+        ensureRuntime(ctx, m.runtime, defaultRuntime, new RuntimeEnsure() {
+            @Override
+            public void onEnvProgress(String runtime, String text) {
+                progress2(listener, "正在装「" + LabRuntimeManager.label(runtime) + "」：" + text);
+            }
+
+            @Override
+            public void onReady(String runtime, String hint) {
+                try {
+                    if (hint != null) progress2(listener, hint);
+                    m.runtime = runtime;
                     File dest = LabPaths.packageDir(ctx, m.id);
                     deleteDir(dest);
                     dest.mkdirs();
@@ -126,13 +238,17 @@ public final class LabPackageInstaller {
                     pkg.installTime = System.currentTimeMillis();
                     pkg.needsReview = it.needsReview;
                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
-                    ok++;
+                    installCompatNext(ctx, items, idx + 1, defaultRuntime, listener, okCount + 1);
+                } catch (Exception e) {
+                    if (listener != null) listener.onFail(human(e));
                 }
-                if (listener != null) listener.onDone(ok);
-            } catch (Exception e) {
-                if (listener != null) listener.onFail(human(e));
             }
-        }).start();
+
+            @Override
+            public void onFail(String reason) {
+                if (listener != null) listener.onFail(reason);
+            }
+        });
     }
 
     private static void writeJson(File f, LabManifest m) throws Exception {

@@ -26,12 +26,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 服务详情页（定稿 lab-service.png）：
- * 大卡＝名字＋状态徽＋服务地址（label＋大人话地址）；
- * 黄色主动作（按产出声明）＋灰色停止/启动；
- * 重启/分享/二维码一行；「查看运行记录 ›」；
- * 高级折叠：命令列表（每行 运行/停止 快捷钮，点行弹变量表运行，长按改/删自定义命令）、
- * 添加命令、包设置、终端、实时输出、导出包。
+ * 服务详情页（定稿 lab-design-sets2/a2/service-detail）：
+ * 标题＝服务名＋右侧金字环境名；
+ * 大深卡＝状态徽＋地址盒＋停止/启动大钮＋运行记录行；
+ * 卡下：输出动作黄钮（按产出声明；没声明→「当直播源用/当点播源用」）、
+ * 重启/分享/二维码一行深底卡、高级折叠（命令列表＋添加命令＋包设置＋终端＋实时输出＋导出包）。
+ * 点地址复制；点行弹变量表运行；自定义命令长按改/删。
  * 顶栏只留标题，走系统返回。
  */
 public class LabServiceActivity extends AppCompatActivity {
@@ -41,6 +41,7 @@ public class LabServiceActivity extends AppCompatActivity {
     private String pkgId;
     private LinearLayout body;
     private TextView navTitle;
+    private TextView navEnv;
 
     public static void start(Activity activity, String pkgId) {
         Intent i = new Intent(activity, LabServiceActivity.class);
@@ -77,25 +78,31 @@ public class LabServiceActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // 顶栏：只留标题（霜条打底）
+        // 标题行：服务名＋右侧金字环境名（字直接落在壁纸上，带衬影）
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER_VERTICAL);
-        nav.setBackground(LabScrim.bar(this));
-        nav.setPadding(dp(18), dp(14) + LabSkin.statusBarHeight(this), dp(18), dp(6));
-        TextView title = new TextView(this);
-        title.setTextSize(20);
-        title.setTextColor(LabSkin.TEXT_MAIN);
-        title.getPaint().setFakeBoldText(true);
-        nav.addView(title);
-        navTitle = title;
+        nav.setPadding(dp(18), dp(9) + LabSkin.statusBarHeight(this), dp(18), dp(20));
+        navTitle = new TextView(this);
+        navTitle.setTextSize(24);
+        navTitle.setTextColor(LabSkin.WALL_TITLE);
+        navTitle.getPaint().setFakeBoldText(true);
+        LabSkin.halo(navTitle);
+        navTitle.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        nav.addView(navTitle);
+        navEnv = new TextView(this);
+        navEnv.setTextSize(13);
+        navEnv.setTextColor(LabSkin.GOLD_TAG);
+        navEnv.getPaint().setFakeBoldText(true);
+        LabSkin.halo(navEnv);
+        nav.addView(navEnv);
         root.addView(nav);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(0, dp(4), 0, dp(30) + LabSkin.navBarHeight(this));
+        body.setPadding(0, 0, 0, dp(46) + LabSkin.navBarHeight(this));
         scroll.addView(body, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -109,145 +116,95 @@ public class LabServiceActivity extends AppCompatActivity {
             finish();
             return;
         }
-        if (navTitle != null) navTitle.setText(s.name);
+        navTitle.setText(s.name);
+        navEnv.setText(LabRegistry.envLabel(LabRegistry.envOf(s)));
         boolean running = LabRunner.isRunning(this, pkgId);
-        String err = LabRunner.lastError(pkgId);
         LabManifest manifest = peekManifest();
         int port = LabRunner.portOf(this, pkgId);
         String addr = manifest == null ? "" : manifest.humanAddress(port);
 
-        body.addView(bigCard(s, running, err, addr));
+        body.addView(bigCard(s, running, addr));
         if (!TextUtils.isEmpty(s.needsReview)) {
             body.addView(warnLine(s.needsReview));
         }
         addMainAction(manifest, port, s, running);
-        body.addView(toggleButton(running, s));
         body.addView(utilRow(manifest, port, s));
-        body.addView(logLink(s));
         body.addView(advancedBox(manifest, s));
     }
 
-    // ---------------- 大卡 ----------------
+    // ---------------- 大深卡（稿 .tile） ----------------
 
-    private View bigCard(LabRegistry.Svc s, boolean running, String err, String addr) {
-        LinearLayout card = cardBox(running);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = new TextView(this);
-        name.setText(s.name);
-        name.setTextSize(20);
-        name.setTextColor(LabSkin.TEXT_MAIN);
-        name.getPaint().setFakeBoldText(true);
-        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(name);
-        row.addView(statusTag(running, err));
-        card.addView(row);
-
-        if (running && !TextUtils.isEmpty(addr)) {
-            View divider = new View(this);
-            divider.setBackgroundColor(0x0F000000);
-            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-            dlp.topMargin = dp(14);
-            dlp.bottomMargin = dp(12);
-            divider.setLayoutParams(dlp);
-            card.addView(divider);
-
-            TextView lab = new TextView(this);
-            lab.setText("服务地址");
-            lab.setTextSize(13);
-            lab.setTextColor(LabSkin.TEXT_DIM);
-            card.addView(lab);
-            TextView addrBox = new TextView(this);
-            addrBox.setText(addr);
-            addrBox.setTextSize(18);
-            addrBox.setTextColor(LabSkin.TEXT_MAIN);
-            addrBox.getPaint().setFakeBoldText(true);
-            addrBox.setPadding(0, dp(4), 0, 0);
-            addrBox.setOnClickListener(v -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager)
-                        getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("lab-addr", addr));
-                Notify.show("地址已复制");
-            });
-            card.addView(addrBox);
-        }
-        return card;
-    }
-
-    private TextView statusTag(boolean running, String err) {
-        TextView tag = new TextView(this);
-        tag.setTextSize(13);
-        tag.setPadding(dp(14), dp(6), dp(14), dp(6));
-        if (running) {
-            tag.setText("● 运行中");
-            tag.setTextColor(LabSkin.GREEN);
-            tag.setBackground(LabSkin.tagGreen(this));
-        } else if (err != null) {
-            tag.setText("出错了");
-            tag.setTextColor(LabSkin.RED);
-            tag.setBackground(LabSkin.tagGray(this));
-        } else {
-            tag.setText("已停止");
-            tag.setTextColor(LabSkin.TEXT_DIM);
-            tag.setBackground(LabSkin.tagGray(this));
-        }
-        return tag;
-    }
-
-    private View warnLine(String needsReview) {
-        TextView warn = new TextView(this);
-        warn.setText("导入时有没对上的地方，启动前看一眼：\n" + needsReview);
-        warn.setTextSize(13);
-        warn.setTextColor(LabSkin.AMBER);
-        warn.setBackground(LabScrim.bar(this));
-        warn.setPadding(dp(18), dp(8), dp(18), dp(8));
+    private View bigCard(LabRegistry.Svc s, boolean running, String addr) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(LabSkin.glassDark(this));
+        card.setPadding(dp(20), dp(21), dp(20), dp(21));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), dp(10), dp(18), 0);
-        warn.setLayoutParams(lp);
-        return warn;
-    }
+        lp.setMargins(dp(18), 0, dp(18), 0);
+        card.setLayoutParams(lp);
 
-    // ---------------- 主动作 / 启停 ----------------
-
-    private void addMainAction(LabManifest manifest, int port, LabRegistry.Svc s, boolean running) {
-        boolean needChoice = running && (manifest == null || manifest.output == null
-                || TextUtils.isEmpty(manifest.output.kind));
-        if (running && !needChoice && manifest != null) {
-            TextView big = bigButton("▶ " + manifest.actionLabel(), true);
-            big.setLayoutParams(buttonLp(dp(14)));
-            final String url = LabOutputBridge.address(manifest, port);
-            big.setOnClickListener(v -> LabOutputBridge.apply(this, manifest, port));
-            big.setOnLongClickListener(v -> {
-                copyText(url);
-                return true;
-            });
-            body.addView(big);
-        } else if (needChoice) {
-            TextView b1 = bigButton("当直播源用", true);
-            b1.setLayoutParams(buttonLp(dp(14)));
-            b1.setOnClickListener(v -> LabOutputBridge.asLive(this, guessUrl(manifest, port), s.name));
-            TextView b2 = bigButton("当点播源用", true);
-            b2.setLayoutParams(buttonLp(dp(10)));
-            b2.setOnClickListener(v -> LabOutputBridge.asVod(this, guessUrl(manifest, port), s.name));
-            body.addView(b1);
-            body.addView(b2);
+        // 状态徽
+        TextView chip = new TextView(this);
+        chip.setTextSize(12);
+        chip.getPaint().setFakeBoldText(true);
+        if (running) {
+            chip.setText("● 运行中");
+            chip.setTextColor(LabSkin.GREEN_ON_DARK);
+            chip.setBackground(LabSkin.chipRun(this));
+        } else {
+            chip.setText("已停止");
+            chip.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+            chip.setBackground(LabSkin.chipStop(this));
         }
-    }
+        chip.setPadding(dp(14), dp(6), dp(14), dp(6));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.bottomMargin = dp(15);
+        chip.setLayoutParams(clp);
+        card.addView(chip);
 
-    private TextView toggleButton(boolean running, LabRegistry.Svc s) {
-        TextView toggle = bigButton(running ? "停止服务" : "启动服务", false);
-        toggle.setLayoutParams(buttonLp(dp(10)));
-        toggle.setOnClickListener(v -> {
+        // 地址盒：运行中且有地址才露，点复制
+        if (running && !TextUtils.isEmpty(addr)) {
+            final String theAddr = addr;
+            TextView addrBox = new TextView(this);
+            addrBox.setText(theAddr);
+            addrBox.setTextSize(13);
+            addrBox.setTextColor(LabSkin.TEXT_ON_DARK);
+            addrBox.setBackground(LabSkin.addrBox(this));
+            addrBox.setPadding(dp(12), dp(11), dp(12), dp(11));
+            LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            alp.bottomMargin = dp(18);
+            addrBox.setLayoutParams(alp);
+            addrBox.setClickable(true);
+            addrBox.setFocusable(true);
+            addrBox.setOnClickListener(v -> copyText(theAddr));
+            card.addView(addrBox);
+        }
+
+        // 停止/启动大钮（稿 .bigbtn）
+        final TextView big = new TextView(this);
+        big.setText(running ? "停止" : "启动");
+        big.setTextSize(16);
+        big.getPaint().setFakeBoldText(true);
+        big.setGravity(Gravity.CENTER);
+        big.setTextColor(LabSkin.TEXT_ON_DARK);
+        big.setBackground(LabSkin.btnBigDark(this));
+        big.setPadding(0, dp(11), 0, dp(11));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.bottomMargin = dp(11);
+        big.setLayoutParams(blp);
+        big.setClickable(true);
+        big.setFocusable(true);
+        big.setOnClickListener(v -> {
             if (LabRunner.isRunning(this, pkgId)) {
                 LabRunner.stop(this, pkgId);
                 reload();
             } else {
-                toggle.setText("启动中…");
-                toggle.setEnabled(false);
+                big.setText("启动中…");
+                big.setEnabled(false);
                 LabRunner.start(this, pkgId, new LabRunner.Listener() {
                     @Override
                     public void onOutput(String text) {
@@ -265,19 +222,100 @@ public class LabServiceActivity extends AppCompatActivity {
                 });
             }
         });
-        return toggle;
+        card.addView(big);
+
+        // 运行记录行（稿 .logrow）
+        LinearLayout logRow = new LinearLayout(this);
+        logRow.setOrientation(LinearLayout.HORIZONTAL);
+        logRow.setGravity(Gravity.CENTER_VERTICAL);
+        logRow.setBackground(LabSkin.logRowDark(this));
+        logRow.setPadding(dp(18), dp(13), dp(18), dp(13));
+        TextView logT = new TextView(this);
+        logT.setText("运行记录");
+        logT.setTextSize(15);
+        logT.setTextColor(LabSkin.TEXT_ON_DARK);
+        logT.getPaint().setFakeBoldText(true);
+        logT.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        logRow.addView(logT);
+        TextView chev = new TextView(this);
+        chev.setText("›");
+        chev.setTextSize(15);
+        chev.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        logRow.addView(chev);
+        logRow.setClickable(true);
+        logRow.setFocusable(true);
+        logRow.setOnClickListener(v -> LabLogActivity.start(this, pkgId, s.name));
+        card.addView(logRow);
+        return card;
     }
 
-    /** 重启 / 分享 / 二维码一行 */
+    private View warnLine(String needsReview) {
+        TextView warn = new TextView(this);
+        warn.setText("导入时有没对上的地方，启动前看一眼：\n" + needsReview);
+        warn.setTextSize(13);
+        warn.setTextColor(LabSkin.AMBER);
+        warn.setBackground(LabSkin.addrBox(this));
+        warn.setPadding(dp(18), dp(8), dp(18), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(18), dp(10), dp(18), 0);
+        warn.setLayoutParams(lp);
+        return warn;
+    }
+
+    // ---------------- 输出动作黄钮 ----------------
+
+    private void addMainAction(LabManifest manifest, int port, LabRegistry.Svc s, boolean running) {
+        boolean needChoice = running && (manifest == null || manifest.output == null
+                || TextUtils.isEmpty(manifest.output.kind));
+        if (running && !needChoice && manifest != null) {
+            TextView big = yellowButton("▶ " + manifest.actionLabel());
+            final String url = LabOutputBridge.address(manifest, port);
+            big.setOnClickListener(v -> LabOutputBridge.apply(this, manifest, port));
+            big.setOnLongClickListener(v -> {
+                copyText(url);
+                return true;
+            });
+            body.addView(big);
+        } else if (needChoice) {
+            TextView b1 = yellowButton("当直播源用");
+            b1.setOnClickListener(v -> LabOutputBridge.asLive(this, guessUrl(manifest, port), s.name));
+            TextView b2 = yellowButton("当点播源用");
+            b2.setOnClickListener(v -> LabOutputBridge.asVod(this, guessUrl(manifest, port), s.name));
+            body.addView(b1);
+            body.addView(b2);
+        }
+    }
+
+    private TextView yellowButton(String text) {
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextSize(16);
+        b.getPaint().setFakeBoldText(true);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(LabSkin.ON_YELLOW);
+        b.setBackground(LabSkin.buttonYellow(this));
+        b.setPadding(0, dp(14), 0, dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(18), dp(14), dp(18), 0);
+        b.setLayoutParams(lp);
+        b.setClickable(true);
+        b.setFocusable(true);
+        return b;
+    }
+
+    // ---------------- 重启 / 分享 / 二维码（一行深底卡） ----------------
+
     private View utilRow(LabManifest manifest, int port, LabRegistry.Svc s) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), dp(10), dp(18), 0);
+        lp.setMargins(dp(18), dp(12), dp(18), 0);
         row.setLayoutParams(lp);
 
-        TextView restart = smallButton("重启");
+        TextView restart = utilBtn("重启");
         restart.setOnClickListener(v -> {
             LabRunner.stop(this, pkgId);
             restart.setText("启动中…");
@@ -293,7 +331,7 @@ public class LabServiceActivity extends AppCompatActivity {
                 }
             });
         });
-        TextView share = smallButton("分享");
+        TextView share = utilBtn("分享");
         share.setOnClickListener(v -> {
             String text = shareText(manifest, port, s);
             if (TextUtils.isEmpty(text)) {
@@ -302,7 +340,7 @@ public class LabServiceActivity extends AppCompatActivity {
             }
             LabOutputBridge.shareText(this, text);
         });
-        TextView qr = smallButton("二维码");
+        TextView qr = utilBtn("二维码");
         qr.setOnClickListener(v -> {
             String text = shareText(manifest, port, s);
             if (TextUtils.isEmpty(text)) {
@@ -315,6 +353,26 @@ public class LabServiceActivity extends AppCompatActivity {
         row.addView(share);
         row.addView(qr);
         return row;
+    }
+
+    private TextView utilBtn(String text) {
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextSize(14);
+        b.getPaint().setFakeBoldText(true);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(LabSkin.TEXT_ON_DARK);
+        b.setBackground(LabSkin.rowDark(this));
+        b.setPadding(0, dp(13), 0, dp(13));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        int m = dp(5);
+        lp.leftMargin = m;
+        lp.rightMargin = m;
+        b.setLayoutParams(lp);
+        b.setClickable(true);
+        b.setFocusable(true);
+        return b;
     }
 
     private String shareText(LabManifest manifest, int port, LabRegistry.Svc s) {
@@ -336,47 +394,48 @@ public class LabServiceActivity extends AppCompatActivity {
             iv.setImageBitmap(bmp);
             int pad = dp(24);
             iv.setPadding(pad, pad, pad, pad);
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("扫码打开")
-                    .setView(iv)
-                    .setPositiveButton("知道了", null)
-                    .show();
+            LabInstallDialog.showView(this, "扫码打开", iv, "知道了");
         } catch (Exception e) {
             Notify.show("二维码画不出来");
         }
     }
 
-    private TextView logLink(LabRegistry.Svc s) {
-        TextView log = new TextView(this);
-        log.setText("查看运行记录 ›");
-        log.setTextSize(15);
-        log.setTextColor(LabSkin.TEXT_DIM);
-        log.setGravity(Gravity.CENTER);
-        log.setPadding(0, dp(18), 0, 0);
-        log.setOnClickListener(v -> LabLogActivity.start(this, pkgId, s.name));
-        return log;
-    }
-
-    // ---------------- 高级折叠 ----------------
+    // ---------------- 高级折叠（深底同语言） ----------------
 
     private View advancedBox(LabManifest manifest, LabRegistry.Svc s) {
         LinearLayout adv = new LinearLayout(this);
         adv.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        alp.setMargins(dp(18), dp(14), dp(18), 0);
+        alp.setMargins(dp(18), dp(12), dp(18), 0);
         adv.setLayoutParams(alp);
 
-        TextView head = new TextView(this);
-        head.setText("高级 ▸");
-        head.setTextSize(14);
-        head.setTextColor(LabSkin.TEXT_DIM);
-        head.setPadding(dp(4), dp(8), dp(4), dp(8));
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setBackground(LabSkin.rowDark(this));
+        head.setPadding(dp(16), dp(13), dp(16), dp(13));
+        TextView ht = new TextView(this);
+        ht.setText("高级");
+        ht.setTextSize(14);
+        ht.setTextColor(LabSkin.TEXT_ON_DARK);
+        ht.getPaint().setFakeBoldText(true);
+        ht.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        head.addView(ht);
+        final TextView chev = new TextView(this);
+        chev.setText("▸");
+        chev.setTextSize(14);
+        chev.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        head.addView(chev);
         adv.addView(head);
 
         LinearLayout inner = new LinearLayout(this);
         inner.setOrientation(LinearLayout.VERTICAL);
         inner.setVisibility(View.GONE);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.topMargin = dp(8);
+        inner.setLayoutParams(ilp);
 
         // 命令列表：包命令＋自定义命令
         List<LabManifest.LabCommand> cmds = new ArrayList<>();
@@ -388,7 +447,6 @@ public class LabServiceActivity extends AppCompatActivity {
             for (LabManifest.LabCommand c : cmds) {
                 inner.addView(commandRow(c, isCustom(c, customs)));
             }
-            inner.addView(divider());
         }
 
         inner.addView(advRow("添加命令", () -> showCustomCommandDialog(null)));
@@ -409,7 +467,7 @@ public class LabServiceActivity extends AppCompatActivity {
         head.setOnClickListener(v -> {
             boolean show = inner.getVisibility() != View.VISIBLE;
             inner.setVisibility(show ? View.VISIBLE : View.GONE);
-            head.setText(show ? "高级 ▾" : "高级 ▸");
+            chev.setText(show ? "▾" : "▸");
         });
         adv.addView(inner);
         return adv;
@@ -422,27 +480,42 @@ public class LabServiceActivity extends AppCompatActivity {
         return false;
     }
 
-    /** 命令行：点行弹变量表运行；快捷钮 运行/停止；长按改/删（仅自定义命令） */
+    /** 命令行：深底卡；点行弹变量表运行；快捷钮 运行/停止；长按改/删（仅自定义命令） */
     private View commandRow(LabManifest.LabCommand c, boolean custom) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(4), dp(10), dp(4), dp(10));
+        row.setBackground(LabSkin.rowDark(this));
+        row.setPadding(dp(14), dp(11), dp(14), dp(11));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        row.setLayoutParams(lp);
+        row.setClickable(true);
+        row.setFocusable(true);
 
         TextView name = new TextView(this);
         name.setText(c.name == null ? c.id : c.name);
-        name.setTextSize(15);
-        name.setTextColor(LabSkin.TEXT_MAIN);
+        name.setTextSize(14);
+        name.setTextColor(LabSkin.TEXT_ON_DARK);
         name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         row.addView(name);
 
-        TextView go = new TextView(this);
         boolean running = LabRunner.isCommandRunning(this, pkgId, c.id);
+        TextView go = new TextView(this);
         go.setText(running ? "停止" : "运行");
-        go.setTextSize(14);
-        go.setTextColor(running ? LabSkin.TEXT_MAIN : LabSkin.ON_YELLOW);
-        go.setBackground(running ? LabSkin.buttonGray(this) : LabSkin.buttonYellow(this));
-        go.setPadding(dp(20), dp(8), dp(20), dp(8));
+        go.setTextSize(13);
+        go.getPaint().setFakeBoldText(true);
+        if (running) {
+            go.setTextColor(LabSkin.TEXT_ON_DARK);
+            go.setBackground(LabSkin.dialogNeutral(this));
+        } else {
+            go.setTextColor(LabSkin.ON_YELLOW);
+            go.setBackground(LabSkin.capsuleYellow(this));
+        }
+        go.setPadding(dp(16), dp(6), dp(16), dp(6));
+        go.setClickable(true);
+        go.setFocusable(true);
         go.setOnClickListener(v -> {
             if (LabRunner.isCommandRunning(this, pkgId, c.id)) {
                 LabRunner.stopCommand(this, pkgId, c.id);
@@ -501,7 +574,7 @@ public class LabServiceActivity extends AppCompatActivity {
         };
     }
 
-    /** 添加/编辑自定义命令 */
+    /** 添加/编辑自定义命令（深底表单弹窗） */
     private void showCustomCommandDialog(LabCustomCommands.CustomCommand old) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -518,7 +591,7 @@ public class LabServiceActivity extends AppCompatActivity {
         TextView swLab = new TextView(this);
         swLab.setText("开机自动运行");
         swLab.setTextSize(15);
-        swLab.setTextColor(LabSkin.TEXT_MAIN);
+        swLab.setTextColor(LabSkin.TEXT_ON_DARK);
         swLab.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         Switch sw = new Switch(this);
         sw.setChecked(old != null && old.autoExecute);
@@ -526,16 +599,13 @@ public class LabServiceActivity extends AppCompatActivity {
         swRow.addView(sw);
         box.addView(swRow);
 
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this)
-                .setTitle(old == null ? "添加命令" : "改命令")
-                .setView(box)
-                .setNegativeButton("算了", null)
-                .setPositiveButton("保存", (d, w) -> {
+        LabInstallDialog.showForm(this, old == null ? "添加命令" : "改命令", box,
+                "保存", () -> {
                     String name = nameEt.getText().toString().trim();
                     String command = cmdEt.getText().toString().trim();
                     if (TextUtils.isEmpty(command)) {
                         Notify.show("命令不能为空");
-                        return;
+                        return false;
                     }
                     LabCustomCommands.CustomCommand cc = old == null
                             ? new LabCustomCommands.CustomCommand() : old;
@@ -548,25 +618,18 @@ public class LabServiceActivity extends AppCompatActivity {
                     else LabCustomCommands.update(this, pkgId, cc);
                     Notify.show("存好了");
                     reload();
+                    return true;
+                },
+                old == null ? null : "删除", () -> {
+                    LabRunner.stopCommand(this, pkgId, old.id);
+                    LabCustomCommands.remove(this, pkgId, old.id);
+                    Notify.show("删掉了");
+                    reload();
                 });
-        if (old != null) {
-            b.setNeutralButton("删除", (d, w) -> {
-                LabRunner.stopCommand(this, pkgId, old.id);
-                LabCustomCommands.remove(this, pkgId, old.id);
-                Notify.show("删掉了");
-                reload();
-            });
-        }
-        b.show();
     }
 
     private EditText dlgEdit(LinearLayout box, String hint, String value) {
-        EditText et = new EditText(this);
-        et.setHint(hint);
-        et.setText(value == null ? "" : value);
-        et.setTextSize(15);
-        et.setTextColor(LabSkin.TEXT_MAIN);
-        et.setHintTextColor(LabSkin.TEXT_DIM);
+        EditText et = LabInstallDialog.darkEdit(this, hint, value);
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -582,9 +645,16 @@ public class LabServiceActivity extends AppCompatActivity {
     private View advRow(String label, RowAction action) {
         TextView t = new TextView(this);
         t.setText(label + " ›");
-        t.setTextSize(15);
-        t.setTextColor(LabSkin.TEXT_MAIN);
-        t.setPadding(dp(4), dp(12), dp(4), dp(12));
+        t.setTextSize(14);
+        t.setTextColor(LabSkin.TEXT_ON_DARK);
+        t.setBackground(LabSkin.rowDark(this));
+        t.setPadding(dp(16), dp(13), dp(16), dp(13));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        t.setLayoutParams(lp);
+        t.setClickable(true);
+        t.setFocusable(true);
         t.setOnClickListener(v -> action.run());
         return t;
     }
@@ -592,21 +662,14 @@ public class LabServiceActivity extends AppCompatActivity {
     private TextView sectionLabel(String s) {
         TextView t = new TextView(this);
         t.setText(s);
-        t.setTextSize(13);
-        t.setTextColor(LabSkin.TEXT_DIM);
-        t.setPadding(dp(4), dp(12), dp(4), dp(2));
-        return t;
-    }
-
-    private View divider() {
-        View v = new View(this);
-        v.setBackgroundColor(0x0F000000);
+        t.setTextSize(12);
+        t.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(6);
         lp.topMargin = dp(4);
-        lp.bottomMargin = dp(4);
-        v.setLayoutParams(lp);
-        return v;
+        t.setLayoutParams(lp);
+        return t;
     }
 
     private void exportPackage() {
@@ -653,54 +716,6 @@ public class LabServiceActivity extends AppCompatActivity {
         android.content.ClipboardManager cm = (android.content.ClipboardManager)
                 getSystemService(android.content.Context.CLIPBOARD_SERVICE);
         cm.setPrimaryClip(android.content.ClipData.newPlainText("lab", text));
-        Notify.show("已复制");
-    }
-
-    private LinearLayout cardBox(boolean running) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(LabSkin.cardBackground(this, running));
-        card.setPadding(dp(18), dp(20), dp(18), dp(20));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), dp(4), dp(18), 0);
-        card.setLayoutParams(lp);
-        return card;
-    }
-
-    private LinearLayout.LayoutParams buttonLp(int topMargin) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(18), dp(topMargin), dp(18), 0);
-        return lp;
-    }
-
-    private TextView bigButton(String text, boolean yellow) {
-        TextView b = new TextView(this);
-        b.setText(text);
-        b.setTextSize(18);
-        b.getPaint().setFakeBoldText(true);
-        b.setGravity(Gravity.CENTER);
-        b.setTextColor(yellow ? LabSkin.ON_YELLOW : LabSkin.TEXT_MAIN);
-        b.setBackground(yellow ? LabSkin.buttonYellow(this) : LabSkin.buttonGray(this));
-        b.setPadding(0, dp(16), 0, dp(16));
-        return b;
-    }
-
-    private TextView smallButton(String text) {
-        TextView b = new TextView(this);
-        b.setText(text);
-        b.setTextSize(15);
-        b.setGravity(Gravity.CENTER);
-        b.setTextColor(LabSkin.TEXT_MAIN);
-        b.setBackground(LabSkin.buttonGray(this));
-        b.setPadding(0, dp(12), 0, dp(12));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        int m = dp(5);
-        lp.leftMargin = m;
-        lp.rightMargin = m;
-        b.setLayoutParams(lp);
-        return b;
+        Notify.show("地址已复制");
     }
 }

@@ -84,7 +84,7 @@ public final class LabVarDialog {
             TextView label = new TextView(activity);
             label.setText(v.name + (v.required ? " *" : ""));
             label.setTextSize(14);
-            label.setTextColor(LabSkin.TEXT_MAIN);
+            label.setTextColor(LabSkin.TEXT_ON_DARK);
             label.getPaint().setFakeBoldText(true);
             box.addView(label);
 
@@ -109,21 +109,23 @@ public final class LabVarDialog {
             if ("select".equals(type) && v.options != null && !v.options.isEmpty()) {
                 TextView pick = new TextView(activity);
                 pick.setTextSize(15);
-                pick.setTextColor(LabSkin.TEXT_MAIN);
-                pick.setBackground(LabSkin.buttonGray(activity));
+                pick.setTextColor(LabSkin.TEXT_ON_DARK);
+                pick.setBackground(LabSkin.dialogOption(activity));
                 pick.setPadding(dp16, dp8, dp16, dp8);
                 String cur = cachedVal != null ? cachedVal : v.defaultValue;
                 pick.setText(labelOf(v, cur));
                 pick.setTag(cur == null ? "" : cur);
+                pick.setClickable(true);
+                pick.setFocusable(true);
                 pick.setOnClickListener(vv -> {
                     String[] labels = new String[v.options.size()];
                     for (int i = 0; i < labels.length; i++) labels[i] = v.options.get(i).label;
-                    new android.app.AlertDialog.Builder(activity)
-                            .setItems(labels, (d, which) -> {
+                    LabInstallDialog.showChoice(activity,
+                            v.name == null ? "选一个" : v.name, labels, which -> {
                                 LabManifest.LabOption op = v.options.get(which);
                                 pick.setText(op.label);
                                 pick.setTag(op.value);
-                            }).show();
+                            });
                 });
                 LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -140,8 +142,10 @@ public final class LabVarDialog {
             row.setGravity(Gravity.CENTER_VERTICAL);
             EditText et = new EditText(activity);
             et.setTextSize(15);
-            et.setTextColor(LabSkin.TEXT_MAIN);
-            et.setHintTextColor(LabSkin.TEXT_DIM);
+            et.setTextColor(LabSkin.TEXT_ON_DARK);
+            et.setHintTextColor(LabSkin.HINT_ON_DARK);
+            et.setBackground(LabSkin.darkInput(activity));
+            et.setPadding(dp16, dp8, dp16, dp8);
             if (v.hint != null) et.setHint(v.hint);
             String init = cachedVal != null ? cachedVal : (v.defaultValue == null ? "" : v.defaultValue);
             et.setText(init);
@@ -194,14 +198,9 @@ public final class LabVarDialog {
             edits.add(et);
         }
 
-        android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(activity)
-                .setTitle(title)
-                .setView(scroll)
-                .setNegativeButton("算了", null)
-                .setPositiveButton(okText == null ? "运行" : okText, null)
-                .create();
-        dlg.setOnShowListener(d -> dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(v -> {
+        LabInstallDialog.showForm(activity, title, scroll,
+                okText == null ? "运行" : okText,
+                () -> {
                     Map<String, String> values = new HashMap<>();
                     for (int i = 0; i < vars.size(); i++) {
                         LabManifest.LabVar var = vars.get(i);
@@ -216,7 +215,7 @@ public final class LabVarDialog {
                             String s = val == null ? "" : String.valueOf(val);
                             if (var.required && s.isEmpty()) {
                                 Notify.show("请选：" + var.name);
-                                return;
+                                return false;
                             }
                             values.put(var.key, s);
                             continue;
@@ -226,14 +225,13 @@ public final class LabVarDialog {
                         String err = check(var, text);
                         if (err != null) {
                             Notify.show(err);
-                            return;
+                            return false;
                         }
                         values.put(var.key, text);
                     }
-                    dlg.dismiss();
                     if (callback != null) callback.onConfirm(values);
-                }));
-        dlg.show();
+                    return true;
+                }, null, null);
     }
 
     private static String labelOf(LabManifest.LabVar v, String value) {

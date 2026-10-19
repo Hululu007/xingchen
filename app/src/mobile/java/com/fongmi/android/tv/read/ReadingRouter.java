@@ -6,9 +6,14 @@ import android.content.Intent;
 import android.text.TextUtils;
 import android.widget.Toast;
 
+import com.fongmi.android.tv.ui.activity.AudioBookActivity;
 import com.fongmi.android.tv.ui.activity.ComicReaderActivity;
 import com.fongmi.android.tv.ui.activity.NovelReaderActivity;
 import com.fongmi.android.tv.ui.activity.ReadingShelfActivity;
+import com.fongmi.android.tv.ui.activity.TtsReadActivity;
+import com.fongmi.android.tv.legado.LegadoAudio;
+import com.fongmi.android.tv.tts.EdgeVoiceCatalog;
+import com.fongmi.android.tv.tts.TtsJob;
 
 /**
  * 阅读路由：判别层 → 阅读器 / 书架的统一入口。
@@ -60,6 +65,16 @@ public class ReadingRouter {
      */
     public static void openRecord(Context context, ReadingStore.Record r) {
         if (context == null || r == null || TextUtils.isEmpty(r.bookTitle)) return;
+        // 听书/朗读记录走自己的续播路（书架 audioCard 同款口径），不许误进漫画阅读器；
+        // 放本地书分支前面：本地书开神经朗读产出的 TTS 记录也该回 TtsReadActivity。
+        if ("AUDIO".equals(r.kind)) {
+            openAudioRecord(context, r);
+            return;
+        }
+        if ("TTS".equals(r.kind)) {
+            openTtsRecord(context, r);
+            return;
+        }
         // 本地书：按书 id 重建完整会话（章节表一次带入）；书没了给人话提示
         if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
             ReadingSession ls = com.fongmi.android.tv.localbook.LocalBookSession.fromRecord(r);
@@ -96,6 +111,79 @@ public class ReadingRouter {
             openReadingWithStartPage(context, s, r.position);
         } else {
             openReading(context, s);
+        }
+    }
+
+    /**
+     * 听书续播：按记录重建单集专辑（书架 ReadingShelfActivity.openAudioRecord 同口径）。
+     */
+    public static void openAudioRecord(Context context, ReadingStore.Record r) {
+        if (context == null || r == null) return;
+        try {
+            LegadoAudio.AudioAlbum a = new LegadoAudio.AudioAlbum();
+            a.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            a.sourceName = r.sourceName == null ? "" : r.sourceName;
+            a.title = r.bookTitle == null ? "" : r.bookTitle;
+            a.coverUrl = r.coverUrl == null ? "" : r.coverUrl;
+            a.chapters.add(new LegadoAudio.Chapter(
+                    r.chapterName == null ? "" : r.chapterName,
+                    r.chapterUrl == null ? "" : r.chapterUrl));
+            a.index = 0;
+            String id = LegadoAudio.put(a);
+            if (context instanceof Activity) {
+                AudioBookActivity.start((Activity) context, id);
+            } else {
+                Intent intent = new Intent(context, AudioBookActivity.class);
+                intent.putExtra("session", id);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    context.startActivity(intent);
+                } catch (Throwable t) {
+                    LegadoAudio.take(id);
+                }
+            }
+        } catch (Throwable t) {
+            Toast.makeText(context, "打开失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 朗读续播：按记录重建最小朗读任务（书架 ReadingShelfActivity.openTtsRecord 同口径）。
+     */
+    public static void openTtsRecord(Context context, ReadingStore.Record r) {
+        if (context == null || r == null) return;
+        try {
+            TtsJob job = new TtsJob();
+            job.bookTitle = r.bookTitle == null ? "" : r.bookTitle;
+            job.coverUrl = r.coverUrl == null ? "" : r.coverUrl;
+            job.sourceName = r.sourceName == null ? "" : r.sourceName;
+            job.siteKey = r.siteKey == null ? "" : r.siteKey;
+            job.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            job.ruleTitle = r.ruleTitle == null ? "" : r.ruleTitle;
+            job.localId = r.localId == null ? "" : r.localId;
+            job.inlineText = r.content == null ? "" : r.content;
+            job.chapters.add(new ReadingSession.Chapter(
+                    r.chapterName == null ? "" : r.chapterName,
+                    r.chapterUrl == null ? "" : r.chapterUrl));
+            job.startChapter = 0;
+            job.startFraction = 0;
+            job.voiceId = EdgeVoiceCatalog.defaultVoice();
+            job.rate = 1.0f;
+            String id = TtsJob.put(job);
+            if (context instanceof Activity) {
+                TtsReadActivity.start((Activity) context, id);
+            } else {
+                Intent intent = new Intent(context, TtsReadActivity.class);
+                intent.putExtra("job", id);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    context.startActivity(intent);
+                } catch (Throwable t) {
+                    TtsJob.remove(id);
+                }
+            }
+        } catch (Throwable t) {
+            Toast.makeText(context, "打开失败", Toast.LENGTH_SHORT).show();
         }
     }
 

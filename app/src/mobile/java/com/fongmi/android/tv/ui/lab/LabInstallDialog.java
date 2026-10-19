@@ -130,20 +130,48 @@ public final class LabInstallDialog {
         void onPick(int which);
     }
 
-    /** 导入三选一 / 安装二选一：深底＋独立选项卡 */
+    /** 导入三选一 / 安装二选一：深底＋选项横排（潇洒哥定：竖排布局违和，一律横着） */
     public static void showChoice(Activity a, String title, String[] options, PickCallback cb) {
         Dialog d = base(a);
         LinearLayout p = panel(a);
         p.addView(titleTv(a, title));
+        if (options.length > 3) {
+            // 选项太多横排挤到看不清（如变量取值），仍走竖排
+            for (int i = 0; i < options.length; i++) {
+                final int which = i;
+                TextView o = optionTv(a, options[i]);
+                o.setOnClickListener(v -> {
+                    d.dismiss();
+                    cb.onPick(which);
+                });
+                p.addView(o);
+            }
+            d.setContentView(wrap(a, p));
+            showSafe(a, d);
+            return;
+        }
+        LinearLayout row = new LinearLayout(a);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(a, 18);
+        row.setLayoutParams(rlp);
         for (int i = 0; i < options.length; i++) {
             final int which = i;
             TextView o = optionTv(a, options[i]);
+            o.setGravity(Gravity.CENTER);
+            o.setPadding(dp(a, 8), dp(a, 21), dp(a, 8), dp(a, 21));
+            LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (i > 0) olp.leftMargin = dp(a, 12);
+            o.setLayoutParams(olp);
             o.setOnClickListener(v -> {
                 d.dismiss();
                 cb.onPick(which);
             });
-            p.addView(o);
+            row.addView(o);
         }
+        p.addView(row);
         d.setContentView(wrap(a, p));
         showSafe(a, d);
     }

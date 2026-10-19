@@ -130,16 +130,16 @@
         {
             "id": "python",
             "name": "Python 环境",
-            "version": "3.14.8",
+            "version": "3.14.8-1",
             "downloads": [
                 {
                     "arch": "arm64",
                     "url": "https://raw.githubusercontent.com/XingChenApp/xingchen-lab-assets/main/env/env-python.zip",
-                    "size": 14116073,
+                    "size": 14158025,
                     "mirrors": [
                         "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-lab-assets@main/env/env-python.zip"
                     ],
-                    "sha256": "08939ad4606b06389628dd1eca7f251f1e26c4f765b19605057e0c2cf170f9be"
+                    "sha256": "a9369193e2bd06936cac97047001caab22cc656bc5378e32e3082003f3ce5ce6"
                 }
             ]
         },

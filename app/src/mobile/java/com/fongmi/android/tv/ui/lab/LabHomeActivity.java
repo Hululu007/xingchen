@@ -68,6 +68,7 @@ public class LabHomeActivity extends AppCompatActivity {
         h1.getPaint().setFakeBoldText(true);
         LabSkin.halo(h1);
         h1.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        h1.setOnClickListener(v -> LabSettingActivity.start(this));
         head.addView(h1);
         TextView arLab = new TextView(this);
         arLab.setText("自动启动");

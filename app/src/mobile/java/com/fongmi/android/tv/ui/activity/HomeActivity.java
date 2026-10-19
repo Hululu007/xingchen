@@ -46,6 +46,8 @@ import com.fongmi.android.tv.ui.fragment.SettingDanmakuFragment;
 import com.fongmi.android.tv.ui.fragment.SettingFragment;
 import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 import com.fongmi.android.tv.ui.fragment.VodFragment;
+import com.fongmi.android.tv.ui.lab.LabHomeActivity;
+import com.fongmi.android.tv.ui.lab.LabSettingActivity;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.MobileWindow;
 import com.fongmi.android.tv.utils.Notify;
@@ -278,6 +280,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mBinding.navigation.getMenu().findItem(R.id.music).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.reading).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.miniapp).setVisible(FeaturesActivity.isMiniAppEnabled(this));
+        mBinding.navigation.getMenu().findItem(R.id.lab).setVisible(LabSettingActivity.isTabEnabled(this));
         syncNavigationSelection();
     }
 
@@ -385,6 +388,10 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         }
         if (item.getItemId() == R.id.miniapp) {
             HkPageActivity.start(this);
+            return true;
+        }
+        if (item.getItemId() == R.id.lab) {
+            LabHomeActivity.start(this);
             return true;
         }
         return false;

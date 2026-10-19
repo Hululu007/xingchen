@@ -305,6 +305,11 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
         <activity
+            android:name=".ui.lab.LabSettingActivity"
+            android:theme="@style/Theme.XingChen.LabPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
             android:name=".ui.lab.LabEnvActivity"
             android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

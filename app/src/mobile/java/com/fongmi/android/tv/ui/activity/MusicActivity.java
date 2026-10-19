@@ -121,7 +121,7 @@ public class MusicActivity extends BaseActivity {
         navItems.clear();
         navItems.add(new NavItem("sheets", getString(R.string.music_playlist), "", 0xFF22C55E, R.drawable.ic_music_queue));
         navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
-        navItems.add(new NavItem("charts", getString(R.string.music_charts), "热歌 · 新歌", 0xFFA855F7, R.drawable.ic_music_eq));
+        navItems.add(new NavItem("charts", getString(R.string.music_charts), "", 0xFFA855F7, R.drawable.ic_music_eq));
         navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
     }
 
@@ -152,7 +152,9 @@ public class MusicActivity extends BaseActivity {
         if (!recent.isEmpty()) {
             MusicController.get().play(recent, 0);
             MusicPlayerActivity.start(this);
+            return;
         }
+        Notify.show("还没有听过歌");
     }
 
     private void onNavClick(NavItem item) {

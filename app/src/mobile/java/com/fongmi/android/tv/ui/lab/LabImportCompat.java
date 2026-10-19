@@ -1,10 +1,17 @@
 package com.fongmi.android.tv.ui.lab;
 
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
+import org.apache.commons.compress.archivers.sevenz.SevenZFile;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,17 +24,24 @@ import java.util.regex.Pattern;
  */
 public final class LabImportCompat {
 
-    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE }
+    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE, WEBHTV_ITEM }
 
     /** 归一后的一个服务（安装前形态） */
     public static class ImportItem {
         public String id = "";
         public String name = "";
         public String desc = "";
-        public String runtime = "none";      // python | nodejs | php | none
+        public String version = "1.0";
+        public String runtime = "none";      // python | nodejs | php | mihomo | frp | alist | aria2 | ubuntu | ffmpeg | none
         public String command = "";          // 含 {port}/{pkgDir}/{filesDir} 占位
         public boolean background = true;
         public boolean autoStart = false;
+        /** 包声明最低 App versionCode */
+        public int minVersion = 0;
+        /** 命令变量表（上游 variables/settings 口径） */
+        public final List<LabManifest.LabVar> variables = new ArrayList<>();
+        /** 运行前依赖下载（上游 download 口径） */
+        public LabManifest.LabDownload download;
         public String portPolicy = "auto";   // auto 或固定端口数字
         public String outputKind = "";       // live | vod | pan | tool，空=未声明
         public String outputTarget = "";     // 地址模板，含 {port}
@@ -37,6 +51,8 @@ public final class LabImportCompat {
         /** 裸脚本路：脚本文件名＋内容，安装时拷进包目录 */
         public String assetName = "";
         public byte[] assetBytes;
+        /** 7z 离线包 binary/ 条目：相对路径 → 内容，安装时落进包目录 */
+        public Map<String, byte[]> extraFiles;
     }
 
     public static class ParseResult {
@@ -103,6 +119,16 @@ public final class LabImportCompat {
             r.kind = Kind.WEBHTV_COMMAND;
             r.note = "认出来了：默影视命令条目";
             r.items.add(fromWebhtv(o, 0));
+            return r;
+        }
+        // 上游实验室包（Item）：有 commands 但无 id/runtime——必须排在自家 lab.json 前面，
+        // 否则会被误判成 LAB_JSON 然后抛「缺 id」
+        if (o.has("commands") && !o.has("id") && !o.has("runtime") && o.has("name")) {
+            r.kind = Kind.WEBHTV_ITEM;
+            List<ImportItem> items = fromWebhtvItem(o);
+            if (items.isEmpty()) throw new Exception("这个实验室包里没有命令");
+            r.note = "认出来了：默影视实验室包（" + items.size() + " 条命令）";
+            r.items.addAll(items);
             return r;
         }
         if (o.has("commands") || (o.has("id") && o.has("runtime"))) {
@@ -203,6 +229,115 @@ public final class LabImportCompat {
                     "脚本文件在手机公共目录（" + m.group() + "），请确认它在你手机上有；没有的话从本地添加把脚本一起拷进来");
         }
         return c.trim();
+    }
+
+    // ---------------- 路6：默影视实验室包（上游 LabModels.Item） ----------------
+
+    /**
+     * 上游 Item → 每条命令转成一条 ImportItem（一条命令 = 一个星辰服务）。
+     * 上游 Item 无 id/runtime：id 取 name 加 wh_ 前缀防撞；runtime 从命令推断。
+     */
+    private static List<ImportItem> fromWebhtvItem(JSONObject o) {
+        List<ImportItem> out = new ArrayList<>();
+        String itemName = o.optString("name", "").trim();
+        String stem = itemName.isEmpty() ? "item" : itemName;
+        String info = o.optString("info", "").trim();
+        String version = o.optString("version", "1.0").trim();
+        boolean autoInstall = o.optBoolean("auto_install", false);
+        // 包级 settings（上游按环境变量注入）：并入每条命令的变量表，语义差异如实提示
+        List<LabManifest.LabVar> pkgVars = parseLabVarList(o.optJSONArray("settings"));
+        JSONArray cmds = o.optJSONArray("commands");
+        int n = cmds == null ? 0 : cmds.length();
+        for (int i = 0; i < n; i++) {
+            JSONObject c = cmds.optJSONObject(i);
+            if (c == null) continue;
+            ImportItem it = new ImportItem();
+            it.kind = Kind.WEBHTV_ITEM;
+            String cmdId = c.optString("id", "cmd" + i).trim();
+            it.id = "wh_" + sanitize(stem + "_" + cmdId);
+            it.name = c.optString("name", cmdId).trim();
+            if (it.name.isEmpty()) it.name = it.id;
+            it.desc = c.optString("description", c.optString("desc", "")).trim();
+            if (it.desc.isEmpty()) it.desc = info;
+            it.version = version.isEmpty() ? "1.0" : version;
+            String cmd = c.optString("command", "");
+            it.runtime = runtimeFromCommand(cmd);
+            it.command = translateWebhtvCommand(cmd, it);
+            it.background = c.optBoolean("background", true);
+            it.autoStart = c.optBoolean("auto_execute", false) || autoInstall;
+            it.minVersion = c.optInt("min_version", 0);
+            it.variables.addAll(parseLabVarList(c.optJSONArray("variables")));
+            it.variables.addAll(pkgVars);
+            JSONObject dl = c.optJSONObject("download");
+            if (dl != null) {
+                String url = dl.optString("url", "").trim();
+                if (!url.isEmpty()) {
+                    LabManifest.LabDownload d = new LabManifest.LabDownload();
+                    d.url = url;
+                    d.file = dl.optString("save_to", "").trim();
+                    it.download = d;
+                } else {
+                    it.needsReview = addLine(it.needsReview,
+                            "这条命令声明了下载（" + dl.optString("title", "下载文件") + "），但没给下载地址");
+                }
+            }
+            if (!pkgVars.isEmpty()) {
+                it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
+            }
+            if (autoInstall) {
+                it.needsReview = addLine(it.needsReview, "上游包声明自动安装，星辰转成了自动启动，语义不完全一样");
+            }
+            JSONArray clicks = c.optJSONArray("clicks");
+            if (clicks != null && clicks.length() > 0) {
+                it.needsReview = addLine(it.needsReview,
+                        "默影视的「后续操作」按钮有 " + clicks.length() + " 个转不过来（打开网页/二维码/复制等），这部分功能没有了");
+            }
+            // 描述里常带「(端口 9528)」：拿它当端口声明（同命令条目路）
+            String p = findPortInText(it.desc + " " + it.name);
+            if (p != null) {
+                it.portPolicy = p;
+                if (it.command.contains(p)) it.command = it.command.replace(p, "{port}");
+            }
+            if (it.command == null || it.command.trim().isEmpty()) {
+                it.needsReview = addLine(it.needsReview, "这条没有启动命令，装完也跑不起来");
+            }
+            out.add(it);
+        }
+        return out;
+    }
+
+    /** 上游 variables/settings 口径 → LabVar（字段与 LabManifest.parseVars 对齐） */
+    static List<LabManifest.LabVar> parseLabVarList(JSONArray arr) {
+        List<LabManifest.LabVar> out = new ArrayList<>();
+        if (arr == null) return out;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject v = arr.optJSONObject(i);
+            if (v == null) continue;
+            LabManifest.LabVar var = new LabManifest.LabVar();
+            var.key = v.optString("key", "").trim();
+            if (var.key.isEmpty()) continue;
+            var.name = v.optString("name", var.key).trim();
+            var.type = v.optString("type", "text").trim().toLowerCase();
+            var.defaultValue = v.has("default") ? v.optString("default", null) : null;
+            var.hint = v.optString("hint", null);
+            var.required = v.optBoolean("required", false);
+            var.filter = v.has("filter") ? v.optString("filter", null) : null;
+            var.min = v.has("min") ? v.optString("min", null) : null;
+            var.max = v.has("max") ? v.optString("max", null) : null;
+            JSONArray opts = v.optJSONArray("options");
+            if (opts != null) {
+                for (int j = 0; j < opts.length(); j++) {
+                    JSONObject o2 = opts.optJSONObject(j);
+                    if (o2 == null) continue;
+                    LabManifest.LabOption op = new LabManifest.LabOption();
+                    op.label = o2.optString("label", "");
+                    op.value = o2.optString("value", op.label);
+                    var.options.add(op);
+                }
+            }
+            out.add(var);
+        }
+        return out;
     }
 
     // ---------------- 路2：Termux 服务清单 ----------------
@@ -351,17 +486,115 @@ public final class LabImportCompat {
         return it;
     }
 
+    // ---------------- .lab.7z 离线包（上游导出布局） ----------------
+
+    private static final byte[] SEVENZ_MAGIC = {0x37, 0x7A, (byte) 0xBC, (byte) 0xAF, 0x27, 0x1C};
+
+    /** 7z 判定：魔数或文件名后缀（.lab.7z/.7z） */
+    public static boolean isSevenZ(byte[] data, String fileName) {
+        if (data != null && data.length >= 6) {
+            boolean ok = true;
+            for (int i = 0; i < 6; i++) {
+                if (data[i] != SEVENZ_MAGIC[i]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) return true;
+        }
+        if (fileName != null) {
+            String f = fileName.toLowerCase();
+            if (f.endsWith(".lab.7z") || f.endsWith(".7z")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 读上游 .lab.7z：package.json（单个 Item JSON）走 Item 转换；
+     * binary/ 条目挂到每条服务的 extraFiles（安装时落进包目录）；
+     * commands.json（用户自建命令）转不过来，如实提示；manifest.json 忽略。
+     */
+    public static ParseResult parseSevenZ(byte[] data) throws Exception {
+        File tmp = File.createTempFile("labpkg", ".7z");
+        try {
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(data);
+            }
+            String pkgJson = null;
+            Map<String, byte[]> bins = new LinkedHashMap<>();
+            boolean hasUserCmds = false;
+            // 注：new SevenZFile(File) 在 1.27 标废弃，但 builder API 要拖 commons-io（App 没这个依赖），故沿用它
+            try (SevenZFile sz = new SevenZFile(tmp)) {
+                SevenZArchiveEntry e;
+                while ((e = sz.getNextEntry()) != null) {
+                    if (e.isDirectory()) continue;
+                    String name = e.getName().replace('\\', '/');
+                    if (name.equals("package.json") || name.endsWith("/package.json")) {
+                        if (pkgJson == null) pkgJson = readSzEntry(sz);
+                    } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
+                        hasUserCmds = true;
+                    } else {
+                        int bi = name.indexOf("binary/");
+                        if (bi >= 0) {
+                            String rel = name.substring(bi + 7);
+                            while (rel.startsWith("/")) rel = rel.substring(1);
+                            if (!rel.isEmpty() && !rel.contains("..")) {
+                                bins.put(rel, readSzEntryBytes(sz));
+                            }
+                        }
+                    }
+                }
+            }
+            if (pkgJson == null) throw new Exception("无效的离线包：里面没有 package.json");
+            String nm = new JSONObject(pkgJson).optString("name", "");
+            if (nm.contains("/") || nm.contains("..")) throw new Exception("包名非法");
+            ParseResult r = parseJson(pkgJson);
+            for (ImportItem it : r.items) {
+                if (!bins.isEmpty()) it.extraFiles = new LinkedHashMap<>(bins);
+                if (hasUserCmds) it.needsReview = addLine(it.needsReview, "包里的自建命令（commands.json）没有导入");
+            }
+            r.note = "认出来了：默影视实验室离线包（" + r.items.size() + " 条命令）";
+            return r;
+        } finally {
+            tmp.delete();
+        }
+    }
+
+    private static byte[] readSzEntryBytes(SevenZFile sz) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = sz.read(buf)) > 0) out.write(buf, 0, n);
+        return out.toByteArray();
+    }
+
+    private static String readSzEntry(SevenZFile sz) throws Exception {
+        return new String(readSzEntryBytes(sz), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     // ---------------- 小工具 ----------------
 
     /** 从命令里猜环境：先看路径里带没带 runtimes 关键字，再看二进制名 */
     static String runtimeFromCommand(String cmd) {
         if (cmd == null) return "none";
         String c = cmd.toLowerCase();
+        if (c.contains("proot")) return "ubuntu";
         if (c.contains("nodejs")) return "nodejs";
         if (c.contains("php")) return "php";
         if (c.contains("python")) return "python";
+        // 上游命令直接调环境二进制：mihomo/frpc/alist/aria2c/ffmpeg
+        if (binToken(c, "mihomo")) return "mihomo";
+        if (binToken(c, "frpc") || binToken(c, "frp")) return "frp";
+        if (binToken(c, "alist")) return "alist";
+        if (binToken(c, "aria2c")) return "aria2";
+        if (binToken(c, "ffmpeg")) return "ffmpeg";
         if (Pattern.compile("(^|[\\s;/])node(\\s|$|/)").matcher(c).find()) return "nodejs";
         return "none";
+    }
+
+    /** 命令里是否以独立 token 出现某个二进制名（防子串误伤，如 frp 不匹配 frpc） */
+    static boolean binToken(String c, String bin) {
+        return Pattern.compile("(^|[\\s;/\"'])" + Pattern.quote(bin) + "([\\s\"']|$|[/;])").matcher(c).find();
     }
 
     /** 描述里找「(端口 9528)」这类端口声明 */
@@ -410,7 +643,7 @@ public final class LabImportCompat {
         m.name = it.name;
         m.desc = it.desc == null ? "" : it.desc;
         m.icon = "服";
-        m.version = "1.0";
+        m.version = it.version == null || it.version.isEmpty() ? "1.0" : it.version;
         m.runtime = it.runtime == null ? "none" : it.runtime;
         m.autoStart = it.autoStart;
         LabManifest.LabCommand c = new LabManifest.LabCommand();
@@ -420,6 +653,9 @@ public final class LabImportCompat {
         c.command = it.command;
         c.background = it.background;
         c.autoExecute = true;
+        c.minVersion = it.minVersion;
+        c.variables.addAll(it.variables);
+        c.download = it.download;
         m.commands.add(c);
         if (it.outputKind != null && !it.outputKind.isEmpty()) {
             LabManifest.LabOutput o = new LabManifest.LabOutput();

@@ -164,7 +164,9 @@ public class LabManifest {
             var.key = v.optString("key", "").trim();
             var.name = v.optString("name", var.key);
             var.type = v.optString("type", "text").trim().toLowerCase();
-            var.defaultValue = v.has("default") ? v.optString("default", null) : null;
+            // 兼容两种写法："default"（手写 lab.json）与 "defaultValue"（Gson 落盘时的字段名）
+            var.defaultValue = v.has("default") ? v.optString("default", null)
+                    : (v.has("defaultValue") ? v.optString("defaultValue", null) : null);
             var.hint = v.optString("hint", null);
             var.required = v.optBoolean("required", false);
             var.filter = v.optString("filter", null);

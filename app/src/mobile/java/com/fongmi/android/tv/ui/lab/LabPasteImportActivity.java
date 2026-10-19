@@ -218,9 +218,23 @@ public class LabPasteImportActivity extends AppCompatActivity {
             try {
                 String name = displayName(uri);
                 byte[] data = readAll(getContentResolver().openInputStream(uri));
-                String text = new String(data, StandardCharsets.UTF_8);
-                final String fn = name;
-                runOnUiThread(() -> recognize(text, fn));
+                try {
+                    // 上游 .lab.7z 离线包：先看魔数/后缀
+                    if (LabImportCompat.isSevenZ(data, name)) {
+                        final LabImportCompat.ParseResult r = LabImportCompat.parseSevenZ(data);
+                        runOnUiThread(() -> showResult(r));
+                    } else {
+                        String text = new String(data, StandardCharsets.UTF_8);
+                        final String fn = name;
+                        runOnUiThread(() -> recognize(text, fn));
+                    }
+                } catch (Exception pe) {
+                    final String msg = plainError(pe);
+                    runOnUiThread(() -> {
+                        status.setVisibility(View.VISIBLE);
+                        status.setText(msg);
+                    });
+                }
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     status.setVisibility(View.VISIBLE);
@@ -258,7 +272,15 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 String fn = fileName;
                 if (isSingleUrl(t)) {
                     showStatusOnUi("正在拉链接…");
-                    src = download(t);
+                    byte[] raw = downloadBytes(t, 30 * 1024 * 1024);
+                    // 链接也可能是 .lab.7z 离线包：先看魔数
+                    if (LabImportCompat.isSevenZ(raw, t)) {
+                        final LabImportCompat.ParseResult r = LabImportCompat.parseSevenZ(raw);
+                        runOnUiThread(() -> showResult(r));
+                        return;
+                    }
+                    if (raw.length > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
+                    src = new String(raw, StandardCharsets.UTF_8);
                     fn = null; // 链接内容按内容识别
                 }
                 final LabImportCompat.ParseResult r = LabImportCompat.parseText(src, fn);
@@ -282,7 +304,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
         return t.matches("(?i)https?://\\S+") && !t.contains("\n");
     }
 
-    private String download(String urlStr) throws Exception {
+    /** 下载成字节：文本路 2MB 上限（语义不变），7z 包路放宽到 30MB */
+    private byte[] downloadBytes(String urlStr, int maxBytes) throws Exception {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(urlStr);
@@ -298,10 +321,10 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 int n, total = 0;
                 while ((n = in.read(buf)) > 0) {
                     total += n;
-                    if (total > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
+                    if (total > maxBytes) throw new Exception("这个文件太大了，下不动");
                     out.write(buf, 0, n);
                 }
-                return out.toString(StandardCharsets.UTF_8.name());
+                return out.toByteArray();
             }
         } finally {
             if (conn != null) conn.disconnect();

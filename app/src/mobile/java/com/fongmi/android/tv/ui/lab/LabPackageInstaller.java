@@ -245,6 +245,21 @@ public final class LabPackageInstaller {
                             }
                         }
                     }
+                    // 7z 离线包 binary/ 条目：相对路径落进包目录（同上，canonical 越界拒绝）
+                    if (it.extraFiles != null && !it.extraFiles.isEmpty()) {
+                        for (java.util.Map.Entry<String, byte[]> fe : it.extraFiles.entrySet()) {
+                            String rel = fe.getKey().replace('\\', '/');
+                            while (rel.startsWith("/")) rel = rel.substring(1);
+                            if (rel.isEmpty() || rel.contains("..")) continue;
+                            File f2 = new File(dest, rel);
+                            if (!f2.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator))
+                                continue;
+                            if (f2.getParentFile() != null) f2.getParentFile().mkdirs();
+                            try (FileOutputStream out = new FileOutputStream(f2)) {
+                                out.write(fe.getValue());
+                            }
+                        }
+                    }
                     chmod755(dest);
                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                     pkg.id = m.id;

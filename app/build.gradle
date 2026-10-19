@@ -204,6 +204,7 @@ dependencies {
     implementation libs.jsoup
     implementation libs.junrar
     implementation libs.commons.compress
+    implementation libs.commons.io
     implementation libs.xz
     implementation libs.bundles.glide
     implementation libs.bundles.jupnp

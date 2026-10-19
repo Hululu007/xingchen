@@ -324,6 +324,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private Vod mPendingDetailVod;
     private boolean mPendingDetailDeferLists;
     private long detailFinishTime;
+    private long detailOpenTime; // 详情页打开时刻（checkId 入口），供「点开→发起请求」计时
     private boolean markEpisodeRender;
     private Vod mAiVod; // P3：当前影片详情，供 AI 剧情问答取元数据
     private boolean mDetailCacheShown;
@@ -1456,6 +1457,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkId() {
+        detailOpenTime = System.currentTimeMillis();
         mShortDramaMode = getIntent().getBooleanExtra("short_drama", false);
         // 短剧模式：一进来就直接全屏，不闪详情页
         if (mShortDramaMode) {
@@ -1624,6 +1626,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void getDetail() {
         detailStartTime = System.currentTimeMillis();
+        // 方案 A：补「点开→发起请求」盲区计时。detailOpenTime 由 checkId 入口设置，
+        // 首次 getDetail() 消费后清零，刷新/重试路径不再打（语义：一次打开）。
+        if (detailOpenTime > 0) {
+            SpiderDebug.log("video-flow", "detail open cost=%dms key=%s id=%s", System.currentTimeMillis() - detailOpenTime, getKey(), getId());
+            detailOpenTime = 0;
+        }
         detailHealthRecorded = false;
         mDetailParseSeq++;
         mReadingDetailDiverting = false;

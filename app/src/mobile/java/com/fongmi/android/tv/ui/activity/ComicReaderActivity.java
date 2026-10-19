@@ -33,6 +33,7 @@ import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 漫画阅读器：全新设计，不抄 8.83 PictureListActivity 的交互。
@@ -84,7 +85,17 @@ public class ComicReaderActivity extends AppCompatActivity {
         buildUi();
         applyKeepScreen();
         loadChapter(session.chapterIndex, Math.max(0, session.startPage));
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     // ---------------- 布局：方向 / 从右往左 / 横屏双页 ----------------
 

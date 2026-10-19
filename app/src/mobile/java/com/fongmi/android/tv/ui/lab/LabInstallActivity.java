@@ -17,6 +17,7 @@ import com.fongmi.android.tv.utils.Notify;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import com.fongmi.android.tv.R;
 
 /**
  * .lab 安装确认页：文件打开方式（点 .lab 文件拉起）＋首页「＋」选文件的落点。
@@ -67,7 +68,17 @@ public class LabInstallActivity extends AppCompatActivity {
             progressText.setText("没拿到文件，重选一次");
             progressText.setVisibility(View.VISIBLE);
         }
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     private int dp(int v) {
         return LabSkin.dp(this, v);

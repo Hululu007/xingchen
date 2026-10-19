@@ -22,6 +22,7 @@ import com.google.gson.Gson;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 目录页（搜书页点一本进来）：一行一章/集，不许再弹 options 列表。
@@ -65,7 +66,17 @@ public class SearchTocActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         buildUi(book);
         fetchToc(book);
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onDestroy() {

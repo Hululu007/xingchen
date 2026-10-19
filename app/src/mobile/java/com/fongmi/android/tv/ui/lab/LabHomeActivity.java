@@ -15,6 +15,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 实验室首页（定稿 lab-design-sets2/a2/home）：
@@ -40,7 +41,17 @@ public class LabHomeActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         LabSkin.edgeToEdge(this);
         buildUi();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onResume() {

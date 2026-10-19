@@ -26,6 +26,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 粘贴导入（头等路）：用户把服务清单 / 命令条目 / 脚本源码粘进框，
@@ -111,7 +112,17 @@ public class LabPasteImportActivity extends AppCompatActivity {
         if (!TextUtils.isEmpty(uriStr)) {
             loadFromUri(Uri.parse(uriStr));
         }
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     private int dp(int v) {
         return LabSkin.dp(this, v);

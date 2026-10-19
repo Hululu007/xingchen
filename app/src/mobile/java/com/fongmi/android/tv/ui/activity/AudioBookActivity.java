@@ -38,6 +38,7 @@ import com.fongmi.android.tv.ui.minibar.ListenSession;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import com.fongmi.android.tv.R;
 
 /**
  * 听书播放页（阶段二·甲最小面）：
@@ -96,7 +97,17 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         bindPlaybackService();
         setupMiniBar();
         handler.post(ticker);
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onPause() {

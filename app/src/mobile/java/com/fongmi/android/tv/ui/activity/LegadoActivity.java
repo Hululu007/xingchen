@@ -23,6 +23,7 @@ import com.fongmi.android.tv.read.ReadDialogs;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 书源管理（阶段一最小面）：导入（文本/文件/链接）· 启用停用 · 删除 · 搜索 · 读。
@@ -160,7 +161,17 @@ public class LegadoActivity extends Activity {
         reload();
         // AI 口令「导入书源」直达：打开即弹粘贴导入框
         if (getIntent().getBooleanExtra("auto_import", false)) showPasteDialog();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     /** 添加入口小按钮：金描边暗底（走原有逻辑）。 */
     private LinearLayout addButton(String a, String b,

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.fongmi.android.tv.R;
 
 /**
  * 服务详情页（定稿 lab-design-sets2/a2/service-detail）：
@@ -55,7 +56,17 @@ public class LabServiceActivity extends AppCompatActivity {
         pkgId = getIntent().getStringExtra(EXTRA_ID);
         LabSkin.edgeToEdge(this);
         buildUi();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onResume() {

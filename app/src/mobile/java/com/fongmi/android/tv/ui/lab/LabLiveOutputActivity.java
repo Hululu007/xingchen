@@ -13,6 +13,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.Map;
+import com.fongmi.android.tv.R;
 
 /**
  * 实时输出页（上游 LabOutputActivity 口径，星辰皮）：
@@ -69,7 +70,17 @@ public class LabLiveOutputActivity extends AppCompatActivity {
                 runOnUiThread(() -> append("\n[进程退出，code=" + code + "]\n"));
             }
         });
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onDestroy() {

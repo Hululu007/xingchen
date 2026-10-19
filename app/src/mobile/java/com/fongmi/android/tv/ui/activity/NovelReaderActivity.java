@@ -24,6 +24,7 @@ import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.R;
 
 /**
  * 小说阅读器：全新设计。纵滑顺滑、字号可调、三套背景主题、章节抽屉、记位置。
@@ -91,7 +92,17 @@ public class NovelReaderActivity extends AppCompatActivity {
         buildUi();
         applyKeepScreen();
         loadChapter(session.chapterIndex, true);
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     // ---------------- UI ----------------
 

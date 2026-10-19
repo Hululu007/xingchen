@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.fongmi.android.tv.utils.Notify;
 
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 环境页（定稿 lab-design-sets2/a2/env-uninstalled + env-installed）：
@@ -51,7 +52,17 @@ public class LabEnvActivity extends AppCompatActivity {
         if (env == null) env = "tool";
         LabSkin.edgeToEdge(this);
         buildUi();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onResume() {

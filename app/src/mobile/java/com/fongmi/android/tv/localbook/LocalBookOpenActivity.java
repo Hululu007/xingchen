@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.read.ReadingRouter;
 import com.fongmi.android.tv.read.ReadingSession;
+import com.fongmi.android.tv.R;
 
 /**
  * 从文件管理器"用星辰打开" epub/zip/cbz 的分发页：
@@ -55,5 +56,15 @@ public class LocalBookOpenActivity extends AppCompatActivity {
                 finish();
             });
         }).start();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 }

@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.service.ManageService;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.R;
 
 /**
  * 实验室设置页：点实验室首页标题「实验室」进入。
@@ -42,7 +43,17 @@ public class LabSettingActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         LabSkin.edgeToEdge(this);
         buildUi();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onResume() {

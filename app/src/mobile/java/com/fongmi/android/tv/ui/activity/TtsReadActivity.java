@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import com.fongmi.android.tv.R;
 
 /**
  * 神经朗读播放页（功能线最小面，视觉随后换皮）：
@@ -124,7 +125,17 @@ public class TtsReadActivity extends Activity
         bindPlaybackService();
         setupMiniBar();
         handler.post(ticker);
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onPause() {

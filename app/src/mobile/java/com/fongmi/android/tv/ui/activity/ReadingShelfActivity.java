@@ -40,6 +40,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import com.fongmi.android.tv.R;
 
 /**
  * 书架首页（对稿 reading-ui-mockup-v2/home-novel、home-comic）：
@@ -96,7 +97,17 @@ public class ReadingShelfActivity extends AppCompatActivity {
         }
         buildUi();
         refresh();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onResume() {

@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 交互终端页（上游 LabTerminalActivity 口径，星辰皮）：
@@ -63,7 +64,17 @@ public class LabTerminalActivity extends AppCompatActivity {
         buildUi(title);
         append("实验室终端（交互式 shell）\n输入命令后回车执行，例如：ls、echo hello\n\n");
         startShell();
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onDestroy() {

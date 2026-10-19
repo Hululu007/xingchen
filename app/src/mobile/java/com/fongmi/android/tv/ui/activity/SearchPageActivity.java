@@ -27,6 +27,7 @@ import com.google.gson.Gson;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.fongmi.android.tv.R;
 
 /**
  * 搜书页（1.3.50 起搜书整条链的唯一呈现，不许再套弹窗）：
@@ -73,7 +74,17 @@ public class SearchPageActivity extends AppCompatActivity {
                     (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
         });
+
+        // 页面进出统一渐入渐出（与 BaseActivity 一致）
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+}
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
     }
+
 
     @Override
     protected void onDestroy() {

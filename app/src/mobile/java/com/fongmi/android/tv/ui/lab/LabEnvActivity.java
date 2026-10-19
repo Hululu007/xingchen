@@ -20,7 +20,8 @@ import java.util.List;
 
 /**
  * 环境页（定稿 lab-design-sets2/a2/env-uninstalled + env-installed）：
- * 标题行＝环境名＋安装/卸载小胶囊紧跟名字＋行尾「＋」（加服务，三选一）；
+ * 标题行＝环境名＋安装/更新/卸载小胶囊紧跟名字＋行尾「＋」（加服务，三选一）；
+ * 版本行＝已装版本号小字（有新版时「旧 → 新」），没装不显示；
  * 副行只写「X 个服务」（已装：「已安装 · X 个服务」）；
  * 服务＝两列深玻璃格（名＋状态徽＋启/停钮＋自启开关），点格进服务详情，长按卸载服务。
  * 没介绍文字。顶栏只留标题，走系统返回。
@@ -35,6 +36,7 @@ public class LabEnvActivity extends AppCompatActivity {
     private TextView headAction;
     private TextView subLine;
     private TextView addBtn;
+    private TextView versionLine;
 
     public static void start(Activity activity, String env) {
         Intent i = new Intent(activity, LabEnvActivity.class);
@@ -102,6 +104,19 @@ public class LabEnvActivity extends AppCompatActivity {
         nav.addView(addBtn);
         root.addView(nav);
 
+        // 版本行：已装才显示（有新版时「旧 → 新」），没装隐藏；小字次要色，不抢名字
+        versionLine = new TextView(this);
+        versionLine.setTextSize(12);
+        versionLine.setTextColor(LabSkin.WALL_DIM);
+        LabSkin.halo(versionLine);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vlp.leftMargin = dp(18);
+        vlp.bottomMargin = dp(6);
+        versionLine.setLayoutParams(vlp);
+        versionLine.setVisibility(View.GONE);
+        root.addView(versionLine);
+
         // 副行：只写「X 个服务」
         subLine = new TextView(this);
         subLine.setTextSize(13);
@@ -129,20 +144,38 @@ public class LabEnvActivity extends AppCompatActivity {
         listBox.removeAllViews();
         boolean installed = !"tool".equals(env) && LabRuntimeManager.isInstalled(this, env);
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
-        // 头部动作：没装→黄色「安装」，已装→中性「卸载」（卸载确认照稿弹窗）
+        // 头部动作：没装→黄色「安装」；已装且目录有新版→黄色「更新」；已装无更新→中性「卸载」（卸载确认照稿弹窗）
         if (installed) {
-            headAction.setText("卸载");
-            headAction.setTextColor(LabSkin.WALL_DIM);
-            headAction.setBackground(LabSkin.capsuleNeutral(this));
-            headAction.setPadding(dp(18), dp(6), dp(18), dp(6));
-            headAction.setOnClickListener(v -> LabInstallDialog.showConfirm(this,
-                    "卸载「" + LabRegistry.envLabel(env) + "」？",
-                    "依赖它的服务会停掉，环境文件删干净。", "卸载", () -> {
-                        LabRuntimeManager.uninstall(this, env);
-                        Notify.show("卸掉了");
-                        reload();
-                    }));
+            boolean needUpdate = LabRuntimeManager.hasUpdate(this, env);
+            if (needUpdate) {
+                headAction.setText("更新");
+                headAction.setTextColor(LabSkin.ON_YELLOW);
+                headAction.setBackground(LabSkin.capsuleYellow(this));
+                headAction.setPadding(dp(18), dp(6), dp(18), dp(6));
+                headAction.setOnClickListener(v -> installOnline());
+            } else {
+                headAction.setText("卸载");
+                headAction.setTextColor(LabSkin.WALL_DIM);
+                headAction.setBackground(LabSkin.capsuleNeutral(this));
+                headAction.setPadding(dp(18), dp(6), dp(18), dp(6));
+                headAction.setOnClickListener(v -> LabInstallDialog.showConfirm(this,
+                        "卸载「" + LabRegistry.envLabel(env) + "」？",
+                        "依赖它的服务会停掉，环境文件删干净。", "卸载", () -> {
+                            LabRuntimeManager.uninstall(this, env);
+                            Notify.show("卸掉了");
+                            reload();
+                        }));
+            }
             subLine.setText("已安装 · " + svcs.size() + " 个服务");
+            // 版本行：有新版时「旧 → 新」，否则只显示已装版
+            String iv = LabRuntimeManager.installedVersion(this, env);
+            if (!iv.isEmpty()) {
+                String cv = LabRuntimeManager.catalogVersion(this, env);
+                versionLine.setText(needUpdate && !cv.isEmpty() ? iv + " → " + cv : iv);
+                versionLine.setVisibility(View.VISIBLE);
+            } else {
+                versionLine.setVisibility(View.GONE);
+            }
         } else {
             headAction.setText("安装");
             headAction.setTextColor(LabSkin.ON_YELLOW);
@@ -155,6 +188,7 @@ public class LabEnvActivity extends AppCompatActivity {
                         else pickLocalZip();
                     }));
             subLine.setText(svcs.size() + " 个服务");
+            versionLine.setVisibility(View.GONE);
         }
         // 服务两列格
         GridLayout grid = new GridLayout(this);

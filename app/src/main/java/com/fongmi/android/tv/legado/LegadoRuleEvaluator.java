@@ -388,7 +388,38 @@ public class LegadoRuleEvaluator {
         List<Sel> last = elements(cur, chain[chain.length - 1]);
         if (last.isEmpty()) return "";
         // 多个命中：单值取首个（与 Legado getString 一致）
-        return cssAtom(last.get(0), ctx, chain[chain.length - 1], isUrl);
+        // 末步直接提取：last 已经是完整选择器的命中结果，对它再套完整选择器
+        // jsoup 不回溯匹配上下文自身，后代选择器恒返回空（如 h3 a@text）。
+        return cssAtomDirect(last.get(0), ctx, chain[chain.length - 1], isUrl);
+    }
+
+    /** 原子提取（直接版）：scope 已是选择器的命中元素，直接按后缀提取，不重套选择器。 */
+    private static String cssAtomDirect(Sel scope, Ctx ctx, String rule, boolean isUrl) {
+        if (!(scope instanceof HtmlSel)) return jsonStr(scope, rule);
+        Element target = ((HtmlSel) scope).el;
+        Atom a = parseAtom(rule);
+        String val;
+        switch (a.extractor) {
+            case ATTR:
+                val = a.attr.startsWith("abs:") ? target.absUrl(a.attr.substring(4)) : target.attr(a.attr);
+                break;
+            case TEXT_NODES: {
+                StringBuilder sb = new StringBuilder();
+                for (org.jsoup.nodes.TextNode tn : target.textNodes()) sb.append(tn.text());
+                val = sb.toString();
+                break;
+            }
+            case OWN_TEXT: val = target.ownText(); break;
+            case HTML: val = target.html(); break;
+            case ALL: val = target.outerHtml(); break;
+            case TEXT:
+            default: val = target.text(); break;
+        }
+        if (a.regex != null) val = applyRegex(val, a.regex, a.replacement);
+        if (isUrl && !val.isEmpty() && !val.startsWith("http") && !val.startsWith("data:")) {
+            val = absUrl(ctx.baseUrl, val);
+        }
+        return val == null ? "" : val;
     }
 
     /** 单选择器＋后缀的原子求值。 */

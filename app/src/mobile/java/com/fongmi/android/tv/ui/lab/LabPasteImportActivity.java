@@ -264,10 +264,18 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 final LabImportCompat.ParseResult r = LabImportCompat.parseText(src, fn);
                 runOnUiThread(() -> showResult(r));
             } catch (Exception e) {
-                final String msg = e.getMessage();
-                runOnUiThread(() -> showStatus(msg == null ? "认不出来，换一种试试" : msg));
+                final String msg = plainError(e);
+                runOnUiThread(() -> showStatus(msg));
             }
         }).start();
+    }
+
+    /** 报错只给人话：解析库的原始报错会把全文倒出来，一律换成短句 */
+    private static String plainError(Exception e) {
+        String msg = e.getMessage();
+        if (msg == null) return "认不出来，换一种试试";
+        if (msg.length() <= 60 && !msg.contains("character") && !msg.contains("Unterminated")) return msg;
+        return "认不出来：内容可能不完整，整段重新粘一次";
     }
 
     private boolean isSingleUrl(String t) {

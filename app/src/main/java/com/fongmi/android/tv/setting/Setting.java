@@ -704,6 +704,23 @@ public class Setting {
         Prefers.put("update_github_proxy_mode", GithubProxy.normalizeMode(mode));
     }
 
+    // GitHub 下载代理（jar 下载链用，照默影视口径；与上面的更新专用代理互不干扰）
+    public static String getGithubProxy() {
+        return Prefers.getString("github_proxy", com.fongmi.android.tv.utils.GithubProxy.defaultSources());
+    }
+
+    public static void putGithubProxy(String value) {
+        Prefers.put("github_proxy", com.fongmi.android.tv.utils.GithubProxy.normalizeConfig(value));
+    }
+
+    public static boolean isGithubProxyEnabled() {
+        return Prefers.getBoolean("github_proxy_enabled", true);
+    }
+
+    public static void putGithubProxyEnabled(boolean enabled) {
+        Prefers.put("github_proxy_enabled", enabled);
+    }
+
     public static String getUpdateOciMirror() {
         return OciMirror.find(Prefers.getString("update_oci_mirror", OciMirror.DEFAULT)).id;
     }

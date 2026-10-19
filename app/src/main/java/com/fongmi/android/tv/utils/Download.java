@@ -27,6 +27,11 @@ public class Download {
         return new Download(url, file);
     }
 
+    /** jar 下载专用入口：GitHub 地址默认套代理（App 更新/环境包等其它链不受影响）。 */
+    public static Download createForJar(String url, File file) {
+        return new Download(GithubProxy.apply(url), file);
+    }
+
     public Download(String url, File file) {
         this.tag = url;
         this.url = url;

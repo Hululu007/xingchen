@@ -35,7 +35,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 音乐首页：导航卡片（搜索/歌单/收藏/榜单）＋源卡片。
+ * 音乐首页：导航卡片（歌单/收藏/榜单/已下载）＋源卡片。搜索只留顶栏图标一个入口。
  * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
  */
 public class MusicActivity extends BaseActivity {
@@ -104,22 +104,21 @@ public class MusicActivity extends BaseActivity {
 
     private void refreshNavStatus() {
         MusicLibrary.favoriteCount(n -> {
-            navItems.get(2).status = n + " " + getString(R.string.music_tracks);
+            navItems.get(1).status = n + " " + getString(R.string.music_tracks);
             if (adapter != null) adapter.notifyDataSetChanged();
         });
         MusicLibrary.playlists(list -> {
-            navItems.get(1).status = list.size() + " 个歌单";
+            navItems.get(0).status = list.size() + " 个歌单";
             if (adapter != null) adapter.notifyDataSetChanged();
         });
         MusicDownloadStore.count(n -> {
-            navItems.get(4).status = n + " " + getString(R.string.music_tracks);
+            navItems.get(3).status = n + " " + getString(R.string.music_tracks);
             if (adapter != null) adapter.notifyDataSetChanged();
         });
     }
 
     private void buildNavItems() {
         navItems.clear();
-        navItems.add(new NavItem("search", getString(R.string.music_search), getString(R.string.music_search_hint), 0xFF3B82F6, R.drawable.ic_music_search));
         navItems.add(new NavItem("sheets", getString(R.string.music_playlist), "", 0xFF22C55E, R.drawable.ic_music_queue));
         navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
         navItems.add(new NavItem("charts", getString(R.string.music_charts), "热歌 · 新歌", 0xFFA855F7, R.drawable.ic_music_eq));
@@ -140,30 +139,24 @@ public class MusicActivity extends BaseActivity {
         refresh();
     }
 
+    /** 首页大播放键：上次队列从断点位置续播；无断点播最近播放第一首；再无则不动作 */
     private void playAll() {
-        Notify.show("正在加载…");
-        Task.execute(() -> {
-            List<MusicTrack> all = new ArrayList<>();
-            for (MusicSite site : MusicRepository.sites()) {
-                if (site.connected) all.addAll(MusicRepository.tracks(site));
-            }
-            runOnUiThread(() -> {
-                if (all.isEmpty()) {
-                    Notify.show(R.string.music_no_track);
-                    return;
-                }
-                Collections.shuffle(all);
-                MusicController.get().play(all, 0);
-                MusicPlayerActivity.start(this);
-            });
-        });
+        List<MusicTrack> queue = MusicStore.loadQueue();
+        if (!queue.isEmpty()) {
+            int idx = Math.max(0, Math.min(MusicStore.loadIndex(), queue.size() - 1));
+            MusicController.get().playFrom(queue, idx, MusicStore.loadPosition());
+            MusicPlayerActivity.start(this);
+            return;
+        }
+        List<MusicTrack> recent = MusicStore.loadRecent();
+        if (!recent.isEmpty()) {
+            MusicController.get().play(recent, 0);
+            MusicPlayerActivity.start(this);
+        }
     }
 
     private void onNavClick(NavItem item) {
         switch (item.key) {
-            case "search":
-                MusicListActivity.startSearch(this, "");
-                break;
             case "sheets":
                 MusicListActivity.startSheets(this);
                 break;

@@ -216,6 +216,13 @@ public class MusicPlaybackService extends MediaSessionService {
         prepareTrack(queue.getIndex(), 0, true);
     }
 
+    /** 播队列并从指定位置起（断点续播用） */
+    public void playQueueFrom(List<MusicTrack> tracks, int index, long position) {
+        queue.setTracks(tracks, index);
+        listeners.forEach(ServiceListener::onQueueChanged);
+        prepareTrack(queue.getIndex(), Math.max(0, position), true);
+    }
+
     /** 播指定序号 */
     public void playAt(int index) {
         if (queue.moveTo(index)) prepareTrack(index, 0, true);
@@ -417,6 +424,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 if (autoplay) player.play();
                 else player.pause();
                 saveBreakpoint();
+                MusicStore.pushRecent(track);
                 listeners.forEach(l -> l.onTrackChanged(track));
             });
         });

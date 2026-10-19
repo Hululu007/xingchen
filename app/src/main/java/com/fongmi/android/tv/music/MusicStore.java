@@ -27,6 +27,8 @@ public class MusicStore {
     private static final String K_QUEUE = "music_last_queue";
     private static final String K_INDEX = "music_last_index";
     private static final String K_POSITION = "music_last_position";
+    private static final String K_RECENT = "music_recent";
+    private static final int RECENT_MAX = 50;
 
     public static int getMode() {
         return Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
@@ -109,5 +111,35 @@ public class MusicStore {
         Prefers.put(K_QUEUE, "");
         Prefers.put(K_INDEX, 0);
         Prefers.put(K_POSITION, 0);
+    }
+
+    /** 最近播放：切歌成功即记一条，按 id 去重，上限 50 首 */
+    public static void pushRecent(MusicTrack track) {
+        if (track == null || track.id == null) return;
+        try {
+            List<MusicTrack> list = loadRecent();
+            for (int i = 0; i < list.size(); i++) {
+                if (track.id.equals(list.get(i).id)) {
+                    list.remove(i);
+                    break;
+                }
+            }
+            list.add(0, track);
+            while (list.size() > RECENT_MAX) list.remove(list.size() - 1);
+            Prefers.put(K_RECENT, App.gson().toJson(list));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static List<MusicTrack> loadRecent() {
+        try {
+            String json = Prefers.getString(K_RECENT, "");
+            if (json.isEmpty()) return new ArrayList<>();
+            Type type = TypeToken.getParameterized(List.class, MusicTrack.class).getType();
+            List<MusicTrack> list = App.gson().fromJson(json, type);
+            return list == null ? new ArrayList<>() : list;
+        } catch (Throwable ignored) {
+            return new ArrayList<>();
+        }
     }
 }

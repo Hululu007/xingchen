@@ -205,6 +205,12 @@ public class MusicController {
         runOnService(() -> service().playQueue(new ArrayList<>(queue), index));
     }
 
+    /** 播队列并从断点位置起 */
+    public void playFrom(List<MusicTrack> queue, int index, long position) {
+        if (queue == null || queue.isEmpty()) return;
+        runOnService(() -> service().playQueueFrom(new ArrayList<>(queue), index, position));
+    }
+
     public void playAt(int index) {
         runOnService(() -> service().playAt(index));
     }

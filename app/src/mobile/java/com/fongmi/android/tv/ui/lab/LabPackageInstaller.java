@@ -47,8 +47,27 @@ public final class LabPackageInstaller {
             try {
                 File tmp = new File(ctx.getCacheDir(), "lab-install-" + System.currentTimeMillis() + ".lab");
                 copyStream(ctx.getContentResolver().openInputStream(uri), tmp, null);
-                installFromFile(ctx.getApplicationContext(), tmp, defaultRuntime, listener);
-                tmp.delete();
+                // installFromFile 是另起线程异步跑的，临时文件只能在终态回调里删，
+                // 当场删会跟安装线程抢跑，安装那边打开就是 ENOENT。
+                Listener wrapped = new Listener() {
+                    @Override
+                    public void onProgress(String text) {
+                        listener.onProgress(text);
+                    }
+
+                    @Override
+                    public void onOk(LabRegistry.Svc pkg) {
+                        tmp.delete();
+                        listener.onOk(pkg);
+                    }
+
+                    @Override
+                    public void onFail(String reason) {
+                        tmp.delete();
+                        listener.onFail(reason);
+                    }
+                };
+                installFromFile(ctx.getApplicationContext(), tmp, defaultRuntime, wrapped);
             } catch (Exception e) {
                 fail(listener, "读不到这个包文件：" + human(e));
             }

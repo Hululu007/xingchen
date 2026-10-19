@@ -4,37 +4,41 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical">
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/loading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:fadingEdgeLength="5dp"
+        android:padding="5dp"
+        android:shadowColor="#ff000000"
+        android:shadowDx="2"
+        android:shadowDy="2"
+        android:shadowRadius="8"
+        android:text="@string/player_loading_hint"
+        android:textColor="@color/white"
+        android:visibility="gone"
+        android:textSize="18sp" />
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/loading"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fadingEdgeLength="5dp"
-            android:padding="5dp"
-            android:shadowColor="#ff000000"
-            android:shadowDx="2"
-            android:shadowDy="2"
-            android:shadowRadius="8"
-            android:text="@string/player_loading_hint"
-            android:textColor="@color/white"
-            android:visibility="gone"
-            android:textSize="18sp" />
-
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/traffic"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/white"
-            android:textSize="12sp"
-            android:visibility="gone"
-            tools:text="120 KB/s"
-            tools:visibility="visible" />
-
-    </LinearLayout>
+    <!-- 网速：中央圆钮下方独立一行，不压播放图标。圆钮 76dp（下沿在圆心下 38dp），
+         layout_gravity=center 时 marginTop 会把视觉中心下移一半，
+         124dp → 文字中心在圆心下 62dp，文字上沿（约 45dp）在圆钮下沿之下 -->
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/traffic"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="124dp"
+        android:fadingEdgeLength="5dp"
+        android:padding="5dp"
+        android:shadowColor="#ff000000"
+        android:shadowDx="2"
+        android:shadowDy="2"
+        android:shadowRadius="8"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        android:visibility="gone"
+        tools:text="120 KB/s"
+        tools:visibility="visible" />
 
 </FrameLayout>

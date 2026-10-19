@@ -232,19 +232,6 @@
             tools:itemCount="5"
             tools:listitem="@layout/adapter_parse_dark" />
 
-        <!-- 网速小字：左下（仅小窗显示，由代码控制显隐） -->
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/netSpeed"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFeatureSettings="tnum"
-            android:paddingStart="16dp"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp"
-            android:visibility="gone"
-            tools:text="128 KB/s"
-            tools:visibility="visible" />
-
         <androidx.appcompat.widget.LinearLayoutCompat
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

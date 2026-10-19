@@ -3288,36 +3288,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         hideControl();
     }
 
-    /** 网速小字刷新（TrafficStats 采样，仅显示） */
-    private long mNetSpeedLastRx;
-    private long mNetSpeedLastTime;
-
-    private void startNetSpeedTick() {
-        mNetSpeedLastRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid());
-        mNetSpeedLastTime = System.currentTimeMillis();
-        mBinding.control.netSpeed.removeCallbacks(mNetSpeedTick);
-        mBinding.control.netSpeed.postDelayed(mNetSpeedTick, 1000);
-    }
-
-    private final Runnable mNetSpeedTick = new Runnable() {
-        @Override
-        public void run() {
-            if (mBinding == null || mBinding.control == null) return;
-            long rx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid());
-            long now = System.currentTimeMillis();
-            if (mNetSpeedLastTime > 0 && now > mNetSpeedLastTime && rx >= mNetSpeedLastRx) {
-                long kbps = (rx - mNetSpeedLastRx) * 1000 / (now - mNetSpeedLastTime) / 1024;
-                mBinding.control.netSpeed.setText(Math.max(0, kbps) + " KB/s");
-            }
-            mNetSpeedLastRx = rx;
-            mNetSpeedLastTime = now;
-            if (mBinding.control.netSpeed.getVisibility() == View.VISIBLE
-                    && mBinding.control.getRoot().getVisibility() == View.VISIBLE) {
-                mBinding.control.netSpeed.postDelayed(this, 1000);
-            }
-        }
-    };
-
     private void onAudioQueue() {
         restoreActiveAudioPlaylist();
         showAudioQueueSheet(getAudioStageTitle());
@@ -5641,9 +5611,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mOsd != null) mOsd.setControlsVisible(true);
         checkFullscreenImg();
         checkDanmakuImg();
-        // 网速小字：仅小窗（非全屏）左下显示
-        mBinding.control.netSpeed.setVisibility(!isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
-        if (!isFullscreen() && !isLock()) startNetSpeedTick();
         setR1Callback();
         updateTopProgress();
     }

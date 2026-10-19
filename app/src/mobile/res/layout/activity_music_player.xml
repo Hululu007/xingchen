@@ -169,33 +169,33 @@
 
                 <ImageView
                     android:id="@+id/btnPrev"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:padding="16dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:padding="12dp"
                     android:src="@drawable/ic_music_prev"
                     android:tint="#FFFFFF" />
 
                 <FrameLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="36dp"
-                    android:layout_marginEnd="36dp">
+                    android:layout_marginStart="24dp"
+                    android:layout_marginEnd="24dp">
 
                     <ImageView
                         android:id="@+id/btnPlay"
-                        android:layout_width="104dp"
-                        android:layout_height="104dp"
+                        android:layout_width="72dp"
+                        android:layout_height="72dp"
                         android:background="@drawable/circle_gold"
-                        android:padding="30dp"
+                        android:padding="21dp"
                         android:src="@drawable/ic_music_pause"
                         android:tint="#1A1408" />
                 </FrameLayout>
 
                 <ImageView
                     android:id="@+id/btnNext"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:padding="16dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:padding="12dp"
                     android:src="@drawable/ic_music_next"
                     android:tint="#FFFFFF" />
             </LinearLayout>

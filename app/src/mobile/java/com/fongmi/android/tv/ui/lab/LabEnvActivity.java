@@ -290,6 +290,12 @@ public class LabEnvActivity extends AppCompatActivity {
                     }
 
                     @Override
+                    public void onStarted() {
+                        // 起跑成功：原地翻卡（徽→运行中、钮→停止可点），不整页重绘
+                        runOnUiThread(() -> markTileRunning(chip, go));
+                    }
+
+                    @Override
                     public void onExit(int code) {
                         runOnUiThread(() -> {
                             if (code != 0 && !LabRunner.isRunning(LabEnvActivity.this, s.id)) {
@@ -344,6 +350,17 @@ public class LabEnvActivity extends AppCompatActivity {
         row.addView(nodeSw);
         tile.addView(row);
         return tile;
+    }
+
+    /** 启动成功后原地翻卡：徽→运行中、钮→停止可点，不整页重绘 */
+    private void markTileRunning(TextView chip, TextView go) {
+        chip.setText("运行中");
+        chip.setTextColor(LabSkin.GREEN_ON_DARK);
+        chip.setBackground(LabSkin.chipRun(this));
+        go.setText("停止");
+        go.setTextColor(LabSkin.TEXT_ON_DARK);
+        go.setBackground(LabSkin.rowDark(this));
+        go.setEnabled(true);
     }
 
     private void confirmUninstall(LabRegistry.Svc s) {

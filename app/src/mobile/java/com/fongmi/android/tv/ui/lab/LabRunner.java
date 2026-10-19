@@ -36,6 +36,14 @@ public final class LabRunner {
         void onOutput(String text);
 
         void onExit(int code);
+
+        /**
+         * 进程已确认起跑：runShell 里 builder.start() 成功、RUNNING 登记之后触发。
+         * 给「启动中…」这类乐观态一个翻回「运行中」的时机——onExit 只在进程退出时
+         * 才来，常驻服务等不到它。默认空实现，老实现不用改。
+         */
+        default void onStarted() {
+        }
     }
 
     /** 日志内存上限（参照物：最近 20 万字符） */
@@ -427,6 +435,9 @@ public final class LabRunner {
                 STDIN.put(key, process.getOutputStream());
             } catch (Exception ignored) {
             }
+            // 进程已确认起跑：通知 UI 把「启动中…」翻回「运行中」。
+            // （onExit 只在进程退出时才来，常驻服务等不到它。）
+            if (listener != null) listener.onStarted();
             if (nodeNote != null) {
                 appendLog(key, nodeNote + "\n");
                 appendFile(log, nodeNote + "\n");

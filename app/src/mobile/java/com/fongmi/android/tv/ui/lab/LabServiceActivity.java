@@ -222,6 +222,18 @@ public class LabServiceActivity extends AppCompatActivity {
                     }
 
                     @Override
+                    public void onStarted() {
+                        // 起跑成功：原地翻状态（徽→运行中、大钮→停止可点），不整页重绘
+                        runOnUiThread(() -> {
+                            chip.setText("● 运行中");
+                            chip.setTextColor(LabSkin.GREEN_ON_DARK);
+                            chip.setBackground(LabSkin.chipRun(LabServiceActivity.this));
+                            big.setText("停止");
+                            big.setEnabled(true);
+                        });
+                    }
+
+                    @Override
                     public void onExit(int code) {
                         runOnUiThread(() -> {
                             if (code != 0 && !LabRunner.isRunning(LabServiceActivity.this, pkgId)) {
@@ -334,6 +346,15 @@ public class LabServiceActivity extends AppCompatActivity {
             LabRunner.start(this, pkgId, new LabRunner.Listener() {
                 @Override
                 public void onOutput(String text) {
+                }
+
+                @Override
+                public void onStarted() {
+                    // 起跑成功：原地恢复「重启」可点，不整页重绘
+                    runOnUiThread(() -> {
+                        restart.setText("重启");
+                        restart.setEnabled(true);
+                    });
                 }
 
                 @Override

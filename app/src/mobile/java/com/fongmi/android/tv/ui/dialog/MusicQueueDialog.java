@@ -97,7 +97,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             h.title.setTextColor(current ? 0xFFF2B33D : 0xFFFFFFFF);
             h.title.getPaint().setFakeBoldText(current);
             h.artist.setText(t.displayArtist());
-            h.duration.setText(fmt(t.duration));
             ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
             h.itemView.setBackgroundResource(current ? R.drawable.card_music_current : 0);
             h.itemView.setOnClickListener(v -> {
@@ -110,12 +109,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             });
         }
 
-        private String fmt(long ms) {
-            if (ms <= 0) return "--:--";
-            long s = ms / 1000;
-            return String.format("%02d:%02d", s / 60, s % 60);
-        }
-
         @Override
         public int getItemCount() {
             return tracks.size();
@@ -125,7 +118,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             final ImageView cover;
             final TextView title;
             final TextView artist;
-            final TextView duration;
             final ImageView btnRemove;
 
             Holder(View v) {
@@ -133,7 +125,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 cover = v.findViewById(R.id.cover);
                 title = v.findViewById(R.id.title);
                 artist = v.findViewById(R.id.artist);
-                duration = v.findViewById(R.id.duration);
                 btnRemove = v.findViewById(R.id.btnRemove);
             }
         }

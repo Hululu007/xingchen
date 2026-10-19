@@ -3,6 +3,7 @@ package com.fongmi.android.tv.music;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.api.music.FreeJsMusicSource;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ public class MusicRepository {
     static {
         // 本地音乐源常驻：已下载歌曲（platform="local"）走文件直链，播放链不动
         register(new LocalMusicSource());
+        // 一期 FreeJS 真源：MusicFree 插件桥（search/取链/歌词/榜单），常驻注册
+        register(new FreeJsMusicSource());
     }
 
     public static void register(MusicSource source) {

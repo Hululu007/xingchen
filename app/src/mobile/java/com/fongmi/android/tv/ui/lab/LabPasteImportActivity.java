@@ -175,8 +175,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
         }
         input.setTextSize(13);
         input.setTextColor(LabSkin.TEXT_ON_DARK);
-        input.setHintTextColor(LabSkin.HINT_ON_DARK);
-        input.setBackground(LabSkin.darkInput(this));
+        input.setHintTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        input.setBackground(LabSkin.glassDark(this));
         input.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

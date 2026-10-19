@@ -16,7 +16,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.read.ReadingBookmarkStore;
@@ -51,7 +50,7 @@ public class AllNovelsActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
+        ReadingSkin.enableEdgeToEdge(this, true);
         buildUi();
 
         // 页面进出统一渐入渐出（与 BaseActivity 一致）

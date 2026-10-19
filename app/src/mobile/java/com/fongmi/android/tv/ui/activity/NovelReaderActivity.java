@@ -16,7 +16,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.read.HkNovelFetcher;
@@ -64,6 +63,8 @@ public class NovelReaderActivity extends AppCompatActivity {
     private View topBar;
     private View bottomBar;
     private TextView tvStatus;
+    private TextView tvBack;
+    private TextView tvToc;
     private TextView tvProgress;
     private TextView tvChapterBottom;
     private TextView tvChapterMid;
@@ -81,7 +82,7 @@ public class NovelReaderActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
+        ReadingSkin.enableEdgeToEdge(this, isNightPref(theme()));
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {
             Toast.makeText(this, "阅读会话已失效", Toast.LENGTH_SHORT).show();
@@ -216,6 +217,10 @@ public class NovelReaderActivity extends AppCompatActivity {
         root.setBackgroundColor(bg());
         // 窗口底恒为壁纸（fitWindowBackground 已废弃）；这里只跟纸色切系统栏图标明暗
         ReadingSkin.setSystemBarIconAppearance(this, isNightPref(theme()));
+        int tfg = topBarFg();
+        if (tvBack != null) tvBack.setTextColor(tfg);
+        if (tvStatus != null) tvStatus.setTextColor(tfg);
+        if (tvToc != null) tvToc.setTextColor(tfg);
         if (tvContent != null) {
             tvContent.setTextColor(fg());
         }
@@ -237,13 +242,14 @@ public class NovelReaderActivity extends AppCompatActivity {
         TextView back = new TextView(this);
         back.setText("‹ 返回");
         back.setTextSize(14);
-        back.setTextColor(0x80D9D3C6);
+        back.setTextColor(topBarFg());
         back.setPadding(dp(12), dp(12), dp(12), dp(12));
         back.setOnClickListener(v -> finish());
+        tvBack = back;
         bar.addView(back);
 
         tvStatus = new TextView(this);
-        tvStatus.setTextColor(0x80D9D3C6);
+        tvStatus.setTextColor(topBarFg());
         tvStatus.setTextSize(13);
         tvStatus.setGravity(Gravity.CENTER);
         tvStatus.setSingleLine(true);
@@ -256,12 +262,18 @@ public class NovelReaderActivity extends AppCompatActivity {
         TextView toc = new TextView(this);
         toc.setText("目录");
         toc.setTextSize(14);
-        toc.setTextColor(0x80D9D3C6);
+        toc.setTextColor(topBarFg());
         toc.setPadding(dp(12), dp(12), dp(12), dp(12));
         toc.setOnClickListener(v -> showChapters());
+        tvToc = toc;
         bar.addView(toc);
         refreshTitle();
         return bar;
+    }
+
+    /** 顶栏灰字跟纸色走：浅纸深灰、深纸浅灰（透明底浮于内容上，对比度≥6）。 */
+    private int topBarFg() {
+        return isNightPref(theme()) ? 0xFFD9D3C6 : 0xFF5A5A5A;
     }
 
     /** 底栏（稿）：毛玻璃设置面板。所有原有功能一个不少，只是换了皮。 */

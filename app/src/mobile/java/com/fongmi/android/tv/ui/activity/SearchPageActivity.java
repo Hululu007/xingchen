@@ -15,7 +15,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.legado.LegadoPipeline;
@@ -66,7 +65,7 @@ public class SearchPageActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         type = getIntent().getIntExtra(EXTRA_TYPE, LegadoSource.TYPE_TEXT);
-        EdgeToEdge.enable(this);
+        ReadingSkin.enableEdgeToEdge(this, true);
         buildUi();
         et.requestFocus();
         et.post(() -> {

@@ -16,7 +16,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
@@ -88,7 +87,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
+        ReadingSkin.enableEdgeToEdge(this, true);
         // AI 口令"继续读"中转：直接进最近一本，不在书架停留
         if (getIntent().getBooleanExtra("auto_continue", false)) {
             ReadingRouter.continueReading(this);

@@ -151,7 +151,7 @@ public class LabTerminalActivity extends AppCompatActivity {
         prompt = new TextView(this);
         prompt.setText("$ ");
         prompt.setTextSize(16);
-        prompt.setTextColor(0xFF2E9E5B);
+        prompt.setTextColor(LabSkin.GREEN);
         row.addView(prompt);
         input = new EditText(this);
         input.setTextSize(15);
@@ -241,7 +241,7 @@ public class LabTerminalActivity extends AppCompatActivity {
                 break;
             case "CTRL":
                 ctrlMode = !ctrlMode;
-                prompt.setTextColor(ctrlMode ? LabSkin.AMBER : 0xFF2E9E5B);
+                prompt.setTextColor(ctrlMode ? LabSkin.AMBER : LabSkin.GREEN);
                 Notify.show(ctrlMode ? "CTRL 已按下，再输一个字母" : "CTRL 已松开");
                 break;
             case "↑":
@@ -272,7 +272,7 @@ public class LabTerminalActivity extends AppCompatActivity {
                 append("^" + Character.toUpperCase(c) + "\n");
             }
             ctrlMode = false;
-            prompt.setTextColor(0xFF2E9E5B);
+            prompt.setTextColor(LabSkin.GREEN);
             return;
         }
         if (commandHistory.isEmpty() || !commandHistory.get(commandHistory.size() - 1).equals(command)) {

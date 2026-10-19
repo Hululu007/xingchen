@@ -39,7 +39,7 @@ public final class ReadingSkin {
     public static final int GOLD_DEEP = 0xFF2FA36C;
     public static final int TEXT = 0xFFF4F2EC;
     public static final int SUB = 0x99F4F2EC;
-    public static final int FAINT = 0x66F4F2EC;
+    public static final int FAINT = 0x80F4F2EC;
     /**
      * 深蓝黑基底（2026-10-18 他看 home-blue.png 拍板；暖棕黑曾短暂定案、同日晚被他改口推翻「底色还是蓝色吧」）：
      * 取色依据——home-blue.html 中间稿：linear-gradient(180deg,#0E1622→#0A0E16)，

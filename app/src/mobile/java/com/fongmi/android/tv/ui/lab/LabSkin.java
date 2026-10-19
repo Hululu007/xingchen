@@ -39,8 +39,8 @@ public final class LabSkin {
     public static final int GREEN_DOT = 0xFF22B45E;
     /** 出错红 #E5484D —— 星辰主 App 弹窗/布局同款红，深卡上可读 */
     public static final int RED = 0xFFE5484D;
-    /** 白底上的琥珀字（状态/进度文案）#C9870F */
-    public static final int AMBER = 0xFFC9870F;
+    /** 琥珀字（状态/进度文案）#9A6206 —— 浅底对比 4.9，看得清的深琥珀 */
+    public static final int AMBER = 0xFF9A6206;
     /** 黄钮上的字 #171310 */
     public static final int ON_YELLOW = 0xFF171310;
     /** 深底上的主字 #f7f4ee（稿 a2-dialogs .pt/.opt） */

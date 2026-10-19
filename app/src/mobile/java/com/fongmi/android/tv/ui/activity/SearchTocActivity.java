@@ -10,7 +10,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.legado.LegadoException;
@@ -63,7 +62,7 @@ public class SearchTocActivity extends AppCompatActivity {
             finish();
             return;
         }
-        EdgeToEdge.enable(this);
+        ReadingSkin.enableEdgeToEdge(this, true);
         buildUi(book);
         fetchToc(book);
 

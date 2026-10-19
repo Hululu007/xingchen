@@ -16,7 +16,6 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -73,8 +72,8 @@ public class ComicReaderActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // fitWindowBackground 已废弃（窗口底恒被 ThemeManager.doApply 重设为壁纸）：
-        // 透明状态栏与图标明暗由下一行的 EdgeToEdge.enable 负责
-        EdgeToEdge.enable(this);
+        // 透明状态栏与图标明暗由下一行的 ReadingSkin.enableEdgeToEdge 负责（深色页固定浅图标）
+        ReadingSkin.enableEdgeToEdge(this, true);
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {
             Toast.makeText(this, "阅读会话已失效", Toast.LENGTH_SHORT).show();

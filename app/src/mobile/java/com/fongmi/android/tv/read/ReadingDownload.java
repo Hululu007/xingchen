@@ -110,6 +110,17 @@ public final class ReadingDownload {
         }
     }
 
+    /** 删单章缓存：越界写入的自愈用（正常流程不会调到它）。 */
+    public static void deleteNovelChapter(Context ctx, String bookKey, int chapterIndex) {
+        try {
+            File f = novelFile(ctx, bookKey, chapterIndex);
+            if (f.exists()) f.delete();
+            File part = new File(f.getParent(), f.getName() + ".part");
+            if (part.exists()) part.delete();
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ---------------- 漫画 ----------------
 
     private static File comicDir(Context ctx, String bookKey, int chapterIndex) {

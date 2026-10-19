@@ -956,8 +956,19 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void loadChapter(int index, boolean restoreProgress) {
         if (loading) return;
-        if (index < 0 || (session.chapters.size() > 1 && index >= session.chapters.size())) {
+        // 越界守卫：py 小说按记录重建是单章会话（chapters.size()==1），旧写法
+        // 「size()>1 && index>=size」对单章放行了 index=1，随后 currentChapter()
+        // 的 fallback 拿第一章地址重跑解析——转圈半天最后还是第一章。这里直接拦掉。
+        // size==0 时 index=0 仍放行（fallback 靠 chapterUrl 取文，老口径不变）。
+        int maxIndex = (session.chapters == null || session.chapters.isEmpty())
+                ? 0 : session.chapters.size() - 1;
+        if (index < 0 || index > maxIndex) {
             Toast.makeText(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT).show();
+            // 自愈：越界槽位里的缓存只可能是上面这个 bug 写进去的错章正文，清掉
+            if (index > maxIndex && session.chapters != null && !session.chapters.isEmpty()) {
+                com.fongmi.android.tv.read.ReadingDownload.deleteNovelChapter(
+                        this, bookKey(), index);
+            }
             return;
         }
         loading = true;

@@ -78,6 +78,10 @@ public class NovelReaderActivity extends AppCompatActivity {
     private boolean loading = false;
     private String currentText = "";
     private volatile long lastSaveAt = 0; // saveProgressAt 跑在后台线程，加 volatile
+    // 章末自动接下一章：只在"刚滑到底"的跳变时触发一次，避免打开恢复到底部时误触
+    private boolean wasBottom = false;
+    private int autoAdvancedFor = -1;
+    private long loadUiDoneAt = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -161,7 +165,10 @@ public class NovelReaderActivity extends AppCompatActivity {
             // 覆盖/滑动模式：手势被翻页接管，不自由滚动
             return pageMode() != 0;
         });
-        scrollView.getViewTreeObserver().addOnScrollChangedListener(this::updateProgressLabel);
+        scrollView.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            updateProgressLabel();
+            maybeAutoNext();
+        });
 
         topBar = buildTopBar();
         root.addView(topBar);
@@ -995,6 +1002,10 @@ public class NovelReaderActivity extends AppCompatActivity {
             final float frac0 = restoreFrac;
             runOnUiThread(() -> {
                 loading = false;
+                // 新章上屏：自动接下一章的状态复位（防本章滚动事件串扰）
+                wasBottom = false;
+                autoAdvancedFor = -1;
+                loadUiDoneAt = System.currentTimeMillis();
                 currentText = text;
                 if (TextUtils.isEmpty(text)) {
                     tvContent.setText("正文抓取失败，换一章试试");
@@ -1077,6 +1088,29 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void goChapter(int index) {
         loadChapter(index, false);
+    }
+
+    /**
+     * 章末自动接下一章：三种翻页模式通用（纵滑滚到底 / 覆盖·滑动翻到最后一屏）。
+     * 只在"刚滑到底"的跳变触发，且本次加载 1.5 秒后才生效——打开时恢复到底部
+     * 进度、加载完的初始滚动都不会误触。
+     */
+    private void maybeAutoNext() {
+        if (session == null || loading) return;
+        java.util.List<ReadingSession.Chapter> chs = session.chapters;
+        if (chs == null || chs.size() <= 1) return;
+        if (session.chapterIndex >= chs.size() - 1) {
+            wasBottom = true;
+            return;
+        }
+        boolean bottom = currentFraction() >= 0.995f;
+        if (bottom && !wasBottom && autoAdvancedFor != session.chapterIndex
+                && System.currentTimeMillis() - loadUiDoneAt > 1500) {
+            autoAdvancedFor = session.chapterIndex;
+            Toast.makeText(this, "已自动进入下一章", Toast.LENGTH_SHORT).show();
+            goChapter(session.chapterIndex + 1);
+        }
+        wasBottom = bottom;
     }
 
     /** 书签跳转：可带章内进度。 */
@@ -1186,6 +1220,8 @@ public class NovelReaderActivity extends AppCompatActivity {
             r.chapterIndex = session.chapterIndex;
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
+            r.detailId = session.detailId;
+            r.playFlag = session.playFlag;
             r.legadoKey = session.legadoKey;
             r.localId = session.localId;
             r.origin = TextUtils.isEmpty(session.localId) ? "" : "local";

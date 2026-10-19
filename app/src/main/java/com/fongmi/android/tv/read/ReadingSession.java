@@ -49,6 +49,10 @@ public class ReadingSession {
     public String referer = "";
     /** py 源 key（懒取章节表用）。 */
     public String siteKey = "";
+    /** py 小说：书的详情 id（书架重建章节表时重拉详情用；老会话为空）。 */
+    public String detailId = "";
+    /** py 小说：建会话时的线路 flag 名（多线路时重建选同一线路的章节表）。 */
+    public String playFlag = "";
     /** Legado 书源 bookSourceUrl（书源懒取正文/图片用）。 */
     public String legadoKey = "";
     /** 本地书 id（localbook 包；非空=本地书，懒取走 LocalBookReader）。 */

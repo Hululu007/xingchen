@@ -104,6 +104,14 @@ public class ReadingRouter {
         s.ruleTitle = TextUtils.isEmpty(s.siteKey) ? s.sourceName : "";
         // Legado 书源走 legadoKey 懒取，不许误进海阔规则链
         if (!TextUtils.isEmpty(s.legadoKey)) s.ruleTitle = "";
+        // py 小说：记录里带详情 id 的，后台拉全量章节表重建会话（能翻章/跳目录）；
+        // 老记录（无 detailId）走原来的单章口径，不崩、进度不错位。
+        if (s.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(s.siteKey)
+                && TextUtils.isEmpty(s.legadoKey) && TextUtils.isEmpty(s.ruleTitle)
+                && !TextUtils.isEmpty(r.detailId)) {
+            fetchNovelChapters(context, r, s);
+            return;
+        }
         if (s.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(r.content)) {
             s.text = r.content;
         }
@@ -112,6 +120,91 @@ public class ReadingRouter {
         } else {
             openReading(context, s);
         }
+    }
+
+    /**
+     * py 小说章节表重建：按记录的详情 id 重拉详情，取同线路的选集表当章节表，
+     * 把记录定位回正确下标再开阅读器。拉失败/表为空时回退单章口径（fail-open）。
+     */
+    private static void fetchNovelChapters(Context context, ReadingStore.Record r, ReadingSession s) {
+        Toast.makeText(context, "正在拉取目录…", Toast.LENGTH_SHORT).show();
+        final String detailId = r.detailId;
+        final String siteKey = r.siteKey;
+        final String playFlag = r.playFlag;
+        new Thread(() -> {
+            java.util.List<ReadingSession.Chapter> chapters = new java.util.ArrayList<>();
+            try {
+                com.fongmi.android.tv.bean.Result res =
+                        com.fongmi.android.tv.api.SiteApi.detailContent(siteKey, detailId);
+                chapters = pickNovelChapters(res, playFlag);
+            } catch (Throwable ignored) {
+            }
+            final java.util.List<ReadingSession.Chapter> table = chapters;
+            // context 未必是 Activity（语音"继续读"），用主线程 Handler 回调
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                if (table.size() > 1) {
+                    int idx = com.fongmi.android.tv.read.NovelChapterTable.resolveIndex(
+                            table, r.chapterUrl, r.chapterName, r.chapterIndex);
+                    s.chapters = new java.util.ArrayList<>(table);
+                    s.chapterIndex = idx;
+                    s.chapterUrl = s.currentChapter().url;
+                    s.detailId = detailId;
+                    s.playFlag = playFlag == null ? "" : playFlag;
+                    // 正文快照只属于第一章：定位到其它章时不许带着旧快照
+                    if (idx == 0 && !TextUtils.isEmpty(r.content)) s.text = r.content;
+                    else s.text = "";
+                    // 毒缓存自愈：记录索引与实际定位不符的旧槽位，只可能是 bug 写错的
+                    if (r.chapterIndex != idx) {
+                        com.fongmi.android.tv.read.ReadingDownload.deleteNovelChapter(
+                                context, novelBookKey(s), r.chapterIndex);
+                    }
+                    openReading(context, s);
+                } else {
+                    if (!TextUtils.isEmpty(r.content)) s.text = r.content;
+                    Toast.makeText(context, "目录拉取失败，只读当前章", Toast.LENGTH_SHORT).show();
+                    openReading(context, s);
+                }
+            });
+        }).start();
+    }
+
+    /** 从详情结果取章节表：优先记录时的线路，找不到用第一个有选集的线路。 */
+    private static java.util.List<ReadingSession.Chapter> pickNovelChapters(
+            com.fongmi.android.tv.bean.Result res, String playFlag) {
+        java.util.List<ReadingSession.Chapter> out = new java.util.ArrayList<>();
+        try {
+            if (res == null) return out;
+            com.fongmi.android.tv.bean.Vod vod = res.getVod();
+            if (vod == null) return out;
+            vod.setFlags();
+            java.util.List<com.fongmi.android.tv.bean.Flag> flags = vod.getFlags();
+            java.util.List<com.fongmi.android.tv.bean.Episode> eps = null;
+            if (!TextUtils.isEmpty(playFlag)) {
+                for (com.fongmi.android.tv.bean.Flag f : flags) {
+                    if (f != null && playFlag.equals(f.getFlag())
+                            && f.getEpisodes() != null && !f.getEpisodes().isEmpty()) {
+                        eps = f.getEpisodes();
+                        break;
+                    }
+                }
+            }
+            if (eps == null) {
+                for (com.fongmi.android.tv.bean.Flag f : flags) {
+                    if (f != null && f.getEpisodes() != null && !f.getEpisodes().isEmpty()) {
+                        eps = f.getEpisodes();
+                        break;
+                    }
+                }
+            }
+            if (eps != null) out = ReadingDetailDivert.toChapters(eps);
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    /** 小说章节缓存的 bookKey 口径（与 NovelReaderActivity.bookKey 一致）。 */
+    private static String novelBookKey(ReadingSession s) {
+        return "NOVEL|" + s.sourceName + "|" + s.bookTitle;
     }
 
     /**

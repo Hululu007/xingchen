@@ -36,6 +36,10 @@ public class ReadingStore {
         public String chapterUrl = "";
         /** py 源 key（继续读后按章重取用）。 */
         public String siteKey = "";
+        /** py 小说：书的详情 id（有它才能重建章节表；老记录为空）。 */
+        public String detailId = "";
+        /** py 小说：记录时的线路 flag 名（多线路时重建选同一线路）。 */
+        public String playFlag = "";
         /** Legado 书源 bookSourceUrl（继续读后按章重取用）。 */
         public String legadoKey = "";
         /** 来源：""=在线源，"local"=本地书（纯加法，老记录读回为空）。 */

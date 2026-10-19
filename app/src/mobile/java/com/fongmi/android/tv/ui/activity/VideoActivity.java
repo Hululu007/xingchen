@@ -2122,6 +2122,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             }
             ReadingSession.Chapter cur = rs.currentChapter();
             if (TextUtils.isEmpty(rs.chapterUrl)) rs.chapterUrl = cur.url;
+            // py 小说：记下书的详情 id 与线路，供书架重建章节表时重拉详情用
+            if (!TextUtils.isEmpty(rs.siteKey) && rs.kind == ReadingSession.Kind.NOVEL
+                    && TextUtils.isEmpty(rs.legadoKey) && TextUtils.isEmpty(rs.localId)
+                    && TextUtils.isEmpty(rs.ruleTitle)) {
+                rs.detailId = getId();
+                Flag f = getFlag();
+                rs.playFlag = f == null || f.getFlag() == null ? "" : f.getFlag();
+            }
             SpiderDebug.log("video-flow", manual
                             ? "reading manual open kind=%s book=%s chapters=%d"
                             : "reading divert open kind=%s book=%s chapters=%d",

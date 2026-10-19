@@ -253,9 +253,9 @@ public class LabServiceActivity extends AppCompatActivity {
         TextView warn = new TextView(this);
         warn.setText("导入时有没对上的地方，启动前看一眼：\n" + needsReview);
         warn.setTextSize(13);
-        warn.setTextColor(LabSkin.AMBER);
-        warn.setBackground(LabSkin.addrBox(this));
-        warn.setPadding(dp(18), dp(8), dp(18), dp(8));
+        warn.setTextColor(LabSkin.COUNT_YELLOW);
+        warn.setBackground(LabSkin.glassDark(this));
+        warn.setPadding(dp(18), dp(12), dp(18), dp(12));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(dp(18), dp(10), dp(18), 0);

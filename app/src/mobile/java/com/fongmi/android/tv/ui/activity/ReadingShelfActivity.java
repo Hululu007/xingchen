@@ -716,12 +716,6 @@ public class ReadingShelfActivity extends AppCompatActivity {
         n.getPaint().setFakeBoldText(true);
         n.setTextColor(ReadingSkin.TEXT);
         meta.addView(n);
-        TextView d = new TextView(c);
-        d.setText("听书源");
-        d.setTextSize(12);
-        d.setTextColor(ReadingSkin.SUB);
-        d.setPadding(0, dp(4), 0, 0);
-        meta.addView(d);
         card.addView(meta);
 
         // 右侧小字：照书源仓库卡那行抄（20sp/FAINT），文案「管理 ›」
@@ -848,13 +842,16 @@ public class ReadingShelfActivity extends AppCompatActivity {
         a.setTextColor(ReadingSkin.TEXT);
         a.setText("听书源 · " + count + " 个源");
         meta.addView(a);
-        TextView b = new TextView(c);
-        b.setTextSize(12);
-        b.setTextColor(ReadingSkin.SUB);
-        b.setPadding(0, dp(4), 0, 0);
+        // 副行只留状态（同步时间），与标题重复的「听书源 N」删掉；无同步信息时不占位。
         String sync = syncText();
-        b.setText("听书源 " + count + (TextUtils.isEmpty(sync) ? "" : " · " + sync));
-        meta.addView(b);
+        if (!TextUtils.isEmpty(sync)) {
+            TextView b = new TextView(c);
+            b.setText(sync);
+            b.setTextSize(12);
+            b.setTextColor(ReadingSkin.SUB);
+            b.setPadding(0, dp(4), 0, 0);
+            meta.addView(b);
+        }
         card.addView(meta);
 
         TextView arrow = new TextView(c);

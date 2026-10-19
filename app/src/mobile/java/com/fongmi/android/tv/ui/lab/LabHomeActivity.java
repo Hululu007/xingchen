@@ -175,7 +175,7 @@ public class LabHomeActivity extends AppCompatActivity {
         gridBox.addView(grid);
     }
 
-    /** 环境格：深玻璃＋环境名＋圆点＋「X 个服务」（稿 .tile） */
+    /** 环境格：深玻璃＋环境名（行右端 已安装/未安装）＋圆点＋「X 个服务」（稿 .tile） */
     private View envTile(String env) {
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
         int running = 0;
@@ -198,13 +198,25 @@ public class LabHomeActivity extends AppCompatActivity {
         tile.setFocusable(true);
         tile.setOnClickListener(v -> LabEnvActivity.start(this, env));
 
+        boolean installed = !"tool".equals(env) && LabRuntimeManager.isInstalled(this, env);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(0, 0, 0, dp(7));
         TextView name = new TextView(this);
         name.setText(LabRegistry.envLabel(env));
         name.setTextSize(15);
         name.setTextColor(LabSkin.TEXT_ON_DARK);
         name.getPaint().setFakeBoldText(true);
-        name.setPadding(0, 0, 0, dp(7));
-        tile.addView(name);
+        name.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        titleRow.addView(name);
+        TextView state = new TextView(this);
+        state.setText(installed ? "已安装" : "未安装");
+        state.setTextSize(11);
+        state.setTextColor(installed ? LabSkin.GREEN_ON_DARK : LabSkin.HINT_ON_DARK);
+        titleRow.addView(state);
+        tile.addView(titleRow);
 
         LinearLayout st = new LinearLayout(this);
         st.setOrientation(LinearLayout.HORIZONTAL);

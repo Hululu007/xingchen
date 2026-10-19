@@ -3,14 +3,16 @@ package com.fongmi.android.tv.ui.lab;
 import android.content.Context;
 
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.lang.reflect.Type;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -169,17 +171,50 @@ public final class LabRegistry {
         if (!f.exists()) return r;
         try (FileInputStream in = new FileInputStream(f);
              InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-            Type t = new TypeToken<LabRegistry>() {
-            }.getType();
-            LabRegistry saved = new Gson().fromJson(reader, t);
-            if (saved != null) {
-                r.svcs.putAll(saved.svcs);
-                r.runtimes.putAll(saved.runtimes);
-                r.masterAutoStart = saved.masterAutoStart;
-            }
+            parseRegistry(reader, r);
         } catch (Exception ignored) {
         }
         return r;
+    }
+
+    /**
+     * 注册表读回（1.3.52 真机崩溃根治）：
+     * R8 会剥掉集合字段的泛型签名（proguard 里没有 -keepattributes Signature），
+     * Gson 按裸类型读 Map/List 时值全是 LinkedTreeMap，之后强转 bean 必崩。
+     * 这里改走 JsonParser 逐层读：顶层按形态分流（对象=服务/环境两张表，布尔=总开关），
+     * 每个条目按具体类（Svc/Runtime，无泛型字段）重绑；字段名走 Gson 反射
+     * （运行时实际名），不依赖源码名，手机上已存的老数据照读。
+     */
+    static void parseRegistry(Reader reader, LabRegistry r) {
+        Gson g = new Gson();
+        JsonElement root;
+        try {
+            root = JsonParser.parseReader(reader);
+        } catch (Exception e) {
+            return;
+        }
+        if (root == null || !root.isJsonObject()) return;
+        for (Map.Entry<String, JsonElement> e : root.getAsJsonObject().entrySet()) {
+            JsonElement v = e.getValue();
+            if (v.isJsonObject()) {
+                // 服务表 / 环境表：逐条看有没有 id 归位（Svc 必有 id，Runtime 没有）
+                for (Map.Entry<String, JsonElement> en : v.getAsJsonObject().entrySet()) {
+                    if (!en.getValue().isJsonObject()) continue;
+                    Svc s = g.fromJson(en.getValue(), Svc.class);
+                    if (s != null && s.id != null && !s.id.isEmpty()) {
+                        r.svcs.put(en.getKey(), s);
+                    } else {
+                        Runtime rt = g.fromJson(en.getValue(), Runtime.class);
+                        if (rt != null) {
+                            if (rt.name == null) rt.name = en.getKey();
+                            r.runtimes.put(en.getKey(), rt);
+                        }
+                    }
+                }
+            } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
+                r.masterAutoStart = v.getAsBoolean();
+            }
+        }
     }
 
     private synchronized void save(Context c) {

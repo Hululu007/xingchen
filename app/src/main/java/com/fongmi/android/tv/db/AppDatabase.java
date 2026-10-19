@@ -12,6 +12,7 @@ import com.fongmi.android.tv.bean.Device;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Keep;
 import com.fongmi.android.tv.bean.Live;
+import com.fongmi.android.tv.bean.MusicDownload;
 import com.fongmi.android.tv.bean.MusicFavorite;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.MusicPlaylistItem;
@@ -23,6 +24,7 @@ import com.fongmi.android.tv.db.dao.DeviceDao;
 import com.fongmi.android.tv.db.dao.HistoryDao;
 import com.fongmi.android.tv.db.dao.KeepDao;
 import com.fongmi.android.tv.db.dao.LiveDao;
+import com.fongmi.android.tv.db.dao.MusicDownloadDao;
 import com.fongmi.android.tv.db.dao.MusicFavoriteDao;
 import com.fongmi.android.tv.db.dao.MusicPlaylistDao;
 import com.fongmi.android.tv.db.dao.MusicPlaylistItemDao;
@@ -39,10 +41,10 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-@Database(entities = {Keep.class, Site.class, Live.class, Track.class, Config.class, Device.class, History.class, PlaybackDeleteTombstone.class, MusicFavorite.class, MusicPlaylist.class, MusicPlaylistItem.class}, version = AppDatabase.VERSION)
+@Database(entities = {Keep.class, Site.class, Live.class, Track.class, Config.class, Device.class, History.class, PlaybackDeleteTombstone.class, MusicFavorite.class, MusicPlaylist.class, MusicPlaylistItem.class, MusicDownload.class}, version = AppDatabase.VERSION)
 public abstract class AppDatabase extends RoomDatabase {
 
-    public static final int VERSION = 38;
+    public static final int VERSION = 39;
     public static final String NAME = "tv";
     public static final String SYMBOL = "@@@";
 
@@ -116,6 +118,7 @@ public abstract class AppDatabase extends RoomDatabase {
                 .addMigrations(Migrations.MIGRATION_35_36)
                 .addMigrations(Migrations.MIGRATION_36_37)
                 .addMigrations(Migrations.MIGRATION_37_38)
+                .addMigrations(Migrations.MIGRATION_38_39)
                 .fallbackToDestructiveMigration(true)
                 .allowMainThreadQueries().build();
     }
@@ -141,4 +144,6 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract MusicPlaylistDao getMusicPlaylistDao();
 
     public abstract MusicPlaylistItemDao getMusicPlaylistItemDao();
+
+    public abstract MusicDownloadDao getMusicDownloadDao();
 }

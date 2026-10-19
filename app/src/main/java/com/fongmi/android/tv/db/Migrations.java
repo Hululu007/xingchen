@@ -76,4 +76,12 @@ public class Migrations {
             database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId_trackId` ON `MusicPlaylistItem` (`playlistId`, `trackId`)");
         }
     };
+
+    public static final Migration MIGRATION_38_39 = new Migration(38, 39) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS MusicDownload (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `trackId` TEXT NOT NULL, `title` TEXT, `artist` TEXT, `album` TEXT, `duration` INTEGER NOT NULL, `cover` TEXT, `filePath` TEXT, `createTime` INTEGER NOT NULL)");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicDownload_trackId` ON `MusicDownload` (`trackId`)");
+        }
+    };
 }

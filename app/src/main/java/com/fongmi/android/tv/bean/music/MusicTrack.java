@@ -16,6 +16,8 @@ public class MusicTrack {
 
     /** 来源平台标识（直链解析用） */
     public String platform;
+    /** 本地文件绝对路径（platform="local" 时有效，LocalMusicSource 解析用） */
+    public String localPath;
     /** 音质徽章：SQ / HQ / HR，可空 */
     public String qualityTag;
 

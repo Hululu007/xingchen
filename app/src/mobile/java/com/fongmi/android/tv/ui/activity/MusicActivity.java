@@ -21,6 +21,7 @@ import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
@@ -110,6 +111,10 @@ public class MusicActivity extends BaseActivity {
             navItems.get(1).status = list.size() + " 个歌单";
             if (adapter != null) adapter.notifyDataSetChanged();
         });
+        MusicDownloadStore.count(n -> {
+            navItems.get(4).status = n + " " + getString(R.string.music_tracks);
+            if (adapter != null) adapter.notifyDataSetChanged();
+        });
     }
 
     private void buildNavItems() {
@@ -118,6 +123,7 @@ public class MusicActivity extends BaseActivity {
         navItems.add(new NavItem("sheets", getString(R.string.music_playlist), "", 0xFF22C55E, R.drawable.ic_music_queue));
         navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
         navItems.add(new NavItem("charts", getString(R.string.music_charts), "热歌 · 新歌", 0xFFA855F7, R.drawable.ic_music_eq));
+        navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
     }
 
     private void sortSites(List<MusicSite> sites) {
@@ -166,6 +172,9 @@ public class MusicActivity extends BaseActivity {
                 break;
             case "charts":
                 MusicListActivity.startCharts(this);
+                break;
+            case "download":
+                MusicListActivity.startDownload(this);
                 break;
         }
     }

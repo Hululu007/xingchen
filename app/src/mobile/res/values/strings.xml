@@ -172,5 +172,14 @@
     <string name="music_sort_title">按标题</string>
     <string name="music_sort_artist">按歌手</string>
     <string name="music_sort_duration">按时长</string>
+    <string name="music_download">下载</string>
+    <string name="music_downloaded">已下载</string>
+    <string name="music_download_exists">这首已下载过</string>
+    <string name="music_downloading">这首正在下载中</string>
+    <string name="music_download_url_empty">下载链接获取失败</string>
+    <string name="music_download_failed">加入下载失败</string>
+    <string name="music_download_delete">删除本地文件</string>
+    <string name="music_download_delete_confirm">删除这条记录，同时删除本地文件？</string>
+    <string name="music_deleted">已删除</string>
 
 </resources>

@@ -26,6 +26,7 @@ import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicListBinding;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
@@ -58,6 +59,12 @@ public class MusicListActivity extends BaseActivity {
     private String bigTitle = "";
     private String sitePlatform = "";
     private long playlistId = -1;
+
+    public static void startDownload(Activity activity) {
+        Intent i = new Intent(activity, MusicListActivity.class);
+        i.putExtra("mode", "download");
+        activity.startActivity(i);
+    }
 
     public static void startSearch(Activity activity, String keyword) {
         Intent i = new Intent(activity, MusicListActivity.class);
@@ -185,6 +192,10 @@ public class MusicListActivity extends BaseActivity {
             case "sheet":
                 loadSheetTracks();
                 break;
+            case "download":
+                bigTitle = getString(R.string.music_downloaded);
+                loadDownloads();
+                break;
             case "search":
                 bigTitle = getString(R.string.music_search);
                 showTracks(new ArrayList<>());
@@ -205,6 +216,8 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_favorite);
             case "charts":
                 return getString(R.string.music_charts);
+            case "download":
+                return getString(R.string.music_downloaded);
             default:
                 return getString(R.string.music_playlist);
         }
@@ -294,6 +307,11 @@ public class MusicListActivity extends BaseActivity {
         MusicLibrary.playlistTracks(playlistId, this::showTracks);
     }
 
+    private void loadDownloads() {
+        showLoading();
+        MusicDownloadStore.all(this::showTracks);
+    }
+
     private void showLoading() {
         binding.empty.setVisibility(View.VISIBLE);
         binding.empty.setText("正在加载…");
@@ -359,13 +377,31 @@ public class MusicListActivity extends BaseActivity {
 
     private void onMore(MusicTrack track, int position) {
         FragmentActivity act = this;
+        boolean local = MusicDownloadStore.isLocal(track);
         List<String> opts = new ArrayList<>();
         opts.add("播放");
         opts.add(getString(R.string.music_play_next));
         opts.add(getString(R.string.music_add_to_playlist));
         MusicLibrary.isFavorite(track.id, fav -> {
             opts.add(fav ? getString(R.string.music_unfavorite) : getString(R.string.music_favorite));
-            if (mode.equals("sheet")) opts.add(getString(R.string.music_remove));
+            int downloadIdx = -1;
+            int removeIdx = -1;
+            int deleteLocalIdx = -1;
+            if (local) {
+                // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
+                deleteLocalIdx = opts.size();
+                opts.add(getString(R.string.music_download_delete));
+            } else {
+                if (mode.equals("sheet")) {
+                    removeIdx = opts.size();
+                    opts.add(getString(R.string.music_remove));
+                }
+                downloadIdx = opts.size();
+                opts.add(getString(R.string.music_download));
+            }
+            int dIdx = downloadIdx;
+            int rIdx = removeIdx;
+            int delIdx = deleteLocalIdx;
             MusicOptionsDialog.show(act, track.displayTitle(), opts, -1, idx -> {
                 if (idx == 0) playTrack(position);
                 else if (idx == 1) {
@@ -373,9 +409,24 @@ public class MusicListActivity extends BaseActivity {
                     Notify.show(getString(R.string.music_play_next));
                 } else if (idx == 2) pickPlaylist(track);
                 else if (idx == 3) toggleFavorite(track, opts.get(3));
-                else if (idx == 4 && mode.equals("sheet")) removeFromSheet(track);
+                else if (idx == dIdx) MusicDownloadStore.download(track);
+                else if (idx == rIdx) removeFromSheet(track);
+                else if (idx == delIdx) confirmDeleteLocal(track);
             });
         });
+    }
+
+    private void confirmDeleteLocal(MusicTrack track) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(track.displayTitle())
+                .setMessage(getString(R.string.music_download_delete_confirm))
+                .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
+                        MusicDownloadStore.deleteLocal(track, () -> {
+                            Notify.show(R.string.music_deleted);
+                            if (mode.equals("download")) loadDownloads();
+                        }))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void toggleFavorite(MusicTrack track, String label) {

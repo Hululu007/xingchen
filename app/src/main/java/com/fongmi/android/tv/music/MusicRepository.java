@@ -19,6 +19,11 @@ public class MusicRepository {
     private static final List<MusicSource> SOURCES = new CopyOnWriteArrayList<>();
     private static boolean debugTried;
 
+    static {
+        // 本地音乐源常驻：已下载歌曲（platform="local"）走文件直链，播放链不动
+        register(new LocalMusicSource());
+    }
+
     public static void register(MusicSource source) {
         if (source == null) return;
         for (MusicSource s : SOURCES) {

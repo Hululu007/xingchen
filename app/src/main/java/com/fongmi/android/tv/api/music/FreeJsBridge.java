@@ -9,9 +9,10 @@ import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSearchResult;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Async;
+import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
-import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Asset;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -26,7 +27,6 @@ import com.whl.quickjs.wrapper.QuickJSContext;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -34,10 +34,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
@@ -386,39 +382,14 @@ public class FreeJsBridge {
     }
 
     /**
-     * 插件网络出口：同步走壳子 OkHttp（代理/DoH/节点定向），不直连。
+     * 插件网络出口：复用 quickjs 模块的 Connect（壳子 OkHttp，吃代理/DoH/节点定向），不直连。
      * 返回 {status, headers, text} 的 JSON；失败返回 {error}。
      */
     private String nativeRequest(String method, String url, String optsJson) {
         JSONObject out = new JSONObject();
         try {
-            JSONObject opts = new JSONObject(optsJson);
-            JSONObject hs = opts.optJSONObject("headers");
-            String body = opts.isNull("body") ? null : opts.optString("body", null);
-            long timeout = opts.optLong("timeout", 20000);
-            timeout = Math.max(5000, Math.min(60000, timeout));
-            Request.Builder b = new Request.Builder().url(url);
-            if (hs != null) {
-                Iterator<String> keys = hs.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    if (k.equalsIgnoreCase("host") || k.equalsIgnoreCase("content-length")) continue;
-                    try {
-                        b.header(k, hs.optString(k, ""));
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-            String m = method == null ? "GET" : method.toUpperCase();
-            if (body != null) {
-                b.method(m, RequestBody.create(body, MediaType.get("application/json; charset=utf-8")));
-            } else if ("GET".equals(m)) {
-                b.get();
-            } else {
-                b.method(m, RequestBody.create(new byte[0]));
-            }
-            OkHttpClient client = OkHttp.client(true, timeout);
-            try (Response res = client.newCall(b.build()).execute()) {
+            Req req = Req.objectFrom(buildReqJson(method, optsJson));
+            try (Response res = Connect.to(url, req).execute()) {
                 byte[] bytes = res.body() != null ? res.body().bytes() : new byte[0];
                 out.put("status", res.code());
                 JSONObject headers = new JSONObject();
@@ -427,7 +398,7 @@ public class FreeJsBridge {
                     if (vals != null && !vals.isEmpty()) headers.put(e.getKey(), vals.get(vals.size() - 1));
                 }
                 out.put("headers", headers);
-                out.put("text", new String(bytes, charsetOf(res)));
+                out.put("text", new String(bytes, req.getCharset()));
             }
         } catch (Throwable t) {
             try {
@@ -438,18 +409,30 @@ public class FreeJsBridge {
         return out.toString();
     }
 
-    private java.nio.charset.Charset charsetOf(Response res) {
+    /**
+     * 把垫片的 {headers, body, timeout} 转成 quickjs 模块 Req bean 的 JSON。
+     * Connect 只认 GET/POST/HEAD：PUT/DELETE/PATCH 统一按 POST 发（body 保留），
+     * 与 Req.normalizeBody 的归一思路一致。
+     */
+    private String buildReqJson(String method, String optsJson) {
+        JSONObject req = new JSONObject();
         try {
-            String ct = res.header("Content-Type", "");
-            int i = ct.toLowerCase().indexOf("charset=");
-            if (i >= 0) {
-                String cs = ct.substring(i + 8).trim();
-                int end = cs.indexOf(';');
-                if (end > 0) cs = cs.substring(0, end);
-                return java.nio.charset.Charset.forName(cs.replace("\"", "").trim());
+            JSONObject opts = new JSONObject(optsJson);
+            String m = method == null ? "GET" : method.toUpperCase();
+            if (!"GET".equals(m) && !"POST".equals(m) && !"HEAD".equals(m)) m = "POST";
+            req.put("method", m);
+            JSONObject hs = opts.optJSONObject("headers");
+            if (hs != null) req.put("headers", hs);
+            if (!opts.isNull("body")) req.put("body", opts.optString("body", ""));
+            long timeout = opts.optLong("timeout", 20000);
+            req.put("timeout", (int) Math.max(5000, Math.min(60000, timeout)));
+            req.put("redirect", 1);
+        } catch (Exception e) {
+            try {
+                req.put("method", "GET");
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
         }
-        return java.nio.charset.StandardCharsets.UTF_8;
+        return req.toString();
     }
 }

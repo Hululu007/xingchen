@@ -30,8 +30,7 @@ public class EdgeVoiceCatalog {
     public static final String DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
 
     private static final String VOICES_URL =
-            "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list"
-                    + "?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+            "https://api.msedgeservices.com/tts/cognitiveservices/voices/list";
 
     /** 试听文案（固定一小段）。 */
     public static final String TRIAL_TEXT =

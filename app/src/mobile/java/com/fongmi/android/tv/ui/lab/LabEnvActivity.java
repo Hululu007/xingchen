@@ -166,7 +166,7 @@ public class LabEnvActivity extends AppCompatActivity {
         listBox.addView(grid);
     }
 
-    /** 服务格：深玻璃＋名＋状态徽＋启/停钮＋自启开关（稿 env-installed .tile） */
+    /** 服务格：深玻璃＋名＋状态徽＋启/停钮＋自启开关＋行尾节点开关（稿 env-installed .tile） */
     private View serviceTile(LabRegistry.Svc s) {
         boolean running = LabRunner.isRunning(this, s.id);
         LinearLayout tile = new LinearLayout(this);
@@ -276,6 +276,27 @@ public class LabEnvActivity extends AppCompatActivity {
             }
         });
         row.addView(sw);
+        // 节点：同一行最右边。开关按服务存，拨动即存；正在跑的服务下次启动生效（不强制重启）
+        LinearLayout spacer2 = new LinearLayout(this);
+        spacer2.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(spacer2);
+        TextView nodeLab = new TextView(this);
+        nodeLab.setText("节点");
+        nodeLab.setTextSize(11);
+        nodeLab.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.rightMargin = dp(5);
+        nodeLab.setLayoutParams(nlp);
+        row.addView(nodeLab);
+        View nodeSw = LabSkin.miniSwitch(this, s.nodeProxy, on -> {
+            LabRegistry.Svc cur = LabRegistry.get(this).svc(s.id);
+            if (cur != null) {
+                cur.nodeProxy = on;
+                LabRegistry.get(this).upsertSvc(this, cur);
+            }
+        });
+        row.addView(nodeSw);
         tile.addView(row);
         return tile;
     }

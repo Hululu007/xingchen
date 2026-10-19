@@ -3,6 +3,9 @@ package com.fongmi.android.tv.ui.lab;
 import android.content.Context;
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.clash.ClashSettings;
+import com.fongmi.android.tv.clash.MihomoManager;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -407,6 +410,7 @@ public final class LabRunner {
             builder.directory(cwd);
             builder.redirectErrorStream(true);
             applyEnv(c, pkgId, builder.environment());
+            String nodeNote = applyNodeProxy(c, pkgId, builder.environment());
             Process process = builder.start();
             RUNNING.put(key, process);
             try {
@@ -414,6 +418,10 @@ public final class LabRunner {
             } catch (Exception ignored) {
             }
             File log = LabProc.logFile(c, logName);
+            if (nodeNote != null) {
+                appendLog(key, nodeNote + "\n");
+                appendFile(log, nodeNote + "\n");
+            }
             ERRORS.remove(key);
             LabProc.track(c, key, LabProc.pidOf(process), log.getAbsolutePath());
             LabKeepAlive.refresh(c);
@@ -458,6 +466,54 @@ public final class LabRunner {
                 env.put("NO_PROXY", no);
             }
         }
+    }
+
+    /**
+     * 单服务节点开关：该服务开了开关，启动命令时给进程注入本机节点代理
+     * （默影视上游 applyGlobalProxy 口径：大小写变体＋已有值不覆盖＋mihomo 跳过）。
+     * 变量清单：http_proxy/https_proxy/HTTP_PROXY/HTTPS_PROXY＝http://127.0.0.1:<混合端口>；
+     * all_proxy/ALL_PROXY＝socks5://127.0.0.1:<混合端口+1>；no_proxy/NO_PROXY＝实验室设置里的例外值。
+     * 地址取法照壳子现有口径（ClashSettings.localProxyUrl）。
+     *
+     * @return 节点开关开着但没注入时的人话说明（节点没在跑→直连启动，留行记录）；
+     * 开关没开 / mihomo 服务本身 / 注入成功都返回 null。
+     */
+    static String applyNodeProxy(Context c, String pkgId, Map<String, String> env) {
+        LabRegistry.Svc pkg = LabRegistry.get(c).svc(pkgId);
+        if (!nodeProxyWanted(pkg)) return null;
+        if (!MihomoManager.get().isRunning()) {
+            return "「节点」开着，但节点还没跑，这次直连启动；等节点起来后下次启动就走节点";
+        }
+        int mixed = ClashSettings.getMixedPort(c);
+        if (mixed <= 0) return null;
+        for (Map.Entry<String, String> e : nodeProxyVars(mixed, LabSettings.proxyNoProxy(c)).entrySet()) {
+            if (!env.containsKey(e.getKey())) env.put(e.getKey(), e.getValue());
+        }
+        return null;
+    }
+
+    /** 该服务是否要走节点：开了开关、且不是 mihomo 服务本身（防自环） */
+    static boolean nodeProxyWanted(LabRegistry.Svc pkg) {
+        if (pkg == null || !pkg.nodeProxy) return false;
+        return !"mihomo".equals(pkg.runtime) && !"mihomo".equals(pkg.id);
+    }
+
+    /** 节点代理变量表（纯函数，便于单测）：混合端口 + socks 端口（混合+1）＋例外域名 */
+    static Map<String, String> nodeProxyVars(int mixed, String noProxy) {
+        Map<String, String> out = new java.util.LinkedHashMap<>();
+        String http = "http://127.0.0.1:" + mixed;
+        String socks = "socks5://127.0.0.1:" + (mixed + 1);
+        out.put("http_proxy", http);
+        out.put("https_proxy", http);
+        out.put("HTTP_PROXY", http);
+        out.put("HTTPS_PROXY", http);
+        out.put("all_proxy", socks);
+        out.put("ALL_PROXY", socks);
+        if (!TextUtils.isEmpty(noProxy)) {
+            out.put("no_proxy", noProxy);
+            out.put("NO_PROXY", noProxy);
+        }
+        return out;
     }
 
     private static String join(Set<String> s, String sep) {

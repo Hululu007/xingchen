@@ -50,6 +50,9 @@ public final class LabRegistry {
         public int port;
         /** 兼容导入时映射不了、要用户人工确认的人话（一条一行），空=无 */
         public String needsReview;
+        /** 单服务节点开关：开着则启动命令时给进程注入本机节点代理（mihomo 服务本身不注入）；
+         *  基本类型，老数据没这字段 Gson 读出来默认关，不用补迁移 */
+        public boolean nodeProxy;
     }
 
     public static class Runtime {

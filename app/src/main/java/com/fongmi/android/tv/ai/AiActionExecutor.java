@@ -52,10 +52,93 @@ public class AiActionExecutor {
             if (cb != null) cb.onFeedback(feedback);
             return;
         }
+        // 音乐指令：全局，音乐在播时生效
+        if (isMusicCommand(cmd)) {
+            String feedback = executeMusic(context, cmd);
+            if (cb != null) cb.onFeedback(feedback);
+            return;
+        }
         // 播放控制指令：需要播放页
         Activity activity = findTopActivity(context);
         boolean done = activity != null && dispatchToActivity(activity, cmd);
+        // 兜底：不在视频页但音乐在播，暂停/上下首走音乐
+        if (!done) done = dispatchToMusicFallback(cmd);
         if (cb != null) cb.onFeedback(done ? cmd.feedback : "请在播放页面使用该指令");
+    }
+
+    /** 是否为音乐指令 */
+    private static boolean isMusicCommand(AiVoiceCommand.Command cmd) {
+        if (cmd == null || cmd.action == null) return false;
+        String a = cmd.action;
+        return a.equals(AiVoiceCommand.ACTION_MUSIC_TOGGLE)
+                || a.equals(AiVoiceCommand.ACTION_MUSIC_NEXT)
+                || a.equals(AiVoiceCommand.ACTION_MUSIC_PREV)
+                || a.equals(AiVoiceCommand.ACTION_MUSIC_SEARCH)
+                || a.equals(AiVoiceCommand.ACTION_MUSIC_SOURCE)
+                || a.equals(AiVoiceCommand.ACTION_MUSIC_QUALITY);
+    }
+
+    /**
+     * 音乐指令执行（返回语音反馈文案）。
+     * toggle/next/prev 要求音乐在播；search 打开音乐搜索页；
+     * source/quality 是源层能力（轮换主源 / 轮换音质档）。
+     */
+    private static String executeMusic(Context context, AiVoiceCommand.Command cmd) {
+        try {
+            switch (cmd.action) {
+                case AiVoiceCommand.ACTION_MUSIC_TOGGLE:
+                    return com.fongmi.android.tv.music.MusicController.toggleStatic() ? "已切换" : "音乐没在播";
+                case AiVoiceCommand.ACTION_MUSIC_NEXT:
+                    return com.fongmi.android.tv.music.MusicController.nextStatic() ? "已切下一首" : "音乐没在播";
+                case AiVoiceCommand.ACTION_MUSIC_PREV:
+                    return com.fongmi.android.tv.music.MusicController.prevStatic() ? "已切上一首" : "音乐没在播";
+                case AiVoiceCommand.ACTION_MUSIC_SEARCH: {
+                    String kw = cmd.textParam == null ? "" : cmd.textParam.trim();
+                    if (kw.isEmpty()) return "没听清歌名，再说一遍";
+                    Activity top = topActivity(context);
+                    if (top == null) return "打开失败，请重试";
+                    Class<?> cls = Class.forName("com.fongmi.android.tv.ui.activity.MusicListActivity");
+                    android.content.Intent intent = new android.content.Intent(top, cls);
+                    intent.putExtra("mode", "search");
+                    intent.putExtra("keyword", kw);
+                    top.startActivity(intent);
+                    return "正在搜" + kw;
+                }
+                case AiVoiceCommand.ACTION_MUSIC_SOURCE: {
+                    // 源层：轮换主源（只做偏好切换，不做网络）
+                    com.fongmi.android.tv.bean.music.MusicSite site =
+                            com.fongmi.android.tv.api.music.MusicSourceManager.get().rotatePrimary();
+                    return "已切换到" + (site == null || site.name == null ? "音乐源" : site.name);
+                }
+                case AiVoiceCommand.ACTION_MUSIC_QUALITY: {
+                    // 源层：音质四档轮换（流畅/标准/高清/无损）
+                    int q = (com.fongmi.android.tv.music.MusicStore.getQuality() + 1) % 4;
+                    com.fongmi.android.tv.music.MusicStore.setQuality(q);
+                    return "音质已切换为" + com.fongmi.android.tv.music.MusicStore.qualityName(q);
+                }
+                default:
+                    return "不支持的操作";
+            }
+        } catch (Exception e) {
+            return "执行失败，请重试";
+        }
+    }
+
+    /**
+     * 通用播放指令兜底：视频页没接住、但音乐在播时，暂停/上下首走音乐。
+     * （视频页内仍优先走视频，行为不变）
+     */
+    private static boolean dispatchToMusicFallback(AiVoiceCommand.Command cmd) {
+        if (cmd == null || cmd.action == null) return false;
+        String a = cmd.action;
+        boolean playback = a.equals(AiVoiceCommand.ACTION_TOGGLE_PLAY)
+                || a.equals(AiVoiceCommand.ACTION_NEXT)
+                || a.equals(AiVoiceCommand.ACTION_PREV);
+        if (!playback) return false;
+        if (!com.fongmi.android.tv.music.MusicController.isActiveStatic()) return false;
+        if (a.equals(AiVoiceCommand.ACTION_NEXT)) return com.fongmi.android.tv.music.MusicController.nextStatic();
+        if (a.equals(AiVoiceCommand.ACTION_PREV)) return com.fongmi.android.tv.music.MusicController.prevStatic();
+        return com.fongmi.android.tv.music.MusicController.toggleStatic();
     }
 
     /** 是否为 Emby 指令（含 nav_emby） */
@@ -466,6 +549,14 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已切换上一集");
                 case AiVoiceCommand.ACTION_TOGGLE_PLAY:
                     return new AiVoiceCommand.Command(action, "已切换播放状态");
+                case AiVoiceCommand.ACTION_MUSIC_TOGGLE:
+                    return new AiVoiceCommand.Command(action, "已切换音乐");
+                case AiVoiceCommand.ACTION_MUSIC_NEXT:
+                    return new AiVoiceCommand.Command(action, "已切下一首");
+                case AiVoiceCommand.ACTION_MUSIC_PREV:
+                    return new AiVoiceCommand.Command(action, "已切上一首");
+                case AiVoiceCommand.ACTION_MUSIC_SEARCH:
+                    return new AiVoiceCommand.Command(action, text, "正在搜歌" + text);
                 case AiVoiceCommand.ACTION_WATCH_OPEN:
                     return new AiVoiceCommand.Command(action, "已打开一起看");
                 case AiVoiceCommand.ACTION_WATCH_LEAVE:

@@ -64,4 +64,16 @@ public class Migrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS `index_PlaybackDeleteTombstone_deletedAt` ON `PlaybackDeleteTombstone` (`deletedAt`)");
         }
     };
+
+    public static final Migration MIGRATION_37_38 = new Migration(37, 38) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS MusicFavorite (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `trackId` TEXT NOT NULL, `title` TEXT, `artist` TEXT, `album` TEXT, `duration` INTEGER NOT NULL, `cover` TEXT, `createTime` INTEGER NOT NULL)");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicFavorite_trackId` ON `MusicFavorite` (`trackId`)");
+            database.execSQL("CREATE TABLE IF NOT EXISTS MusicPlaylist (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT, `createTime` INTEGER NOT NULL, `updateTime` INTEGER NOT NULL)");
+            database.execSQL("CREATE TABLE IF NOT EXISTS MusicPlaylistItem (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `playlistId` INTEGER NOT NULL, `trackId` TEXT, `title` TEXT, `artist` TEXT, `album` TEXT, `duration` INTEGER NOT NULL, `cover` TEXT, `position` INTEGER NOT NULL, `createTime` INTEGER NOT NULL)");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId` ON `MusicPlaylistItem` (`playlistId`)");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId_trackId` ON `MusicPlaylistItem` (`playlistId`, `trackId`)");
+        }
+    };
 }

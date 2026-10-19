@@ -136,4 +136,41 @@
     <string name="player_more">更多</string>
     <string name="player_fine_setting">弹幕字幕设置</string>
 
+    <!-- 音乐播放器 -->
+    <string name="music_title">音乐</string>
+    <string name="music_search">搜索</string>
+    <string name="music_playlist">我的歌单</string>
+    <string name="music_favorite">收藏</string>
+    <string name="music_charts">榜单</string>
+    <string name="music_sites">个源</string>
+    <string name="music_tracks">首</string>
+    <string name="music_play_all">全部播放</string>
+    <string name="music_shuffle_play">随机播放</string>
+    <string name="music_connected">已连接</string>
+    <string name="music_unconnected">未连接</string>
+    <string name="music_queue">播放队列</string>
+    <string name="music_clear_queue">清空队列</string>
+    <string name="music_sleep">定时关闭</string>
+    <string name="music_quality">音质</string>
+    <string name="music_equalizer">均衡器</string>
+    <string name="music_no_track">还没有在播的歌</string>
+    <string name="music_no_result">没搜到，去换个词试试</string>
+    <string name="music_new_playlist">新建歌单</string>
+    <string name="music_playlist_name_hint">歌单名</string>
+    <string name="music_add_to_playlist">加入歌单</string>
+    <string name="music_added">已加入</string>
+    <string name="music_already_in">已经在歌单里了</string>
+    <string name="music_favorited">已收藏</string>
+    <string name="music_unfavorited">已取消收藏</string>
+    <string name="music_unfavorite">取消收藏</string>
+    <string name="music_play_next">下一首播放</string>
+    <string name="music_remove">移除</string>
+    <string name="music_search_hint">搜歌名、歌手</string>
+    <string name="music_sort_default">默认排序</string>
+    <string name="music_sort_name">按名称</string>
+    <string name="music_sort_status">按状态</string>
+    <string name="music_sort_title">按标题</string>
+    <string name="music_sort_artist">按歌手</string>
+    <string name="music_sort_duration">按时长</string>
+
 </resources>

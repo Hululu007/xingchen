@@ -63,6 +63,14 @@ import java.util.regex.Pattern;
  *   float_on        打开悬浮窗 / 显示悬浮球
  *   float_off       关闭悬浮窗 / 隐藏悬浮球
  *   py_refresh      刷新PY
+ *
+ * 【音乐】（全局，音乐在播时生效）
+ *   music_toggle    音乐暂停 / 暂停音乐 / 音乐继续 / 继续音乐 / 播放音乐
+ *   music_next      下一首 / 音乐下一首
+ *   music_prev      上一首 / 音乐上一首
+ *   music_search    搜歌XXX / 找歌XXX（text=关键词，进音乐搜索页）
+ *   music_source    切换音乐源 / 换音乐源（源层：轮换主源）
+ *   music_quality   切换音质 / 换音质（源层：流畅/标准/高清/无损轮换）
  * ======================================
  */
 public class AiVoiceCommand {
@@ -130,6 +138,15 @@ public class AiVoiceCommand {
     public static final String ACTION_NODE_ON = "node_on";
     public static final String ACTION_NODE_OFF = "node_off";
 
+    // ---- 音乐 ----
+    public static final String ACTION_MUSIC_TOGGLE = "music_toggle";
+    public static final String ACTION_MUSIC_NEXT = "music_next";
+    public static final String ACTION_MUSIC_PREV = "music_prev";
+    public static final String ACTION_MUSIC_SEARCH = "music_search";
+    // ---- 音乐源（源层能力，由源实现者声明） ----
+    public static final String ACTION_MUSIC_SOURCE = "music_source";
+    public static final String ACTION_MUSIC_QUALITY = "music_quality";
+
     private static final Pattern SEEK_PATTERN = Pattern.compile("(快进|快退|前进|后退)\\s*(\\d+)\\s*秒");
     private static final Pattern SEEK_PATTERN2 = Pattern.compile("(\\d+)\\s*秒.*(快进|前进)");
     private static final Pattern SEEK_BACK_PATTERN2 = Pattern.compile("(\\d+)\\s*秒.*(快退|后退)");
@@ -177,6 +194,13 @@ public class AiVoiceCommand {
                 || t.contains("上一个") && t.contains("集")) {
             return new Command(ACTION_PREV, "已切换上一集");
         }
+        // 音乐：下一首 / 上一首（"首"不带"集"，与视频指令不冲突）
+        if (t.contains("音乐下一首") || t.contains("下一首歌") || t.equals("下一首")) {
+            return new Command(ACTION_MUSIC_NEXT, "已切下一首");
+        }
+        if (t.contains("音乐上一首") || t.contains("上一首歌") || t.equals("上一首")) {
+            return new Command(ACTION_MUSIC_PREV, "已切上一首");
+        }
         // 播放第X集
         Matcher ep = EPISODE_PATTERN.matcher(t);
         if (ep.find() && !t.contains("下一集") && !t.contains("上一集")) {
@@ -196,6 +220,13 @@ public class AiVoiceCommand {
         }
         if (t.contains("一起看") || t.contains("开房间") || t.contains("创建房间")) {
             return new Command(ACTION_WATCH_OPEN, "已打开一起看");
+        }
+        // 音乐暂停/继续（放通用暂停之前，"暂停音乐"不能被视频分支吞掉）
+        if (t.contains("音乐暂停") || t.contains("暂停音乐")
+                || t.contains("音乐继续") || t.contains("继续音乐")
+                || t.contains("播放音乐") || t.contains("音乐播放")) {
+            boolean pause = t.contains("暂停");
+            return new Command(ACTION_MUSIC_TOGGLE, pause ? "音乐已暂停" : "音乐继续播");
         }
         // 暂停 / 播放
         if (t.equals("暂停") || t.contains("暂停播放") || t.contains("暂停一下")) {
@@ -357,6 +388,13 @@ public class AiVoiceCommand {
         if (t.contains("打开音乐") || t.contains("音乐页")) {
             return new Command(ACTION_NAV_MUSIC, "已打开音乐");
         }
+        // 音乐源：切源 / 切音质（源层能力；"音乐换源"含"换源"，必须排在阅读换源分支之前）
+        if (t.contains("切换音乐源") || t.contains("换音乐源") || t.contains("音乐换源")) {
+            return new Command(ACTION_MUSIC_SOURCE, "正在切换音乐源");
+        }
+        if (t.contains("切换音质") || t.contains("换音质") || t.contains("音质切换")) {
+            return new Command(ACTION_MUSIC_QUALITY, "正在切换音质");
+        }
         // Emby 扩展口令（必须排在"打开Emby"与通用"搜索"分支之前，避免被吞）
         Matcher embySw = EMBY_SWITCH_PATTERN.matcher(t);
         if (embySw.find()) {
@@ -443,6 +481,12 @@ public class AiVoiceCommand {
         }
         if (t.contains("小程序")) {
             return new Command(ACTION_NAV_MINIAPP, "已打开小程序");
+        }
+        // 音乐搜歌（放通用搜索之前，"搜歌"不走点播搜索）
+        if (t.startsWith("搜歌") || t.startsWith("找歌")) {
+            String kw = t.replaceFirst("^(搜歌|找歌)", "").trim();
+            if (!kw.isEmpty()) return new Command(ACTION_MUSIC_SEARCH, kw, "正在搜歌" + kw);
+            return new Command(ACTION_NAV_MUSIC, "已打开音乐");
         }
         if (t.startsWith("搜索") && t.length() > 2) {
             String kw = t.substring(2).trim();

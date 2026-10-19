@@ -80,6 +80,21 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private WeakReference<Activity> hostRef;
     private String lastVisible;
 
+    // ================= 音乐会话（独立音乐播放器，id="music"） =================
+
+    /** 音乐迷你条会话：只实现槽位 id，文案/封面实时从 MusicController 取 */
+    private static class MusicMiniSession implements MiniBarPolicy.Session {
+        @Override
+        public String id() {
+            return "music";
+        }
+    }
+
+    private MusicMiniSession musicSession;
+    /** 当前条是否为音乐样式（黑胶圆盘＋歌名＋大金暂停＋下一首） */
+    private boolean barMusicMode;
+    private ImageView ivVinyl;
+
     private ListenMiniBar(Context app) {
         this.app = app;
         Handler h = new Handler(Looper.getMainLooper());
@@ -154,15 +169,63 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         policy.closeSession(id);
     }
 
-    /** 进入音乐页：听书真关闭（用户定的关闭路径 3）。 */
+    /** 进入音乐页：听书真关闭（用户定的关闭路径 3）；音乐自己的条不动 */
     public void musicPageEnter() {
+        if ("music".equals(policy.visibleId())) return;
         policy.musicPageEnter();
+    }
+
+    /** 注册音乐会话（幂等）：服务有队列就露条 */
+    public synchronized void registerMusic() {
+        if (musicSession == null) {
+            musicSession = new MusicMiniSession();
+            pages.put("music", new WeakReference<>(null));
+            pageSeen.add("music");
+            policy.register(musicSession);
+        }
+        refreshBar();
+        refreshMusic();
+    }
+
+    /** 注销音乐会话（队列清空/服务停止时） */
+    public synchronized void unregisterMusic() {
+        if (musicSession == null) return;
+        musicSession = null;
+        pages.remove("music");
+        policy.unregister("music");
+        refreshBar();
+    }
+
+    /** 刷新音乐条文案与图标 */
+    public void refreshMusic() {
+        if (!"music".equals(policy.visibleId())) return;
+        if (barView != null && barMusicMode) {
+            bindMusicSession();
+            refreshPlayIcon();
+        } else {
+            refreshBar();
+        }
+    }
+
+    private com.fongmi.android.tv.music.MusicController musicCtl() {
+        return com.fongmi.android.tv.music.MusicController.get();
     }
 
     // ================= MiniBarPolicy.Actions =================
 
     @Override
     public void onCloseSession(String id) {
+        // 音乐真关闭：暂停＋落盘（断点在暂停时已存）＋注销条，队列保留
+        if ("music".equals(id)) {
+            try {
+                musicCtl().pause();
+            } catch (Throwable ignored) {
+            }
+            synchronized (this) {
+                unregisterMusic();
+            }
+            return;
+        }
         ListenSession s;
         synchronized (this) {
             s = sessions.get(id);
@@ -224,12 +287,19 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private void attachBar(Activity host, String visibleId) {
-        ListenSession s = sessions.get(visibleId);
-        if (s == null) return;
+        boolean music = "music".equals(visibleId);
+        ListenSession s = music ? null : sessions.get(visibleId);
+        if (!music && s == null) return;
         Activity old = hostRef == null ? null : hostRef.get();
         if (old != host) detachBar();
-        if (barView == null) buildBar();
-        bindSession(s);
+        if (barView == null || barMusicMode != music) {
+            detachBar();
+            barMusicMode = music;
+            if (music) buildMusicBar();
+            else buildBar();
+        }
+        if (music) bindMusicSession();
+        else bindSession(s);
         ViewGroup decor;
         try {
             decor = (ViewGroup) host.getWindow().getDecorView();
@@ -477,20 +547,150 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private void refreshPlayIcon() {
         if (btnPlay == null) return;
         String vid = policy.visibleId();
-        ListenSession s = vid == null ? null : sessions.get(vid);
         boolean playing = false;
-        if (s != null) {
-            ListenSession.Control ctl = s.control();
-            if (ctl != null) {
-                try {
-                    playing = ctl.isPlaying();
-                } catch (Throwable ignored) {
+        if ("music".equals(vid)) {
+            try {
+                playing = musicCtl().isPlaying();
+            } catch (Throwable ignored) {
+            }
+        } else {
+            ListenSession s = vid == null ? null : sessions.get(vid);
+            if (s != null) {
+                ListenSession.Control ctl = s.control();
+                if (ctl != null) {
+                    try {
+                        playing = ctl.isPlaying();
+                    } catch (Throwable ignored) {
+                    }
+                } else {
+                    playing = s.detachedPlaying(svc);
                 }
-            } else {
-                playing = s.detachedPlaying(svc);
             }
         }
         btnPlay.setText(playing ? "⏸" : "▶");
+    }
+
+    // ================= 音乐条：黑胶圆盘＋歌名＋大金暂停＋下一首 =================
+
+    /**
+     * 音乐条外观（定稿）：黑胶圆盘封面＋歌名单行＋大金暂停＋下一首。
+     * 点条身进播放页；条上无关闭口（暂停超 10 秒按迷你条规矩自动收）。
+     */
+    private void buildMusicBar() {
+        Context c = app;
+        LinearLayout bar = new LinearLayout(c);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        int hpad = ReadingSkin.dp(c, 12);
+        int vpad = ReadingSkin.dp(c, 10);
+        bar.setPadding(hpad, vpad, hpad, vpad);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xE616202E);
+        bg.setCornerRadius(ReadingSkin.dp(c, 28));
+        bg.setStroke(ReadingSkin.dp(c, 1), 0x33F2B33D);
+        bar.setBackground(bg);
+        try {
+            bar.setElevation(ReadingSkin.dp(c, 10));
+        } catch (Throwable ignored) {
+        }
+
+        // 黑胶圆盘：黑底圆＋圆形封面
+        FrameLayout vinyl = new FrameLayout(c);
+        int vs = ReadingSkin.dp(c, 52);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(vs, vs);
+        vlp.rightMargin = ReadingSkin.dp(c, 12);
+        vinyl.setLayoutParams(vlp);
+        GradientDrawable disc = new GradientDrawable();
+        disc.setShape(GradientDrawable.OVAL);
+        disc.setColor(0xFF0A0A0A);
+        disc.setStroke(ReadingSkin.dp(c, 2), 0xFF2A2A2A);
+        vinyl.setBackground(disc);
+        ivVinyl = new ImageView(c);
+        int cs = ReadingSkin.dp(c, 36);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(cs, cs);
+        clp.gravity = Gravity.CENTER;
+        ivVinyl.setLayoutParams(clp);
+        ivVinyl.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        vinyl.addView(ivVinyl);
+        bar.addView(vinyl);
+
+        // 歌名
+        tvTitle = new TextView(c);
+        tvTitle.setTextSize(16);
+        tvTitle.setTextColor(ReadingSkin.TEXT);
+        tvTitle.getPaint().setFakeBoldText(true);
+        tvTitle.setSingleLine(true);
+        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        tvTitle.setLayoutParams(tlp);
+        bar.addView(tvTitle);
+
+        // 下一首
+        btnNext = new TextView(c);
+        btnNext.setText("⏭");
+        btnNext.setTextSize(20);
+        btnNext.setTextColor(ReadingSkin.SUB);
+        btnNext.setGravity(Gravity.CENTER);
+        int nbHit = ReadingSkin.dp(c, 48);
+        btnNext.setLayoutParams(new LinearLayout.LayoutParams(nbHit, nbHit));
+        btnNext.setOnClickListener(v -> {
+            try {
+                musicCtl().next();
+            } catch (Throwable ignored) {
+            }
+        });
+        bar.addView(btnNext);
+        btnPrev = null;
+
+        // 大金暂停
+        btnPlay = new TextView(c);
+        btnPlay.setTextSize(20);
+        btnPlay.setTextColor(0xFF1A1408);
+        btnPlay.setGravity(Gravity.CENTER);
+        int ps = ReadingSkin.dp(c, 56);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ps, ps);
+        plp.leftMargin = ReadingSkin.dp(c, 4);
+        btnPlay.setLayoutParams(plp);
+        btnPlay.setBackground(ReadingSkin.goldCircle(c));
+        btnPlay.setOnClickListener(v -> {
+            try {
+                musicCtl().toggle();
+            } catch (Throwable ignored) {
+            }
+            refreshPlayIcon();
+        });
+        bar.addView(btnPlay);
+
+        // 点条身进播放页
+        bar.setOnClickListener(v -> openMusicPlayer());
+
+        barView = bar;
+    }
+
+    private void openMusicPlayer() {
+        try {
+            Activity host = hostRef == null ? null : hostRef.get();
+            Context ctx = host != null ? host : app;
+            Intent it = new Intent(ctx, Class.forName("com.fongmi.android.tv.ui.activity.MusicPlayerActivity"));
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(it);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void bindMusicSession() {
+        try {
+            com.fongmi.android.tv.bean.music.MusicTrack t = musicCtl().current();
+            tvTitle.setText(t == null ? "" : t.displayTitle());
+            if (t != null && t.cover != null && !t.cover.isEmpty() && ivVinyl != null) {
+                ImgUtil.loadCircle(t.displayTitle(), t.cover, ivVinyl);
+            } else if (ivVinyl != null) {
+                ivVinyl.setImageDrawable(goldDot(app));
+            }
+        } catch (Throwable ignored) {
+        }
+        refreshPlayIcon();
     }
 
     // ================= 服务绑定（detached 控制用） =================

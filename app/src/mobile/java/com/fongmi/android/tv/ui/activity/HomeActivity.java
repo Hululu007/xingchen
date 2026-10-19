@@ -7,6 +7,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
@@ -279,9 +280,24 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mBinding.navigation.getMenu().findItem(R.id.live).setVisible(LiveConfig.hasUrl());
         mBinding.navigation.getMenu().findItem(R.id.music).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.reading).setVisible(true);
-        mBinding.navigation.getMenu().findItem(R.id.miniapp).setVisible(FeaturesActivity.isMiniAppEnabled(this));
-        mBinding.navigation.getMenu().findItem(R.id.lab).setVisible(LabSettingActivity.isTabEnabled(this));
+        syncOptionalTabs();
         syncNavigationSelection();
+    }
+
+    private void syncOptionalTabs() {
+        // BottomNavigationView 在 Material 库里写死最多 6 个菜单项（加第 7 个直接崩，1.3.53 就是这么死的），
+        // 所以 XML 里只放 6 个，实验室格按开关动态加。小程序和实验室都是可选格，同时开也只能二选一：实验室优先。
+        Menu menu = mBinding.navigation.getMenu();
+        boolean wantLab = LabSettingActivity.isTabEnabled(this);
+        menu.removeItem(R.id.lab);
+        menu.removeItem(R.id.miniapp);
+        menu.removeItem(R.id.setting);
+        if (wantLab) {
+            menu.add(Menu.NONE, R.id.lab, Menu.NONE, getString(R.string.nav_lab)).setIcon(R.drawable.ic_nav_lab);
+        } else if (FeaturesActivity.isMiniAppEnabled(this)) {
+            menu.add(Menu.NONE, R.id.miniapp, Menu.NONE, getString(R.string.nav_miniapp)).setIcon(R.drawable.ic_nav_miniapp);
+        }
+        menu.add(Menu.NONE, R.id.setting, Menu.NONE, getString(R.string.nav_setting)).setIcon(R.drawable.ic_nav_setting);
     }
 
     private boolean openLive() {

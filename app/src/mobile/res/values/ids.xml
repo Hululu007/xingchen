@@ -33,4 +33,6 @@
     <item type="id" name="item_rect_text_desc" />
     <!-- 液态玻璃动态背景（HkDynamicBgView），各海阔页根第一个孩子 -->
     <item type="id" name="hk_dynamic_bg" />
+    <!-- 实验室 tab：代码动态加到底栏菜单，id 在此预声明（菜单 XML 里不再放第 7 项，Material 写死最多 6 项） -->
+    <item type="id" name="lab" />
 </resources>

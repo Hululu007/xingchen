@@ -21,7 +21,7 @@ public class MusicAudioInfo {
     /** 确认母带：lossless 且 bitDepth>=24 */
     public boolean master;
 
-    /** 展示串；codec 为空时返回 null（调用方回退到所选档名）。 */
+    /** 展示串；codec 为空时返回 null（调用方不显示音质格，所选档永不进显示）。 */
     public String describe() {
         if (codec == null || codec.isEmpty()) return null;
         StringBuilder sb = new StringBuilder(codec);

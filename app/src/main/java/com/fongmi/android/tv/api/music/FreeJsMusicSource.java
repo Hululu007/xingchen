@@ -72,11 +72,30 @@ public class FreeJsMusicSource implements MusicSource {
         return Collections.emptyList();
     }
 
+    /**
+     * 榜单只留酷我（潇洒哥 2026-10-20 拍板「只需要酷我跟QQ」）：哔哩哔哩是视频站、
+     * 供的是全站视频榜，没意义；歌词网/歌词千寻是歌词型插件，不供榜。
+     * 只有酷我插件（元力KW）调 getTopLists，其余 FreeJS 插件直接返回空、不碰桥。
+     * 搜索/播放/歌词等其它链不受影响，哔哩哔哩照常能搜能播。
+     */
     @Override
     public List<MusicChart> charts(MusicSite site) throws Exception {
+        if (!isKuwoSite(site)) return Collections.emptyList();
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
         if (b == null) return Collections.emptyList();
         return b.getTopLists();
+    }
+
+    /**
+     * 酷我插件判据（以 MusicSourceManager.builtinSites 播种值为准）：
+     * 插件自报 platform 经 FreeJsBridge 回填进 site.name，预置播种名同为「酷我音乐」；
+     * srcUrl 命中预置的元力KW 地址（原文/URL 编码形）也算。两条都是精确匹配，不搞模糊。
+     */
+    private static boolean isKuwoSite(MusicSite site) {
+        if (site == null) return false;
+        if ("酷我音乐".equals(site.name)) return true;
+        String url = site.srcUrl == null ? "" : site.srcUrl;
+        return url.endsWith("元力KW.js") || url.endsWith("%E5%85%83%E5%8A%9BKW.js");
     }
 
     @Override

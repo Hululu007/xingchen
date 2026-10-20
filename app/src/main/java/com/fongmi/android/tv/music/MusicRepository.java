@@ -5,6 +5,7 @@ import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.api.music.FreeJsMusicSource;
 import com.fongmi.android.tv.api.music.LxMusicSource;
+import com.fongmi.android.tv.api.music.QqChartSource;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
@@ -32,6 +33,8 @@ public class MusicRepository {
         register(new PyMusicSource());
         // 设备本地音乐（platform="device"）：取链/同目录 .lrc 歌词；列表走 DeviceMusicStore 扫描
         register(new DeviceMusicSource());
+        // QQ 榜单壳内源（platform="qq"）：只供榜单（QQ 巅峰榜直连），歌拼落雪 tx 形态走现成链播
+        register(new QqChartSource());
     }
 
     public static void register(MusicSource source) {

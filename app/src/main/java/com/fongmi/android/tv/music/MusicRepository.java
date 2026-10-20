@@ -162,6 +162,11 @@ public class MusicRepository {
     }
 
     public static String lyric(MusicTrack track) {
+        return lyric(track, false);
+    }
+
+    /** force=true 时无视「歌词缺失自动搜索」开关也要跨插件找（播放页手动「搜索歌词」用） */
+    public static String lyric(MusicTrack track, boolean force) {
         if (track == null) return null;
         MusicSource s = find(track.platform);
         if (s == null) return null;
@@ -174,7 +179,7 @@ public class MusicRepository {
         if (own != null && !own.trim().isEmpty()) return own;
 
         // 「歌词缺失自动搜索」：当前源没词（或报错）时，按源顺序拿其它插件/源用歌名+歌手搜歌词补上
-        if (!MusicStore.isLyricFallback()) return null;
+        if (!force && !MusicStore.isLyricFallback()) return null;
         String keyword = (track.title == null ? "" : track.title).trim()
                 + " " + (track.artist == null ? "" : track.artist).trim();
         keyword = keyword.trim();

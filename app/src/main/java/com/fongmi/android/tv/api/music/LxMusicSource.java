@@ -7,6 +7,7 @@ import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicSource;
+import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -18,6 +19,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 落雪真源：实现播放器侧 MusicSource SPI，platform="lx"。
@@ -106,10 +110,16 @@ public class LxMusicSource implements MusicSource {
         return Collections.emptyList();
     }
 
+    /** 单个落雪脚本取链上限：一个脚本卡住不许拖垮整条取链（对差清单 D2） */
+    private static final long PLUGIN_TIMEOUT_MS = 8000;
+    /** 取链总预算（与播放服务 20 秒看门狗同口径）：到点还没出链就按失败返回 */
+    private static final long TOTAL_TIMEOUT_MS = 20000;
+
     @Override
     public String playUrl(MusicTrack track, int quality) throws Exception {
         Parsed p = parse(track);
         if (p == null) return null;
+        long deadline = System.currentTimeMillis() + TOTAL_TIMEOUT_MS;
         JsonObject musicInfo = musicInfo(track, p);
         if (LxPlatformSearch.QQ.equals(p.platform) && TextUtils.isEmpty(optStr(musicInfo, "strMediaMid"))) {
             // QQ 取链要 strMediaMid，搜索结果里没有，取链前补一次详情
@@ -118,6 +128,10 @@ public class LxMusicSource implements MusicSource {
         }
         String want = lxQuality(MusicQuality.fromInt(quality));
         for (MusicSite plugin : sites()) {
+            if (System.currentTimeMillis() >= deadline) {
+                SpiderDebug.log("music", "lx playUrl total timeout");
+                break;
+            }
             LxBridge b;
             try {
                 b = MusicSourceManager.get().lxBridgeOf(plugin);
@@ -126,8 +140,18 @@ public class LxMusicSource implements MusicSource {
             }
             if (b == null || !b.supports(p.platform, "musicUrl")) continue;
             String q = pickQuality(b, p.platform, want);
+            long remain = deadline - System.currentTimeMillis();
+            long wait = Math.min(PLUGIN_TIMEOUT_MS, Math.max(0, remain));
+            if (wait <= 0) break;
             try {
-                String r = b.request(p.platform, "musicUrl", musicInfo, q);
+                // 单脚本 8 秒上限：get 到点就放弃这个脚本换下一个（脚本桥线程自己还有内层上限兜底）
+                String r = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return b.request(p.platform, "musicUrl", musicInfo, q);
+                    } catch (Throwable t) {
+                        throw new CompletionException(t);
+                    }
+                }, Task.executor()).get(wait, TimeUnit.MILLISECONDS);
                 String url = extractUrl(r);
                 if (!TextUtils.isEmpty(url)) return url;
             } catch (Throwable t) {

@@ -1,20 +1,24 @@
 package com.fongmi.android.tv.service;
 
 import android.app.Activity;
+import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.media.audiofx.AudioEffect;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
@@ -43,7 +47,11 @@ import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -54,6 +62,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class MusicPlaybackService extends MediaSessionService {
 
     public static final String LOCAL_BIND_ACTION = BuildConfig.APPLICATION_ID.concat(".MUSIC_LOCAL_BIND");
+
+    /**
+     * 占位前台通知 id：与 media3 默认媒体通知同 id（DefaultMediaNotification 的 1001），
+     * 占位先顶上、真媒体通知出来时原地替换，不会双份。
+     */
+    private static final int FG_NOTIFICATION_ID = 1001;
+
+    /**
+     * 取链总预算（对差清单 D2）：源/桥卡死时最多等 20 秒，超时按播放失败收口，
+     * 不许把 preparing 永久顶死——断网点任意歌，20 秒内必须出声或明确跳歌/报错。
+     */
+    private static final long PREPARE_TIMEOUT_MS = 20000;
 
     /** 定时关闭 */
     public static final int SLEEP_OFF = 0;
@@ -108,12 +128,26 @@ public class MusicPlaybackService extends MediaSessionService {
     private int sleep = SLEEP_OFF;
     private Runnable sleepTask;
     private boolean preparing;
+    private int prepareSeq;
     private volatile MusicAudioInfo audioInfo;
+
+    /** 失败熔断（对差清单 D3，只在主线程读写）：每首歌连续失败计数＋拉黑集＋全局连续失败数 */
+    private final Map<String, Integer> failCounts = new HashMap<>();
+    private final Set<String> failedBlacklist = new HashSet<>();
+    private int consecutiveFails;
+
+    /** 播放器里有没有真装过媒体项（D5 收口判断用：装过且停播走的是媒体通知自己的生命周期） */
+    private boolean hasMediaItem;
 
     @Override
     public void onCreate() {
         super.onCreate();
         instance = this;
+        // 必须第一件事就顶上前台通知：本服务是被 startForegroundService 拉起的，
+        // 系统只给约 10 秒，没等到 startForeground 就判 ForegroundServiceDidNotStartInTime 崩。
+        // media3 的真媒体通知要等播放器备好媒体项才发，而取链（QuickJS＋同步 HTTP）
+        // 慢一点就赶不上（1.3.58 真机实证崩点），所以先用占位通知占住前台。
+        startForegroundNow();
         queue.setMode(MusicStore.getMode());
         player = new ExoPlayer.Builder(this)
                 .setAudioAttributes(new AudioAttributes.Builder()
@@ -144,8 +178,31 @@ public class MusicPlaybackService extends MediaSessionService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // onCreate 已顶过前台时这里是无害重入；服务被系统降级后再次被
+        // startForegroundService 拉起时，靠这次把前台补回来，先于任何其它活。
+        startForegroundNow();
         super.onStartCommand(intent, flags, startId);
         return START_STICKY;
+    }
+
+    /** 立刻把服务顶到前台（占位通知）；真媒体通知由 media3 provider 随后同 id 替换 */
+    private void startForegroundNow() {
+        try {
+            Notification notification = new NotificationCompat.Builder(this, Notify.DEFAULT)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(getString(R.string.app_name))
+                    .setContentText("音乐播放")
+                    .setContentIntent(buildPlayerIntent())
+                    .setOngoing(true)
+                    .setSilent(true)
+                    .build();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(FG_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } else {
+                startForeground(FG_NOTIFICATION_ID, notification);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     @Nullable
@@ -162,6 +219,10 @@ public class MusicPlaybackService extends MediaSessionService {
 
     @Override
     public void onDestroy() {
+        try {
+            stopForeground(true);
+        } catch (Throwable ignored) {
+        }
         saveBreakpoint();
         cancelSleep();
         releaseFx();
@@ -348,6 +409,7 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private void stopPlayback() {
         cancelSleep();
+        hasMediaItem = false;
         if (player != null) {
             player.stop();
             player.clearMediaItems();
@@ -769,8 +831,23 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
         MusicTrack track = queue.get(index);
-        if (track == null || player == null || preparing) return;
+        if (track == null || player == null) return;
+        // 正在取链时又点了新歌：不丢弃新请求，用序号让旧结果作废、新请求接管，
+        // 否则旧链回来发现队列已换只会静默返回，点了跟没点一样。
         preparing = true;
+        final int seq = ++prepareSeq;
+        // 看门狗：取链卡死（源挂死/桥死等）时不许无限期顶着 preparing，超时按失败收口
+        main.postDelayed(() -> {
+            if (seq != prepareSeq || !preparing) return;
+            preparing = false;
+            prepareSeq++; // 让还在路上的旧结果作废
+            SpiderDebug.log("music", "prepare timeout id=%s", track.id);
+            listeners.forEach(l -> l.onTrackChanged(track));
+            onPlayFailed();
+        }, PREPARE_TIMEOUT_MS);
+        // 受理即通知 UI 切标题/封面（对差清单 D4）：不等取链回来才有反应，
+        // 取链再慢界面先动，不给「点了没反应」的观感。
+        listeners.forEach(l -> l.onTrackChanged(track));
         int quality = MusicStore.getQuality();
         Task.execute(() -> {
             // 移动网络播放开关：关了、当前是流量、且是需要联网的歌（本地/已下载/设备歌曲不受影响）
@@ -782,10 +859,14 @@ public class MusicPlaybackService extends MediaSessionService {
             final boolean fBlocked = blocked;
             final String fUrl = url;
             App.post(() -> {
+                if (seq != prepareSeq) return; // 已被新请求/看门狗接管，旧结果作废
                 preparing = false;
                 if (player == null || queue.get(index) != track) return;
                 if (fBlocked) {
                     Notify.show(R.string.music_mobile_play_blocked);
+                    // 不起播收口（对差清单 D5）：播放器里没东西在播时别把前台通知空挂着；
+                    // 有旧歌在播则不动，那首的通知归它自己管。
+                    if (!hasMediaItem && !player.isPlaying()) demoteForeground();
                     return;
                 }
                 if (fUrl == null || fUrl.isEmpty()) {
@@ -808,6 +889,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 audioInfo = null; // 换歌先清旧参数，等新轨 Format 到齐再刷新
                 listeners.forEach(ServiceListener::onAudioInfoChanged);
                 player.setMediaItem(item, startPosition);
+                hasMediaItem = true;
                 player.prepare();
                 ensureFx(); // 会话可能随音频汇重建而变，音效跟着重新挂
                 player.setPlaybackSpeed(getSpeed());
@@ -822,14 +904,49 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /**
      * 取链失败/播放报错的统一收口，受「播放失败自动跳下一首」开关管：
-     * 开=自动下一首，关=停住并提示。
+     * 开=自动下一首，关=停住并提示。另外按对差清单 D3 熔断：
+     * 下一首就是自己（单曲循环/单曲队列）不许原地重取链；同一首连续失败 2 次拉黑、
+     * 自动跳歌绕开拉黑项；整个队列轮着失败一遍就停，别无限耗电耗流量。
+     * 停下时一并撤前台（D5），别挂着空通知。
      */
     private void onPlayFailed() {
-        if (MusicStore.isAutoSkipOnError()) {
-            next();
-        } else {
-            Notify.show(R.string.music_play_failed_stopped);
-            stopPlayback();
+        MusicTrack cur = queue.current();
+        String id = cur == null ? null : cur.id;
+        if (id != null) {
+            int c = failCounts.getOrDefault(id, 0) + 1;
+            failCounts.put(id, c);
+            if (c >= 2) failedBlacklist.add(id);
+        }
+        consecutiveFails++;
+        if (MusicStore.isAutoSkipOnError() && advancePastFailed()) return;
+        Notify.show(R.string.music_play_failed_stopped);
+        stopPlayback();
+        demoteForeground();
+    }
+
+    /** 自动跳歌：找下一首可试的（绕开已拉黑的），找到并起播返回 true */
+    private boolean advancePastFailed() {
+        int size = queue.getTracks().size();
+        if (size == 0 || consecutiveFails >= size) return false;
+        for (int i = 0; i < size; i++) {
+            int n = queue.nextIndex();
+            if (n < 0 || n == queue.getIndex()) return false; // 没下一首／下一首就是自己
+            MusicTrack nt = queue.get(n);
+            if (nt != null && nt.id != null && failedBlacklist.contains(nt.id)) {
+                queue.moveTo(n); // 拉黑的先越过，继续往后找
+                continue;
+            }
+            prepareTrack(n, 0, true);
+            return true;
+        }
+        return false;
+    }
+
+    /** 不起播收口（对差清单 D5）：停播后撤前台，别把通知空挂着 */
+    private void demoteForeground() {
+        try {
+            stopForeground(true);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -852,6 +969,10 @@ public class MusicPlaybackService extends MediaSessionService {
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) onTrackEnded();
             else if (state == Player.STATE_READY) {
+                // 真起播了：失败计数全清零（D3 的熔断只管连续失败）
+                failCounts.clear();
+                failedBlacklist.clear();
+                consecutiveFails = 0;
                 saveBreakpoint();
                 updateAudioInfo();
             }
@@ -924,16 +1045,23 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     private void restoreBreakpoint() {
-        try {
-            List<MusicTrack> q = MusicStore.loadQueue();
-            if (q.isEmpty()) return;
-            int idx = Math.max(0, Math.min(MusicStore.loadIndex(), q.size() - 1));
-            queue.setTracks(q, idx);
-            // 只摆好、不自动播：用户点播放才从断点起
-            listeners.forEach(ServiceListener::onQueueChanged);
-            listeners.forEach(l -> l.onTrackChanged(queue.current()));
-        } catch (Throwable ignored) {
-        }
+        // 断点队列是 Gson 读盘（对差清单 D9）：别在 onCreate 主线程同步读，挪后台；
+        // 回来时队列还空着才摆上——用户已经先点了歌就以用户的为准，不许覆盖。
+        Task.execute(() -> {
+            try {
+                List<MusicTrack> q = MusicStore.loadQueue();
+                if (q.isEmpty()) return;
+                int idx = Math.max(0, Math.min(MusicStore.loadIndex(), q.size() - 1));
+                App.post(() -> {
+                    if (!queue.isEmpty()) return;
+                    queue.setTracks(q, idx);
+                    // 只摆好、不自动播：用户点播放才从断点起
+                    listeners.forEach(ServiceListener::onQueueChanged);
+                    listeners.forEach(l -> l.onTrackChanged(queue.current()));
+                });
+            } catch (Throwable ignored) {
+            }
+        });
     }
 
     public class LocalBinder extends Binder {

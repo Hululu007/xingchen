@@ -30,9 +30,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Response;
 
@@ -44,6 +46,16 @@ import okhttp3.Response;
  * 插件网络经 __freejsRequest 同步走壳子 OkHttp，吃代理/DoH/节点定向，不直连。
  */
 public class FreeJsBridge {
+
+    /**
+     * 桥调用总上限：插件里是多次串行同步 HTTP（单请求已被 Connect 钳在约 10 秒），
+     * 但桥这一层原来 .get() 死等无上限——插件循环重试/源挂死就能把调用线程永久顶住，
+     * 搜索结果永远不回、取链永远不落地（1.3.58 真机实证）。到点按失败抛给上层收口。
+     */
+    private static final long CALL_TIMEOUT_MS = 30000;
+
+    /** 取链（getMediaSource）单步上限：起播路径总预算 20 秒，这里压到 15 秒留出余量 */
+    private static final long SOURCE_TIMEOUT_MS = 15000;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final MusicSite site;
@@ -76,7 +88,7 @@ public class FreeJsBridge {
             loadPlugin();
             readMeta();
             return null;
-        }).get();
+        }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     private void createCtx() {
@@ -161,7 +173,7 @@ public class FreeJsBridge {
                     }
                 }
             }
-        }).get();
+        }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -196,16 +208,23 @@ public class FreeJsBridge {
             String json = declared instanceof JSObject ? ((JSObject) declared).stringify() : String.valueOf(declared);
             if (json == null || json.isEmpty() || "undefined".equals(json)) return true;
             return json.contains("\"music\"");
-        }).get();
+        }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     private Object call(String func, Object... args) throws Exception {
-        return submit(() -> Async.run(exports, func, args)).get().get();
+        return callTimed(func, CALL_TIMEOUT_MS, args);
+    }
+
+    private Object callTimed(String func, long timeoutMs, Object... args) throws Exception {
+        CompletableFuture<Object> stage = submit(() -> Async.run(exports, func, args))
+                .get(timeoutMs, TimeUnit.MILLISECONDS);
+        return stage.get(timeoutMs, TimeUnit.MILLISECONDS);
     }
 
     private String toJson(Object result) throws Exception {
         if (result == null) return null;
-        if (result instanceof JSObject) return submit(() -> ((JSObject) result).stringify()).get();
+        if (result instanceof JSObject)
+            return submit(() -> ((JSObject) result).stringify()).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         return String.valueOf(result);
     }
 
@@ -238,8 +257,8 @@ public class FreeJsBridge {
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
-        Object arg = submit(() -> ctx.parse(item.toString())).get();
-        Object result = call("getMediaSource", arg, quality.getKey());
+        Object arg = submit(() -> ctx.parse(item.toString())).get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        Object result = callTimed("getMediaSource", SOURCE_TIMEOUT_MS, arg, quality.getKey());
         String json = toJson(result);
         if (TextUtils.isEmpty(json)) return null;
         json = json.trim();
@@ -265,7 +284,7 @@ public class FreeJsBridge {
     public MusicLyric getLyric(MusicTrack track) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
-        Object arg = submit(() -> ctx.parse(item.toString())).get();
+        Object arg = submit(() -> ctx.parse(item.toString())).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         Object result = call("getLyric", arg);
         String json = toJson(result);
         if (TextUtils.isEmpty(json)) return null;
@@ -344,7 +363,7 @@ public class FreeJsBridge {
                     }
                 }
                 return null;
-            }).get();
+            }).get(5, TimeUnit.SECONDS);
         } catch (Throwable ignored) {
         }
         executor.shutdownNow();
@@ -380,11 +399,28 @@ public class FreeJsBridge {
         return t;
     }
 
-    /** 插件 duration 多为秒；毫秒级（>=100000）直接用 */
+    /**
+     * 插件 duration 三种形态都要认：数字（多为秒；毫秒级 >=100000 直接用）、
+     * 数字字符串、以及 "mm:ss"/"hh:mm:ss" 字符串——哔哩哔哩搜索接口给的就是
+     * "3:45" 这种字符串，老写法 getAsLong 直接抛异常被吞成 0，播放页时长恒 00:00。
+     * 源没给/给不明白就保持 0，不编造。
+     */
     private long toMillis(JsonObject item) {
         try {
-            if (!item.has("duration")) return 0;
-            long d = item.get("duration").getAsLong();
+            if (!item.has("duration") || item.get("duration").isJsonNull()) return 0;
+            JsonElement el = item.get("duration");
+            if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+                String s = el.getAsString().trim();
+                if (s.isEmpty()) return 0;
+                if (s.contains(":")) {
+                    long totalSec = 0;
+                    for (String p : s.split(":")) totalSec = totalSec * 60 + Long.parseLong(p.trim());
+                    return totalSec * 1000;
+                }
+                long d = Long.parseLong(s);
+                return d < 100000 ? d * 1000 : d;
+            }
+            long d = el.getAsLong();
             return d < 100000 ? d * 1000 : d;
         } catch (Exception e) {
             return 0;

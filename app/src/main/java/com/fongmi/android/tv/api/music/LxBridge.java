@@ -113,7 +113,7 @@ public class LxBridge {
             awaitInited();
             readMeta();
             return null;
-        }).get();
+        }).get(30, TimeUnit.SECONDS);
     }
 
     private void createCtx() {
@@ -286,7 +286,7 @@ public class LxBridge {
             Object argObj = ctx.parse(arg.toString());
             Object result = requestHandler.call(argObj);
             return awaitPromise(result);
-        }).get();
+        }).get(40, TimeUnit.SECONDS);
     }
 
     /** 挂 then/catch 等 Promise 兑现（参照 quickjs Async 的做法，在桥线程内同步等） */
@@ -312,8 +312,10 @@ public class LxBridge {
             catchFn = promise.getJSFunction("catch");
             if (catchFn != null) catchFn.call(fail);
             // 桥单线程串行：请求回调的兑现是微任务，轮询泵队列直到兑现或超时
+            // 原来等 90 秒：脚本背后的请求单次已被钳在 ≤60 秒，壳子侧再叠 90 秒
+            // 会让一次取链最坏卡两分钟，搜索/播歌都像死机；30 秒到点按失败抛。
             Object v = null;
-            long deadline = System.currentTimeMillis() + 90000;
+            long deadline = System.currentTimeMillis() + 30000;
             while (true) {
                 try {
                     v = future.get(150, TimeUnit.MILLISECONDS);
@@ -370,7 +372,7 @@ public class LxBridge {
                     }
                 }
                 return null;
-            }).get();
+            }).get(5, TimeUnit.SECONDS);
         } catch (Throwable ignored) {
         }
         executor.shutdownNow();

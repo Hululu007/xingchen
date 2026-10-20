@@ -447,8 +447,9 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /**
-     * 音质格显示真实参数（服务拿到的 Format：如「FLAC · 1411kbps」）；
-     * 还没起播或取不到格式时回退显示所选档名，点开仍是选档。
+     * 音质格显示真实参数（服务拿到的 Format：如「FLAC · 1411kbps」），金字；
+     * 还没起播、没拿到真实流信息时只灰字显示所选档名——那是选择不是实测，
+     * 不许金字冒充真实音质（尤其不许把「母带」当真实参数挂出来），点开仍是选档。
      */
     private void refreshQualityValue() {
         String real = null;
@@ -457,8 +458,13 @@ public class MusicPlayerActivity extends BaseActivity {
             if (info != null) real = info.describe();
         } catch (Throwable ignored) {
         }
-        binding.tvQualityValue.setText(real != null && !real.isEmpty()
-                ? real : MusicStore.qualityName(MusicController.get().getQuality()));
+        if (real != null && !real.isEmpty()) {
+            binding.tvQualityValue.setText(real);
+            binding.tvQualityValue.setTextColor(0xFFF2B33D);
+        } else {
+            binding.tvQualityValue.setText(MusicStore.qualityName(MusicController.get().getQuality()));
+            binding.tvQualityValue.setTextColor(0xFF9AA7B8);
+        }
     }
 
     private void showQualityDialog() {

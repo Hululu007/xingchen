@@ -258,7 +258,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private synchronized void refreshBar() {
         String visible = policy.visibleId();
         Activity host = currentHost();
-        if (visible == null || host == null || isSessionPage(host, visible)) {
+        if (visible == null || host == null || isSessionPage(host, visible)
+                || isMusicPlayerPage(host, visible)) {
             hideBar();
             return;
         }
@@ -284,6 +285,18 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         WeakReference<Activity> ref = pages.get(visibleId);
         Activity page = ref == null ? null : ref.get();
         return page == host;
+    }
+
+    /**
+     * 音乐会话在 registerMusic 里存的是空页引用（WeakReference(null)），
+     * isSessionPage 永远认不出播放页；而 pageResumed 又常在会话注册前到达被策略丢掉，
+     * 于是音乐条会贴到播放页 decor 上压住主控行。这里按页类名兜底：
+     * 只要当前页是音乐播放页，音乐条就不露（播放页有完整主控）；其它页行为不变。
+     */
+    private boolean isMusicPlayerPage(Activity host, String visibleId) {
+        return "music".equals(visibleId)
+                && "com.fongmi.android.tv.ui.activity.MusicPlayerActivity"
+                        .equals(host.getClass().getName());
     }
 
     private void attachBar(Activity host, String visibleId) {

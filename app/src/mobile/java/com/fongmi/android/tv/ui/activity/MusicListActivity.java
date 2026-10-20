@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.WindowManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -152,6 +153,11 @@ public class MusicListActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 本页 Manifest 没声明 windowSoftInputMode，默认键盘一弹窗口就 resize：
+        // 内容区被压到键盘上方，状态文字（覆盖层里的 empty）会被带着乱跑。
+        // 锁成 adjustPan：窗口不缩放、不重排；本页唯一输入框在顶部，键盘遮不到它，平移量恒为 0，
+        // 状态文字位置只跟页面有关、跟键盘无关；搜索框可见可用、列表滚动行为不变。
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         Intent i = getIntent();

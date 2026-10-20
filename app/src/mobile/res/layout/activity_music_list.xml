@@ -170,15 +170,18 @@
             android:layout_weight="1"
             android:clipToPadding="false"
             android:paddingBottom="96dp" />
-
-        <TextView
-            android:id="@+id/empty"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:gravity="center"
-            android:textColor="#9AA7B8"
-            android:textSize="14sp"
-            android:visibility="gone" />
     </LinearLayout>
+
+    <!-- 状态层（空状态「没搜到」与「正在加载…」共用）：必须是根 FrameLayout 的覆盖层、用 layout_gravity 居中锚定，
+         不许再放进上面的流式布局里排在 RecyclerView 后面——那样它的位置由列表高度决定，
+         键盘弹出窗口缩放时会被顶到内容区最底下贴着键盘 -->
+    <TextView
+        android:id="@+id/empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:textColor="#9AA7B8"
+        android:textSize="14sp"
+        android:visibility="gone" />
 </FrameLayout>

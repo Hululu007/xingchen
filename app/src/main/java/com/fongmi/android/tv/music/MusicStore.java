@@ -30,6 +30,48 @@ public class MusicStore {
     private static final String K_RECENT = "music_recent";
     private static final int RECENT_MAX = 50;
 
+    // ===== 音乐设置页四项（2026-10-20） =====
+    private static final String K_DL_QUALITY = "music_dl_quality";
+    private static final String K_AUTO_SKIP = "music_auto_skip_on_error";
+    private static final String K_MOBILE_PLAY = "music_mobile_play";
+    private static final String K_LYRIC_FALLBACK = "music_lyric_fallback";
+
+    /** 下载默认音质（与播放默认音质相互独立，各管各的链） */
+    public static int getDownloadQuality() {
+        return Prefers.getInt(K_DL_QUALITY, QUALITY_STANDARD);
+    }
+
+    public static void setDownloadQuality(int quality) {
+        Prefers.put(K_DL_QUALITY, quality);
+    }
+
+    /** 播放失败自动跳下一首（默认开；关了则停住并提示） */
+    public static boolean isAutoSkipOnError() {
+        return Prefers.getBoolean(K_AUTO_SKIP, true);
+    }
+
+    public static void setAutoSkipOnError(boolean on) {
+        Prefers.put(K_AUTO_SKIP, on);
+    }
+
+    /** 允许移动网络播放在线歌曲（默认开；关了流量下点在线歌会被拦，已下载不受影响） */
+    public static boolean isMobilePlay() {
+        return Prefers.getBoolean(K_MOBILE_PLAY, true);
+    }
+
+    public static void setMobilePlay(boolean on) {
+        Prefers.put(K_MOBILE_PLAY, on);
+    }
+
+    /** 歌词缺失时自动从其它插件搜歌词（默认开） */
+    public static boolean isLyricFallback() {
+        return Prefers.getBoolean(K_LYRIC_FALLBACK, true);
+    }
+
+    public static void setLyricFallback(boolean on) {
+        Prefers.put(K_LYRIC_FALLBACK, on);
+    }
+
     public static int getMode() {
         return Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
     }

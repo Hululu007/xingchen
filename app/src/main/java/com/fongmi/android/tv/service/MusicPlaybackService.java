@@ -2,8 +2,12 @@ package com.fongmi.android.tv.service;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.media.audiofx.AudioEffect;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
@@ -15,6 +19,7 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.DefaultMediaNotificationProvider;
@@ -23,10 +28,13 @@ import androidx.media3.session.MediaSessionService;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 
@@ -398,19 +406,28 @@ public class MusicPlaybackService extends MediaSessionService {
         preparing = true;
         int quality = MusicStore.getQuality();
         Task.execute(() -> {
-            String url = MusicRepository.playUrl(track, quality);
+            // 移动网络播放开关：关了、当前是流量、且是需要联网的歌（本地/已下载不受影响）
+            boolean blocked = !MusicStore.isMobilePlay() && !MusicDownloadStore.isLocal(track) && isCellularNetwork();
+            String url = null;
+            if (!blocked) url = MusicRepository.playUrl(track, quality);
+            final boolean fBlocked = blocked;
+            final String fUrl = url;
             App.post(() -> {
                 preparing = false;
                 if (player == null || queue.get(index) != track) return;
-                if (url == null || url.isEmpty()) {
+                if (fBlocked) {
+                    Notify.show(R.string.music_mobile_play_blocked);
+                    return;
+                }
+                if (fUrl == null || fUrl.isEmpty()) {
                     SpiderDebug.log("music", "playUrl empty id=%s", track.id);
                     listeners.forEach(l -> l.onTrackChanged(track));
-                    next();
+                    onPlayFailed();
                     return;
                 }
                 MediaItem item = new MediaItem.Builder()
                         .setMediaId(track.id == null ? "" : track.id)
-                        .setUri(url)
+                        .setUri(fUrl)
                         .setMediaMetadata(new MediaMetadata.Builder()
                                 .setTitle(track.displayTitle())
                                 .setArtist(track.displayArtist())
@@ -430,11 +447,48 @@ public class MusicPlaybackService extends MediaSessionService {
         });
     }
 
+    /**
+     * 取链失败/播放报错的统一收口，受「播放失败自动跳下一首」开关管：
+     * 开=自动下一首，关=停住并提示。
+     */
+    private void onPlayFailed() {
+        if (MusicStore.isAutoSkipOnError()) {
+            next();
+        } else {
+            Notify.show(R.string.music_play_failed_stopped);
+            stopPlayback();
+        }
+    }
+
+    /** 当前是不是在用移动数据（WiFi/无网都不算），判流量播放拦不拦用 */
+    private boolean isCellularNetwork() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network net = cm.getActiveNetwork();
+            if (net == null) return false;
+            NetworkCapabilities cap = cm.getNetworkCapabilities(net);
+            return cap != null && cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) onTrackEnded();
             else if (state == Player.STATE_READY) saveBreakpoint();
+        }
+
+        @Override
+        public void onPlayerError(@NonNull PlaybackException error) {
+            try {
+                SpiderDebug.log("music", "onPlayerError %s", error.getMessage());
+                preparing = false;
+                onPlayFailed();
+            } catch (Throwable ignored) {
+            }
         }
 
         @Override

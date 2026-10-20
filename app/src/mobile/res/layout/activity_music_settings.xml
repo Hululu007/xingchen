@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_music_gradient"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="@string/music_setting"
+                android:textColor="#FFFFFF"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <!-- 1. 播放音质 -->
+        <LinearLayout
+            android:id="@+id/rowPlayQuality"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_play_quality" />
+
+            <TextView
+                android:id="@+id/tvPlayQuality"
+                style="@style/MusicSettingValue" />
+        </LinearLayout>
+
+        <!-- 2. 播放失败自动跳下一首 -->
+        <LinearLayout
+            android:id="@+id/rowAutoSkip"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_auto_skip" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swAutoSkip"
+                style="@style/MusicSettingSwitch" />
+        </LinearLayout>
+
+        <!-- 3. 移动网络播放 -->
+        <LinearLayout
+            android:id="@+id/rowMobilePlay"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_mobile_play" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swMobilePlay"
+                style="@style/MusicSettingSwitch" />
+        </LinearLayout>
+
+        <!-- 4. 下载音质 -->
+        <LinearLayout
+            android:id="@+id/rowDlQuality"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_download_quality" />
+
+            <TextView
+                android:id="@+id/tvDlQuality"
+                style="@style/MusicSettingValue" />
+        </LinearLayout>
+
+        <!-- 5. 歌词缺失自动搜索 -->
+        <LinearLayout
+            android:id="@+id/rowLyricFallback"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_lyric_fallback" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swLyricFallback"
+                style="@style/MusicSettingSwitch" />
+        </LinearLayout>
+
+        <!-- 6. 清除音乐缓存 -->
+        <LinearLayout
+            android:id="@+id/rowClearCache"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_set_clear_cache" />
+
+            <TextView
+                android:id="@+id/tvCacheSize"
+                style="@style/MusicSettingValue" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

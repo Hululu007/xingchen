@@ -25,6 +25,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.MusicMenuDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 
@@ -33,7 +34,7 @@ import java.util.List;
 
 /**
  * 音乐首页：只放四个导航行（歌单/收藏/榜单/已下载）。
- * 源列表不在首页：顶栏左上角 ☰ 图标钮进源管理页（MusicListActivity sites 模式）。
+ * 源列表不在首页：顶栏左上角 ☰ 图标钮点开面板（插件管理→源管理页，设置→音乐设置页）。
  * 顶部播放行只做续播＋「N 个源」状态显示。
  * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
  */
@@ -61,7 +62,11 @@ public class MusicActivity extends BaseActivity {
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(adapter = new HomeAdapter());
         binding.btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
-        binding.btnSourceManage.setOnClickListener(v -> MusicListActivity.startSites(this));
+        // ☰ 点开面板：插件管理（进源管理，原行为）／设置（进音乐设置页），只有两项
+        binding.btnSourceManage.setOnClickListener(v -> MusicMenuDialog.show(this, which -> {
+            if (which == MusicMenuDialog.MENU_SITES) MusicListActivity.startSites(this);
+            else if (which == MusicMenuDialog.MENU_SETTINGS) MusicSettingsActivity.start(this);
+        }));
         binding.btnPlayAll.setOnClickListener(v -> playAll());
         refresh();
     }

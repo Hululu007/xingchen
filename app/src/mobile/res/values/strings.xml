@@ -190,5 +190,16 @@
     <string name="music_download_delete">删除本地文件</string>
     <string name="music_download_delete_confirm">删除这条记录，同时删除本地文件？</string>
     <string name="music_deleted">已删除</string>
+    <string name="music_plugin_manage">插件管理</string>
+    <string name="music_setting">设置</string>
+    <string name="music_set_play_quality">播放音质</string>
+    <string name="music_set_download_quality">下载音质</string>
+    <string name="music_set_auto_skip">播放失败自动跳下一首</string>
+    <string name="music_set_mobile_play">移动网络播放</string>
+    <string name="music_set_lyric_fallback">歌词缺失自动搜索</string>
+    <string name="music_set_clear_cache">清除音乐缓存</string>
+    <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
+    <string name="music_play_failed_stopped">播放失败，已停止</string>
+    <string name="music_cache_cleared">音乐缓存已清除</string>
 
 </resources>

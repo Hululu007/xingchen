@@ -146,6 +146,11 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <activity
+            android:name=".ui.activity.MusicSettingsActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <service
             android:name=".service.MusicPlaybackService"
             android:exported="true"

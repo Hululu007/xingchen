@@ -128,7 +128,7 @@ public class MusicDownloadStore {
             }
             String url;
             try {
-                url = MusicRepository.playUrl(track, MusicStore.getQuality());
+                url = MusicRepository.playUrl(track, MusicStore.getDownloadQuality());
             } catch (Throwable t) {
                 url = null;
             }

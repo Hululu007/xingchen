@@ -85,6 +85,34 @@ public class MusicRepository {
         return all;
     }
 
+    /**
+     * 搜索页横排的子源：只有真实支持搜歌（type=music）的源/插件进排。
+     * 只提供歌词的插件（声明里只有 lyric）不进排，歌词链路不受影响。
+     */
+    public static List<MusicSite> searchableSites() {
+        List<MusicSite> all = new ArrayList<>();
+        for (MusicSource s : SOURCES) {
+            try {
+                all.addAll(s.searchableSites());
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "searchable sites error platform=%s %s", s.platform(), t.getMessage());
+            }
+        }
+        return all;
+    }
+
+    /**
+     * 按单个子源搜歌：结果只归这个源。失败直接抛出，由搜索页按源单独提示，
+     * 不许一个源的失败拖垮整页（阻塞，请在子线程调）。
+     */
+    public static List<MusicTrack> searchSite(MusicSite site, String keyword) throws Exception {
+        if (site == null) return Collections.emptyList();
+        MusicSource s = find(site.platform);
+        if (s == null) return Collections.emptyList();
+        List<MusicTrack> r = s.searchBySite(site, keyword);
+        return r == null ? Collections.emptyList() : r;
+    }
+
     public static List<MusicTrack> tracks(MusicSite site) {
         if (site == null) return Collections.emptyList();
         MusicSource s = find(site.platform);
@@ -137,11 +165,71 @@ public class MusicRepository {
         if (track == null) return null;
         MusicSource s = find(track.platform);
         if (s == null) return null;
+        String own = null;
         try {
-            return s.lyric(track);
+            own = s.lyric(track);
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyric error platform=%s %s", track.platform, t.getMessage());
-            return null;
         }
+        if (own != null && !own.trim().isEmpty()) return own;
+
+        // 「歌词缺失自动搜索」：当前源没词（或报错）时，按源顺序拿其它插件/源用歌名+歌手搜歌词补上
+        if (!MusicStore.isLyricFallback()) return null;
+        String keyword = (track.title == null ? "" : track.title).trim()
+                + " " + (track.artist == null ? "" : track.artist).trim();
+        keyword = keyword.trim();
+        if (keyword.isEmpty()) return null;
+
+        // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
+        if (s instanceof FreeJsMusicSource) {
+            try {
+                String fb = ((FreeJsMusicSource) s).lyricFallback(track);
+                if (fb != null && !fb.trim().isEmpty()) return fb;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric fallback error %s", t.getMessage());
+            }
+        }
+        // 2. 其它源（本地源跳过，它不提供歌词）
+        for (MusicSource other : SOURCES) {
+            if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+            try {
+                MusicTrack hit = matchSong(track, other.search(keyword));
+                if (hit == null) continue;
+                String lrc = other.lyric(hit);
+                if (lrc != null && !lrc.trim().isEmpty()) return lrc;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /** 歌名包含＋（有歌手时）歌手包含才认，防止拿错歌的词；归一化去标点/空白/大小写 */
+    public static MusicTrack matchSong(MusicTrack target, List<MusicTrack> candidates) {
+        if (target == null || candidates == null) return null;
+        String title = normalizeSong(target.title);
+        if (title.isEmpty()) return null;
+        String artist = normalizeSong(target.artist);
+        for (MusicTrack c : candidates) {
+            if (c == null) continue;
+            String ct = normalizeSong(c.title);
+            if (ct.isEmpty()) continue;
+            if (!ct.contains(title) && !title.contains(ct)) continue;
+            if (!artist.isEmpty()) {
+                String ca = normalizeSong(c.artist);
+                if (!ca.isEmpty() && !ca.contains(artist) && !artist.contains(ca)) continue;
+            }
+            return c;
+        }
+        return null;
+    }
+
+    private static String normalizeSong(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (char ch : s.toLowerCase().toCharArray()) {
+            if (Character.isLetterOrDigit(ch)) sb.append(ch);
+        }
+        return sb.toString();
     }
 }

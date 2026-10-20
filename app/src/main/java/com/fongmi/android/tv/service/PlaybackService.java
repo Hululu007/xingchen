@@ -115,7 +115,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service player ready cost=%dms", System.currentTimeMillis() - start);
         exoPlayer = player.getPlayer();
         exoPlayer.addListener(listener);
-        session = new MediaLibrarySession.Builder(this, wrap(exoPlayer), this).build();
+        session = new MediaLibrarySession.Builder(this, wrap(exoPlayer), this).setId("xc_video").build();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service session ready cost=%dms", System.currentTimeMillis() - start);
         session.setSessionActivity(buildDefaultIntent());
         EventBus.getDefault().register(this);

@@ -162,7 +162,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build();
         player.addListener(playerListener);
-        session = new MediaSession.Builder(this, player).build();
+        session = new MediaSession.Builder(this, player).setId("xc_music").build();
         session.setSessionActivity(buildPlayerIntent());
         // 必须显式登记会话：media3 的 MediaNotificationManager 只认 addSession 过的会话
         // （updateNotification 对未登记会话直接撤通知）。本 App 走本地 Binder 驱动、

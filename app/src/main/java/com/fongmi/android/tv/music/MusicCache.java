@@ -49,7 +49,7 @@ public class MusicCache {
             }
             App.post(() -> {
                 try {
-                    Glide.get(App.get()).clearMemoryCache();
+                    Glide.get(App.get()).clearMemory();
                 } catch (Throwable ignored) {
                 }
                 if (done != null) done.run();

@@ -259,7 +259,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         String visible = policy.visibleId();
         Activity host = currentHost();
         if (visible == null || host == null || isSessionPage(host, visible)
-                || isMusicPlayerPage(host, visible)) {
+                || isMusicOffHomePage(host, visible)) {
             hideBar();
             return;
         }
@@ -288,14 +288,18 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     /**
-     * 音乐会话在 registerMusic 里存的是空页引用（WeakReference(null)），
-     * isSessionPage 永远认不出播放页；而 pageResumed 又常在会话注册前到达被策略丢掉，
-     * 于是音乐条会贴到播放页 decor 上压住主控行。这里按页类名兜底：
-     * 只要当前页是音乐播放页，音乐条就不露（播放页有完整主控）；其它页行为不变。
+     * 音乐条白名单（潇洒哥亲点「只在首页显示」）：音乐会话只许在音乐首页
+     * （ui.activity.MusicActivity）露条，其它任何页面——音乐列表/搜索、播放页、
+     * 视频各页、星辰首页——一律不露。音乐会话在 registerMusic 里存的是空页引用
+     * （WeakReference(null)），isSessionPage 认不出当前页；pageResumed 又常在会话
+     * 注册前到达被策略丢掉，所以只能按页类名判定（沿用 b9fbda83 的兜底机制，
+     * 只改口径：从「排除播放页」改成「只认音乐首页」）。判定挂在 refreshBar
+     * 必经之路上：进列表页时新页 resume 必触发 refreshBar 把条收掉，回首页再露；
+     * 会话注销同样走 refreshBar，首页不会残留。
      */
-    private boolean isMusicPlayerPage(Activity host, String visibleId) {
+    private boolean isMusicOffHomePage(Activity host, String visibleId) {
         return "music".equals(visibleId)
-                && "com.fongmi.android.tv.ui.activity.MusicPlayerActivity"
+                && !"com.fongmi.android.tv.ui.activity.MusicActivity"
                         .equals(host.getClass().getName());
     }
 

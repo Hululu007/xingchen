@@ -35,6 +35,7 @@ public class MusicStore {
     private static final String K_AUTO_SKIP = "music_auto_skip_on_error";
     private static final String K_MOBILE_PLAY = "music_mobile_play";
     private static final String K_LYRIC_FALLBACK = "music_lyric_fallback";
+    private static final String K_SPEED = "music_speed";
 
     /** 下载默认音质（与播放默认音质相互独立，各管各的链） */
     public static int getDownloadQuality() {
@@ -70,6 +71,15 @@ public class MusicStore {
 
     public static void setLyricFallback(boolean on) {
         Prefers.put(K_LYRIC_FALLBACK, on);
+    }
+
+    /** 倍速（默认 1.0） */
+    public static float getSpeed() {
+        return Prefers.getFloat(K_SPEED, 1f);
+    }
+
+    public static void setSpeed(float speed) {
+        Prefers.put(K_SPEED, speed);
     }
 
     public static int getMode() {

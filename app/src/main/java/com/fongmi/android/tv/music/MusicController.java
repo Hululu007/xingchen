@@ -256,6 +256,22 @@ public class MusicController {
         runOnService(() -> service().insertNext(track));
     }
 
+    /** 加到播放队尾 */
+    public void appendTrack(MusicTrack track) {
+        if (track == null) return;
+        runOnService(() -> service().appendTrack(track));
+    }
+
+    /** 倍速 */
+    public void setSpeed(float speed) {
+        runOnService(() -> service().setSpeed(speed));
+    }
+
+    public float getSpeed() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? MusicStore.getSpeed() : s.getSpeed();
+    }
+
     public void setMode(int mode) {
         runOnService(() -> service().setMode(mode));
     }

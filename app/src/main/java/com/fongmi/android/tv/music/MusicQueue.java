@@ -143,6 +143,13 @@ public class MusicQueue {
         if (index < 0) index = 0;
     }
 
+    /** 加到队尾 */
+    public synchronized void append(MusicTrack track) {
+        if (track == null) return;
+        tracks.add(track);
+        if (index < 0) index = 0;
+    }
+
     public synchronized void clear() {
         tracks.clear();
         index = -1;

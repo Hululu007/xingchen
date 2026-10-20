@@ -310,6 +310,24 @@ public class MusicPlaybackService extends MediaSessionService {
         listeners.forEach(ServiceListener::onQueueChanged);
     }
 
+    /** 加到播放队尾 */
+    public void appendTrack(MusicTrack track) {
+        queue.append(track);
+        listeners.forEach(ServiceListener::onQueueChanged);
+    }
+
+    /** 倍速：1.0 正常，其余 0.5/0.75/1.25/1.5/2.0；持久化，下首歌照样用 */
+    public void setSpeed(float speed) {
+        if (speed < 0.25f) speed = 0.25f;
+        if (speed > 4f) speed = 4f;
+        MusicStore.setSpeed(speed);
+        if (player != null) player.setPlaybackSpeed(speed);
+    }
+
+    public float getSpeed() {
+        return MusicStore.getSpeed();
+    }
+
     /** 音质切换后：当前歌按新音质重取直链，进度保留 */
     public void reloadCurrent() {
         int idx = queue.getIndex();
@@ -438,6 +456,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 queue.moveTo(index);
                 player.setMediaItem(item, startPosition);
                 player.prepare();
+                player.setPlaybackSpeed(getSpeed());
                 if (autoplay) player.play();
                 else player.pause();
                 saveBreakpoint();

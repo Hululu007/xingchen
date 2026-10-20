@@ -829,6 +829,37 @@ public class MusicPlaybackService extends MediaSessionService {
 
     // ================= 播放实现 =================
 
+    /** 降档重试的时间余量：首档尝试不设限（原路径），重试前已耗时超这个数就停手，剩下的交给 20 秒看门狗收口 */
+    private static final long FALLBACK_RETRY_AFTER_MS = 15000;
+
+    /**
+     * 同曲降档取链（在熔断计数之前）：所选档只是请求上限，源拿不出这一档不许整首卡死——
+     * 在同一首歌里从所选档往下逐档试（母带→FLAC→320k→128k），拿到链就照常播、显示跟实测走。
+     * 降档成功不算失败；降到最低档还没有才返回 null，交回原失败路径（熔断/跳歌）。
+     * 已被新请求接管（seq 过期）就停手，旧结果反正会被作废，别白耗源请求。
+     */
+    private String playUrlWithFallback(MusicTrack track, int quality, int seq) {
+        long start = System.currentTimeMillis();
+        for (int q = quality; q >= MusicStore.QUALITY_LOW; q--) {
+            if (q != quality) {
+                if (seq != prepareSeq) return null;
+                if (System.currentTimeMillis() - start > FALLBACK_RETRY_AFTER_MS) {
+                    SpiderDebug.log("music", "playUrl fallback stop (time) id=%s", track.id);
+                    break;
+                }
+            }
+            String url = MusicRepository.playUrl(track, q);
+            if (url != null && !url.isEmpty()) {
+                if (q != quality) {
+                    SpiderDebug.log("music", "playUrl fallback id=%s %s->%s", track.id,
+                            MusicStore.qualityName(quality), MusicStore.qualityName(q));
+                }
+                return url;
+            }
+        }
+        return null;
+    }
+
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
         MusicTrack track = queue.get(index);
         if (track == null || player == null) return;
@@ -855,7 +886,7 @@ public class MusicPlaybackService extends MediaSessionService {
                     && !com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
                     && isCellularNetwork();
             String url = null;
-            if (!blocked) url = MusicRepository.playUrl(track, quality);
+            if (!blocked) url = playUrlWithFallback(track, quality, seq);
             final boolean fBlocked = blocked;
             final String fUrl = url;
             App.post(() -> {

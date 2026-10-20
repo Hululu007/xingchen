@@ -18,24 +18,20 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
-import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
-import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 音乐首页：导航行（歌单/收藏/榜单/已下载/本地音乐五项）。
- * 源列表不在首页：顶栏左上角 ☰ 图标钮点开左侧抽屉（插件管理→源管理页，设置→音乐设置页）。
- * 顶部播放行只做续播＋「N 个源」状态显示。
+ * 源列表不在首页：顶栏左上角 ☰ 图标点开左侧抽屉（插件管理→源管理页，设置→音乐设置页）。
+ * 首页不放播放键行（与底部迷你条重复）和源数显示（废信息），潇洒哥 2026-10-20 亲点删。
  * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
  */
 public class MusicActivity extends BaseActivity {
@@ -80,7 +76,6 @@ public class MusicActivity extends BaseActivity {
             binding.drawerLayout.closeDrawer(GravityCompat.START);
             MusicSettingsActivity.start(this);
         });
-        binding.btnPlayAll.setOnClickListener(v -> playAll());
         refresh();
     }
 
@@ -113,16 +108,10 @@ public class MusicActivity extends BaseActivity {
 
     private void refresh() {
         buildNavItems();
-        Task.execute(() -> {
-            int n = MusicRepository.sites().size();
-            runOnUiThread(() -> {
-                items.clear();
-                items.addAll(navItems);
-                adapter.notifyDataSetChanged();
-                binding.tvCount.setText(n + " " + getString(R.string.music_sites));
-                binding.empty.setVisibility(View.GONE);
-            });
-        });
+        items.clear();
+        items.addAll(navItems);
+        adapter.notifyDataSetChanged();
+        binding.empty.setVisibility(View.GONE);
     }
 
     private void refreshNavStatus() {
@@ -148,24 +137,6 @@ public class MusicActivity extends BaseActivity {
         navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
         // 本地音乐：设备音频（MediaStore＋导入目录），排在四行之后，跟已下载分开
         navItems.add(new NavItem("device", getString(R.string.music_device), "", 0xFF06B6D4, R.drawable.ic_music_note));
-    }
-
-    /** 首页大播放键：上次队列从断点位置续播；无断点播最近播放第一首；再无则不动作 */
-    private void playAll() {
-        List<MusicTrack> queue = MusicStore.loadQueue();
-        if (!queue.isEmpty()) {
-            int idx = Math.max(0, Math.min(MusicStore.loadIndex(), queue.size() - 1));
-            MusicController.get().playFrom(queue, idx, MusicStore.loadPosition());
-            MusicPlayerActivity.start(this);
-            return;
-        }
-        List<MusicTrack> recent = MusicStore.loadRecent();
-        if (!recent.isEmpty()) {
-            MusicController.get().play(recent, 0);
-            MusicPlayerActivity.start(this);
-            return;
-        }
-        Notify.show("还没有听过歌");
     }
 
     private void onNavClick(NavItem item) {

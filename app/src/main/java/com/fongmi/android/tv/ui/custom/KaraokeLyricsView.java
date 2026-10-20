@@ -5,6 +5,9 @@ import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.SystemClock;
@@ -104,14 +107,38 @@ public class KaraokeLyricsView extends View {
     private static final float[] FADE_Y = {1f, 0.85f, 0.62f, 0.48f, 0.45f};
 
     // —— 非当前行压暗／模糊 ——
-    /** 非当前行 alpha：按行距由 0.85 递减到 0.35 钳制（星辰口径；GZ 按距离的源头公式未抠到，应用侧等价）。 */
+    /** 非当前行 alpha：按行距由 0.85 递减到 0.35 钳制（星辰口径；GZ 按距离的源头公式在 AnchoredLyricEngine 方法体内、jadx 整段跳过未抠到，此为应用侧等价式，保留）。 */
     private static final float IDLE_ALPHA_FAR = 0.85f;
     private static final float IDLE_ALPHA_NEAR_FLOOR = 0.35f;
     private static final float IDLE_ALPHA_STEP = 0.16f;
-    /** 非当前行模糊半径（px）：min(BLUR_BASE＋d×BLUR_PER_LINE, BLUR_MAX)，0.5 步进量化（源头公式 GZ 侧未抠到，应用侧等价；GZ 应用侧同为 0.5 量化）。 */
+    /** 非当前行模糊半径（px）：min(BLUR_BASE＋d×BLUR_PER_LINE, BLUR_MAX)，0.5 步进量化（源头公式 GZ 侧未抠到，应用侧等价；GZ 应用侧同为 0.5 量化，见下条）。 */
     private static final float BLUR_BASE = 2f;
     private static final float BLUR_PER_LINE = 2.2f;
     private static final float BLUR_MAX = 12f;
+    /**
+     * 模糊应用侧（照 GZ LyricsViewKt AnchoredLyricEngine 应用侧 lambda :478-511 整段转写）：
+     * 行 alpha 系数 ≥0.08 才取模糊值；值＞0 且 SDK≥31 且 RenderEffect 可用才挂；
+     * E＝round(blur×2)、半径＝E/2（0.5 步进），按 E 缓存 RenderEffect.createBlurEffect(r, r, DECAL)；
+     * 创建失败置冷却 30000ms（BLUR_RETRY_COOLDOWN_MS，LyricsViewKt:274），冷却内不重试、不挂模糊。
+     * API＜31 无 RenderEffect：保留原 BlurMaskFilter 画笔实现作等效（同半径、同 0.5 量化、同 ≥0.08 门槛）。
+     */
+    private static final float BLUR_ALPHA_GATE = 0.08f;
+    private static final long BLUR_RETRY_COOLDOWN_MS = 30000L;
+
+    // —— 空态（GZ 参数表第 3 节：NoLyricPlaceholder／IdlePlaceholder，LyricsViewKt:5816-5817／6029-6030） ——
+    /** 空态图标尺寸 40dp（＝LYRIC_SIZE_MAX）。 */
+    private static final float EMPTY_ICON_DP = 40f;
+    /** 空态字样字号 12sp。 */
+    private static final float EMPTY_TEXT_SP = 12f;
+    /** 无歌词：图标 alpha 0.5（字样用非当前行色原值）。 */
+    private static final float EMPTY_NO_LYRIC_ICON_ALPHA = 0.5f;
+    /** 等待播放：图标 alpha 0.3、字样 alpha 0.4。 */
+    private static final float EMPTY_WAITING_ICON_ALPHA = 0.3f;
+    private static final float EMPTY_WAITING_TEXT_ALPHA = 0.4f;
+    /** 三态：取词未定（默认，什么都不画）／已确认无词／无曲目等待播放。 */
+    private static final int STATE_LOADING = 0;
+    private static final int STATE_NO_LYRIC = 1;
+    private static final int STATE_WAITING = 2;
 
     // —— 颜色（星辰定稿；GZ 四色对照：已唱 0xFFFF2D55／当前未唱 0xFF3C3C43／非当前 0xFF9A9AA0／翻译 0xFF8A8A90，另已唱柔色 0xFFEAEAEA——仅对照，不采用） ——
     /** 主行未唱颜色（深色面）。 */
@@ -145,6 +172,11 @@ public class KaraokeLyricsView extends View {
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint emptyPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Map<Float, BlurMaskFilter> blurCache = new HashMap<>();
+    /** API≥31 模糊缓存：按量化档 E 缓存 RenderEffect（GZ 应用侧同口径）；blurRetryAfterMs 为失败冷却截止时刻。 */
+    private final Map<Integer, RenderEffect> blurEffectCache = new HashMap<>();
+    private long blurRetryAfterMs;
+    /** 空态三态（默认 STATE_LOADING：取词未定前什么都不画）。 */
+    private int emptyState = STATE_LOADING;
     private final Choreographer choreographer = Choreographer.getInstance();
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
@@ -212,10 +244,9 @@ public class KaraokeLyricsView extends View {
 
     public KaraokeLyricsView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        // BlurMaskFilter 需要软件层才稳定生效。
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
+        // API≥31 走 RenderEffect（需硬件加速层）；API＜31 的 BlurMaskFilter 需要软件层才稳定生效。
+        setLayerType(Build.VERSION.SDK_INT >= 31 ? LAYER_TYPE_HARDWARE : LAYER_TYPE_SOFTWARE, null);
         initPaint(subPaint, SUB_SP, SUB_COLOR, false);
-        emptyPaint.setTextSize(sp(16f));
         emptyPaint.setTextAlign(Paint.Align.CENTER);
         applyMainStyle();
         applySchemeColors();
@@ -287,6 +318,48 @@ public class KaraokeLyricsView extends View {
         }
         ensureFrameLoop();
         invalidate();
+    }
+
+    // —— 空态三态接口（线 C 按此接线，方法名已定）：有词走 setLines，此三态只管无词时画什么 ——
+
+    /** 取词未定：什么都不画（默认态）。 */
+    public void showLoading() {
+        emptyState = STATE_LOADING;
+        invalidate();
+    }
+
+    /** 已确认无词：显示低调空态（图标 40dp／alpha 0.5、「暂无歌词」12sp，GZ 参数表第 3 节）。 */
+    public void showNoLyric() {
+        emptyState = STATE_NO_LYRIC;
+        invalidate();
+    }
+
+    /** 无曲目：等待播放态（图标 alpha 0.3、「等待播放」alpha 0.4、12sp，GZ 参数表第 3 节）。 */
+    public void showWaiting() {
+        emptyState = STATE_WAITING;
+        invalidate();
+    }
+
+    /** 行高（GZ coverLyricLineHeight，LyricsViewKt:10901-10903）：行高＝字号×4/3。 */
+    static float lyricLineHeight(float textSizePx) {
+        return textSizePx * 4f / 3f;
+    }
+
+    /** 封面歌词槽位高（GZ coverLyricSlotHeight，LyricsViewKt:10909-10911）：＝COVER_LINE_GAP×3＋行高×4。 */
+    static float coverLyricSlotHeight(float textSizePx, float gapPx) {
+        return gapPx * 3f + lyricLineHeight(textSizePx) * 4f;
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        // 封面模式高度未被宿主定死时，按 GZ 槽位高（20dp×3＋行高×4）作期望高。
+        if (coverMode && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.EXACTLY) {
+            int desired = Math.round(coverLyricSlotHeight(mainTextSizePx(), dp(LINE_GAP_COVER_DP)));
+            int size = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST
+                    ? Math.min(desired, MeasureSpec.getSize(heightMeasureSpec)) : desired;
+            setMeasuredDimension(getMeasuredWidth(), size);
+        }
     }
 
     /** 0=原文作主行、1=翻译作主行、2=音译作主行（作主行时原主行退为副行）。 */
@@ -594,8 +667,8 @@ public class KaraokeLyricsView extends View {
         if (layoutWidth == width && !blocks.isEmpty()) return;
         layoutWidth = width;
         float maxMainWidth = width - dp(H_PADDING_DP) * 2f;
-        // 行高＝字号 ×4/3（GZ coverLyricLineHeight，全屏／封面同公式）。
-        float mainRowHeight = mainTextSizePx() * 4f / 3f;
+        // 行高＝字号 ×4/3（GZ coverLyricLineHeight，全屏／封面同公式，LyricsViewKt:10901-10903）。
+        float mainRowHeight = lyricLineHeight(mainTextSizePx());
         Paint.FontMetrics subFm = subPaint.getFontMetrics();
         float subRowHeight = (subFm.descent - subFm.ascent) * 1.15f;
         float gapPx = dp(coverMode ? LINE_GAP_COVER_DP : LINE_GAP_FULLSCREEN_DP);
@@ -700,11 +773,11 @@ public class KaraokeLyricsView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (lines.isEmpty() || blocks.isEmpty()) {
-            // 注：R.string.music_no_lyric 在现树中不存在，故用字面量兜底。
-            canvas.drawText("暂无歌词", getWidth() / 2f, getHeight() / 2f, emptyPaint);
+        if (lines.isEmpty()) {
+            drawEmptyState(canvas);
             return;
         }
+        if (blocks.isEmpty()) return;
         long pos = displayPositionMs();
         float anchorY = getHeight() * ANCHOR;
         float maxWidth = getWidth() - dp(H_PADDING_DP) * 2f;
@@ -719,6 +792,31 @@ public class KaraokeLyricsView extends View {
             boolean isCurrent = block.index == currentIndex;
             drawBlock(canvas, block, blockY, maxWidth, distance, isCurrent, pos, anchorY);
         }
+    }
+
+    /**
+     * 空态绘制（GZ 参数表第 3 节）：STATE_LOADING 什么都不画；
+     * 无歌词＝图标 40dp／alpha 0.5＋「暂无歌词」12sp（LyricsViewKt:5816-5817）；
+     * 等待播放＝图标 alpha 0.3＋「等待播放」alpha 0.4、12sp（LyricsViewKt:6029-6030）。
+     * GZ 图标为其矢量资源（xe2.q()，具体资产未追到），此处以「♪」字形等尺寸代绘，见小节未验清单。
+     * 图标与字样的纵向间距 GZ 列装配未抠到确数，此处居中成组排布。
+     */
+    private void drawEmptyState(Canvas canvas) {
+        if (emptyState == STATE_LOADING) return;
+        boolean waiting = emptyState == STATE_WAITING;
+        int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
+        float cx = getWidth() / 2f;
+        float cy = getHeight() / 2f;
+        emptyPaint.setColor(base);
+        emptyPaint.setTextSize(dp(EMPTY_ICON_DP));
+        emptyPaint.setAlpha(Math.round(255f * (waiting ? EMPTY_WAITING_ICON_ALPHA : EMPTY_NO_LYRIC_ICON_ALPHA)));
+        Paint.FontMetrics iconFm = emptyPaint.getFontMetrics();
+        float iconBaseline = cy - dp(12) - (iconFm.ascent + iconFm.descent) / 2f;
+        canvas.drawText("♪", cx, iconBaseline, emptyPaint);
+        emptyPaint.setTextSize(sp(EMPTY_TEXT_SP));
+        emptyPaint.setAlpha(waiting ? Math.round(255f * EMPTY_WAITING_TEXT_ALPHA) : 255);
+        canvas.drawText(waiting ? "等待播放" : "暂无歌词", cx, cy + dp(20), emptyPaint);
+        emptyPaint.setAlpha(255);
     }
 
     private void drawBlock(Canvas canvas, Block block, float blockTopY, float maxWidth,
@@ -757,24 +855,44 @@ public class KaraokeLyricsView extends View {
     }
 
     private void drawIdleMain(Canvas canvas, Block block, float baseline, int distance, float blockTopY, float anchorY) {
-        // 非当前行：磨砂模糊＋压暗（应用侧等价公式，见常量区注释），步进 0.5 量化保留，再乘顶部／底部渐隐。
-        float alphaRatio = Math.max(IDLE_ALPHA_NEAR_FLOOR, IDLE_ALPHA_FAR - distance * IDLE_ALPHA_STEP);
+        // 非当前行：压暗系数（应用侧等价式，源头公式 GZ 未抠到）先算，模糊门槛按此系数判（GZ 应用侧口径）；
+        // 最终 alpha 再乘顶部／底部渐隐。
+        float lineAlpha = Math.max(IDLE_ALPHA_NEAR_FLOOR, IDLE_ALPHA_FAR - distance * IDLE_ALPHA_STEP);
+        float alphaRatio = lineAlpha;
         // 底部渐隐：锚点以下按归一化位置走 bottomFadeKeep 五点曲线；锚点以上不衰减（走顶部渐隐）。
         if (blockTopY > anchorY && getHeight() > anchorY) {
             float f = clampF((blockTopY - anchorY) / (getHeight() - anchorY), 0f, 1f);
             alphaRatio *= bottomFadeKeep(f);
         }
-        // 顶部渐隐：距顶 40dp 内按 smoothstep 淡入。
+        // 顶部渐隐：距顶 40dp 内按 smoothstep 淡入（GZ 顶部渐隐同式，LyricsViewKt:456-457）。
         float topFadePx = dp(TOP_FADE_HEIGHT_DP);
         if (blockTopY < topFadePx) {
             alphaRatio *= smoothstep(blockTopY / topFadePx);
         }
-        float radius = Math.min(BLUR_BASE + distance * BLUR_PER_LINE, BLUR_MAX) * blurMultiplier();
-        radius = Math.round(radius * 2f) / 2f;
+        int color = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
+        int alpha = Math.round(255 * clampF(alphaRatio, 0f, 1f));
+        // 模糊应用侧（GZ LyricsViewKt:478-511 转写）：半径先量化 E＝round(blur×2)、半径＝E/2；
+        // 行 alpha 系数 ≥0.08 才取模糊值；SDK≥31 走 RenderEffect、失败冷却 30s 内不挂；API＜31 走 BlurMaskFilter 等效。
+        float rawRadius = Math.min(BLUR_BASE + distance * BLUR_PER_LINE, BLUR_MAX) * blurMultiplier();
+        int e = Math.round(rawRadius * 2f);
+        float radius = e / 2f;
+        boolean blurWanted = lineAlpha >= BLUR_ALPHA_GATE && radius > 0f;
+        if (Build.VERSION.SDK_INT >= 31) {
+            RenderEffect effect = null;
+            if (blurWanted && SystemClock.elapsedRealtime() >= blurRetryAfterMs) {
+                effect = blurEffectFor(e);
+            }
+            if (effect != null && drawIdleRowsWithEffect(canvas, block, baseline, blockTopY, effect, color, alpha)) {
+                return;
+            }
+            // GZ 口径：无可用效果时该行不挂模糊、只压暗直绘。
+            drawIdleRows(canvas, block, baseline, color, alpha, null);
+            return;
+        }
         Paint paint = mainPaint;
-        paint.setColor(lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR);
-        paint.setAlpha(Math.round(255 * clampF(alphaRatio, 0f, 1f)));
-        paint.setMaskFilter(radius > 0 ? blurFilter(radius) : null);
+        paint.setColor(color);
+        paint.setAlpha(alpha);
+        paint.setMaskFilter(blurWanted ? blurFilter(radius) : null);
         float y = baseline;
         for (List<Seg> row : block.mainRows) {
             float x = rowStartX(rowWidth(row));
@@ -786,6 +904,84 @@ public class KaraokeLyricsView extends View {
         }
         paint.setMaskFilter(null);
         paint.setAlpha(255);
+    }
+
+    /** 非当前行直绘（无模糊）：API≥31 无可用 RenderEffect 时的 GZ 口径落点。 */
+    private void drawIdleRows(Canvas canvas, Block block, float baseline, int color, int alpha, BlurMaskFilter filter) {
+        Paint paint = mainPaint;
+        paint.setColor(color);
+        paint.setAlpha(alpha);
+        paint.setMaskFilter(filter);
+        float y = baseline;
+        for (List<Seg> row : block.mainRows) {
+            float x = rowStartX(rowWidth(row));
+            for (Seg seg : row) {
+                canvas.drawText(seg.text, x, y, paint);
+                x += seg.width;
+            }
+            y += block.mainRowHeight;
+        }
+        paint.setMaskFilter(null);
+        paint.setAlpha(255);
+    }
+
+    /**
+     * 按 E 取／建 RenderEffect（GZ 应用侧：按 E 缓存 createBlurEffect(E/2, E/2, DECAL)；
+     * 创建失败置 30000ms 冷却并返回 null，冷却内不再试）。
+     */
+    private RenderEffect blurEffectFor(int e) {
+        RenderEffect effect = blurEffectCache.get(e);
+        if (effect != null) return effect;
+        float r = e / 2f;
+        try {
+            effect = RenderEffect.createBlurEffect(r, r, Shader.TileMode.DECAL);
+            blurEffectCache.put(e, effect);
+            return effect;
+        } catch (Exception ex) {
+            blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
+            return null;
+        }
+    }
+
+    /**
+     * API≥31 非当前行绘制：整块行录进 RenderNode、挂 RenderEffect 后绘出（View 体系下 RenderEffect 的落点）。
+     * 录制／绘制异常按 GZ 失败口径置 30s 冷却并回退直绘（返回 false 由调用方直绘）。
+     */
+    private boolean drawIdleRowsWithEffect(Canvas canvas, Block block, float baseline, float blockTopY,
+                                           RenderEffect effect, int color, int alpha) {
+        int w = getWidth();
+        if (w <= 0) return false;
+        int h = Math.max(1, Math.round(block.mainRows.size() * block.mainRowHeight + dp(4)));
+        RenderNode node = new RenderNode("karaokeIdleBlur");
+        try {
+            node.setPosition(0, 0, w, h);
+            Canvas rec = node.beginRecording(w, h);
+            Paint paint = new Paint(mainPaint);
+            paint.setColor(color);
+            paint.setAlpha(alpha);
+            paint.setMaskFilter(null);
+            float y = baseline - blockTopY;
+            for (List<Seg> row : block.mainRows) {
+                float x = rowStartX(rowWidth(row));
+                for (Seg seg : row) {
+                    rec.drawText(seg.text, x, y, paint);
+                    x += seg.width;
+                }
+                y += block.mainRowHeight;
+            }
+            node.endRecording();
+            node.setRenderEffect(effect);
+            int save = canvas.save();
+            canvas.translate(0f, blockTopY);
+            canvas.drawRenderNode(node);
+            canvas.restoreToCount(save);
+            return true;
+        } catch (Exception ex) {
+            blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
+            return false;
+        } finally {
+            node.discardDisplayList();
+        }
     }
 
     private void drawCurrentMain(Canvas canvas, Block block, LyricsLine line, float baseline, long pos) {

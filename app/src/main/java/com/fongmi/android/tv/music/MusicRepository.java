@@ -248,7 +248,7 @@ public class MusicRepository {
         if (s == null) return null;
         MusicLyric own = null;
         try {
-            own = richOf(s, track);
+            own = normalizeRich(richOf(s, track));
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
@@ -263,7 +263,7 @@ public class MusicRepository {
         // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
         if (s instanceof FreeJsMusicSource) {
             try {
-                MusicLyric fb = ((FreeJsMusicSource) s).lyricFallbackRich(track);
+                MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRich(track));
                 if (hasRaw(fb)) return fb;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich fallback error %s", t.getMessage());
@@ -275,7 +275,7 @@ public class MusicRepository {
             try {
                 MusicTrack hit = matchSong(track, other.search(keyword));
                 if (hit == null) continue;
-                MusicLyric lrc = richOf(other, hit);
+                MusicLyric lrc = normalizeRich(richOf(other, hit));
                 if (hasRaw(lrc)) return lrc;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
@@ -285,7 +285,7 @@ public class MusicRepository {
         for (MusicSource other : SOURCES) {
             if (!(other instanceof FreeJsMusicSource)) continue;
             try {
-                MusicLyric lrc = ((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track);
+                MusicLyric lrc = normalizeRich(((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track));
                 if (hasRaw(lrc)) return lrc;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
@@ -305,6 +305,20 @@ public class MusicRepository {
 
     private static boolean hasRaw(MusicLyric lyric) {
         return lyric != null && lyric.rawLrc != null && !lyric.rawLrc.trim().isEmpty();
+    }
+
+    /**
+     * rich 归一：正文为空但译文有整行定时词时，把译文提为正文（译格保留）。
+     * 两页都只拿 rawLrc 当正文解析，译文-only 的 MusicLyric 若原样返回会被判空态——
+     * 有词就不许空态；正文已有词时原样不动。
+     */
+    private static MusicLyric normalizeRich(MusicLyric lyric) {
+        if (lyric == null || hasRaw(lyric)) return lyric;
+        if (lyric.translation != null && !lyric.translation.trim().isEmpty()
+                && com.fongmi.android.tv.player.lyrics.LyricsParser.hasTimedLine(lyric.translation)) {
+            lyric.rawLrc = lyric.translation;
+        }
+        return lyric;
     }
 
     /** 歌名包含＋（有歌手时）歌手包含才认，防止拿错歌的词；归一化去标点/空白/大小写 */

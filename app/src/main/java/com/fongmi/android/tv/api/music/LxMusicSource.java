@@ -8,6 +8,7 @@ import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicSource;
+import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.JsonElement;
@@ -323,7 +324,7 @@ public class LxMusicSource implements MusicSource {
 
     /**
      * extractLyric 的 rich 版：落雪 lyric 动作返回对象时的字段优先级——
-     * 正文 lxlyric（逐字）&gt; lyric &gt; rawLrc &gt; lrc；译取 tlyric；音译取 romalrc。
+     * 正文由 pickRawLrc 选（lxlyric 可解析时优先，否则 lyric &gt; rawLrc &gt; lrc）；译取 tlyric；音译取 romalrc。
      * 纯字符串 / 裸文本返回与 extractLyric 同口径包成只有正文。
      */
     private MusicLyric extractLyricRich(String result) {
@@ -341,10 +342,11 @@ public class LxMusicSource implements MusicSource {
             try {
                 JsonObject o = JsonParser.parseString(r).getAsJsonObject();
                 MusicLyric lyric = new MusicLyric();
-                lyric.rawLrc = firstNonEmpty(optStr(o, "lxlyric"), optStr(o, "lyric"), optStr(o, "rawLrc"), optStr(o, "lrc"));
+                lyric.rawLrc = pickRawLrc(optStr(o, "lxlyric"),
+                        firstNonEmpty(optStr(o, "lyric"), optStr(o, "rawLrc"), optStr(o, "lrc")));
                 lyric.translation = firstNonEmpty(optStr(o, "tlyric"), optStr(o, "translation"));
                 lyric.romanization = firstNonEmpty(optStr(o, "romalrc"), optStr(o, "romanization"));
-                if (lyric.rawLrc.isEmpty()) lyric.rawLrc = null;
+                if (lyric.rawLrc != null && lyric.rawLrc.isEmpty()) lyric.rawLrc = null;
                 if (lyric.translation.isEmpty()) lyric.translation = null;
                 if (lyric.romanization.isEmpty()) lyric.romanization = null;
                 return lyric.hasLyric() ? lyric : null;
@@ -353,6 +355,20 @@ public class LxMusicSource implements MusicSource {
             }
         }
         return r.contains("[") ? new MusicLyric(r) : null;
+    }
+
+    /**
+     * 正文选源：lxlyric 逐字优先，但必须真能解析出整行词才算数；
+     * lxlyric 损坏/不可解析而 plain 字段（lyric 等）能解析时用 plain——与 plain 链
+     * extractLyric 只认 lyric 字段的口径对齐，不许 rich 链拿坏逐字把好整行词顶掉。
+     * 两边都解析不出时保留 lxlyric 原文，交解析层的整行/纯文本回落再 salvage。
+     */
+    private String pickRawLrc(String lxlyric, String plain) {
+        if (TextUtils.isEmpty(lxlyric)) return plain.isEmpty() ? null : plain;
+        if (plain.isEmpty()) return lxlyric;
+        if (!LyricsParser.parseWordLyric(lxlyric).isEmpty()) return lxlyric;
+        if (!LyricsParser.parseWordLyric(plain).isEmpty()) return plain;
+        return lxlyric;
     }
 
     private String firstNonEmpty(String... vals) {

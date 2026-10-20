@@ -32,6 +32,7 @@ public class RichLyrics {
     }
 
     public static List<Line> align(List<LyricsLine> main, List<LyricsLine> trans, List<LyricsLine> roma) {
+        // 不变量：输出行数恒等于正文行数——对齐只给正文行挂译/音，失败挂 null，永不吞正文行
         List<Line> output = new ArrayList<>();
         if (main == null) return output;
         Set<Integer> usedTrans = new HashSet<>();
@@ -53,6 +54,8 @@ public class RichLyrics {
             if (used.contains(i)) continue;
             LyricsLine candidate = aux.get(i);
             if (candidate == null) continue;
+            // 空文本译/音行不参与对齐、更不许占用名额把同窗的真译行挤掉
+            if (candidate.getText() == null || candidate.getText().isEmpty()) continue;
             long delta = Math.abs(candidate.getTimeMs() - timeMs);
             if (delta <= TOLERANCE_MS && delta < bestDelta) {
                 best = i;

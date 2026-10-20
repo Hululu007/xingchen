@@ -124,7 +124,12 @@ public class LyricsParser {
                 break;
             }
         }
-        if (!bracket) return parseTimed(content);
+        if (!bracket) {
+            List<LyricsLine> timed = parseTimed(content);
+            if (!timed.isEmpty()) return timed;
+            // 无任何定时行但有纯文本歌词：按无时间轴整行词出（空态只许真无词时出现）
+            return parsePlainFallback(content);
+        }
         for (String raw : content.replace("\r", "").split("\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
@@ -140,12 +145,37 @@ public class LyricsParser {
             StringBuilder textBuilder = new StringBuilder();
             parseBracketWords(rest, lineStart, words, textBuilder);
             String lineText = textBuilder.toString().trim();
+            if (words.isEmpty()) {
+                // 逐字标记损坏/不可识别（一对括号里没逗号等）：剥掉标记残渣按整行词收，
+                // 不许把带定时头的正文行整行吞掉或带着标记垃圾上屏
+                String salvaged = rest.replaceAll("\\([^)]*\\)", "").replaceAll("<[^>]*>", "").trim();
+                if (!salvaged.isEmpty()) lineText = salvaged;
+            }
             if (lineText.isEmpty()) continue;
             if (shouldDropCreditLine(lineText)) continue;
             lines.add(new LyricsLine(lineStart, lineText, words));
         }
         lines.sort(Comparator.comparingLong(LyricsLine::getTimeMs));
-        return compact(lines);
+        List<LyricsLine> result = compact(lines);
+        if (!result.isEmpty()) return result;
+        // 逐字支路整体产 0 行：同文本再走 plain 定时行解析，仍无定时行再按纯文本整行出
+        List<LyricsLine> timed = parseTimed(content);
+        if (!timed.isEmpty()) return timed;
+        return parsePlainFallback(content);
+    }
+
+    /** 纯文本回落：先剥逐字标记残渣（[ms,dur] 行头与括号/尖括号词标记），不许标记垃圾冒充整行词 */
+    private static List<LyricsLine> parsePlainFallback(String content) {
+        StringBuilder cleaned = new StringBuilder();
+        for (String raw : content.replace("\r", "").split("\n")) {
+            String line = raw.trim()
+                    .replaceAll("^\\[\\d+,\\d+]", "")
+                    .replaceAll("\\([^)]*\\)", "")
+                    .replaceAll("<[^>]*>", "")
+                    .trim();
+            cleaned.append(line).append('\n');
+        }
+        return parsePlain(cleaned.toString(), 0);
     }
 
     /**

@@ -2,8 +2,11 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.view.View;
 import android.os.Bundle;
 import android.widget.EditText;
 import android.widget.SeekBar;
@@ -38,15 +41,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 全屏歌词页（经典主题底子）：封面拉满糊底＋取色色罩，歌名/歌手小字压在歌词上头，
- * 右侧三裸图标（菜单/播放列表/播放暂停）；主体 KaraokeLyricsView 全屏滚动逐字歌词，
- * 点行 seek；底部细进度＋主控三键。页面不放返回箭头，走系统返回。
+ * 全屏歌词页（照 GZ 本体＋实拍转写）：上半部约 45% 封面图本体整幅显示、下缘渐变融进
+ * CoverColor 氛围底；封面下方歌名歌手在左（歌手行小心形收藏态）、右侧三裸图标；
+ * 歌词区在标题行下到胶囊上；底部居中双胶囊（音质实测短标＋逐字）＋发丝细进度线，
+ * 无主控行（暂停只在头部第三图标）。页面不放返回箭头，走系统返回。
  */
 public class MusicLyricsActivity extends BaseActivity {
 
     private ActivityMusicLyricsBinding binding;
     private boolean seeking;
+    private boolean favorited;
     private String bgCoverUrl;
+    private int ambientColor = 0xFF1C1C1E;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicLyricsActivity.class));
@@ -67,6 +73,11 @@ public class MusicLyricsActivity extends BaseActivity {
         public void onProgress(long position, long duration) {
             runOnUiThread(() -> onProgressUi(position, duration));
         }
+
+        @Override
+        public void onAudioInfoChanged() {
+            runOnUiThread(() -> refreshQualityChip());
+        }
     };
 
     @Override
@@ -82,9 +93,7 @@ public class MusicLyricsActivity extends BaseActivity {
         binding.btnMenu.setOnClickListener(v -> openTools());
         binding.btnQueue.setOnClickListener(v -> MusicQueueDialog.show(this));
         binding.btnPlayTop.setOnClickListener(v -> MusicController.get().toggle());
-        binding.btnPlay.setOnClickListener(v -> MusicController.get().toggle());
-        binding.btnPrev.setOnClickListener(v -> MusicController.get().prev());
-        binding.btnNext.setOnClickListener(v -> MusicController.get().next());
+        binding.btnFav.setOnClickListener(v -> toggleFavorite());
         binding.lyricsView.setOnLineClickListener((index, positionMs) -> {
             MusicController.get().seekTo(positionMs);
             binding.lyricsView.seekUi(positionMs);
@@ -143,25 +152,39 @@ public class MusicLyricsActivity extends BaseActivity {
 
     private void bindTrack(MusicTrack track) {
         if (track == null) {
+            // 无曲目：歌词视图等待态（不许露空态/旧歌词）
             binding.tvTitle.setText(R.string.music_no_track);
             binding.tvArtist.setText("");
             applyPlainBackground();
-            binding.lyricsView.setLines(new ArrayList<>(), null, null);
+            binding.lyricsView.showWaiting();
+            binding.chipQuality.setVisibility(View.GONE);
+            binding.chipWord.setVisibility(View.GONE);
             return;
         }
         binding.tvTitle.setText(track.displayTitle());
         binding.tvArtist.setText(track.displayArtist());
         loadBackground(track);
         loadLyrics(track, false);
+        refreshFavorite(track);
+        refreshQualityChip();
     }
 
     private void applyPlainBackground() {
         bgCoverUrl = null;
-        binding.ivBg.setImageBitmap(null);
-        binding.bgOverlay.setBackgroundColor(0xFF1C1C1E);
+        binding.ivCover.setImageBitmap(null);
+        ambientColor = 0xFF1C1C1E;
+        binding.rootLayout.setBackgroundColor(ambientColor);
+        applyCoverFade();
     }
 
-    /** 背景：64px 小图糊底（RSBlur/FastBlur 照海阔写法）＋ CoverColor.ambientBackground 色罩；无封面纯色兜底 */
+    /** 封面下缘渐变：上部透明、下部融进当前氛围色（切歌取色后重生成） */
+    private void applyCoverFade() {
+        GradientDrawable fade = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00000000, 0x00000000, ambientColor, ambientColor});
+        binding.coverFade.setBackground(fade);
+    }
+
+    /** 封面本体整幅显示（ivCover 非糊底）；氛围底另取 64px 小图 CoverColor 取色刷根背景＋下缘渐变 */
     private void loadBackground(MusicTrack track) {
         if (track.cover == null || track.cover.isEmpty()) {
             applyPlainBackground();
@@ -169,6 +192,7 @@ public class MusicLyricsActivity extends BaseActivity {
         }
         if (track.cover.equals(bgCoverUrl)) return;
         bgCoverUrl = track.cover;
+        com.fongmi.android.tv.utils.ImgUtil.load(track.displayTitle(), track.cover, binding.ivCover);
         try {
             Glide.with(this).asBitmap().load(com.fongmi.android.tv.utils.ImgUtil.getUrl(track.cover)).override(64, 64).centerCrop()
                     .into(new CustomTarget<Bitmap>() {
@@ -176,28 +200,17 @@ public class MusicLyricsActivity extends BaseActivity {
                         public void onResourceReady(Bitmap resource, com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
                             if (isFinishing() || isDestroyed()) return;
                             if (!track.cover.equals(bgCoverUrl)) return;
-                            Bitmap blurred;
-                            try {
-                                blurred = jp.wasabeef.glide.transformations.internal.RSBlur.blur(
-                                        MusicLyricsActivity.this, resource, 24);
-                            } catch (Throwable e) {
-                                try {
-                                    blurred = jp.wasabeef.glide.transformations.internal.FastBlur.blur(resource, 24, true);
-                                } catch (Throwable e2) {
-                                    blurred = resource;
-                                }
-                            }
-                            binding.ivBg.setImageBitmap(blurred != null ? blurred : resource);
-                            int ambient = CoverColor.ambientBackground(resource);
-                            binding.bgOverlay.setBackgroundColor(Color.argb(178,
-                                    Color.red(ambient), Color.green(ambient), Color.blue(ambient)));
+                            ambientColor = CoverColor.ambientBackground(resource);
+                            binding.rootLayout.setBackgroundColor(ambientColor);
+                            applyCoverFade();
                         }
 
                         @Override
                         public void onLoadFailed(android.graphics.drawable.Drawable errorDrawable) {
                             if (!track.cover.equals(bgCoverUrl)) return;
-                            binding.ivBg.setImageBitmap(null);
-                            binding.bgOverlay.setBackgroundColor(0xFF1C1C1E);
+                            ambientColor = 0xFF1C1C1E;
+                            binding.rootLayout.setBackgroundColor(ambientColor);
+                            applyCoverFade();
                         }
                     });
         } catch (Throwable ignored) {
@@ -208,7 +221,8 @@ public class MusicLyricsActivity extends BaseActivity {
     // ================= 歌词数据链（与播放页同款：lyricRich→parseWordLyric→RichLyrics.align） =================
 
     private void loadLyrics(MusicTrack track, boolean force) {
-        binding.lyricsView.setLines(new ArrayList<>(), null, null);
+        // 取词未回先露加载态，不许先露空态（时序接线口径）
+        binding.lyricsView.showLoading();
         Task.execute(() -> {
             MusicLyric rich = null;
             try {
@@ -237,7 +251,14 @@ public class MusicLyricsActivity extends BaseActivity {
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
                 if (cur == null || !cur.equals(track)) return;
-                binding.lyricsView.setLines(resultMain, resultTrans, resultRoma);
+                if (resultMain.isEmpty()) {
+                    // 取词确认为空才露空态
+                    binding.lyricsView.showNoLyric();
+                    binding.chipWord.setVisibility(View.GONE);
+                } else {
+                    binding.lyricsView.setLines(resultMain, resultTrans, resultRoma);
+                    refreshWordChip(resultMain);
+                }
                 applyLyricStyle();
                 binding.lyricsView.setPlaying(MusicController.get().isPlaying());
                 binding.lyricsView.updatePosition(MusicController.get().position());
@@ -365,27 +386,80 @@ public class MusicLyricsActivity extends BaseActivity {
                 .show();
     }
 
-    // ================= 进度/主控 =================
+    // ================= 进度 =================
 
     private void onProgressUi(long position, long duration) {
         if (!seeking && duration > 0) {
             binding.seekBar.setProgress((int) (position * 1000 / duration));
         }
-        binding.tvPosition.setText(fmt(position));
-        binding.tvDuration.setText(fmt(duration));
         binding.lyricsView.updatePosition(position);
     }
 
     private void setPlayingUi(boolean playing) {
         binding.lyricsView.setPlaying(playing);
-        int icon = playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play;
-        binding.btnPlay.setImageResource(icon);
-        binding.btnPlayTop.setImageResource(icon);
+        // 暂停只剩头部第三图标（底部主控行已撤）
+        binding.btnPlayTop.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
     }
 
-    private String fmt(long ms) {
-        if (ms < 0) ms = 0;
-        long s = ms / 1000;
-        return String.format("%02d:%02d", s / 60, s % 60);
+    // ================= 胶囊与收藏 =================
+
+    /** 音质胶囊：实测短标（无损只显编码名、有损显「码率k」如 320k；沿用播放页实测口径），无实测隐藏 */
+    private void refreshQualityChip() {
+        String label = null;
+        try {
+            com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
+            if (info != null && info.codec != null && !info.codec.isEmpty()) {
+                if (info.lossless) label = info.codec;
+                else if (info.bitrateKbps > 0) label = info.bitrateKbps + "k";
+            }
+        } catch (Throwable ignored) {
+        }
+        if (label == null) {
+            binding.chipQuality.setVisibility(View.GONE);
+        } else {
+            binding.chipQuality.setText(label);
+            binding.chipQuality.setVisibility(View.VISIBLE);
+        }
+    }
+
+    /** 逐字胶囊：任一行带逐字时间轴才显示，整行歌词隐藏 */
+    private void refreshWordChip(List<LyricsLine> lines) {
+        boolean word = false;
+        if (lines != null) {
+            for (LyricsLine line : lines) {
+                if (line != null && line.hasWords()) {
+                    word = true;
+                    break;
+                }
+            }
+        }
+        binding.chipWord.setVisibility(word ? View.VISIBLE : View.GONE);
+    }
+
+    private void refreshFavorite(MusicTrack track) {
+        if (track == null || track.id == null) {
+            favorited = false;
+            paintFav();
+            return;
+        }
+        MusicLibrary.isFavorite(track.id, fav -> {
+            favorited = fav;
+            paintFav();
+        });
+    }
+
+    private void paintFav() {
+        binding.btnFav.setImageResource(favorited ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
+        binding.btnFav.setImageTintList(ColorStateList.valueOf(favorited ? 0xFFF2433D : 0xFFFFFFFF));
+    }
+
+    private void toggleFavorite() {
+        MusicTrack track = MusicController.get().current();
+        if (track == null) return;
+        MusicLibrary.setFavorite(track, !favorited, () -> {
+            favorited = !favorited;
+            paintFav();
+            Notify.show(favorited ? R.string.music_favorited : R.string.music_unfavorited);
+        });
     }
 }

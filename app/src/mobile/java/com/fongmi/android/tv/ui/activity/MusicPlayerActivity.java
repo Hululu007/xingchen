@@ -321,11 +321,13 @@ public class MusicPlayerActivity extends BaseActivity {
                 @Override
                 public void onStartTrackingTouch(SeekBar seekBar) {
                     seeking = true;
+                    swapSeekDrawable(seekBar, true);
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar seekBar) {
                     seeking = false;
+                    swapSeekDrawable(seekBar, false);
                     long dur = MusicController.get().duration();
                     MusicController.get().seekTo(dur * seekBar.getProgress() / 1000);
                 }
@@ -376,6 +378,21 @@ public class MusicPlayerActivity extends BaseActivity {
         // 流光 CD：点歌词行开全屏歌词页
         if (cdLyricView != null) cdLyricView.setOnClickListener(v -> openLyricsPage());
 
+        // 封面卡片：封面区高＝宽×0.65（COVER_IMMERSIVE_ASPECT，PlayerScreenKt:3919 用法）
+        View immersiveWrap = find(R.id.tpCoverWrap);
+        if (THEME_IMMERSIVE.equals(themeId) && immersiveWrap != null) {
+            immersiveWrap.post(() -> {
+                int w = immersiveWrap.getWidth();
+                if (w <= 0) return;
+                ViewGroup.LayoutParams lp = immersiveWrap.getLayoutParams();
+                int h = Math.round(w * 0.65f);
+                if (lp != null && lp.height != h) {
+                    lp.height = h;
+                    immersiveWrap.setLayoutParams(lp);
+                }
+            });
+        }
+
         // 流光 CD：色板生效＋建旋转动画
         if (THEME_CD.equals(themeId)) {
             applyCdPalette();
@@ -415,10 +432,10 @@ public class MusicPlayerActivity extends BaseActivity {
         if (view == null) return;
         view.setOnTouchListener((v, e) -> {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                v.animate().scaleX(scale).scaleY(scale).setDuration(120).start();
+                v.animate().scaleX(scale).scaleY(scale).setDuration(260).start();
             } else if (e.getActionMasked() == MotionEvent.ACTION_UP
                     || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                v.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+                v.animate().scaleX(1f).scaleY(1f).setDuration(260).start();
             }
             return false;
         });
@@ -434,6 +451,14 @@ public class MusicPlayerActivity extends BaseActivity {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDown(MotionEvent e) {
+                return true;
+            }
+
+            @Override
+            public boolean onSingleTapConfirmed(MotionEvent e) {
+                // 单击封面开全屏歌词页：走 onSingleTapConfirmed（双击手势被识别时本回调不触发），
+                // 与双击收藏天然互斥，不会误触（审计结论见 section-C 交互节）
+                openLyricsPage();
                 return true;
             }
 
@@ -496,7 +521,11 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private void bindTrack(MusicTrack track) {
         bindTrackViews(track);
-        if (track == null) return;
+        if (track == null) {
+            // 无曲目：歌词视图等待态
+            if (lyricView != null) lyricView.showWaiting();
+            return;
+        }
         loadLyric(track, false);
         refreshFavorite(track);
         refreshQualityValue();
@@ -518,6 +547,16 @@ public class MusicPlayerActivity extends BaseActivity {
         loadIntoCover(coverView, cover, title);
         loadIntoCover(coverBackView, cover, title);
         updateBackground(track);
+        // 封面切换动画近似（GZ CoverTransitionSpec：经典 400ms、Apple 600ms；
+        // View 动画近似其淡入＋enterScaleFrom 回正，确切 slide/scale 复合规格未逐项复刻，见 section-C）
+        if (coverView != null && track != null) {
+            long dur = THEME_APPLE.equals(themeId) ? 600 : 400;
+            coverView.setAlpha(0.35f);
+            coverView.setScaleX(0.96f);
+            coverView.setScaleY(0.96f);
+            coverView.animate().alpha(1f).scaleX(playing ? 1f : 0.9f).scaleY(playing ? 1f : 0.9f)
+                    .setDuration(dur).start();
+        }
     }
 
     private void loadIntoCover(ImageView view, String cover, String title) {
@@ -637,7 +676,14 @@ public class MusicPlayerActivity extends BaseActivity {
     // ================= 歌词 =================
 
     private void loadLyric(MusicTrack track, boolean force) {
-        applyLyricData(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        // 切歌/开始取词先露加载态，取词未回不许先露空态（时序接线口径）；
+        // 单行歌词数据（封面卡片/CD 当前行）照旧先清，避免旧歌词残留错位
+        if (lyricView != null) lyricView.showLoading();
+        lyricMains.clear();
+        lyricTrans.clear();
+        lyricRomas.clear();
+        lyricIndex = -1;
+        updateCurrentLyricTexts(MusicController.get().position());
         Task.execute(() -> {
             List<LyricsLine> mains = new ArrayList<>();
             List<String> trans = new ArrayList<>();
@@ -674,6 +720,8 @@ public class MusicPlayerActivity extends BaseActivity {
                 MusicTrack cur = MusicController.get().current();
                 if (cur == null || !cur.equals(track)) return;
                 applyLyricData(resultMains, resultTrans, resultRomas);
+                // 取词确认为空才露空态
+                if (resultMains.isEmpty() && lyricView != null) lyricView.showNoLyric();
                 if (force) {
                     Notify.show(resultMains.isEmpty() ? R.string.music_lyric_not_found : R.string.music_lyric_found);
                 }
@@ -845,7 +893,7 @@ public class MusicPlayerActivity extends BaseActivity {
             modeView.setImageTintList(ColorStateList.valueOf(active ? 0xFFFA243C : tint));
         } else {
             boolean active = mode != MusicQueue.MODE_SEQUENTIAL;
-            modeView.setImageTintList(ColorStateList.valueOf(active ? 0xFFF2B33D : 0xFF9AA7B8));
+            modeView.setImageTintList(ColorStateList.valueOf(active ? 0xFFFA243C : 0xFF9AA7B8));
         }
         modeView.setContentDescription(MusicQueue.modeName(mode));
     }
@@ -874,7 +922,18 @@ public class MusicPlayerActivity extends BaseActivity {
         int mist = dark ? 0xFF20232C : 0xFFE9EFF5;
         int ink = dark ? 0xFFF2F2F7 : 0xFF282D36;
         int muted = dark ? 0xFF8E96A3 : 0xFF747D89;
-        cdRoot.setBackgroundColor(base);
+        // 表面切换 500ms：根背景旧色→新色渐变（其余文字/盘面色即时跟随）
+        try {
+            android.graphics.drawable.Drawable old = cdRoot.getBackground();
+            int from = old instanceof android.graphics.drawable.ColorDrawable
+                    ? ((android.graphics.drawable.ColorDrawable) old).getColor() : base;
+            ValueAnimator bgAnim = ValueAnimator.ofObject(new ArgbEvaluator(), from, base);
+            bgAnim.setDuration(500);
+            bgAnim.addUpdateListener(a -> cdRoot.setBackgroundColor((int) a.getAnimatedValue()));
+            bgAnim.start();
+        } catch (Throwable ignored) {
+            cdRoot.setBackgroundColor(base);
+        }
         if (titleView != null) titleView.setTextColor(ink);
         if (artistView != null) artistView.setTextColor(muted);
         if (cdLyricView != null) cdLyricView.setTextColor(ink);
@@ -1041,6 +1100,21 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private AudioManager audioManager() {
         return (AudioManager) getSystemService(AUDIO_SERVICE);
+    }
+
+    /** 进度拖动态换装：经典系 bg_player_seek_progress ↔ _active（0.42→0.78）；Apple seek6 ↔ _active（0.58→0.9）；CD 深色变体不换 */
+    private void swapSeekDrawable(SeekBar bar, boolean active) {
+        if (bar == null) return;
+        try {
+            if (THEME_APPLE.equals(themeId)) {
+                bar.setProgressDrawable(getDrawable(active
+                        ? R.drawable.bg_player_seek6_progress_active : R.drawable.bg_player_seek6_progress));
+            } else if (!THEME_CD.equals(themeId)) {
+                bar.setProgressDrawable(getDrawable(active
+                        ? R.drawable.bg_player_seek_progress_active : R.drawable.bg_player_seek_progress));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private void wireVolume() {

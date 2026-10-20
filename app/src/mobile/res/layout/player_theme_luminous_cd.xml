@@ -48,6 +48,7 @@
         android:ellipsize="end"
         android:gravity="center"
         android:includeFontPadding="false"
+        android:lineHeight="21dp"
         android:maxLines="1"
         android:textColor="#282D36"
         android:textSize="15sp"
@@ -61,6 +62,7 @@
         android:ellipsize="end"
         android:gravity="center"
         android:includeFontPadding="false"
+        android:lineHeight="15dp"
         android:maxLines="1"
         android:textColor="#747D89"
         android:textSize="11sp" />
@@ -111,6 +113,7 @@
             android:layout_width="40dp"
             android:layout_height="wrap_content"
             android:includeFontPadding="false"
+            android:letterSpacing="0.018"
             android:text="00:00"
             android:textColor="#747D89"
             android:textSize="11sp" />
@@ -126,6 +129,7 @@
             android:layout_height="wrap_content"
             android:gravity="end"
             android:includeFontPadding="false"
+            android:letterSpacing="0.018"
             android:text="00:00"
             android:textColor="#747D89"
             android:textSize="11sp" />

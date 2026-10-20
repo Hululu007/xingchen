@@ -319,14 +319,15 @@ public class MusicStore {
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
 
-    /** 播放页主题 id（默认经典） */
+    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的用户值一律不动） */
     public static String getPlayerTheme() {
-        String theme = Prefers.getString(K_PLAYER_THEME, THEME_CLASSIC);
-        return theme == null || theme.isEmpty() ? THEME_CLASSIC : theme;
+        String theme = Prefers.getString(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
+        return theme == null || theme.isEmpty() ? THEME_COVER_IMMERSIVE : theme;
     }
 
     public static void setPlayerTheme(String theme) {
-        Prefers.put(K_PLAYER_THEME, theme == null || theme.isEmpty() ? THEME_CLASSIC : theme);
+        // 空值回退与全新默认同落点（cover_immersive）；正常写入的用户值原样保存
+        Prefers.put(K_PLAYER_THEME, theme == null || theme.isEmpty() ? THEME_COVER_IMMERSIVE : theme);
     }
 
     /** 流光 CD 表面：0 浅 1 深 2 自动（默认自动） */

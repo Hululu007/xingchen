@@ -18,7 +18,11 @@ public class MusicLyric {
     }
 
     public boolean hasLyric() {
-        return (rawLrc != null && !rawLrc.isEmpty()) || (translation != null && !translation.isEmpty())
-                || (romanization != null && !romanization.isEmpty());
+        return notBlank(rawLrc) || notBlank(translation) || notBlank(romanization);
+    }
+
+    /** 空白也算无词：与 MusicRepository.hasRaw 的 trim 口径一致，防止纯空白正文冒充有词、堵住后续插件/兜底 */
+    private static boolean notBlank(String text) {
+        return text != null && !text.trim().isEmpty();
     }
 }

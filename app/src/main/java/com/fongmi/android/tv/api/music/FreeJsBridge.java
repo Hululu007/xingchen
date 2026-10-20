@@ -164,6 +164,41 @@ public class FreeJsBridge {
         }).get();
     }
 
+    /**
+     * 是否支持搜歌（search 的 type=music）：判据是插件自己的声明，不按名字猜。
+     * 插件声明了 supportedSearchType 时必须包含 "music" 才算（歌词网/歌词千寻只声明
+     * ['lyric']、search 对非 lyric 类型直接返回空，不进搜索排）；未声明的老插件，
+     * 有 search 函数即按可搜歌处理。
+     */
+    public boolean supportsMusicSearch() throws Exception {
+        return submit(() -> {
+            JSFunction f = null;
+            try {
+                f = exports.getJSFunction("search");
+                if (f == null) return false;
+            } catch (Throwable t) {
+                return false;
+            } finally {
+                if (f != null) {
+                    try {
+                        f.release();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            Object declared;
+            try {
+                declared = ctx.getProperty(exports, "supportedSearchType");
+            } catch (Throwable t) {
+                declared = null;
+            }
+            if (declared == null) return true;
+            String json = declared instanceof JSObject ? ((JSObject) declared).stringify() : String.valueOf(declared);
+            if (json == null || json.isEmpty() || "undefined".equals(json)) return true;
+            return json.contains("\"music\"");
+        }).get();
+    }
+
     private Object call(String func, Object... args) throws Exception {
         return submit(() -> Async.run(exports, func, args)).get().get();
     }

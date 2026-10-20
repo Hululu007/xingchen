@@ -21,6 +21,23 @@ public interface MusicSource {
     /** 关键词搜歌（阻塞调用，请在子线程调） */
     List<MusicTrack> search(String keyword) throws Exception;
 
+    /**
+     * 支持搜歌的子源（插件）列表：搜索页横排只放这些。
+     * 只提供歌词等非搜歌能力的插件不要出现在搜索排里，实现按真实能力过滤。
+     * 默认＝全部子源。
+     */
+    default List<MusicSite> searchableSites() {
+        return sites();
+    }
+
+    /**
+     * 按单个子源搜歌（阻塞调用，请在子线程调），结果只属于该子源。
+     * 默认退化为整源合并搜（search）。
+     */
+    default List<MusicTrack> searchBySite(MusicSite site, String keyword) throws Exception {
+        return search(keyword);
+    }
+
     /** 源曲目（阻塞调用，请在子线程调） */
     List<MusicTrack> tracks(MusicSite site) throws Exception;
 

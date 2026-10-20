@@ -76,6 +76,22 @@ public class FakeMusicSource implements MusicSource {
         return r;
     }
 
+    /** 按单个子源搜歌：先按 tracks(site) 的分段收窄范围，再按关键词过滤，不串另一个子源的歌 */
+    @Override
+    public List<MusicTrack> searchBySite(MusicSite site, String keyword) {
+        List<MusicTrack> r = new ArrayList<>();
+        String kw = keyword == null ? "" : keyword.trim().toLowerCase();
+        if (kw.isEmpty()) return r;
+        for (MusicTrack t : tracks(site)) {
+            if ((t.title != null && t.title.toLowerCase().contains(kw))
+                    || (t.artist != null && t.artist.toLowerCase().contains(kw))
+                    || (t.album != null && t.album.toLowerCase().contains(kw))) {
+                r.add(t);
+            }
+        }
+        return r;
+    }
+
     @Override
     public List<MusicTrack> tracks(MusicSite site) {
         List<MusicTrack> r = new ArrayList<>();

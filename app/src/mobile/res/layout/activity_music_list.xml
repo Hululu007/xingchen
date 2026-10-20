@@ -79,6 +79,16 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- 搜索页源横排：可左右滑，选中项金色字＋金下划线；只有搜歌时出现 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/tabRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

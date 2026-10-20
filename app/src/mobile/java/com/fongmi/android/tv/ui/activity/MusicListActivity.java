@@ -43,6 +43,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 歌曲列表页：大标题＋工具条，行＝封面左＋两行字＋徽章＋时长/⋮，
@@ -60,6 +63,15 @@ public class MusicListActivity extends BaseActivity {
     private String bigTitle = "";
     private String sitePlatform = "";
     private long playlistId = -1;
+
+    // 搜索模式：源横排＋按源分开的搜索结果（切排只换显示、不重搜）
+    private final List<MusicSite> searchTabs = new ArrayList<>();
+    private final Map<String, List<MusicTrack>> siteResults = new ConcurrentHashMap<>();
+    private final Set<String> siteLoading = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Set<String> siteFailed = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private TabAdapter tabAdapter;
+    private int selectedTab = -1;
+    private int searchSeq = 0;
 
     public static void startSites(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
@@ -144,6 +156,8 @@ public class MusicListActivity extends BaseActivity {
 
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(adapter = new ListAdapter());
+        binding.tabRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        binding.tabRow.setAdapter(tabAdapter = new TabAdapter());
         binding.btnPlayAll.setOnClickListener(v -> shufflePlay());
         binding.btnSort.setOnClickListener(v -> cycleSort());
         binding.btnSearch.setOnClickListener(v -> startSearch(this, ""));
@@ -237,6 +251,11 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 搜索：横排只放支持搜歌的源（歌词型插件不进排），所有源各自并发开搜、
+     * 结果按源分开存；点横排切源只换下面列表，已搜回的切回来不重搜。
+     * 某个源报错只影响它自己那一格，其它源照常出结果。
+     */
     private void doSearch() {
         keyword = binding.etKeyword.getText().toString().trim();
         if (keyword.isEmpty()) {
@@ -244,11 +263,99 @@ public class MusicListActivity extends BaseActivity {
             return;
         }
         bigTitle = keyword;
+        final int seq = ++searchSeq;
+        final String kw = keyword;
+        searchTabs.clear();
+        siteResults.clear();
+        siteLoading.clear();
+        siteFailed.clear();
+        selectedTab = -1;
+        tabAdapter.notifyDataSetChanged();
+        binding.tabRow.setVisibility(View.GONE);
+        binding.tvTitle.setText(titleForMode());
+        tracks.clear();
+        cards.clear();
+        adapter.notifyDataSetChanged();
         showLoading();
         Task.execute(() -> {
-            List<MusicTrack> r = MusicRepository.search(keyword);
-            runOnUiThread(() -> showTracks(r));
+            List<MusicSite> tabs = MusicRepository.searchableSites();
+            // 先全部标"在搜"再刷 UI，否则首项的刷新可能跑在标记之前，误显示无结果
+            for (MusicSite site : tabs) siteLoading.add(site.srcUrl);
+            runOnUiThread(() -> {
+                if (seq != searchSeq) return;
+                searchTabs.addAll(tabs);
+                binding.tabRow.setVisibility(tabs.isEmpty() ? View.GONE : View.VISIBLE);
+                selectedTab = tabs.isEmpty() ? -1 : 0;
+                tabAdapter.notifyDataSetChanged();
+                if (tabs.isEmpty()) {
+                    binding.tvBigTitle.setText(bigTitle);
+                    binding.tvBigCount.setText("");
+                    binding.empty.setVisibility(View.VISIBLE);
+                    binding.empty.setText(R.string.music_no_result);
+                    return;
+                }
+                showSiteResults(selectedTab);
+            });
+            // 每个源各自一趟并发搜，失败互相隔离
+            for (MusicSite site : tabs) {
+                final String key = site.srcUrl;
+                Task.execute(() -> {
+                    try {
+                        List<MusicTrack> r = MusicRepository.searchSite(site, kw);
+                        if (seq != searchSeq) return; // 迟到的旧搜索不许覆盖新结果
+                        siteResults.put(key, r == null ? new ArrayList<>() : r);
+                    } catch (Throwable t) {
+                        if (seq == searchSeq) siteFailed.add(key);
+                    } finally {
+                        // 旧搜索的迟到回调不许动新搜索的状态
+                        if (seq == searchSeq) {
+                            siteLoading.remove(key);
+                            runOnUiThread(() -> {
+                                if (seq != searchSeq) return;
+                                // 只有正看着的这一格需要立刻刷新，别的不动
+                                if (selectedTab >= 0 && selectedTab < searchTabs.size()
+                                        && key.equals(searchTabs.get(selectedTab).srcUrl)) {
+                                    showSiteResults(selectedTab);
+                                }
+                            });
+                        }
+                    }
+                });
+            }
         });
+    }
+
+    private void selectTab(int idx) {
+        if (idx < 0 || idx >= searchTabs.size()) return;
+        selectedTab = idx;
+        tabAdapter.notifyDataSetChanged();
+        binding.tabRow.smoothScrollToPosition(idx);
+        showSiteResults(idx);
+    }
+
+    /** 把某一源的状态（还在搜/失败/无结果/有结果）显示到下面的列表区 */
+    private void showSiteResults(int idx) {
+        if (idx < 0 || idx >= searchTabs.size()) return;
+        MusicSite site = searchTabs.get(idx);
+        List<MusicTrack> r = siteResults.get(site.srcUrl);
+        if (r != null) {
+            // 拷一份给列表：showTracks 会就地排序，别把存好的结果弄乱
+            showTracks(new ArrayList<>(r));
+            return;
+        }
+        tracks.clear();
+        cards.clear();
+        adapter.notifyDataSetChanged();
+        binding.tvBigTitle.setText(bigTitle);
+        binding.tvBigCount.setText("");
+        binding.empty.setVisibility(View.VISIBLE);
+        if (siteFailed.contains(site.srcUrl)) {
+            binding.empty.setText(site.name + " 搜索失败");
+        } else if (siteLoading.contains(site.srcUrl)) {
+            binding.empty.setText("正在加载…");
+        } else {
+            binding.empty.setText(R.string.music_no_result);
+        }
     }
 
     private void loadSheets() {
@@ -736,6 +843,45 @@ public class MusicListActivity extends BaseActivity {
                 icon = v.findViewById(R.id.icon);
                 name = v.findViewById(R.id.name);
                 status = v.findViewById(R.id.status);
+            }
+        }
+    }
+
+    /** 搜索页源横排：选中金字＋金下划线（全 App 通用语言），未选中灰字 */
+    private class TabAdapter extends RecyclerView.Adapter<TabAdapter.TabHolder> {
+
+        @NonNull
+        @Override
+        public TabHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_music_search_tab, parent, false);
+            return new TabHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull TabHolder h, int position) {
+            MusicSite s = searchTabs.get(position);
+            boolean sel = position == selectedTab;
+            h.name.setText(s.name);
+            h.name.setTextColor(sel ? 0xFFF2B33D : 0xFF9AA7B8);
+            h.name.getPaint().setFakeBoldText(sel);
+            h.bar.setBackgroundColor(sel ? 0xFFF2B33D : 0x00000000);
+            h.itemView.setOnClickListener(v -> selectTab(h.getBindingAdapterPosition()));
+        }
+
+        @Override
+        public int getItemCount() {
+            return searchTabs.size();
+        }
+
+        class TabHolder extends RecyclerView.ViewHolder {
+            final TextView name;
+            final View bar;
+
+            TabHolder(View v) {
+                super(v);
+                name = v.findViewById(R.id.tabName);
+                bar = v.findViewById(R.id.tabBar);
             }
         }
     }

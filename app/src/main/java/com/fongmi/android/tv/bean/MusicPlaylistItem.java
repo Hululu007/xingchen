@@ -17,6 +17,8 @@ public class MusicPlaylistItem {
     private String album;
     private long duration;
     private String cover;
+    private String platform;
+    private String rawJson;
     private int position;
     private long createTime;
 
@@ -82,6 +84,22 @@ public class MusicPlaylistItem {
 
     public void setCover(String cover) {
         this.cover = cover;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
+    }
+
+    public String getRawJson() {
+        return rawJson;
+    }
+
+    public void setRawJson(String rawJson) {
+        this.rawJson = rawJson;
     }
 
     public int getPosition() {

@@ -84,4 +84,15 @@ public class Migrations {
             database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicDownload_trackId` ON `MusicDownload` (`trackId`)");
         }
     };
+
+    public static final Migration MIGRATION_39_40 = new Migration(39, 40) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 歌单/收藏存源信息（platform＋rawJson），点播才不丢源；旧行留空=未知来源
+            database.execSQL("ALTER TABLE MusicFavorite ADD COLUMN platform TEXT");
+            database.execSQL("ALTER TABLE MusicFavorite ADD COLUMN rawJson TEXT");
+            database.execSQL("ALTER TABLE MusicPlaylistItem ADD COLUMN platform TEXT");
+            database.execSQL("ALTER TABLE MusicPlaylistItem ADD COLUMN rawJson TEXT");
+        }
+    };
 }

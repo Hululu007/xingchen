@@ -28,6 +28,8 @@ public class MusicLibrary {
         t.album = f.getAlbum();
         t.duration = f.getDuration();
         t.cover = f.getCover();
+        t.platform = f.getPlatform();
+        t.rawJson = f.getRawJson();
         return t;
     }
 
@@ -39,7 +41,25 @@ public class MusicLibrary {
         t.album = i.getAlbum();
         t.duration = i.getDuration();
         t.cover = i.getCover();
+        t.platform = i.getPlatform();
+        t.rawJson = i.getRawJson();
         return t;
+    }
+
+    private static MusicPlaylistItem toItem(long playlistId, MusicTrack track, int position, long now) {
+        MusicPlaylistItem i = new MusicPlaylistItem();
+        i.setPlaylistId(playlistId);
+        i.setTrackId(track.id);
+        i.setTitle(track.title);
+        i.setArtist(track.artist);
+        i.setAlbum(track.album);
+        i.setDuration(track.duration);
+        i.setCover(track.cover);
+        i.setPlatform(track.platform);
+        i.setRawJson(track.rawJson);
+        i.setPosition(position);
+        i.setCreateTime(now);
+        return i;
     }
 
     private static void post(Runnable r) {
@@ -72,6 +92,8 @@ public class MusicLibrary {
                         f.setAlbum(track.album);
                         f.setDuration(track.duration);
                         f.setCover(track.cover);
+                        f.setPlatform(track.platform);
+                        f.setRawJson(track.rawJson);
                         f.setCreateTime(System.currentTimeMillis());
                         AppDatabase.get().getMusicFavoriteDao().insert(f);
                     } else {
@@ -198,16 +220,7 @@ public class MusicLibrary {
             boolean added = false;
             try {
                 Integer max = AppDatabase.get().getMusicPlaylistItemDao().maxPosition(playlistId);
-                MusicPlaylistItem i = new MusicPlaylistItem();
-                i.setPlaylistId(playlistId);
-                i.setTrackId(track.id);
-                i.setTitle(track.title);
-                i.setArtist(track.artist);
-                i.setAlbum(track.album);
-                i.setDuration(track.duration);
-                i.setCover(track.cover);
-                i.setPosition(max == null ? 0 : max + 1);
-                i.setCreateTime(System.currentTimeMillis());
+                MusicPlaylistItem i = toItem(playlistId, track, max == null ? 0 : max + 1, System.currentTimeMillis());
                 added = AppDatabase.get().getMusicPlaylistItemDao().insert(i) != -1;
                 MusicPlaylist p = AppDatabase.get().getMusicPlaylistDao().find(playlistId);
                 if (p != null) {
@@ -217,6 +230,43 @@ public class MusicLibrary {
             } catch (Throwable ignored) {
             }
             boolean r = added;
+            post(() -> cb.onResult(r));
+        });
+    }
+
+    /** 导入结果：建好的歌单＋真实落库的条数（歌单内重复歌会被唯一索引跳过） */
+    public static class ImportResult {
+        public MusicPlaylist playlist;
+        public int inserted;
+    }
+
+    /** 导入外部歌单：建新歌单＋整批写入，position 按传入顺序；主线程回结果 */
+    public static void importPlaylist(String name, List<MusicTrack> tracks, DataCallback<ImportResult> cb) {
+        Task.execute(() -> {
+            ImportResult r = new ImportResult();
+            try {
+                long now = System.currentTimeMillis();
+                MusicPlaylist p = new MusicPlaylist();
+                p.setName(name == null || name.trim().isEmpty() ? "导入的歌单" : name.trim());
+                p.setCreateTime(now);
+                p.setUpdateTime(now);
+                long pid = AppDatabase.get().getMusicPlaylistDao().insert(p);
+                p.setId(pid);
+                r.playlist = p;
+                if (pid > 0 && tracks != null && !tracks.isEmpty()) {
+                    List<MusicPlaylistItem> items = new ArrayList<>();
+                    for (int i = 0; i < tracks.size(); i++) {
+                        MusicTrack t = tracks.get(i);
+                        if (t == null || t.id == null) continue;
+                        items.add(toItem(pid, t, items.size(), now));
+                    }
+                    List<Long> ids = AppDatabase.get().getMusicPlaylistItemDao().insert(items);
+                    int n = 0;
+                    for (Long id : ids) if (id != null && id != -1) n++;
+                    r.inserted = n;
+                }
+            } catch (Throwable ignored) {
+            }
             post(() -> cb.onResult(r));
         });
     }

@@ -66,7 +66,7 @@ public class MusicSourceManager {
         return s != null && !TextUtils.isEmpty(s.localPath);
     }
 
-    /** 内建真插件：官方 MusicFreePlugins（jsDelivr，已验证）＋用户线索的 kw.js */
+    /** 内建真插件：官方 MusicFreePlugins 三份＋酷我一份（元力KW，qwerwhr 聚合仓，jsDelivr；原 cnmb 地址域名已注销） */
     public static List<MusicSite> builtinSites() {
         List<MusicSite> list = new ArrayList<>();
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "bilibili", "",
@@ -76,7 +76,7 @@ public class MusicSourceManager {
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词千寻", "",
                 "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciqianxun/index.js"));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
-                "https://music.cnmb.us.ci/plugins/kw.js"));
+                "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"));
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
         return list;
     }

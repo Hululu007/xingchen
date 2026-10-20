@@ -104,6 +104,14 @@
         if (ct.indexOf("json") >= 0) {
             try { return JSON.parse(res.text); } catch (e) { return res.text; }
         }
+        /* 真 axios 默认对字符串响应也尝试 JSON.parse（forcedJSONParsing），
+         * 不少接口（如酷我 r.s）回 text/plain 的 JSON 文本，插件按对象取 data.abslist */
+        if (typeof res.text === "string") {
+            var t = res.text.replace(/^\s+/, "");
+            if (t.charAt(0) === "{" || t.charAt(0) === "[") {
+                try { return JSON.parse(res.text); } catch (e) { /* 不是 JSON 就原文 */ }
+            }
+        }
         return res.text;
     }
 
@@ -193,15 +201,17 @@
         return __thenable({ data: __parseData(res), status: res.status, headers: res.headers, config: opts });
     }
 
-    var axios = {
-        get: function (url, opts) { return __axiosRequest("GET", url, opts); },
-        post: function (url, data, opts) { opts = opts || {}; opts.data = data; return __axiosRequest("POST", url, opts); },
-        put: function (url, data, opts) { opts = opts || {}; opts.data = data; return __axiosRequest("PUT", url, opts); },
-        head: function (url, opts) { return __axiosRequest("HEAD", url, opts); },
-        "delete": function (url, opts) { return __axiosRequest("DELETE", url, opts); },
-        request: function (opts) { opts = opts || {}; return __axiosRequest(opts.method || "GET", opts.url, opts); },
-        create: function () { return axios; }
-    };
+    /* 真 axios 本身是可调用函数（axios({method,url,...})），TS 编译的插件常走
+     * (0, axios_1.default)({...}) 这条路；做成函数对象并自挂 default，两条路都通 */
+    var axios = function (config) { config = config || {}; return __axiosRequest(config.method || "GET", config.url, config); };
+    axios.get = function (url, opts) { return __axiosRequest("GET", url, opts); };
+    axios.post = function (url, data, opts) { opts = opts || {}; opts.data = data; return __axiosRequest("POST", url, opts); };
+    axios.put = function (url, data, opts) { opts = opts || {}; opts.data = data; return __axiosRequest("PUT", url, opts); };
+    axios.head = function (url, opts) { return __axiosRequest("HEAD", url, opts); };
+    axios["delete"] = function (url, opts) { return __axiosRequest("DELETE", url, opts); };
+    axios.request = function (opts) { opts = opts || {}; return __axiosRequest(opts.method || "GET", opts.url, opts); };
+    axios.create = function () { return axios; };
+    axios["default"] = axios;
     __defineBuiltin("axios", function (require, module) { module.exports = axios; });
 
     /* ---------- 5. he（最小实现：只做 decode/encode 常用实体） ---------- */

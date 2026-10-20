@@ -28,6 +28,8 @@ public class MusicRepository {
         register(new FreeJsMusicSource());
         // 落雪真源：壳子平台搜索＋落雪脚本地址解析（musicUrl/lyric），常驻注册
         register(new LxMusicSource());
+        // py 调用桥：已装的 py 点播音乐源递歌单进音乐播放器（跟阅读一样的调用口径）
+        register(new PyMusicSource());
     }
 
     public static void register(MusicSource source) {

@@ -215,7 +215,7 @@ public class MusicPlayerActivity extends BaseActivity {
         refreshQualityValue();
     }
 
-    /** 来源标签：查插件名；查不到不显示，本地文件标识为已下载 */
+    /** 来源标签：查插件名；查不到不显示，本地文件标识为已下载，py 源显示点播源名 */
     private String sourceName(MusicTrack track) {
         if (track == null || track.platform == null) return "";
         try {
@@ -225,6 +225,9 @@ public class MusicPlayerActivity extends BaseActivity {
         } catch (Throwable ignored) {
         }
         if ("local".equals(track.platform)) return getString(R.string.music_downloaded);
+        if (com.fongmi.android.tv.music.PyMusicSource.PLATFORM.equals(track.platform)) {
+            return com.fongmi.android.tv.music.PyMusicSource.siteNameOf(track);
+        }
         return "";
     }
 

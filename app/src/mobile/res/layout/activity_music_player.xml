@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 音乐播放页 Free 格局：顶部「封面｜歌词」切换；封面视图＝大封面＋歌名/歌手/来源；歌词视图＝全页滚动歌词；功能行4项；主控5键 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_music_gradient"

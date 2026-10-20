@@ -211,7 +211,6 @@
     <string name="music_download_delete">删除本地文件</string>
     <string name="music_download_delete_confirm">删除这条记录，同时删除本地文件？</string>
     <string name="music_deleted">已删除</string>
-    <string name="music_plugin_manage">插件管理</string>
     <string name="music_setting">设置</string>
     <string name="music_set_play_quality">播放音质</string>
     <string name="music_set_download_quality">下载音质</string>

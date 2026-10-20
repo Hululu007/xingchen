@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import androidx.annotation.NonNull;
 import androidx.room.Entity;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
@@ -10,7 +11,8 @@ public class MusicDownload {
 
     @PrimaryKey(autoGenerate = true)
     private long id;
-    private String trackId;
+    @NonNull
+    private String trackId = "";
     private String title;
     private String artist;
     private String album;

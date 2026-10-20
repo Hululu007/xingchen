@@ -31,11 +31,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * AI 悬浮球管理器：可拖动悬浮按钮。
+ * AI 悬浮球管理器：App 内全局可拖动悬浮按钮。
  * 挂载到当前 Activity 的 decorView，无需系统悬浮窗权限。
- * 显示条件：AiStore.shouldShowFloat()（开关开 + 已配置服务商）
- * 且当前页是星辰首页——潇洒哥铁律：悬浮球只显示在星辰首页，
- * 搜索、历史、设置、播放、音乐等其它页面一律不显示。
+ * 显示条件：AiStore.shouldShowFloat()（开关开 + 已配置服务商）。
  */
 public class AiFloatManager {
 
@@ -70,19 +68,17 @@ public class AiFloatManager {
     public void onResume(Activity activity) {
         activityRef = new WeakReference<>(activity);
         Context ctx = activity;
-        if (!AiStore.shouldShowFloat(ctx) || !isHomePage(activity)) {
+        if (!AiStore.shouldShowFloat(ctx)) {
             detach();
             return;
         }
         attach(activity);
         if (floatView != null) {
             floatView.setVisibility(View.VISIBLE);
+            // 播放页半透明，不挡画面
+            boolean isVideo = activity.getClass().getName().contains("VideoActivity");
+            floatView.setAlpha(isVideo ? 0.5f : 1.0f);
         }
-    }
-
-    /** 铁律：只在星辰首页显示（类名判定，与本类既有 VideoActivity 判定同款字符串口径） */
-    private static boolean isHomePage(Activity activity) {
-        return "com.fongmi.android.tv.ui.activity.HomeActivity".equals(activity.getClass().getName());
     }
 
     /** 在 Activity pause 时调用：摘除悬浮球（避免窗口泄漏/跨页残留） */

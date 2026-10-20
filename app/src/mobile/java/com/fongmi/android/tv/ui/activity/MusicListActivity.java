@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
@@ -14,9 +15,11 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -24,7 +27,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
+import com.fongmi.android.tv.api.music.PlaylistImporter;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
@@ -385,6 +390,7 @@ public class MusicListActivity extends BaseActivity {
         MusicLibrary.playlists(list -> {
             cards.clear();
             cards.add(new NewPlaylistCard());
+            cards.add(new ImportPlaylistCard());
             for (MusicPlaylist p : list) cards.add(p);
             runOnUiThread(() -> {
                 adapter.notifyDataSetChanged();
@@ -835,6 +841,9 @@ public class MusicListActivity extends BaseActivity {
     private static class NewPlaylistCard {
     }
 
+    private static class ImportPlaylistCard {
+    }
+
     private static class NewSiteCard {
     }
 
@@ -956,6 +965,121 @@ public class MusicListActivity extends BaseActivity {
                 .show();
     }
 
+    // ================= 导入歌单 =================
+
+    /** 粘贴弹窗：点导入后不关窗，后台拉取，失败原因就显示在输入框下方 */
+    private void showImportPlaylistDialog() {
+        float density = getResources().getDisplayMetrics().density;
+        int pad = (int) (20 * density);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, (int) (8 * density), pad, 0);
+        EditText et = new EditText(this);
+        et.setHint(R.string.music_import_hint);
+        et.setTextColor(0xFFFFFFFF);
+        et.setHintTextColor(0xFF5E6B7E);
+        et.setMinLines(3);
+        et.setGravity(android.view.Gravity.TOP);
+        box.addView(et, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView status = new TextView(this);
+        status.setTextSize(13);
+        status.setVisibility(View.GONE);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = (int) (10 * density);
+        box.addView(status, slp);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.music_import_playlist)
+                .setView(box)
+                .setPositiveButton(R.string.music_import_action, null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
+                .setOnClickListener(v -> runPlaylistImport(dialog, et, status)));
+        dialog.show();
+    }
+
+    private void runPlaylistImport(AlertDialog dialog, EditText et, TextView status) {
+        String text = et.getText().toString();
+        android.widget.Button ok = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        android.widget.Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+        setImportBusy(et, status, ok, cancel, true);
+        Task.execute(() -> {
+            PlaylistImporter.Result result = null;
+            PlaylistImporter.Fail fail = null;
+            boolean lxOk = false;
+            try {
+                result = PlaylistImporter.importFromText(text);
+                lxOk = PlaylistImporter.hasLxSupport(result.platformKey);
+            } catch (PlaylistImporter.ImportException e) {
+                fail = e.fail;
+            } catch (Throwable t) {
+                fail = PlaylistImporter.Fail.NETWORK;
+            }
+            PlaylistImporter.Result r = result;
+            PlaylistImporter.Fail f = fail;
+            boolean lx = lxOk;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (f != null || r == null) {
+                    setImportBusy(et, status, ok, cancel, false);
+                    status.setTextColor(0xFFFF8A80);
+                    status.setText(importErrorText(f == null ? PlaylistImporter.Fail.NETWORK : f));
+                    return;
+                }
+                MusicLibrary.importPlaylist(r.name, r.tracks, res -> {
+                    if (res.inserted <= 0) {
+                        // 一首都没落库（全是重复歌）不留空歌单，按空单报
+                        if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
+                        setImportBusy(et, status, ok, cancel, false);
+                        status.setTextColor(0xFFFF8A80);
+                        status.setText(R.string.music_import_err_empty);
+                        return;
+                    }
+                    dialog.dismiss();
+                    loadSheets();
+                    String msg;
+                    if (r.total > res.inserted) {
+                        msg = getString(R.string.music_import_partial, res.inserted, r.total - res.inserted);
+                    } else {
+                        msg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
+                    }
+                    if (!lx) {
+                        msg += "，" + getString(R.string.music_import_need_lx,
+                                LxPlatformSearch.platformName(r.platformKey));
+                    }
+                    Notify.show(msg);
+                });
+            });
+        });
+    }
+
+    private void setImportBusy(EditText et, TextView status, android.widget.Button ok,
+                               android.widget.Button cancel, boolean busy) {
+        et.setEnabled(!busy);
+        if (ok != null) ok.setEnabled(!busy);
+        if (cancel != null) cancel.setEnabled(!busy);
+        if (busy) {
+            status.setVisibility(View.VISIBLE);
+            status.setTextColor(0xFF9AA7B8);
+            status.setText(R.string.music_importing);
+        }
+    }
+
+    private int importErrorText(PlaylistImporter.Fail fail) {
+        switch (fail) {
+            case UNRECOGNIZED:
+                return R.string.music_import_err_unrecognized;
+            case NOT_FOUND:
+                return R.string.music_import_err_notfound;
+            case EMPTY:
+                return R.string.music_import_err_empty;
+            default:
+                return R.string.music_import_err_network;
+        }
+    }
+
     // ================= 列表 =================
 
     private class ListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -1036,6 +1160,12 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setBackground(circle(0xFF22C55E));
                 h.itemView.setOnClickListener(v -> inputPlaylistName(name ->
                         MusicLibrary.createPlaylist(name, p -> loadSheets())));
+            } else if (o instanceof ImportPlaylistCard) {
+                h.name.setText(R.string.music_import_playlist);
+                h.status.setText("");
+                h.icon.setImageResource(R.drawable.ic_music_download);
+                h.icon.setBackground(circle(0xFFF2B33D));
+                h.itemView.setOnClickListener(v -> showImportPlaylistDialog());
             } else if (o instanceof MusicPlaylist) {
                 MusicPlaylist p = (MusicPlaylist) o;
                 h.name.setText(p.getName());

@@ -187,6 +187,17 @@
     <string name="music_no_result">没搜到，去换个词试试</string>
     <string name="music_new_playlist">新建歌单</string>
     <string name="music_playlist_name_hint">歌单名</string>
+    <string name="music_import_playlist">导入歌单</string>
+    <string name="music_import_hint">粘贴歌单分享链接</string>
+    <string name="music_import_action">导入</string>
+    <string name="music_importing">正在导入…</string>
+    <string name="music_imported">已导入《%1$s》，共 %2$d 首</string>
+    <string name="music_import_partial">导入 %1$d 首，还有 %2$d 首没拿到</string>
+    <string name="music_import_need_lx">播这些歌需要装支持%1$s的落雪源</string>
+    <string name="music_import_err_unrecognized">这个链接认不出来，复制歌单的分享链接再试</string>
+    <string name="music_import_err_notfound">歌单不存在或没公开，先在原 App 里设为公开</string>
+    <string name="music_import_err_empty">这个歌单里没有歌</string>
+    <string name="music_import_err_network">平台暂时连不上，稍后再试</string>
     <string name="music_add_to_playlist">加入歌单</string>
     <string name="music_added">已加入</string>
     <string name="music_already_in">已经在歌单里了</string>

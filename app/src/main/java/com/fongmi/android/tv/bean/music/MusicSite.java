@@ -20,6 +20,14 @@ public class MusicSite {
     /** 是否启用（源层持久化，用户可开关） */
     public boolean enabled = true;
 
+    /**
+     * 脚本格式："freejs"（MusicFree 插件）或 "lx"（落雪脚本）。
+     * 老数据没有这个字段（null）时按 freejs 处理，见 MusicSourceManager.isLx。
+     */
+    public String format;
+    /** 本地文件安装时的插件文件绝对路径；在线安装为空。删除插件时连文件一起删 */
+    public String localPath;
+
     public MusicSite() {
     }
 

@@ -28,7 +28,8 @@ public class FreeJsMusicSource implements MusicSource {
 
     @Override
     public List<MusicSite> sites() {
-        return MusicSourceManager.get().enabledSites();
+        // 只管 FreeJS 格式的插件；落雪插件走 LxMusicSource，别串桥
+        return MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS);
     }
 
     @Override
@@ -85,7 +86,7 @@ public class FreeJsMusicSource implements MusicSource {
         if (sep < 0) return Collections.emptyList();
         String srcUrl = chart.id.substring(0, sep);
         String listId = chart.id.substring(sep + 1);
-        for (MusicSite s : MusicSourceManager.get().enabledSites()) {
+        for (MusicSite s : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
             if (srcUrl.equals(s.srcUrl)) {
                 FreeJsBridge b = MusicSourceManager.get().bridgeOf(s);
                 if (b == null) return Collections.emptyList();
@@ -123,7 +124,7 @@ public class FreeJsMusicSource implements MusicSource {
         if (keyword.isEmpty()) return null;
         String own = pluginOf(track);
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSites()) {
+            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
                 if (own != null && own.equals(site.srcUrl)) continue;
                 FreeJsBridge b;

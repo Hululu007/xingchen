@@ -4,6 +4,7 @@ import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.api.music.FreeJsMusicSource;
+import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
@@ -25,6 +26,8 @@ public class MusicRepository {
         register(new LocalMusicSource());
         // 一期 FreeJS 真源：MusicFree 插件桥（search/取链/歌词/榜单），常驻注册
         register(new FreeJsMusicSource());
+        // 落雪真源：壳子平台搜索＋落雪脚本地址解析（musicUrl/lyric），常驻注册
+        register(new LxMusicSource());
     }
 
     public static void register(MusicSource source) {

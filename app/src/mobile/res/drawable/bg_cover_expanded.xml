@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 展开态卡面（GZ CoverBackdropCard 简化：深灰渐变 #3A3A3C→#1C1C1E；其内铺模糊封面＋黑 0.35 一层未做，记对照表） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#FF3A3A3C" android:endColor="#FF1C1C1E" />
+    <corners android:radius="22dp" />
+</shape>

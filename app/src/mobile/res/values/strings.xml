@@ -168,7 +168,15 @@
     <string name="music_connected">已连接</string>
     <string name="music_unconnected">未连接</string>
     <string name="music_queue">播放队列</string>
+    <string name="music_prev">上一首</string>
+    <string name="music_next">下一首</string>
+    <string name="music_song_info">歌曲信息</string>
+    <string name="music_cover_back">返回到封面模式</string>
     <string name="music_clear_queue">清空队列</string>
+    <string name="music_clear">清空</string>
+    <string name="music_close">关闭</string>
+    <string name="sheet_queue_from">来自</string>
+    <string name="music_unknown_artist">未知歌手</string>
     <string name="music_sleep">定时关闭</string>
     <string name="music_quality">音质</string>
     <string name="music_equalizer">均衡器</string>
@@ -243,7 +251,6 @@
     <string name="music_lyric_not_found">没找到歌词</string>
     <string name="music_no_lyric">暂无歌词</string>
     <string name="music_word_by_word">逐字</string>
-    <string name="music_close">关闭</string>
     <string name="music_set_clear_cache">清除音乐缓存</string>
     <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
     <string name="music_play_failed_stopped">播放失败，已停止</string>
@@ -300,6 +307,12 @@
     <string name="home_recent">播放历史</string>
     <string name="home_download">下载音乐</string>
     <string name="home_guess">猜你喜欢</string>
+    <string name="music_lyric_chip_word">逐字</string>
+    <string name="music_lyric_chip_line">逐行</string>
+    <string name="music_lyric_chip_plain">纯文本</string>
+    <string name="music_lyric_chip_none">无词</string>
+    <string name="home_chart_more">完整榜单 ›</string>
+    <string name="home_chart_play">播放榜单</string>
     <string name="home_guess_sub">每日精选</string>
     <string name="home_charts">排行榜</string>
     <string name="home_charts_sub">此刻热门</string>
@@ -325,7 +338,7 @@
     <string name="sheet_hint_romanization_off">音译歌词已关闭</string>
     <string name="sheet_queue_title">播放列表</string>
     <string name="sheet_queue_shuffle">随机</string>
-    <string name="sheet_queue_hint">长按歌曲显示操作，拖动手柄调整顺序</string>
+    <string name="sheet_queue_hint">长按拖动调整顺序</string>
     <string name="sheet_queue_empty">队列为空</string>
 
 </resources>

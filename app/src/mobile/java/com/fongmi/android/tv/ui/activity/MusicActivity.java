@@ -5,12 +5,14 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
@@ -18,6 +20,8 @@ import android.widget.TextView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.bean.music.MusicChart;
+import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.databinding.HomeDialogRecentBinding;
@@ -29,7 +33,9 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
@@ -48,6 +54,12 @@ import java.util.List;
 public class MusicActivity extends BaseActivity {
 
     private ActivityMusicBinding binding;
+
+    // 榜单卡（06:20 令）：榜签只映射酷我＋QQ 真榜，按关键词对齐参照图四类
+    private final List<MusicChart> homeChartTabs = new ArrayList<>();
+    private List<MusicTrack> homeChartTracks = new ArrayList<>();
+    private int homeChartSel = -1;
+    private boolean homeChartLoaded;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicActivity.class));
@@ -77,12 +89,21 @@ public class MusicActivity extends BaseActivity {
         binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeCardShuffle.setOnClickListener(v -> shufflePlay());
+        // ④ 榜单卡：完整榜单进现有榜单页；主封面播放从头播该榜；点行从该曲开播整榜
+        binding.homeChartMore.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeChartPlay.setOnClickListener(v -> playHomeChartFrom(0));
+        binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
+        binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
+        binding.homeChartRow3.setOnClickListener(v -> playHomeChartFrom(2));
         refreshCounts();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // 首页浅底：状态栏图标改深色（06:17 令「背景把状态栏盖住了」）；离开本页在 onPause 恢复浅色图标
+        ReadingSkin.setSystemBarIconAppearance(this, false);
+        if (!homeChartLoaded) loadHomeChart();
         refreshCounts();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
@@ -92,9 +113,162 @@ public class MusicActivity extends BaseActivity {
     }
 
     @Override
+    protected void onPause() {
+        // 离开音乐首页恢复浅色状态栏图标，避免把深色图标带去深底的播放页/歌词页
+        ReadingSkin.setSystemBarIconAppearance(this, true);
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
         MusicController.get().unbind();
         super.onDestroy();
+    }
+
+    // ================= 榜单卡（数据只用酷我＋QQ 真榜） =================
+
+    /**
+     * 榜签映射（参照图四类 → 星辰真实榜，逐个核过）：
+     * 飙升榜＝QQ topId 62「飙升榜」；新歌榜＝QQ topId 27「新歌榜」；热歌榜＝QQ topId 26「热歌榜」；
+     * 原创榜＝QQ 全表无此名，落酷我榜表按「原创」匹配（元力KW 插件运行时榜表）。
+     * 解析序固定先 QQ 后酷我；某签两边都匹配不到就不出该签；全签落空或榜内无曲 → 整卡隐藏。
+     */
+    private void loadHomeChart() {
+        Task.execute(() -> {
+            List<MusicChart> tabs = new ArrayList<>();
+            try {
+                List<MusicSite> sites = new ArrayList<>(MusicRepository.sites());
+                sites.sort((a, b) -> Integer.compare(chartSiteRank(a), chartSiteRank(b)));
+                String[] keys = {"飙升", "新歌", "原创", "热歌"};
+                for (String key : keys) {
+                    MusicChart hit = null;
+                    for (MusicSite site : sites) {
+                        for (MusicChart chart : MusicRepository.charts(site)) {
+                            if (chart != null && chart.name != null && chart.name.contains(key)) {
+                                hit = chart;
+                                break;
+                            }
+                        }
+                        if (hit != null) break;
+                    }
+                    if (hit != null) tabs.add(hit);
+                }
+            } catch (Throwable ignored) {
+            }
+            int def = -1;
+            for (int i = 0; i < tabs.size(); i++) if (tabs.get(i).name.contains("新歌")) def = i;
+            if (def < 0 && !tabs.isEmpty()) def = 0;
+            final int sel = def;
+            runOnUiThread(() -> {
+                homeChartTabs.clear();
+                homeChartTabs.addAll(tabs);
+                if (tabs.isEmpty()) {
+                    binding.homeChartCard.setVisibility(View.GONE);
+                    return;
+                }
+                buildHomeChartTabs();
+                selectHomeChart(sel);
+            });
+        });
+    }
+
+    private static int chartSiteRank(MusicSite site) {
+        String tag = ((site.platform == null ? "" : site.platform) + (site.name == null ? "" : site.name)).toLowerCase();
+        if (tag.contains("qq") || tag.contains("tx")) return 0;
+        if (tag.contains("kw") || tag.contains("酷我")) return 1;
+        return 2;
+    }
+
+    private void buildHomeChartTabs() {
+        LinearLayout box = binding.homeChartTabs;
+        box.removeAllViews();
+        for (int i = 0; i < homeChartTabs.size(); i++) {
+            final int idx = i;
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            cell.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            TextView label = new TextView(this);
+            label.setText(homeChartTabs.get(i).name);
+            label.setTextSize(14);
+            label.setSingleLine(true);
+            View bar = new View(this);
+            LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(ResUtil.dp2px(18), ResUtil.dp2px(3));
+            barLp.topMargin = ResUtil.dp2px(5);
+            bar.setLayoutParams(barLp);
+            cell.addView(label);
+            cell.addView(bar);
+            cell.setOnClickListener(v -> selectHomeChart(idx));
+            box.addView(cell);
+        }
+    }
+
+    private void restyleHomeChartTabs() {
+        LinearLayout box = binding.homeChartTabs;
+        for (int i = 0; i < box.getChildCount(); i++) {
+            LinearLayout cell = (LinearLayout) box.getChildAt(i);
+            TextView label = (TextView) cell.getChildAt(0);
+            View bar = cell.getChildAt(1);
+            boolean on = i == homeChartSel;
+            label.setTextColor(on ? 0xFF141414 : 0xFF8A8A8A);
+            label.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(ResUtil.dp2px(2));
+            bg.setColor(on ? 0xFFFA243C : Color.TRANSPARENT);
+            bar.setBackground(bg);
+        }
+    }
+
+    private void selectHomeChart(int idx) {
+        if (idx < 0 || idx >= homeChartTabs.size()) return;
+        homeChartSel = idx;
+        restyleHomeChartTabs();
+        MusicChart chart = homeChartTabs.get(idx);
+        Task.execute(() -> {
+            List<MusicTrack> tracks = new ArrayList<>();
+            try {
+                List<MusicTrack> got = MusicRepository.chartTracks(chart);
+                if (got != null) tracks.addAll(got);
+            } catch (Throwable ignored) {
+            }
+            final List<MusicTrack> result = tracks;
+            runOnUiThread(() -> {
+                if (idx != homeChartSel) return;
+                homeChartTracks = result;
+                if (result.isEmpty()) {
+                    binding.homeChartCard.setVisibility(View.GONE);
+                    return;
+                }
+                homeChartLoaded = true;
+                fillHomeChart(chart, result);
+                binding.homeChartCard.setVisibility(View.VISIBLE);
+            });
+        });
+    }
+
+    private void fillHomeChart(MusicChart chart, List<MusicTrack> tracks) {
+        binding.homeChartTitle.setText(chart.name);
+        ImageView[] covers = {binding.homeChartCover1, binding.homeChartCover2, binding.homeChartCover3};
+        for (int i = 0; i < covers.length; i++) {
+            if (i < tracks.size()) ImgUtil.loadRounded(tracks.get(i).title, tracks.get(i).cover, covers[i]);
+            else covers[i].setImageDrawable(null);
+        }
+        TextView[] names = {binding.homeChartName1, binding.homeChartName2, binding.homeChartName3};
+        TextView[] artists = {binding.homeChartArtist1, binding.homeChartArtist2, binding.homeChartArtist3};
+        View[] rows = {binding.homeChartRow1, binding.homeChartRow2, binding.homeChartRow3};
+        for (int i = 0; i < rows.length; i++) {
+            if (i < tracks.size()) {
+                rows[i].setVisibility(View.VISIBLE);
+                names[i].setText(tracks.get(i).title);
+                artists[i].setText(tracks.get(i).artist);
+            } else rows[i].setVisibility(View.GONE);
+        }
+    }
+
+    private void playHomeChartFrom(int index) {
+        if (homeChartTracks.isEmpty() || index >= homeChartTracks.size()) return;
+        MusicController.get().play(new ArrayList<>(homeChartTracks), index);
+        MusicPlayerActivity.start(this);
     }
 
     // ================= ⋮ 小菜单（小下拉，非全屏） =================

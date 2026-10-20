@@ -74,7 +74,7 @@
                 android:paddingStart="20dp"
                 android:paddingEnd="20dp"
                 android:text="@string/music_search"
-                android:textColor="#F2B33D"
+                android:textColor="#FA243C"
                 android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -136,7 +136,7 @@
                     android:background="@drawable/card_music"
                     android:padding="8dp"
                     android:src="@drawable/ic_music_shuffle"
-                    android:tint="#F2B33D" />
+                    android:tint="#FA243C" />
 
                 <TextView
                     android:id="@+id/tvPlayAll"

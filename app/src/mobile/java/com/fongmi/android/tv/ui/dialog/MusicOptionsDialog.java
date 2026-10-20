@@ -73,7 +73,7 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
             String text = options.get(position);
             boolean isChecked = position == checked;
             h.option.setText(text);
-            h.option.setTextColor(isChecked ? 0xFFF2B33D : 0xFFFFFFFF);
+            h.option.setTextColor(isChecked ? 0xFFFA243C : 0xFFFFFFFF);
             h.option.getPaint().setFakeBoldText(isChecked);
             h.itemView.setOnClickListener(v -> {
                 if (callback != null) callback.onPick(position);

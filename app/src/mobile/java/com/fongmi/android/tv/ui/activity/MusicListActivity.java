@@ -1135,7 +1135,7 @@ public class MusicListActivity extends BaseActivity {
             h.name.setText(s.name == null ? "" : s.name);
             boolean lx = MusicSourceManager.isLx(s);
             h.formatTag.setText(lx ? "落雪" : "FreeJS");
-            h.formatTag.setTextColor(lx ? 0xFFF2B33D : 0xFF9AA7B8);
+            h.formatTag.setTextColor(lx ? 0xFFFA243C : 0xFF9AA7B8);
             if (s.version != null && !s.version.isEmpty()) {
                 h.version.setVisibility(View.VISIBLE);
                 h.version.setText(s.version);
@@ -1164,7 +1164,7 @@ public class MusicListActivity extends BaseActivity {
                 h.name.setText(R.string.music_import_playlist);
                 h.status.setText("");
                 h.icon.setImageResource(R.drawable.ic_music_download);
-                h.icon.setBackground(circle(0xFFF2B33D));
+                h.icon.setBackground(circle(0xFFFA243C));
                 h.itemView.setOnClickListener(v -> showImportPlaylistDialog());
             } else if (o instanceof MusicPlaylist) {
                 MusicPlaylist p = (MusicPlaylist) o;
@@ -1229,7 +1229,7 @@ public class MusicListActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(isCurrent ? 0xFFF2B33D : 0xFFFFFFFF);
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFFFFFFFF);
             h.title.getPaint().setFakeBoldText(isCurrent);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
             if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
@@ -1314,20 +1314,20 @@ public class MusicListActivity extends BaseActivity {
                 version = v.findViewById(R.id.version);
                 pluginSwitch = v.findViewById(R.id.pluginSwitch);
                 pluginMore = v.findViewById(R.id.pluginMore);
-                // 金色开关（选中金、未选灰），跟全 App 点缀色同语
+                // 插件开关（选中红、未选灰）：音乐点缀统一 GZ 红，代旧金
                 ColorStateList thumb = new ColorStateList(
                         new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
-                        new int[]{0xFFF2B33D, 0xFF5E6B7E});
+                        new int[]{0xFFFA243C, 0xFF5E6B7E});
                 ColorStateList track = new ColorStateList(
                         new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
-                        new int[]{0x66F2B33D, 0x445E6B7E});
+                        new int[]{0x66FA243C, 0x445E6B7E});
                 pluginSwitch.setThumbTintList(thumb);
                 pluginSwitch.setTrackTintList(track);
             }
         }
     }
 
-    /** 搜索页源横排：选中金字＋金下划线（全 App 通用语言），未选中灰字 */
+    /** 搜索页源横排：选中红字＋红下划线，未选中灰字 */
     private class TabAdapter extends RecyclerView.Adapter<TabAdapter.TabHolder> {
 
         @NonNull
@@ -1343,9 +1343,9 @@ public class MusicListActivity extends BaseActivity {
             MusicSite s = searchTabs.get(position);
             boolean sel = position == selectedTab;
             h.name.setText(s.name);
-            h.name.setTextColor(sel ? 0xFFF2B33D : 0xFF9AA7B8);
+            h.name.setTextColor(sel ? 0xFFFA243C : 0xFF9AA7B8);
             h.name.getPaint().setFakeBoldText(sel);
-            h.bar.setBackgroundColor(sel ? 0xFFF2B33D : 0x00000000);
+            h.bar.setBackgroundColor(sel ? 0xFFFA243C : 0x00000000);
             h.itemView.setOnClickListener(v -> selectTab(h.getBindingAdapterPosition()));
         }
 

@@ -155,8 +155,13 @@ public class KaraokeLyricsView extends View {
     static final int COLOR_SUNG_SOFT = 0xFFEAEAEA;
     /** 主行未唱颜色（深色面）。 */
     private static final int MAIN_COLOR = Color.WHITE;
-    /** 主行已唱／高亮颜色＝GZ 已唱色。 */
-    private static final int ACTIVE_COLOR = COLOR_SUNG;
+    /**
+     * 主行已唱／高亮颜色（深色面）＝GZ ColorSungSoft 0xFFEAEAEA 近白：
+     * 证据 redo2-gz-player-evidence D 节——手机竖屏三主题＋全屏歌词页从不提供 palette、
+     * immersiveDark 恒 TRUE，sungColor 走 ColorSungSoft；红 0xFFFF2D55 只在浅色面
+     * （immersiveDark=false）被选中，见 activeColor()。与录屏像素实测 (231,227,219) 一致。
+     */
+    private static final int ACTIVE_COLOR = COLOR_SUNG_SOFT;
     /** 副行颜色（深色面）＝GZ 翻译色。 */
     private static final int SUB_COLOR = COLOR_TRANSLATION;
     /** 非当前行颜色（深色面）＝GZ 非当前行色（再乘按距离 alpha 与渐隐）。 */
@@ -479,6 +484,11 @@ public class KaraokeLyricsView extends View {
     }
 
     /** 浅色面：非当前行／未唱色改深灰系、副行转灰，主行已唱保持高亮金（配 record_shelf 白卡等浅底）。 */
+    /** 已唱色按面取：深色面白（本体实测）、浅色面 GZ 红。 */
+    private int activeColor() {
+        return lightScheme ? COLOR_SUNG : ACTIVE_COLOR;
+    }
+
     public void setLightScheme(boolean light) {
         if (lightScheme == light) return;
         lightScheme = light;
@@ -1099,7 +1109,7 @@ public class KaraokeLyricsView extends View {
             // Canvas 文字模糊不裁剪、无需扩图，此处按公式算出留档，绘制直接用 BlurMaskFilter 等价呈边缘辉光（应用侧等价）。
             float glowMargin = em * 0.12f + glowRadius * 3f + 2f;
             if (glowMargin > 0f) {
-                glowPaint.setColor(ACTIVE_COLOR);
+                glowPaint.setColor(activeColor());
                 glowPaint.setAlpha(Math.round(255f * glowIntensity * glowProgress));
                 glowPaint.setMaskFilter(blurFilter(glowRadius));
                 canvas.drawText(seg.text, x, drawY, glowPaint);
@@ -1107,7 +1117,7 @@ public class KaraokeLyricsView extends View {
                 glowPaint.setAlpha(255);
             }
         }
-        mainPaint.setColor(colorProgress > 0f ? ACTIVE_COLOR : (lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR));
+        mainPaint.setColor(colorProgress > 0f ? activeColor() : (lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR));
         mainPaint.setAlpha(alpha);
         canvas.drawText(seg.text, x, drawY, mainPaint);
         if (save >= 0) canvas.restoreToCount(save);
@@ -1130,7 +1140,7 @@ public class KaraokeLyricsView extends View {
         long lineDuration = lineDuration(block.index, line);
         float progress = lineDuration <= 0 ? 1f : clampF(relative / (float) lineDuration, 0f, 1f);
         int alpha = Math.round(255 * (WORD_ALPHA_FROM + (1f - WORD_ALPHA_FROM) * progress));
-        mainPaint.setColor(progress > 0f ? ACTIVE_COLOR : (lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR));
+        mainPaint.setColor(progress > 0f ? activeColor() : (lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR));
         mainPaint.setAlpha(alpha);
         canvas.drawText(seg.text, x, y, mainPaint);
     }

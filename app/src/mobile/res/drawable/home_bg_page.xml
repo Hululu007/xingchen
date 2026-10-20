@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐首页浅色底（v7 定稿）：暖米白到淡蓝紫的柔和对角渐变 -->
+<!-- 音乐首页浅色底：暖米白到淡蓝紫对角渐变（用户 06:18 令：亮度微压、别冲状态栏，仍浅色） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient
         android:angle="315"
-        android:startColor="#F3EDE6"
-        android:centerColor="#F6F1EC"
-        android:endColor="#E9EDF5"
+        android:startColor="#EFE8DF"
+        android:centerColor="#F3EDE6"
+        android:endColor="#E4EAF3"
         android:type="linear" />
 </shape>

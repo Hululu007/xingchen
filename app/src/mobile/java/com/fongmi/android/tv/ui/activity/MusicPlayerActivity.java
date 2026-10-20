@@ -89,7 +89,6 @@ public class MusicPlayerActivity extends BaseActivity {
     private View themeRoot;
     private String themeId = THEME_CLASSIC;
     private ImageView coverView;
-    private ImageView coverBackView;
     private TextView titleView;
     private TextView artistView;
     private TextView albumView;
@@ -99,6 +98,8 @@ public class MusicPlayerActivity extends BaseActivity {
     private SeekBar seekView;
     private SeekBar volumeView;
     private TextView positionView;
+    private TextView positionTopView;
+    private TextView durationTopView;
     private TextView durationView;
     private ImageView playView;
     private ImageView prevView;
@@ -108,6 +109,9 @@ public class MusicPlayerActivity extends BaseActivity {
     private ImageView favBtnView;
     private KaraokeLyricsView lyricView;
     private TextView qualityValueView;
+    private TextView lyricChipTextView;
+    private boolean coverExpanded;
+    private boolean coverInfoMode;
     private TextView lyricLineView;
     private View cdRoot;
     private View cdDisc;
@@ -170,6 +174,8 @@ public class MusicPlayerActivity extends BaseActivity {
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         MusicController.get().addListener(listener);
+        // 深底页：状态栏图标显式浅色，防音乐首页设置的深色图标串扰（06:17 状态栏衔接核查）
+        ReadingSkin.setSystemBarIconAppearance(this, true);
         applyTheme();
         bindTrack(MusicController.get().current());
         setPlaying(MusicController.get().isPlaying());
@@ -268,7 +274,6 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private void grabThemeViews() {
         coverView = find(R.id.tpCover);
-        coverBackView = find(R.id.tpCoverBack);
         titleView = find(R.id.tpTitle);
         artistView = find(R.id.tpArtist);
         albumView = find(R.id.tpAlbum);
@@ -278,6 +283,8 @@ public class MusicPlayerActivity extends BaseActivity {
         seekView = find(R.id.tpSeek);
         volumeView = find(R.id.tpVolume);
         positionView = find(R.id.tpPosition);
+        positionTopView = find(R.id.tpPositionTop);
+        durationTopView = find(R.id.tpDurationTop);
         durationView = find(R.id.tpDuration);
         playView = find(R.id.tpPlay);
         prevView = find(R.id.tpPrev);
@@ -287,6 +294,7 @@ public class MusicPlayerActivity extends BaseActivity {
         favBtnView = find(R.id.tpBtnFav);
         lyricView = find(R.id.tpLyricView);
         qualityValueView = find(R.id.tpQualityValue);
+        lyricChipTextView = find(R.id.tpLyricChipText);
         lyricLineView = find(R.id.tpLyricLine);
         cdRoot = find(R.id.tpCdRoot);
         cdDisc = find(R.id.tpCdDisc);
@@ -308,9 +316,8 @@ public class MusicPlayerActivity extends BaseActivity {
         // 封面圆角：经典沿用现有 28dp 裁剪口径，其余主题按各自版式
         if (coverView != null) {
             if (THEME_CD.equals(themeId)) setCircle(coverView);
-            else setRounded(coverView, THEME_CLASSIC.equals(themeId) ? 28 : THEME_APPLE.equals(themeId) ? 20 : 24);
+            else setRounded(coverView, THEME_CLASSIC.equals(themeId) ? 28 : THEME_APPLE.equals(themeId) ? 20 : THEME_IMMERSIVE.equals(themeId) ? 22 : 24);
         }
-        if (coverBackView != null) setRounded(coverBackView, 24);
 
         // 封面手势（G01–G03）：经典/Apple/封面卡片三套带大封面的主题共用
         View coverWrap = find(R.id.tpCoverWrap);
@@ -328,12 +335,14 @@ public class MusicPlayerActivity extends BaseActivity {
                 public void onStartTrackingTouch(SeekBar seekBar) {
                     seeking = true;
                     swapSeekDrawable(seekBar, true);
+                    setTopTimesAlpha(0.72f);
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar seekBar) {
                     seeking = false;
                     swapSeekDrawable(seekBar, false);
+                    setTopTimesAlpha(0f);
                     long dur = MusicController.get().duration();
                     MusicController.get().seekTo(dur * seekBar.getProgress() / 1000);
                 }
@@ -355,7 +364,7 @@ public class MusicPlayerActivity extends BaseActivity {
         // 歌词视图接线：经典/流光 CD/唱片架均为 cover 模式；
         // 点行回调——经典点开全屏歌词页（G04 单击翻页口径），CD/唱片架点行 seek（GZ onLyricSeek 口径）
         if (lyricView != null) {
-            if (THEME_CLASSIC.equals(themeId) || THEME_CD.equals(themeId) || THEME_SHELF.equals(themeId)) {
+            if (THEME_CLASSIC.equals(themeId) || THEME_CD.equals(themeId) || THEME_SHELF.equals(themeId) || THEME_IMMERSIVE.equals(themeId)) {
                 lyricView.setCoverMode(true);
             }
             if (THEME_SHELF.equals(themeId)) lyricView.setLightScheme(true);
@@ -376,22 +385,39 @@ public class MusicPlayerActivity extends BaseActivity {
             attachPressScale(playView, 0.9f);
         }
 
-        // 封面卡片：点当前歌词行开全屏歌词页
-        if (lyricLineView != null) lyricLineView.setOnClickListener(v -> openLyricsPage());
+        // 封面卡片：点玻璃条中段——展开态回封面模式（GZ 文案「返回到封面模式」），默认态开全屏歌词页
+        if (lyricLineView != null) lyricLineView.setOnClickListener(v -> {
+            if (THEME_IMMERSIVE.equals(themeId) && coverExpanded) toggleCoverExpanded();
+            else openLyricsPage();
+        });
 
-        // 封面卡片：封面区高＝宽×0.65（COVER_IMMERSIVE_ASPECT，PlayerScreenKt:3919 用法）
+        // 封面卡片（GZ A2）：封面卡宽＝min(区宽×0.98, 区高/0.65)、高＝宽×0.65、居中、圆角 22dp 裁剪
         View immersiveWrap = find(R.id.tpCoverWrap);
-        if (THEME_IMMERSIVE.equals(themeId) && immersiveWrap != null) {
-            immersiveWrap.post(() -> {
-                int w = immersiveWrap.getWidth();
-                if (w <= 0) return;
-                ViewGroup.LayoutParams lp = immersiveWrap.getLayoutParams();
-                int h = Math.round(w * 0.65f);
-                if (lp != null && lp.height != h) {
-                    lp.height = h;
-                    immersiveWrap.setLayoutParams(lp);
+        View coverCard = find(R.id.tpCoverCard);
+        if (THEME_IMMERSIVE.equals(themeId) && immersiveWrap != null && coverCard != null) {
+            coverCard.setClipToOutline(true);
+            coverCard.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View v, android.graphics.Outline outline) {
+                    int r = (int) (22 * v.getResources().getDisplayMetrics().density);
+                    outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r);
                 }
             });
+            immersiveWrap.post(() -> {
+                int availW = immersiveWrap.getWidth() - com.fongmi.android.tv.utils.ResUtil.dp2px(48);
+                int availH = immersiveWrap.getHeight();
+                if (availW <= 0 || availH <= 0) return;
+                int w = Math.min(Math.round(availW * 0.98f), Math.round(availH / 0.65f));
+                int h = Math.round(w * 0.65f);
+                ViewGroup.LayoutParams lp = coverCard.getLayoutParams();
+                if (lp != null && (lp.width != w || lp.height != h)) {
+                    lp.width = w;
+                    lp.height = h;
+                    coverCard.setLayoutParams(lp);
+                }
+            });
+            View infoBtn = find(R.id.tpBtnInfoExp);
+            if (infoBtn != null) infoBtn.setOnClickListener(v -> toggleCoverInfo());
         }
 
         // 流光 CD：色板生效＋建旋转动画
@@ -457,9 +483,10 @@ public class MusicPlayerActivity extends BaseActivity {
 
             @Override
             public boolean onSingleTapConfirmed(MotionEvent e) {
-                // 单击封面开全屏歌词页：走 onSingleTapConfirmed（双击手势被识别时本回调不触发），
-                // 与双击收藏天然互斥，不会误触（审计结论见 section-C 交互节）
-                openLyricsPage();
+                // 封面卡片主题：单击封面切换展开态（GZ CoverImmersive 点封面展开/收起）；
+                // 其余主题单击开全屏歌词页（双击手势被识别时本回调不触发，与双击收藏天然互斥）
+                if (THEME_IMMERSIVE.equals(themeId)) toggleCoverExpanded();
+                else openLyricsPage();
                 return true;
             }
 
@@ -555,7 +582,6 @@ public class MusicPlayerActivity extends BaseActivity {
         String cover = track == null ? null : track.cover;
         String title = track == null ? "" : track.displayTitle();
         loadIntoCover(coverView, cover, title);
-        loadIntoCover(coverBackView, cover, title);
         updateBackground(track);
         // 封面切换照 GZ CoverTransitionSpec：经典 400ms/enterScaleFrom 0.94、Apple 600ms/0.97、
         // exitAlphaEnd 0（新封面自透明淡入）；其余主题无独立 Spec，沿用 400ms/0.96 近似。
@@ -751,6 +777,29 @@ public class MusicPlayerActivity extends BaseActivity {
         loadLyric(track, true);
     }
 
+    /** GZ Scrubber 顶盒两侧时间：静止 alpha 0、拖动 0.72（仅经典布局有此二视图，其余主题为空跳过） */
+    private void setTopTimesAlpha(float alpha) {
+        if (positionTopView != null) positionTopView.setAlpha(alpha);
+        if (durationTopView != null) durationTopView.setAlpha(alpha);
+    }
+
+    /** 歌词筹文案照 GZ lyricChipLabel 五档中星辰可判定的四档（AMLL 是 GZ 专有格式，星辰无此来源不冒充） */
+    private void updateLyricChipLabel(List<LyricsLine> mains) {
+        if (lyricChipTextView == null) return;
+        int label;
+        if (mains == null || mains.isEmpty()) label = R.string.music_lyric_chip_none;
+        else {
+            boolean word = false;
+            boolean timed = false;
+            for (LyricsLine line : mains) {
+                if (line.hasWords()) word = true;
+                if (line.getTimeMs() > 0) timed = true;
+            }
+            label = word ? R.string.music_lyric_chip_word : timed ? R.string.music_lyric_chip_line : R.string.music_lyric_chip_plain;
+        }
+        lyricChipTextView.setText(label);
+    }
+
     private void applyLyricData(List<LyricsLine> mains, List<String> trans, List<String> romas) {
         lyricMains.clear();
         lyricMains.addAll(mains);
@@ -759,6 +808,7 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricRomas.clear();
         lyricRomas.addAll(romas);
         lyricIndex = -1;
+        updateLyricChipLabel(mains);
         feedLyricView();
         updateCurrentLyricTexts(MusicController.get().position());
     }
@@ -834,7 +884,46 @@ public class MusicPlayerActivity extends BaseActivity {
             LyricsLine line = lyricMains.get(idx);
             main = line == null || line.getText() == null ? "" : line.getText();
         }
-        if (lyricLineView != null) lyricLineView.setText(main);
+        if (lyricLineView != null) {
+            if (THEME_IMMERSIVE.equals(themeId) && coverExpanded) lyricLineView.setText(R.string.music_cover_back);
+            else lyricLineView.setText(main);
+        }
+    }
+
+    /** 封面卡片展开态开关（GZ：点封面切换；展开时玻璃条中段文案变「返回到封面模式」） */
+    private void toggleCoverExpanded() {
+        View exp = find(R.id.tpCoverExpanded);
+        if (exp == null) return;
+        coverExpanded = exp.getVisibility() != View.VISIBLE;
+        exp.setVisibility(coverExpanded ? View.VISIBLE : View.GONE);
+        if (lyricLineView != null) {
+            if (coverExpanded) lyricLineView.setText(R.string.music_cover_back);
+            else {
+                lyricIndex = Integer.MIN_VALUE;
+                updateCurrentLyricTexts(MusicController.get().position());
+            }
+        }
+    }
+
+    /** 展开态「歌曲信息」模式：卡内信息卡与歌词窗二选一（GZ CoverSongInfoCard） */
+    private void toggleCoverInfo() {
+        View info = find(R.id.tpCoverInfo);
+        if (info == null) return;
+        coverInfoMode = info.getVisibility() != View.VISIBLE;
+        info.setVisibility(coverInfoMode ? View.VISIBLE : View.GONE);
+        if (lyricView != null) lyricView.setVisibility(coverInfoMode ? View.GONE : View.VISIBLE);
+        if (coverInfoMode) {
+            MusicTrack t = MusicController.get().current();
+            setInfoText(R.id.tpInfoTitle, t == null ? "" : t.displayTitle());
+            setInfoText(R.id.tpInfoArtist, t == null ? "" : t.displayArtist());
+            setInfoText(R.id.tpInfoAlbum, t == null || t.album == null ? "" : t.album);
+            setInfoText(R.id.tpInfoSource, t == null || t.platform == null ? "" : t.platform);
+        }
+    }
+
+    private void setInfoText(int id, String text) {
+        TextView tv = find(id);
+        if (tv != null) tv.setText(text);
     }
 
     private void openLyricsPage() {
@@ -851,7 +940,10 @@ public class MusicPlayerActivity extends BaseActivity {
             seekView.setProgress((int) (position * 1000 / duration));
         }
         if (positionView != null) positionView.setText(fmt(position));
-        if (durationView != null) durationView.setText(fmt(duration));
+        // GZ Scrubber 底行右＝负剩余（-mm:ss），不是总时长
+        if (durationView != null) durationView.setText("-" + fmt(Math.max(0, duration - position)));
+        if (positionTopView != null) positionTopView.setText(fmt(position));
+        if (durationTopView != null) durationTopView.setText(fmt(duration));
         if (lyricView != null) {
             lyricView.updatePosition(position);
             lyricView.setPlaying(playing);
@@ -1190,7 +1282,10 @@ public class MusicPlayerActivity extends BaseActivity {
     /** 收藏态刷所有主题里出现的收藏图标（胶囊心/唱片架心走 favBtnView；经典歌名行小爱心已收藏才显示，GZ F04） */
     private void paintFavoriteIcons() {
         int icon = favorited ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart;
-        int color = favorited ? 0xFFF2433D : 0xFFFFFFFF;
+        // 封面卡片玻璃条（GZ A4）：收藏心恒白——已收藏实心白 0.85、未收藏线框白 0.45，不染红
+        int color = THEME_IMMERSIVE.equals(themeId)
+                ? (favorited ? 0xD9FFFFFF : 0x73FFFFFF)
+                : (favorited ? 0xFFF2433D : 0xFFFFFFFF);
         if (favBtnView != null) {
             favBtnView.setImageResource(icon);
             favBtnView.setImageTintList(ColorStateList.valueOf(color));

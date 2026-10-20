@@ -90,6 +90,8 @@ public class MusicLyricsActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 深底页：状态栏图标显式浅色，防音乐首页设置的深色图标串扰（06:17 状态栏衔接核查）
+        ReadingSkin.setSystemBarIconAppearance(this, true);
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         binding.btnMenu.setOnClickListener(v -> openTools());

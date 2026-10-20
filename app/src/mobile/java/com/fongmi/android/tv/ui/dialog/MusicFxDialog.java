@@ -62,10 +62,10 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
             MusicController.get().setFxEnabled(on);
             refresh();
         });
-        binding.seekBass.setProgressTintList(ColorStateList.valueOf(0xFFF2B33D));
-        binding.seekBass.setThumbTintList(ColorStateList.valueOf(0xFFF2B33D));
-        binding.seekVirt.setProgressTintList(ColorStateList.valueOf(0xFFF2B33D));
-        binding.seekVirt.setThumbTintList(ColorStateList.valueOf(0xFFF2B33D));
+        binding.seekBass.setProgressTintList(ColorStateList.valueOf(0xFFFA243C));
+        binding.seekBass.setThumbTintList(ColorStateList.valueOf(0xFFFA243C));
+        binding.seekVirt.setProgressTintList(ColorStateList.valueOf(0xFFFA243C));
+        binding.seekVirt.setThumbTintList(ColorStateList.valueOf(0xFFFA243C));
         binding.seekBass.setOnSeekBarChangeListener(new SeekEnd() {
             @Override
             public void onEnd(SeekBar sb) {
@@ -132,7 +132,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         GradientDrawable d = new GradientDrawable();
         d.setCornerRadius(dp(16));
         if (selected) {
-            d.setColor(0xFFF2B33D);
+            d.setColor(0xFFFA243C);
             tv.setTextColor(0xFF1A1206);
         } else {
             d.setColor(0xFF1C2636);
@@ -166,8 +166,8 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
             SeekBar bar = new SeekBar(getContext());
             bar.setMax(s.maxLevel - s.minLevel);
             bar.setProgress(s.levels[i] - s.minLevel);
-            bar.setProgressTintList(ColorStateList.valueOf(0xFFF2B33D));
-            bar.setThumbTintList(ColorStateList.valueOf(0xFFF2B33D));
+            bar.setProgressTintList(ColorStateList.valueOf(0xFFFA243C));
+            bar.setThumbTintList(ColorStateList.valueOf(0xFFFA243C));
             bar.setEnabled(s.enabled);
             bar.setOnSeekBarChangeListener(new SeekEnd() {
                 @Override

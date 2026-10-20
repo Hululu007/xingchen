@@ -2,7 +2,6 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.content.res.ColorStateList;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -22,7 +21,9 @@ import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.DialogMusicQueueBinding;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.music.MusicLibrary;
+import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -34,29 +35,31 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 播放队列面板（照 GZ PlayQueueSheet 浅色转写）：标题「播放列表」＋随机徽标（仅随机模式）＋计数筹＋清空（清空后关面板）、
- * 提示行、队列行（高 56dp、封面 36dp 圆角 8dp、歌名 13sp/歌手 11sp、时长或格式筹、当前行高亮＋播放指示）、
- * 行点按切歌、长按展开操作行（收藏/加歌单/移除，钮盒 30dp 图标 18dp）、拖动手柄排序、空态。
- * 颜色差异（用户口径）：GZ 当前行红字/红徽标改中性深色（#1C1C1E），结构尺寸照 GZ。
- * 队列无「来源」数据（MusicQueue 不存队列级来源），GZ 的来源行 Q02 本版不做（见报告缺口），不编造。
+ * 播放队列面板（GZ PlayQueueSheet 证据 redo2-gz-queue-evidence 逐项转写）：
+ * 头部 44dp＝[‹ 圆钮][标题 17sp/800][随机筹（仅随机模式）][计数筹·纯数字][清空·红 13sp][✕ 圆钮]，‹ 与 ✕ 均关面板；
+ * 来源行＝开面板时按 track.platform 统计队列级来源，全队一致才显示（星辰无 GZ 的 route 跳转，不可点、无 ›）；
+ * 提示行「长按拖动调整顺序」；队列行＝序号 %02d＋封面 36dp＋歌名 13sp/700＋歌手 11sp＋三钮常显（30dp/图标 18dp），
+ * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
+ * 清空＝清队并关面板（无二次确认）；空态照 GZ。上一版的「中性深代红」口径无用户原话、与本体证据冲突，本版废止。
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
 
     private static final int COLOR_TEXT = 0xFF1C1C1E;
     private static final int COLOR_LOW = 0xFF9A9AA0;
-    private static final int COLOR_CURRENT_ARTIST = 0xB81C1C1E; // GZ 当前行歌手强调色 0.72 alpha 的中性深色版
+    private static final int COLOR_RED = 0xFFFA243C; // GZ AccentRed（PlayQueueSheetKt:130 实证）
+    private static final int COLOR_CURRENT_ARTIST = 0xB8FA243C; // 当前行歌手＝AccentRed × 0.72
+    private static final int COLOR_CURRENT_INDEX = 0xB3FA243C; // 当前行序号＝AccentRed × 0.7
 
     private DialogMusicQueueBinding binding;
     private final List<MusicTrack> tracks = new ArrayList<>();
     private QueueAdapter adapter;
     private ItemTouchHelper touchHelper;
-    private int expandedPos = -1;
 
     public static void show(FragmentActivity activity) {
         new MusicQueueDialog().show(activity.getSupportFragmentManager(), "music_queue");
     }
 
-    // 内容自带浅色底（sheet_panel_white）：弹窗容器/窗口必须透明，
+    // 内容自带浅色底（bg_sheet_panel #F3F3F3）：弹窗容器/窗口必须透明，
     // 否则 Material 底部弹窗默认的浅色层会从顶部漏出一条白带。
     @Override
     protected boolean transparent() {
@@ -96,6 +99,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             MusicController.get().clearQueue();
             dismissAllowingStateLoss();
         });
+        // GZ SheetSubPanelHeader：‹ 与 ✕ 传的是同一个关闭回调——两个都是关面板，不是返回上一级
+        binding.btnBack.setOnClickListener(v -> dismissAllowingStateLoss());
+        binding.btnClose.setOnClickListener(v -> dismissAllowingStateLoss());
         touchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
                 ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
             @Override
@@ -106,8 +112,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 if (from < 0 || to < 0 || from >= tracks.size() || to >= tracks.size()) return false;
                 MusicController.get().move(from, to);
                 Collections.swap(tracks, from, to);
-                if (expandedPos == from) expandedPos = to;
-                else if (expandedPos == to) expandedPos = from;
                 adapter.notifyItemMoved(from, to);
                 return true;
             }
@@ -118,13 +122,23 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
 
             @Override
             public boolean isLongPressDragEnabled() {
-                // 长按留给展开操作行（GZ Q06）；排序走行尾手柄拖动（GZ Q07 的星辰落法）
-                return false;
+                // GZ：长按整行任意位置触发拖动（detectDragGesturesAfterLongPress），无独立手柄
+                return true;
+            }
+
+            @Override
+            public void onSelectedChanged(@Nullable RecyclerView.ViewHolder vh, int actionState) {
+                super.onSelectedChanged(vh, actionState);
+                // 被拖行底＝sheetListBg 白＋圆角 12（GZ QueueItem 拖动态）
+                if (vh != null && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    vh.itemView.setBackgroundResource(R.drawable.bg_sheet_row_drag);
+                }
             }
 
             @Override
             public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
                 super.clearView(rv, vh);
+                vh.itemView.setBackground(null);
                 refresh();
             }
         });
@@ -135,8 +149,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     private void refresh() {
         tracks.clear();
         tracks.addAll(MusicController.get().queue());
-        if (expandedPos >= tracks.size()) expandedPos = -1;
-        binding.tvCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
+        // GZ 计数筹＝纯数字（PlayQueueSheetKt:724 String.valueOf(size)），无「首」
+        binding.tvCount.setText(String.valueOf(tracks.size()));
+        bindSourceRow();
         binding.badgeShuffle.setVisibility(
                 MusicController.get().getMode() == MusicQueue.MODE_SHUFFLE ? View.VISIBLE : View.GONE);
         boolean empty = tracks.isEmpty();
@@ -145,6 +160,42 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         binding.tvHint.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.btnClear.setVisibility(empty ? View.GONE : View.VISIBLE);
         adapter.notifyDataSetChanged();
+    }
+
+    /**
+     * 来源行（GZ Q02）：GZ 是队列级 QueueSource；星辰 MusicQueue 不存队列级来源，
+     * 开面板时按各 track.platform 反查站点名统计——全队同源才显示，混源/无源整行隐藏。
+     * GZ 的 route 跳转星辰无对应物：整行不可点、无 ›（差异残留，见对照表）。
+     */
+    private void bindSourceRow() {
+        String label = null;
+        boolean uniform = !tracks.isEmpty();
+        for (MusicTrack t : tracks) {
+            String l = sourceLabel(t);
+            if (l == null || (label != null && !label.equals(l))) {
+                uniform = false;
+                break;
+            }
+            label = l;
+        }
+        if (uniform && label != null) {
+            binding.sourceName.setText(label);
+            binding.sourceRow.setVisibility(View.VISIBLE);
+        } else {
+            binding.sourceRow.setVisibility(View.GONE);
+        }
+    }
+
+    private String sourceLabel(MusicTrack t) {
+        if (t == null || t.platform == null || t.platform.isEmpty()) return null;
+        if ("device".equals(t.platform)) return getString(R.string.home_device);
+        try {
+            for (MusicSite site : MusicRepository.sites()) {
+                if (t.platform.equals(site.platform)) return site.name;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /** 加歌单（与播放页宿主 pickPlaylist 同链）：选单/新建 → MusicLibrary.addToPlaylist */
@@ -191,14 +242,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 .show();
     }
 
-    private static String durationText(MusicTrack t) {
-        if (t.duration > 0) {
-            long sec = t.duration / 1000;
-            return String.format("%d:%02d", sec / 60, sec % 60);
-        }
-        return t.qualityTag == null ? "" : t.qualityTag;
-    }
-
     private class QueueAdapter extends RecyclerView.Adapter<QueueAdapter.Holder> {
 
         @NonNull
@@ -212,40 +255,23 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         public void onBindViewHolder(@NonNull Holder h, int position) {
             MusicTrack t = tracks.get(position);
             boolean current = position == MusicController.get().index();
+            h.itemView.setBackground(null);
+            h.index.setText(String.format(java.util.Locale.US, "%02d", position + 1));
+            h.index.setTextColor(current ? COLOR_CURRENT_INDEX : COLOR_LOW);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(COLOR_TEXT);
-            h.title.getPaint().setFakeBoldText(current);
-            h.artist.setText(t.displayArtist());
+            h.title.setTextColor(current ? COLOR_RED : COLOR_TEXT);
+            String artist = t.displayArtist();
+            h.artist.setText(artist == null || artist.isEmpty() ? getString(R.string.music_unknown_artist) : artist);
             h.artist.setTextColor(current ? COLOR_CURRENT_ARTIST : COLOR_LOW);
             ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
-            h.playing.setVisibility(current ? View.VISIBLE : View.GONE);
-            h.playing.setImageResource(MusicController.get().isPlaying()
-                    ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
-            String dur = durationText(t);
-            h.duration.setText(dur);
-            h.duration.setVisibility(dur.isEmpty() ? View.GONE : View.VISIBLE);
-            h.ops.setVisibility(position == expandedPos ? View.VISIBLE : View.GONE);
             h.itemView.setOnClickListener(v -> {
                 MusicController.get().playAt(position);
                 refresh();
             });
-            h.itemView.setOnLongClickListener(v -> {
-                expandedPos = expandedPos == position ? -1 : position;
-                notifyDataSetChanged();
-                return true;
-            });
-            h.handle.setOnTouchListener((v, e) -> {
-                if (e.getActionMasked() == MotionEvent.ACTION_DOWN && touchHelper != null) {
-                    touchHelper.startDrag(h);
-                }
-                return false;
-            });
-            // 收藏态（异步查库回填图标）
-            h.btnFav.setImageResource(R.drawable.ic_music_heart);
+            // 收藏态（异步查库回填图标＋染色：已收藏实心红、未收藏线框灰，GZ QueueRowActionButton）
+            paintFav(h, false);
             MusicLibrary.isFavorite(t.id, fav -> {
-                if (h.getBindingAdapterPosition() == position) {
-                    h.btnFav.setImageResource(fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
-                }
+                if (h.getBindingAdapterPosition() == position) paintFav(h, fav);
             });
             h.btnFav.setOnClickListener(v -> MusicLibrary.isFavorite(t.id, fav ->
                     MusicLibrary.setFavorite(t, !fav, () -> {
@@ -255,9 +281,13 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             h.btnAdd.setOnClickListener(v -> pickPlaylist(t));
             h.btnRemove.setOnClickListener(v -> {
                 MusicController.get().removeAt(position);
-                if (expandedPos == position) expandedPos = -1;
                 refresh();
             });
+        }
+
+        private void paintFav(Holder h, boolean fav) {
+            h.btnFav.setImageResource(fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
+            h.btnFav.setImageTintList(ColorStateList.valueOf(fav ? COLOR_RED : COLOR_LOW));
         }
 
         @Override
@@ -266,34 +296,25 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         }
 
         class Holder extends RecyclerView.ViewHolder {
+            final TextView index;
             final ImageView cover;
             final TextView title;
             final TextView artist;
-            final ImageView playing;
-            final TextView duration;
-            final ImageView handle;
-            final View ops;
             final ImageView btnFav;
             final ImageView btnAdd;
             final ImageView btnRemove;
 
             Holder(View v) {
                 super(v);
+                index = v.findViewById(R.id.index);
                 cover = v.findViewById(R.id.cover);
                 title = v.findViewById(R.id.title);
                 artist = v.findViewById(R.id.artist);
-                playing = v.findViewById(R.id.playing);
-                duration = v.findViewById(R.id.duration);
-                handle = v.findViewById(R.id.handle);
-                ops = v.findViewById(R.id.ops);
                 btnFav = v.findViewById(R.id.btnFav);
                 btnAdd = v.findViewById(R.id.btnAdd);
                 btnRemove = v.findViewById(R.id.btnRemove);
-                playing.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
-                handle.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
-                btnFav.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
-                btnAdd.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
-                btnRemove.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
+                btnAdd.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
+                btnRemove.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
             }
         }
     }

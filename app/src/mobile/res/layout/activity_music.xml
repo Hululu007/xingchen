@@ -13,58 +13,59 @@
     android:paddingEnd="20dp"
     android:paddingBottom="16dp">
 
-    <!-- ① 搜索胶囊条＋右侧 ⋮ -->
+    <!-- ① 搜索条＋右侧 ⋮（用户 06:15 令：缩小一号、高 48dp、圆角 16dp） -->
     <LinearLayout
         android:id="@+id/homeSearchBar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="48dp"
         android:background="@drawable/home_bg_search"
         android:clickable="true"
         android:elevation="3dp"
         android:focusable="true"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="18dp"
-        android:paddingEnd="6dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="4dp">
 
         <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:contentDescription="@null"
             android:src="@drawable/home_ic_search" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:singleLine="true"
             android:text="@string/home_search_hint"
             android:textColor="#6B6B6B"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
         <ImageView
             android:id="@+id/homeBtnMore"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/home_more"
-            android:padding="11dp"
+            android:padding="10dp"
             android:src="@drawable/home_ic_more_vert" />
     </LinearLayout>
 
-    <!-- ② 五快捷白卡：收藏／歌单／本地（正中）／历史／下载，图标＋名字＋数量 -->
+    <!-- ② 五快捷白卡：收藏／歌单／本地（正中）／历史／下载，图标＋名字＋数量
+         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰；尺寸随 06:15 缩小令） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="24dp"
         android:background="@drawable/home_bg_card_white"
         android:elevation="3dp"
         android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingTop="18dp"
-        android:paddingEnd="6dp"
-        android:paddingBottom="16dp">
+        android:paddingStart="8dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="13dp">
 
         <LinearLayout
             android:id="@+id/homeQuickFavorite"
@@ -77,27 +78,28 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_favorite" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:singleLine="true"
                 android:text="@string/home_favorite"
-                android:textColor="#1A1A1A"
-                android:textSize="13sp" />
+                android:textColor="#141414"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeCountFavorite"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="0"
-                android:textColor="#8A8A8A"
+                android:textColor="#B2B2B2"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -112,27 +114,28 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_sheets" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:singleLine="true"
                 android:text="@string/home_sheets"
-                android:textColor="#1A1A1A"
-                android:textSize="13sp" />
+                android:textColor="#141414"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeCountSheets"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="0"
-                android:textColor="#8A8A8A"
+                android:textColor="#B2B2B2"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -147,27 +150,28 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_device" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:singleLine="true"
                 android:text="@string/home_device"
-                android:textColor="#1A1A1A"
-                android:textSize="13sp" />
+                android:textColor="#141414"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeCountDevice"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="0"
-                android:textColor="#8A8A8A"
+                android:textColor="#B2B2B2"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -182,27 +186,28 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_recent" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:singleLine="true"
                 android:text="@string/home_recent"
-                android:textColor="#1A1A1A"
-                android:textSize="13sp" />
+                android:textColor="#141414"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeCountRecent"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="0"
-                android:textColor="#8A8A8A"
+                android:textColor="#B2B2B2"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -217,27 +222,28 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_download" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:singleLine="true"
                 android:text="@string/home_download"
-                android:textColor="#1A1A1A"
-                android:textSize="13sp" />
+                android:textColor="#141414"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeCountDownload"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="0"
-                android:textColor="#8A8A8A"
+                android:textColor="#B2B2B2"
                 android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
@@ -246,19 +252,19 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="28dp"
         android:orientation="horizontal">
 
         <FrameLayout
             android:id="@+id/homeCardGuess"
             android:layout_width="0dp"
-            android:layout_height="104dp"
+            android:layout_height="88dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_pink"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="14dp">
+            android:padding="12dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -269,38 +275,40 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_guess"
-                    android:textColor="#1A1A1A"
-                    android:textSize="17sp"
+                    android:textColor="#141414"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="4dp"
                     android:text="@string/home_guess_sub"
-                    android:textColor="#4D4D4D"
-                    android:textSize="13sp" />
+                    android:textColor="#8A8A8A"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <ImageView
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
                 android:layout_gravity="bottom|end"
+                android:layout_marginEnd="-20dp"
+                android:layout_marginBottom="-20dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_watermark_heart" />
+                android:src="@drawable/home_ic_ring_heart" />
         </FrameLayout>
 
         <FrameLayout
             android:id="@+id/homeCardCharts"
             android:layout_width="0dp"
-            android:layout_height="104dp"
-            android:layout_marginStart="12dp"
+            android:layout_height="88dp"
+            android:layout_marginStart="16dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_teal"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="14dp">
+            android:padding="12dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -311,38 +319,40 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_charts"
-                    android:textColor="#1A1A1A"
-                    android:textSize="17sp"
+                    android:textColor="#141414"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="4dp"
                     android:text="@string/home_charts_sub"
-                    android:textColor="#4D4D4D"
-                    android:textSize="13sp" />
+                    android:textColor="#8A8A8A"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <ImageView
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
                 android:layout_gravity="bottom|end"
+                android:layout_marginEnd="-20dp"
+                android:layout_marginBottom="-20dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_watermark_chart" />
+                android:src="@drawable/home_ic_ring_chart" />
         </FrameLayout>
 
         <FrameLayout
             android:id="@+id/homeCardShuffle"
             android:layout_width="0dp"
-            android:layout_height="104dp"
-            android:layout_marginStart="12dp"
+            android:layout_height="88dp"
+            android:layout_marginStart="16dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_lime"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="14dp">
+            android:padding="12dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -353,26 +363,258 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_shuffle"
-                    android:textColor="#1A1A1A"
-                    android:textSize="17sp"
+                    android:textColor="#141414"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="4dp"
                     android:text="@string/home_shuffle_sub"
-                    android:textColor="#4D4D4D"
-                    android:textSize="13sp" />
+                    android:textColor="#8A8A8A"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <ImageView
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
                 android:layout_gravity="bottom|end"
+                android:layout_marginEnd="-20dp"
+                android:layout_marginBottom="-20dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_watermark_play" />
+                android:src="@drawable/home_ic_ring_play" />
         </FrameLayout>
+    </LinearLayout>
+
+    <!-- ④ 榜单白卡（用户 06:20 令，形态照参照图 112784_6：卡头榜名＋完整榜单、
+         左封面叠放带播放三角、右前 3 名、底榜签行；数据只用酷我＋QQ 真榜，取不到整卡隐藏） -->
+    <LinearLayout
+        android:id="@+id/homeChartCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:background="@drawable/home_bg_card_white"
+        android:elevation="3dp"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/homeChartTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:singleLine="true"
+                android:textColor="#141414"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/homeChartMore"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:text="@string/home_chart_more"
+                android:textColor="#9A9AA0"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="124dp"
+                android:layout_height="92dp">
+
+                <ImageView
+                    android:id="@+id/homeChartCover3"
+                    android:layout_width="92dp"
+                    android:layout_height="92dp"
+                    android:layout_marginStart="32dp"
+                    android:alpha="0.5"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
+
+                <ImageView
+                    android:id="@+id/homeChartCover2"
+                    android:layout_width="92dp"
+                    android:layout_height="92dp"
+                    android:layout_marginStart="16dp"
+                    android:alpha="0.75"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
+
+                <ImageView
+                    android:id="@+id/homeChartCover1"
+                    android:layout_width="92dp"
+                    android:layout_height="92dp"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
+
+                <ImageView
+                    android:id="@+id/homeChartPlay"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="26dp"
+                    android:background="@drawable/home_bg_chart_play"
+                    android:contentDescription="@string/home_chart_play"
+                    android:padding="11dp"
+                    android:src="@drawable/ic_music_play" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/homeChartRow1"
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="22dp"
+                        android:layout_height="wrap_content"
+                        android:text="1"
+                        android:textColor="#141414"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/homeChartName1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#1A1A1A"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" · "
+                        android:textColor="#9A9AA0"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/homeChartArtist1"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#9A9AA0"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/homeChartRow2"
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="22dp"
+                        android:layout_height="wrap_content"
+                        android:text="2"
+                        android:textColor="#141414"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/homeChartName2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#1A1A1A"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" · "
+                        android:textColor="#9A9AA0"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/homeChartArtist2"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#9A9AA0"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/homeChartRow3"
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="22dp"
+                        android:layout_height="wrap_content"
+                        android:text="3"
+                        android:textColor="#141414"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/homeChartName3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#1A1A1A"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" · "
+                        android:textColor="#9A9AA0"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/homeChartArtist3"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#9A9AA0"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/homeChartTabs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal" />
     </LinearLayout>
 
     <!-- 底部留白：给悬浮迷你条让位（条只在有音乐会话时出现） -->

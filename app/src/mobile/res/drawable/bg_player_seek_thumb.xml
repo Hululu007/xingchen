@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- GZ PlaybackScrubber 无圆形 thumb（证据 redo2 C 节）：透明占位，仅保留 SeekBar 几何 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="#FFFFFF" />
+    <solid android:color="#00000000" />
     <size android:width="12dp" android:height="12dp" />
 </shape>

@@ -59,7 +59,7 @@
         android:paddingEnd="6dp"
         android:paddingTop="2dp"
         android:paddingBottom="2dp"
-        android:textColor="#F2B33D"
+        android:textColor="#FA243C"
         android:textSize="11sp"
         android:visibility="gone" />
 

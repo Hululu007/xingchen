@@ -37,6 +37,8 @@ public final class LabCustomCommands {
         public String command;
         public boolean background = true;
         public boolean autoExecute = false;
+        /** 与 LabCommand 对齐：运行后是否展示输出（缺省 true） */
+        public boolean showOutput = true;
         public int minVersion = 0;
         public final List<LabManifest.LabVar> variables = new ArrayList<>();
     }
@@ -217,6 +219,7 @@ public final class LabCustomCommands {
         cmd.command = cc.command;
         cmd.background = cc.background;
         cmd.autoExecute = cc.autoExecute;
+        cmd.showOutput = cc.showOutput;
         cmd.minVersion = cc.minVersion;
         cmd.variables.addAll(cc.variables);
         return cmd;

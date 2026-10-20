@@ -262,4 +262,161 @@ public class MusicStore {
             return new ArrayList<>();
         }
     }
+
+    // ===== 播放页主题与歌词样式（工具面板/全屏歌词页共用，2026-10-21） =====
+
+    /** 播放页主题 id（与 GZ PlayerTheme 清单同名） */
+    public static final String THEME_CLASSIC = "classic";
+    public static final String THEME_APPLE_MUSIC = "apple_music";
+    public static final String THEME_COVER_IMMERSIVE = "cover_immersive";
+    public static final String THEME_LUMINOUS_CD = "luminous_cd";
+    public static final String THEME_RECORD_SHELF = "record_shelf";
+
+    /** 流光 CD 表面：浅色 */
+    public static final int CD_SURFACE_LIGHT = 0;
+    /** 流光 CD 表面：深色 */
+    public static final int CD_SURFACE_DARK = 1;
+    /** 流光 CD 表面：自动 */
+    public static final int CD_SURFACE_AUTO = 2;
+
+    /** 歌词粗细：标准 */
+    public static final int LYRIC_WEIGHT_NORMAL = 0;
+    /** 歌词粗细：加粗 */
+    public static final int LYRIC_WEIGHT_BOLD = 1;
+    /** 歌词粗细：特粗 */
+    public static final int LYRIC_WEIGHT_BLACK = 2;
+
+    /** 歌词对齐：靠左 */
+    public static final int LYRIC_ALIGN_LEFT = 0;
+    /** 歌词对齐：居中 */
+    public static final int LYRIC_ALIGN_CENTER = 1;
+    /** 歌词对齐：靠右 */
+    public static final int LYRIC_ALIGN_RIGHT = 2;
+
+    /** 非当前行模糊：关闭 */
+    public static final int LYRIC_BLUR_OFF = 0;
+    /** 非当前行模糊：轻度 */
+    public static final int LYRIC_BLUR_LIGHT = 1;
+    /** 非当前行模糊：中度 */
+    public static final int LYRIC_BLUR_MEDIUM = 2;
+
+    /** 主歌词：原文 */
+    public static final int LYRIC_PRIMARY_ORIGINAL = 0;
+    /** 主歌词：翻译 */
+    public static final int LYRIC_PRIMARY_TRANSLATION = 1;
+    /** 主歌词：音译 */
+    public static final int LYRIC_PRIMARY_ROMANIZATION = 2;
+
+    private static final String K_PLAYER_THEME = "music_player_theme";
+    private static final String K_CD_SURFACE = "music_cd_surface";
+    private static final String K_LYRIC_FONT_SIZE = "music_lyric_font_size";
+    private static final String K_LYRIC_WEIGHT = "music_lyric_weight";
+    private static final String K_LYRIC_ALIGN = "music_lyric_align";
+    private static final String K_LYRIC_BLUR = "music_lyric_blur";
+    private static final String K_LYRIC_PRIMARY = "music_lyric_primary";
+    private static final String K_SHOW_TRANSLATION = "music_show_translation";
+    private static final String K_SHOW_ROMANIZATION = "music_show_romanization";
+    private static final String K_ADVANCED_FX = "music_advanced_fx";
+    private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
+
+    /** 播放页主题 id（默认经典） */
+    public static String getPlayerTheme() {
+        String theme = Prefers.getString(K_PLAYER_THEME, THEME_CLASSIC);
+        return theme == null || theme.isEmpty() ? THEME_CLASSIC : theme;
+    }
+
+    public static void setPlayerTheme(String theme) {
+        Prefers.put(K_PLAYER_THEME, theme == null || theme.isEmpty() ? THEME_CLASSIC : theme);
+    }
+
+    /** 流光 CD 表面：0 浅 1 深 2 自动（默认自动） */
+    public static int getCdSurface() {
+        return Prefers.getInt(K_CD_SURFACE, CD_SURFACE_AUTO);
+    }
+
+    public static void setCdSurface(int surface) {
+        Prefers.put(K_CD_SURFACE, Math.max(CD_SURFACE_LIGHT, Math.min(CD_SURFACE_AUTO, surface)));
+    }
+
+    /** 全屏歌词字号 sp（默认 24，钳 16–40） */
+    public static float getLyricFontSize() {
+        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE, 24f);
+        return Math.max(16f, Math.min(40f, size));
+    }
+
+    public static void setLyricFontSize(float size) {
+        Prefers.put(K_LYRIC_FONT_SIZE, Math.max(16f, Math.min(40f, size)));
+    }
+
+    /** 歌词粗细：0 标准 1 加粗 2 特粗（默认标准） */
+    public static int getLyricWeight() {
+        return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_NORMAL);
+    }
+
+    public static void setLyricWeight(int weight) {
+        Prefers.put(K_LYRIC_WEIGHT, Math.max(LYRIC_WEIGHT_NORMAL, Math.min(LYRIC_WEIGHT_BLACK, weight)));
+    }
+
+    /** 歌词对齐：0 左 1 中 2 右（默认左） */
+    public static int getLyricAlign() {
+        return Prefers.getInt(K_LYRIC_ALIGN, LYRIC_ALIGN_LEFT);
+    }
+
+    public static void setLyricAlign(int align) {
+        Prefers.put(K_LYRIC_ALIGN, Math.max(LYRIC_ALIGN_LEFT, Math.min(LYRIC_ALIGN_RIGHT, align)));
+    }
+
+    /** 非当前行模糊：0 关 1 轻 2 中（默认轻） */
+    public static int getLyricBlur() {
+        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_LIGHT);
+    }
+
+    public static void setLyricBlur(int blur) {
+        Prefers.put(K_LYRIC_BLUR, Math.max(LYRIC_BLUR_OFF, Math.min(LYRIC_BLUR_MEDIUM, blur)));
+    }
+
+    /** 主歌词：0 原文 1 翻译 2 音译（默认原文） */
+    public static int getLyricPrimary() {
+        return Prefers.getInt(K_LYRIC_PRIMARY, LYRIC_PRIMARY_ORIGINAL);
+    }
+
+    public static void setLyricPrimary(int primary) {
+        Prefers.put(K_LYRIC_PRIMARY, Math.max(LYRIC_PRIMARY_ORIGINAL, Math.min(LYRIC_PRIMARY_ROMANIZATION, primary)));
+    }
+
+    /** 显示翻译副行（默认开） */
+    public static boolean isShowTranslation() {
+        return Prefers.getBoolean(K_SHOW_TRANSLATION, true);
+    }
+
+    public static void setShowTranslation(boolean show) {
+        Prefers.put(K_SHOW_TRANSLATION, show);
+    }
+
+    /** 显示音译副行（默认关） */
+    public static boolean isShowRomanization() {
+        return Prefers.getBoolean(K_SHOW_ROMANIZATION, false);
+    }
+
+    public static void setShowRomanization(boolean show) {
+        Prefers.put(K_SHOW_ROMANIZATION, show);
+    }
+
+    /** 歌词高级动效（逐字上浮/长音光晕，默认开） */
+    public static boolean isAdvancedFx() {
+        return Prefers.getBoolean(K_ADVANCED_FX, true);
+    }
+
+    public static void setAdvancedFx(boolean on) {
+        Prefers.put(K_ADVANCED_FX, on);
+    }
+
+    /** 播放页不熄屏（默认关；开关只存这里，生效由播放页读） */
+    public static boolean isPlayerKeepScreenOn() {
+        return Prefers.getBoolean(K_PLAYER_KEEP_SCREEN_ON, false);
+    }
+
+    public static void setPlayerKeepScreenOn(boolean on) {
+        Prefers.put(K_PLAYER_KEEP_SCREEN_ON, on);
+    }
 }

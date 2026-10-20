@@ -147,6 +147,7 @@ public final class LabRunner {
     public static void startCommand(Context ctx, String pkgId, LabManifest.LabCommand cmd,
                                     Map<String, String> vars, Listener listener) {
         final Context c = ctx.getApplicationContext();
+        final String key = commandKey(pkgId, cmd == null || cmd.id == null ? "cmd" : cmd.id);
         new Thread(() -> {
             try {
                 LabRegistry.Svc pkg = LabRegistry.get(c).svc(pkgId);
@@ -156,7 +157,6 @@ public final class LabRunner {
                     throw new Exception("缺" + LabRuntimeManager.label(runtime) + "，先把它装上");
                 }
                 checkMinVersion(c, cmd);
-                String key = commandKey(pkgId, cmd.id == null ? "cmd" : cmd.id);
                 stopKey(c, key);
                 int port = allocPort(c, pkg, readManifestQuiet(c, pkgId));
                 // 包设置值先垫底，同名变量再覆盖（上游变量值缓存复用口径）
@@ -168,8 +168,12 @@ public final class LabRunner {
                 runShell(c, pkgId, key, command, pkgId, listener);
             } catch (Exception e) {
                 String m = e.getMessage();
+                String fail = "启动失败：" + (m == null ? "未知原因" : m) + "\n";
+                // 正在看这条命令实时输出的页面也要拿到失败原因（总线另一半在 pump）
+                LabLiveOutputActivity.LiveBus.emit(key, fail);
+                LabLiveOutputActivity.LiveBus.emitExit(key, -1);
                 if (listener != null) {
-                    listener.onOutput("启动失败：" + (m == null ? "未知原因" : m) + "\n");
+                    listener.onOutput(fail);
                     listener.onExit(-1);
                 }
             }
@@ -556,6 +560,8 @@ public final class LabRunner {
                     String s = new String(buf, 0, n);
                     appendLog(key, s);
                     appendFile(log, s);
+                    // 实时输出页订的是总线：以前只有订阅没有发布，页面永远等不到新输出
+                    LabLiveOutputActivity.LiveBus.emit(key, s);
                     if (listener != null) listener.onOutput(s);
                 }
             } catch (Exception ignored) {
@@ -568,6 +574,8 @@ public final class LabRunner {
             String end = "\n[进程退出，code=" + code + "]\n";
             appendLog(key, end);
             appendFile(log, end);
+            LabLiveOutputActivity.LiveBus.emit(key, end);
+            LabLiveOutputActivity.LiveBus.emitExit(key, code);
             RUNNING.remove(key);
             STDIN.remove(key);
             LabProc.untrack(c, key);

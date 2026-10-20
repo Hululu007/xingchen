@@ -123,9 +123,13 @@ public class HkCommonParser {
                     Log.e(TAG, "selectElementsWithoutOr", e);
                 }
             }
-            if (range.length > 1 && !TextUtils.isEmpty(range[1])) {
+            // 8.83 原文此处无条件取 range[1]（CommonParser.smali selectElementsWithoutOr）：
+            // 单 ",n"（无冒号）时数组越界直接抛出，由 selectElements 的 catch 吞掉、
+            // 该 || 候选整段落空。此前转写加了 length 防卫，会误返 start..末尾 全段，第④块改回。
+            String endStr = range[1];
+            if (!TextUtils.isEmpty(endStr)) {
                 try {
-                    end = Integer.parseInt(range[1]);
+                    end = Integer.parseInt(endStr);
                 } catch (NumberFormatException e) {
                     Log.e(TAG, "selectElementsWithoutOr", e);
                 }

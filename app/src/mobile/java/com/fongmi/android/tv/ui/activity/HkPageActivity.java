@@ -4753,9 +4753,9 @@ public class HkPageActivity extends BaseActivity {
                 // 8.83 PageParser.getNextPage：仅当 extra 是 {…} JSON 串才 setParams。
                 // HkItem.extra 已是原始 JSON 串（数字保持数字），直接透传。
                 String ex = it.getExtra();
-                sub.setPageParams(ex != null && ex.startsWith("{") && ex.endsWith("}") ? ex : "");
+                sub.setParams(ex != null && ex.startsWith("{") && ex.endsWith("}") ? ex : "");
             } catch (Throwable ignored) {
-                sub.setPageParams("");
+                sub.setParams("");
             }
             destroyRouterAsync();
             currentRule = sub;

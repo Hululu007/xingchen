@@ -84,8 +84,8 @@ public final class LabPackageInstaller {
         new Thread(() -> {
             try {
                 progress(listener, "正在读包说明…");
-                String manifestJson = readManifestJson(zip);
-                LabManifest manifest = LabManifest.parse(manifestJson);
+                LabManifest manifest = loadManifest(zip);
+                final boolean mergeFiles = hasLabJson(zip);
                 ensureRuntime(ctx.getApplicationContext(), manifest.runtime, defaultRuntime,
                         new RuntimeEnsure() {
                             @Override
@@ -101,7 +101,12 @@ public final class LabPackageInstaller {
                                     manifest.runtime = runtime;
                                     File dest = LabPaths.packageDir(ctx, manifest.id);
                                     progress(listener, "正在解压…");
-                                    unzip(zip, dest);
+                                    unzip(zip, dest, mergeFiles);
+                                    // 生成型说明（如整目录 Node 项目按 package.json 生成）包里没有
+                                    // lab.json：把说明落进包根，运行链读包说明才找得到
+                                    if (!new File(dest, "lab.json").exists()) {
+                                        writeJson(new File(dest, "lab.json"), manifest);
+                                    }
                                     chmod755(dest);
                                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                                     pkg.id = manifest.id;
@@ -272,6 +277,14 @@ public final class LabPackageInstaller {
                     pkg.installTime = System.currentTimeMillis();
                     pkg.needsReview = it.needsReview;
                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                    // 对齐上游 auto_execute：声明了自动运行的，装完就拉起来
+                    // （开机自启是 LabBoot 的另一条路，这里只管装完这一次）
+                    if (m.autoStart) {
+                        try {
+                            LabRunner.start(ctx, m.id, null);
+                        } catch (Exception ignored) {
+                        }
+                    }
                     installCompatNext(ctx, items, idx + 1, defaultRuntime, listener, okCount + 1);
                 } catch (Exception e) {
                     if (listener != null) listener.onFail(human(e));
@@ -298,19 +311,56 @@ public final class LabPackageInstaller {
 
     /** 预读包说明（安装确认页用），不安装 */
     public static LabManifest peekManifest(File zip) throws Exception {
-        return LabManifest.parse(readManifestJson(zip));
+        return loadManifest(zip);
     }
 
-    private static String readManifestJson(File zip) throws Exception {
+    /** 包里有没有 lab.json（根目录或 files/ 下）：决定解压时要不要把 files/ 合并到包根 */
+    private static boolean hasLabJson(File zip) {
+        try (ZipFile zf = new ZipFile(zip)) {
+            return zf.getEntry("lab.json") != null || zf.getEntry("files/lab.json") != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 读包说明：先按 .lab 包找 lab.json；没有 lab.json 但压缩包里有 npm 的 package.json，
+     * 就按整目录 Node 项目生成服务说明（全部条目原样解进包目录，命令在项目根里跑）。
+     * 两样都没有才报「不是 .lab 包」。
+     */
+    private static LabManifest loadManifest(File zip) throws Exception {
         assertZip(zip);
         try (ZipFile zf = new ZipFile(zip)) {
             ZipEntry e = zf.getEntry("lab.json");
             if (e == null) e = zf.getEntry("files/lab.json");
-            if (e == null) throw new Exception("包里没有 lab.json，这不是 .lab 包");
-            try (InputStream in = zf.getInputStream(e)) {
-                return readAll(in);
+            if (e != null) {
+                try (InputStream in = zf.getInputStream(e)) {
+                    return LabManifest.parse(readAll(in));
+                }
+            }
+            java.util.List<String> names = new java.util.ArrayList<>();
+            java.util.Enumeration<? extends ZipEntry> en = zf.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry ze = en.nextElement();
+                if (!ze.isDirectory()) names.add(ze.getName().replace('\\', '/'));
+            }
+            String pkgEntry = LabImportCompat.findNodePackageJson(names);
+            if (pkgEntry != null) {
+                String pkgText;
+                try (InputStream in = zf.getInputStream(zf.getEntry(pkgEntry))) {
+                    pkgText = readAll(in);
+                }
+                org.json.JSONObject pkg = new org.json.JSONObject(pkgText);
+                if (LabImportCompat.isNpmPackageJson(pkg)) {
+                    LabImportCompat.ImportItem it = LabImportCompat.fromNodeProject(pkg, pkgEntry, names);
+                    if (it.command == null || it.command.trim().isEmpty()) {
+                        throw new Exception("这个 Node 项目找不到入口：package.json 里没写 start/main，项目根也没有 index.js");
+                    }
+                    return LabImportCompat.toManifest(it);
+                }
             }
         }
+        throw new Exception("包里没有 lab.json，这不是 .lab 包");
     }
 
     /** 魔数预检：7z/rar 等非 zip 包给人话提示，不抛技术栈 */
@@ -331,7 +381,11 @@ public final class LabPackageInstaller {
         }
     }
 
-    private static void unzip(File zip, File dest) throws Exception {
+    /**
+     * 解压全部条目到包目录。mergeFiles=true（.lab 包）时按格式约定把 files/ 前缀去掉、
+     * 内容合并到包根；整目录 Node 项目不合并，项目结构原样保留。
+     */
+    private static void unzip(File zip, File dest, boolean mergeFiles) throws Exception {
         deleteDir(dest);
         dest.mkdirs();
         try (ZipInputStream zin = new ZipInputStream(new BufferedInputStream(new FileInputStream(zip)))) {
@@ -340,6 +394,10 @@ public final class LabPackageInstaller {
             while ((entry = zin.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
                 String name = entry.getName();
+                if (mergeFiles && name.startsWith("files/")) {
+                    name = name.substring("files/".length());
+                    if (name.isEmpty()) continue;
+                }
                 // 防 zip-slip
                 File out = new File(dest, name);
                 if (!out.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) continue;

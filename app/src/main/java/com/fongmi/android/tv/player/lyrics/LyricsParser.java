@@ -13,8 +13,11 @@ import java.util.regex.Pattern;
 public class LyricsParser {
 
     private static final Pattern TIME = Pattern.compile("\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?]");
-    private static final Pattern WORD_TIME = Pattern.compile("<\\d+,-?\\d+>");
-    private static final Pattern WORD_TOKEN = Pattern.compile("<(\\d+),(-?\\d+)>([^<]*)");
+    private static final Pattern WORD_TIME = Pattern.compile("<\\d+,-?\\d+(?:,-?\\d+)?>");
+    private static final Pattern WORD_TOKEN = Pattern.compile("<(\\d+),(-?\\d+)(?:,-?\\d+)?>([^<]*)");
+    private static final Pattern BRACKET_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
+    private static final Pattern PAREN_TIME = Pattern.compile("\\((\\d+),(\\d+)(?:,\\d+)?\\)");
+    private static final Pattern ANGLE_TIME = Pattern.compile("<(\\d+),(-?\\d+)(?:,-?\\d+)?>");
     private static final long AUX_TOLERANCE_MS = 800;
     private static final List<String> CREDIT_BLOCKED_LABELS = List.of(
             "企划", "策划", "监制", "制作", "制作人", "出品", "发行", "统筹", "项目", "宣发", "推广", "营销", "文案", "封面", "设计", "摄影", "版权",
@@ -101,6 +104,152 @@ public class LyricsParser {
         }
         lines.sort(Comparator.comparingLong(LyricsLine::getTimeMs));
         return compact(lines);
+    }
+
+    /**
+     * 逐字歌词统一入口（只做加法，parseTimed 旧行为不变）：
+     * QRC / YRC / KRC 这类「[绝对毫秒,时长] 行头」格式走括号/尖括号逐词解析，
+     * 词时间一律换成相对行首的偏移；其余文本（普通 LRC、lxlyric 的
+     * [mm:ss.xx]&lt;off,dur&gt; 形态等）原样走 parseTimed。
+     * 入参若是原始 QRC XML（带 LyricContent 包裹），先解出内容再解析。
+     */
+    public static List<LyricsLine> parseWordLyric(String text) {
+        List<LyricsLine> lines = new ArrayList<>();
+        if (TextUtils.isEmpty(text)) return lines;
+        String content = extractLyricContent(text);
+        boolean bracket = false;
+        for (String raw : content.replace("\r", "").split("\n")) {
+            if (BRACKET_LINE.matcher(raw.trim()).matches()) {
+                bracket = true;
+                break;
+            }
+        }
+        if (!bracket) return parseTimed(content);
+        for (String raw : content.replace("\r", "").split("\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            Matcher lineMatcher = BRACKET_LINE.matcher(line);
+            if (!lineMatcher.matches()) {
+                // 混排的普通 LRC 行按老路解析，不丢行
+                lines.addAll(parseTimed(line));
+                continue;
+            }
+            long lineStart = parseLong(lineMatcher.group(1));
+            String rest = lineMatcher.group(3) == null ? "" : lineMatcher.group(3);
+            List<LyricsWord> words = new ArrayList<>();
+            StringBuilder textBuilder = new StringBuilder();
+            parseBracketWords(rest, lineStart, words, textBuilder);
+            String lineText = textBuilder.toString().trim();
+            if (lineText.isEmpty()) continue;
+            if (shouldDropCreditLine(lineText)) continue;
+            lines.add(new LyricsLine(lineStart, lineText, words));
+        }
+        lines.sort(Comparator.comparingLong(LyricsLine::getTimeMs));
+        return compact(lines);
+    }
+
+    /**
+     * 一行 [start,dur] 后的词序列，三种词时间形态混扫：
+     * QRC 词在括号前「词(abs,dur)」、YRC 括号在词前「(abs,dur,0)词」、
+     * KRC 尖括号在词前「&lt;相对off,dur,0&gt;词」（off 本就是相对行首，不再减行首）。
+     */
+    private static void parseBracketWords(String rest, long lineStart, List<LyricsWord> words, StringBuilder textBuilder) {
+        int i = 0;
+        int length = rest.length();
+        while (i < length) {
+            char c = rest.charAt(i);
+            if (c == '(') {
+                Matcher m = PAREN_TIME.matcher(rest);
+                m.region(i, length);
+                if (!m.lookingAt()) {
+                    i++;
+                    continue;
+                }
+                long offset = Math.max(0, parseLong(m.group(1)) - lineStart);
+                long duration = Math.max(0, parseLong(m.group(2)));
+                int wordStart = m.end();
+                int wordEnd = nextTokenStart(rest, wordStart);
+                String word = rest.substring(wordStart, wordEnd);
+                if (!word.isEmpty()) {
+                    words.add(new LyricsWord(offset, duration, word));
+                    textBuilder.append(word);
+                }
+                i = wordEnd;
+            } else if (c == '<') {
+                Matcher m = ANGLE_TIME.matcher(rest);
+                m.region(i, length);
+                if (!m.lookingAt()) {
+                    i++;
+                    continue;
+                }
+                long offset = Math.max(0, parseLong(m.group(1)));
+                long duration = Math.max(0, parseLong(m.group(2)));
+                int wordStart = m.end();
+                int wordEnd = nextTokenStart(rest, wordStart);
+                String word = rest.substring(wordStart, wordEnd);
+                if (!word.isEmpty()) {
+                    words.add(new LyricsWord(offset, duration, word));
+                    textBuilder.append(word);
+                }
+                i = wordEnd;
+            } else {
+                int paren = rest.indexOf('(', i);
+                int angle = rest.indexOf('<', i);
+                int token = paren < 0 ? angle : (angle < 0 ? paren : Math.min(paren, angle));
+                if (token < 0) {
+                    // 行尾无时间标记的裸文本：只进整行文本，不造词
+                    textBuilder.append(rest.substring(i));
+                    break;
+                }
+                if (token != paren) {
+                    // 下一个 token 是尖括号（KRC 式），中间文本无归属时间，只进整行文本
+                    textBuilder.append(rest, i, token);
+                    i = token;
+                    continue;
+                }
+                String word = rest.substring(i, token);
+                Matcher m = PAREN_TIME.matcher(rest);
+                m.region(token, length);
+                if (!m.lookingAt()) {
+                    textBuilder.append(word);
+                    i = token + 1;
+                    continue;
+                }
+                long offset = Math.max(0, parseLong(m.group(1)) - lineStart);
+                long duration = Math.max(0, parseLong(m.group(2)));
+                if (!word.isEmpty()) {
+                    words.add(new LyricsWord(offset, duration, word));
+                    textBuilder.append(word);
+                }
+                i = m.end();
+            }
+        }
+    }
+
+    private static int nextTokenStart(String rest, int from) {
+        int paren = rest.indexOf('(', from);
+        int angle = rest.indexOf('<', from);
+        if (paren < 0) return angle < 0 ? rest.length() : angle;
+        if (angle < 0) return paren;
+        return Math.min(paren, angle);
+    }
+
+    /** 原始 QRC XML 解包：取出 LyricContent 属性内容并解 XML 转义；非 XML 入参原样返回 */
+    private static String extractLyricContent(String qrc) {
+        if (TextUtils.isEmpty(qrc) || !qrc.contains("LyricContent")) return qrc == null ? "" : qrc;
+        Matcher greedy = Pattern.compile("LyricContent\\s*=\\s*\"([\\s\\S]*)\"\\s*/?>").matcher(qrc);
+        if (greedy.find() && !Pattern.compile("\\s+\\w+\\s*=\\s*\"").matcher(greedy.group(1)).find()) return decodeXmlEntities(greedy.group(1));
+        Matcher normal = Pattern.compile("LyricContent\\s*=\\s*\"([^\"]*)\"").matcher(qrc);
+        return decodeXmlEntities(normal.find() ? normal.group(1) : qrc);
+    }
+
+    private static String decodeXmlEntities(String text) {
+        return (text == null ? "" : text)
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
     }
 
     public static List<LyricsLine> parsePlain(String text, long durationMs) {

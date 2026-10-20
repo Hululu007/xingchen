@@ -157,7 +157,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     private final ExecutorService executor;
-    private final HkRule rule;
+    /**
+     * 当前页规则绑定（块一 W3 口径）：8.83 JSEngine 是进程单例且不持有规则字段，
+     * 每次求值由入口把「当前页规则」带入现拼上下文（getMyRule(rule) 前缀）。
+     * 星辰常驻运行时按 title 复用实例，此字段只作未带规则入口的当前绑定，
+     * 由 {@link #bindRule(HkRule)} 在每次取用时按当前页规则重绑——绝不允许
+     * 停留在实例创建时的旧规则对象（子规则与父规则同 title 时即为首页规则）。
+     */
+    private volatile HkRule rule;
     private final Parser parser;
     /** JS 单线程 executor 的 worker 线程（.js: 回调时判断是否已在 JS 线程，避免死锁） */
     private volatile Thread jsThread;
@@ -1184,6 +1191,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         this.results = new ArrayList<>();
         this.kv = new HashMap<>();
         loadPublicKv();
+    }
+
+    /**
+     * 按当前页规则重绑（块一 W3 接缝）：宿主每次取常驻运行时求值前调用，
+     * 使 setContext 的 MY_RULE/MY_NAME/MY_HEADERS、findPageCode、handlePageRequest
+     * 读到的恒是当前页规则而非实例创建时规则。与 8.83「引擎无规则字段、
+     * 上下文随页现拼」等价。变量表/作用域等进程级状态不随重绑重置（同 title 同表，
+     * 与 8.83 单例语义一致）。
+     */
+    public void bindRule(HkRule rule) {
+        if (rule != null) this.rule = rule;
     }
 
     private <T> Future<T> submit(java.util.concurrent.Callable<T> callable) {
@@ -4262,7 +4280,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * (decompiled/smali/com/example/hikerview/service/parser/PageParser.smali:544)
      *
      * 8.83 返回完整的 ArticleListPageRule 对象（path/name/rule/col_type/params/parent），
-     * 而非仅 {"rule":"..."}。params 来自 URL query（MY_PARAMS 的来源），
+     * 而非仅 {"rule":"..."}。params 来自 URL query，进 pageRule.params Map 供 JS
+     * 经 fetch 自取（D6：不进 MY_PARAMS；MY_PARAMS 唯一来源是规则 params 字段），
      * parent 为规则标题。找不到页面时 8.83 抛 ParseException，上层返回 ""。
      */
     private String handlePageRequest(String url) {
@@ -4270,7 +4289,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             String path = url.substring("hiker://page/".length());
             // D1：解析 query 中的 rule= 参数（官方 PageParser.parsePageRule：?rule=标题 按标题换规则查库）
             String ruleTitle = null;
-            // 8.83 HttpParser.getParamsByUrl：解析 URL query 为 Map（MY_PARAMS 来源）
+            // 8.83 HttpParser.getParamsByUrl：解析 URL query 为 Map（进 pageRule.params，D6）
             Map<String, String> params = parseUrlParams(url);
             int q = path.indexOf('?');
             if (q >= 0) {
@@ -5050,6 +5069,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }).get();
     }
 
+    /** 带当前页规则的入口（8.83 parseHome 形态：规则随求值带入）：先重绑再走原路。 */
+    public List<HkItem> parseList(HkRule rule, String jsCode, String myUrl, int page) throws Exception {
+        bindRule(rule);
+        return parseList(jsCode, myUrl, page);
+    }
+
     /**
      * 执行搜索的 js: 规则，返回条目列表。
      */
@@ -5085,6 +5110,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             }
             return drainSearchResults();
         }).get();
+    }
+
+    /** 带当前页规则的入口（8.83 parseSearchRes 形态：规则随求值带入）：先重绑再走原路。 */
+    public List<SearchResult> parseSearch(HkRule rule, String jsCode, String myUrl, String keyword, int page) throws Exception {
+        bindRule(rule);
+        return parseSearch(jsCode, myUrl, keyword, page);
     }
 
     /** setStrResult/setLastChapterResult 存下的字符串结果。 */
@@ -5643,6 +5674,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         }).get();
     }
 
+    /** 带当前页规则的入口：先重绑再走原路（子页 lazy 求值的 MY_RULE 须为子页规则）。 */
+    public String evalLazy(HkRule rule, String jsCode, String pageUrl) throws Exception {
+        bindRule(rule);
+        return evalLazy(jsCode, pageUrl);
+    }
+
     /**
      * 给 HkSelector 配一个带 JS 求值能力的实例（M1 的 null 透传升级为真求值）。
      */
@@ -5834,6 +5871,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         } catch (Throwable ignored) {
         }
         try {
+            // W3：序列化的是 bindRule 绑定的当前页规则，不再是实例创建时规则。
             ScriptableObject.putProperty(scope, "MY_RULE", parseJson(GSON.toJson(rule)));
         } catch (Throwable e) {
             ScriptableObject.putProperty(scope, "MY_RULE", rhinoCx.newObject(scope));
@@ -6132,6 +6170,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             results.clear();
             return out;
         }).get();
+    }
+
+    /** 带当前页规则的入口：先重绑再走原路（详情求值的 MY_RULE 须为当前页规则）。 */
+    public List<Map<String, String>> parseDetailRaw(HkRule rule, String jsCode, String myUrl) throws Exception {
+        bindRule(rule);
+        return parseDetailRaw(jsCode, myUrl);
     }
 
     private String stringifyArg(Object arg) {

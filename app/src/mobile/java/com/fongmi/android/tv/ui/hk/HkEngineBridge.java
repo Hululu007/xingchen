@@ -112,7 +112,8 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
         rt.setListContext("search", "", "", "", "", "", "");
         rt.setEvalResCodeBody(html);
         try {
-            return rt.parseSearch(engine.getFindRule(), url, keyword, page);
+            // 走第①块备好的带规则重载：求值前按当前页规则重绑（与 runtimeFor 的重绑同口径，双保险）
+            return rt.parseSearch(rule, engine.getFindRule(), url, keyword, page);
         } catch (Exception e) {
             String err = rt.getError();
             throw new Exception(err != null && !err.isEmpty() ? err : e.getMessage(), e);
@@ -140,7 +141,8 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
             rt.setEvalResCodeBody(html);
             List<HkItem> list;
             try {
-                list = rt.parseList(findRule, url, page);
+                // 走第①块备好的带规则重载：求值前按当前页规则重绑（与 runtimeFor 的重绑同口径，双保险）
+                list = rt.parseList(rule, findRule, url, page);
             } finally {
                 rt.setEvalResCodeBody(null);
             }

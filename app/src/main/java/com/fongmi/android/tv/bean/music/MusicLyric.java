@@ -7,6 +7,8 @@ public class MusicLyric {
     public String rawLrc;
     /** 翻译歌词，可空 */
     public String translation;
+    /** 音译歌词（罗马音），可空 */
+    public String romanization;
 
     public MusicLyric() {
     }
@@ -16,6 +18,7 @@ public class MusicLyric {
     }
 
     public boolean hasLyric() {
-        return (rawLrc != null && !rawLrc.isEmpty()) || (translation != null && !translation.isEmpty());
+        return (rawLrc != null && !rawLrc.isEmpty()) || (translation != null && !translation.isEmpty())
+                || (romanization != null && !romanization.isEmpty());
     }
 }

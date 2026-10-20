@@ -306,8 +306,9 @@ public class FreeJsBridge {
             JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
             lyric.rawLrc = firstNonEmpty(optStr(obj, "rawLrc"), optStr(obj, "lyric"), optStr(obj, "lrc"));
             lyric.translation = firstNonEmpty(optStr(obj, "translation"), optStr(obj, "tlyric"));
+            lyric.romanization = firstNonEmpty(optStr(obj, "romalrc"), optStr(obj, "romanization"));
         }
-        return TextUtils.isEmpty(lyric.rawLrc) && TextUtils.isEmpty(lyric.translation) ? null : lyric;
+        return TextUtils.isEmpty(lyric.rawLrc) && TextUtils.isEmpty(lyric.translation) && TextUtils.isEmpty(lyric.romanization) ? null : lyric;
     }
 
     /**

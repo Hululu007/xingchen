@@ -11,7 +11,21 @@ class Runner():
         return fn() if callable(fn) else ""
 
     def init(self, extend=""):
-        self.spider.init(extend)
+        try:
+            self.spider.init(extend)
+        except AttributeError as e:
+            if "'str' object has no attribute" not in str(e):
+                raise
+            parsed = {}
+            if isinstance(extend, str) and extend.strip():
+                try:
+                    import json
+                    parsed = json.loads(extend)
+                except Exception:
+                    parsed = {}
+            if not isinstance(parsed, dict):
+                parsed = {}
+            self.spider.init(parsed)
 
     def homeContent(self, filter):
         return self.spider.homeContent(filter)

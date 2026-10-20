@@ -156,7 +156,25 @@ def getName(ru):
 
 
 def init(ru, extend):
-    ru.init(extend)
+    try:
+        ru.init(extend)
+    except AttributeError as e:
+        # 容错（2026-10-20）：少数蜘蛛按「extend 是 dict」的宿主写法写 init，
+        # 直接 extend.get(...)；壳子按 FongMi 口径传的是 JSON 字符串，必然抛
+        # 'str' object has no attribute 'get' 在加载期就死。命中这个特征才重试：
+        # 把 ext 解析成 dict 再喂一次（解析不出或是非 dict 一律给 {}），
+        # 字符串口径的蜘蛛第一趟就成功，行为不变。
+        if "'str' object has no attribute" not in str(e):
+            raise
+        parsed = {}
+        if isinstance(extend, str) and extend.strip():
+            try:
+                parsed = json.loads(extend)
+            except Exception:
+                parsed = {}
+        if not isinstance(parsed, dict):
+            parsed = {}
+        ru.init(parsed)
 
 
 def homeContent(ru, filter, gen=None):

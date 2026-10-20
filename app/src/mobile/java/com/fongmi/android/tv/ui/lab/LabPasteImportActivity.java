@@ -228,13 +228,16 @@ public class LabPasteImportActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 String name = displayName(uri);
-                byte[] data = readAll(getContentResolver().openInputStream(uri));
+                // 7z 离线包（整目录 Node 项目也走这条）按链接路的 30MB 上限读；
+                // 文本内容仍在下面按 2MB 拦，语义不变
+                byte[] data = readAll(getContentResolver().openInputStream(uri), 30 * 1024 * 1024);
                 try {
                     // 上游 .lab.7z 离线包：先看魔数/后缀
                     if (LabImportCompat.isSevenZ(data, name)) {
                         final LabImportCompat.ParseResult r = LabImportCompat.parseSevenZ(data);
                         runOnUiThread(() -> showResult(r));
                     } else {
+                        if (data.length > 2 * 1024 * 1024) throw new Exception("文件太大");
                         String text = new String(data, StandardCharsets.UTF_8);
                         final String fn = name;
                         runOnUiThread(() -> recognize(text, fn));
@@ -447,14 +450,14 @@ public class LabPasteImportActivity extends AppCompatActivity {
         return b;
     }
 
-    private byte[] readAll(InputStream in) throws Exception {
+    private byte[] readAll(InputStream in, int maxBytes) throws Exception {
         if (in == null) throw new Exception("打不开");
         try (InputStream i = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192];
             int n, total = 0;
             while ((n = i.read(buf)) > 0) {
                 total += n;
-                if (total > 2 * 1024 * 1024) throw new Exception("文件太大");
+                if (total > maxBytes) throw new Exception("文件太大");
                 out.write(buf, 0, n);
             }
             return out.toByteArray();

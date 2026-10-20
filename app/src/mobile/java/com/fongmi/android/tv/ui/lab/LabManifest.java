@@ -20,7 +20,8 @@ import java.util.List;
  *   version       包版本
  *   runtime       python | nodejs | php | mihomo | alist | frp | aria2 | ubuntu | java | bun | ffmpeg | none（必填）
  *   autoStart     默认是否自动启动
- *   commands[]    命令列表：{id,name,desc,command,background,autoExecute}
+ *   commands[]    命令列表：{id,name,desc,command,background,autoExecute,showOutput}
+ *                 showOutput（上游 show_output 口径）：前台型命令运行后是否把输出端到眼前，缺省 true
  *                 command 支持占位：{port}（端口自动分配时替换）、{pkgDir}、{filesDir}
  *   output        产出声明：{kind: live|vod|pan|tool, target, port: auto|数字, actionLabel}
  *                 live/vod 的 target 是地址模板（如 http://127.0.0.1:{port}/live.m3u8）
@@ -47,6 +48,8 @@ public class LabManifest {
         public String command;
         public boolean background = true;
         public boolean autoExecute = false;
+        /** 运行后是否展示输出（上游 show_output，缺省 true；false=只在后台跑、输出只进记录） */
+        public boolean showOutput = true;
         /** 包声明最低 App versionCode，不够就提示升级 */
         public int minVersion = 0;
         /** 运行前依赖：先把 url 下到包内 file 再跑 */
@@ -127,6 +130,9 @@ public class LabManifest {
                 cmd.command = c.optString("command", "");
                 cmd.background = c.optBoolean("background", true);
                 cmd.autoExecute = c.optBoolean("autoExecute", false);
+                // 两种写法都吃："show_output"（上游原名）与 "showOutput"（Gson 落盘回读的字段名）
+                cmd.showOutput = c.has("show_output") ? c.optBoolean("show_output", true)
+                        : c.optBoolean("showOutput", true);
                 cmd.minVersion = c.optInt("min_version", 0);
                 JSONObject dl = c.optJSONObject("download");
                 if (dl != null) {

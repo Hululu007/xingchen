@@ -1,378 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐播放页 Free 格局：顶部「封面｜歌词」切换；封面视图＝大封面＋歌名/歌手/来源；歌词视图＝全页滚动歌词；功能行4项；主控5键 -->
+<!-- 音乐播放页骨架（全主题共用）：封面糊底背景层＋氛围色罩＋主题容器＋爱心粒子覆盖层。
+     主题容器按 MusicStore.getPlayerTheme() 装 player_theme_*.xml，控件接线在 MusicPlayerActivity。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_music_gradient"
+    android:background="#0A0E16"
     android:fitsSystemWindows="true">
 
-    <LinearLayout
+    <!-- 背景层：封面 64px 小图放大成糊底（无封面/取色失败时由 viewAmbient 兜底色盖住） -->
+    <ImageView
+        android:id="@+id/ivBgBlur"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:paddingStart="28dp"
-        android:paddingEnd="28dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="32dp">
+        android:scaleType="centerCrop" />
 
-        <!-- 顶部：封面｜歌词 切换 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:gravity="center"
-            android:orientation="horizontal">
+    <!-- 氛围色层：CoverColor 取色，颜色由代码 500ms 渐变过渡 -->
+    <View
+        android:id="@+id/viewAmbient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.82"
+        android:background="#FF1C1C1E" />
 
-            <LinearLayout
-                android:id="@+id/tabCover"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+    <!-- 可读性渐变罩：上透下暗 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_player_scrim" />
 
-                <TextView
-                    android:id="@+id/tvTabCover"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/music_tab_cover"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
+    <!-- 主题容器 -->
+    <FrameLayout
+        android:id="@+id/themeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
-                <View
-                    android:id="@+id/indCover"
-                    android:layout_width="22dp"
-                    android:layout_height="3dp"
-                    android:layout_marginTop="5dp"
-                    android:background="#F2B33D" />
-            </LinearLayout>
-
-            <View
-                android:layout_width="1dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:background="#33404F" />
-
-            <LinearLayout
-                android:id="@+id/tabLyric"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
-
-                <TextView
-                    android:id="@+id/tvTabLyric"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/music_tab_lyric"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
-
-                <View
-                    android:id="@+id/indLyric"
-                    android:layout_width="22dp"
-                    android:layout_height="3dp"
-                    android:layout_marginTop="5dp"
-                    android:background="#F2B33D" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- 中区：封面视图 / 歌词视图 二选一 -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
-
-            <LinearLayout
-                android:id="@+id/viewCover"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:id="@+id/ivCover"
-                    android:layout_width="300dp"
-                    android:layout_height="300dp"
-                    android:elevation="12dp"
-                    android:scaleType="centerCrop" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvLyric"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:overScrollMode="never"
-                android:paddingTop="16dp"
-                android:paddingBottom="16dp"
-                android:scrollbars="none"
-                android:visibility="gone" />
-        </FrameLayout>
-
-        <!-- 歌名＋歌手＋来源 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/tvTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:textColor="#F2B33D"
-                android:textSize="26sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical|center_horizontal"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvArtist"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="#9AA7B8"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:id="@+id/tvSource"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:background="@drawable/badge_music"
-                    android:paddingStart="9dp"
-                    android:paddingEnd="9dp"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:textColor="#F2B33D"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/seekBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:progressDrawable="@drawable/seekbar_music_progress"
-            android:thumb="@drawable/seekbar_music_thumb" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/tvPosition"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="00:00"
-                android:textColor="#9AA7B8"
-                android:textSize="12sp" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/tvDuration"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="00:00"
-                android:textColor="#9AA7B8"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <!-- 功能行：收藏／下载／音质／更多 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:id="@+id/funcFav"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:id="@+id/ivFav"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/music_favorite"
-                    android:src="@drawable/ic_music_heart" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
-                    android:text="@string/music_favorite"
-                    android:textColor="#9AA7B8"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/funcDownload"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/music_download"
-                    android:src="@drawable/ic_music_download" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
-                    android:text="@string/music_download"
-                    android:textColor="#9AA7B8"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/funcQuality"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvQualityValue"
-                    android:layout_width="match_parent"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/music_quality"
-                    android:gravity="center"
-                    android:maxLines="1"
-                    android:textColor="#F2B33D"
-                    android:textSize="15sp"
-                    android:textStyle="bold"
-                    app:autoSizeMaxTextSize="15sp"
-                    app:autoSizeMinTextSize="10sp"
-                    app:autoSizeTextType="uniform" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
-                    android:text="@string/music_quality"
-                    android:textColor="#9AA7B8"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/funcMore"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:contentDescription="@string/music_more"
-                    android:src="@drawable/ic_music_more" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
-                    android:text="@string/music_more"
-                    android:textColor="#9AA7B8"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- 主控行：模式／上一首／播放／下一首／队列 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ImageView
-                android:id="@+id/btnMode"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/music_play_all"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_sequential" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <ImageView
-                android:id="@+id/btnPrev"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_prev"
-                android:tint="#FFFFFF" />
-
-            <FrameLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="24dp"
-                android:layout_marginEnd="24dp">
-
-                <ImageView
-                    android:id="@+id/btnPlay"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:background="@drawable/circle_gold"
-                    android:padding="21dp"
-                    android:src="@drawable/ic_music_pause"
-                    android:tint="#1A1408" />
-            </FrameLayout>
-
-            <ImageView
-                android:id="@+id/btnNext"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_next"
-                android:tint="#FFFFFF" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <ImageView
-                android:id="@+id/btnQueue"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/music_queue"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_queue" />
-        </LinearLayout>
-    </LinearLayout>
+    <!-- 爱心粒子覆盖层（双击封面/收藏按钮爆发，不拦截触摸） -->
+    <com.fongmi.android.tv.ui.custom.HeartsBurstView
+        android:id="@+id/heartsOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 </FrameLayout>

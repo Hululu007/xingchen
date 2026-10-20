@@ -102,12 +102,6 @@ public class HkRule {
     private transient boolean enabled = true;
 
     /**
-     * 页面参数（hiker://page/ 子页面用）：点击条目的 extra 序列化 JSON，
-     * 页面 rule 里通过 MY_PARAMS 取用。不序列化，运行时设置。
-     */
-    private transient String pageParams = "";
-
-    /**
      * 8.83 MovieRule.baseUrl / chapterUrl（CommonParser.getUrl* 相对路径拼接用）。
      * 不序列化，运行时设置。
      */
@@ -387,7 +381,6 @@ public class HkRule {
         r.displayName = this.displayName;
         r.weight = this.weight;
         r.enabled = this.enabled;
-        r.pageParams = this.pageParams;
         return r;
     }
 
@@ -500,7 +493,11 @@ public class HkRule {
         this.firstHeader = firstHeader;
     }
 
-    /** 规则级 params（8.83 序列化字段；hiker://page/ 运行时参数另见 pageParams）。 */
+    /**
+     * 规则级 params（8.83 ArticleListRule 唯一 params 字段，smali_classes2 bean 字段表实证）：
+     * MY_PARAMS 的唯一来源——规则自带值，或子页场景下点击条目的 extra JSON
+     * （由 PageParser.getNextPage / dealRule 写入本字段，随规则序列化跨页传递）。
+     */
     public String getParams() {
         return params == null ? "" : params;
     }
@@ -558,14 +555,6 @@ public class HkRule {
 
     public void setWeight(int weight) {
         this.weight = weight;
-    }
-
-    public String getPageParams() {
-        return pageParams == null ? "" : pageParams;
-    }
-
-    public void setPageParams(String pageParams) {
-        this.pageParams = pageParams == null ? "" : pageParams;
     }
 
     public String getBaseUrl() {

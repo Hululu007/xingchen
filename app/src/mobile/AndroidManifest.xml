@@ -127,11 +127,6 @@
             android:screenOrientation="fullUser" />
 
         <activity
-            android:name=".ui.activity.WatchRoomActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
-            android:screenOrientation="fullUser" />
-
-        <activity
             android:name=".ui.activity.MusicActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
@@ -143,6 +138,11 @@
 
         <activity
             android:name=".ui.activity.MusicPlayerActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
+        <activity
+            android:name=".ui.activity.MusicLyricsActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 

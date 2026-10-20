@@ -567,12 +567,20 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             try {
                 HkRule rule = getArticleListRule(engine, url, codeAndHeader, findRule, colType);
                 HkRule next = HkPageParser.getNextPage(rule, url, result.getExtra());
-                HkRule open = next != null ? next : rule;
                 Activity activity = getActivity();
+                if (next == null) {
+                    // 第④块尾巴①：与 W1 完全同型的回落（组不出页拿原规则开页＝字面重开首页）
+                    // 按第③块同法收掉——照 8.83 toNextPage 语义弹错留本页，不开任何新页。
+                    if (activity != null && !activity.isFinishing()) {
+                        activity.runOnUiThread(() ->
+                                HkRouteBlocker.toastShortBottom(activity, "找不到对应的页面"));
+                    }
+                    return;
+                }
                 if (activity != null && !activity.isFinishing()) {
                     activity.runOnUiThread(() -> {
                         if (searchHost != null) {
-                            searchHost.openSearchRulePage(open, getItemTitle(position));
+                            searchHost.openSearchRulePage(next, getItemTitle(position));
                         }
                     });
                 }

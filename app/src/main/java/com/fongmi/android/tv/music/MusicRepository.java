@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.music;
 
 import com.fongmi.android.tv.bean.music.MusicChart;
+import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.api.music.FreeJsMusicSource;
@@ -230,6 +231,80 @@ public class MusicRepository {
             break;
         }
         return null;
+    }
+
+    public static MusicLyric lyricRich(MusicTrack track) {
+        return lyricRich(track, false);
+    }
+
+    /**
+     * lyric() 的 rich 版：回退链与 lyric() 同构（本源→同源其它 FreeJS 插件兜底→
+     * 跨源搜歌对歌→歌词型插件直查），「歌词缺失自动搜索」开关（force 例外）同样生效；
+     * FreeJS/落雪源走各自的 rich 通道保住译/音译/逐字正文，其它源只有纯文本，包成只有正文的 MusicLyric。
+     */
+    public static MusicLyric lyricRich(MusicTrack track, boolean force) {
+        if (track == null) return null;
+        MusicSource s = find(track.platform);
+        if (s == null) return null;
+        MusicLyric own = null;
+        try {
+            own = richOf(s, track);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
+        }
+        if (hasRaw(own)) return own;
+
+        if (!force && !MusicStore.isLyricFallback()) return own != null && own.hasLyric() ? own : null;
+        String keyword = (track.title == null ? "" : track.title).trim()
+                + " " + (track.artist == null ? "" : track.artist).trim();
+        keyword = keyword.trim();
+        if (keyword.isEmpty()) return own != null && own.hasLyric() ? own : null;
+
+        // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
+        if (s instanceof FreeJsMusicSource) {
+            try {
+                MusicLyric fb = ((FreeJsMusicSource) s).lyricFallbackRich(track);
+                if (hasRaw(fb)) return fb;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRich fallback error %s", t.getMessage());
+            }
+        }
+        // 2. 其它源（本地源跳过，它不提供歌词）
+        for (MusicSource other : SOURCES) {
+            if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+            try {
+                MusicTrack hit = matchSong(track, other.search(keyword));
+                if (hit == null) continue;
+                MusicLyric lrc = richOf(other, hit);
+                if (hasRaw(lrc)) return lrc;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
+            }
+        }
+        // 3. 歌词型插件直查（与 lyric() 同一步、同口径）
+        for (MusicSource other : SOURCES) {
+            if (!(other instanceof FreeJsMusicSource)) continue;
+            try {
+                MusicLyric lrc = ((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track);
+                if (hasRaw(lrc)) return lrc;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
+            }
+            break;
+        }
+        return own != null && own.hasLyric() ? own : null;
+    }
+
+    /** 单源取 rich 歌词：FreeJS/落雪走 rich 通道，其它源只有纯文本就包一层 */
+    private static MusicLyric richOf(MusicSource source, MusicTrack track) throws Exception {
+        if (source instanceof FreeJsMusicSource) return ((FreeJsMusicSource) source).lyricRich(track);
+        if (source instanceof LxMusicSource) return ((LxMusicSource) source).lyricRich(track);
+        String raw = source.lyric(track);
+        return raw == null ? null : new MusicLyric(raw);
+    }
+
+    private static boolean hasRaw(MusicLyric lyric) {
+        return lyric != null && lyric.rawLrc != null && !lyric.rawLrc.trim().isEmpty();
     }
 
     /** 歌名包含＋（有歌手时）歌手包含才认，防止拿错歌的词；归一化去标点/空白/大小写 */

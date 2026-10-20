@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 流光 CD 主题：底色/文字色由代码按 CdPalette（浅 Pearl #F4F2EE／深 #14161C／自动跟随系统深色）刷 tpCdRoot 与各文字；
+     中央 CD 盘（封面圆贴占盘面 0.68）播放时 16°/s 旋转；歌名 15sp/行高21、歌手 11sp/行高15、歌词 21sp＋译一行；细进度＋裸图标主控。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tpCdRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F4F2EE"
+    android:orientation="vertical"
+    android:paddingStart="28dp"
+    android:paddingEnd="28dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="20dp">
+
+    <!-- CD 盘区 -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="5">
+
+        <FrameLayout
+            android:id="@+id/tpCdDisc"
+            android:layout_width="280dp"
+            android:layout_height="280dp"
+            android:layout_gravity="center">
+
+            <ImageView
+                android:id="@+id/tpCover"
+                android:layout_width="190dp"
+                android:layout_height="190dp"
+                android:layout_gravity="center"
+                android:scaleType="centerCrop" />
+
+            <View
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_player_center_dot" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <!-- 歌名 15sp/行高 21、歌手 11sp/行高 15（颜色代码按色板刷） -->
+    <TextView
+        android:id="@+id/tpTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#282D36"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tpArtist"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#747D89"
+        android:textSize="11sp" />
+
+    <!-- 当前歌词一行 21sp＋译一行（点按开全屏歌词页） -->
+    <TextView
+        android:id="@+id/tpCdLyric"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#282D36"
+        android:textSize="21sp" />
+
+    <TextView
+        android:id="@+id/tpCdLyricTrans"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#747D89"
+        android:textSize="13sp" />
+
+    <!-- 细进度＋时间 -->
+    <SeekBar
+        android:id="@+id/tpSeek"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:layout_marginTop="14dp"
+        android:maxHeight="4dp"
+        android:minHeight="4dp"
+        android:progressDrawable="@drawable/bg_player_seek_progress_dark"
+        android:thumb="@drawable/bg_player_seek_thumb" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tpPosition"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:text="00:00"
+            android:textColor="#747D89"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tpDuration"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:includeFontPadding="false"
+            android:text="00:00"
+            android:textColor="#747D89"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- 裸图标主控行（尺寸照 52/72 既定值，图标着色代码按色板刷） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/tpMode"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:padding="11dp"
+            android:src="@drawable/ic_music_sequential" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/tpPrev"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_prev" />
+
+        <ImageView
+            android:id="@+id/tpPlay"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginStart="22dp"
+            android:layout_marginEnd="22dp"
+            android:padding="18dp"
+            android:src="@drawable/ic_music_pause" />
+
+        <ImageView
+            android:id="@+id/tpNext"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_next" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/tpQueue"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:contentDescription="@string/music_queue"
+            android:padding="11dp"
+            android:src="@drawable/ic_music_queue" />
+    </LinearLayout>
+</LinearLayout>

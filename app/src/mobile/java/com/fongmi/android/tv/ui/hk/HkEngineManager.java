@@ -12,6 +12,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 对应 8.83 JSEngine 进程单例语义（审计 A1）：
  * 运行时按规则名缓存、进程内永不销毁；init 每实例只跑一次。
  * 旧实现每开一页 new+destroy 导致每次全量重初始化，此管理器取代之。
+ * 实例虽按规则名缓存，规则绑定每次取用都按当前页规则重绑
+ * （{@link HkJsRuntime#bindRule}）——8.83 引擎无规则字段、上下文随页现拼，
+ * 缓存的只是引擎实例，不是规则对象（块一 W3 口径）。
  */
 public final class HkEngineManager {
 
@@ -40,6 +43,9 @@ public final class HkEngineManager {
             HkJsRuntime prev = RUNTIMES.putIfAbsent(key, created);
             rt = prev == null ? created : prev;
         }
+        // 块一 W3 接缝：按当前页规则重绑，求值上下文（MY_RULE 等）随页现拼，
+        // 不许停留在实例创建时按 title 缓存的旧规则对象（子页与首页同 title）。
+        rt.bindRule(rule);
         CURRENT_RULE.set(rule);
         // 图片 @js= 求值靠 HkImage 找当前规则运行时（8.83 是引擎单例天然可用）；
         // 新模块此前从未登记，抓取器拿不到运行时只能把加密原流交回，图全部解码失败

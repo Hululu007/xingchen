@@ -28,6 +28,8 @@ public class LabLiveOutputActivity extends AppCompatActivity {
 
     private String pkgId;
     private String cmdId;
+    /** 本页在总线上的订阅名（与 LabRunner 的进程键同口径：pkg/<id> 或 cmd/<id>/<cmd>），关页按它退订 */
+    private String watchTag;
     private TextView output;
     private ScrollView scroll;
     private final StringBuilder buf = new StringBuilder();
@@ -55,11 +57,12 @@ public class LabLiveOutputActivity extends AppCompatActivity {
         if (title == null) title = "实时输出";
         LabSkin.edgeToEdge(this);
         buildUi(title);
-        String key = cmdId == null ? null : LabRunner.commandKey(pkgId, cmdId);
+        // 订阅名必须和 LabRunner 记进程的键一字不差，否则总线两头对不上、永远收不到
+        watchTag = cmdId == null ? "pkg/" + pkgId : LabRunner.commandKey(pkgId, cmdId);
         String log = LabRunner.getLog(this, pkgId);
         if (log != null && !log.isEmpty()) append(log);
         // 订阅后续输出（页关了自动断订，不影响进程）
-        LiveBus.watch(key == null ? pkgId : key, new LabRunner.Listener() {
+        LiveBus.watch(watchTag, new LabRunner.Listener() {
             @Override
             public void onOutput(String text) {
                 runOnUiThread(() -> append(text));
@@ -84,7 +87,7 @@ public class LabLiveOutputActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        LiveBus.unwatch(pkgId);
+        LiveBus.unwatch(watchTag);
         super.onDestroy();
     }
 

@@ -22,7 +22,14 @@ public class Loader {
     public Loader() {
         if (!Python.isStarted()) Python.start(Platform.create());
         try {
-            Python.getInstance().getModule("webhtv_logging").callAttr("install");
+            // getModule / callAttr 的返回值都是要显式 close 的 PyObject，
+            // 丢给 GC finalize 会在 Python 忙时触发 finalize 超时崩溃（见 Spider）。
+            PyObject logging = Python.getInstance().getModule("webhtv_logging");
+            try {
+                closeQuietly(logging.callAttr("install"));
+            } finally {
+                closeQuietly(logging);
+            }
         } catch (RuntimeException error) {
             SpiderDebug.log("python-spider", error);
         }
@@ -31,13 +38,38 @@ public class Loader {
         // Session、JavMenu 用 urllib）全绕过去，定向对它们从来没生效过（真机实证：
         // py 源跑了多轮，gate 的 via=py 决策记录一条都没有）。
         try {
-            Python.getInstance().getModule("gate_patch").callAttr("install");
+            PyObject gatePatch = Python.getInstance().getModule("gate_patch");
+            try {
+                closeQuietly(gatePatch.callAttr("install"));
+            } finally {
+                closeQuietly(gatePatch);
+            }
         } catch (RuntimeException error) {
             SpiderDebug.log("python-spider", error);
         }
         // Python 刚启动：把全局代理配置同步进 os.environ，供 requests 读取
         GlobalProxy.syncPython();
+        // app 是进程级模块对象：随 Loader（PyLoader 持有）活到进程结束，永不 close。
         app = Python.getInstance().getModule("app");
+    }
+
+    // 进程级预热实例：App 冷启动用 warmUp() 提前把 Python 拉起来。这个实例
+    // 必须被静态持有到进程结束——若像旧写法那样 new 完即弃，它的 app 包装
+    // 对象就是全树最后一个靠 GC finalize 释放的 PyObject：量级虽小（单对象、
+    // 启动空闲期），但机制与 finalize 超时崩溃同源，故不留例外。warmUp 只做
+    // 预热，真正干活的 Loader 仍是 PyLoader 自己持有的那个，互不影响。
+    private static Loader startup;
+
+    public static synchronized void warmUp() {
+        if (startup == null) startup = new Loader();
+    }
+
+    static void closeQuietly(PyObject o) {
+        if (o == null) return;
+        try {
+            o.close();
+        } catch (Throwable ignored) {
+        }
     }
 
     public Spider spider(String api) {

@@ -557,14 +557,6 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已切上一首");
                 case AiVoiceCommand.ACTION_MUSIC_SEARCH:
                     return new AiVoiceCommand.Command(action, text, "正在搜歌" + text);
-                case AiVoiceCommand.ACTION_WATCH_OPEN:
-                    return new AiVoiceCommand.Command(action, "已打开一起看");
-                case AiVoiceCommand.ACTION_WATCH_LEAVE:
-                    return new AiVoiceCommand.Command(action, "已退出一起看");
-                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
-                    return new AiVoiceCommand.Command(action, "已开启合唱");
-                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
-                    return new AiVoiceCommand.Command(action, "已关闭合唱");
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     return new AiVoiceCommand.Command(action, params,
                             params >= 0 ? "已快进 " + (params / 1000) + " 秒" : "已快退 " + (-params / 1000) + " 秒");
@@ -687,10 +679,6 @@ public class AiActionExecutor {
             if (videoCls.isInstance(activity)) {
                 return dispatchToVideo(activity, cmd);
             }
-            Class<?> roomCls = Class.forName("com.fongmi.android.tv.ui.activity.WatchRoomActivity");
-            if (roomCls.isInstance(activity)) {
-                return dispatchToRoom(activity, cmd);
-            }
             // 阅读器内指令：书签 / 换源（阅读器自己声明支持哪些口令）
             Class<?> novelCls = Class.forName("com.fongmi.android.tv.ui.activity.NovelReaderActivity");
             Class<?> comicCls = Class.forName("com.fongmi.android.tv.ui.activity.ComicReaderActivity");
@@ -710,29 +698,6 @@ public class AiActionExecutor {
         return false;
     }
 
-    private static boolean dispatchToRoom(Activity activity, AiVoiceCommand.Command cmd) {
-        try {
-            switch (cmd.action) {
-                case AiVoiceCommand.ACTION_WATCH_LEAVE:
-                    invoke(activity, "aiWatchLeave");
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
-                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, true);
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
-                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, false);
-                    return true;
-                case AiVoiceCommand.ACTION_TOGGLE_PLAY:
-                    invoke(activity, "aiTogglePlay");
-                    return true;
-                default:
-                    return false;
-            }
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private static boolean dispatchToVideo(Activity activity, AiVoiceCommand.Command cmd) {
         try {
             switch (cmd.action) {
@@ -744,18 +709,6 @@ public class AiActionExecutor {
                     return true;
                 case AiVoiceCommand.ACTION_TOGGLE_PLAY:
                     invoke(activity, "aiTogglePlay");
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_OPEN:
-                    invoke(activity, "aiWatchTogether");
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_LEAVE:
-                    invoke(activity, "aiWatchLeave");
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_VOICE_ON:
-                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, true);
-                    return true;
-                case AiVoiceCommand.ACTION_WATCH_VOICE_OFF:
-                    invoke(activity, "aiWatchVoice", new Class[]{boolean.class}, false);
                     return true;
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     invoke(activity, "aiSeekBy", new Class[]{long.class}, cmd.param);

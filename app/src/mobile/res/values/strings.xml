@@ -248,4 +248,47 @@
     <string name="music_play_unavailable">这首播不了</string>
     <string name="music_cache_cleared">音乐缓存已清除</string>
 
+    <!-- 音乐工具面板 / 全屏歌词页（2026-10-21，只追加） -->
+    <string name="music_back">返回</string>
+    <string name="music_system_volume">系统媒体音量</string>
+    <string name="music_mode_seq">顺序</string>
+    <string name="music_mode_repeat_all">列表循环</string>
+    <string name="music_mode_repeat_one">单曲循环</string>
+    <string name="music_mode_shuffle">随机</string>
+    <string name="music_player_theme">播放页主题</string>
+    <string name="music_theme_classic">经典</string>
+    <string name="music_theme_apple">Apple Music</string>
+    <string name="music_theme_cover">封面卡片</string>
+    <string name="music_theme_cd">流光 CD</string>
+    <string name="music_theme_vinyl">黑胶唱片架</string>
+    <string name="music_surface_light">浅色</string>
+    <string name="music_surface_dark">深色</string>
+    <string name="music_surface_auto">自动</string>
+    <string name="music_keep_screen_on">播放页不熄屏</string>
+    <string name="music_lyric_settings">歌词设置</string>
+    <string name="music_lyric_font_size">字号</string>
+    <string name="music_lyric_weight">粗细</string>
+    <string name="music_weight_normal">标准</string>
+    <string name="music_weight_bold">加粗</string>
+    <string name="music_weight_black">特粗</string>
+    <string name="music_lyric_align">对齐</string>
+    <string name="music_align_left">靠左</string>
+    <string name="music_align_center">居中</string>
+    <string name="music_align_right">靠右</string>
+    <string name="music_lyric_blur">模糊</string>
+    <string name="music_blur_off">关闭</string>
+    <string name="music_blur_light">轻度</string>
+    <string name="music_blur_medium">中度</string>
+    <string name="music_lyric_primary">主歌词</string>
+    <string name="music_primary_original">原文</string>
+    <string name="music_primary_translation">翻译</string>
+    <string name="music_primary_romanization">音译</string>
+    <string name="music_show_translation">显示翻译</string>
+    <string name="music_show_romanization">显示音译</string>
+    <string name="music_advanced_fx">高级动效</string>
+    <string name="music_restore_defaults">恢复默认</string>
+    <string name="music_lyric_preview_sample">这是一行歌词预览</string>
+    <string name="music_lyric_primary_fallback_hint">没有对应的歌词时会自动显示原文</string>
+    <string name="music_selected">已选</string>
+
 </resources>

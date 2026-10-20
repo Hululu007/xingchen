@@ -290,7 +290,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private AlertDialog mKaraokeResultDialog;
     private static final java.util.Map<String, String> HK_EPISODES_STORE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger HK_EPISODES_SEQ = new java.util.concurrent.atomic.AtomicInteger();
-    private String mWatchName = "我";
     private boolean mSuppressKaraokeResultAction;
     private boolean mRestoringConfigurationPlayback;
     /** 阶段二自动播点火期间为真：点火只负责起播，抑制 shouldEnterFullscreen 的进全屏副作用（finally 复位，手动点集路径不受影响）。 */
@@ -1026,7 +1025,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.openingItem.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmakuText.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.moreText.setOnClickListener(view -> onMorePanel());
-        mBinding.watchDetail.setOnClickListener(view -> onWatchButton());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -1736,7 +1734,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         VodDetailCache.put(this, getKey(), getId(), vod);
         if (deferred) {
             // 后台展开返回空列表时保留现状：addAll 会先 clear 再加，空列表会把缓存渲染出的线路行清空，
-            // 造成"片在播、选集在"却建不了房（一起看误报），与 setDetail(Vod, deferLists) 注释的初衷相反。
+            // 造成"片在播、选集在"线路行却被清空，与 setDetail(Vod, deferLists) 注释的初衷相反。
             if (vod.getFlags().isEmpty()) {
                 SpiderDebug.log("video-flow", "deferred parse empty flags, keep current lists key=%s", getKey());
             } else {
@@ -3304,7 +3302,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setContentView(binding.getRoot());
         binding.moreClose.setOnClickListener(v -> dialog.dismiss());
-        binding.moreWatch.setOnClickListener(v -> { dialog.dismiss(); onWatchButton(); });
         binding.morePlayParams.setOnClickListener(v -> { dialog.dismiss(); onPlayParams(); });
         binding.moreScale.setOnClickListener(v -> { dialog.dismiss(); onScale(); });
         binding.moreLut.setOnClickListener(v -> { dialog.dismiss(); onLut(); });
@@ -8526,221 +8523,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (player().isPlaying()) onPaused();
             else onPlay();
         });
-    }
-
-    // ==== 一起看 ====
-
-    /** AI：打开一起看 */
-    public void aiWatchTogether() {
-        runOnUiThread(this::onWatchButton);
-    }
-
-    /** AI：开关实时合唱 */
-    public void aiWatchVoice(boolean on) {
-        runOnUiThread(() -> {
-            if (!WatchRoomActivity.voiceIfOpen(this, on)) Notify.show("先开一起看房间，才能开合唱");
-        });
-    }
-
-    /** AI：退出一起看 */
-    public void aiWatchLeave() {
-        runOnUiThread(() -> {
-            if (WatchRoomActivity.leaveIfOpen()) Notify.show("已退出一起看");
-            else Notify.show("现在没有开着的房间");
-        });
-    }
-
-    private void onWatchButton() {
-        if (WatchRoomActivity.isOpen()) WatchRoomActivity.bringToFront(this);
-        else showWatchStartDialog();
-    }
-
-    private String watchNameOrDefault(EditText input) {
-        String name = input.getText().toString().trim();
-        return name.isEmpty() ? "我" : name;
-    }
-
-    private android.widget.EditText watchField(String hint, String text, boolean numeric) {
-        float d = getResources().getDisplayMetrics().density;
-        android.widget.EditText e = new android.widget.EditText(this);
-        e.setHint(hint);
-        e.setText(text);
-        e.setSingleLine(true);
-        e.setTextSize(15);
-        e.setTextColor(0xFFFFFFFF);
-        e.setHintTextColor(0xFF9499A3);
-        e.setPadding((int) (14 * d), (int) (12 * d), (int) (14 * d), (int) (12 * d));
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0xFF1D2027);
-        bg.setCornerRadius(12 * d);
-        e.setBackground(bg);
-        if (numeric) {
-            e.setInputType(InputType.TYPE_CLASS_NUMBER);
-            e.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
-        }
-        return e;
-    }
-
-    private TextView watchAction(String label, boolean primary) {
-        float d = getResources().getDisplayMetrics().density;
-        TextView b = new TextView(this);
-        b.setText(label);
-        b.setTextSize(15);
-        b.setGravity(android.view.Gravity.CENTER);
-        b.setPadding(0, (int) (12 * d), 0, (int) (12 * d));
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(12 * d);
-        if (primary) {
-            bg.setColor(0xFFF5C518);
-            b.setTextColor(0xFF131418);
-            b.setTypeface(b.getTypeface(), android.graphics.Typeface.BOLD);
-        } else {
-            bg.setColor(0xFF1D2027);
-            bg.setStroke((int) d, 0xFF3A3F4A);
-            b.setTextColor(0xFFFFFFFF);
-        }
-        b.setBackground(bg);
-        return b;
-    }
-
-    private TextView watchLabel(String label) {
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextSize(13);
-        t.setTextColor(0xFFC9CDD4);
-        return t;
-    }
-
-    /** 一起看建房守卫：播放器已有播放地址也算"已选好片"（线路行为空但片在播的场景）。 */
-    private boolean watchHasPlayingUrl() {
-        try {
-            return player() != null && player().getUrl() != null && !player().getUrl().isEmpty();
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private void showWatchStartDialog() {
-        float d = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding((int) (20 * d), (int) (18 * d), (int) (20 * d), (int) (14 * d));
-        android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
-        boxBg.setColor(0xFF13151A);
-        boxBg.setCornerRadius(18 * d);
-        box.setBackground(boxBg);
-
-        TextView title = new TextView(this);
-        title.setText("一起看");
-        title.setTextSize(19);
-        title.setTextColor(0xFFFFFFFF);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        box.addView(title);
-
-        LinearLayout.LayoutParams fieldLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        fieldLp.topMargin = (int) (8 * d);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelLp.topMargin = (int) (16 * d);
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        btnLp.topMargin = (int) (10 * d);
-
-        TextView nameLabel = watchLabel("你的昵称");
-        nameLabel.setLayoutParams(labelLp);
-        box.addView(nameLabel);
-        android.widget.EditText nameInput = watchField("可不改", mWatchName, false);
-        nameInput.setLayoutParams(fieldLp);
-        box.addView(nameInput);
-
-        TextView createLabel = watchLabel("建一个新房间");
-        createLabel.setLayoutParams(labelLp);
-        box.addView(createLabel);
-        android.widget.EditText pwdInput = watchField("房间密码（可留空）", "", false);
-        pwdInput.setLayoutParams(fieldLp);
-        box.addView(pwdInput);
-        TextView createBtn = watchAction("建房", true);
-        createBtn.setLayoutParams(btnLp);
-        box.addView(createBtn);
-
-        TextView joinLabel = watchLabel("进朋友的房间");
-        joinLabel.setLayoutParams(labelLp);
-        box.addView(joinLabel);
-        android.widget.EditText codeInput = watchField("填 6 位房号", "", true);
-        codeInput.setLayoutParams(fieldLp);
-        box.addView(codeInput);
-        TextView joinBtn = watchAction("进房", false);
-        joinBtn.setLayoutParams(btnLp);
-        box.addView(joinBtn);
-
-        TextView cancel = new TextView(this);
-        cancel.setText("取消");
-        cancel.setTextSize(14);
-        cancel.setTextColor(0xFF9499A3);
-        cancel.setGravity(android.view.Gravity.CENTER);
-        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cancelLp.topMargin = (int) (14 * d);
-        cancel.setLayoutParams(cancelLp);
-        box.addView(cancel);
-
-        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this).setView(box).create();
-        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        cancel.setOnClickListener(v -> dialog.dismiss());
-        createBtn.setOnClickListener(v -> {
-            mWatchName = watchNameOrDefault(nameInput);
-            Site site = getSite();
-            Flag flag = getFlag();
-            // 放宽建房前置：不再只认"线路适配器有集"。线路有集、或选集格子非空、或播放器已有播放地址，
-            // 任一成立都算"已选好片"（修海阔直放等"有播无选"场景的误报）。三个都空才是真没加载，继续提示。
-            boolean flagReady = flag != null && !flag.getEpisodes().isEmpty();
-            boolean episodesReady = mEpisodeAdapter != null && !mEpisodeAdapter.isEmpty();
-            boolean playingReady = watchHasPlayingUrl();
-            if (site == null || (!flagReady && !episodesReady && !playingReady)) {
-                Notify.show("先选好要一起看的片");
-                return;
-            }
-            List<Episode> roomEps = flagReady ? flag.getEpisodes()
-                    : (mEpisodeAdapter != null ? mEpisodeAdapter.getItems() : java.util.Collections.<Episode>emptyList());
-            int startIndex = 0;
-            Episode cur = getEpisode();
-            for (int idx = 0; idx < roomEps.size(); idx++) {
-                if (roomEps.get(idx) == cur) {
-                    startIndex = idx;
-                    break;
-                }
-            }
-            long pos = player() == null ? 0 : player().getPosition();
-            if (player() != null) player().pause();
-            String curUrl = "";
-            java.util.Map<String, String> curHeaders = null;
-            try {
-                if (player() != null) {
-                    curUrl = player().getUrl() == null ? "" : player().getUrl();
-                    curHeaders = player().getHeaders();
-                }
-            } catch (Throwable ignored) {
-            }
-            // 房主切集走 SiteApi.playerContent(siteKey,...) 解析：海阔页/push 的 key 是 hk_规则名/push_agent
-            // 合成命名空间，未在 VodConfig 注册，site.getKey() 是空的会传空 key 进房间导致切集失败。
-            // 直接用 intent 原 key：普通源与 site.getKey() 等价，海阔走 isHkKey 分支，txt/磁力走 push_agent 分支。
-            WatchRoomActivity.startCreate(this, mWatchName, pwdInput.getText().toString().trim(), getKey(), flagReady ? flag.getFlag() : "", getName(), getPic(), roomEps, startIndex, pos, curUrl, curHeaders);
-            dialog.dismiss();
-        });
-        joinBtn.setOnClickListener(v -> {
-            String code = codeInput.getText().toString().trim();
-            if (code.length() != 6) {
-                Notify.show("房号是 6 位数字");
-                return;
-            }
-            mWatchName = watchNameOrDefault(nameInput);
-            if (player() != null) player().pause();
-            WatchRoomActivity.startJoin(this, code, mWatchName, pwdInput.getText().toString().trim());
-            dialog.dismiss();
-        });
-        dialog.show();
-    }
-
-    private void refreshWatchButton() {
-        if (mBinding == null || mBinding.control == null) return;
-        mBinding.watchDetail.setText(R.string.watch_together);
     }
 
     /** AI：快进/快退（毫秒，正数快进负数快退） */

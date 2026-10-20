@@ -45,34 +45,6 @@
         android:orientation="horizontal">
 
         <androidx.appcompat.widget.LinearLayoutCompat
-            android:id="@+id/moreWatch"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:background="@drawable/selector_player_child_sheet_button"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:paddingTop="16dp"
-            android:paddingBottom="14dp">
-
-            <androidx.appcompat.widget.AppCompatImageView
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:src="@drawable/ic_player_together" />
-
-            <com.google.android.material.textview.MaterialTextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="8dp"
-                android:text="一起看"
-                android:textColor="@color/white"
-                android:textSize="13sp" />
-        </androidx.appcompat.widget.LinearLayoutCompat>
-
-        <androidx.appcompat.widget.LinearLayoutCompat
             android:id="@+id/morePlayParams"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

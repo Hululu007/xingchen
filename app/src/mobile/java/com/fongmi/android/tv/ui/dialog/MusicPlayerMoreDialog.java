@@ -76,6 +76,13 @@ public class MusicPlayerMoreDialog extends BaseBottomSheetDialog {
         return binding = DialogMusicMoreBinding.inflate(inflater, container, false);
     }
 
+    // 内容自带深色底（card_music）：弹窗容器/窗口必须透明，
+    // 否则 Material 底部弹窗默认的浅色层会从顶部漏出一条白带。
+    @Override
+    protected boolean transparent() {
+        return true;
+    }
+
     @Override
     protected void initView() {
         if (track != null) {

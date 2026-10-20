@@ -174,16 +174,35 @@ public class GlobalProxy {
             java.lang.reflect.Method getAttr = pyObjectClass.getMethod("get", String.class);
             java.lang.reflect.Method callAttr = pyObjectClass.getMethod("callAttr", String.class, Object[].class);
             Object os = getModule.invoke(python, "os");
-            Object environ = getAttr.invoke(os, "environ");
-            for (int i = 0; i < names.length; i++) {
-                if (values[i] == null || values[i].isEmpty()) {
-                    callAttr.invoke(environ, new Object[]{"pop", new Object[]{names[i], null}});
-                } else {
-                    callAttr.invoke(environ, new Object[]{"__setitem__", new Object[]{names[i], values[i]}});
+            Object environ = null;
+            try {
+                environ = getAttr.invoke(os, "environ");
+                for (int i = 0; i < names.length; i++) {
+                    Object r;
+                    if (values[i] == null || values[i].isEmpty()) {
+                        r = callAttr.invoke(environ, new Object[]{"pop", new Object[]{names[i], null}});
+                    } else {
+                        r = callAttr.invoke(environ, new Object[]{"__setitem__", new Object[]{names[i], values[i]}});
+                    }
+                    // PyObject 必须显式 close：留给 GC finalize 会在 Python 忙时
+                    // 抢 GIL 超时崩溃（finalize timed out after 10 seconds）。
+                    closePy(r);
                 }
+            } finally {
+                closePy(environ);
+                closePy(os);
             }
         } catch (Throwable t) {
             t.printStackTrace();
+        }
+    }
+
+    /** 反射关 PyObject（catvod 不直接依赖 chaquo）：关不上就静默，绝不影响主流程。 */
+    private static void closePy(Object o) {
+        if (o == null) return;
+        try {
+            o.getClass().getMethod("close").invoke(o);
+        } catch (Throwable ignored) {
         }
     }
 }

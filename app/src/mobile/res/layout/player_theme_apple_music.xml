@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Apple Music 主题：背景层即全屏封面糊底；大封面居中上部＋歌名/歌手/来源·音质行＋6dp 进度＋96dp 运输键行＋系统音量条＋52dp 功能筹行。不内嵌歌词。数值照 GZ 参数表 Apple 节。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="20dp">
+
+    <!-- 大封面（手势同经典：双击收藏/长按工具面板/横滑切歌） -->
+    <FrameLayout
+        android:id="@+id/tpCoverWrap"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="5">
+
+        <ImageView
+            android:id="@+id/tpCover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:elevation="10dp"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <!-- 歌名 20sp alpha .96 / 歌手 14sp alpha .6 / 第三行 12sp alpha .42（来源·实测音质，无实测整行隐藏） -->
+    <TextView
+        android:id="@+id/tpTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#F5FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tpArtist"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#99FFFFFF"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/tpMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#6BFFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- 进度：轨道 6dp -->
+    <SeekBar
+        android:id="@+id/tpSeek"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:layout_marginTop="14dp"
+        android:maxHeight="6dp"
+        android:minHeight="6dp"
+        android:progressDrawable="@drawable/bg_player_seek6_progress"
+        android:thumb="@drawable/bg_player_seek_thumb" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tpPosition"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:text="00:00"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tpDuration"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:includeFontPadding="false"
+            android:text="00:00"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- 运输键行：高 96dp；上/下一首盒 56、播放盒 84（按压缩放代码侧 0.88/0.9） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/tpPrev"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_music_prev"
+            android:tint="#FFFFFF" />
+
+        <ImageView
+            android:id="@+id/tpPlay"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_pause"
+            android:tint="#FFFFFF" />
+
+        <ImageView
+            android:id="@+id/tpNext"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_music_next"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- 系统音量条（STREAM_MUSIC，样式同进度条） -->
+    <SeekBar
+        android:id="@+id/tpVolume"
+        android:layout_width="match_parent"
+        android:layout_height="24dp"
+        android:maxHeight="6dp"
+        android:minHeight="6dp"
+        android:progressDrawable="@drawable/bg_player_seek6_progress"
+        android:thumb="@drawable/bg_player_seek_thumb" />
+
+    <!-- 功能筹行：高 52dp，图标 歌词24/音质24/播放列表28，间距 48dp -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/tpBtnLyric"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/music_tab_lyric"
+            android:padding="8dp"
+            android:src="@drawable/ic_music_note"
+            android:tint="#FFFFFF" />
+
+        <ImageView
+            android:id="@+id/tpBtnQuality"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="48dp"
+            android:layout_marginEnd="48dp"
+            android:contentDescription="@string/music_quality"
+            android:padding="8dp"
+            android:src="@drawable/ic_music_eq"
+            android:tint="#FFFFFF" />
+
+        <ImageView
+            android:id="@+id/tpQueue"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:contentDescription="@string/music_queue"
+            android:padding="8dp"
+            android:src="@drawable/ic_music_queue"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+</LinearLayout>

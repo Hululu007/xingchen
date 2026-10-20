@@ -129,6 +129,8 @@ public class MusicPlaybackService extends MediaSessionService {
     private Runnable sleepTask;
     private boolean preparing;
     private int prepareSeq;
+    /** 本次「播到尾」事件是否已被消费（防 ENDED 回调与心跳看门狗重复切歌）；新轨 READY 时复位 */
+    private boolean endedConsumed;
     private volatile MusicAudioInfo audioInfo;
 
     /** 失败熔断（对差清单 D3，只在主线程读写）：每首歌连续失败计数＋拉黑集＋全局连续失败数 */
@@ -162,6 +164,10 @@ public class MusicPlaybackService extends MediaSessionService {
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build();
         player.addListener(playerListener);
+        // 播放模式只由 MusicQueue 一处决策（onTrackEnded 按 queue.nextIndex 走）：
+        // 播放器自身不许带循环/随机状态，免得两套口径打架、队列模式形同虚设。
+        player.setRepeatMode(Player.REPEAT_MODE_OFF);
+        player.setShuffleModeEnabled(false);
         session = new MediaSession.Builder(this, player).setId("xc_music").build();
         session.setSessionActivity(buildPlayerIntent());
         // 必须显式登记会话：media3 的 MediaNotificationManager 只认 addSession 过的会话
@@ -360,6 +366,7 @@ public class MusicPlaybackService extends MediaSessionService {
     public void setMode(int mode) {
         queue.setMode(mode);
         MusicStore.setMode(mode);
+        SpiderDebug.log("music", "setMode %d", mode);
         listeners.forEach(l -> l.onModeChanged(mode));
     }
 
@@ -1069,8 +1076,13 @@ public class MusicPlaybackService extends MediaSessionService {
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
         public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_ENDED) onTrackEnded();
-            else if (state == Player.STATE_READY) {
+            if (state == Player.STATE_ENDED) {
+                if (!endedConsumed) {
+                    endedConsumed = true;
+                    onTrackEnded();
+                }
+            } else if (state == Player.STATE_READY) {
+                endedConsumed = false;
                 // 真起播了：失败计数全清零（D3 的熔断只管连续失败）
                 failCounts.clear();
                 failedBlacklist.clear();
@@ -1109,6 +1121,7 @@ public class MusicPlaybackService extends MediaSessionService {
             return;
         }
         int n = queue.nextIndex();
+        SpiderDebug.log("music", "trackEnded mode=%d next=%d", queue.getMode(), n);
         if (n >= 0) {
             prepareTrack(n, 0, true);
         } else {
@@ -1127,6 +1140,16 @@ public class MusicPlaybackService extends MediaSessionService {
                         long pos = position();
                         long dur = duration();
                         listeners.forEach(l -> l.onProgress(pos, dur));
+                    }
+                    // 播完决策看门狗：万一 STATE_ENDED 回调在真机被吞（厂商/版本差异），
+                    // 播放器会停在 ENDED、模式再对也不切歌。这里发现「停在 ENDED、
+                    // 没在取链、本次结束还没消费」就按同一决策（onTrackEnded→queue.nextIndex）
+                    // 补走一次；正常路径下 endedConsumed 已置位，永远轮不到它。
+                    if (player != null && !preparing && !endedConsumed
+                            && player.getPlaybackState() == Player.STATE_ENDED) {
+                        endedConsumed = true;
+                        SpiderDebug.log("music", "trackEnded via ticker watchdog mode=%d", queue.getMode());
+                        onTrackEnded();
                     }
                 } catch (Throwable ignored) {
                 }

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.music;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.bean.music.MusicChart;
+import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
@@ -187,6 +188,36 @@ public class LxMusicSource implements MusicSource {
         return null;
     }
 
+    /**
+     * 完整歌词（正文＋译＋音译）：与 lyric() 同一条通道——平台歌词接口只有纯文本，
+     * 命中时包成只有正文的 MusicLyric；脚本 lyric 动作的原始返回走 extractLyricRich，
+     * 保住 lxlyric 逐字正文、tlyric 译、romalrc 音译三格。
+     */
+    public MusicLyric lyricRich(MusicTrack track) {
+        Parsed p = parse(track);
+        if (p == null) return null;
+        String own = LxPlatformSearch.lyric(p.platform, p.item);
+        if (!TextUtils.isEmpty(own)) return new MusicLyric(own);
+        JsonObject musicInfo = musicInfo(track, p);
+        for (MusicSite plugin : sites()) {
+            LxBridge b;
+            try {
+                b = MusicSourceManager.get().lxBridgeOf(plugin);
+            } catch (Throwable t) {
+                continue;
+            }
+            if (b == null || !b.supports(p.platform, "lyric")) continue;
+            try {
+                String r = b.request(p.platform, "lyric", musicInfo, "");
+                MusicLyric lyric = extractLyricRich(r);
+                if (lyric != null && lyric.hasLyric()) return lyric;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lx lyricRich error plugin=%s %s", plugin.name, t.getMessage());
+            }
+        }
+        return null;
+    }
+
     /* ---------------- 内部 ---------------- */
 
     private String platformKeyOf(MusicSite site) {
@@ -288,6 +319,40 @@ public class LxMusicSource implements MusicSource {
             }
         }
         return r.contains("[") ? r : null;
+    }
+
+    /**
+     * extractLyric 的 rich 版：落雪 lyric 动作返回对象时的字段优先级——
+     * 正文 lxlyric（逐字）&gt; lyric &gt; rawLrc &gt; lrc；译取 tlyric；音译取 romalrc。
+     * 纯字符串 / 裸文本返回与 extractLyric 同口径包成只有正文。
+     */
+    private MusicLyric extractLyricRich(String result) {
+        if (TextUtils.isEmpty(result)) return null;
+        String r = result.trim();
+        if (r.startsWith("\"")) {
+            try {
+                String s = JsonParser.parseString(r).getAsString();
+                return TextUtils.isEmpty(s) ? null : new MusicLyric(s);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (r.startsWith("{")) {
+            try {
+                JsonObject o = JsonParser.parseString(r).getAsJsonObject();
+                MusicLyric lyric = new MusicLyric();
+                lyric.rawLrc = firstNonEmpty(optStr(o, "lxlyric"), optStr(o, "lyric"), optStr(o, "rawLrc"), optStr(o, "lrc"));
+                lyric.translation = firstNonEmpty(optStr(o, "tlyric"), optStr(o, "translation"));
+                lyric.romanization = firstNonEmpty(optStr(o, "romalrc"), optStr(o, "romanization"));
+                if (lyric.rawLrc.isEmpty()) lyric.rawLrc = null;
+                if (lyric.translation.isEmpty()) lyric.translation = null;
+                if (lyric.romanization.isEmpty()) lyric.romanization = null;
+                return lyric.hasLyric() ? lyric : null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return r.contains("[") ? new MusicLyric(r) : null;
     }
 
     private String firstNonEmpty(String... vals) {

@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.content.res.AssetManager;
 import android.os.Build;
 
+import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
 import com.chaquo.python.internal.Common;
 import com.github.catvod.Init;
@@ -89,7 +90,12 @@ public class Platform extends Python.Platform {
     @Override
     public void onStart(@NotNull Python py) {
         String[] appPath = {Common.ASSET_APP, Common.ASSET_REQUIREMENTS, Common.ASSET_STDLIB + "-" + ABI};
-        py.getModule("java.android").callAttr("initialize", context, buildJson, appPath);
+        PyObject module = py.getModule("java.android");
+        try {
+            Loader.closeQuietly(module.callAttr("initialize", context, buildJson, appPath));
+        } finally {
+            Loader.closeQuietly(module);
+        }
     }
 
     private void deleteObsolete(File baseDir, String[] filenames) {

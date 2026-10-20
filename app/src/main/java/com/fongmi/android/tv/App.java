@@ -143,7 +143,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
         NsdDeviceDiscovery.register();
         Task.execute(() -> {
             try {
-                new com.fongmi.chaquo.Loader();
+                com.fongmi.chaquo.Loader.warmUp();
             } catch (Throwable ignored) {}
         });
         // 节点开关是长期设置：开着退出再进，后台自动把内核拉起来；

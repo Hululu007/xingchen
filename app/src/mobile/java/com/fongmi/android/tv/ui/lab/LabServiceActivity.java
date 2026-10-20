@@ -230,6 +230,7 @@ public class LabServiceActivity extends AppCompatActivity {
                             chip.setBackground(LabSkin.chipRun(LabServiceActivity.this));
                             big.setText("停止");
                             big.setEnabled(true);
+                            surfaceStartOutput(s);
                         });
                     }
 
@@ -354,6 +355,7 @@ public class LabServiceActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         restart.setText("重启");
                         restart.setEnabled(true);
+                        surfaceStartOutput(s);
                     });
                 }
 
@@ -580,17 +582,47 @@ public class LabServiceActivity extends AppCompatActivity {
         List<LabManifest.LabVar> vars = c.variables == null
                 ? new ArrayList<>() : c.variables;
         if (vars.isEmpty()) {
+            surfaceCommandOutput(c);
             LabRunner.startCommand(this, pkgId, c, null, cmdListener());
-            Notify.show("跑起来了，去实时输出看");
             return;
         }
         Map<String, String> cached = new HashMap<>(LabCustomCommands.varCache(this, pkgId));
         LabVarDialog.show(this, c.name == null ? "填参数" : c.name, vars, cached, "运行",
                 values -> {
                     LabCustomCommands.saveVarCache(this, pkgId, values);
+                    surfaceCommandOutput(c);
                     LabRunner.startCommand(this, pkgId, c, values, cmdListener());
-                    Notify.show("跑起来了，去实时输出看");
                 });
+    }
+
+    /**
+     * 命令运行后的输出口径（对齐上游 show_output）：
+     * 后台型命令（background=true）维持现行——状态在服务页和运行记录里看；
+     * 前台型命令 show_output=true：先开这条命令的实时输出页再起进程，输出一行不漏；
+     * show_output=false：只提示「已在后台运行」，不弹输出（上游原话口径）。
+     */
+    private void surfaceCommandOutput(LabManifest.LabCommand c) {
+        if (c.background) {
+            Notify.show("跑起来了，去实时输出看");
+            return;
+        }
+        if (c.showOutput) {
+            LabLiveOutputActivity.start(this, pkgId, c.id, c.name == null ? "实时输出" : c.name);
+        } else {
+            Notify.show("已在后台运行：" + (c.name == null ? c.id : c.name));
+        }
+    }
+
+    /** 大钮/重启起的是默认命令：输出口径与命令运行一致，页按服务级打开 */
+    private void surfaceStartOutput(LabRegistry.Svc s) {
+        LabManifest m = peekManifest();
+        LabManifest.LabCommand def = m == null ? null : m.defaultCommand();
+        if (def == null || def.background) return;
+        if (def.showOutput) {
+            LabLiveOutputActivity.start(this, pkgId, s.name);
+        } else {
+            Notify.show("已在后台运行：" + s.name);
+        }
     }
 
     private LabRunner.Listener cmdListener() {

@@ -566,60 +566,76 @@ public class HkHttpParser {
     }
 
     /**
-     * 8.83 原文（HttpParser.smali:586 起，jadx 未能反编译，按 smali 逐分支移植）：
+     * 8.83 原文（HttpParser.smali:370-884，jadx 未能反编译，按 smali 逐分支移植）：
      * 去掉 x5://、webview://、x5Rule://、webRule://、download://、video://、
-     * hiker://empty 系列前缀，以及 ;[firstPage=...] 取首段。
+     * hiker://empty 系列前缀后，尾段统一处理：;[firstPage=...] 取括号内、
+     * fypage@ 算式（以 1 为初值按 @ 分段顺序做 -/+/×/÷ 整数运算）求值、
+     * 兜底 fypage 替换为 "1"。异常时返回当前已处理到的串（原文 catch 返回 p0）。
+     * 注：本方法此前转写丢了整个尾段（empty 分支提前 return、fypage 两段全无、
+     * 兜底返全量 url），第④块按 smali 补回；形态与 ui/hk 的 HkStringUtil 同名实现一致。
      */
     public static String getFirstPageUrl(String url) {
         if (HkParserKit.isEmpty(url)) {
             return url;
         }
+        String p0 = url;
         try {
-            if (url.startsWith("x5://")) {
-                return url.replace("x5://", "");
+            if (p0.startsWith("x5://")) {
+                return p0.replace("x5://", "");
             }
-            if (url.startsWith("webview://")) {
-                return url.replace("webview://", "");
+            if (p0.startsWith("webview://")) {
+                return p0.replace("webview://", "");
             }
-            if (url.startsWith("x5Rule://")) {
-                return url.split("@")[0].replace("x5Rule://", "");
+            if (p0.startsWith("x5Rule://")) {
+                return p0.split("@")[0].replace("x5Rule://", "");
             }
-            if (url.startsWith("webRule://")) {
-                return url.split("@")[0].replace("webRule://", "");
+            if (p0.startsWith("webRule://")) {
+                return p0.split("@")[0].replace("webRule://", "");
             }
-            if (url.startsWith("hiker://empty##https%3A%2F%2F") || url.startsWith("hiker://empty##http%3A%2F%2F")) {
-                return url;
+            if (p0.startsWith("hiker://empty##https%3A%2F%2F") || p0.startsWith("hiker://empty##http%3A%2F%2F")) {
+                p0 = decodeUrl(HkParserKit.replaceOnce(p0, "hiker://empty##", ""), "UTF-8");
+            } else if (p0.startsWith("hiker://empty#http")) {
+                p0 = HkParserKit.replaceOnce(p0, "hiker://empty#", "");
+            } else if (p0.startsWith("hiker://empty##http")) {
+                p0 = HkParserKit.replaceOnce(p0, "hiker://empty##", "");
+            } else if (p0.startsWith("hiker://empty$http")) {
+                p0 = HkParserKit.replaceOnce(p0, "hiker://empty$", "");
+            } else if (p0.startsWith("hiker://empty$$http")) {
+                p0 = HkParserKit.replaceOnce(p0, "hiker://empty$$", "");
+            } else if (p0.startsWith("hiker://empty$$$http")) {
+                p0 = HkParserKit.replaceOnce(p0, "hiker://empty$$$", "");
+            } else if (p0.startsWith("download://")) {
+                return p0.replace("download://", "");
+            } else if (p0.startsWith("video://")) {
+                return p0.replace("video://", "");
             }
-            if (url.startsWith("hiker://empty#http")) {
-                return HkParserKit.replaceOnce(url, "hiker://empty#", "");
-            }
-            if (url.startsWith("hiker://empty##http")) {
-                return HkParserKit.replaceOnce(url, "hiker://empty##", "");
-            }
-            if (url.startsWith("hiker://empty$http")) {
-                return HkParserKit.replaceOnce(url, "hiker://empty$", "");
-            }
-            if (url.startsWith("hiker://empty$$http")) {
-                return HkParserKit.replaceOnce(url, "hiker://empty$$", "");
-            }
-            if (url.startsWith("hiker://empty$$$http")) {
-                return HkParserKit.replaceOnce(url, "hiker://empty$$$", "");
-            }
-            if (url.startsWith("download://")) {
-                return url.replace("download://", "");
-            }
-            if (url.startsWith("video://")) {
-                return url.replace("video://", "");
-            }
-            String first = url.split(";")[0];
-            String[] fpSplit = first.split("\\[firstPage=");
+            String seg = p0.split(";")[0];
+            String[] fpSplit = seg.split("\\[firstPage=");
             if (fpSplit.length > 1) {
                 return fpSplit[1].split("]")[0];
             }
-            return url;
+            if (seg.contains("fypage@")) {
+                String[] parts = seg.split("fypage@");
+                String[] expr = parts[1].split("@");
+                int page = 1;
+                for (int i = 0; i < expr.length - 1; i++) {
+                    String t = expr[i];
+                    if (t.startsWith("-")) {
+                        page -= Integer.parseInt(t.replace("-", ""));
+                    } else if (t.startsWith("+")) {
+                        page += Integer.parseInt(t.replace("+", ""));
+                    } else if (t.startsWith("*")) {
+                        page *= Integer.parseInt(t.replace("*", ""));
+                    } else if (t.startsWith("/")) {
+                        page /= Integer.parseInt(t.replace("/", ""));
+                    }
+                }
+                return parts[0] + page + expr[expr.length - 1];
+            }
+            return seg.replace("fypage", "1");
         } catch (Exception e) {
             Log.e(TAG, "getFirstPageUrl", e);
-            return url;
+            return p0;
         }
     }
 

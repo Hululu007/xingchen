@@ -37,6 +37,13 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         new MusicFxDialog().show(activity.getSupportFragmentManager(), "music_fx");
     }
 
+    // 内容自带深色底（card_music）：弹窗容器/窗口必须透明，
+    // 否则 Material 底部弹窗默认的浅色层会从顶部漏出一条白带。
+    @Override
+    protected boolean transparent() {
+        return true;
+    }
+
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         return binding = DialogMusicFxBinding.inflate(inflater, container, false);

@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  */
 public final class LabImportCompat {
 
-    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE, WEBHTV_ITEM }
+    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE, WEBHTV_ITEM, NODE_PROJECT }
 
     /** 归一后的一个服务（安装前形态） */
     public static class ImportItem {
@@ -36,6 +36,8 @@ public final class LabImportCompat {
         public String command = "";          // 含 {port}/{pkgDir}/{filesDir} 占位
         public boolean background = true;
         public boolean autoStart = false;
+        /** 上游 show_output：运行后是否把输出端到眼前（缺省 true；false=后台静默跑） */
+        public boolean showOutput = true;
         /** 包声明最低 App versionCode */
         public int minVersion = 0;
         /** 命令变量表（上游 variables/settings 口径） */
@@ -108,6 +110,28 @@ public final class LabImportCompat {
             throw new Exception("这个 JSON 数组认不出来：里面不是服务命令条目");
         }
         JSONObject o = new JSONObject(t);
+        // 整份默影视实验室清单（目录文件形态）：包都在 lists[] 里，逐个包走 Item 转换；
+        // 上游标了不可用（available=false）或不显示（show=false）的包不导，数记进说明里不装哑巴
+        if (o.has("lists") && o.opt("lists") instanceof JSONArray) {
+            r.kind = Kind.WEBHTV_ITEM;
+            JSONArray lists = o.getJSONArray("lists");
+            int skipped = 0;
+            for (int i = 0; i < lists.length(); i++) {
+                JSONObject item = lists.optJSONObject(i);
+                if (item == null || !item.has("commands")) continue;
+                if (!item.optBoolean("available", true) || !item.optBoolean("show", true)) {
+                    skipped++;
+                    continue;
+                }
+                r.items.addAll(fromWebhtvItem(item));
+            }
+            if (r.items.isEmpty()) {
+                throw new Exception("这个清单里的包都不可用或不显示，没导进来");
+            }
+            r.note = "认出来了：默影视实验室清单（" + r.items.size() + " 条命令）"
+                    + (skipped > 0 ? "，另有 " + skipped + " 个包上游标了不可用/不显示，没导" : "");
+            return r;
+        }
         if (o.has("services") && o.opt("services") instanceof JSONArray) {
             r.kind = Kind.TERMUX_LIST;
             JSONArray svcs = o.getJSONArray("services");
@@ -186,8 +210,12 @@ public final class LabImportCompat {
         it.id = sanitize(rawId.isEmpty() ? "webhtv" + idx : rawId);
         it.name = o.optString("name", it.id).trim();
         it.desc = o.optString("description", o.optString("desc", "")).trim();
-        it.background = o.optBoolean("background", true);
+        // background 缺省按上游口径取 false（上游 Command.background 是原生 boolean，
+        // 没写就是前台型）；星辰自家 lab.json 的缺省 true 在 LabManifest 里，不受这里影响
+        it.background = o.optBoolean("background", false);
         it.autoStart = o.optBoolean("auto_execute", o.optBoolean("autoExecute", false));
+        it.showOutput = o.optBoolean("show_output", o.optBoolean("showOutput", true));
+        it.minVersion = o.optInt("min_version", 0);
         String cmd = o.optString("command", "");
         it.runtime = runtimeFromCommand(cmd);
         it.command = translateWebhtvCommand(cmd, it);
@@ -263,8 +291,12 @@ public final class LabImportCompat {
             String cmd = c.optString("command", "");
             it.runtime = runtimeFromCommand(cmd);
             it.command = translateWebhtvCommand(cmd, it);
-            it.background = c.optBoolean("background", true);
-            it.autoStart = c.optBoolean("auto_execute", false) || autoInstall;
+            // background 缺省按上游口径取 false（没写=前台型），同命令条目路
+            it.background = c.optBoolean("background", false);
+            it.showOutput = c.optBoolean("show_output", c.optBoolean("showOutput", true));
+            // auto_execute 才是「自动运行」的来源；包级 auto_install 是上游装目录时
+            // 自动把这个包装上，不等于把每条命令都设成自启，不再折进来（见下面提示行）
+            it.autoStart = c.optBoolean("auto_execute", false);
             it.minVersion = c.optInt("min_version", 0);
             it.variables.addAll(parseLabVarList(c.optJSONArray("variables")));
             it.variables.addAll(pkgVars);
@@ -285,7 +317,7 @@ public final class LabImportCompat {
                 it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
             }
             if (autoInstall) {
-                it.needsReview = addLine(it.needsReview, "上游包声明自动安装，星辰转成了自动启动，语义不完全一样");
+                it.needsReview = addLine(it.needsReview, "上游包声明自动安装（装目录时自动装上这个包）；星辰的环境和包都是按需装的，这条没有转成自动启动");
             }
             JSONArray clicks = c.optJSONArray("clicks");
             if (clicks != null && clicks.length() > 0) {
@@ -486,6 +518,79 @@ public final class LabImportCompat {
         return it;
     }
 
+    // ---------------- 路7：整目录 Node 项目（压缩包里的 npm package.json） ----------------
+
+    /** npm 的 package.json：有 name/main/scripts，且不是默影视 Item（commands 形态） */
+    public static boolean isNpmPackageJson(JSONObject o) {
+        if (o == null || o.has("commands")) return false;
+        return o.has("scripts") || o.has("main") || o.has("name");
+    }
+
+    /**
+     * 在压缩包条目里定位 npm package.json：根目录优先，其次一层目录下；
+     * node_modules 里的、深于一层的都不算。找不到返回 null。
+     */
+    public static String findNodePackageJson(List<String> entryNames) {
+        String nested = null;
+        for (String n : entryNames) {
+            if (n == null) continue;
+            String name = n.replace('\\', '/');
+            if (name.equals("package.json")) return name;
+            if (nested == null && name.endsWith("/package.json")) {
+                String dir = name.substring(0, name.length() - "package.json".length());
+                if (!dir.contains("node_modules") && dir.indexOf('/') == dir.length() - 1) nested = name;
+            }
+        }
+        return nested;
+    }
+
+    /** package.json 条目名 → 项目根前缀（"" 或 "drpy-node/"） */
+    static String nodeRootPrefix(String pkgEntry) {
+        int i = pkgEntry.lastIndexOf('/');
+        return i < 0 ? "" : pkgEntry.substring(0, i + 1);
+    }
+
+    /**
+     * 整目录 Node 项目 → 一条服务。成立前提：安装器把压缩包全部条目原样解进包目录，
+     * 项目文件一个不少。命令先 cd 到项目根再跑（LabRunner 的 cwd 是包目录，靠 cd 落到项目根）：
+     * scripts.start 原样优先，其次 main，最后项目根的 index.js；
+     * 三样都没有 → command 为空，调用方据此报人话。
+     */
+    public static ImportItem fromNodeProject(JSONObject pkg, String pkgEntry, List<String> entryNames) {
+        ImportItem it = new ImportItem();
+        it.kind = Kind.NODE_PROJECT;
+        String prefix = nodeRootPrefix(pkgEntry);
+        String folder = prefix.isEmpty() ? "" : prefix.substring(0, prefix.length() - 1);
+        int fs = folder.lastIndexOf('/');
+        if (fs >= 0) folder = folder.substring(fs + 1);
+        String name = pkg.optString("name", "").trim();
+        it.id = "node_" + sanitize(!name.isEmpty() ? name : (!folder.isEmpty() ? folder : "project"));
+        it.name = !name.isEmpty() ? name : (!folder.isEmpty() ? folder : "Node 项目");
+        it.desc = pkg.optString("description", "").trim();
+        it.version = pkg.optString("version", "1.0").trim();
+        if (it.version.isEmpty()) it.version = "1.0";
+        it.runtime = "nodejs";
+        it.background = true;
+        it.autoStart = false;
+        it.portPolicy = "auto";
+        String start = "";
+        JSONObject scripts = pkg.optJSONObject("scripts");
+        if (scripts != null) start = scripts.optString("start", "").trim();
+        String main = pkg.optString("main", "").trim();
+        if (main.startsWith("./")) main = main.substring(2);
+        String run = "";
+        if (!start.isEmpty()) run = start;
+        else if (!main.isEmpty()) run = "node " + main;
+        else if (entryNames.contains(prefix + "index.js")) run = "node index.js";
+        if (!run.isEmpty()) {
+            it.command = "cd {pkgDir}" + (prefix.isEmpty() ? "" : "/" + folder) + " && " + run;
+        }
+        it.needsReview = addLine(it.needsReview, "整个项目已原样装进服务目录，命令按 package.json 生成、在项目根目录里跑");
+        it.needsReview = addLine(it.needsReview,
+                "项目依赖（node_modules）在包里才能直接跑；包里没有的话，先开这个服务的终端执行 npm install");
+        return it;
+    }
+
     // ---------------- .lab.7z 离线包（上游导出布局） ----------------
 
     private static final byte[] SEVENZ_MAGIC = {0x37, 0x7A, (byte) 0xBC, (byte) 0xAF, 0x27, 0x1C};
@@ -510,8 +615,9 @@ public final class LabImportCompat {
     }
 
     /**
-     * 读上游 .lab.7z：package.json（单个 Item JSON）走 Item 转换；
+     * 读上游 .lab.7z：package.json 是默影视 Item JSON 时走 Item 转换，
      * binary/ 条目挂到每条服务的 extraFiles（安装时落进包目录）；
+     * 是 npm 项目说明时走整目录 Node 项目（全部条目原样落盘）；
      * commands.json（用户自建命令）转不过来，如实提示；manifest.json 忽略。
      */
     public static ParseResult parseSevenZ(byte[] data) throws Exception {
@@ -521,6 +627,8 @@ public final class LabImportCompat {
                 fos.write(data);
             }
             String pkgJson = null;
+            List<String> names = new ArrayList<>();
+            Map<String, byte[]> allFiles = new LinkedHashMap<>();
             Map<String, byte[]> bins = new LinkedHashMap<>();
             boolean hasUserCmds = false;
             // 注：new SevenZFile(File) 在 1.27 标废弃，但 builder API 要拖 commons-io（App 没这个依赖），故沿用它
@@ -529,8 +637,11 @@ public final class LabImportCompat {
                 while ((e = sz.getNextEntry()) != null) {
                     if (e.isDirectory()) continue;
                     String name = e.getName().replace('\\', '/');
+                    names.add(name);
+                    byte[] b = readSzEntryBytes(sz);
+                    allFiles.put(name, b);
                     if (name.equals("package.json") || name.endsWith("/package.json")) {
-                        if (pkgJson == null) pkgJson = readSzEntry(sz);
+                        if (pkgJson == null) pkgJson = new String(b, java.nio.charset.StandardCharsets.UTF_8);
                     } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
                         hasUserCmds = true;
                     } else {
@@ -539,10 +650,32 @@ public final class LabImportCompat {
                             String rel = name.substring(bi + 7);
                             while (rel.startsWith("/")) rel = rel.substring(1);
                             if (!rel.isEmpty() && !rel.contains("..")) {
-                                bins.put(rel, readSzEntryBytes(sz));
+                                bins.put(rel, b);
                             }
                         }
                     }
+                }
+            }
+            // package.json 若是 npm 项目说明（整目录 Node 项目）：全部条目原样落进包目录，
+            // 命令按 package.json 生成，在项目根里跑（与 zip 项目路同一套口径）
+            String npmEntry = findNodePackageJson(names);
+            if (npmEntry != null && allFiles.containsKey(npmEntry)) {
+                JSONObject pj = null;
+                try {
+                    pj = new JSONObject(new String(allFiles.get(npmEntry), java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Exception ignored) {
+                }
+                if (pj != null && isNpmPackageJson(pj)) {
+                    ImportItem it = fromNodeProject(pj, npmEntry, names);
+                    if (it.command == null || it.command.trim().isEmpty()) {
+                        throw new Exception("这个 Node 项目找不到入口：package.json 里没写 start/main，项目根也没有 index.js");
+                    }
+                    it.extraFiles = new LinkedHashMap<>(allFiles);
+                    ParseResult r = new ParseResult();
+                    r.kind = Kind.NODE_PROJECT;
+                    r.note = "认出来了：Node 项目离线包（整个项目 1 个服务）";
+                    r.items.add(it);
+                    return r;
                 }
             }
             if (pkgJson == null) throw new Exception("无效的离线包：里面没有 package.json");
@@ -566,10 +699,6 @@ public final class LabImportCompat {
         int n;
         while ((n = sz.read(buf)) > 0) out.write(buf, 0, n);
         return out.toByteArray();
-    }
-
-    private static String readSzEntry(SevenZFile sz) throws Exception {
-        return new String(readSzEntryBytes(sz), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     // ---------------- 小工具 ----------------
@@ -652,6 +781,7 @@ public final class LabImportCompat {
         c.desc = "";
         c.command = it.command;
         c.background = it.background;
+        c.showOutput = it.showOutput;
         c.autoExecute = true;
         c.minVersion = it.minVersion;
         c.variables.addAll(it.variables);

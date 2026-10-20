@@ -216,6 +216,19 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
             }
         }
+        // 3. 歌词型插件直查：歌词网/歌词千寻的 search 只认 type="lyric"，
+        //    前两步（源级搜歌）永远问不到它们；本地/设备歌的词主要靠这条。
+        //    放在最后，在线歌原有取词优先级不动。
+        for (MusicSource other : SOURCES) {
+            if (!(other instanceof FreeJsMusicSource)) continue;
+            try {
+                String lrc = ((FreeJsMusicSource) other).lyricFromLyricPlugins(track);
+                if (lrc != null && !lrc.trim().isEmpty()) return lrc;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
+            }
+            break;
+        }
         return null;
     }
 

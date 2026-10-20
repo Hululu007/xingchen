@@ -67,10 +67,12 @@ public class MusicSourceManager {
     }
 
     /** 内建真插件：官方 MusicFreePlugins 三份＋酷我一份（元力KW，qwerwhr 聚合仓，jsDelivr；原 cnmb 地址域名已注销） */
+    /** 已下架的预置 bilibili 地址（存量清理按它精确匹配，只删这一条播种记录） */
+    private static final String RETIRED_BUILTIN_BILIBILI =
+            "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/bilibili/index.js";
+
     public static List<MusicSite> builtinSites() {
         List<MusicSite> list = new ArrayList<>();
-        list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "bilibili", "",
-                "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/bilibili/index.js"));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词网", "",
                 "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js"));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词千寻", "",
@@ -104,20 +106,70 @@ public class MusicSourceManager {
         return null;
     }
 
-    /** 取脚本原文：本地装的读文件，在线装的现下（桥懒加载每次重读，更新天然生效） */
+    /**
+     * 取脚本原文：本地装的读文件；在线装的优先读落盘缓存，缺了才下载并写缓存
+     * （桥重建不再每次走网络——第十件实测下载是冷启大头之一）。
+     * 缓存只由 applyUpdate 失效（插件更新必须拿新脚本）；checkUpdate 直调
+     * downloadJs 不经这里，查更新语义不受影响。
+     */
     private String readJs(MusicSite site) throws Exception {
         if (isLocal(site)) {
             File f = new File(site.localPath);
             if (!f.exists()) throw new IllegalStateException("插件文件不见了：" + site.name);
-            try (FileInputStream in = new FileInputStream(f)) {
-                byte[] buf = new byte[(int) f.length()];
-                int off = 0;
-                int n;
-                while ((n = in.read(buf, off, buf.length - off)) > 0) off += n;
-                return new String(buf, 0, off, "UTF-8");
+            return readTextFile(f);
+        }
+        File cache = jsCacheFile(site.srcUrl);
+        if (cache != null && cache.isFile() && cache.length() > 0) {
+            try {
+                return readTextFile(cache);
+            } catch (Throwable ignored) {
             }
         }
-        return downloadJs(site.srcUrl);
+        String js = downloadJs(site.srcUrl);
+        if (cache != null) {
+            try (FileOutputStream out = new FileOutputStream(cache)) {
+                out.write(js.getBytes("UTF-8"));
+            } catch (Throwable ignored) {
+            }
+        }
+        return js;
+    }
+
+    private static String readTextFile(File f) throws Exception {
+        try (FileInputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[(int) f.length()];
+            int off = 0;
+            int n;
+            while ((n = in.read(buf, off, buf.length - off)) > 0) off += n;
+            return new String(buf, 0, off, "UTF-8");
+        }
+    }
+
+    /** 在线脚本落盘缓存文件（键＝srcUrl 的 MD5）；取不到目录返回 null＝不缓存 */
+    private File jsCacheFile(String srcUrl) {
+        if (TextUtils.isEmpty(srcUrl)) return null;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("MD5")
+                    .digest(srcUrl.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder("jscache_");
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return new File(pluginDir(), sb.append(".js").toString());
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 把「是否支持搜歌」的实测结果落盘（搜索页枚举免建桥用）；值没变不写盘 */
+    public void noteMusicSearch(MusicSite site, boolean supported) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl)) return;
+        int v = supported ? 1 : 2;
+        if (site.musicSearch == v) return;
+        site.musicSearch = v;
+        List<MusicSite> list = listSites();
+        for (MusicSite s : list) {
+            if (site.srcUrl.equals(s.srcUrl)) s.musicSearch = v;
+        }
+        saveSites(list);
     }
 
     private File pluginDir() {
@@ -139,7 +191,19 @@ public class MusicSourceManager {
             Type type = new TypeToken<List<MusicSite>>() {
             }.getType();
             List<MusicSite> list = gson.fromJson(json, type);
-            return list == null ? new ArrayList<>() : list;
+            if (list == null) return new ArrayList<>();
+            // 存量清理（2026-10-20 拍板摘掉预置 bilibili）：老版本播种进去的
+            // bilibili 记录按预置地址精确匹配删掉并落盘，只删这一条；
+            // 用户手动加的同名/其它地址插件一律不碰。清完存盘，后续不再触发。
+            boolean removed = list.removeIf(s -> s != null
+                    && RETIRED_BUILTIN_BILIBILI.equals(s.srcUrl) && TextUtils.isEmpty(s.localPath));
+            if (removed) {
+                saveSites(list);
+                FreeJsBridge b = bridges.remove(RETIRED_BUILTIN_BILIBILI);
+                if (b != null) b.destroy();
+                SpiderDebug.log("music", "已清理下架的预置 bilibili 插件记录");
+            }
+            return list;
         } catch (Exception e) {
             return new ArrayList<>();
         }
@@ -311,16 +375,28 @@ public class MusicSourceManager {
         }
     }
 
-    /** 按 track.rawJson 里的 _plugin 找桥（FreeJS 曲目专用） */
+    /**
+     * 按 track.rawJson 里的 _plugin 找桥（FreeJS 曲目专用）。
+     * 归属不明就是不明：宁可返回 null 让上层按失败收口并留日志，
+     * 绝不默默换别的插件取址——换源取址是串源，比播不了更坏。
+     */
     public FreeJsBridge bridgeForTrack(MusicTrack track) throws Exception {
-        if (track == null || TextUtils.isEmpty(track.rawJson)) return null;
+        if (track == null || TextUtils.isEmpty(track.rawJson)) {
+            SpiderDebug.log("music", "bridgeForTrack: track 无 rawJson，归属不明 id=%s",
+                    track == null ? "null" : String.valueOf(track.id));
+            return null;
+        }
         try {
             String plugin = com.google.gson.JsonParser.parseString(track.rawJson)
                     .getAsJsonObject().get("_plugin").getAsString();
             for (MusicSite s : enabledSitesOfFormat(FORMAT_FREEJS)) {
                 if (plugin.equals(s.srcUrl)) return bridgeOf(s);
             }
-        } catch (Exception ignored) {
+            SpiderDebug.log("music", "bridgeForTrack: _plugin=%s 与任何启用插件对不上 id=%s",
+                    plugin, String.valueOf(track.id));
+        } catch (Exception e) {
+            SpiderDebug.log("music", "bridgeForTrack: rawJson 解析失败 id=%s %s",
+                    String.valueOf(track.id), e.getMessage());
         }
         return null;
     }
@@ -338,6 +414,22 @@ public class MusicSourceManager {
         String key = primaryKey();
         for (MusicSite s : enabled) {
             if (key.equals(s.srcUrl)) return bridgeOf(s);
+        }
+        // 没指定主源时不许闭眼拿第一个：歌词型插件（歌词网/歌词千寻）搜不了歌，
+        // 拿它当主源聚合搜永远空（预置 bilibili 摘除后第一个正好是歌词网）。
+        // 优先第一个能搜歌的插件（落盘判据已知就免建桥实测，第十件），
+        // 都判不出来才回退第一个。
+        for (MusicSite s : enabled) {
+            if (s.musicSearch == 2) continue;
+            if (s.musicSearch == 1) return bridgeOf(s);
+            try {
+                FreeJsBridge b = bridgeOf(s);
+                if (b == null) continue;
+                boolean ok = b.supportsMusicSearch();
+                noteMusicSearch(s, ok);
+                if (ok) return b;
+            } catch (Throwable ignored) {
+            }
         }
         return bridgeOf(enabled.get(0));
     }
@@ -433,9 +525,13 @@ public class MusicSourceManager {
             if (site.srcUrl.equals(s.srcUrl)) {
                 s.version = newVersion;
                 if (!TextUtils.isEmpty(site.name)) s.name = site.name;
+                s.musicSearch = 0; // 新脚本可能改了搜索支持，判据清回未知重新实测
             }
         }
         saveSites(list);
+        // 脚本落盘缓存一并失效，否则重建桥读回的还是旧脚本（第十件）
+        File cache = jsCacheFile(site.srcUrl);
+        if (cache != null && cache.exists()) cache.delete();
         FreeJsBridge b = bridges.remove(site.srcUrl);
         if (b != null) b.destroy();
         LxBridge lb = lxBridges.remove(site.srcUrl);

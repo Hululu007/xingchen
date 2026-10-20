@@ -115,6 +115,7 @@ public class MusicPlayerActivity extends BaseActivity {
         binding.rvLyric.setAdapter(lyricAdapter);
         binding.tabCover.setOnClickListener(v -> showTab(false));
         binding.tabLyric.setOnClickListener(v -> showTab(true));
+        bindSwipeSwitch();
         binding.btnPlay.setOnClickListener(v -> MusicController.get().toggle());
         binding.btnPrev.setOnClickListener(v -> MusicController.get().prev());
         binding.btnNext.setOnClickListener(v -> MusicController.get().next());
@@ -124,6 +125,10 @@ public class MusicPlayerActivity extends BaseActivity {
         binding.funcDownload.setOnClickListener(v -> downloadCurrent());
         binding.funcQuality.setOnClickListener(v -> showQualityDialog());
         binding.funcMore.setOnClickListener(v -> showMoreDialog());
+        // 进度口径统一千分比：onProgressUi 喂 position*1000/duration、拖动按
+        // progress/1000 换算 seek——max 必须同步设 1000。原先漏设、吃默认 100，
+        // 播到 10% 以后 progress 就被钳满（03:23/04:03 应是 835，却顶成满格金条）
+        binding.seekBar.setMax(1000);
         binding.seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -177,6 +182,7 @@ public class MusicPlayerActivity extends BaseActivity {
     // ================= 封面/歌词切换 =================
 
     private void showTab(boolean lyric) {
+        boolean changed = lyricMode != lyric;
         lyricMode = lyric;
         binding.viewCover.setVisibility(lyric ? View.GONE : View.VISIBLE);
         binding.rvLyric.setVisibility(lyric ? View.VISIBLE : View.GONE);
@@ -185,6 +191,80 @@ public class MusicPlayerActivity extends BaseActivity {
         binding.indCover.setVisibility(lyric ? View.INVISIBLE : View.VISIBLE);
         binding.indLyric.setVisibility(lyric ? View.VISIBLE : View.INVISIBLE);
         if (lyric && lyricIndex >= 0) scrollLyricTo(lyricIndex, false);
+        if (changed) fadeSwitch(lyric ? binding.rvLyric : binding.viewCover, lyric);
+    }
+
+    /** 切换过渡：新视图淡入＋轻微横移（约 180ms），别生硬闪切 */
+    private void fadeSwitch(View v, boolean fromRight) {
+        try {
+            float shift = 24 * getResources().getDisplayMetrics().density;
+            v.setAlpha(0f);
+            v.setTranslationX(fromRight ? shift : -shift);
+            v.animate().alpha(1f).translationX(0f).setDuration(180).start();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 封面/歌词左右滑切换（用户拍板用滑动版，点击切换不做）：
+     * 封面区横滑→歌词；歌词区横滑→封面。方向判定：横向位移占优才触发并接管手势，
+     * 纵向一律放行滚歌词（歌词行本身无点击行为，不存在点行冲突）。
+     * 顶部页签保留，走同一个 showTab 同步状态。
+     */
+    private void bindSwipeSwitch() {
+        final int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        binding.viewCover.setOnTouchListener(new View.OnTouchListener() {
+            private float downX, downY;
+
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        downX = e.getX();
+                        downY = e.getY();
+                        return true;
+                    case android.view.MotionEvent.ACTION_UP:
+                        float dx = e.getX() - downX;
+                        float dy = e.getY() - downY;
+                        if (Math.abs(dx) > slop * 2 && Math.abs(dx) > Math.abs(dy) * 1.5f) showTab(true);
+                        return true;
+                    default:
+                        return true;
+                }
+            }
+        });
+        binding.rvLyric.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+            private float downX, downY;
+            private boolean fired;
+
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull android.view.MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        downX = e.getX();
+                        downY = e.getY();
+                        fired = false;
+                        break;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        if (fired) return true;
+                        float dx = e.getX() - downX;
+                        float dy = e.getY() - downY;
+                        if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy)) {
+                            fired = true;
+                            showTab(false);
+                            return true;
+                        }
+                        break;
+                    case android.view.MotionEvent.ACTION_UP:
+                    case android.view.MotionEvent.ACTION_CANCEL:
+                        fired = false;
+                        break;
+                    default:
+                        break;
+                }
+                return false;
+            }
+        });
     }
 
     // ================= 歌曲绑定 =================
@@ -206,7 +286,9 @@ public class MusicPlayerActivity extends BaseActivity {
             binding.tvSource.setText(source);
         }
         if (track.cover == null || track.cover.isEmpty()) {
-            binding.ivCover.setImageDrawable(coverPlaceholder());
+            // 没封面地址才上素图（素灰底＋歌名排字）；有地址的加载失败也保持透明，不变
+            binding.ivCover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                    track.displayTitle(), false, 28 * getResources().getDisplayMetrics().density));
         } else {
             ImgUtil.load(track.displayTitle(), track.cover, binding.ivCover);
         }
@@ -219,7 +301,16 @@ public class MusicPlayerActivity extends BaseActivity {
     private String sourceName(MusicTrack track) {
         if (track == null || track.platform == null) return "";
         try {
-            for (MusicSite site : MusicSourceManager.get().listSites()) {
+            java.util.List<MusicSite> sites = MusicSourceManager.get().listSites();
+            // FreeJS 多个插件共用一个 platform：先按 rawJson 的 _plugin 精确对归属，
+            // 只按 platform 匹配永远命中排第一的插件（KW 的歌被标成 bilibili 的实证根因）
+            String plugin = pluginOf(track);
+            if (plugin != null) {
+                for (MusicSite site : sites) {
+                    if (site != null && plugin.equals(site.srcUrl)) return site.name == null ? "" : site.name;
+                }
+            }
+            for (MusicSite site : sites) {
                 if (site != null && track.platform.equals(site.platform)) return site.name == null ? "" : site.name;
             }
         } catch (Throwable ignored) {
@@ -234,12 +325,15 @@ public class MusicPlayerActivity extends BaseActivity {
         return "";
     }
 
-    private android.graphics.drawable.Drawable coverPlaceholder() {
-        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF2A3444, 0xFF16202E});
-        d.setCornerRadius(28 * getResources().getDisplayMetrics().density);
-        return d;
+    /** track.rawJson 里的 _plugin（FreeJS 曲目归属的插件 srcUrl），取不到返回 null */
+    private static String pluginOf(MusicTrack track) {
+        try {
+            if (track == null || track.rawJson == null || track.rawJson.isEmpty()) return null;
+            return com.google.gson.JsonParser.parseString(track.rawJson)
+                    .getAsJsonObject().get("_plugin").getAsString();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     // ================= 歌词 =================

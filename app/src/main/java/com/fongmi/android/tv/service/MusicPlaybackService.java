@@ -139,6 +139,10 @@ public class MusicPlaybackService extends MediaSessionService {
     /** 播放器里有没有真装过媒体项（D5 收口判断用：装过且停播走的是媒体通知自己的生命周期） */
     private boolean hasMediaItem;
 
+    /** 播放器里真装着的那首（setMediaItem 成功时记下）：新歌取链失败时回滚到它，
+     * 别让界面把播不了的歌当成「当前」展示（封面/歌名换了、进度还是旧歌的实证根因） */
+    private MusicTrack loadedTrack;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -160,6 +164,11 @@ public class MusicPlaybackService extends MediaSessionService {
         player.addListener(playerListener);
         session = new MediaSession.Builder(this, player).build();
         session.setSessionActivity(buildPlayerIntent());
+        // 必须显式登记会话：media3 的 MediaNotificationManager 只认 addSession 过的会话
+        // （updateNotification 对未登记会话直接撤通知）。本 App 走本地 Binder 驱动、
+        // 从没有外部 MediaController 连进来，onGetSession 永远等不到人触发登记，
+        // 不加这行媒体通知永远发不出来（1.3.59 真机实证通知栏空白）。
+        addSession(session);
         setMediaNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).build());
         restoreBreakpoint();
         startTicker();
@@ -201,7 +210,10 @@ public class MusicPlaybackService extends MediaSessionService {
             } else {
                 startForeground(FG_NOTIFICATION_ID, notification);
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // 顶前台失败不许静默：没前台的服务切后台会被系统/厂商省电收掉，
+            // 歌就「自己停」了（第十二件排查点 1）
+            SpiderDebug.log("music", "startForeground failed %s", t.getMessage());
         }
     }
 
@@ -321,6 +333,8 @@ public class MusicPlaybackService extends MediaSessionService {
             prepareTrack(queue.getIndex(), MusicStore.loadPosition(), true);
             return;
         }
+        // 续播同 prepareTrack：被降过前台就先补回前台再播
+        startForegroundNow();
         player.play();
     }
 
@@ -410,6 +424,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private void stopPlayback() {
         cancelSleep();
         hasMediaItem = false;
+        loadedTrack = null;
         if (player != null) {
             player.stop();
             player.clearMediaItems();
@@ -514,12 +529,35 @@ public class MusicPlaybackService extends MediaSessionService {
         } catch (Throwable t) {
             info = null;
         }
+        if (info != null) fillLocalBitrate(info);
         String oldSig = audioInfo == null ? "" : audioInfo.signature();
         String newSig = info == null ? "" : info.signature();
         if (newSig.equals(oldSig)) return;
         audioInfo = info;
         listeners.forEach(ServiceListener::onAudioInfoChanged);
         if (info != null) probeBitDepth(info);
+    }
+
+    /**
+     * 本地文件补算平均码率：FLAC 等本地文件的 Format 常常不带码率（真机实证
+     * bitrateKbps=-1，音质格只剩采样率）。当前曲有本地路径、文件在、时长已知时，
+     * 用文件字节数÷时长算平均码率——这是文件本身的真数据，不是所选档。
+     * 在线流没有本地路径，直接跳过，拿不到就维持未知，不许编造。
+     */
+    private void fillLocalBitrate(MusicAudioInfo info) {
+        if (info == null || info.bitrateKbps > 0) return;
+        MusicTrack track = queue.current();
+        if (track == null || track.localPath == null || track.localPath.isEmpty()) return;
+        long durMs = track.duration > 0 ? track.duration
+                : (player != null ? player.getDuration() : 0);
+        if (durMs <= 0) return;
+        try {
+            File file = new File(track.localPath);
+            if (!file.isFile()) return;
+            long kbps = file.length() * 8L / durMs; // 比特/毫秒 数值上等于 kbps
+            if (kbps > 0) info.bitrateKbps = (int) kbps;
+        } catch (Throwable ignored) {
+        }
     }
 
     private MusicAudioInfo toAudioInfo(Format f) {
@@ -873,6 +911,7 @@ public class MusicPlaybackService extends MediaSessionService {
             preparing = false;
             prepareSeq++; // 让还在路上的旧结果作废
             SpiderDebug.log("music", "prepare timeout id=%s", track.id);
+            if (rollbackToLoaded(track)) return;
             listeners.forEach(l -> l.onTrackChanged(track));
             onPlayFailed();
         }, PREPARE_TIMEOUT_MS);
@@ -902,6 +941,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
                 if (fUrl == null || fUrl.isEmpty()) {
                     SpiderDebug.log("music", "playUrl empty id=%s", track.id);
+                    if (rollbackToLoaded(track)) return;
                     listeners.forEach(l -> l.onTrackChanged(track));
                     onPlayFailed();
                     return;
@@ -919,8 +959,13 @@ public class MusicPlaybackService extends MediaSessionService {
                 queue.moveTo(index);
                 audioInfo = null; // 换歌先清旧参数，等新轨 Format 到齐再刷新
                 listeners.forEach(ServiceListener::onAudioInfoChanged);
+                // 真起播必须在前台：失败收口 demoteForeground 降过前台后，
+                // 再起播不补这一步，服务就是「裸奔」播放——一切后台/退桌面
+                // 就被系统收掉，歌自己停（第十二件主根因）。已在前台时重复调无害。
+                startForegroundNow();
                 player.setMediaItem(item, startPosition);
                 hasMediaItem = true;
+                loadedTrack = track;
                 player.prepare();
                 ensureFx(); // 会话可能随音频汇重建而变，音效跟着重新挂
                 player.setPlaybackSpeed(getSpeed());
@@ -931,6 +976,32 @@ public class MusicPlaybackService extends MediaSessionService {
                 listeners.forEach(l -> l.onTrackChanged(track));
             });
         });
+    }
+
+    /**
+     * 状态一致性回滚：新歌取链失败时，若播放器里还装着上一首（还在播/暂停中），
+     * 就把队列当前指回它、通知界面重绑它——界面呈现的「当前」必须永远是
+     * 播放器里真装着的那首，不许封面/歌名是新歌、进度/时长是旧歌。
+     * 上一首已不在队列里/根本没有上一首时返回 false，走原失败收口。
+     */
+    private boolean rollbackToLoaded(MusicTrack failed) {
+        if (loadedTrack == null || loadedTrack == failed || !hasMediaItem || player == null) return false;
+        int idx = -1;
+        List<MusicTrack> tracks = queue.getTracks();
+        for (int i = 0; i < tracks.size(); i++) {
+            if (tracks.get(i) == loadedTrack) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) return false;
+        queue.moveTo(idx);
+        SpiderDebug.log("music", "play failed rollback id=%s -> loaded id=%s",
+                failed == null ? "null" : String.valueOf(failed.id), String.valueOf(loadedTrack.id));
+        listeners.forEach(l -> l.onTrackChanged(loadedTrack));
+        listeners.forEach(l -> l.onPlayingChanged(player.isPlaying()));
+        Notify.show(R.string.music_play_unavailable);
+        return true;
     }
 
     /**

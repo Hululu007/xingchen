@@ -2,9 +2,9 @@ package com.fongmi.android.tv.music;
 
 /**
  * 正在播放音频的真实参数（服务从 ExoPlayer 当前 Format 采集，位深靠本地文件头确认）。
- * 播放页音质格照它显示，如「FLAC · 1411kbps」「MP3 · 320kbps」。
- * 红线：{@link #master} 只许在确认无损编码且位深≥24 时为 true，否则绝不显示「母带」；
- * 位深取不到就是取不到，不猜、不冒充。
+ * 播放页音质格照它显示：无损只显编码名（如「FLAC」），有损显编码＋真实码率
+ * （如「MP3 · 320kbps」）；采样率永不进显示，所选档永不进显示。
+ * {@link #master}（lossless 且位深≥24）只作内部判定保留，不进展示串。
  */
 public class MusicAudioInfo {
 
@@ -21,23 +21,18 @@ public class MusicAudioInfo {
     /** 确认母带：lossless 且 bitDepth>=24 */
     public boolean master;
 
-    /** 展示串；codec 为空时返回 null（调用方不显示音质格，所选档永不进显示）。 */
+    /**
+     * 展示串（2026-10-20 最终口径）：无损编码只显编码名一个词（如「FLAC」，
+     * 不带码率/赫兹/母带）；有损显 编码＋真实码率（如「MP3 · 320kbps」），
+     * 码率取不到就返回 null（调用方不显示音质格）。采样率在任何情况下
+     * 都不进显示。所选档永不进显示。master 字段保留（位深探针/判重用），
+     * 不再进展示串。
+     */
     public String describe() {
         if (codec == null || codec.isEmpty()) return null;
-        StringBuilder sb = new StringBuilder(codec);
-        if (bitrateKbps > 0) {
-            sb.append(" · ").append(bitrateKbps).append("kbps");
-        } else if (sampleRateHz > 0) {
-            sb.append(" · ").append(rateText());
-        }
-        if (master) sb.append(" · 母带");
-        return sb.toString();
-    }
-
-    /** 采样率展示：96000→96kHz，44100→44.1kHz */
-    private String rateText() {
-        if (sampleRateHz % 1000 == 0) return (sampleRateHz / 1000) + "kHz";
-        return (sampleRateHz / 1000f) + "kHz";
+        if (lossless) return codec;
+        if (bitrateKbps <= 0) return null;
+        return codec + " · " + bitrateKbps + "kbps";
     }
 
     /** 变化判重用：全字段拼串 */

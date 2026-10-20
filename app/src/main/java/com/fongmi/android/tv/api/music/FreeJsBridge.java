@@ -10,6 +10,7 @@ import com.fongmi.android.tv.bean.music.MusicSearchResult;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.quickjs.bean.Req;
+import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.utils.Async;
 import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
@@ -97,6 +98,10 @@ public class FreeJsBridge {
         } catch (Throwable ignored) {
         }
         ctx = QuickJSContext.create();
+        // 同 LxBridge：不设 console stdout 时，插件顶层 console.log 会抛
+        // QuickJSException 让整插件求值失败，先把出口设上（垫片自己的
+        // console 定义有 !global.console 守卫，wrapper console 已存在时不会覆盖）。
+        ctx.setConsole(new Console());
         ctx.getGlobalObject().setProperty("__freejsRequest", (JSCallFunction) args -> {
             try {
                 String method = args.length > 0 ? String.valueOf(args[0]) : "GET";
@@ -145,15 +150,20 @@ public class FreeJsBridge {
         }
     }
 
-    /** 读插件元数据回填 site（platform/version/author/srcUrl） */
+    /**
+     * 读插件元数据回填 site（platform/version/author）。
+     * 注意：插件自报的 srcUrl 绝不能回填——site.srcUrl 是壳子给插件的身份键
+     * （桥缓存、_plugin 归属戳、增删/启停全按它对齐），插件自报值与安装地址
+     * 不是一回事（元力KW 自报 kstore 地址、预置装的是 jsDelivr 地址），
+     * 一旦覆写，搜索结果的 _plugin 戳就与源管理里的地址对不上，
+     * bridgeForTrack 认不出归属、取链全灭（1.3.59 真机实证 KW 歌播不出来）。
+     */
     private void readMeta() {
         String platform = prop("platform");
         String version = prop("version");
         String author = prop("author");
-        String srcUrl = prop("srcUrl");
         if (!TextUtils.isEmpty(platform)) site.name = platform;
         if (!TextUtils.isEmpty(version)) site.version = version;
-        if (!TextUtils.isEmpty(srcUrl)) site.srcUrl = srcUrl;
         if (!TextUtils.isEmpty(author)) site.author = author;
     }
 
@@ -423,12 +433,55 @@ public class FreeJsBridge {
         t.album = optStr(item, "album");
         t.cover = firstNonEmpty(optStr(item, "artwork"), optStr(item, "cover"), optStr(item, "pic"));
         t.duration = toMillis(item);
+        t.qualityTag = qualityTagOf(item);
         t.platform = FreeJsMusicSource.PLATFORM;
         JsonObject wrap = new JsonObject();
         wrap.addProperty("_plugin", key());
         wrap.add("_item", item);
         t.rawJson = wrap.toString();
         return t;
+    }
+
+    /**
+     * 插件 qualities（MusicFree musicItem.qualities）→ 列表行音质小标，只标最高档：
+     * 协议键 low/standard/high/super 依次对应 128k/320k/无损/超高，
+     * 小标口径只用真规格词 FLAC/320k/128k（super 也只标 FLAC，不冒充母带）。
+     * 插件没给 qualities、或给了认不出的键 → 返回 null 不显示，绝不硬凑。
+     * （实测：元力KW、bilibili 的搜索条目都不带 qualities，这种歌就是不显示。）
+     */
+    private static String qualityTagOf(JsonObject item) {
+        try {
+            if (!item.has("qualities") || item.get("qualities").isJsonNull()) return null;
+            JsonElement q = item.get("qualities");
+            boolean has128 = false, has320 = false, hasFlac = false;
+            List<String> keys = new ArrayList<>();
+            if (q.isJsonObject()) {
+                for (Map.Entry<String, JsonElement> e : q.getAsJsonObject().entrySet()) {
+                    JsonElement v = e.getValue();
+                    if (v == null || v.isJsonNull()) continue;
+                    if (v.isJsonPrimitive() && v.getAsString().isEmpty()) continue;
+                    keys.add(e.getKey());
+                }
+            } else if (q.isJsonArray()) {
+                for (JsonElement el : q.getAsJsonArray()) {
+                    if (el != null && el.isJsonPrimitive()) keys.add(el.getAsString());
+                }
+            }
+            for (String raw : keys) {
+                // 键名先归一：hi-res/hi_res 都按 hires 认，别因分隔符漏标
+                String k = raw == null ? "" : raw.toLowerCase().replace("-", "").replace("_", "");
+                if (k.contains("flac") || k.contains("hires") || k.contains("24bit")
+                        || k.equals("high") || k.equals("super")) hasFlac = true;
+                else if (k.contains("320") || k.equals("standard")) has320 = true;
+                else if (k.contains("128") || k.equals("low")) has128 = true;
+            }
+            if (hasFlac) return "FLAC";
+            if (has320) return "320k";
+            if (has128) return "128k";
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

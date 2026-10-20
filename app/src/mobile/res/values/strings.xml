@@ -245,6 +245,7 @@
     <string name="music_set_clear_cache">清除音乐缓存</string>
     <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
     <string name="music_play_failed_stopped">播放失败，已停止</string>
+    <string name="music_play_unavailable">这首播不了</string>
     <string name="music_cache_cleared">音乐缓存已清除</string>
 
 </resources>

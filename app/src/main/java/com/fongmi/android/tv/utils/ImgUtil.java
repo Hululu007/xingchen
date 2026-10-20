@@ -241,6 +241,10 @@ public class ImgUtil {
         String param = null;
         url = UrlUtil.convert(url);
         if (url.startsWith("data:")) return url;
+        // content:// 是本地内容地址（MediaStore 相册封面等），Glide 有原生加载器能开；
+        // 一旦包成 GlideUrl 就会被当 http 取图（new URL 直接抛未知协议）必然失败——
+        // 本地音乐封面全黑的根因。原样返回字符串，交给 Glide 的 content 加载器。
+        if (url.startsWith("content://") || url.startsWith("android.resource://")) return url;
         LazyHeaders.Builder builder = new LazyHeaders.Builder();
         if (url.contains("@Headers=")) addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
         if (url.contains("@Cookie=")) builder.addHeader(HttpHeaders.COOKIE, param = url.split("@Cookie=")[1].split("@")[0]);

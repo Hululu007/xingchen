@@ -1240,7 +1240,19 @@ public class MusicListActivity extends BaseActivity {
             }
             h.artist.setText(t.displayArtist());
             h.duration.setText(fmt(t.duration));
-            ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
+            if (t.cover == null || t.cover.isEmpty()) {
+                // 没封面地址才上素图（素灰底＋歌名排字）；有地址的一律走加载、
+                // 失败保持透明。列表是回收行，先清掉上一行可能在途的加载请求，
+                // 防旧封面迟到盖掉素图
+                try {
+                    com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+                } catch (Throwable ignored) {
+                }
+                h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                        t.displayTitle(), false, 8 * h.cover.getResources().getDisplayMetrics().density));
+            } else {
+                ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
+            }
             h.itemView.setOnClickListener(v -> playTrack(position));
             h.more.setOnClickListener(v -> onMore(t, position));
         }

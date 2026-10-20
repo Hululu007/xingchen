@@ -46,8 +46,40 @@ public class DeviceMusicStore {
         return out;
     }
 
+    /**
+     * 相册封面存在性判定（纯逻辑，可单测）：albumId 无效→无；
+     * 相册表查到了（artAlbums 非 null）就以它为准——MediaStore 的 Albums.ALBUM_ART
+     * 是媒体扫描器给「专辑确有封面」留的官方记录，表里没有就是真没封面，
+     * 这种歌封面地址必须留空（走素图），不许拼个死地址占着「有地址」的名头；
+     * 相册表查询失败（artAlbums 为 null）时回退旧口径（albumId 有效就算有）。
+     */
+    static boolean hasAlbumArt(long albumId, Set<Long> artAlbums) {
+        if (albumId <= 0) return false;
+        return artAlbums == null || artAlbums.contains(albumId);
+    }
+
+    /** 查相册表，收集确有封面的专辑 id；查询失败返回 null（上层回退旧口径）。 */
+    private static Set<Long> queryArtAlbums(ContentResolver cr) {
+        try (Cursor c = cr.query(MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
+                new String[]{MediaStore.Audio.Albums._ID, MediaStore.Audio.Albums.ALBUM_ART},
+                null, null, null)) {
+            if (c == null) return null;
+            Set<Long> set = new HashSet<>();
+            int iId = c.getColumnIndex(MediaStore.Audio.Albums._ID);
+            int iArt = c.getColumnIndex(MediaStore.Audio.Albums.ALBUM_ART);
+            while (c.moveToNext()) {
+                String art = iArt >= 0 ? c.getString(iArt) : null;
+                if (art != null && !art.isEmpty()) set.add(c.getLong(iId));
+            }
+            return set;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static void scanMediaStore(Context ctx, List<MusicTrack> out) {
         ContentResolver cr = ctx.getContentResolver();
+        Set<Long> artAlbums = queryArtAlbums(cr);
         Uri ext = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         String[] proj = {
                 MediaStore.Audio.Media._ID,
@@ -79,7 +111,7 @@ public class DeviceMusicStore {
                     t.duration = c.getLong(iDur);
                     t.platform = DeviceMusicSource.PLATFORM;
                     long albumId = c.getLong(iAlbumId);
-                    if (albumId > 0) {
+                    if (hasAlbumArt(albumId, artAlbums)) {
                         t.cover = ContentUris.withAppendedId(
                                 Uri.parse("content://media/external/audio/albumart"), albumId).toString();
                     }
@@ -126,6 +158,25 @@ public class DeviceMusicStore {
                         } catch (Throwable ignored) {
                         }
                     }
+                    // 内嵌封面：提取出来落缓存文件当封面地址；没有内嵌图就留空（走素图）
+                    try {
+                        byte[] pic = r.getEmbeddedPicture();
+                        if (pic != null && pic.length > 0) {
+                            File art = embeddedCoverFile(ctx, f);
+                            if (art != null) {
+                                if (!art.isFile() || art.length() != pic.length) {
+                                    java.io.FileOutputStream fos = new java.io.FileOutputStream(art);
+                                    try {
+                                        fos.write(pic);
+                                    } finally {
+                                        fos.close();
+                                    }
+                                }
+                                if (art.isFile()) t.cover = Uri.fromFile(art).toString();
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
                 } finally {
                     try {
                         r.release();
@@ -139,6 +190,18 @@ public class DeviceMusicStore {
                 out.add(t);
             } catch (Throwable ignored) {
             }
+        }
+    }
+
+    /** 内嵌封面缓存文件：music_library/.covers/<文件名>.jpg（同名同大小不重写）。 */
+    private static File embeddedCoverFile(Context ctx, File audio) {
+        try {
+            File dir = new File(libraryDir(ctx), ".covers");
+            if (!dir.isDirectory() && !dir.mkdirs()) return null;
+            String base = audio.getName().replaceAll("[^a-zA-Z0-9._-]", "_");
+            return new File(dir, base + ".jpg");
+        } catch (Throwable t) {
+            return null;
         }
     }
 

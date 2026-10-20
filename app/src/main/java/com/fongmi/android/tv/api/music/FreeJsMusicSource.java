@@ -49,8 +49,19 @@ public class FreeJsMusicSource implements MusicSource {
         List<MusicSite> result = new ArrayList<>();
         for (MusicSite s : sites()) {
             try {
+                // 落盘判据已知就不建桥（第十件）：歌词型（=2）直接跳过、支持的（=1）
+                // 直接进排；只有未知（=0）才建桥实测一次并落盘。旧实现每次搜索都把
+                // 所有启用插件的桥串行白建一遍（下载＋冷启求值），结果还不出来
+                if (s.musicSearch == 2) continue;
+                if (s.musicSearch == 1) {
+                    result.add(s);
+                    continue;
+                }
                 FreeJsBridge b = MusicSourceManager.get().bridgeOf(s);
-                if (b != null && b.supportsMusicSearch()) result.add(s);
+                if (b == null) continue;
+                boolean ok = b.supportsMusicSearch();
+                MusicSourceManager.get().noteMusicSearch(s, ok);
+                if (ok) result.add(s);
             } catch (Throwable t) {
                 SpiderDebug.log("music", "searchable site error site=%s %s", s.name, t.getMessage());
             }
@@ -162,6 +173,48 @@ public class FreeJsMusicSource implements MusicSource {
                 MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
                 if (hit == null) continue;
                 try {
+                    MusicLyric l = b.getLyric(hit);
+                    if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * 歌词型插件直查歌词（兜底链最后一步）：歌词网/歌词千寻这类插件的 search
+     * 只认 type="lyric"，前面所有兜底都在拿它们搜「歌」（type=music / 源级 search），
+     * 永远问不到——本地/设备歌缺词主要就卡在这。判据：supportsMusicSearch 为假
+     * （声明里没有 music）且有 search 函数的插件才问；能搜歌的插件已在
+     * lyricFallback 里问过，不重复。逐个插件：lyric 搜→matchSong 对歌→getLyric 取词。
+     */
+    public String lyricFromLyricPlugins(MusicTrack track) {
+        if (track == null) return null;
+        String keyword = (track.title == null ? "" : track.title).trim()
+                + " " + (track.artist == null ? "" : track.artist).trim();
+        keyword = keyword.trim();
+        if (keyword.isEmpty()) return null;
+        try {
+            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                if (site == null || site.srcUrl == null) continue;
+                FreeJsBridge b;
+                try {
+                    b = MusicSourceManager.get().bridgeOf(site);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                if (b == null) continue;
+                try {
+                    if (b.supportsMusicSearch()) continue; // 能搜歌的不在这条问
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                try {
+                    List<MusicTrack> candidates = b.search(keyword, 1, "lyric").getTracks();
+                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
+                    if (hit == null) continue;
                     MusicLyric l = b.getLyric(hit);
                     if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
                 } catch (Throwable ignored) {

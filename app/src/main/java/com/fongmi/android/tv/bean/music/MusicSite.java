@@ -19,6 +19,13 @@ public class MusicSite {
     public String author = "";
     /** 是否启用（源层持久化，用户可开关） */
     public boolean enabled = true;
+    /**
+     * 是否支持搜歌（type=music）的落盘判据：0 未知（要建桥实测）、1 支持、2 不支持。
+     * 搜索页枚举页签时靠它免建桥：歌词型插件不必为了「判它不能搜歌」先把整座桥
+     * （下载＋QuickJS 冷启求值）白建一遍（第十件：搜索慢的主因之一）。
+     * 插件更新（applyUpdate）时清回 0 重新实测。
+     */
+    public int musicSearch = 0;
 
     /**
      * 脚本格式："freejs"（MusicFree 插件）或 "lx"（落雪脚本）。

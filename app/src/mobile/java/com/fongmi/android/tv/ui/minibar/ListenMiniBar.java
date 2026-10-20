@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.minibar;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.drawable.Drawable;
@@ -22,6 +23,7 @@ import android.widget.TextView;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.minibar.MiniBarPolicy;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.activity.ReadingSkin;
@@ -74,7 +76,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private View barView;
     private ImageView ivCover;
     private TextView tvTitle;
-    private TextView btnPlay;
+    private ImageView btnPlay;
     private TextView btnNext;
     private TextView btnPrev;
     private WeakReference<Activity> hostRef;
@@ -494,11 +496,13 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         });
         bar.addView(btnPrev);
 
-        // 暂停主钮
-        btnPlay = new TextView(c);
-        btnPlay.setTextSize(16);
-        btnPlay.setTextColor(0xFF1A1408);
-        btnPlay.setGravity(Gravity.CENTER);
+        // 暂停主钮：矢量图标（原 TextView 的 ⏸ 字符被荣耀 emoji 字体渲成橙方块；
+        // 圆底/尺寸/点击行为都不动，只换中间的图标）
+        btnPlay = new ImageView(c);
+        int bpad = ReadingSkin.dp(c, 11);
+        btnPlay.setPadding(bpad, bpad, bpad, bpad);
+        btnPlay.setImageResource(R.drawable.ic_music_play);
+        btnPlay.setImageTintList(ColorStateList.valueOf(0xFF1A1408));
         int ps = ReadingSkin.dp(c, 44);
         LinearLayout.LayoutParams plp =
                 new LinearLayout.LayoutParams(ps, ps);
@@ -584,7 +588,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 }
             }
         }
-        btnPlay.setText(playing ? "⏸" : "▶");
+        btnPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
     }
 
     // ================= 音乐条：黑胶圆盘＋歌名＋大金暂停＋下一首 =================
@@ -660,11 +664,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         bar.addView(btnNext);
         btnPrev = null;
 
-        // 大金暂停
-        btnPlay = new TextView(c);
-        btnPlay.setTextSize(20);
-        btnPlay.setTextColor(0xFF1A1408);
-        btnPlay.setGravity(Gravity.CENTER);
+        // 大金暂停：矢量图标（同听书条，圆底/尺寸不动）
+        btnPlay = new ImageView(c);
+        int mpad = ReadingSkin.dp(c, 16);
+        btnPlay.setPadding(mpad, mpad, mpad, mpad);
+        btnPlay.setImageResource(R.drawable.ic_music_play);
+        btnPlay.setImageTintList(ColorStateList.valueOf(0xFF1A1408));
         int ps = ReadingSkin.dp(c, 56);
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ps, ps);
         plp.leftMargin = ReadingSkin.dp(c, 4);
@@ -703,7 +708,10 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             if (t != null && t.cover != null && !t.cover.isEmpty() && ivVinyl != null) {
                 ImgUtil.loadCircle(t.displayTitle(), t.cover, ivVinyl);
             } else if (ivVinyl != null) {
-                ivVinyl.setImageDrawable(goldDot(app));
+                // 封面地址真为空才上素图（素灰底＋歌名首字，小圆排不下整名）；
+                // 有地址的走加载、失败也透明，不在这里兜底（封面规矩按有无地址分）
+                ivVinyl.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                        t == null ? "" : t.displayTitle(), true, -1));
             }
         } catch (Throwable ignored) {
         }

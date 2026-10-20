@@ -5,6 +5,7 @@ import android.util.Base64;
 
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.quickjs.bean.Req;
+import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Asset;
@@ -122,6 +123,10 @@ public class LxBridge {
         } catch (Throwable ignored) {
         }
         ctx = QuickJSContext.create();
+        // 必须给 wrapper 的 console 设 stdout：不设时脚本顶层 console.log 直接抛
+        // QuickJSException（console.stdout 未设置），整脚本求值失败、导入被拒
+        // （全豆要 9.3 顶层就有 console.log，1.3.59 真机实证）。与点播 Spider 同口径。
+        ctx.setConsole(new Console());
         ctx.getGlobalObject().setProperty("__lxSend", (JSCallFunction) args -> {
             try {
                 String event = args.length > 0 ? String.valueOf(args[0]) : "";

@@ -17,7 +17,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.music.MusicController;
@@ -30,12 +29,12 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 /**
- * 音乐首页：导航卡片（歌单/收藏/榜单/已下载）＋源卡片。搜索只留顶栏图标一个入口。
+ * 音乐首页：只放四个导航行（歌单/收藏/榜单/已下载）。
+ * 源列表不在首页：顶栏左上角「源管理」钮进源管理页（MusicListActivity sites 模式）。
+ * 顶部播放行只做续播＋「N 个源」状态显示。
  * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
  */
 public class MusicActivity extends BaseActivity {
@@ -62,8 +61,8 @@ public class MusicActivity extends BaseActivity {
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(adapter = new HomeAdapter());
         binding.btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        binding.btnSourceManage.setOnClickListener(v -> MusicListActivity.startSites(this));
         binding.btnPlayAll.setOnClickListener(v -> playAll());
-        binding.btnSort.setOnClickListener(v -> cycleSort());
         refresh();
     }
 
@@ -87,17 +86,13 @@ public class MusicActivity extends BaseActivity {
     private void refresh() {
         buildNavItems();
         Task.execute(() -> {
-            List<MusicSite> sites = MusicRepository.sites();
-            sortSites(sites);
+            int n = MusicRepository.sites().size();
             runOnUiThread(() -> {
                 items.clear();
                 items.addAll(navItems);
-                items.addAll(sites);
                 adapter.notifyDataSetChanged();
-                int n = sites.size();
                 binding.tvCount.setText(n + " " + getString(R.string.music_sites));
-                binding.empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
-                if (items.isEmpty()) binding.empty.setText(R.string.music_no_track);
+                binding.empty.setVisibility(View.GONE);
             });
         });
     }
@@ -123,20 +118,6 @@ public class MusicActivity extends BaseActivity {
         navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
         navItems.add(new NavItem("charts", getString(R.string.music_charts), "", 0xFFA855F7, R.drawable.ic_music_eq));
         navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
-    }
-
-    private void sortSites(List<MusicSite> sites) {
-        int sort = MusicStore.getHomeSort();
-        if (sort == 1) Collections.sort(sites, Comparator.comparing(s -> s.name == null ? "" : s.name));
-        else if (sort == 2) Collections.sort(sites, (a, b) -> Boolean.compare(b.connected, a.connected));
-    }
-
-    private void cycleSort() {
-        int s = (MusicStore.getHomeSort() + 1) % 3;
-        MusicStore.setHomeSort(s);
-        String[] names = {getString(R.string.music_sort_default), getString(R.string.music_sort_name), getString(R.string.music_sort_status)};
-        Notify.show(names[s]);
-        refresh();
     }
 
     /** 首页大播放键：上次队列从断点位置续播；无断点播最近播放第一首；再无则不动作 */
@@ -192,8 +173,6 @@ public class MusicActivity extends BaseActivity {
 
     private class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.Holder> {
 
-        private final int[] siteColors = {0xFF3B82F6, 0xFF22C55E, 0xFFEF4444, 0xFFF2B33D};
-
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -203,27 +182,13 @@ public class MusicActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
-            Object o = items.get(position);
-            if (o instanceof NavItem) {
-                NavItem item = (NavItem) o;
-                h.name.setText(item.name);
-                h.status.setText(item.status);
-                h.icon.setImageResource(item.icon);
-                h.icon.setBackground(circle(item.color));
-                h.icon.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
-                h.itemView.setOnClickListener(v -> onNavClick(item));
-            } else {
-                MusicSite site = (MusicSite) o;
-                h.name.setText(site.name);
-                String status = site.connected
-                        ? getString(R.string.music_connected) + (site.trackCount >= 0 ? " · " + site.trackCount + " " + getString(R.string.music_tracks) : "")
-                        : getString(R.string.music_unconnected);
-                h.status.setText(status);
-                h.icon.setImageResource(R.drawable.ic_music_note);
-                h.icon.setBackground(circle(siteColors[position % siteColors.length]));
-                h.icon.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
-                h.itemView.setOnClickListener(v -> MusicListActivity.startSite(MusicActivity.this, site));
-            }
+            NavItem item = (NavItem) items.get(position);
+            h.name.setText(item.name);
+            h.status.setText(item.status);
+            h.icon.setImageResource(item.icon);
+            h.icon.setBackground(circle(item.color));
+            h.icon.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
+            h.itemView.setOnClickListener(v -> onNavClick(item));
         }
 
         private GradientDrawable circle(int color) {

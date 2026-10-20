@@ -143,6 +143,15 @@
     <string name="music_favorite">收藏</string>
     <string name="music_charts">榜单</string>
     <string name="music_sites">个源</string>
+    <string name="music_source_manage">源管理</string>
+    <string name="music_site_add">添加源</string>
+    <string name="music_site_url_hint">插件地址（http://…）</string>
+    <string name="music_no_site">暂无音乐源</string>
+    <string name="music_site_added">已添加</string>
+    <string name="music_enable">启用</string>
+    <string name="music_disable">停用</string>
+    <string name="music_disabled">已停用</string>
+    <string name="music_delete">删除</string>
     <string name="music_tracks">首</string>
     <string name="music_play_all">全部播放</string>
     <string name="music_shuffle_play">随机播放</string>

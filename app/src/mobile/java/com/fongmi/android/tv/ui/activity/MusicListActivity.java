@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
@@ -59,6 +60,12 @@ public class MusicListActivity extends BaseActivity {
     private String bigTitle = "";
     private String sitePlatform = "";
     private long playlistId = -1;
+
+    public static void startSites(Activity activity) {
+        Intent i = new Intent(activity, MusicListActivity.class);
+        i.putExtra("mode", "sites");
+        activity.startActivity(i);
+    }
 
     public static void startDownload(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
@@ -161,13 +168,14 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private boolean isCardMode() {
-        return mode.equals("sheets") || mode.equals("charts");
+        return mode.equals("sheets") || mode.equals("charts") || mode.equals("sites");
     }
 
     private void load() {
         binding.tvTitle.setText(titleForMode());
+        binding.toolbar.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
-        binding.btnSearch.setVisibility(mode.equals("search") ? View.GONE : View.VISIBLE);
+        binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites")) ? View.GONE : View.VISIBLE);
         if (!keyword.isEmpty()) {
             binding.etKeyword.setText(keyword);
             doSearch();
@@ -196,6 +204,10 @@ public class MusicListActivity extends BaseActivity {
                 bigTitle = getString(R.string.music_downloaded);
                 loadDownloads();
                 break;
+            case "sites":
+                bigTitle = getString(R.string.music_source_manage);
+                loadSites();
+                break;
             case "search":
                 bigTitle = getString(R.string.music_search);
                 showTracks(new ArrayList<>());
@@ -218,6 +230,8 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_charts);
             case "download":
                 return getString(R.string.music_downloaded);
+            case "sites":
+                return getString(R.string.music_source_manage);
             default:
                 return getString(R.string.music_playlist);
         }
@@ -312,6 +326,76 @@ public class MusicListActivity extends BaseActivity {
         MusicDownloadStore.all(this::showTracks);
     }
 
+    /** 源管理：列表＋启用/停用＋删除＋添加 */
+    private void loadSites() {
+        showLoading();
+        Task.execute(() -> {
+            List<MusicSite> sites = MusicRepository.sites();
+            runOnUiThread(() -> {
+                cards.clear();
+                cards.add(new NewSiteCard());
+                cards.addAll(sites);
+                adapter.notifyDataSetChanged();
+                binding.tvBigTitle.setText(bigTitle);
+                binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_sites));
+                binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
+                if (sites.isEmpty()) binding.empty.setText(R.string.music_no_site);
+            });
+        });
+    }
+
+    private void siteOptions(MusicSite site) {
+        List<String> opts = new ArrayList<>();
+        opts.add(site.enabled ? getString(R.string.music_disable) : getString(R.string.music_enable));
+        opts.add(getString(R.string.music_delete));
+        MusicOptionsDialog.show(this, site.name, opts, -1, idx -> {
+            if (idx == 0) {
+                Task.execute(() -> {
+                    MusicSourceManager.get().setEnabled(site.srcUrl, !site.enabled);
+                    runOnUiThread(this::loadSites);
+                });
+            } else if (idx == 1) {
+                Task.execute(() -> {
+                    MusicSourceManager.get().removeSite(site.srcUrl);
+                    runOnUiThread(() -> {
+                        Notify.show(R.string.music_deleted);
+                        loadSites();
+                    });
+                });
+            }
+        });
+    }
+
+    private void inputSiteUrl() {
+        EditText et = new EditText(this);
+        et.setHint(R.string.music_site_url_hint);
+        et.setTextColor(0xFFFFFFFF);
+        et.setHintTextColor(0xFF5E6B7E);
+        et.setSingleLine(true);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        et.setPadding(pad, pad, pad, pad);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.music_site_add)
+                .setView(et)
+                .setPositiveButton(android.R.string.ok, (d, w) -> {
+                    String url = et.getText().toString().trim();
+                    if (url.isEmpty()) return;
+                    Task.execute(() -> {
+                        try {
+                            MusicSourceManager.get().addSite(url);
+                            runOnUiThread(() -> {
+                                Notify.show(R.string.music_site_added);
+                                loadSites();
+                            });
+                        } catch (Exception e) {
+                            runOnUiThread(() -> Notify.show(e.getMessage() == null ? "添加失败" : e.getMessage()));
+                        }
+                    });
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
     private void showLoading() {
         binding.empty.setVisibility(View.VISIBLE);
         binding.empty.setText("正在加载…");
@@ -371,6 +455,9 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private static class NewPlaylistCard {
+    }
+
+    private static class NewSiteCard {
     }
 
     // ================= ⋮ 菜单 =================
@@ -540,6 +627,20 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setImageResource(R.drawable.ic_music_eq);
                 h.icon.setBackground(circle(0xFFA855F7));
                 h.itemView.setOnClickListener(v -> openChart(c));
+            } else if (o instanceof NewSiteCard) {
+                h.name.setText(R.string.music_site_add);
+                h.status.setText("");
+                h.icon.setImageResource(R.drawable.ic_music_plus);
+                h.icon.setBackground(circle(0xFF22C55E));
+                h.itemView.setOnClickListener(v -> inputSiteUrl());
+            } else if (o instanceof MusicSite) {
+                MusicSite s = (MusicSite) o;
+                h.name.setText(s.name);
+                h.status.setText(!s.enabled ? getString(R.string.music_disabled)
+                        : (s.connected ? getString(R.string.music_connected) : getString(R.string.music_unconnected)));
+                h.icon.setImageResource(R.drawable.ic_music_note);
+                h.icon.setBackground(circle(s.enabled ? 0xFF3B82F6 : 0xFF5E6B7E));
+                h.itemView.setOnClickListener(v -> siteOptions(s));
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
         }

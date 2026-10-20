@@ -33,7 +33,6 @@ public class AiStore {
     public static final String FEATURE_PLOT_QA = "plot_qa";
     public static final String FEATURE_VOICE = "voice";
     public static final String FEATURE_STT = "stt";
-    public static final String FEATURE_RECOMMEND = "recommend";
 
     private static final Gson GSON = new Gson();
 
@@ -90,7 +89,7 @@ public class AiStore {
             setDefaultId(context, list.isEmpty() ? "" : list.get(0).id);
         }
         // 清理各功能绑定
-        for (String f : new String[]{FEATURE_SMART_SEARCH, FEATURE_SUBTITLE, FEATURE_PLOT_QA, FEATURE_VOICE, FEATURE_STT, FEATURE_RECOMMEND}) {
+        for (String f : new String[]{FEATURE_SMART_SEARCH, FEATURE_SUBTITLE, FEATURE_PLOT_QA, FEATURE_VOICE, FEATURE_STT}) {
             if (TextUtils.equals(getFeatureProviderId(context, f), id)) {
                 setFeatureProviderId(context, f, "");
             }

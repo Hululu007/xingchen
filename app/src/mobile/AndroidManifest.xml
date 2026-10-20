@@ -211,11 +211,6 @@
             android:screenOrientation="fullUser" />
 
         <activity
-            android:name=".ui.activity.AiRecommendActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
-
-        <activity
             android:name=".ui.hk.HkListActivity"
             android:exported="false"
             android:theme="@style/Theme.XingChen.HkPage"

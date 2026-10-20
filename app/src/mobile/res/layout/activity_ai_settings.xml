@@ -323,7 +323,7 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/card_feature_recommend"
+            android:id="@+id/card_ai_asr"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
@@ -342,18 +342,20 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="AI 推荐"
+                    android:text="AI 本地字幕"
                     android:textColor="#0C0E12"
                     android:textSize="16sp"
                     android:textStyle="bold" />
                 <TextView
-                    android:id="@+id/tv_feature_recommend_sub"
+                    android:id="@+id/tv_ai_asr_sub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
-                    android:text="跟随默认"
+                    android:text="无字幕时本地识别"
                     android:textColor="#1B2431"
-                    android:textSize="14sp" />
+                    android:textSize="14sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
             </LinearLayout>
             <ImageView
                 android:layout_width="18dp"

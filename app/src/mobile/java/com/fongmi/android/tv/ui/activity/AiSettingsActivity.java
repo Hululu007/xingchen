@@ -44,7 +44,13 @@ public class AiSettingsActivity extends BaseActivity {
         binding.cardFeatureSubtitle.setOnClickListener(v -> showFeaturePicker(AiStore.FEATURE_SUBTITLE, "字幕翻译"));
         binding.cardFeatureQa.setOnClickListener(v -> showFeaturePicker(AiStore.FEATURE_PLOT_QA, "剧情问答"));
         binding.cardFeatureVoice.setOnClickListener(v -> showFeaturePicker(AiStore.FEATURE_VOICE, "语音控制"));
-        binding.cardFeatureRecommend.setOnClickListener(v -> showFeaturePicker(AiStore.FEATURE_RECOMMEND, "AI 推荐"));
+        binding.cardAiAsr.setOnClickListener(v -> {
+            if (AiAsrSettingsActivity.isSupported()) {
+                AiAsrSettingsActivity.start(this);
+            } else {
+                Notify.show("当前设备不支持本地语音识别");
+            }
+        });
         binding.swFloat.setOnCheckedChangeListener((btn, checked) -> {
             AiStore.setFloatEnabled(this, checked);
             com.fongmi.android.tv.ai.AiFloatManager.get().refresh(this);
@@ -63,6 +69,7 @@ public class AiSettingsActivity extends BaseActivity {
         refreshDefault();
         refreshList();
         refreshFeatures();
+        refreshAiAsr();
     }
 
     private void refreshDefault() {
@@ -188,7 +195,23 @@ public class AiSettingsActivity extends BaseActivity {
         binding.tvFeatureSubtitleSub.setText(featureSub(AiStore.FEATURE_SUBTITLE));
         binding.tvFeatureQaSub.setText(featureSub(AiStore.FEATURE_PLOT_QA));
         binding.tvFeatureVoiceSub.setText(featureSub(AiStore.FEATURE_VOICE));
-        binding.tvFeatureRecommendSub.setText(featureSub(AiStore.FEATURE_RECOMMEND));
+    }
+
+    private void refreshAiAsr() {
+        // 本地字幕入口：只在支持的设备上显示（自 FeaturesActivity 迁入，口径不变）
+        boolean supported = AiAsrSettingsActivity.isSupported();
+        binding.cardAiAsr.setVisibility(supported ? View.VISIBLE : View.GONE);
+        if (supported) {
+            boolean modelReady = com.fongmi.android.tv.ai.asr.AiAsrModelManager.isModelReady(this);
+            boolean enabled = com.fongmi.android.tv.ai.asr.AiAsrController.get().isEnabled(this);
+            if (enabled) {
+                binding.tvAiAsrSub.setText("已开启 · 本地识别中");
+            } else if (modelReady) {
+                binding.tvAiAsrSub.setText("模型已下载 · 点击管理");
+            } else {
+                binding.tvAiAsrSub.setText("无字幕时本地识别");
+            }
+        }
     }
 
     private String featureSub(String feature) {

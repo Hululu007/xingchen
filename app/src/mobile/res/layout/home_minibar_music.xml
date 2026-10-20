@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐首页迷你条（定案形态）：浅色悬浮胶囊。由 ListenMiniBar 的音乐分支 inflate；
+     左圆封面（外圈进度环＋播放旋转）／歌名／下一首／右侧大圆浅色软凸起播放键 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/home_bg_minibar"
+    android:elevation="10dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="10dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="10dp">
+
+    <FrameLayout
+        android:layout_width="56dp"
+        android:layout_height="56dp">
+
+        <com.fongmi.android.tv.ui.minibar.HomeProgressRingView
+            android:id="@+id/homeRing"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <ImageView
+            android:id="@+id/homeCover"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/homeTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#1A1A1A"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <ImageView
+        android:id="@+id/homeNext"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:contentDescription="@string/home_next"
+        android:padding="11dp"
+        android:src="@drawable/ic_music_next" />
+
+    <ImageView
+        android:id="@+id/homePlay"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/home_bg_play_btn"
+        android:contentDescription="@string/home_play"
+        android:elevation="4dp"
+        android:padding="17dp"
+        android:src="@drawable/ic_music_play" />
+</LinearLayout>

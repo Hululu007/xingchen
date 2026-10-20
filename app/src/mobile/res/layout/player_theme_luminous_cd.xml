@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 流光 CD 主题：底色/文字色由代码按 CdPalette（浅 Pearl #F4F2EE／深 #14161C／自动跟随系统深色）刷 tpCdRoot 与各文字；
-     中央 CD 盘（封面圆贴占盘面 0.68）播放时 16°/s 旋转；歌名 15sp/行高21、歌手 11sp/行高15、歌词 21sp＋译一行；细进度＋裸图标主控。 -->
+     中央 CD 盘（封面圆贴占盘面 0.68、中心点 0.05）播放时 16°/s 旋转；歌名 15sp/行高21、歌手 11sp/行高15；
+     歌词区照 GZ CdLyricsList：CoverCurrentLyric 组件 cover 模式、字号 21sp、居中、标准粗细、浅模糊（组件侧按表面明暗切方案）；细进度＋裸图标主控。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/tpCdRoot"
     android:layout_width="match_parent"
@@ -12,8 +13,9 @@
     android:paddingTop="20dp"
     android:paddingBottom="20dp">
 
-    <!-- CD 盘区 -->
+    <!-- CD 盘区（手势同封面：双击收藏/长按工具面板/横滑切歌/单击开全屏歌词页，代码侧挂 tpCoverWrap） -->
     <FrameLayout
+        android:id="@+id/tpCoverWrap"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="5">
@@ -32,8 +34,8 @@
                 android:scaleType="centerCrop" />
 
             <View
-                android:layout_width="16dp"
-                android:layout_height="16dp"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
                 android:layout_gravity="center"
                 android:background="@drawable/bg_player_center_dot" />
         </FrameLayout>
@@ -67,30 +69,12 @@
         android:textColor="#747D89"
         android:textSize="11sp" />
 
-    <!-- 当前歌词一行 21sp＋译一行（点按开全屏歌词页） -->
-    <TextView
-        android:id="@+id/tpCdLyric"
+    <!-- 歌词区：CoverCurrentLyric（cover 模式，21sp/居中，点行 seek——GZ CdLyricsList 走 onLyricSeek） -->
+    <com.fongmi.android.tv.ui.custom.KaraokeLyricsView
+        android:id="@+id/tpLyricView"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:textColor="#282D36"
-        android:textSize="21sp" />
-
-    <TextView
-        android:id="@+id/tpCdLyricTrans"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:textColor="#747D89"
-        android:textSize="13sp" />
+        android:layout_height="132dp"
+        android:layout_marginTop="16dp" />
 
     <!-- 细进度＋时间 -->
     <SeekBar

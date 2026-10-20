@@ -3,9 +3,13 @@ package com.fongmi.android.tv.ui.dialog;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.database.ContentObserver;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -26,26 +30,40 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.bean.music.MusicSite;
+import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.DialogMusicToolsBinding;
+import com.fongmi.android.tv.music.DeviceMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicQueue;
+import com.fongmi.android.tv.music.MusicRepository;
+import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.music.MusicStore;
+import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.service.MusicPlaybackService;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.IntConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * 音乐底部工具面板（浅色，照 GZ 本体转写）：主面板＝信息头（面板底上裸行）＋快捷格（白方格＋下方标签）
- * ＋模式行（一张白卡四段）＋音量卡（喇叭＋红细线滑杆＋百分比同行）＋设置卡（白卡单行列表），
+ * 音乐底部工具面板（浅色，照 GZ 本体转写）：主面板＝信息头＋快捷格＋模式段控（一张白卡四段）
+ * ＋系统音量卡＋设置卡（分组白卡、行内「名字左/值右」同一行），
  * ＋三子面板（播放页主题/定时/歌词设置），同 Dialog 内换内容区切换。
- * 令牌照 GZ 参数表第 7 节浅色套（SheetTokensKt）：面板底 #F3F3F3、卡面白、主字 #1C1C1E、
- * 次字 #9A9AA0、中字 #8E8E93、分割线/描边黑 0.06、拖动条黑 0.14、强调红 #FA243C；
+ * 令牌照 GZ 参数表第 7 节浅色套（SheetTokensKt）：sheetBg 白、sheetPanelBg #F3F3F3、卡面白、
+ * 主字 #1C1C1E、次字 #9A9AA0、中字 #8E8E93、分割线/描边黑 0.06、内嵌黑 0.04、拖动条黑 0.14；
  * 面板内边距 16dp 底 10dp（GlassSheetPanelKt）、区块间隔 20dp、子面板头 44dp/圆钮 40dp。
+ * 颜色差异（用户口径）：GZ 的 AccentRed 品牌红不进星辰——模式选中态改中性深底白字、
+ * 音量填充/滑杆/开关选中态改深色填充（#1C1C1E），结构与尺寸仍照 GZ。
  */
 public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
@@ -66,16 +84,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private static final int PANEL_SLEEP = 2;
     private static final int PANEL_LYRIC = 3;
 
-    // GZ SheetTokensKt 浅色套（sheetPanelBg/sheetTextHigh/sheetTextLow/textMedium/listBg）
+    // GZ SheetTokensKt 浅色套
     private static final int COLOR_PANEL = 0xFFF3F3F3;
     private static final int COLOR_CARD = 0xFFFFFFFF;
-    private static final int COLOR_ACCENT = 0xFFFA243C;
+    private static final int COLOR_DARK = 0xFF1C1C1E;   // 用户口径：代 GZ AccentRed 的中性深色
     private static final int COLOR_TEXT = 0xFF1C1C1E;
     private static final int COLOR_LOW = 0xFF9A9AA0;
     private static final int COLOR_MEDIUM = 0xFF8E8E93;
     private static final int COLOR_DIVIDER = 0x0F000000;
     private static final int COLOR_BORDER = 0x0F000000;
-    private static final int COLOR_INSET = 0x0A000000;
 
     private static final String[] THEME_IDS = {
             MusicStore.THEME_CLASSIC, MusicStore.THEME_APPLE_MUSIC, MusicStore.THEME_COVER_IMMERSIVE,
@@ -85,20 +102,47 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             R.string.music_theme_cd, R.string.music_theme_vinyl};
     private static final int[][] THEME_COLORS = {
             {0xFF3A4A5F, 0xFF10151C},
-            {0xFFF5F5F7, 0xFFFA243C},
+            {0xFFF5F5F7, 0xFFD9D9DE},
             {0xFF7B4DFF, 0xFFFF8A3D},
             {0xFF59E3FF, 0xFFFF5DA2, 0xFFFFD35D},
             {0xFF4A3220, 0xFF14100C}};
 
     private DialogMusicToolsBinding binding;
     private Listener listener;
+    private int currentPanel = PANEL_MAIN;
+    private int initialPanel = PANEL_MAIN;
+
+    // 音量卡：外部音量变化同步（ContentObserver）
+    private ContentObserver volumeObserver;
+    private SeekBar volumeBar;
+    private TextView volumePct;
+    private boolean volumeDragging;
+
+    // 歌词设置子面板：当前行实时预览 + 四态提示
     private TextView lyricPreview;
     private TextView lyricSizeValue;
+    private TextView lyricHint;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable lyricTicker;
+    private final List<long[]> lyricTimes = new ArrayList<>();
+    private final List<String> lyricTexts = new ArrayList<>();
+    private boolean lyricLoaded;
+    private boolean lyricHasTrans;
+    private boolean lyricHasRoma;
 
     public static void show(Activity activity, Listener listener) {
         if (!(activity instanceof FragmentActivity)) return;
         MusicToolsSheetDialog d = new MusicToolsSheetDialog();
         d.listener = listener;
+        d.show(((FragmentActivity) activity).getSupportFragmentManager(), "music_tools_sheet");
+    }
+
+    /** 直达歌词设置子面板（播放页歌词筹入口） */
+    public static void showLyricPanel(Activity activity, Listener listener) {
+        if (!(activity instanceof FragmentActivity)) return;
+        MusicToolsSheetDialog d = new MusicToolsSheetDialog();
+        d.listener = listener;
+        d.initialPanel = PANEL_LYRIC;
         d.show(((FragmentActivity) activity).getSupportFragmentManager(), "music_tools_sheet");
     }
 
@@ -116,8 +160,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        // 右缘防裁切：窗口宽强制 MATCH_PARENT（旧版不设宽，个别机型 BottomSheet 按内容宽
-        // 排版会把行值/开关挤出右缘，实拍 112767 即此症）
+        // 右缘防裁切：窗口宽强制 MATCH_PARENT，行值/开关完整可见
         try {
             if (getDialog() != null && getDialog().getWindow() != null) {
                 getDialog().getWindow().setLayout(
@@ -125,15 +168,25 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             }
         } catch (Throwable ignored) {
         }
-        showPanel(PANEL_MAIN);
+        showPanel(initialPanel);
+    }
+
+    @Override
+    public void onDestroyView() {
+        stopLyricTicker();
+        unregisterVolumeObserver();
+        super.onDestroyView();
     }
 
     // ================= 面板切换 =================
 
     private void showPanel(int panel) {
         if (binding == null) return;
+        currentPanel = panel;
+        stopLyricTicker();
         lyricPreview = null;
         lyricSizeValue = null;
+        lyricHint = null;
         binding.container.removeAllViews();
         switch (panel) {
             case PANEL_THEME:
@@ -163,7 +216,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         box.addView(buildSettingsCard(), marginTop(dp(20)));
     }
 
-    /** ① 歌曲信息头（GZ SongInfoHero 转写）：封面 48dp 圆角 8＋歌名 16sp/行高 21/字距 −0.3＋歌手 12sp，面板底上裸行，右端关闭钮 */
+    /** ① 歌曲信息头（GZ SongInfoHero T01）：封面 48dp 圆角 8＋歌名 16sp＋歌手 12sp，面板底上裸行，右端关闭钮；跟随 MusicController 当前轨 */
     private View buildHero() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -201,12 +254,12 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return row;
     }
 
-    /** ② 快捷格一排 4（GZ 快捷格行转写）：行高 84dp、白方格圆角 8dp＋下方标签、格间距 20dp；
-     * 保留星辰四格（下载/歌词/定时/加入歌单），不加「一起听」（已删功能） */
+    /** ② 快捷格一排 4（GZ 快捷格行 T02–T05）：行高 84dp、白方格圆角 8dp＋下方标签、格间距 20dp */
     private View buildQuickGrid() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.addView(quickCell(R.drawable.ic_music_download, R.string.music_download, v -> {
+            // 下载对接宿主 downloadCurrent()：本地歌/已下载拦截后走 MusicDownloadStore.download
             if (listener != null) listener.onDownload();
             dismissAllowingStateLoss();
         }), quickLp(0));
@@ -250,8 +303,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return cell;
     }
 
-    /** ③ 播放模式行（GZ PlayModeSegmented 转写）：一张白卡四段，选中＝浅粉底＋AccentRed 图标/文字，
-     * 未选灰字；点击即时调 MusicController 切模式并迁移高亮（重建主面板） */
+    /** ③ 播放模式段控（GZ PlayModeSegmented T06）：一张白卡四段；
+     * 选中态用户口径改中性深底白字（GZ 为浅粉底红字）；点击即时 MusicController.setMode 并重建刷新，
+     * 选中值每次构建都从服务真实模式 getMode() 读回 */
     private View buildModeSegment() {
         String[] labels = {getString(R.string.music_mode_seq), getString(R.string.music_mode_repeat_all),
                 getString(R.string.music_mode_repeat_one), getString(R.string.music_mode_shuffle)};
@@ -270,12 +324,12 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             LinearLayout segCell = new LinearLayout(getContext());
             segCell.setOrientation(LinearLayout.VERTICAL);
             segCell.setGravity(Gravity.CENTER);
-            if (sel) segCell.setBackgroundResource(R.drawable.bg_sheet_mode_selected);
+            if (sel) segCell.setBackgroundResource(R.drawable.sheet_mode_selected);
             ImageView iv = new ImageView(getContext());
             iv.setImageResource(icons[i]);
-            iv.setImageTintList(ColorStateList.valueOf(sel ? COLOR_ACCENT : COLOR_LOW));
+            iv.setImageTintList(ColorStateList.valueOf(sel ? COLOR_CARD : COLOR_LOW));
             segCell.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
-            TextView tv = text(labels[i], 11, sel ? COLOR_ACCENT : COLOR_LOW, sel);
+            TextView tv = text(labels[i], 11, sel ? COLOR_CARD : COLOR_LOW, sel);
             tv.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -291,62 +345,105 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return card;
     }
 
-    /** ④ 系统音量卡（GZ SystemVolumeCard 转写）：白卡单行——喇叭图标＋红细线滑杆＋百分比同行靠右（12sp），滑杆区高 48dp */
+    /** ④ 系统音量卡（GZ SystemVolumeCard T07）：白卡——标题行＋滑杆区（高 48dp：喇叭＋深色填充细线滑杆＋百分比同行靠右 12sp）；
+     * AudioManager STREAM_MUSIC 读写，拖动即时生效；ContentObserver 同步外部（系统面板/耳机线控）改量。
+     * GZ 右侧「播放设备」入口（T08）星辰无对应底层，本版不做假入口（见报告缺口）。 */
     private View buildVolumeCard() {
         LinearLayout card = new LinearLayout(getContext());
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.bg_sheet_card);
-        card.setPadding(dp(16), 0, dp(16), 0);
-        card.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        card.setPadding(dp(16), dp(10), dp(16), dp(2));
+        TextView title = text(getString(R.string.music_system_volume), 13, COLOR_MEDIUM, false);
+        card.addView(title);
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView speaker = new ImageView(getContext());
         speaker.setImageResource(R.drawable.ic_widget_volume_medium);
         speaker.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-        card.addView(speaker, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        SeekBar bar = new SeekBar(getContext());
-        bar.setProgressDrawable(getContext().getDrawable(R.drawable.seekbar_sheet_volume));
-        bar.setThumb(getContext().getDrawable(R.drawable.seekbar_sheet_volume_thumb));
+        row.addView(speaker, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        volumeBar = new SeekBar(getContext());
+        volumeBar.setProgressDrawable(getContext().getDrawable(R.drawable.sheet_volume_progress));
+        volumeBar.setThumb(getContext().getDrawable(R.drawable.sheet_volume_thumb));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, dp(48), 1f);
         blp.setMarginStart(dp(12));
         blp.setMarginEnd(dp(12));
-        card.addView(bar, blp);
-        TextView pct = text("", 12, COLOR_MEDIUM, false);
-        pct.setGravity(Gravity.END);
-        card.addView(pct, new LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT));
-        ImageView cast = new ImageView(getContext());
-        cast.setImageResource(R.drawable.ic_player_cast);
-        cast.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-        LinearLayout.LayoutParams castLp = new LinearLayout.LayoutParams(dp(20), dp(20));
-        castLp.setMarginStart(dp(10));
-        card.addView(cast, castLp);
+        row.addView(volumeBar, blp);
+        volumePct = text("", 12, COLOR_MEDIUM, false);
+        volumePct.setGravity(Gravity.END);
+        row.addView(volumePct, new LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         AudioManager am = audioManager();
         if (am != null) {
             int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
-            bar.setMax(Math.max(1, max));
-            bar.setProgress(cur);
-            pct.setText(volumePct(cur, max));
-            bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            volumeBar.setMax(Math.max(1, max));
+            volumeBar.setProgress(cur);
+            volumePct.setText(volumePct(cur, max));
+            volumeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
                 public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                     if (!fromUser) return;
                     AudioManager m = audioManager();
                     if (m == null) return;
                     m.setStreamVolume(AudioManager.STREAM_MUSIC, progress, 0);
-                    pct.setText(volumePct(progress, seekBar.getMax()));
+                    volumePct.setText(volumePct(progress, seekBar.getMax()));
                 }
 
                 @Override
                 public void onStartTrackingTouch(SeekBar seekBar) {
+                    volumeDragging = true;
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar seekBar) {
+                    volumeDragging = false;
+                    syncVolumeFromSystem();
                 }
             });
+            registerVolumeObserver();
         }
         return card;
+    }
+
+    private void registerVolumeObserver() {
+        unregisterVolumeObserver();
+        Context c = getContext();
+        if (c == null) return;
+        volumeObserver = new ContentObserver(mainHandler) {
+            @Override
+            public void onChange(boolean selfChange) {
+                syncVolumeFromSystem();
+            }
+        };
+        try {
+            c.getContentResolver().registerContentObserver(
+                    Settings.System.CONTENT_URI, true, volumeObserver);
+        } catch (Throwable t) {
+            volumeObserver = null;
+        }
+    }
+
+    private void unregisterVolumeObserver() {
+        if (volumeObserver == null) return;
+        try {
+            Context c = getContext();
+            if (c != null) c.getContentResolver().unregisterContentObserver(volumeObserver);
+        } catch (Throwable ignored) {
+        }
+        volumeObserver = null;
+    }
+
+    private void syncVolumeFromSystem() {
+        if (volumeBar == null || volumePct == null || volumeDragging) return;
+        AudioManager am = audioManager();
+        if (am == null) return;
+        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        if (volumeBar.getMax() != Math.max(1, max)) volumeBar.setMax(Math.max(1, max));
+        volumeBar.setProgress(cur);
+        volumePct.setText(volumePct(cur, max));
     }
 
     private String volumePct(int cur, int max) {
@@ -363,19 +460,37 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
     }
 
-    /** ⑤ 设置卡（GZ SettingsListCard 转写）：白卡内单行列表，行高 56dp、行内边距 16dp，
-     * 「名字＋值」同一行、值右对齐＋雪佛龙；分割线只在卡内行间、左右各收 16dp 与行边距对齐 */
+    /** ⑤ 设置卡（GZ 设置列表卡）：白卡内单行列表，行高 56dp、行内边距 16dp，
+     * 「名字＋值」同一行、值右对齐＋雪佛龙；分割线只在卡内行间、左右各收 16dp 与行边距对齐；
+     * 歌曲信息行（T09）置卡首，有值才显示 */
     private View buildSettingsCard() {
         LinearLayout card = cardBox();
         MusicTrack track = MusicController.get().current();
+        boolean first = true;
+        if (track != null) {
+            String source = sourceName(track);
+            if (!source.isEmpty()) {
+                addInfoRow(card, getString(R.string.music_info_source), source, first);
+                first = false;
+            }
+            if (!TextUtils.isEmpty(track.displayArtist())) {
+                addInfoRow(card, getString(R.string.music_info_artist), track.displayArtist(), first);
+                first = false;
+            }
+            if (!TextUtils.isEmpty(track.album)) {
+                addInfoRow(card, getString(R.string.music_info_album), track.album, first);
+                first = false;
+            }
+        }
         addRow(card, getString(R.string.music_equalizer), null, v -> {
             FragmentActivity host = getActivity();
             dismissAllowingStateLoss();
             if (host != null) MusicFxDialog.show(host);
-        }, true);
+        }, first);
         addRow(card, getString(R.string.music_player_theme), themeName(MusicStore.getPlayerTheme()),
                 v -> showPanel(PANEL_THEME), false);
         addRow(card, getString(R.string.music_speed), speedName(), v -> showSpeedDialog(), false);
+        addDivider(card);
         card.addView(switchRow(getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
                 on -> MusicStore.setPlayerKeepScreenOn(on)));
         addRow(card, getString(R.string.music_search_lyric), null, v -> {
@@ -397,6 +512,31 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             dismissAllowingStateLoss();
         }, false);
         return card;
+    }
+
+    /** 来源名（与播放页 sourceName 同口径）：插件名优先（rawJson 的 _plugin 精确对归属），本地/py 源走各自标识；查不到返回空串（整行不显示） */
+    private String sourceName(MusicTrack track) {
+        if (track == null || track.platform == null) return "";
+        try {
+            List<MusicSite> sites = MusicSourceManager.get().listSites();
+            String plugin = null;
+            if (!TextUtils.isEmpty(track.rawJson)) {
+                plugin = new JSONObject(track.rawJson).optString("_plugin", null);
+            }
+            if (plugin != null) {
+                for (MusicSite site : sites) {
+                    if (site != null && plugin.equals(site.srcUrl)) return site.name == null ? "" : site.name;
+                }
+            }
+            for (MusicSite site : sites) {
+                if (site != null && track.platform.equals(site.platform)) return site.name == null ? "" : site.name;
+            }
+        } catch (Throwable ignored) {
+        }
+        if ("local".equals(track.platform)) return getString(R.string.music_downloaded);
+        if (DeviceMusicSource.PLATFORM.equals(track.platform)) return getString(R.string.music_device);
+        if (PyMusicSource.PLATFORM.equals(track.platform)) return PyMusicSource.siteNameOf(track);
+        return "";
     }
 
     private void showSpeedDialog() {
@@ -428,6 +568,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private void buildThemePanel() {
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_player_theme)));
+        TextView desc = text(getString(R.string.sheet_theme_desc), 12, COLOR_LOW, false);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.topMargin = dp(8);
+        box.addView(desc, dlp);
         HorizontalScrollView scroll = new HorizontalScrollView(getContext());
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(getContext());
@@ -448,7 +593,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(14);
         box.addView(scroll, slp);
-        // 选中流光 CD 时才出表面三段：浅色/深色/自动
+        // 选中流光 CD 时才出表面三段：浅色/深色/自动（GZ T24 CdSurfaceMode）
         if (MusicStore.THEME_LUMINOUS_CD.equals(MusicStore.getPlayerTheme())) {
             String[] labels = {getString(R.string.music_surface_light), getString(R.string.music_surface_dark),
                     getString(R.string.music_surface_auto)};
@@ -464,7 +609,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
     }
 
-    /** 主题卡：色块示意＋主题名＋选中勾；选中卡背景 150ms 渐变到浅粉（GZ 主题选中卡背景动画 150ms 转写） */
+    /** 主题卡（T22/T23，无 Pro 锁——用户定案全免费）：色块示意＋主题名＋选中勾；
+     * 选中卡背景 150ms 渐变到浅灰（GZ 主题选中卡背景动画 150ms；GZ 渐到浅粉，用户口径改中性浅灰） */
     private View themeCard(String id, int nameRes, int[] colors, boolean selected, View.OnClickListener click) {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
@@ -474,20 +620,20 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         bg.setColor(COLOR_CARD);
         bg.setCornerRadius(dp(12));
         bg.setStroke(dp(1), COLOR_BORDER);
-        if (selected) bg.setStroke(dp(2), COLOR_ACCENT);
+        if (selected) bg.setStroke(dp(2), COLOR_DARK);
         card.setBackground(bg);
         View block = new View(getContext());
         GradientDrawable grad = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         grad.setCornerRadius(dp(8));
         block.setBackground(grad);
         card.addView(block, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
-        TextView name = text(getString(nameRes), 13, selected ? COLOR_ACCENT : COLOR_TEXT, selected);
+        TextView name = text(getString(nameRes), 13, COLOR_TEXT, selected);
         name.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nlp.topMargin = dp(8);
         card.addView(name, nlp);
-        TextView check = text("✓", 14, COLOR_ACCENT, true);
+        TextView check = text("✓", 14, COLOR_DARK, true);
         check.setGravity(Gravity.CENTER);
         check.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
         card.addView(check, new LinearLayout.LayoutParams(
@@ -497,7 +643,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         attachPress(card, 0.96f);
         if (selected) {
             android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofObject(
-                    new android.animation.ArgbEvaluator(), 0xFFFFFFFF, 0xFFFFEFF1);
+                    new android.animation.ArgbEvaluator(), 0xFFFFFFFF, 0xFFEDEDEF);
             anim.setDuration(150);
             anim.addUpdateListener(a -> bg.setColor((int) a.getAnimatedValue()));
             anim.start();
@@ -514,39 +660,69 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // ================= 定时子面板 =================
 
+    /** 睡眠子面板（GZ Sleep 网格形态）：状态行（18sp）＋预设 3 列网格＋「播完这首」chip；
+     * 档位只用星辰服务现成六档（关/播完这首/15/30/60/90 → MusicController.setSleep）。
+     * GZ 的 10/20/40 档、自定义分钟、倒计时读数服务无对应能力，不自创（见报告缺口）。 */
     private void buildSleepPanel() {
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_sleep)));
-        LinearLayout card = cardBox();
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.topMargin = dp(12);
-        box.addView(card, clp);
-        int[] values = {MusicPlaybackService.SLEEP_OFF, MusicPlaybackService.SLEEP_AFTER_CURRENT,
-                MusicPlaybackService.SLEEP_15, MusicPlaybackService.SLEEP_30,
-                MusicPlaybackService.SLEEP_60, MusicPlaybackService.SLEEP_90};
         int cur = MusicController.get().getSleep();
-        for (int i = 0; i < values.length; i++) {
-            final int value = values[i];
-            boolean selected = value == cur;
-            if (i > 0) addDivider(card);
+        TextView status = text(cur == MusicPlaybackService.SLEEP_OFF
+                ? getString(R.string.sheet_sleep_not_on)
+                : MusicPlaybackService.sleepName(cur), 18, COLOR_MEDIUM, false);
+        LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stlp.topMargin = dp(14);
+        box.addView(status, stlp);
+        int[] gridValues = {MusicPlaybackService.SLEEP_15, MusicPlaybackService.SLEEP_30,
+                MusicPlaybackService.SLEEP_60, MusicPlaybackService.SLEEP_90,
+                MusicPlaybackService.SLEEP_OFF, -1};
+        LinearLayout grid = new LinearLayout(getContext());
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (int r = 0; r < 2; r++) {
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
-            TextView label = text(MusicPlaybackService.sleepName(value), 15,
-                    selected ? COLOR_ACCENT : COLOR_TEXT, selected);
-            row.addView(label, new LinearLayout.LayoutParams(0, dp(48), 1f));
-            TextView check = text("✓", 15, COLOR_ACCENT, true);
-            check.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
-            row.addView(check);
-            row.setOnClickListener(v -> {
-                MusicController.get().setSleep(value);
-                showPanel(PANEL_MAIN);
-            });
-            attachPress(row, 0.98f);
-            card.addView(row);
+            for (int c = 0; c < 3; c++) {
+                final int value = gridValues[r * 3 + c];
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(46), 1f);
+                if (c > 0) lp.setMarginStart(dp(10));
+                if (value < 0) {
+                    row.addView(new View(getContext()), lp);
+                    continue;
+                }
+                row.addView(sleepCell(MusicPlaybackService.sleepName(value), value == cur, v -> {
+                    MusicController.get().setSleep(value);
+                    showPanel(PANEL_MAIN);
+                }), lp);
+            }
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (r > 0) rlp.topMargin = dp(10);
+            grid.addView(row, rlp);
         }
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        glp.topMargin = dp(16);
+        box.addView(grid, glp);
+        View chip = sleepCell(MusicPlaybackService.sleepName(MusicPlaybackService.SLEEP_AFTER_CURRENT),
+                cur == MusicPlaybackService.SLEEP_AFTER_CURRENT, v -> {
+                    MusicController.get().setSleep(MusicPlaybackService.SLEEP_AFTER_CURRENT);
+                    showPanel(PANEL_MAIN);
+                });
+        LinearLayout.LayoutParams chlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        chlp.topMargin = dp(12);
+        box.addView(chip, chlp);
+    }
+
+    /** 定时格/chip：未选 inset 底深字，选中中性深底白字（用户口径代 GZ 红系选中态） */
+    private View sleepCell(String label, boolean selected, View.OnClickListener click) {
+        TextView tv = text(label, 14, selected ? COLOR_CARD : COLOR_TEXT, selected);
+        tv.setGravity(Gravity.CENTER);
+        tv.setBackgroundResource(selected ? R.drawable.sheet_cell_selected : R.drawable.bg_sheet_seg_track);
+        tv.setOnClickListener(click);
+        attachPress(tv, 0.96f);
+        return tv;
     }
 
     // ================= 歌词设置子面板 =================
@@ -591,44 +767,43 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     fireLyricChanged();
                     showPanel(PANEL_LYRIC);
                 }), marginTop(dp(14)));
-        // 主歌词不可用提示（GZ：10sp、alpha 0.5）：选了译/音作主时才显示
-        if (MusicStore.getLyricPrimary() != MusicStore.LYRIC_PRIMARY_ORIGINAL) {
-            TextView hint = text(getString(R.string.music_lyric_primary_fallback_hint), 10, COLOR_MEDIUM, false);
-            hint.setAlpha(0.5f);
-            box.addView(hint, marginTop(dp(8)));
-        }
+        // 主歌词不可用提示（GZ T32 四态：10sp、alpha 0.5）：歌词数据到达后按四态拼行
+        lyricHint = text("", 10, COLOR_MEDIUM, false);
+        lyricHint.setAlpha(0.5f);
+        lyricHint.setVisibility(View.GONE);
+        box.addView(lyricHint, marginTop(dp(8)));
         LinearLayout card = cardBox();
         card.addView(switchRow(getString(R.string.music_show_translation), MusicStore.isShowTranslation(),
                 on -> {
                     MusicStore.setShowTranslation(on);
                     fireLyricChanged();
+                    refreshLyricHint();
                 }));
         addDivider(card);
         card.addView(switchRow(getString(R.string.music_show_romanization), MusicStore.isShowRomanization(),
                 on -> {
                     MusicStore.setShowRomanization(on);
                     fireLyricChanged();
+                    refreshLyricHint();
                 }));
         addDivider(card);
-        // 高级动效行高 60dp（GZ 歌词设置行高口径）
+        // 高级动效行高 60dp（GZ 歌词设置行高口径）；开启时弹确认框（GZ T33 文案照抄）
         card.addView(switchRow(getString(R.string.music_advanced_fx), MusicStore.isAdvancedFx(), 60,
                 on -> {
                     MusicStore.setAdvancedFx(on);
                     fireLyricChanged();
+                    if (on) showAdvancedFxConfirm();
                 }));
         box.addView(card, marginTop(dp(16)));
-        TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_ACCENT, false);
+        // 恢复默认钮高 28dp（GZ T34：字号 22/粗细 bold（一段「标准」）/靠左/模糊轻度，只复位这四项）
+        TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_DARK, false);
         restore.setGravity(Gravity.CENTER);
         restore.setBackgroundResource(R.drawable.bg_sheet_card);
         restore.setOnClickListener(v -> {
-            MusicStore.setLyricFontSize(24f);
+            MusicStore.setLyricFontSize(22f);
             MusicStore.setLyricWeight(MusicStore.LYRIC_WEIGHT_NORMAL);
             MusicStore.setLyricAlign(MusicStore.LYRIC_ALIGN_LEFT);
             MusicStore.setLyricBlur(MusicStore.LYRIC_BLUR_LIGHT);
-            MusicStore.setLyricPrimary(MusicStore.LYRIC_PRIMARY_ORIGINAL);
-            MusicStore.setShowTranslation(true);
-            MusicStore.setShowRomanization(false);
-            MusicStore.setAdvancedFx(true);
             fireLyricChanged();
             showPanel(PANEL_LYRIC);
         });
@@ -637,14 +812,24 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(28));
         rlp.topMargin = dp(16);
         box.addView(restore, rlp);
+        loadLyricForPanel();
     }
 
-    /** 顶部预览区（GZ 转写）：高 132dp、内边 14/8，一行样例歌词按当前样式实时渲染 */
+    private void showAdvancedFxConfirm() {
+        if (!isAdded() || getContext() == null) return;
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle(R.string.sheet_advanced_fx_title)
+                .setMessage(R.string.sheet_advanced_fx_msg)
+                .setPositiveButton(R.string.sheet_got_it, null)
+                .show();
+    }
+
+    /** 顶部预览区（GZ T26）：高 132dp、内边 14/8，当前行歌词按当前样式实时渲染（500ms 跟随播放进度） */
     private View buildLyricPreview() {
         FrameLayout frame = new FrameLayout(getContext());
         frame.setBackgroundResource(R.drawable.bg_sheet_card);
         frame.setPadding(dp(14), dp(8), dp(14), dp(8));
-        lyricPreview = text(getString(R.string.music_lyric_preview_sample), 24, COLOR_TEXT, false);
+        lyricPreview = text(getString(R.string.music_lyric_preview_sample), 22, COLOR_TEXT, false);
         lyricPreview.setMaxLines(2);
         lyricPreview.setEllipsize(TextUtils.TruncateAt.END);
         frame.addView(lyricPreview, new FrameLayout.LayoutParams(
@@ -666,7 +851,128 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         lyricPreview.setGravity(Gravity.CENTER_VERTICAL | horizontal);
     }
 
-    /** 字号滑杆 16–40（取引擎钳制范围；GZ 面板 14–32 是其封面歌词专用滑杆，星辰字号统一一键故用 16–40） */
+    /** 后台取当前轨 rich 歌词（MusicRepository.lyricRich 是阻塞调用）：解析时间轴供预览跟随，并算译/音译可用性供四态提示 */
+    private void loadLyricForPanel() {
+        lyricLoaded = false;
+        lyricHasTrans = false;
+        lyricHasRoma = false;
+        lyricTimes.clear();
+        lyricTexts.clear();
+        MusicTrack track = MusicController.get().current();
+        if (track == null) {
+            lyricLoaded = true;
+            refreshLyricHint();
+            return;
+        }
+        String trackId = track.id;
+        new Thread(() -> {
+            MusicLyric lyric = null;
+            try {
+                lyric = MusicRepository.lyricRich(track);
+            } catch (Throwable ignored) {
+            }
+            MusicLyric result = lyric;
+            mainHandler.post(() -> {
+                if (!isAdded() || currentPanel != PANEL_LYRIC) return;
+                MusicTrack cur = MusicController.get().current();
+                if (cur == null) return;
+                if (trackId == null ? cur.id != null : !trackId.equals(cur.id)) return;
+                lyricLoaded = true;
+                if (result != null) {
+                    lyricHasTrans = !TextUtils.isEmpty(result.translation) && !result.translation.trim().isEmpty();
+                    lyricHasRoma = !TextUtils.isEmpty(result.romanization) && !result.romanization.trim().isEmpty();
+                    parseLrc(result.rawLrc);
+                }
+                refreshLyricHint();
+                startLyricTicker();
+            });
+        }, "music-tools-lyric").start();
+    }
+
+    private static final Pattern LRC_TAG = Pattern.compile("\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?\\]");
+
+    private void parseLrc(String raw) {
+        lyricTimes.clear();
+        lyricTexts.clear();
+        if (TextUtils.isEmpty(raw)) return;
+        List<long[]> times = new ArrayList<>();
+        List<String> texts = new ArrayList<>();
+        for (String line : raw.split("\n")) {
+            Matcher m = LRC_TAG.matcher(line);
+            List<Long> tags = new ArrayList<>();
+            int end = 0;
+            while (m.find()) {
+                long cs = 0;
+                if (m.group(3) != null) {
+                    String f = m.group(3);
+                    cs = Long.parseLong(f) * (f.length() == 1 ? 100 : f.length() == 2 ? 10 : 1);
+                }
+                tags.add(Long.parseLong(m.group(1)) * 60000L + Long.parseLong(m.group(2)) * 1000L + cs);
+                end = m.end();
+            }
+            if (tags.isEmpty()) continue;
+            String text = line.substring(end).trim();
+            for (Long t : tags) {
+                times.add(new long[]{t});
+                texts.add(text);
+            }
+        }
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < times.size(); i++) order.add(i);
+        Collections.sort(order, (a, b) -> Long.compare(times.get(a)[0], times.get(b)[0]));
+        for (int i : order) {
+            lyricTimes.add(times.get(i));
+            lyricTexts.add(texts.get(i));
+        }
+    }
+
+    private void startLyricTicker() {
+        stopLyricTicker();
+        lyricTicker = new Runnable() {
+            @Override
+            public void run() {
+                if (!isAdded() || currentPanel != PANEL_LYRIC || lyricPreview == null) return;
+                updateLyricPreviewLine();
+                mainHandler.postDelayed(this, 500);
+            }
+        };
+        mainHandler.post(lyricTicker);
+    }
+
+    private void stopLyricTicker() {
+        if (lyricTicker != null) mainHandler.removeCallbacks(lyricTicker);
+        lyricTicker = null;
+    }
+
+    private void updateLyricPreviewLine() {
+        if (lyricPreview == null || lyricTimes.isEmpty()) return;
+        long pos = MusicController.get().position();
+        String line = null;
+        for (int i = 0; i < lyricTimes.size(); i++) {
+            if (lyricTimes.get(i)[0] <= pos) line = lyricTexts.get(i);
+            else break;
+        }
+        if (!TextUtils.isEmpty(line)) lyricPreview.setText(line);
+    }
+
+    /** 四态提示（GZ T32，与源码同判定同拼接）：无译→「当前歌词无翻译」，有译但关→「翻译歌词已关闭」；音译同理；以「；」拼接 */
+    private void refreshLyricHint() {
+        if (lyricHint == null || !lyricLoaded) return;
+        List<String> parts = new ArrayList<>();
+        if (!lyricHasTrans) parts.add(getString(R.string.sheet_hint_no_translation));
+        else if (!MusicStore.isShowTranslation()) parts.add(getString(R.string.sheet_hint_translation_off));
+        if (!lyricHasRoma) parts.add(getString(R.string.sheet_hint_no_romanization));
+        else if (!MusicStore.isShowRomanization()) parts.add(getString(R.string.sheet_hint_romanization_off));
+        if (parts.isEmpty()) {
+            lyricHint.setVisibility(View.GONE);
+        } else {
+            lyricHint.setText(TextUtils.join("；", parts));
+            lyricHint.setVisibility(View.VISIBLE);
+        }
+    }
+
+    /** 字号滑杆（GZ T27：封面歌词 14–32、取整、两端 A 示意字 11sp/16sp）；
+     * 写入 MusicStore.setLyricFontSize（星辰统一字号键，其内钳 16–40，14/15 档实际落 16，松手后按存回值回显） */
     private View buildLyricSizeRow() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.VERTICAL);
@@ -678,17 +984,22 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         lyricSizeValue = text(String.valueOf(Math.round(MusicStore.getLyricFontSize())), 13, COLOR_LOW, false);
         head.addView(lyricSizeValue);
         row.addView(head);
+        LinearLayout sliderRow = new LinearLayout(getContext());
+        sliderRow.setOrientation(LinearLayout.HORIZONTAL);
+        sliderRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView smallA = text("A", 11, COLOR_LOW, false);
+        sliderRow.addView(smallA);
         SeekBar bar = new SeekBar(getContext());
-        bar.setProgressTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        bar.setThumbTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        bar.setMax(40 - 16);
-        float cur = Math.max(16f, Math.min(40f, MusicStore.getLyricFontSize()));
-        bar.setProgress(Math.round(cur) - 16);
+        bar.setProgressTintList(ColorStateList.valueOf(COLOR_DARK));
+        bar.setThumbTintList(ColorStateList.valueOf(COLOR_DARK));
+        bar.setMax(32 - 14);
+        float cur = Math.max(14f, Math.min(32f, MusicStore.getLyricFontSize()));
+        bar.setProgress(Math.round(cur) - 14);
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (!fromUser) return;
-                float v = progress + 16f;
+                float v = progress + 14f;
                 if (lyricPreview != null) lyricPreview.setTextSize(v);
                 if (lyricSizeValue != null) lyricSizeValue.setText(String.valueOf(Math.round(v)));
             }
@@ -699,18 +1010,23 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-                MusicStore.setLyricFontSize(seekBar.getProgress() + 16f);
-                if (lyricSizeValue != null) {
-                    lyricSizeValue.setText(String.valueOf(Math.round(MusicStore.getLyricFontSize())));
-                }
+                MusicStore.setLyricFontSize(seekBar.getProgress() + 14f);
+                float stored = MusicStore.getLyricFontSize();
+                if (lyricSizeValue != null) lyricSizeValue.setText(String.valueOf(Math.round(stored)));
                 applyPreview();
                 fireLyricChanged();
             }
         });
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        blp.setMarginStart(dp(8));
+        blp.setMarginEnd(dp(8));
+        sliderRow.addView(bar, blp);
+        TextView bigA = text("A", 16, COLOR_LOW, false);
+        sliderRow.addView(bigA);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(4);
-        row.addView(bar, blp);
+        slp.topMargin = dp(4);
+        row.addView(sliderRow, slp);
         return row;
     }
 
@@ -731,7 +1047,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // ================= 通用构建件 =================
 
-    /** 子面板头（GlassSheetPanelKt SheetSubPanelHeader 转写）：高 44dp，圆形钮 40dp（按压缩放 0.9）＋标题（字距 −0.3）；返回回主面板 */
+    /** 子面板头（GlassSheetPanelKt SheetSubPanelHeader）：高 44dp，圆形钮 40dp（按压缩放 0.9）＋标题（字距 −0.3）；返回回主面板 */
     private View subHeader(String title) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -775,7 +1091,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return row;
     }
 
-    /** 分组白卡容器：内边距归零，行自带 16dp 横向内边距（分割线收边与行边距对齐靠此口径） */
+    /** 分组白卡容器：行自带 16dp 横向内边距（分割线收边与行边距对齐靠此口径） */
     private LinearLayout cardBox() {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
@@ -785,10 +1101,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 设置行（GZ SettingsListRow 转写）：单行横排——标签 weight 1、值右对齐同排、雪佛龙 20dp。
-     * 旧版根因（实拍 112767 值掉行）：旧 addRow 给标签 TextView 设固定高 52dp 且文本顶对齐、
-     * 值 TextView 无重力约束居中错位，看着像两行；且旧行没有横向内边距、值贴右缘被窗口裁切。
-     * 现行：整行固定高 56dp＋整行 gravity 居中，标签/值同处一行中线。
+     * 设置行：单行横排——标签 weight 1、值右对齐同排、雪佛龙 20dp；整行固定高 56dp＋整行 gravity 居中，
+     * 标签/值同处一行中线（根绝旧版值掉行/右缘裁切）。
      */
     private void addRow(LinearLayout card, String label, String value, View.OnClickListener click, boolean first) {
         if (!first) addDivider(card);
@@ -816,6 +1130,25 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         card.addView(row);
     }
 
+    /** 歌曲信息行（T09）：名字左、值右、同一行；无雪佛龙、不可点；值 weight 1 靠右，长值尾部省略不断行 */
+    private void addInfoRow(LinearLayout card, String label, String value, boolean first) {
+        if (!first) addDivider(card);
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), 0, dp(16), 0);
+        TextView tv = text(label, 15, COLOR_TEXT, false);
+        tv.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(tv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)));
+        TextView vv = text(value, 14, COLOR_LOW, false);
+        vv.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        vlp.setMarginStart(dp(12));
+        row.addView(vv, vlp);
+        card.addView(row);
+    }
+
     private View switchRow(String label, boolean checked, java.util.function.Consumer<Boolean> onChange) {
         return switchRow(label, checked, 56, onChange);
     }
@@ -835,13 +1168,13 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 new int[]{0xFFFFFFFF, 0xFFFFFFFF}));
         sw.setTrackTintList(new ColorStateList(
                 new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
-                new int[]{COLOR_ACCENT, 0xFFD9D9DE}));
+                new int[]{COLOR_DARK, 0xFFD9D9DE}));
         sw.setOnCheckedChangeListener((button, on) -> onChange.accept(on));
         row.addView(sw);
         return row;
     }
 
-    /** 分割线（GZ SettingsListDivider 转写）：只出现在卡内行间，高 0.5dp、色黑 0.06、左右各收 16dp 与行内边距对齐、通卡等长 */
+    /** 分割线（GZ 口径）：只出现在卡内行间，高 0.5dp、色黑 0.06、左右各收 16dp 与行内边距对齐 */
     private void addDivider(LinearLayout card) {
         View div = new View(getContext());
         div.setBackgroundColor(COLOR_DIVIDER);
@@ -852,7 +1185,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         card.addView(div, lp);
     }
 
-    /** GZ 通用按压反馈（MotionKt：260ms、缩放 0.96；圆钮 0.9 由调用方传参）：按下缩、松开/取消回 */
+    /** GZ 通用按压反馈（MotionKt：260ms；缩放值由调用方传，段控/格子 0.96、圆钮 0.9） */
     private void attachPress(View view, float scale) {
         view.setOnTouchListener((v, e) -> {
             int action = e.getActionMasked();

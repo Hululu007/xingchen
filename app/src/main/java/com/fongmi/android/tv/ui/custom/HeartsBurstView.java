@@ -24,8 +24,8 @@ import java.util.Random;
 public class HeartsBurstView extends View {
 
     // ===== 常量区 =====
-    /** 爱心填充色（与现有收藏红一致）。 */
-    public static final int HEART_COLOR = 0xFFF2433D;
+    /** 爱心填充色（GZ AccentRed 0xFFFA243C 原值，SheetTokens/PlayerToolsSheetKt 实证）。 */
+    public static final int HEART_COLOR = 0xFFFA243C;
 
     // 5A 封面爆发（GZ PlayerScreenKt genBurstHearts＋粒子合成 :5363-5420）
     /** 数量：大爆发 8 颗／普通 5 颗。 */

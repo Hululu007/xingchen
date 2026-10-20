@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.minibar;
 
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -13,8 +14,10 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -93,9 +96,23 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private MusicMiniSession musicSession;
-    /** 当前条是否为音乐样式（黑胶圆盘＋歌名＋大金暂停＋下一首） */
+    /** 当前条是否为音乐样式（浅色胶囊：圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） */
     private boolean barMusicMode;
     private ImageView ivVinyl;
+    // 以下成员只服务音乐分支（buildMusicBar/bindMusicSession），听书条不读写
+    private HomeProgressRingView homeRing;
+    private ImageView homeNextBtn;
+    private ObjectAnimator homeSpin;
+    private Handler homeHandler;
+    private final Runnable homeProgressTick = new Runnable() {
+        @Override
+        public void run() {
+            updateHomeProgress();
+            if (barMusicMode && barView != null && barView.getParent() != null && homeHandler != null) {
+                homeHandler.postDelayed(this, 500);
+            }
+        }
+    };
 
     private ListenMiniBar(Context app) {
         this.app = app;
@@ -319,6 +336,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
         if (music) bindMusicSession();
         else bindSession(s);
+        // 音乐条重新挂载（切页回来）后恢复进度环轮询；听书分支不走这里
+        if (music) startHomeProgress();
         ViewGroup decor;
         try {
             decor = (ViewGroup) host.getWindow().getDecorView();
@@ -377,6 +396,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private void detachBar() {
+        // 条摘下时停掉音乐封面旋转与进度轮询；听书条从不设置这些成员，此调用对它为空操作
+        stopHomeSpin();
         try {
             if (barView != null) barView.animate().cancel();
             if (barView != null && barView.getParent() instanceof ViewGroup) {
@@ -543,7 +564,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private void bindSession(ListenSession s) {
         tvTitle.setText(oneLine(s));
         loadCover(s);
-        btnNext.setVisibility(s.canNext() ? View.VISIBLE : View.GONE);
+        if (btnNext != null) btnNext.setVisibility(s.canNext() ? View.VISIBLE : View.GONE);
         if (btnPrev != null) btnPrev.setVisibility(s.canPrev() ? View.VISIBLE : View.GONE);
         refreshPlayIcon();
     }
@@ -589,105 +610,104 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             }
         }
         btnPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+        // 封面旋转只跟音乐分支：播放转、暂停停（听书条 ivVinyl/homeSpin 恒为 null，不受影响）
+        if (barMusicMode) updateHomeSpin(playing);
     }
 
-    // ================= 音乐条：黑胶圆盘＋歌名＋大金暂停＋下一首 =================
+    /** 音乐封面旋转：播放时匀速转，暂停保留角度停住；条重建/切到听书条时停转复位。 */
+    private void updateHomeSpin(boolean playing) {
+        if (ivVinyl == null) return;
+        if (playing) {
+            if (homeSpin == null) {
+                homeSpin = ObjectAnimator.ofFloat(ivVinyl, View.ROTATION, 0f, 360f);
+                homeSpin.setDuration(12000);
+                homeSpin.setRepeatCount(ObjectAnimator.INFINITE);
+                homeSpin.setInterpolator(new LinearInterpolator());
+            }
+            if (!homeSpin.isStarted()) homeSpin.start();
+            else if (homeSpin.isPaused()) homeSpin.resume();
+        } else if (homeSpin != null && homeSpin.isRunning()) {
+            homeSpin.pause();
+        }
+    }
 
-    /**
-     * 音乐条外观（定稿）：黑胶圆盘封面＋歌名单行＋大金暂停＋下一首。
-     * 点条身进播放页；条上无关闭口（暂停超 10 秒按迷你条规矩自动收）。
-     */
-    private void buildMusicBar() {
-        Context c = app;
-        LinearLayout bar = new LinearLayout(c);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        int hpad = ReadingSkin.dp(c, 12);
-        int vpad = ReadingSkin.dp(c, 10);
-        bar.setPadding(hpad, vpad, hpad, vpad);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xE616202E);
-        bg.setCornerRadius(ReadingSkin.dp(c, 28));
-        bg.setStroke(ReadingSkin.dp(c, 1), 0x33F2B33D);
-        bar.setBackground(bg);
+    private void stopHomeSpin() {
+        if (homeSpin != null) {
+            try {
+                homeSpin.cancel();
+            } catch (Throwable ignored) {
+            }
+            homeSpin = null;
+        }
+        if (ivVinyl != null) {
+            try {
+                ivVinyl.setRotation(0f);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (homeHandler != null) homeHandler.removeCallbacks(homeProgressTick);
+    }
+
+    /** 进度环跟随 MusicController.position()/duration()（音乐分支专用）。 */
+    private void updateHomeProgress() {
+        if (homeRing == null || !barMusicMode) return;
         try {
-            bar.setElevation(ReadingSkin.dp(c, 10));
+            long pos = musicCtl().position();
+            long dur = musicCtl().duration();
+            homeRing.setFraction(dur > 0 ? (float) pos / (float) dur : 0f);
         } catch (Throwable ignored) {
         }
+    }
 
-        // 黑胶圆盘：黑底圆＋圆形封面
-        FrameLayout vinyl = new FrameLayout(c);
-        int vs = ReadingSkin.dp(c, 52);
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(vs, vs);
-        vlp.rightMargin = ReadingSkin.dp(c, 12);
-        vinyl.setLayoutParams(vlp);
-        GradientDrawable disc = new GradientDrawable();
-        disc.setShape(GradientDrawable.OVAL);
-        disc.setColor(0xFF0A0A0A);
-        disc.setStroke(ReadingSkin.dp(c, 2), 0xFF2A2A2A);
-        vinyl.setBackground(disc);
-        ivVinyl = new ImageView(c);
-        int cs = ReadingSkin.dp(c, 36);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(cs, cs);
-        clp.gravity = Gravity.CENTER;
-        ivVinyl.setLayoutParams(clp);
-        ivVinyl.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        vinyl.addView(ivVinyl);
-        bar.addView(vinyl);
+    private void startHomeProgress() {
+        if (homeHandler == null) homeHandler = new Handler(Looper.getMainLooper());
+        homeHandler.removeCallbacks(homeProgressTick);
+        homeHandler.post(homeProgressTick);
+    }
 
-        // 歌名
-        tvTitle = new TextView(c);
-        tvTitle.setTextSize(16);
-        tvTitle.setTextColor(ReadingSkin.TEXT);
-        tvTitle.getPaint().setFakeBoldText(true);
-        tvTitle.setSingleLine(true);
-        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tvTitle.setLayoutParams(tlp);
-        bar.addView(tvTitle);
+    // ================= 音乐条：浅色胶囊（圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） =================
 
-        // 下一首
-        btnNext = new TextView(c);
-        btnNext.setText("⏭");
-        btnNext.setTextSize(20);
-        btnNext.setTextColor(ReadingSkin.SUB);
-        btnNext.setGravity(Gravity.CENTER);
-        int nbHit = ReadingSkin.dp(c, 48);
-        btnNext.setLayoutParams(new LinearLayout.LayoutParams(nbHit, nbHit));
-        btnNext.setOnClickListener(v -> {
-            try {
-                musicCtl().next();
-            } catch (Throwable ignored) {
-            }
-        });
-        bar.addView(btnNext);
+    /**
+     * 音乐条外观（定案形态，2026-10-21）：底部悬浮浅色圆角胶囊——
+     * 左侧圆形封面（播放旋转、进度围封面外圈走）＋歌名＋下一首小图标＋右侧大圆浅色软凸起播放键。
+     * 布局在 home_minibar_music.xml；点条身进播放页（现行行为保留）；
+     * 条上无关闭口（暂停超 10 秒按迷你条规矩自动收，策略层不动）。
+     * 本方法只被 attachBar 的音乐分支调用，听书条走 buildBar()，互不影响。
+     */
+    private void buildMusicBar() {
+        stopHomeSpin();
+        Context c = app;
+        View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
+        ivVinyl = bar.findViewById(R.id.homeCover);
+        homeRing = bar.findViewById(R.id.homeRing);
+        tvTitle = bar.findViewById(R.id.homeTitle);
+        homeNextBtn = bar.findViewById(R.id.homeNext);
+        if (homeNextBtn != null) {
+            homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
+            homeNextBtn.setOnClickListener(v -> {
+                try {
+                    musicCtl().next();
+                } catch (Throwable ignored) {
+                }
+            });
+        }
+        btnNext = null;
         btnPrev = null;
-
-        // 大金暂停：矢量图标（同听书条，圆底/尺寸不动）
-        btnPlay = new ImageView(c);
-        int mpad = ReadingSkin.dp(c, 16);
-        btnPlay.setPadding(mpad, mpad, mpad, mpad);
-        btnPlay.setImageResource(R.drawable.ic_music_play);
-        btnPlay.setImageTintList(ColorStateList.valueOf(0xFF1A1408));
-        int ps = ReadingSkin.dp(c, 56);
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ps, ps);
-        plp.leftMargin = ReadingSkin.dp(c, 4);
-        btnPlay.setLayoutParams(plp);
-        btnPlay.setBackground(ReadingSkin.goldCircle(c));
-        btnPlay.setOnClickListener(v -> {
-            try {
-                musicCtl().toggle();
-            } catch (Throwable ignored) {
-            }
-            refreshPlayIcon();
-        });
-        bar.addView(btnPlay);
-
+        btnPlay = bar.findViewById(R.id.homePlay);
+        if (btnPlay != null) {
+            btnPlay.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
+            btnPlay.setOnClickListener(v -> {
+                try {
+                    musicCtl().toggle();
+                } catch (Throwable ignored) {
+                }
+                refreshPlayIcon();
+            });
+        }
         // 点条身进播放页
         bar.setOnClickListener(v -> openMusicPlayer());
-
         barView = bar;
+        startHomeProgress();
     }
 
     private void openMusicPlayer() {
@@ -715,6 +735,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             }
         } catch (Throwable ignored) {
         }
+        updateHomeProgress();
         refreshPlayIcon();
     }
 

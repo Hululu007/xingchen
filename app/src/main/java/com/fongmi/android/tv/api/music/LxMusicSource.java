@@ -366,9 +366,25 @@ public class LxMusicSource implements MusicSource {
     private String pickRawLrc(String lxlyric, String plain) {
         if (TextUtils.isEmpty(lxlyric)) return plain.isEmpty() ? null : plain;
         if (plain.isEmpty()) return lxlyric;
-        if (!LyricsParser.parseWordLyric(lxlyric).isEmpty()) return lxlyric;
+        if (isUsableLxLyric(lxlyric)) return lxlyric;
         if (!LyricsParser.parseWordLyric(plain).isEmpty()) return plain;
         return lxlyric;
+    }
+
+    /**
+     * lxlyric 真可用判据：parseWordLyric 非空还不够——解析层的纯文本回落会把乱码/报错串
+     * 也收成无时间轴「整行词」，这种回落行不许算逐字可用、顶掉 plain 的真整行词。
+     * 真逐字/LRC 至少命中一条：解析行带逐字词、原文有 [mm:ss] 定时行、或有 [ms,时长] 逐字行头
+     * （行头在但词标记损坏被 salvage 成整行时靠这条认）。
+     */
+    private static boolean isUsableLxLyric(String text) {
+        List<com.fongmi.android.tv.player.lyrics.LyricsLine> lines = LyricsParser.parseWordLyric(text);
+        if (lines.isEmpty()) return false;
+        for (com.fongmi.android.tv.player.lyrics.LyricsLine line : lines) {
+            if (line.hasWords()) return true;
+        }
+        if (LyricsParser.hasTimedLine(text)) return true;
+        return java.util.regex.Pattern.compile("(?m)^\\s*\\[\\d+,\\d+]").matcher(text).find();
     }
 
     private String firstNonEmpty(String... vals) {

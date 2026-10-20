@@ -89,7 +89,7 @@
             android:ellipsize="end"
             android:gravity="center"
             android:maxLines="1"
-            android:textColor="#E6FFFFFF"
+            android:textColor="#A6FFFFFF"
             android:textSize="14sp" />
 
         <ImageView

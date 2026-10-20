@@ -1,57 +1,116 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 队列行（照 GZ PlayQueueSheet）：主行高 56dp、封面 36dp 圆角 8dp（ImgUtil.loadRounded）、
+     歌名 13sp/行高 16sp、歌手 11sp/行高 14sp、右侧时长/格式与播放指示；
+     长按展开操作行（钮盒 30dp、图标 18dp、间隔 2dp：收藏/加歌单/移除），拖动手柄排序。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="72dp"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingStart="4dp"
-    android:paddingEnd="4dp">
-
-    <ImageView
-        android:id="@+id/cover"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:scaleType="centerCrop" />
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <ImageView
+            android:id="@+id/cover"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:lineHeight="16sp"
+                android:maxLines="1"
+                android:textColor="#1C1C1E"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:lineHeight="14sp"
+                android:maxLines="1"
+                android:textColor="#9A9AA0"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/playing"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_music_play"
+            android:visibility="gone" />
 
         <TextView
-            android:id="@+id/title"
+            android:id="@+id/duration"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp" />
+            android:textColor="#9A9AA0"
+            android:textSize="11sp" />
 
-        <TextView
-            android:id="@+id/artist"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#9AA7B8"
-            android:textSize="13sp" />
+        <ImageView
+            android:id="@+id/handle"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="6dp"
+            android:contentDescription="@string/music_sort_default"
+            android:padding="6dp"
+            android:src="@drawable/ic_music_queue" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/btnRemove"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:contentDescription="@string/music_remove"
-        android:padding="12dp"
-        android:src="@drawable/ic_music_close" />
+    <LinearLayout
+        android:id="@+id/ops"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end|center_vertical"
+        android:orientation="horizontal"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
 
-    <ImageView
-        android:id="@+id/handle"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:padding="12dp"
-        android:src="@drawable/ic_music_queue" />
+        <ImageView
+            android:id="@+id/btnFav"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="@drawable/bg_sheet_circle_btn"
+            android:contentDescription="@string/music_favorite"
+            android:padding="6dp"
+            android:src="@drawable/ic_music_heart" />
+
+        <ImageView
+            android:id="@+id/btnAdd"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="2dp"
+            android:background="@drawable/bg_sheet_circle_btn"
+            android:contentDescription="@string/music_add_to_playlist"
+            android:padding="6dp"
+            android:src="@drawable/ic_music_plus" />
+
+        <ImageView
+            android:id="@+id/btnRemove"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="2dp"
+            android:background="@drawable/bg_sheet_circle_btn"
+            android:contentDescription="@string/music_remove"
+            android:padding="6dp"
+            android:src="@drawable/ic_music_close" />
+    </LinearLayout>
 </LinearLayout>

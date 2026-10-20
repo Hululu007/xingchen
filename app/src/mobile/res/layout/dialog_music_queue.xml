@@ -1,33 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 播放队列面板（照 GZ PlayQueueSheet 浅色令牌）：sheetBg 白、内边距 16dp 底 10dp、
+     头部＝标题＋随机徽标＋计数筹＋清空，列表最大高屏高 0.68（代码里钳），空态图标＋文字。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/card_music"
-    android:orientation="vertical"
-    android:padding="20dp">
+    android:background="@drawable/sheet_panel_white"
+    android:orientation="vertical">
+
+    <!-- 拖动条：宽 36dp 高 4dp，黑 0.14 -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_sheet_handle" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
         android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/music_queue"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
+            android:text="@string/sheet_queue_title"
+            android:textColor="#1C1C1E"
+            android:textSize="16sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvCount"
-            android:layout_width="0dp"
+            android:id="@+id/badgeShuffle"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:textColor="#9AA7B8"
-            android:textSize="14sp" />
+            android:background="@drawable/sheet_chip_dark"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:text="@string/sheet_queue_shuffle"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/sheet_chip_inset"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:textColor="#8E8E93"
+            android:textSize="12sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/btnClear"
@@ -35,14 +71,51 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="@string/music_clear_queue"
-            android:textColor="#9AA7B8"
+            android:textColor="#1C1C1E"
             android:textSize="14sp" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="@string/sheet_queue_hint"
+        android:textColor="#9A9AA0"
+        android:textSize="11sp" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:maxHeight="420dp" />
+        android:overScrollMode="never"
+        android:paddingBottom="10dp" />
+
+    <LinearLayout
+        android:id="@+id/emptyBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingBottom="26dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:alpha="0.5"
+            android:src="@drawable/ic_music_note" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/sheet_queue_empty"
+            android:textColor="#9A9AA0"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

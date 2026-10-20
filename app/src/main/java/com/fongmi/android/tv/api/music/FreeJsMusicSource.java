@@ -178,7 +178,9 @@ public class FreeJsMusicSource implements MusicSource {
                 if (hit == null) continue;
                 try {
                     MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l;
+                    // rich 口径与 MusicRepository.hasRaw/normalizeRich 对齐：译文-only 也算命中，
+                    // 不许在这一级按「只有正文才算数」把译文丢掉——仓库会把定时译文提为正文
+                    if (l != null && l.hasLyric()) return l;
                 } catch (Throwable ignored) {
                 }
             }
@@ -214,7 +216,8 @@ public class FreeJsMusicSource implements MusicSource {
                     MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
                     if (hit == null) continue;
                     MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l;
+                    // 同 lyricFallbackRich：rich 口径认 hasLyric（译文-only 也算），仓库 normalizeRich 提正文
+                    if (l != null && l.hasLyric()) return l;
                 } catch (Throwable ignored) {
                 }
             }

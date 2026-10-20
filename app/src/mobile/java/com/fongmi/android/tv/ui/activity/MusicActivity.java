@@ -1,45 +1,53 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.TextView;
 
-import androidx.annotation.NonNull;
-import androidx.core.view.GravityCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
+import com.fongmi.android.tv.databinding.HomeDialogRecentBinding;
+import com.fongmi.android.tv.music.DeviceMusicStore;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
+import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
+import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * 音乐首页：导航行（歌单/收藏/榜单/已下载/本地音乐五项）。
- * 源列表不在首页：顶栏左上角 ☰ 图标点开左侧抽屉（插件管理→源管理页，设置→音乐设置页）。
- * 首页不放播放键行（与底部迷你条重复）和源数显示（废信息），潇洒哥 2026-10-20 亲点删。
- * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
+ * 音乐首页（v7 定稿，2026-10-21 用户逐版改定）：
+ * ① 搜索胶囊条（占位「搜索歌曲、歌手、专辑」）＋右侧竖三点 ⋮ 小菜单（插件管理／设置，非全屏）；
+ * ② 白色圆角卡内五个快捷横排：音乐收藏／我的歌单／本地音乐（正中）／播放历史／下载音乐，
+ *    彩色图标＋名字＋下方真实数量（异步回填，取不到显示 0）；
+ * ③ 三张渐变入口卡垫底：猜你喜欢·每日精选（粉）／排行榜·此刻热门（蓝绿）／随心听·随机漫游（绿黄）。
+ * 底部迷你条是 ListenMiniBar 悬浮条（只在音乐首页显示，白名单机制在迷你条侧），本页不内嵌。
+ * 源列表不放首页；顶栏无返回箭头；界面只放名字和状态，无介绍文字。
  */
 public class MusicActivity extends BaseActivity {
 
     private ActivityMusicBinding binding;
-    private final List<Object> items = new ArrayList<>();
-    private final List<NavItem> navItems = new ArrayList<>();
-    private HomeAdapter adapter;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicActivity.class));
@@ -55,48 +63,31 @@ public class MusicActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
-        binding.recycler.setLayoutManager(new LinearLayoutManager(this));
-        binding.recycler.setAdapter(adapter = new HomeAdapter());
-        binding.btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
-        // ☰ 点开左侧抽屉：宽度为屏宽 70%，右侧首页压暗，点暗处或滑回关闭
-        ViewGroup.LayoutParams lp = binding.drawerPanel.getLayoutParams();
-        lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
-        binding.drawerPanel.setLayoutParams(lp);
-        binding.drawerLayout.setScrimColor(0x99000000);
-        // 定根：DrawerLayout 在状态栏区默认画主题的 colorPrimaryDark（本主题金色系），与页面深蓝黑断成黄带；
-        // 改成页面渐变顶边色 #0E1622（bg_music_gradient 顶色），顶部与页面连成一体
-        binding.drawerLayout.setStatusBarBackgroundColor(0xFF0E1622);
-        binding.btnSourceManage.setOnClickListener(v -> binding.drawerLayout.openDrawer(GravityCompat.START));
-        // 抽屉里只有两项：插件管理（进源管理，原行为）／设置（进音乐设置页）
-        binding.drawerSites.setOnClickListener(v -> {
-            binding.drawerLayout.closeDrawer(GravityCompat.START);
-            MusicListActivity.startSites(this);
-        });
-        binding.drawerSettings.setOnClickListener(v -> {
-            binding.drawerLayout.closeDrawer(GravityCompat.START);
-            MusicSettingsActivity.start(this);
-        });
-        refresh();
+        // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
+        binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
+        // ② 五快捷真跳
+        binding.homeQuickFavorite.setOnClickListener(v -> MusicListActivity.startFavorite(this));
+        binding.homeQuickSheets.setOnClickListener(v -> MusicListActivity.startSheets(this));
+        binding.homeQuickDevice.setOnClickListener(v -> MusicListActivity.startDevice(this));
+        binding.homeQuickRecent.setOnClickListener(v -> showRecent());
+        binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
+        // ③ 三彩卡
+        // 猜你喜欢：树内现行推荐来源只有榜单聚合页（MusicRepository.charts 聚合各源榜单），用 charts 模式承接
+        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeCardShuffle.setOnClickListener(v -> shufflePlay());
+        refreshCounts();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        refreshNavStatus();
+        refreshCounts();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
         } catch (Throwable ignored) {
-        }
-    }
-
-    /** 抽屉开着时系统返回先收抽屉，不离开页面 */
-    @Override
-    protected void onBackInvoked() {
-        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            binding.drawerLayout.closeDrawer(GravityCompat.START);
-        } else {
-            super.onBackInvoked();
         }
     }
 
@@ -106,118 +97,183 @@ public class MusicActivity extends BaseActivity {
         super.onDestroy();
     }
 
-    private void refresh() {
-        buildNavItems();
-        items.clear();
-        items.addAll(navItems);
-        adapter.notifyDataSetChanged();
-        binding.empty.setVisibility(View.GONE);
+    // ================= ⋮ 小菜单（小下拉，非全屏） =================
+
+    private void showMoreMenu(View anchor) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundResource(R.drawable.home_bg_menu);
+        root.setElevation(dp(6));
+        int pad = dp(6);
+        root.setPadding(pad, pad, pad, pad);
+        PopupWindow pw = new PopupWindow(root,
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true);
+        pw.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        pw.setElevation(dp(6));
+        addMenuRow(root, pw, getString(R.string.music_plugin_manage),
+                () -> MusicListActivity.startSites(this));
+        addMenuRow(root, pw, getString(R.string.music_setting),
+                () -> MusicSettingsActivity.start(this));
+        try {
+            pw.showAsDropDown(anchor, -dp(110), dp(4), Gravity.END);
+        } catch (Throwable t) {
+            pw.showAsDropDown(anchor, 0, 0);
+        }
     }
 
-    private void refreshNavStatus() {
+    private void addMenuRow(LinearLayout root, PopupWindow pw, String text, Runnable action) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFF1A1A1A);
+        tv.setTextSize(15);
+        tv.setMinWidth(dp(150));
+        int hp = dp(16);
+        int vp = dp(12);
+        tv.setPadding(hp, vp, hp, vp);
+        tv.setBackgroundResource(R.drawable.home_bg_menu_row);
+        tv.setOnClickListener(v -> {
+            try {
+                pw.dismiss();
+            } catch (Throwable ignored) {
+            }
+            action.run();
+        });
+        root.addView(tv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    // ================= 五快捷数量（真数据，异步回填） =================
+
+    private void refreshCounts() {
+        if (binding == null) return;
         MusicLibrary.favoriteCount(n -> {
-            navItems.get(1).status = n + " " + getString(R.string.music_tracks);
-            if (adapter != null) adapter.notifyDataSetChanged();
+            if (binding != null) binding.homeCountFavorite.setText(String.valueOf(n));
         });
         MusicLibrary.playlists(list -> {
-            navItems.get(0).status = list.size() + " 个歌单";
-            if (adapter != null) adapter.notifyDataSetChanged();
+            if (binding != null) binding.homeCountSheets.setText(String.valueOf(list == null ? 0 : list.size()));
         });
         MusicDownloadStore.count(n -> {
-            navItems.get(3).status = n + " " + getString(R.string.music_tracks);
-            if (adapter != null) adapter.notifyDataSetChanged();
+            if (binding != null) binding.homeCountDownload.setText(String.valueOf(n));
+        });
+        // 历史数：loadRecent 同步读（上限 50 条的小 JSON），直接取条数
+        try {
+            binding.homeCountRecent.setText(String.valueOf(MusicStore.loadRecent().size()));
+        } catch (Throwable ignored) {
+            binding.homeCountRecent.setText("0");
+        }
+        // 本地数：DeviceMusicStore.scan 是阻塞扫描（MediaStore＋目录），走后台线程回填
+        Task.execute(() -> {
+            int n = 0;
+            try {
+                n = DeviceMusicStore.scan(this).size();
+            } catch (Throwable ignored) {
+            }
+            int count = n;
+            runOnUiThread(() -> {
+                if (binding != null) binding.homeCountDevice.setText(String.valueOf(count));
+            });
         });
     }
 
-    private void buildNavItems() {
-        navItems.clear();
-        navItems.add(new NavItem("sheets", getString(R.string.music_playlist), "", 0xFF22C55E, R.drawable.ic_music_queue));
-        navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
-        navItems.add(new NavItem("charts", getString(R.string.music_charts), "", 0xFFA855F7, R.drawable.ic_music_eq));
-        navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
-        // 本地音乐：设备音频（MediaStore＋导入目录），排在四行之后，跟已下载分开
-        navItems.add(new NavItem("device", getString(R.string.music_device), "", 0xFF06B6D4, R.drawable.ic_music_note));
-    }
+    // ================= 播放历史（树内无 recent 列表页，按现行「列表点歌」模式承接） =================
 
-    private void onNavClick(NavItem item) {
-        switch (item.key) {
-            case "sheets":
-                MusicListActivity.startSheets(this);
-                break;
-            case "favorite":
-                MusicListActivity.startFavorite(this);
-                break;
-            case "charts":
-                MusicListActivity.startCharts(this);
-                break;
-            case "download":
-                MusicListActivity.startDownload(this);
-                break;
-            case "device":
-                MusicListActivity.startDevice(this);
-                break;
+    /**
+     * MusicListActivity 没有 recent 模式、树内也没有最近播放的展示页，
+     * 这里按 MusicListActivity 的现行模式承接：列出 MusicStore.loadRecent() 的曲目，
+     * 点一行＝以整份历史为队列从该行开播并进播放页（与 MusicListActivity.playTrack 同写法）。
+     */
+    private void showRecent() {
+        List<MusicTrack> recent;
+        try {
+            recent = MusicStore.loadRecent();
+        } catch (Throwable ignored) {
+            recent = new ArrayList<>();
         }
-    }
-
-    private static class NavItem {
-        final String key;
-        final String name;
-        String status;
-        final int color;
-        final int icon;
-
-        NavItem(String key, String name, String status, int color, int icon) {
-            this.key = key;
-            this.name = name;
-            this.status = status;
-            this.color = color;
-            this.icon = icon;
+        HomeDialogRecentBinding dlg = HomeDialogRecentBinding.inflate(getLayoutInflater());
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(dlg.getRoot()).create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
-    }
-
-    private class HomeAdapter extends RecyclerView.Adapter<HomeAdapter.Holder> {
-
-        @NonNull
-        @Override
-        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_music_nav, parent, false);
-            return new Holder(v);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull Holder h, int position) {
-            NavItem item = (NavItem) items.get(position);
-            h.name.setText(item.name);
-            h.status.setText(item.status);
-            h.icon.setImageResource(item.icon);
-            h.icon.setBackground(circle(item.color));
-            h.icon.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
-            h.itemView.setOnClickListener(v -> onNavClick(item));
-        }
-
-        private GradientDrawable circle(int color) {
-            GradientDrawable d = new GradientDrawable();
-            d.setShape(GradientDrawable.OVAL);
-            d.setColor(color);
-            return d;
-        }
-
-        @Override
-        public int getItemCount() {
-            return items.size();
-        }
-
-        class Holder extends RecyclerView.ViewHolder {
-            final ImageView icon;
-            final TextView name;
-            final TextView status;
-
-            Holder(View v) {
-                super(v);
-                icon = v.findViewById(R.id.icon);
-                name = v.findViewById(R.id.name);
-                status = v.findViewById(R.id.status);
+        if (recent.isEmpty()) {
+            dlg.homeRecentEmpty.setVisibility(View.VISIBLE);
+        } else {
+            for (int i = 0; i < recent.size(); i++) {
+                MusicTrack track = recent.get(i);
+                int index = i;
+                View row = LayoutInflater.from(this)
+                        .inflate(R.layout.home_item_recent, dlg.homeRecentList, false);
+                TextView title = row.findViewById(R.id.homeRecentTitle);
+                TextView artist = row.findViewById(R.id.homeRecentArtist);
+                title.setText(track.displayTitle());
+                String a = track.displayArtist();
+                artist.setText(a == null ? "" : a);
+                artist.setVisibility(a == null || a.isEmpty() ? View.GONE : View.VISIBLE);
+                List<MusicTrack> queue = new ArrayList<>(recent);
+                row.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    MusicController.get().play(queue, index);
+                    MusicPlayerActivity.start(this);
+                });
+                dlg.homeRecentList.addView(row);
             }
         }
+        dialog.show();
+    }
+
+    // ================= 随心听（真随机播放） =================
+
+    /**
+     * 随机队列来源（按现行能力依次取）：当前队列 → 最近播放 → 收藏 → 已下载；
+     * 都为空才提示无歌。取到后照 MusicListActivity.shufflePlay 的现行写法：
+     * 打乱副本 → setMode(MODE_SHUFFLE) → play(队列, 0) → 进播放页。
+     */
+    private void shufflePlay() {
+        List<MusicTrack> queue = new ArrayList<>();
+        try {
+            queue = MusicController.get().queue();
+        } catch (Throwable ignored) {
+        }
+        if (queue != null && !queue.isEmpty()) {
+            startShuffle(new ArrayList<>(queue));
+            return;
+        }
+        List<MusicTrack> recent = new ArrayList<>();
+        try {
+            recent = MusicStore.loadRecent();
+        } catch (Throwable ignored) {
+        }
+        if (!recent.isEmpty()) {
+            startShuffle(recent);
+            return;
+        }
+        MusicLibrary.favorites(list -> {
+            if (list != null && !list.isEmpty()) {
+                startShuffle(new ArrayList<>(list));
+                return;
+            }
+            MusicDownloadStore.all(downloads -> {
+                if (downloads != null && !downloads.isEmpty()) {
+                    startShuffle(new ArrayList<>(downloads));
+                } else {
+                    Notify.show(R.string.music_no_track);
+                }
+            });
+        });
+    }
+
+    private void startShuffle(List<MusicTrack> tracks) {
+        if (tracks == null || tracks.isEmpty()) {
+            Notify.show(R.string.music_no_track);
+            return;
+        }
+        List<MusicTrack> shuffled = new ArrayList<>(tracks);
+        Collections.shuffle(shuffled);
+        MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
+        MusicController.get().play(shuffled, 0);
+        MusicPlayerActivity.start(this);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 }

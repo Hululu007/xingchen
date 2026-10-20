@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 模式段选中态（GZ 本体：浅粉底＋AccentRed 文字/图标，不整块红填充） -->
+<!-- 定时格选中态（用户口径：中性深底 #1C1C1E＋白字，圆角 8dp） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#1AFA243C" />
+    <solid android:color="#1C1C1E" />
     <corners android:radius="8dp" />
 </shape>

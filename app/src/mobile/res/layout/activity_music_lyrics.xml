@@ -128,7 +128,7 @@
             android:paddingStart="28dp"
             android:paddingEnd="28dp" />
 
-        <!-- 底部：居中双胶囊＋发丝细进度线（可拖 seek），无主控行 -->
+        <!-- 底部：居中双胶囊（音质点按选档／逐字点按切换渲染）＋发丝细进度线（仅显示、不可拖），无主控行 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -149,6 +149,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_lyric_capsule"
+                    android:clickable="true"
+                    android:focusable="true"
                     android:paddingStart="12dp"
                     android:paddingTop="4dp"
                     android:paddingEnd="12dp"
@@ -164,6 +166,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_lyric_capsule"
+                    android:clickable="true"
+                    android:focusable="true"
                     android:paddingStart="12dp"
                     android:paddingTop="4dp"
                     android:paddingEnd="12dp"
@@ -174,15 +178,19 @@
                     android:visibility="gone" />
             </LinearLayout>
 
+            <!-- 发丝进度线：仅显示不可拖（GZ 歌词页底部无控制行、进度线仅显示）；enabled=false＋透明 0 拇指 -->
             <SeekBar
                 android:id="@+id/seekBar"
                 android:layout_width="match_parent"
                 android:layout_height="20dp"
                 android:layout_marginTop="10dp"
+                android:clickable="false"
+                android:enabled="false"
+                android:focusable="false"
                 android:maxHeight="2dp"
                 android:minHeight="2dp"
                 android:progressDrawable="@drawable/bg_lyric_hairline_progress"
-                android:thumb="@drawable/bg_lyric_hairline_thumb" />
+                android:thumb="@drawable/lyr_hairline_thumb" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

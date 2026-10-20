@@ -9,7 +9,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.os.Bundle;
 import android.widget.EditText;
-import android.widget.SeekBar;
 
 import androidx.viewbinding.ViewBinding;
 
@@ -43,14 +42,17 @@ import java.util.List;
 /**
  * 全屏歌词页（照 GZ 本体＋实拍转写）：上半部约 45% 封面图本体整幅显示、下缘渐变融进
  * CoverColor 氛围底；封面下方歌名歌手在左（歌手行小心形收藏态）、右侧三裸图标；
- * 歌词区在标题行下到胶囊上；底部居中双胶囊（音质实测短标＋逐字）＋发丝细进度线，
- * 无主控行（暂停只在头部第三图标）。页面不放返回箭头，走系统返回。
+ * 歌词区在标题行下到胶囊上；底部居中双胶囊（音质：点按开四档选档、显示走实测口径；
+ * 逐字：点按真切换逐字/整行渲染路径）＋发丝细进度线（仅显示、不可拖——GZ 歌词页底部
+ * 无控制行、进度线仅显示，参数表第 3 节），无主控行（暂停只在头部第三图标）。
+ * 页面不放返回箭头，走系统返回。
  */
 public class MusicLyricsActivity extends BaseActivity {
 
     private ActivityMusicLyricsBinding binding;
-    private boolean seeking;
     private boolean favorited;
+    /** 当前歌词是否带逐字时间轴（逐字胶囊显隐与可点状态据此）。 */
+    private boolean hasWordLines;
     private String bgCoverUrl;
     private int ambientColor = 0xFF1C1C1E;
 
@@ -98,26 +100,10 @@ public class MusicLyricsActivity extends BaseActivity {
             MusicController.get().seekTo(positionMs);
             binding.lyricsView.seekUi(positionMs);
         });
+        // 底部发丝进度线仅显示（GZ 口径）：SeekBar 只作进度呈现，禁用交互（布局 enabled=false），不挂拖动监听。
         binding.seekBar.setMax(1000);
-        binding.seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                seeking = true;
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                seeking = false;
-                long dur = MusicController.get().duration();
-                long target = dur * seekBar.getProgress() / 1000;
-                MusicController.get().seekTo(target);
-                binding.lyricsView.seekUi(target);
-            }
-        });
+        binding.chipQuality.setOnClickListener(v -> showQualityDialog());
+        binding.chipWord.setOnClickListener(v -> toggleWordByWord());
         MusicController.get().addListener(listener);
         bindTrack(MusicController.get().current());
         setPlayingUi(MusicController.get().isPlaying());
@@ -157,6 +143,7 @@ public class MusicLyricsActivity extends BaseActivity {
             binding.tvArtist.setText("");
             applyPlainBackground();
             binding.lyricsView.showWaiting();
+            hasWordLines = false;
             binding.chipQuality.setVisibility(View.GONE);
             binding.chipWord.setVisibility(View.GONE);
             return;
@@ -254,7 +241,7 @@ public class MusicLyricsActivity extends BaseActivity {
                 if (resultMain.isEmpty()) {
                     // 取词确认为空才露空态
                     binding.lyricsView.showNoLyric();
-                    binding.chipWord.setVisibility(View.GONE);
+                    refreshWordChip(null);
                 } else {
                     binding.lyricsView.setLines(resultMain, resultTrans, resultRoma);
                     refreshWordChip(resultMain);
@@ -389,7 +376,7 @@ public class MusicLyricsActivity extends BaseActivity {
     // ================= 进度 =================
 
     private void onProgressUi(long position, long duration) {
-        if (!seeking && duration > 0) {
+        if (duration > 0) {
             binding.seekBar.setProgress((int) (position * 1000 / duration));
         }
         binding.lyricsView.updatePosition(position);
@@ -403,8 +390,15 @@ public class MusicLyricsActivity extends BaseActivity {
 
     // ================= 胶囊与收藏 =================
 
-    /** 音质胶囊：实测短标（无损只显编码名、有损显「码率k」如 320k；沿用播放页实测口径），无实测隐藏 */
+    /**
+     * 音质胶囊：显示走实测口径（无损只显编码名、有损显「码率k」如 320k；取不到实测时只留
+     * 「音质」通用标签，所选档永不进显示——与播放页经典筹同口径）；点按开四档选档。
+     */
     private void refreshQualityChip() {
+        if (MusicController.get().current() == null) {
+            binding.chipQuality.setVisibility(View.GONE);
+            return;
+        }
         String label = null;
         try {
             com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
@@ -414,26 +408,53 @@ public class MusicLyricsActivity extends BaseActivity {
             }
         } catch (Throwable ignored) {
         }
-        if (label == null) {
-            binding.chipQuality.setVisibility(View.GONE);
-        } else {
-            binding.chipQuality.setText(label);
-            binding.chipQuality.setVisibility(View.VISIBLE);
-        }
+        binding.chipQuality.setText(label == null ? getString(R.string.music_quality) : label);
+        binding.chipQuality.setVisibility(View.VISIBLE);
     }
 
-    /** 逐字胶囊：任一行带逐字时间轴才显示，整行歌词隐藏 */
+    /** 音质四档选档（与播放页 showQualityDialog 同链：MusicOptionsDialog＋setQuality＋reloadQuality）。 */
+    private void showQualityDialog() {
+        if (MusicController.get().current() == null) return;
+        List<String> opts = new ArrayList<>();
+        int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD, MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+        for (int v : values) opts.add(MusicStore.qualityName(v));
+        MusicOptionsDialog.show(this, getString(R.string.music_quality), opts, MusicController.get().getQuality(), idx -> {
+            if (MusicController.get().getQuality() != values[idx]) {
+                MusicController.get().setQuality(values[idx]);
+                MusicController.get().reloadQuality();
+                refreshQualityChip();
+                Notify.show(getString(R.string.lyr_quality_switched) + MusicStore.qualityName(values[idx]));
+            }
+        });
+    }
+
+    /** 逐字胶囊：任一行带逐字时间轴才显示；点按真切换逐字/整行渲染路径，关时胶囊压暗示意。 */
     private void refreshWordChip(List<LyricsLine> lines) {
-        boolean word = false;
+        hasWordLines = false;
         if (lines != null) {
             for (LyricsLine line : lines) {
                 if (line != null && line.hasWords()) {
-                    word = true;
+                    hasWordLines = true;
                     break;
                 }
             }
         }
-        binding.chipWord.setVisibility(word ? View.VISIBLE : View.GONE);
+        binding.chipWord.setVisibility(hasWordLines ? View.VISIBLE : View.GONE);
+        paintWordChip();
+    }
+
+    private void paintWordChip() {
+        boolean on = binding.lyricsView.isWordByWord();
+        binding.chipWord.setAlpha(on ? 1f : 0.45f);
+        binding.chipWord.setTextColor(on ? 0xFFFFFFFF : 0xFF9A9AA0);
+    }
+
+    private void toggleWordByWord() {
+        if (!hasWordLines) return;
+        boolean on = !binding.lyricsView.isWordByWord();
+        binding.lyricsView.setWordByWord(on);
+        paintWordChip();
+        Notify.show(on ? R.string.lyr_word_on : R.string.lyr_word_off);
     }
 
     private void refreshFavorite(MusicTrack track) {
@@ -450,7 +471,7 @@ public class MusicLyricsActivity extends BaseActivity {
 
     private void paintFav() {
         binding.btnFav.setImageResource(favorited ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
-        binding.btnFav.setImageTintList(ColorStateList.valueOf(favorited ? 0xFFF2433D : 0xFFFFFFFF));
+        binding.btnFav.setImageTintList(ColorStateList.valueOf(favorited ? 0xFFFA243C : 0xFFFFFFFF));
     }
 
     private void toggleFavorite() {

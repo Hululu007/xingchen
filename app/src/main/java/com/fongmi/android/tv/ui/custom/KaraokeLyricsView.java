@@ -32,7 +32,9 @@ import java.util.Map;
 /**
  * 用途：全屏逐字歌词视图——逐字上浮＋长音光晕、非当前行磨砂压暗、弹簧跟随滚动，经典 View＋Canvas 自绘。
  * 参数口径：GZ 反编译参数对照表第 2 节（LyricsViewKt）逐项对齐，2026-10-21；
- * 颜色保持星辰定稿金（已唱高亮 0xFFFFC766 一带），不换 GZ 红——GZ 四色仅在常量区注释留对照。
+ * 四色照 GZ 2.5 节原值落码（已唱红／非当前灰／翻译灰，见颜色常量区；当前行未唱深灰为浅面值，
+ * 深面用白——GZ 各主题 palette 实例化赋值未抠到（参数表未抠到第 7 条），深面照原值会隐形，
+ * 违「字体看得清」铁律，故深面未唱保留白、浅面用 GZ 原值 0xFF3C3C43）。
  */
 public class KaraokeLyricsView extends View {
 
@@ -140,19 +142,29 @@ public class KaraokeLyricsView extends View {
     private static final int STATE_NO_LYRIC = 1;
     private static final int STATE_WAITING = 2;
 
-    // —— 颜色（星辰定稿；GZ 四色对照：已唱 0xFFFF2D55／当前未唱 0xFF3C3C43／非当前 0xFF9A9AA0／翻译 0xFF8A8A90，另已唱柔色 0xFFEAEAEA——仅对照，不采用） ——
+    // —— 颜色（GZ 2.5 节四色原值，LyricsViewKt:294-306） ——
+    /** 已唱色 ColorSung（GZ 原值）：当前行已唱部分与长音光晕目标色。 */
+    static final int COLOR_SUNG = 0xFFFF2D55;
+    /** 当前行未唱色 ColorActiveUnsung（GZ 原值）：浅色面未唱部分用此原值；深色面照此值会隐形，深面未唱用白（见类头注）。 */
+    static final int COLOR_ACTIVE_UNSUNG = 0xFF3C3C43;
+    /** 非当前行色 ColorInactive（GZ 原值）。 */
+    static final int COLOR_INACTIVE = 0xFF9A9AA0;
+    /** 翻译色 ColorTranslation（GZ 原值）：副行（翻译／音译）用。 */
+    static final int COLOR_TRANSLATION = 0xFF8A8A90;
+    /** 已唱柔色 ColorSungSoft（GZ 原值，LyricsViewKt:306）：常量留档，柔和态用。 */
+    static final int COLOR_SUNG_SOFT = 0xFFEAEAEA;
     /** 主行未唱颜色（深色面）。 */
     private static final int MAIN_COLOR = Color.WHITE;
-    /** 主行已唱／高亮颜色（星辰金，定稿不动）。 */
-    private static final int ACTIVE_COLOR = 0xFFFFC766;
-    /** 副行颜色（深色面）。 */
-    private static final int SUB_COLOR = 0x99FFFFFF;
-    /** 非当前行颜色（深色面）。 */
-    private static final int IDLE_COLOR = Color.WHITE;
+    /** 主行已唱／高亮颜色＝GZ 已唱色。 */
+    private static final int ACTIVE_COLOR = COLOR_SUNG;
+    /** 副行颜色（深色面）＝GZ 翻译色。 */
+    private static final int SUB_COLOR = COLOR_TRANSLATION;
+    /** 非当前行颜色（深色面）＝GZ 非当前行色（再乘按距离 alpha 与渐隐）。 */
+    private static final int IDLE_COLOR = COLOR_INACTIVE;
     /** 空歌词提示颜色（深色面）。 */
     private static final int EMPTY_COLOR = 0x8AFFFFFF;
-    /** 浅色面（setLightScheme）：主行未唱／非当前行改深灰系，主行已唱保持高亮金。 */
-    private static final int MAIN_COLOR_LIGHT = 0xFF1C1C1E;
+    /** 浅色面（setLightScheme）：主行未唱＝GZ 当前行未唱原值、非当前行改深灰系，主行已唱保持 GZ 已唱红。 */
+    private static final int MAIN_COLOR_LIGHT = COLOR_ACTIVE_UNSUNG;
     private static final int IDLE_COLOR_LIGHT = 0xFF636366;
     private static final int SUB_COLOR_LIGHT = 0xFF747D89;
     private static final int EMPTY_COLOR_LIGHT = 0x8A000000;
@@ -194,6 +206,8 @@ public class KaraokeLyricsView extends View {
     private List<String> translations;
     private List<String> romanizations;
     private int primaryMode; // 0=原文 1=翻译 2=音译 作主行
+    /** 逐字显示开关（歌词页「逐字」胶囊切换）：开＝逐字分段渲染（上浮/光晕/逐字变色），关＝整行渲染路径。 */
+    private boolean wordByWord = true;
     private boolean showTranslation = true;
     private boolean showRomanization = true;
     private OnLineClickListener lineClickListener;
@@ -360,6 +374,23 @@ public class KaraokeLyricsView extends View {
                     ? Math.min(desired, MeasureSpec.getSize(heightMeasureSpec)) : desired;
             setMeasuredDimension(getMeasuredWidth(), size);
         }
+    }
+
+    /**
+     * 逐字显示开关（新增公开方法，不改既有签名）：关时布局层不再按词分段、
+     * 绘制层当前行走整行提亮路径（drawWholeLineSegment），是真切换渲染路径而非仅改标记。
+     */
+    public void setWordByWord(boolean enabled) {
+        if (wordByWord == enabled) return;
+        wordByWord = enabled;
+        layoutWidth = -1;
+        rebuildLayout();
+        snapScrollToCurrent();
+        invalidate();
+    }
+
+    public boolean isWordByWord() {
+        return wordByWord;
     }
 
     /** 0=原文作主行、1=翻译作主行、2=音译作主行（作主行时原主行退为副行）。 */
@@ -543,7 +574,7 @@ public class KaraokeLyricsView extends View {
     /**
      * 刚度基值（GZ amllPosYComposeStiffness 全公式）：
      * stiffness(delta)＝((1−((clamp(delta,100,800)−100)/700)^0.2)×50＋170)/0.9；
-     * 缺省 delta＝450 代入：((1−0.5^0.2)×50＋170)/0.9 ≈ 237.3。
+     * 缺省 delta＝450 代入：(0.5^0.2×50＋170)/0.9 ≈ 237.25（离线 harness 逐点核过）。
      * 不再按帧间隔换算（旧「帧间隔 ×10」已删），滚动弹簧一律走缺省基值，规格切换见 stepSpring。
      */
     static double stiffnessForDelta(long deltaMs) {
@@ -702,7 +733,7 @@ public class KaraokeLyricsView extends View {
             return rows;
         }
         LyricsLine line = lines.get(index);
-        boolean wordMode = primaryMode == 0 && line.hasWords();
+        boolean wordMode = primaryMode == 0 && wordByWord && line.hasWords();
         List<Seg> segs = new ArrayList<>();
         if (wordMode) {
             for (LyricsWord word : line.getWords()) {
@@ -988,7 +1019,7 @@ public class KaraokeLyricsView extends View {
         Paint paint = mainPaint;
         paint.setMaskFilter(null);
         long relative = pos - line.getTimeMs();
-        boolean wordMode = primaryMode == 0 && line.hasWords();
+        boolean wordMode = primaryMode == 0 && wordByWord && line.hasWords();
         float em = paint.getTextSize();
         float y = baseline;
         int totalRows = block.mainRows.size();

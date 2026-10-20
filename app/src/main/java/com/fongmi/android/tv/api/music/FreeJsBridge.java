@@ -308,7 +308,12 @@ public class FreeJsBridge {
             lyric.translation = firstNonEmpty(optStr(obj, "translation"), optStr(obj, "tlyric"));
             lyric.romanization = firstNonEmpty(optStr(obj, "romalrc"), optStr(obj, "romanization"));
         }
-        return TextUtils.isEmpty(lyric.rawLrc) && TextUtils.isEmpty(lyric.translation) && TextUtils.isEmpty(lyric.romanization) ? null : lyric;
+        // 空白也算无词：与 MusicLyric.hasLyric 的 trim 口径一致，不许纯空白正文冒充有词堵住兜底
+        return isBlank(lyric.rawLrc) && isBlank(lyric.translation) && isBlank(lyric.romanization) ? null : lyric;
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.trim().isEmpty();
     }
 
     /**

@@ -9,8 +9,8 @@ import android.graphics.Color;
 public final class CoverColor {
 
     // ===== 常量区（数值出处：GZ 反编译 CoverAmbientKt 自研取色算法实证，2026-10-21） =====
-    /** 兜底色：空图／全透明图时返回的深灰。 */
-    public static final int FALLBACK_COLOR = 0xFF1B1B1F;
+    /** 兜底色：空图／全透明图时返回（GZ CoverAmbientKt 默认色 0xFF1C1C1E 原值）。 */
+    public static final int FALLBACK_COLOR = 0xFF1C1C1E;
     /** 调用方应先把图缩到 ≤96px；方法内再兜底缩放到的最长边。 */
     private static final int MAX_EDGE = 96;
     /** 自研量化器档数：每通道量化到 24 档后聚合直方图（GZ 口径）。 */

@@ -172,6 +172,16 @@
     <string name="music_sleep">定时关闭</string>
     <string name="music_quality">音质</string>
     <string name="music_equalizer">均衡器</string>
+    <string name="music_fx">音效</string>
+    <string name="music_fx_preset">预设</string>
+    <string name="music_fx_bass">低音增强</string>
+    <string name="music_fx_virtualizer">环绕</string>
+    <string name="music_fx_unsupported">不支持</string>
+    <string name="music_device">本地音乐</string>
+    <string name="music_device_need_permission">需要授权才能读取手机里的歌曲</string>
+    <string name="music_device_grant">去授权</string>
+    <string name="music_import_encrypted">导入加密歌曲</string>
+    <string name="music_already_local">已经在本地了</string>
     <string name="music_no_track">还没有在播的歌</string>
     <string name="music_no_result">没搜到，去换个词试试</string>
     <string name="music_new_playlist">新建歌单</string>

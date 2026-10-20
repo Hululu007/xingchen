@@ -315,6 +315,39 @@ public class MusicController {
         return s == null ? MusicPlaybackService.SLEEP_OFF : s.getSleep();
     }
 
+    // ================= 音效（App 内面板 → 服务 audiofx） =================
+
+    /** 音效全量状态（面板打开用）；服务没起来返回 null */
+    public MusicPlaybackService.FxState fxState() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        if (s == null) return null;
+        try {
+            return s.fxState();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    public void setFxEnabled(boolean on) {
+        runOnService(() -> service().setFxEnabled(on));
+    }
+
+    public void setFxPreset(int preset) {
+        runOnService(() -> service().setFxPreset(preset));
+    }
+
+    public void setFxBandLevel(int band, int millibel) {
+        runOnService(() -> service().setFxBandLevel(band, millibel));
+    }
+
+    public void setFxBass(int strength) {
+        runOnService(() -> service().setFxBass(strength));
+    }
+
+    public void setFxVirtualizer(int strength) {
+        runOnService(() -> service().setFxVirtualizer(strength));
+    }
+
     public boolean openEqualizer(Activity activity) {
         MusicPlaybackService s = service();
         if (s == null) {

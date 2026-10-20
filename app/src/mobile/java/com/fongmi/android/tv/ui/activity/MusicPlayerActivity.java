@@ -486,6 +486,11 @@ public class MusicPlayerActivity extends BaseActivity {
             }
 
             @Override
+            public void onFx() {
+                com.fongmi.android.tv.ui.dialog.MusicFxDialog.show(MusicPlayerActivity.this);
+            }
+
+            @Override
             public void onAddToPlaylist() {
                 pickPlaylist(track);
             }

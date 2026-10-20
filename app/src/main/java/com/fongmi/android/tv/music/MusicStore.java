@@ -82,6 +82,73 @@ public class MusicStore {
         Prefers.put(K_SPEED, speed);
     }
 
+    // ===== 音效面板（系统 audiofx：均衡器/低音增强/环绕，music_fx_*） =====
+    private static final String K_FX_ENABLED = "music_fx_enabled";
+    private static final String K_FX_PRESET = "music_fx_preset";
+    private static final String K_FX_BANDS = "music_fx_bands";
+    private static final String K_FX_BASS = "music_fx_bass";
+    private static final String K_FX_VIRT = "music_fx_virt";
+
+    /** 音效总开关（默认关：关＝三件 audiofx 全部 bypass） */
+    public static boolean isFxEnabled() {
+        return Prefers.getBoolean(K_FX_ENABLED, false);
+    }
+
+    public static void setFxEnabled(boolean on) {
+        Prefers.put(K_FX_ENABLED, on);
+    }
+
+    /** 当前预设序号；-1 = 自定义（手动拉杆）或还没选过 */
+    public static int getFxPreset() {
+        return Prefers.getInt(K_FX_PRESET, -1);
+    }
+
+    public static void setFxPreset(int preset) {
+        Prefers.put(K_FX_PRESET, preset);
+    }
+
+    /** 各段电平（毫分贝），逗号分隔存；没有存过返回空数组 */
+    public static short[] getFxBands() {
+        String s = Prefers.getString(K_FX_BANDS, "");
+        if (s == null || s.isEmpty()) return new short[0];
+        try {
+            String[] parts = s.split(",");
+            short[] out = new short[parts.length];
+            for (int i = 0; i < parts.length; i++) out[i] = Short.parseShort(parts[i].trim());
+            return out;
+        } catch (Throwable t) {
+            return new short[0];
+        }
+    }
+
+    public static void setFxBands(short[] levels) {
+        if (levels == null) return;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < levels.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(levels[i]);
+        }
+        Prefers.put(K_FX_BANDS, sb.toString());
+    }
+
+    /** 低音增强强度 0..1000 */
+    public static int getFxBass() {
+        return Prefers.getInt(K_FX_BASS, 0);
+    }
+
+    public static void setFxBass(int strength) {
+        Prefers.put(K_FX_BASS, Math.max(0, Math.min(1000, strength)));
+    }
+
+    /** 环绕（虚拟化）强度 0..1000 */
+    public static int getFxVirtualizer() {
+        return Prefers.getInt(K_FX_VIRT, 0);
+    }
+
+    public static void setFxVirtualizer(int strength) {
+        Prefers.put(K_FX_VIRT, Math.max(0, Math.min(1000, strength)));
+    }
+
     public static int getMode() {
         return Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
     }

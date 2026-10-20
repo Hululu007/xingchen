@@ -34,6 +34,8 @@ public class MusicPlayerMoreDialog extends BaseBottomSheetDialog {
 
         void onSpeed();
 
+        void onFx();
+
         void onAddToPlaylist();
 
         void onPlayNext();
@@ -45,6 +47,7 @@ public class MusicPlayerMoreDialog extends BaseBottomSheetDialog {
 
     private static final int ROW_SLEEP = 0;
     private static final int ROW_SPEED = 1;
+    private static final int ROW_FX = 6;
     private static final int ROW_PLAYLIST = 2;
     private static final int ROW_NEXT = 3;
     private static final int ROW_APPEND = 4;
@@ -103,6 +106,7 @@ public class MusicPlayerMoreDialog extends BaseBottomSheetDialog {
         List<Row> rows = new ArrayList<>();
         rows.add(new Row(ROW_SLEEP, R.drawable.ic_music_timer, R.string.music_sleep, sleepName));
         rows.add(new Row(ROW_SPEED, R.drawable.ic_music_sort, R.string.music_speed, speedName));
+        rows.add(new Row(ROW_FX, R.drawable.ic_music_eq, R.string.music_fx, null));
         rows.add(new Row(ROW_PLAYLIST, R.drawable.ic_music_plus, R.string.music_add_to_playlist, null));
         rows.add(new Row(ROW_NEXT, R.drawable.ic_music_next, R.string.music_play_next, null));
         rows.add(new Row(ROW_APPEND, R.drawable.ic_music_queue, R.string.music_add_queue, null));
@@ -118,6 +122,9 @@ public class MusicPlayerMoreDialog extends BaseBottomSheetDialog {
                 break;
             case ROW_SPEED:
                 listener.onSpeed();
+                break;
+            case ROW_FX:
+                listener.onFx();
                 break;
             case ROW_PLAYLIST:
                 listener.onAddToPlaylist();

@@ -164,6 +164,7 @@ public class MusicPlaybackService extends MediaSessionService {
     public void onDestroy() {
         saveBreakpoint();
         cancelSleep();
+        releaseFx();
         main.removeCallbacksAndMessages(null);
         listeners.clear();
         if (session != null) {
@@ -408,9 +409,8 @@ public class MusicPlaybackService extends MediaSessionService {
     // ================= 均衡器：调系统均衡器面板 =================
 
     /**
-     * 均衡器走系统均衡器面板跳转（AudioEffect 标准口）。
-     * 不自己造 Equalizer：各机型原生均衡器支持程度不一，调系统面板最稳，
-     * 作用域是当前音频会话，关 App 后系统侧保留用户调的曲线。
+     * 均衡器旧口：跳系统均衡器面板（AudioEffect 标准口）。
+     * 播放页「更多 → 音效」已改走 App 内面板（下面 fx* 一套），这里保留给其它入口。
      */
     public boolean openEqualizer(Activity activity) {
         try {
@@ -553,6 +553,218 @@ public class MusicPlaybackService extends MediaSessionService {
         });
     }
 
+    // ================= 音效（App 内面板：系统 audiofx 三件） =================
+
+    private android.media.audiofx.Equalizer fxEqualizer;
+    private android.media.audiofx.BassBoost fxBassBoost;
+    private android.media.audiofx.Virtualizer fxVirtualizer;
+    private int fxSession = -1;
+
+    /** 音效面板要的全部状态：支持与否逐项给，不支持就是不支持，不许装有效 */
+    public static class FxState {
+        public boolean enabled;
+        public boolean eqSupported;
+        public boolean bassSupported;
+        public boolean virtSupported;
+        public java.util.List<String> presets = new java.util.ArrayList<>();
+        public int preset = -1;
+        public short[] levels = new short[0];
+        public int[] centerFreqsHz = new int[0];
+        public short minLevel;
+        public short maxLevel;
+        public int bass;
+        public int virt;
+    }
+
+    /**
+     * 按需建/重建三件 audiofx：挂当前 player 的 audioSessionId。
+     * 会话变了（切歌/音频汇重建）就先释放旧的再重挂，并把存档设置重新应用。
+     */
+    private void ensureFx() {
+        if (player == null) return;
+        int sid;
+        try {
+            sid = player.getAudioSessionId();
+        } catch (Throwable t) {
+            return;
+        }
+        if (sid == fxSession && (fxEqualizer != null || fxBassBoost != null || fxVirtualizer != null)) return;
+        releaseFx();
+        fxSession = sid;
+        try {
+            fxEqualizer = new android.media.audiofx.Equalizer(0, sid);
+        } catch (Throwable t) {
+            fxEqualizer = null;
+        }
+        try {
+            fxBassBoost = new android.media.audiofx.BassBoost(0, sid);
+        } catch (Throwable t) {
+            fxBassBoost = null;
+        }
+        try {
+            fxVirtualizer = new android.media.audiofx.Virtualizer(0, sid);
+        } catch (Throwable t) {
+            fxVirtualizer = null;
+        }
+        applyFxFromStore();
+    }
+
+    private void releaseFx() {
+        try {
+            if (fxEqualizer != null) fxEqualizer.release();
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (fxBassBoost != null) fxBassBoost.release();
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (fxVirtualizer != null) fxVirtualizer.release();
+        } catch (Throwable ignored) {
+        }
+        fxEqualizer = null;
+        fxBassBoost = null;
+        fxVirtualizer = null;
+        fxSession = -1;
+    }
+
+    /** 把 MusicStore 里的音效存档灌进三件 audiofx（总开关关＝三件全 bypass） */
+    private void applyFxFromStore() {
+        boolean on = MusicStore.isFxEnabled();
+        try {
+            if (fxEqualizer != null) {
+                fxEqualizer.setEnabled(on);
+                if (on) {
+                    int preset = MusicStore.getFxPreset();
+                    int count = fxEqualizer.getNumberOfPresets();
+                    if (preset >= 0 && preset < count) {
+                        fxEqualizer.usePreset((short) preset);
+                    } else {
+                        short[] levels = MusicStore.getFxBands();
+                        int bands = fxEqualizer.getNumberOfBands();
+                        for (int i = 0; i < bands && i < levels.length; i++) {
+                            try {
+                                fxEqualizer.setBandLevel((short) i, levels[i]);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (fxBassBoost != null) {
+                fxBassBoost.setEnabled(on);
+                if (on) fxBassBoost.setStrength((short) MusicStore.getFxBass());
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (fxVirtualizer != null) {
+                fxVirtualizer.setEnabled(on);
+                if (on) fxVirtualizer.setStrength((short) MusicStore.getFxVirtualizer());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 面板打开时取全量状态 */
+    public FxState fxState() {
+        ensureFx();
+        FxState s = new FxState();
+        s.enabled = MusicStore.isFxEnabled();
+        s.bass = MusicStore.getFxBass();
+        s.virt = MusicStore.getFxVirtualizer();
+        s.preset = MusicStore.getFxPreset();
+        try {
+            if (fxEqualizer != null) {
+                s.eqSupported = true;
+                int pc = fxEqualizer.getNumberOfPresets();
+                for (short i = 0; i < pc; i++) s.presets.add(fxEqualizer.getPresetName(i));
+                int bands = fxEqualizer.getNumberOfBands();
+                short[] range = fxEqualizer.getBandLevelRange();
+                s.minLevel = range[0];
+                s.maxLevel = range[1];
+                s.levels = new short[bands];
+                s.centerFreqsHz = new int[bands];
+                for (short i = 0; i < bands; i++) {
+                    s.levels[i] = fxEqualizer.getBandLevel(i);
+                    s.centerFreqsHz[i] = fxEqualizer.getCenterFreq(i) / 1000;
+                }
+            }
+        } catch (Throwable t) {
+            s.eqSupported = false;
+        }
+        s.bassSupported = fxBassBoost != null;
+        s.virtSupported = fxVirtualizer != null;
+        return s;
+    }
+
+    public void setFxEnabled(boolean on) {
+        MusicStore.setFxEnabled(on);
+        ensureFx();
+        applyFxFromStore();
+    }
+
+    public void setFxPreset(int preset) {
+        MusicStore.setFxPreset(preset);
+        ensureFx();
+        if (fxEqualizer == null) return;
+        try {
+            if (preset >= 0 && preset < fxEqualizer.getNumberOfPresets()) {
+                fxEqualizer.setEnabled(MusicStore.isFxEnabled());
+                fxEqualizer.usePreset((short) preset);
+                // 预设落完后把实际电平回存，面板滑杆照这个显示
+                int bands = fxEqualizer.getNumberOfBands();
+                short[] levels = new short[bands];
+                for (short i = 0; i < bands; i++) levels[i] = fxEqualizer.getBandLevel(i);
+                MusicStore.setFxBands(levels);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void setFxBandLevel(int band, int millibel) {
+        ensureFx();
+        if (fxEqualizer == null) return;
+        try {
+            short[] range = fxEqualizer.getBandLevelRange();
+            short level = (short) Math.max(range[0], Math.min(range[1], millibel));
+            fxEqualizer.setEnabled(MusicStore.isFxEnabled());
+            fxEqualizer.setBandLevel((short) band, level);
+            // 手动拉杆＝离开预设，记自定义并存全段电平
+            MusicStore.setFxPreset(-1);
+            int bands = fxEqualizer.getNumberOfBands();
+            short[] levels = new short[bands];
+            for (short i = 0; i < bands; i++) levels[i] = fxEqualizer.getBandLevel(i);
+            MusicStore.setFxBands(levels);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void setFxBass(int strength) {
+        MusicStore.setFxBass(strength);
+        ensureFx();
+        if (fxBassBoost == null) return;
+        try {
+            fxBassBoost.setEnabled(MusicStore.isFxEnabled());
+            fxBassBoost.setStrength((short) MusicStore.getFxBass());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void setFxVirtualizer(int strength) {
+        MusicStore.setFxVirtualizer(strength);
+        ensureFx();
+        if (fxVirtualizer == null) return;
+        try {
+            fxVirtualizer.setEnabled(MusicStore.isFxEnabled());
+            fxVirtualizer.setStrength((short) MusicStore.getFxVirtualizer());
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ================= 播放实现 =================
 
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
@@ -595,6 +807,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 listeners.forEach(ServiceListener::onAudioInfoChanged);
                 player.setMediaItem(item, startPosition);
                 player.prepare();
+                ensureFx(); // 会话可能随音频汇重建而变，音效跟着重新挂
                 player.setPlaybackSpeed(getSpeed());
                 if (autoplay) player.play();
                 else player.pause();

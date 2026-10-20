@@ -145,6 +145,16 @@
     <string name="music_sites">个源</string>
     <string name="music_source_manage">源管理</string>
     <string name="music_site_add">添加源</string>
+    <string name="music_plugin_manage">插件管理</string>
+    <string name="music_plugin_add">添加插件</string>
+    <string name="music_plugin_online">在线地址</string>
+    <string name="music_plugin_local">本地文件</string>
+    <string name="music_plugin_update">更新</string>
+    <string name="music_plugin_latest">已是最新版本</string>
+    <string name="music_plugin_updated">已更新</string>
+    <string name="music_plugin_none">还没有插件</string>
+    <string name="music_plugins">个插件</string>
+    <string name="music_plugin_add_failed">添加失败</string>
     <string name="music_site_url_hint">插件地址（http://…）</string>
     <string name="music_no_site">暂无音乐源</string>
     <string name="music_site_added">已添加</string>

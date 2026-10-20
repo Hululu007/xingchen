@@ -2,7 +2,9 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -14,6 +16,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -39,6 +42,8 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -219,7 +224,7 @@ public class MusicListActivity extends BaseActivity {
                 loadDownloads();
                 break;
             case "sites":
-                bigTitle = getString(R.string.music_source_manage);
+                bigTitle = getString(R.string.music_plugin_manage);
                 loadSites();
                 break;
             case "search":
@@ -245,7 +250,7 @@ public class MusicListActivity extends BaseActivity {
             case "download":
                 return getString(R.string.music_downloaded);
             case "sites":
-                return getString(R.string.music_source_manage);
+                return getString(R.string.music_plugin_manage);
             default:
                 return getString(R.string.music_playlist);
         }
@@ -433,35 +438,99 @@ public class MusicListActivity extends BaseActivity {
         MusicDownloadStore.all(this::showTracks);
     }
 
-    /** 源管理：列表＋启用/停用＋删除＋添加 */
+    /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋添加卡＋开关/菜单 */
     private void loadSites() {
         showLoading();
         Task.execute(() -> {
-            List<MusicSite> sites = MusicRepository.sites();
+            List<MusicSite> sites = MusicSourceManager.get().listSites();
             runOnUiThread(() -> {
                 cards.clear();
                 cards.add(new NewSiteCard());
                 cards.addAll(sites);
                 adapter.notifyDataSetChanged();
                 binding.tvBigTitle.setText(bigTitle);
-                binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_sites));
+                binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_plugins));
                 binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
-                if (sites.isEmpty()) binding.empty.setText(R.string.music_no_site);
+                if (sites.isEmpty()) binding.empty.setText(R.string.music_plugin_none);
             });
         });
     }
 
-    private void siteOptions(MusicSite site) {
+    /** 添加插件二选一：在线地址（贴 URL 下载安装）／本地文件（系统文件选择器选 .js） */
+    private void showAddPluginSheet() {
         List<String> opts = new ArrayList<>();
-        opts.add(site.enabled ? getString(R.string.music_disable) : getString(R.string.music_enable));
-        opts.add(getString(R.string.music_delete));
-        MusicOptionsDialog.show(this, site.name, opts, -1, idx -> {
-            if (idx == 0) {
-                Task.execute(() -> {
-                    MusicSourceManager.get().setEnabled(site.srcUrl, !site.enabled);
-                    runOnUiThread(this::loadSites);
+        opts.add(getString(R.string.music_plugin_online));
+        opts.add(getString(R.string.music_plugin_local));
+        MusicOptionsDialog.show(this, getString(R.string.music_plugin_add), opts, -1, idx -> {
+            if (idx == 0) inputSiteUrl();
+            else if (idx == 1) pickLocalFile();
+        });
+    }
+
+    private static final int REQ_PICK_PLUGIN = 4213;
+
+    private void pickLocalFile() {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES,
+                new String[]{"application/javascript", "text/javascript", "text/plain"});
+        startActivityForResult(Intent.createChooser(i, getString(R.string.music_plugin_local)), REQ_PICK_PLUGIN);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_PLUGIN || resultCode != RESULT_OK
+                || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        Task.execute(() -> {
+            try {
+                byte[] bytes = readAll(uri);
+                MusicSourceManager.get().addLocalSite(bytes);
+                runOnUiThread(() -> {
+                    Notify.show(R.string.music_site_added);
+                    loadSites();
                 });
-            } else if (idx == 1) {
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show(e.getMessage() == null
+                        ? getString(R.string.music_plugin_add_failed) : e.getMessage()));
+            }
+        });
+    }
+
+    private byte[] readAll(Uri uri) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IllegalStateException("读不到这个文件");
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            return bos.toByteArray();
+        }
+    }
+
+    /** 插件行 ⋮ 菜单：在线装的才有「更新」；删除连插件文件一起删 */
+    private void pluginMenu(MusicSite site) {
+        boolean online = !MusicSourceManager.isLocal(site);
+        List<String> opts = new ArrayList<>();
+        if (online) opts.add(getString(R.string.music_plugin_update));
+        opts.add(getString(R.string.music_delete));
+        MusicOptionsDialog.show(this, site.name == null ? "" : site.name, opts, -1, idx -> {
+            if (online && idx == 0) {
+                Task.execute(() -> {
+                    String v = MusicSourceManager.get().checkUpdate(site);
+                    runOnUiThread(() -> {
+                        if (v == null) {
+                            Notify.show(R.string.music_plugin_latest);
+                            return;
+                        }
+                        MusicSourceManager.get().applyUpdate(site, v);
+                        Notify.show(R.string.music_plugin_updated);
+                        loadSites();
+                    });
+                });
+            } else {
                 Task.execute(() -> {
                     MusicSourceManager.get().removeSite(site.srcUrl);
                     runOnUiThread(() -> {
@@ -482,7 +551,7 @@ public class MusicListActivity extends BaseActivity {
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad, pad, pad);
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.music_site_add)
+                .setTitle(R.string.music_plugin_add)
                 .setView(et)
                 .setPositiveButton(android.R.string.ok, (d, w) -> {
                     String url = et.getText().toString().trim();
@@ -684,10 +753,15 @@ public class MusicListActivity extends BaseActivity {
 
         private static final int TYPE_TRACK = 0;
         private static final int TYPE_CARD = 1;
+        private static final int TYPE_PLUGIN = 2;
 
         @Override
         public int getItemViewType(int position) {
-            if (isCardMode()) return TYPE_CARD;
+            if (isCardMode()) {
+                // 插件管理页里插件行用专用布局（名＋版本＋格式标签＋开关＋⋮），添加卡仍走通用卡
+                if (mode.equals("sites") && cards.get(position) instanceof MusicSite) return TYPE_PLUGIN;
+                return TYPE_CARD;
+            }
             return TYPE_TRACK;
         }
 
@@ -695,6 +769,9 @@ public class MusicListActivity extends BaseActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
+            if (viewType == TYPE_PLUGIN) {
+                return new PluginHolder(inf.inflate(R.layout.item_music_plugin, parent, false));
+            }
             if (viewType == TYPE_CARD) {
                 return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
             }
@@ -703,8 +780,31 @@ public class MusicListActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int position) {
-            if (h instanceof CardHolder) bindCard((CardHolder) h, position);
+            if (h instanceof PluginHolder) bindPlugin((PluginHolder) h, position);
+            else if (h instanceof CardHolder) bindCard((CardHolder) h, position);
             else bindTrack((TrackHolder) h, position);
+        }
+
+        /** 插件行：名＋版本号小字＋格式标签；右侧金开关（真接线启停）＋⋮菜单 */
+        private void bindPlugin(PluginHolder h, int position) {
+            MusicSite s = (MusicSite) cards.get(position);
+            h.name.setText(s.name == null ? "" : s.name);
+            boolean lx = MusicSourceManager.isLx(s);
+            h.formatTag.setText(lx ? "落雪" : "FreeJS");
+            h.formatTag.setTextColor(lx ? 0xFFF2B33D : 0xFF9AA7B8);
+            if (s.version != null && !s.version.isEmpty()) {
+                h.version.setVisibility(View.VISIBLE);
+                h.version.setText(s.version);
+            } else {
+                h.version.setVisibility(View.GONE);
+            }
+            h.pluginSwitch.setOnCheckedChangeListener(null);
+            h.pluginSwitch.setChecked(s.enabled);
+            h.pluginSwitch.setOnCheckedChangeListener((v, checked) ->
+                    Task.execute(() -> MusicSourceManager.get().setEnabled(s.srcUrl, checked)));
+            View.OnClickListener menu = v -> pluginMenu(s);
+            h.pluginMore.setOnClickListener(menu);
+            h.itemView.setOnClickListener(menu);
         }
 
         private void bindCard(CardHolder h, int position) {
@@ -735,19 +835,11 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setBackground(circle(0xFFA855F7));
                 h.itemView.setOnClickListener(v -> openChart(c));
             } else if (o instanceof NewSiteCard) {
-                h.name.setText(R.string.music_site_add);
+                h.name.setText(R.string.music_plugin_add);
                 h.status.setText("");
                 h.icon.setImageResource(R.drawable.ic_music_plus);
                 h.icon.setBackground(circle(0xFF22C55E));
-                h.itemView.setOnClickListener(v -> inputSiteUrl());
-            } else if (o instanceof MusicSite) {
-                MusicSite s = (MusicSite) o;
-                h.name.setText(s.name);
-                h.status.setText(!s.enabled ? getString(R.string.music_disabled)
-                        : (s.connected ? getString(R.string.music_connected) : getString(R.string.music_unconnected)));
-                h.icon.setImageResource(R.drawable.ic_music_note);
-                h.icon.setBackground(circle(s.enabled ? 0xFF3B82F6 : 0xFF5E6B7E));
-                h.itemView.setOnClickListener(v -> siteOptions(s));
+                h.itemView.setOnClickListener(v -> showAddPluginSheet());
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
         }
@@ -843,6 +935,32 @@ public class MusicListActivity extends BaseActivity {
                 icon = v.findViewById(R.id.icon);
                 name = v.findViewById(R.id.name);
                 status = v.findViewById(R.id.status);
+            }
+        }
+
+        class PluginHolder extends RecyclerView.ViewHolder {
+            final TextView name;
+            final TextView formatTag;
+            final TextView version;
+            final SwitchCompat pluginSwitch;
+            final ImageView pluginMore;
+
+            PluginHolder(View v) {
+                super(v);
+                name = v.findViewById(R.id.name);
+                formatTag = v.findViewById(R.id.formatTag);
+                version = v.findViewById(R.id.version);
+                pluginSwitch = v.findViewById(R.id.pluginSwitch);
+                pluginMore = v.findViewById(R.id.pluginMore);
+                // 金色开关（选中金、未选灰），跟全 App 点缀色同语
+                ColorStateList thumb = new ColorStateList(
+                        new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                        new int[]{0xFFF2B33D, 0xFF5E6B7E});
+                ColorStateList track = new ColorStateList(
+                        new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                        new int[]{0x66F2B33D, 0x445E6B7E});
+                pluginSwitch.setThumbTintList(thumb);
+                pluginSwitch.setTrackTintList(track);
             }
         }
     }

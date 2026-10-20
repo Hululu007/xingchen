@@ -126,6 +126,20 @@ public final class LabRegistry {
         return new ArrayList<>(svcs.values());
     }
 
+    /**
+     * 与实验室首页同源的可见服务：首页宫格只为 ENVS 十一个环境设卡，
+     * runtime 为 none/未知的服务归 tool、首页无卡、平时看不见摸不着。
+     * 凡是「给人看的计数」都走这里，跟页面能数出来的对齐；
+     * allServices 只留给开机自启这类要全量遍历的内部逻辑。
+     */
+    public synchronized List<Svc> visibleServices() {
+        List<Svc> out = new ArrayList<>();
+        for (Svc s : svcs.values()) {
+            if (ENVS.contains(envOf(s))) out.add(s);
+        }
+        return out;
+    }
+
     public synchronized Svc svc(String id) {
         return svcs.get(id);
     }

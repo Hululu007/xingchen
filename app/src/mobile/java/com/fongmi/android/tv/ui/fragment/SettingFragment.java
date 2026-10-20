@@ -400,7 +400,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         try {
             if (mBinding.textHealthSub != null) {
                 java.util.List<com.fongmi.android.tv.ui.lab.LabRegistry.Svc> svcs =
-                        com.fongmi.android.tv.ui.lab.LabRegistry.get(requireActivity()).allServices();
+                        com.fongmi.android.tv.ui.lab.LabRegistry.get(requireActivity()).visibleServices();
                 int running = 0;
                 for (com.fongmi.android.tv.ui.lab.LabRegistry.Svc s : svcs) {
                     if (com.fongmi.android.tv.ui.lab.LabRunner.isRunning(requireActivity(), s.id)) running++;

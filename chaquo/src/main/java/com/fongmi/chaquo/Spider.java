@@ -28,12 +28,22 @@ public class Spider extends com.github.catvod.crawler.Spider {
         this.api = api;
     }
 
-    // Chaquopy 纪律：callAttr / getModule / asList / asMap / type() 交出来的每个
-    // PyObject 都必须显式 close。靠 GC finalize 兜底时，FinalizerDaemon 要抢到
-    // GIL 才能 closeNative，Python 正忙（多源并发＋长请求）时 10 秒抢不到就抛
-    // TimeoutException 把进程带崩（1.4.1 华为机真机实证）。持有关系：app 是
-    // Loader 的进程级模块对象，本类永不关；obj 是本实例的蜘蛛对象，只在
-    // destroy() 里关；其余一律在转成 Java 值后立即关。
+    // Chaquopy 纪律（2026-10-21 修订）：先分清哪些 PyObject 能关、哪些不能。
+    // Chaquopy 按 Python 对象身份缓存 Java 包装（PyObject.getInstance 的静态
+    // cache，成品 dex 反编译实证）：同一个 Python 对象全进程只有一个 Java
+    // 包装实例，close() 会把这个共享实例 closeNative 并将 addr 清零——关掉的
+    // 不是「你这一份」，是所有人手里的同一份。
+    // 【能关】本次调用现造、调用方独占的返回值：json.dumps 新串、现造的
+    // list/dict 及其元素。这类若不关，全靠 GC finalize 兜底，FinalizerDaemon
+    // 抢不到 GIL 时 10 秒超时把进程带崩（1.4.1 华为机真机实证），必须转成
+    // Java 值后立即关。
+    // 【永不关】全局单例与进程级对象的包装：模块对象（getModule("app") 与
+    // Loader.app 是同一个实例）、None / True / False、type() 返回的类型对象，
+    // 以及来源不可控的返回值（如 liveContent，可能是蜘蛛的模块级常量）。
+    // 1.4.2 曾把 setHomeGeneration 里 getModule("app") 的包装顺手关掉，等于
+    // 关死 Loader.app：此后全进程每个 py 源加载都报 ValueError: PyObject is
+    // closed（1.4.3 真机实证，全 py 通杀）。obj 是本实例的蜘蛛对象，只在
+    // destroy() 里关。
 
     private static void closeQuietly(PyObject o) {
         if (o == null) return;
@@ -59,7 +69,8 @@ public class Spider extends com.github.catvod.crawler.Spider {
             closeQuietly(dependence);
         }
         obj.put("siteKey", siteKey);
-        closeQuietly(app.callAttr("init", obj, extend));
+        // init 返回 None，是全局单例包装，不关（见类头纪律）。
+        app.callAttr("init", obj, extend);
     }
 
     @Override
@@ -93,15 +104,12 @@ public class Spider extends com.github.catvod.crawler.Spider {
      * 时调用；Python 未启动时跳过（此时也不可能有在途 py 加载）。
      */
     public static void setHomeGeneration(int gen) {
-        PyObject module = null;
         try {
-            if (Python.isStarted()) {
-                module = Python.getInstance().getModule("app");
-                closeQuietly(module.callAttr("set_home_generation", gen));
-            }
+            // 两个 PyObject 都不许关：getModule("app") 经身份缓存返回的与
+            // Loader.app 是同一个实例，关掉即关死全进程的 app 通道（1.4.3 全
+            // py 通杀点）；callAttr 返回值是 None 单例包装，同理。见类头纪律。
+            if (Python.isStarted()) Python.getInstance().getModule("app").callAttr("set_home_generation", gen);
         } catch (Throwable ignored) {
-        } finally {
-            closeQuietly(module);
         }
     }
 
@@ -142,23 +150,20 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String liveContent(String url) {
-        try (PyObject r = app.callAttr("liveContent", obj, url)) {
-            return r.toString();
-        }
+        // 返回值由蜘蛛自备，可能是模块级常量字符串（共享包装），不关（见类头纪律）。
+        return app.callAttr("liveContent", obj, url).toString();
     }
 
     @Override
     public boolean manualVideoCheck() {
-        try (PyObject r = app.callAttr("manualVideoCheck", obj)) {
-            return r.toBoolean();
-        }
+        // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
+        return app.callAttr("manualVideoCheck", obj).toBoolean();
     }
 
     @Override
     public boolean isVideoFormat(String url) {
-        try (PyObject r = app.callAttr("isVideoFormat", obj, url)) {
-            return r.toBoolean();
-        }
+        // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
+        return app.callAttr("isVideoFormat", obj, url).toBoolean();
     }
 
     @Override
@@ -193,7 +198,8 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public void destroy() {
         try {
-            closeQuietly(app.callAttr("destroy", obj));
+            // destroy 返回 None，是全局单例包装，不关（见类头纪律）；obj 本人关。
+            app.callAttr("destroy", obj);
         } catch (Exception ignored) {
         } finally {
             // 蜘蛛被淘汰（文件变更/清缓存/删源）时确定性释放实例对象，
@@ -227,13 +233,8 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     private ByteArrayInputStream getStream(PyObject o, boolean base64) {
         if (o == null) return null;
-        PyObject type = o.type();
-        boolean bytes;
-        try {
-            bytes = type.toString().contains("bytes");
-        } finally {
-            closeQuietly(type);
-        }
+        // type() 返回类型对象的全局单例包装，不关（见类头纪律）。
+        boolean bytes = o.type().toString().contains("bytes");
         if (bytes) return new ByteArrayInputStream(o.toJava(byte[].class));
         String content = o.toString();
         if (base64 && content.contains("base64,")) content = content.split("base64,")[1];
@@ -243,6 +244,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private void download(String name) {
         String path = Path.py(name).getAbsolutePath();
         String url = UriUtil.resolve(api, name);
-        closeQuietly(app.callAttr("download", path, url));
+        // download 返回 None，是全局单例包装，不关（见类头纪律）。
+        app.callAttr("download", path, url);
     }
 }

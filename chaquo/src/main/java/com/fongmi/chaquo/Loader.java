@@ -22,11 +22,13 @@ public class Loader {
     public Loader() {
         if (!Python.isStarted()) Python.start(Platform.create());
         try {
-            // getModule / callAttr 的返回值都是要显式 close 的 PyObject，
-            // 丢给 GC finalize 会在 Python 忙时触发 finalize 超时崩溃（见 Spider）。
+            // 本次调用现造的 PyObject 要显式 close，丢给 GC finalize 会在
+            // Python 忙时触发 finalize 超时崩溃（见 Spider 类头纪律）；但
+            // install 返回的 None 是全局单例包装，不许关。本模块的包装全树
+            // 只有本构造器取、无人长期持有，关它安全。
             PyObject logging = Python.getInstance().getModule("webhtv_logging");
             try {
-                closeQuietly(logging.callAttr("install"));
+                logging.callAttr("install");
             } finally {
                 closeQuietly(logging);
             }
@@ -40,7 +42,7 @@ public class Loader {
         try {
             PyObject gatePatch = Python.getInstance().getModule("gate_patch");
             try {
-                closeQuietly(gatePatch.callAttr("install"));
+                gatePatch.callAttr("install");
             } finally {
                 closeQuietly(gatePatch);
             }

@@ -92,7 +92,9 @@ public class Platform extends Python.Platform {
         String[] appPath = {Common.ASSET_APP, Common.ASSET_REQUIREMENTS, Common.ASSET_STDLIB + "-" + ABI};
         PyObject module = py.getModule("java.android");
         try {
-            Loader.closeQuietly(module.callAttr("initialize", context, buildJson, appPath));
+            // initialize 返回 None，是全局单例包装，不关（见 chaquo Spider
+            // 类头纪律）；本模块的包装全树只有这一处取、无人长期持有，关它安全。
+            module.callAttr("initialize", context, buildJson, appPath);
         } finally {
             Loader.closeQuietly(module);
         }

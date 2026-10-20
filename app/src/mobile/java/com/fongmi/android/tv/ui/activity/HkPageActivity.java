@@ -4750,12 +4750,15 @@ public class HkPageActivity extends BaseActivity {
             // 仅当 extra 非空且以 { 开头 } 结尾才 setParams）。URL query 不进 MY_PARAMS，
             // 而是随 pageRule params Map 由规则经 fetch('hiker://page/') 自取。#532 的合并做法已 revert。
             try {
-                // 8.83 PageParser.getNextPage：仅当 extra 是 {…} JSON 串才 setParams。
+                // 8.83 PageParser.getNextPage：仅当 extra 是 {…} JSON 串才 setParams；
+                // 不是 JSON 时不写——派生子规则已从父规则继承 params（deriveSubRule
+                // 复制），MY_PARAMS 保住规则自带参数（与 HkPageParser.getNextPage
+                // 的条件写入口径一致，此前无条件写 "" 会把规则自带 params 一并冲掉）。
                 // HkItem.extra 已是原始 JSON 串（数字保持数字），直接透传。
                 String ex = it.getExtra();
-                sub.setParams(ex != null && ex.startsWith("{") && ex.endsWith("}") ? ex : "");
+                if (ex != null && ex.startsWith("{") && ex.endsWith("}")) sub.setParams(ex);
             } catch (Throwable ignored) {
-                sub.setParams("");
+                // 读 extra 失败也不许动 params：保住继承来的规则自带参数
             }
             destroyRouterAsync();
             currentRule = sub;

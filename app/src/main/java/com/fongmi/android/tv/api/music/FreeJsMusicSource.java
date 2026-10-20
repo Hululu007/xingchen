@@ -157,6 +157,7 @@ public class FreeJsMusicSource implements MusicSource {
         keyword = keyword.trim();
         if (keyword.isEmpty()) return null;
         String own = pluginOf(track);
+        MusicLyric romajiOnly = null;
         try {
             for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
@@ -178,15 +179,17 @@ public class FreeJsMusicSource implements MusicSource {
                 if (hit == null) continue;
                 try {
                     MusicLyric l = b.getLyric(hit);
-                    // rich 口径与 MusicRepository.hasRaw/normalizeRich 对齐：译文-only 也算命中，
-                    // 不许在这一级按「只有正文才算数」把译文丢掉——仓库会把定时译文提为正文
-                    if (l != null && l.hasLyric()) return l;
+                    // 命中口径：正文或译文才立即返回（译文-only 也算，仓库
+                    // normalizeRich 会把定时译文提为正文）；纯音译只留作候选，
+                    // 不许截断后面的插件——它们可能有正文
+                    if (l != null && l.hasBodyText()) return l;
+                    if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
                 } catch (Throwable ignored) {
                 }
             }
         } catch (Throwable ignored) {
         }
-        return null;
+        return romajiOnly;
     }
 
     /** lyricFromLyricPlugins 的 rich 版：同一条直查，命中返回完整 MusicLyric */
@@ -196,6 +199,7 @@ public class FreeJsMusicSource implements MusicSource {
                 + " " + (track.artist == null ? "" : track.artist).trim();
         keyword = keyword.trim();
         if (keyword.isEmpty()) return null;
+        MusicLyric romajiOnly = null;
         try {
             for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
@@ -216,14 +220,15 @@ public class FreeJsMusicSource implements MusicSource {
                     MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
                     if (hit == null) continue;
                     MusicLyric l = b.getLyric(hit);
-                    // 同 lyricFallbackRich：rich 口径认 hasLyric（译文-only 也算），仓库 normalizeRich 提正文
-                    if (l != null && l.hasLyric()) return l;
+                    // 同 lyricFallbackRich：正文/译文立即返回，纯音译只留候选不截断
+                    if (l != null && l.hasBodyText()) return l;
+                    if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
                 } catch (Throwable ignored) {
                 }
             }
         } catch (Throwable ignored) {
         }
-        return null;
+        return romajiOnly;
     }
 
     /**

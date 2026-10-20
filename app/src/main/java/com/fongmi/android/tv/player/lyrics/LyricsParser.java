@@ -149,8 +149,9 @@ public class LyricsParser {
             String lineText = textBuilder.toString().trim();
             if (words.isEmpty()) {
                 // 逐字标记损坏/不可识别（一对括号里没逗号等）：剥掉标记残渣按整行词收，
-                // 不许把带定时头的正文行整行吞掉或带着标记垃圾上屏
-                String salvaged = rest.replaceAll("\\([^)]*\\)", "").replaceAll("<[^>]*>", "").trim();
+                // 不许把带定时头的正文行整行吞掉或带着标记垃圾上屏。
+                // 只剥时间标记形状（见 stripWordMarkers），正文里的括号内容不许动
+                String salvaged = stripWordMarkers(rest).trim();
                 if (!salvaged.isEmpty()) lineText = salvaged;
             }
             if (lineText.isEmpty()) continue;
@@ -166,14 +167,23 @@ public class LyricsParser {
         return parsePlainFallback(content);
     }
 
-    /** 纯文本回落：先剥逐字标记残渣（[ms,dur] 行头与括号/尖括号词标记），不许标记垃圾冒充整行词 */
+    /**
+     * 只剥逐字时间标记本身：括号标记 (偏移,时长[,标志]) 与尖括号时间戳
+     * &lt;mm:ss.xx&gt;/&lt;偏移,时长&gt;。正文里的括号/尖括号内容（如和声段
+     * (oh oh)、注记）是歌词的一部分，不许整段剥掉——此前两处都用
+     * \([^)]*\) 与 &lt;[^&gt;]*&gt; 整段删，纯文本歌词的括号内容会被吃掉。
+     */
+    private static String stripWordMarkers(String s) {
+        return s.replaceAll("\\(\\d+\\s*,\\s*\\d+(\\s*,\\s*\\d+)?\\)", "")
+                .replaceAll("<\\d[^>]*>", "");
+    }
+
+    /** 纯文本回落：先剥逐字标记残渣（[ms,dur] 行头与时间标记形状的词标记），不许标记垃圾冒充整行词 */
     private static List<LyricsLine> parsePlainFallback(String content) {
         StringBuilder cleaned = new StringBuilder();
         for (String raw : content.replace("\r", "").split("\n")) {
-            String line = raw.trim()
-                    .replaceAll("^\\[\\d+,\\d+]", "")
-                    .replaceAll("\\([^)]*\\)", "")
-                    .replaceAll("<[^>]*>", "")
+            String line = stripWordMarkers(raw.trim()
+                    .replaceAll("^\\[\\d+,\\d+]", ""))
                     .trim();
             cleaned.append(line).append('\n');
         }

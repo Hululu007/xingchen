@@ -165,6 +165,16 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 停留在实例创建时的旧规则对象（子规则与父规则同 title 时即为首页规则）。
      */
     private volatile HkRule rule;
+
+    /**
+     * 带规则入口的串行锁：bind 在调用线程写 this.rule、求值在引擎单线程上
+     * 异步执行时才读——两页并发取用同一常驻实例时，后一次 bind 可能赶在
+     * 前一次求值执行前把 rule 换掉（串页）。带规则入口持此锁走完
+     * bind→求值全程（求值本身阻塞等结果，锁只多串行化并发入口），
+     * 再叠加各委托在提交时捕获规则、任务开头重申（见 parseList 等），
+     * 双层关掉这个窗口。
+     */
+    private final Object ruleEvalLock = new Object();
     private final Parser parser;
     /** JS 单线程 executor 的 worker 线程（.js: 回调时判断是否已在 JS 线程，避免死锁） */
     private volatile Thread jsThread;
@@ -5045,7 +5055,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 执行首页/分类的 js: 规则，返回条目列表（带页码，注入 MY_PAGE）。
      */
     public List<HkItem> parseList(String jsCode, String myUrl, int page) throws Exception {
+        // 提交时捕获当前绑定，任务在引擎线程开头重申：防提交与执行之间
+        // 别的页 bindRule 换掉 this.rule 造成串页（与带规则入口的锁互补）
+        final HkRule boundRule = this.rule;
         return submit(() -> {
+            if (boundRule != null) this.rule = boundRule;
             results.clear();
             error = null;
             preResultActive = false;
@@ -5071,8 +5085,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /** 带当前页规则的入口（8.83 parseHome 形态：规则随求值带入）：先重绑再走原路。 */
     public List<HkItem> parseList(HkRule rule, String jsCode, String myUrl, int page) throws Exception {
-        bindRule(rule);
-        return parseList(jsCode, myUrl, page);
+        synchronized (ruleEvalLock) {
+            bindRule(rule);
+            return parseList(jsCode, myUrl, page);
+        }
     }
 
     /**
@@ -5088,7 +5104,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * content/img/extra/type 映射为独立 SearchResult（type 硬编码 "video"）。
      */
     public List<SearchResult> parseSearch(String jsCode, String myUrl, String keyword, int page) throws Exception {
+        final HkRule boundRule = this.rule;
         return submit(() -> {
+            if (boundRule != null) this.rule = boundRule;
             results.clear();
             error = null;
             preResultActive = false;
@@ -5114,8 +5132,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /** 带当前页规则的入口（8.83 parseSearchRes 形态：规则随求值带入）：先重绑再走原路。 */
     public List<SearchResult> parseSearch(HkRule rule, String jsCode, String myUrl, String keyword, int page) throws Exception {
-        bindRule(rule);
-        return parseSearch(jsCode, myUrl, keyword, page);
+        synchronized (ruleEvalLock) {
+            bindRule(rule);
+            return parseSearch(jsCode, myUrl, keyword, page);
+        }
     }
 
     /** setStrResult/setLastChapterResult 存下的字符串结果。 */
@@ -5645,7 +5665,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 两个形参（均为当前页面地址），不依赖 JS 闭包。返回代码求值结果的字符串；
      * 若求值为空则兜底取 {@code setResult} 收集到的第一条 url。</p>
      */
-    public String evalLazy(String jsCode, String pageUrl) throws Exception {        return submit(() -> {
+    public String evalLazy(String jsCode, String pageUrl) throws Exception {
+        final HkRule boundRule = this.rule;
+        return submit(() -> {
+            if (boundRule != null) this.rule = boundRule;
             error = null;
             setContext(pageUrl);
             // 入口口令/输入框：若有一次性 input 覆盖（用户输入的文本），优先使用；
@@ -5676,8 +5699,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /** 带当前页规则的入口：先重绑再走原路（子页 lazy 求值的 MY_RULE 须为子页规则）。 */
     public String evalLazy(HkRule rule, String jsCode, String pageUrl) throws Exception {
-        bindRule(rule);
-        return evalLazy(jsCode, pageUrl);
+        synchronized (ruleEvalLock) {
+            bindRule(rule);
+            return evalLazy(jsCode, pageUrl);
+        }
     }
 
     /**
@@ -6150,7 +6175,9 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * setResult 项约定：title/url/pic_url/desc + 可选 line（线路名）/col_type。
      */
     public List<Map<String, String>> parseDetailRaw(String jsCode, String myUrl) throws Exception {
+        final HkRule boundRule = this.rule;
         return submit(() -> {
+            if (boundRule != null) this.rule = boundRule;
             rawResults.clear();
             results.clear();
             error = null;
@@ -6174,8 +6201,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
 
     /** 带当前页规则的入口：先重绑再走原路（详情求值的 MY_RULE 须为当前页规则）。 */
     public List<Map<String, String>> parseDetailRaw(HkRule rule, String jsCode, String myUrl) throws Exception {
-        bindRule(rule);
-        return parseDetailRaw(jsCode, myUrl);
+        synchronized (ruleEvalLock) {
+            bindRule(rule);
+            return parseDetailRaw(jsCode, myUrl);
+        }
     }
 
     private String stringifyArg(Object arg) {

@@ -155,26 +155,58 @@ def getName(ru):
     return fn() if callable(fn) else None
 
 
+class _ExtStr(str):
+    # ext 单次执行容错：本体是 str（字符串口径蜘蛛的 json.loads/切片/拼接
+    # 语义全不变），同时把 ext 解析出的 dict 挂上 .get 与字符串键下标，
+    # 让按 dict 口径写 init 的蜘蛛一趟跑通。旧做法是先按 str 调 init、
+    # 撞 AttributeError 后把 ext 解析成 dict 整个重跑 init——第一趟已执行
+    # 的副作用（登录/请求/写缓存）会重复，且判定只看异常文案，蜘蛛内部
+    # 无关的字符串误用也会误触发重跑。这里改为执行前一次成型、只调一遍：
+    # 解析不出 dict 就原样传 str，该失败的明确失败，不许半成功。
+    def __new__(cls, raw, parsed):
+        obj = str.__new__(cls, raw)
+        obj._parsed = parsed
+        return obj
+
+    def get(self, key, default=None):
+        if isinstance(self._parsed, dict):
+            return self._parsed.get(key, default)
+        return default
+
+    def __getitem__(self, key):
+        if isinstance(key, str) and isinstance(self._parsed, dict):
+            return self._parsed[key]
+        return str.__getitem__(self, key)
+
+    def keys(self):
+        if isinstance(self._parsed, dict):
+            return self._parsed.keys()
+        return []
+
+    def items(self):
+        if isinstance(self._parsed, dict):
+            return self._parsed.items()
+        return []
+
+    def values(self):
+        if isinstance(self._parsed, dict):
+            return self._parsed.values()
+        return []
+
+
+def _wrap_extend(extend):
+    if isinstance(extend, str) and extend.strip():
+        try:
+            parsed = json.loads(extend)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, dict):
+            return _ExtStr(extend, parsed)
+    return extend
+
+
 def init(ru, extend):
-    try:
-        ru.init(extend)
-    except AttributeError as e:
-        # 容错（2026-10-20）：少数蜘蛛按「extend 是 dict」的宿主写法写 init，
-        # 直接 extend.get(...)；壳子按 FongMi 口径传的是 JSON 字符串，必然抛
-        # 'str' object has no attribute 'get' 在加载期就死。命中这个特征才重试：
-        # 把 ext 解析成 dict 再喂一次（解析不出或是非 dict 一律给 {}），
-        # 字符串口径的蜘蛛第一趟就成功，行为不变。
-        if "'str' object has no attribute" not in str(e):
-            raise
-        parsed = {}
-        if isinstance(extend, str) and extend.strip():
-            try:
-                parsed = json.loads(extend)
-            except Exception:
-                parsed = {}
-        if not isinstance(parsed, dict):
-            parsed = {}
-        ru.init(parsed)
+    ru.init(_wrap_extend(extend))
 
 
 def homeContent(ru, filter, gen=None):

@@ -200,6 +200,7 @@ public class LxMusicSource implements MusicSource {
         String own = LxPlatformSearch.lyric(p.platform, p.item);
         if (!TextUtils.isEmpty(own)) return new MusicLyric(own);
         JsonObject musicInfo = musicInfo(track, p);
+        MusicLyric romajiOnly = null;
         for (MusicSite plugin : sites()) {
             LxBridge b;
             try {
@@ -211,12 +212,14 @@ public class LxMusicSource implements MusicSource {
             try {
                 String r = b.request(p.platform, "lyric", musicInfo, "");
                 MusicLyric lyric = extractLyricRich(r);
-                if (lyric != null && lyric.hasLyric()) return lyric;
+                // 正文/译文立即返回；纯音译只留候选，不截断后面插件的正文
+                if (lyric != null && lyric.hasBodyText()) return lyric;
+                if (lyric != null && lyric.hasLyric() && romajiOnly == null) romajiOnly = lyric;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lx lyricRich error plugin=%s %s", plugin.name, t.getMessage());
             }
         }
-        return null;
+        return romajiOnly;
     }
 
     /* ---------------- 内部 ---------------- */

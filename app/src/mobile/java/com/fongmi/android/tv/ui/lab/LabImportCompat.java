@@ -210,9 +210,10 @@ public final class LabImportCompat {
         it.id = sanitize(rawId.isEmpty() ? "webhtv" + idx : rawId);
         it.name = o.optString("name", it.id).trim();
         it.desc = o.optString("description", o.optString("desc", "")).trim();
-        // background 缺省按上游口径取 false（上游 Command.background 是原生 boolean，
-        // 没写就是前台型）；星辰自家 lab.json 的缺省 true 在 LabManifest 里，不受这里影响
-        it.background = o.optBoolean("background", false);
+        // background 缺省 true（后台型）：与自家 lab.json 缺省（LabManifest）一致；
+        // 曾改成 false，未写 background 的存量上游包导入后全变前台型、运行即弹
+        // 输出页，已恢复 true
+        it.background = o.optBoolean("background", true);
         it.autoStart = o.optBoolean("auto_execute", o.optBoolean("autoExecute", false));
         it.showOutput = o.optBoolean("show_output", o.optBoolean("showOutput", true));
         it.minVersion = o.optInt("min_version", 0);
@@ -291,12 +292,13 @@ public final class LabImportCompat {
             String cmd = c.optString("command", "");
             it.runtime = runtimeFromCommand(cmd);
             it.command = translateWebhtvCommand(cmd, it);
-            // background 缺省按上游口径取 false（没写=前台型），同命令条目路
-            it.background = c.optBoolean("background", false);
+            // background 缺省 true，同命令条目路
+            it.background = c.optBoolean("background", true);
             it.showOutput = c.optBoolean("show_output", c.optBoolean("showOutput", true));
-            // auto_execute 才是「自动运行」的来源；包级 auto_install 是上游装目录时
-            // 自动把这个包装上，不等于把每条命令都设成自启，不再折进来（见下面提示行）
-            it.autoStart = c.optBoolean("auto_execute", false);
+            // 自启来源：命令自己的 auto_execute，或包级 auto_install（上游语义：
+            // 声明自动安装的包，装上即按自动运行对待）。曾收窄为仅 auto_execute，
+            // auto_install 的包导入后不再自启，已恢复两者并取
+            it.autoStart = c.optBoolean("auto_execute", false) || autoInstall;
             it.minVersion = c.optInt("min_version", 0);
             it.variables.addAll(parseLabVarList(c.optJSONArray("variables")));
             it.variables.addAll(pkgVars);
@@ -317,7 +319,7 @@ public final class LabImportCompat {
                 it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
             }
             if (autoInstall) {
-                it.needsReview = addLine(it.needsReview, "上游包声明自动安装（装目录时自动装上这个包）；星辰的环境和包都是按需装的，这条没有转成自动启动");
+                it.needsReview = addLine(it.needsReview, "上游包声明自动安装，星辰转成了自动启动，语义不完全一样");
             }
             JSONArray clicks = c.optJSONArray("clicks");
             if (clicks != null && clicks.length() > 0) {
@@ -628,9 +630,12 @@ public final class LabImportCompat {
             }
             String pkgJson = null;
             List<String> names = new ArrayList<>();
-            Map<String, byte[]> allFiles = new LinkedHashMap<>();
+            Map<String, byte[]> pkgJsonFiles = new LinkedHashMap<>();
             Map<String, byte[]> bins = new LinkedHashMap<>();
             boolean hasUserCmds = false;
+            // 第一遍只记条目名，只把 package.json 与 binary/ 的字节留内存——其余
+            // 条目不读入（此前全条目驻留，大包导入内存峰值白白翻倍）。确诊是
+            // npm 整目录项目后才第二遍整包读入（见下），普通离线包不付这个代价。
             // 注：new SevenZFile(File) 在 1.27 标废弃，但 builder API 要拖 commons-io（App 没这个依赖），故沿用它
             try (SevenZFile sz = new SevenZFile(tmp)) {
                 SevenZArchiveEntry e;
@@ -638,9 +643,9 @@ public final class LabImportCompat {
                     if (e.isDirectory()) continue;
                     String name = e.getName().replace('\\', '/');
                     names.add(name);
-                    byte[] b = readSzEntryBytes(sz);
-                    allFiles.put(name, b);
                     if (name.equals("package.json") || name.endsWith("/package.json")) {
+                        byte[] b = readSzEntryBytes(sz);
+                        pkgJsonFiles.put(name, b);
                         if (pkgJson == null) pkgJson = new String(b, java.nio.charset.StandardCharsets.UTF_8);
                     } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
                         hasUserCmds = true;
@@ -650,7 +655,7 @@ public final class LabImportCompat {
                             String rel = name.substring(bi + 7);
                             while (rel.startsWith("/")) rel = rel.substring(1);
                             if (!rel.isEmpty() && !rel.contains("..")) {
-                                bins.put(rel, b);
+                                bins.put(rel, readSzEntryBytes(sz));
                             }
                         }
                     }
@@ -659,16 +664,25 @@ public final class LabImportCompat {
             // package.json 若是 npm 项目说明（整目录 Node 项目）：全部条目原样落进包目录，
             // 命令按 package.json 生成，在项目根里跑（与 zip 项目路同一套口径）
             String npmEntry = findNodePackageJson(names);
-            if (npmEntry != null && allFiles.containsKey(npmEntry)) {
+            if (npmEntry != null && pkgJsonFiles.containsKey(npmEntry)) {
                 JSONObject pj = null;
                 try {
-                    pj = new JSONObject(new String(allFiles.get(npmEntry), java.nio.charset.StandardCharsets.UTF_8));
+                    pj = new JSONObject(new String(pkgJsonFiles.get(npmEntry), java.nio.charset.StandardCharsets.UTF_8));
                 } catch (Exception ignored) {
                 }
                 if (pj != null && isNpmPackageJson(pj)) {
                     ImportItem it = fromNodeProject(pj, npmEntry, names);
                     if (it.command == null || it.command.trim().isEmpty()) {
                         throw new Exception("这个 Node 项目找不到入口：package.json 里没写 start/main，项目根也没有 index.js");
+                    }
+                    // 第二遍：整目录项目才需要全部条目落盘，这时才整包读入
+                    Map<String, byte[]> allFiles = new LinkedHashMap<>();
+                    try (SevenZFile sz2 = new SevenZFile(tmp)) {
+                        SevenZArchiveEntry e2;
+                        while ((e2 = sz2.getNextEntry()) != null) {
+                            if (e2.isDirectory()) continue;
+                            allFiles.put(e2.getName().replace('\\', '/'), readSzEntryBytes(sz2));
+                        }
                     }
                     it.extraFiles = new LinkedHashMap<>(allFiles);
                     ParseResult r = new ParseResult();

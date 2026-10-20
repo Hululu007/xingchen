@@ -277,14 +277,10 @@ public final class LabPackageInstaller {
                     pkg.installTime = System.currentTimeMillis();
                     pkg.needsReview = it.needsReview;
                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
-                    // 对齐上游 auto_execute：声明了自动运行的，装完就拉起来
-                    // （开机自启是 LabBoot 的另一条路，这里只管装完这一次）
-                    if (m.autoStart) {
-                        try {
-                            LabRunner.start(ctx, m.id, null);
-                        } catch (Exception ignored) {
-                        }
-                    }
+                    // 安装流程中不直接拉起服务：自启标记已随 manifest/注册表落盘，
+                    // 由 LabBoot（开机/进实验室）与用户手动启动消费。曾在这里逐条
+                    // upsert 后立即 LabRunner.start 并吞掉失败——服务可能在包还没
+                    // 装完时就起来、失败也无任何提示，已恢复改前时序。
                     installCompatNext(ctx, items, idx + 1, defaultRuntime, listener, okCount + 1);
                 } catch (Exception e) {
                     if (listener != null) listener.onFail(human(e));
@@ -388,25 +384,37 @@ public final class LabPackageInstaller {
     private static void unzip(File zip, File dest, boolean mergeFiles) throws Exception {
         deleteDir(dest);
         dest.mkdirs();
-        try (ZipInputStream zin = new ZipInputStream(new BufferedInputStream(new FileInputStream(zip)))) {
-            ZipEntry entry;
-            byte[] buf = new byte[8192];
-            while ((entry = zin.getNextEntry()) != null) {
-                if (entry.isDirectory()) continue;
-                String name = entry.getName();
-                if (mergeFiles && name.startsWith("files/")) {
-                    name = name.substring("files/".length());
-                    if (name.isEmpty()) continue;
+        String destPrefix = dest.getCanonicalPath() + File.separator;
+        try (ZipFile zf = new ZipFile(zip)) {
+            // 两趟写，消除同名覆盖的不确定性：mergeFiles 时先写 files/ 合并条目，
+            // 再写根目录条目——根目录版本永远赢，不再取决于 zip 内的条目顺序
+            // （此前单趟流式写，根与 files/ 同名时谁后出现谁赢，含 lab.json 本身）
+            for (int pass = 0; pass < 2; pass++) {
+                java.util.Enumeration<? extends ZipEntry> en = zf.entries();
+                while (en.hasMoreElements()) {
+                    ZipEntry entry = en.nextElement();
+                    if (entry.isDirectory()) continue;
+                    String raw = entry.getName();
+                    boolean fromFiles = mergeFiles && raw.startsWith("files/");
+                    if ((pass == 0) != fromFiles && mergeFiles) continue;
+                    if (!mergeFiles && pass == 1) break;
+                    String name = raw;
+                    if (fromFiles) {
+                        name = raw.substring("files/".length());
+                        if (name.isEmpty()) continue;
+                    }
+                    // 防 zip-slip
+                    File out = new File(dest, name);
+                    if (!out.getCanonicalPath().startsWith(destPrefix)) continue;
+                    out.getParentFile().mkdirs();
+                    try (InputStream in = zf.getInputStream(entry);
+                         BufferedOutputStream bout = new BufferedOutputStream(new FileOutputStream(out))) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) bout.write(buf, 0, n);
+                    }
                 }
-                // 防 zip-slip
-                File out = new File(dest, name);
-                if (!out.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) continue;
-                out.getParentFile().mkdirs();
-                try (BufferedOutputStream bout = new BufferedOutputStream(new FileOutputStream(out))) {
-                    int n;
-                    while ((n = zin.read(buf)) > 0) bout.write(buf, 0, n);
-                }
-                zin.closeEntry();
+                if (!mergeFiles) break;
             }
         }
     }

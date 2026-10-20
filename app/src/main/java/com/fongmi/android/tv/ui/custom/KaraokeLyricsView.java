@@ -227,6 +227,8 @@ public class KaraokeLyricsView extends View {
     private boolean lightScheme;
 
     private boolean playing;
+    /** 被同窗页面（播放页内全屏歌词页）盖住时挂起帧循环：与 playing 解耦，恢复时按当前基准续推。 */
+    private boolean suspended;
     private long basePositionMs;
     private long baseRealtimeMs;
     private int currentIndex = -1;
@@ -513,8 +515,17 @@ public class KaraokeLyricsView extends View {
 
     /** 外部播放进度喂入：以该值＋流逝时间在帧循环内推算当前播放位置。 */
     public void updatePosition(long positionMs) {
-        basePositionMs = Math.max(0, positionMs);
-        baseRealtimeMs = SystemClock.elapsedRealtime();
+        // GZ 平滑时间回退容忍 350ms：新锚点比当前平滑位置落后 ≤350ms 时锚点不动（保持单调），超过才跟随
+        long newPos = Math.max(0, positionMs);
+        boolean tolerate = false;
+        if (playing) {
+            long cur = displayPositionMs();
+            tolerate = newPos < cur && cur - newPos <= 350;
+        }
+        if (!tolerate) {
+            basePositionMs = newPos;
+            baseRealtimeMs = SystemClock.elapsedRealtime();
+        }
         if (!browsing) {
             int next = lines.isEmpty() ? -1 : LyricsParser.findLine(lines, basePositionMs);
             if (next != currentIndex) {
@@ -546,10 +557,18 @@ public class KaraokeLyricsView extends View {
 
     private long displayPositionMs() {
         if (!playing) return basePositionMs;
-        return basePositionMs + Math.max(0, SystemClock.elapsedRealtime() - baseRealtimeMs);
+        // GZ rememberSmoothTime 口径：外推上限＝锚点 +1000ms（防 tick 迟到时平滑时间跑飞）
+        return Math.min(basePositionMs + 1000,
+                basePositionMs + Math.max(0, SystemClock.elapsedRealtime() - baseRealtimeMs));
+    }
+
+    public void setSuspended(boolean suspended) {
+        this.suspended = suspended;
+        if (!suspended) ensureFrameLoop();
     }
 
     private void ensureFrameLoop() {
+        if (suspended) return;
         if (framePosted) return;
         if (!playing && !needsSettle()) return;
         if (lines.isEmpty()) return;
@@ -563,6 +582,12 @@ public class KaraokeLyricsView extends View {
     }
 
     private void stepFrame() {
+        // 窗口不可见（被其它 Activity/页面盖住）时停帧：不重绘、不再排帧，
+        // 回到前台由 onWindowVisibilityChanged 重新拉起（防双页同跑时后台页空转）。
+        if (getWindowVisibility() != VISIBLE || !isShown()) {
+            framePosted = false;
+            return;
+        }
         long now = SystemClock.elapsedRealtime();
         long frameMs = lastFrameMs == 0 ? 16 : now - lastFrameMs;
         lastFrameMs = now;
@@ -575,7 +600,7 @@ public class KaraokeLyricsView extends View {
             stepSpring(dt);
         }
         invalidate();
-        if (playing || needsSettle()) {
+        if (!suspended && (playing || needsSettle())) {
             framePosted = true;
             choreographer.postFrameCallback(frameCallback);
         }
@@ -1239,6 +1264,12 @@ public class KaraokeLyricsView extends View {
             if (contentY >= block.top && contentY < block.top + block.height) return block.index;
         }
         return -1;
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == VISIBLE) ensureFrameLoop();
     }
 
     @Override

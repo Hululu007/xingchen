@@ -129,7 +129,31 @@ public class MusicPlayerActivity extends BaseActivity {
     private int ambientColor = CoverColor.FALLBACK_COLOR;
     private int dominantColor = CoverColor.FALLBACK_COLOR;
     private ValueAnimator ambientAnimator;
+    /** 进度条补间（GZ 通用进度 animateFloatAsState tween(200, bs4.a)：tick 间平滑滑动而非跳步） */
+    private ValueAnimator seekAnim;
+    // GZ 全局缓动（defpackage/bs4）：a=FastOutSlowIn(0.2,0,0,1)、e=Emphasized(0.05,0.7,0.1,1)、b=LinearOutSlowIn(0,0,0,1)、f=滑出(0.3,0,0.8,0.15)
+    private static final android.view.animation.Interpolator INTERP_FOSI = new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
+    private static final android.view.animation.Interpolator INTERP_EMPH = new android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
+    private static final android.view.animation.Interpolator INTERP_LOSI = new android.view.animation.PathInterpolator(0f, 0f, 0f, 1f);
+    private static final android.view.animation.Interpolator INTERP_EXIT = new android.view.animation.PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
+    // ===== 全屏歌词内页（GZ 本体为播放页内 HorizontalPager 第 2 页，与播放页同一状态源；
+    // 原独立 MusicLyricsActivity 自带一份取词/解析/取色/进度监听链、与播放页双份打架，已整条删除） =====
+    private View lyricsPage;
+    private com.fongmi.android.tv.ui.custom.KaraokeLyricsView pageLyricView;
+    private ImageView pageCoverView;
+    private View pageCoverFade;
+    private TextView pageTitleView;
+    private TextView pageArtistView;
+    private ImageView pageBtnFav;
+    private ImageView pageBtnPlayTop;
+    private TextView pageChipQuality;
+    private TextView pageChipWord;
+    private SeekBar pageSeek;
+    private boolean lyricsPageOpen;
+    private boolean pageHasWordLines;
     private ObjectAnimator cdAnimator;
+    private com.fongmi.android.tv.ui.custom.CdSweepView cdSweepView;
+    private boolean cdBoundOnce;
     private boolean destroyed;
 
     public static void start(Activity activity) {
@@ -159,7 +183,10 @@ public class MusicPlayerActivity extends BaseActivity {
 
         @Override
         public void onAudioInfoChanged() {
-            runOnUiThread(() -> refreshQualityValue());
+            runOnUiThread(() -> {
+                refreshQualityValue();
+                refreshPageQualityChip();
+            });
         }
     };
 
@@ -176,6 +203,7 @@ public class MusicPlayerActivity extends BaseActivity {
         MusicController.get().addListener(listener);
         // 深底页：状态栏图标显式浅色，防音乐首页设置的深色图标串扰（06:17 状态栏衔接核查）
         ReadingSkin.setSystemBarIconAppearance(this, true);
+        wireLyricsPage();
         applyTheme();
         bindTrack(MusicController.get().current());
         setPlaying(MusicController.get().isPlaying());
@@ -254,6 +282,11 @@ public class MusicPlayerActivity extends BaseActivity {
         }
         binding.themeContainer.removeAllViews();
         themeRoot = LayoutInflater.from(this).inflate(layout, binding.themeContainer, false);
+        // 主题切换过渡（GZ MotionKt 进出转场 tween(260, bs4.a) 近似：淡入＋0.98 微缩放）
+        themeRoot.setAlpha(0f);
+        themeRoot.setScaleX(0.98f);
+        themeRoot.setScaleY(0.98f);
+        themeRoot.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(INTERP_FOSI).start();
         binding.themeContainer.addView(themeRoot);
         grabThemeViews();
         wireThemeViews();
@@ -298,6 +331,7 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricLineView = find(R.id.tpLyricLine);
         cdRoot = find(R.id.tpCdRoot);
         cdDisc = find(R.id.tpCdDisc);
+        cdSweepView = find(R.id.tpCdSweep);
         shelfList = find(R.id.tpShelfList);
     }
 
@@ -372,6 +406,7 @@ public class MusicPlayerActivity extends BaseActivity {
                 if (THEME_CLASSIC.equals(themeId)) openLyricsPage();
                 else MusicController.get().seekTo(positionMs);
             });
+            attachPagerSwipe(lyricView, true);
         }
 
         // Apple 专属：歌词入口/音质入口＋运输键按压缩放（上/下一首 0.88、播放 0.9）
@@ -459,10 +494,10 @@ public class MusicPlayerActivity extends BaseActivity {
         if (view == null) return;
         view.setOnTouchListener((v, e) -> {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                v.animate().scaleX(scale).scaleY(scale).setDuration(260).start();
+                v.animate().scaleX(scale).scaleY(scale).setDuration(150).setInterpolator(INTERP_FOSI).start();
             } else if (e.getActionMasked() == MotionEvent.ACTION_UP
                     || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                v.animate().scaleX(1f).scaleY(1f).setDuration(260).start();
+                v.animate().scaleX(1f).scaleY(1f).setDuration(150).setInterpolator(INTERP_FOSI).start();
             }
             return false;
         });
@@ -471,13 +506,29 @@ public class MusicPlayerActivity extends BaseActivity {
     // ================= 封面手势（G01–G03） =================
 
     /**
-     * 双击→收藏＋burstCover（大爆）；长按→工具面板；横滑（轴锁 1.5）→上一首/下一首。
-     * 下滑退出不做（系统返回已覆盖）。
+     * 封面手势（GZ §2 锚点模型转写）：双击→收藏＋burstCover（大爆）；长按→工具面板；
+     * 单击→开歌词内页/切展开；滑动切歌按主题分轴——经典竖滑（锚点距 clamp(屏高×0.42, 240, 400)dp、
+     * 轴锁 1.5）、封面卡片横滑（锚点距 clamp(屏宽×0.42, 220, 360)dp、轴锁 1.2）、其余主题横滑（轴锁 1.5、无跟手）；
+     * 触发距离 36dp、甩动速度 600dp/s、拖动 1:1 跟手钳在锚点内、过阈 CONTEXT_CLICK 震动一次、
+     * 提交先 150ms(bs4.f) 滑到锚点再切歌、不提交回中（GZ 弹簧 0.9/1400 以 250ms tween 近似）。
      */
     private void attachCoverGestures(View wrap) {
+        final boolean vertical = THEME_CLASSIC.equals(themeId);
+        final boolean follow = vertical || THEME_IMMERSIVE.equals(themeId);
+        final float dominance = THEME_IMMERSIVE.equals(themeId) ? 1.2f : 1.5f;
+        final float density = getResources().getDisplayMetrics().density;
+        final float anchorDp = vertical
+                ? Math.max(240f, Math.min(400f, getResources().getDisplayMetrics().heightPixels / density * 0.42f))
+                : Math.max(220f, Math.min(360f, getResources().getDisplayMetrics().widthPixels / density * 0.42f));
+        final float[] drag = new float[1];
+        final boolean[] state = new boolean[3]; // 0 dominant 1 hapticFired 2 committed
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDown(MotionEvent e) {
+                drag[0] = 0f;
+                state[0] = false;
+                state[1] = false;
+                state[2] = false;
                 return true;
             }
 
@@ -512,20 +563,97 @@ public class MusicPlayerActivity extends BaseActivity {
             }
 
             @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
                 if (e1 == null || e2 == null) return false;
                 float dx = e2.getX() - e1.getX();
                 float dy = e2.getY() - e1.getY();
-                float threshold = 72 * getResources().getDisplayMetrics().density;
-                if (Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    if (dx < 0) MusicController.get().next();
-                    else MusicController.get().prev();
+                float off = vertical ? dy : dx;
+                float cross = vertical ? dx : dy;
+                boolean dominant = Math.abs(off) > Math.abs(cross) * dominance;
+                state[0] = dominant;
+                if (!dominant) return false;
+                drag[0] = off;
+                float anchorPx = anchorDp * density;
+                if (follow && coverView != null) {
+                    float clamped = Math.max(-anchorPx, Math.min(anchorPx, off));
+                    if (vertical) coverView.setTranslationY(clamped);
+                    else coverView.setTranslationX(clamped);
+                }
+                TextView hint = findViewById(R.id.swipeHint);
+                if (Math.abs(off) > 36 * density) {
+                    if (!state[1]) {
+                        state[1] = true;
+                        try {
+                            wrap.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (hint != null) {
+                        hint.setText(off < 0 ? R.string.music_next : R.string.music_prev);
+                        hint.setVisibility(View.VISIBLE);
+                    }
+                } else {
+                    state[1] = false;
+                    if (hint != null) hint.setVisibility(View.GONE);
+                }
+                return false;
+            }
+
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                float v = vertical ? velocityY : velocityX;
+                // 甩动提交：位移不足但轴向速度达 600dp/s 也触发，方向取速度符号
+                if (state[0] && Math.abs(v) >= 600 * density && Math.abs(drag[0]) < 36 * density) {
+                    commitCoverSwipe(wrap, v < 0, anchorDp * density, follow, vertical, state);
                     return true;
                 }
                 return false;
             }
         });
-        wrap.setOnTouchListener((v, e) -> detector.onTouchEvent(e));
+        wrap.setOnTouchListener((v, e) -> {
+            boolean handled = detector.onTouchEvent(e);
+            if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                TextView hint = findViewById(R.id.swipeHint);
+                if (hint != null) hint.setVisibility(View.GONE);
+                if (!state[2]) {
+                    if (state[0] && Math.abs(drag[0]) >= 36 * density) {
+                        commitCoverSwipe(wrap, drag[0] < 0, anchorDp * density, follow, vertical, state);
+                    } else if (follow && coverView != null) {
+                        // 不提交回中（GZ spring(0.9, 1400) 以 250ms FastOutSlowIn 近似）
+                        coverView.animate().translationX(0f).translationY(0f)
+                                .setDuration(250).setInterpolator(INTERP_FOSI).start();
+                    }
+                }
+                drag[0] = 0f;
+                state[0] = false;
+            }
+            return handled;
+        });
+    }
+
+    /** 滑动切歌提交：先滑到锚点（150ms bs4.f）再切歌；无跟手主题直接切（转场由 bindCovers 承担） */
+    private void commitCoverSwipe(View wrap, boolean next, float anchorPx, boolean follow, boolean vertical, boolean[] state) {
+        state[2] = true;
+        Runnable change = () -> {
+            if (coverView != null) {
+                coverView.setTranslationX(0f);
+                coverView.setTranslationY(0f);
+            }
+            if (next) MusicController.get().next();
+            else MusicController.get().prev();
+        };
+        if (follow && coverView != null) {
+            float target = next ? -anchorPx : anchorPx;
+            if (vertical) {
+                coverView.animate().translationY(target).setDuration(150).setInterpolator(INTERP_EXIT)
+                        .withEndAction(change).start();
+            } else {
+                coverView.animate().translationX(target).setDuration(150).setInterpolator(INTERP_EXIT)
+                        .withEndAction(change).start();
+            }
+        } else {
+            change.run();
+        }
     }
 
     /** 主题内坐标 → 爱心覆盖层坐标 */
@@ -549,6 +677,7 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private void bindTrack(MusicTrack track) {
         bindTrackViews(track);
+        bindPageHeader(track);
         if (track == null) {
             // 无曲目：歌词视图等待态
             if (lyricView != null) lyricView.showWaiting();
@@ -565,6 +694,15 @@ public class MusicPlayerActivity extends BaseActivity {
     private void bindTrackViews(MusicTrack track) {
         if (titleView != null) titleView.setText(track == null ? getString(R.string.music_no_track) : track.displayTitle());
         if (artistView != null) artistView.setText(track == null ? "" : track.displayArtist());
+        // 歌名/歌手切换淡入（GZ AnimatedSongText：入 fadeIn tween(200, bs4.e)；单 TextView 无旧文交叉淡出，出场 150 不复刻）
+        if (titleView != null) {
+            titleView.setAlpha(0f);
+            titleView.animate().alpha(1f).setDuration(200).setInterpolator(INTERP_EMPH).start();
+        }
+        if (artistView != null) {
+            artistView.setAlpha(0f);
+            artistView.animate().alpha(1f).setDuration(200).setInterpolator(INTERP_EMPH).start();
+        }
         // 经典 SongMeta 专辑行：无专辑信息整行隐藏（该藏的藏）
         if (albumView != null) {
             String album = track == null ? null : track.album;
@@ -594,8 +732,19 @@ public class MusicPlayerActivity extends BaseActivity {
             coverView.setAlpha(0f);
             coverView.setScaleX(fromScale);
             coverView.setScaleY(fromScale);
+            // 入场滑移（GZ CoverTransitionSpec coverSlotTransform）：经典竖向入场位移 0.5×高×(1−进度)、
+            // 缓动经典 Emphasized(bs4.e)/Apple FastOutSlowIn(bs4.a)；Apple 入场位移 0。出场槽需双封面层、View 单封面装配不复刻（见报告 M-01）
+            if (THEME_CLASSIC.equals(themeId)) {
+                int h = coverView.getHeight();
+                float slide = (h > 0 ? h : 300 * getResources().getDisplayMetrics().density) * 0.5f;
+                coverView.setTranslationY(slide);
+            }
             coverView.animate().alpha(1f).scaleX(target).scaleY(target)
-                    .setDuration(dur).start();
+                    .translationX(0f).translationY(0f)
+                    .setDuration(dur)
+                    .setInterpolator(THEME_CLASSIC.equals(themeId) ? INTERP_EMPH : INTERP_FOSI)
+                    .start();
+            if (THEME_CD.equals(themeId)) triggerCdSweep();
         }
     }
 
@@ -649,14 +798,22 @@ public class MusicPlayerActivity extends BaseActivity {
         });
     }
 
-    /** 氛围色 500ms 渐变过渡（GZ CoverTone 口径） */
+    /** 氛围色 450ms 渐变过渡（GZ animateColorAsState tween(450, bs4.a)，PlayerScreenKt coverDominantAmbient） */
     private void animateAmbient(int to) {
         if (ambientAnimator != null) ambientAnimator.cancel();
         ambientAnimator = ValueAnimator.ofObject(new ArgbEvaluator(), ambientColor, to);
-        ambientAnimator.setDuration(500);
+        ambientAnimator.setDuration(450);
+        ambientAnimator.setInterpolator(INTERP_FOSI);
         ambientAnimator.addUpdateListener(a -> {
             ambientColor = (int) a.getAnimatedValue();
             binding.viewAmbient.setBackgroundColor(ambientColor);
+            if (lyricsPageOpen && lyricsPage != null) lyricsPage.setBackgroundColor(ambientColor);
+        });
+        ambientAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (lyricsPageOpen) applyPageFade();
+            }
         });
         ambientAnimator.start();
     }
@@ -719,6 +876,7 @@ public class MusicPlayerActivity extends BaseActivity {
         // 切歌/开始取词先露加载态，取词未回不许先露空态（时序接线口径）；
         // 单行歌词数据（封面卡片/CD 当前行）照旧先清，避免旧歌词残留错位
         if (lyricView != null) lyricView.showLoading();
+        if (lyricsPageOpen && pageLyricView != null) pageLyricView.showLoading();
         lyricMains.clear();
         lyricTrans.clear();
         lyricRomas.clear();
@@ -762,6 +920,7 @@ public class MusicPlayerActivity extends BaseActivity {
                 applyLyricData(resultMains, resultTrans, resultRomas);
                 // 取词确认为空才露空态
                 if (resultMains.isEmpty() && lyricView != null) lyricView.showNoLyric();
+                if (resultMains.isEmpty() && lyricsPageOpen && pageLyricView != null) pageLyricView.showNoLyric();
                 if (force) {
                     Notify.show(resultMains.isEmpty() ? R.string.music_lyric_not_found : R.string.music_lyric_found);
                 }
@@ -777,10 +936,14 @@ public class MusicPlayerActivity extends BaseActivity {
         loadLyric(track, true);
     }
 
-    /** GZ Scrubber 顶盒两侧时间：静止 alpha 0、拖动 0.72（仅经典布局有此二视图，其余主题为空跳过） */
+    /** GZ Scrubber 顶盒两侧时间：静止 alpha 0、拖动 0.72，切换 tween(150, bs4.a)（仅经典布局有此二视图） */
     private void setTopTimesAlpha(float alpha) {
-        if (positionTopView != null) positionTopView.setAlpha(alpha);
-        if (durationTopView != null) durationTopView.setAlpha(alpha);
+        if (positionTopView != null) {
+            positionTopView.animate().alpha(alpha).setDuration(150).setInterpolator(INTERP_FOSI).start();
+        }
+        if (durationTopView != null) {
+            durationTopView.animate().alpha(alpha).setDuration(150).setInterpolator(INTERP_FOSI).start();
+        }
     }
 
     /** 歌词筹文案照 GZ lyricChipLabel 五档中星辰可判定的四档（AMLL 是 GZ 专有格式，星辰无此来源不冒充） */
@@ -814,10 +977,21 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     private void feedLyricView() {
-        if (lyricView == null) return;
-        lyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas));
-        lyricView.setPlaying(playing);
-        lyricView.updatePosition(MusicController.get().position());
+        if (lyricView != null) {
+            lyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas));
+            lyricView.setPlaying(playing);
+            lyricView.updatePosition(MusicController.get().position());
+        }
+        if (lyricsPageOpen) feedPageLyricView();
+    }
+
+    /** 歌词内页喂词：与播放页同一份 lyricMains 数据，不再单独取词/解析（双份链已删） */
+    private void feedPageLyricView() {
+        if (pageLyricView == null) return;
+        pageLyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas));
+        pageLyricView.setPlaying(playing);
+        pageLyricView.updatePosition(MusicController.get().position());
+        refreshPageWordChip();
     }
 
     /**
@@ -850,7 +1024,7 @@ public class MusicPlayerActivity extends BaseActivity {
             lyricView.setPrimary(primary);
             lyricView.setShowSub(showTrans, showRoma);
             // 本页歌词视图恒为封面模式（经典内嵌/唱片架卡片）：字号按 GZ 封面 22 对
-            // 全屏 24 的差值口径减 2，全屏页用原值（见 MusicLyricsActivity）。
+            // 全屏 24 的差值口径减 2，全屏歌词内页用原值（见 applyPageLyricStyle）。
             lyricView.setMainTextSizeSp(Math.max(16f, fontSize - 2f));
             lyricView.setLyricAlign(align);
             lyricView.setLyricWeight(weight);
@@ -926,18 +1100,233 @@ public class MusicPlayerActivity extends BaseActivity {
         if (tv != null) tv.setText(text);
     }
 
+    /** 打开全屏歌词页（GZ 本体为同屏 pager 第 2 页；现为播放页内页，与播放页共用数据/进度/监听一套） */
     private void openLyricsPage() {
+        if (MusicController.get().current() == null || lyricsPage == null) return;
+        lyricsPageOpen = true;
+        lyricsPage.setVisibility(View.VISIBLE);
+        // 呼出动画：pager 横滑的 View 近似——自右侧滑入（GZ pager 页切换口径，动效组对值见报告）
+        lyricsPage.setTranslationX(lyricsPage.getWidth() > 0 ? lyricsPage.getWidth() : getResources().getDisplayMetrics().widthPixels);
+        lyricsPage.animate().translationX(0f).setDuration(260).setInterpolator(INTERP_FOSI).start();
+        if (lyricView != null) lyricView.setSuspended(true);
+        bindPageHeader(MusicController.get().current());
+        applyPageLyricStyle();
+        feedPageLyricView();
+        refreshPageQualityChip();
+        paintFavoriteIcons();
+        if (pageBtnPlayTop != null) {
+            pageBtnPlayTop.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+        }
+        if (pageLyricView != null) pageLyricView.setPlaying(playing);
+    }
+
+    private void closeLyricsPage() {
+        if (!lyricsPageOpen || lyricsPage == null) return;
+        lyricsPageOpen = false;
+        lyricsPage.animate().translationX(lyricsPage.getWidth() > 0 ? lyricsPage.getWidth() : getResources().getDisplayMetrics().widthPixels)
+                .setDuration(200).setInterpolator(INTERP_LOSI).withEndAction(() -> {
+                    if (!lyricsPageOpen) lyricsPage.setVisibility(View.GONE);
+                }).start();
+        if (lyricView != null) {
+            lyricView.setSuspended(false);
+            lyricView.setPlaying(playing);
+            lyricView.updatePosition(MusicController.get().position());
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (lyricsPageOpen) {
+            closeLyricsPage();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    /** 歌词内页接线（根布局固定控件，与主题无关，一次接好） */
+    private void wireLyricsPage() {
+        lyricsPage = findViewById(R.id.lyricsPage);
+        pageLyricView = findViewById(R.id.pgLyricsView);
+        pageCoverView = findViewById(R.id.pgCover);
+        pageCoverFade = findViewById(R.id.pgCoverFade);
+        pageTitleView = findViewById(R.id.pgTitle);
+        pageArtistView = findViewById(R.id.pgArtist);
+        pageBtnFav = findViewById(R.id.pgBtnFav);
+        pageBtnPlayTop = findViewById(R.id.pgBtnPlayTop);
+        pageChipQuality = findViewById(R.id.pgChipQuality);
+        pageChipWord = findViewById(R.id.pgChipWord);
+        pageSeek = findViewById(R.id.pgSeek);
+        if (pageSeek != null) pageSeek.setMax(1000);
+        ImageView menu = findViewById(R.id.pgBtnMenu);
+        if (menu != null) {
+            menu.setOnClickListener(v -> showToolsSheet());
+            attachPressScale(menu, 0.88f);
+        }
+        ImageView queue = findViewById(R.id.pgBtnQueue);
+        if (queue != null) {
+            queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+            attachPressScale(queue, 0.88f);
+        }
+        if (pageBtnPlayTop != null) {
+            pageBtnPlayTop.setOnClickListener(v -> MusicController.get().toggle());
+            attachPressScale(pageBtnPlayTop, 0.88f);
+        }
+        if (pageBtnFav != null) pageBtnFav.setOnClickListener(v -> toggleFavorite(v));
+        if (pageChipQuality != null) pageChipQuality.setOnClickListener(v -> {
+            showQualityDialog();
+            refreshPageQualityChip();
+        });
+        if (pageChipWord != null) pageChipWord.setOnClickListener(v -> togglePageWordByWord());
+        if (pageLyricView != null) {
+            pageLyricView.setOnLineClickListener((index, positionMs) -> {
+                MusicController.get().seekTo(positionMs);
+                pageLyricView.seekUi(positionMs);
+            });
+            attachPagerSwipe(pageLyricView, false);
+        }
+        applyPageFade();
+    }
+
+    /** 歌词内页头部绑定：与播放页同一曲目数据；封面整幅、底色共用播放页氛围色（不另取色） */
+    private void bindPageHeader(MusicTrack track) {
+        if (!lyricsPageOpen) return;
+        if (track == null) {
+            if (pageTitleView != null) pageTitleView.setText(R.string.music_no_track);
+            if (pageArtistView != null) pageArtistView.setText("");
+            if (pageLyricView != null) pageLyricView.showWaiting();
+            if (pageChipQuality != null) pageChipQuality.setVisibility(View.GONE);
+            if (pageChipWord != null) pageChipWord.setVisibility(View.GONE);
+            return;
+        }
+        if (pageTitleView != null) pageTitleView.setText(track.displayTitle());
+        if (pageArtistView != null) pageArtistView.setText(track.displayArtist());
+        if (pageCoverView != null) loadIntoCover(pageCoverView, track.cover, track.displayTitle());
+        if (lyricsPage != null) lyricsPage.setBackgroundColor(ambientColor);
+        applyPageFade();
+    }
+
+    /** 封面下缘渐变：融进当前氛围色（共用播放页取色结果，切歌后随 animateAmbient 收尾重生成） */
+    private void applyPageFade() {
+        if (pageCoverFade == null) return;
+        pageCoverFade.setBackground(new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00000000, 0x00000000, ambientColor, ambientColor}));
+    }
+
+    /** 歌词内页样式：GZ 全屏歌词口径——原值字号（不减 2）、非封面模式，其余项与播放页同源 MusicStore */
+    private void applyPageLyricStyle() {
+        if (pageLyricView == null) return;
         try {
-            MusicLyricsActivity.start(this);
+            pageLyricView.setCoverMode(false);
+            pageLyricView.setPrimary(MusicStore.getLyricPrimary());
+            pageLyricView.setShowSub(MusicStore.isShowTranslation(), MusicStore.isShowRomanization());
+            pageLyricView.setMainTextSizeSp(MusicStore.getLyricFontSize());
+            pageLyricView.setLyricAlign(MusicStore.getLyricAlign());
+            pageLyricView.setLyricWeight(MusicStore.getLyricWeight());
+            pageLyricView.setBlurLevel(MusicStore.getLyricBlur());
+            pageLyricView.setAdvancedFx(MusicStore.isAdvancedFx());
         } catch (Throwable ignored) {
         }
     }
 
+    /** 歌词内页音质胶囊：与旧歌词页同口径（实测短标；无实测留「音质」通用标签，所选档永不进显示） */
+    private void refreshPageQualityChip() {
+        if (pageChipQuality == null) return;
+        if (MusicController.get().current() == null) {
+            pageChipQuality.setVisibility(View.GONE);
+            return;
+        }
+        String label = null;
+        try {
+            com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
+            if (info != null && info.codec != null && !info.codec.isEmpty()) {
+                if (info.lossless) label = info.codec;
+                else if (info.bitrateKbps > 0) label = info.bitrateKbps + "k";
+            }
+        } catch (Throwable ignored) {
+        }
+        pageChipQuality.setText(label == null ? getString(R.string.music_quality) : label);
+        pageChipQuality.setVisibility(View.VISIBLE);
+    }
+
+    private void refreshPageWordChip() {
+        pageHasWordLines = false;
+        for (LyricsLine line : lyricMains) {
+            if (line != null && line.hasWords()) {
+                pageHasWordLines = true;
+                break;
+            }
+        }
+        if (pageChipWord == null) return;
+        pageChipWord.setVisibility(pageHasWordLines ? View.VISIBLE : View.GONE);
+        paintPageWordChip();
+    }
+
+    private void paintPageWordChip() {
+        if (pageChipWord == null || pageLyricView == null) return;
+        boolean on = pageLyricView.isWordByWord();
+        pageChipWord.setAlpha(on ? 1f : 0.45f);
+        pageChipWord.setTextColor(on ? 0xFFFFFFFF : 0xFF9A9AA0);
+    }
+
+    private void togglePageWordByWord() {
+        if (!pageHasWordLines || pageLyricView == null) return;
+        boolean on = !pageLyricView.isWordByWord();
+        pageLyricView.setWordByWord(on);
+        paintPageWordChip();
+        Notify.show(on ? R.string.lyr_word_on : R.string.lyr_word_off);
+    }
+
+    /**
+     * pager 横滑观察（GZ F08/G05：播放页⇄歌词页同屏 pager、轴锁 1.5）：只观察不消费，
+     * 横向位移占优且过 72dp 才触发——内嵌歌词左滑开内页、内页右滑回播放页。
+     */
+    private void attachPagerSwipe(View view, boolean embedded) {
+        final float[] down = new float[2];
+        final boolean[] fired = {false};
+        view.setOnTouchListener((v, e) -> {
+            float d = getResources().getDisplayMetrics().density;
+            if (e.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                down[0] = e.getX();
+                down[1] = e.getY();
+                fired[0] = false;
+            } else if (e.getAction() == android.view.MotionEvent.ACTION_MOVE && !fired[0]) {
+                float dx = e.getX() - down[0];
+                float dy = e.getY() - down[1];
+                if (Math.abs(dx) > 72 * d && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                    fired[0] = true;
+                    if (embedded && dx < 0) openLyricsPage();
+                    else if (!embedded && dx > 0) closeLyricsPage();
+                }
+            }
+            return false;
+        });
+    }
+
     // ================= 进度/主控 =================
+
+    /** 进度条 200ms 补间到目标（tick 250ms 到达前滑完上一段，视觉连续；拖动中不补间、切歌大跳直接落位） */
+    private void animateSeekTo(int target) {
+        if (seekView == null) return;
+        int from = seekView.getProgress();
+        if (Math.abs(target - from) > 25) {
+            if (seekAnim != null) seekAnim.cancel();
+            seekView.setProgress(target);
+            return;
+        }
+        if (seekAnim != null) seekAnim.cancel();
+        seekAnim = ValueAnimator.ofInt(from, target);
+        seekAnim.setDuration(200);
+        seekAnim.setInterpolator(INTERP_FOSI);
+        seekAnim.addUpdateListener(a -> {
+            if (!seeking && seekView != null) seekView.setProgress((int) a.getAnimatedValue());
+        });
+        seekAnim.start();
+    }
 
     private void onProgressUi(long position, long duration) {
         if (!seeking && duration > 0 && seekView != null) {
-            seekView.setProgress((int) (position * 1000 / duration));
+            animateSeekTo((int) (position * 1000 / duration));
         }
         if (positionView != null) positionView.setText(fmt(position));
         // GZ Scrubber 底行右＝负剩余（-mm:ss），不是总时长
@@ -947,6 +1336,12 @@ public class MusicPlayerActivity extends BaseActivity {
         if (lyricView != null) {
             lyricView.updatePosition(position);
             lyricView.setPlaying(playing);
+        }
+        if (lyricsPageOpen) {
+            if (pageLyricView != null) pageLyricView.updatePosition(position);
+            if (pageSeek != null && duration > 0) {
+                pageSeek.setProgress((int) (position * 1000 / duration));
+            }
         }
         updateCurrentLyricTexts(position);
     }
@@ -962,21 +1357,45 @@ public class MusicPlayerActivity extends BaseActivity {
         if (playView != null) {
             playView.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
         }
-        // 经典 SongMeta 播放键：图标播放中 28dp / 暂停态 25dp（40dp 点击区内靠 padding 换尺寸，GZ 300ms 尺寸过渡以即时切换近似）
+        // 经典 SongMeta 播放键：图标播放中 28dp / 暂停态 25dp（40dp 点击区内靠 padding 换尺寸，GZ animateDpAsState tween(300) 真动画）
         if (playTopView != null) {
             playTopView.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
             float d = getResources().getDisplayMetrics().density;
-            int pad = Math.round((playing ? 6f : 7.5f) * d);
-            playTopView.setPadding(pad, pad, pad, pad);
+            int fromPad = playTopView.getPaddingLeft();
+            int toPad = Math.round((playing ? 6f : 7.5f) * d);
+            if (fromPad != toPad) {
+                ValueAnimator padAnim = ValueAnimator.ofInt(fromPad, toPad);
+                padAnim.setDuration(300);
+                padAnim.addUpdateListener(a -> {
+                    int v = (int) a.getAnimatedValue();
+                    playTopView.setPadding(v, v, v, v);
+                });
+                padAnim.start();
+            }
         }
         if (lyricView != null) lyricView.setPlaying(playing);
+        // 内嵌歌词播/停变暗（GZ lyricDimA：播放 1.0 / 暂停 0.38、tween(350, bs4.a)；CD 主题歌词属 CD 表面不走此口径、歌词内页不压暗）
+        if (lyricView != null && !THEME_CD.equals(themeId)) {
+            lyricView.animate().alpha(playing ? 1f : 0.38f).setDuration(350).setInterpolator(INTERP_FOSI).start();
+        }
+        if (pageLyricView != null) pageLyricView.setPlaying(playing);
+        if (pageBtnPlayTop != null) {
+            pageBtnPlayTop.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+        }
         // 经典封面暂停缩放 0.9（GZ 口径）
         if (coverView != null && (THEME_CLASSIC.equals(themeId) || THEME_APPLE.equals(themeId))) {
             float target = playing ? 1f : 0.9f;
             coverView.animate().scaleX(target).scaleY(target).setDuration(250).start();
         }
         updateRotations();
-        if (shelfAdapter != null) shelfAdapter.notifyDataSetChanged();
+        refreshShelfSpins();
+    }
+
+    /** 播放/暂停切换只重绑当前唱片一项来启停自旋，不整表重绑（整表 notify 会让每张唱片重载封面＋重建旋转动画，是卡顿源） */
+    private void refreshShelfSpins() {
+        if (shelfAdapter == null) return;
+        int cur = MusicController.get().index();
+        if (cur >= 0) shelfAdapter.notifyItemChanged(cur);
     }
 
     private void refreshModeIcon(int mode) {
@@ -1086,6 +1505,16 @@ public class MusicPlayerActivity extends BaseActivity {
         return android.graphics.Color.rgb(r, g, b);
     }
 
+    /** 切歌扫光触发（GZ CdSongChange）：CD 主题且非首绑时扫一次（方向无跳歌方向源，恒 +1 近似） */
+    private void triggerCdSweep() {
+        if (cdSweepView == null) return;
+        if (!cdBoundOnce) {
+            cdBoundOnce = true;
+            return;
+        }
+        cdSweepView.sweep(1);
+    }
+
     /** CD 自旋 16°/s：整圈 22500ms 线性无限；暂停冻结角度（animator.pause 保角） */
     private void buildCdAnimator() {
         if (cdDisc == null) return;
@@ -1111,7 +1540,7 @@ public class MusicPlayerActivity extends BaseActivity {
     private void scrollShelfToCurrent() {
         if (shelfList == null) return;
         int idx = MusicController.get().index();
-        if (idx >= 0) shelfList.post(() -> shelfList.scrollToPosition(idx));
+        if (idx >= 0) shelfList.post(() -> shelfList.smoothScrollToPosition(idx));
     }
 
     /** 唱片架项：封面方卡（左）＋黑胶圆盘（右侧滑出）；当前项盘旋转 30°/s，其余静止；点按切歌 */
@@ -1291,6 +1720,10 @@ public class MusicPlayerActivity extends BaseActivity {
             favBtnView.setImageTintList(ColorStateList.valueOf(color));
         }
         if (favHeartView != null) favHeartView.setVisibility(favorited ? View.VISIBLE : View.GONE);
+        if (pageBtnFav != null) {
+            pageBtnFav.setImageResource(icon);
+            pageBtnFav.setImageTintList(ColorStateList.valueOf(favorited ? 0xFFFA243C : 0xFFFFFFFF));
+        }
     }
 
     private void toggleFavorite(View fromView) {

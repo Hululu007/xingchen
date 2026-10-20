@@ -95,6 +95,17 @@ public class MusicActivity extends BaseActivity {
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
         binding.homeChartRow3.setOnClickListener(v -> playHomeChartFrom(2));
+        // 卡片按压反馈与 GZ Motion 同套（0.96 微缩）：搜索条/五快捷/三彩卡/榜单卡统一
+        attachCardPress(binding.homeSearchBar);
+        attachCardPress(binding.homeQuickFavorite);
+        attachCardPress(binding.homeQuickSheets);
+        attachCardPress(binding.homeQuickDevice);
+        attachCardPress(binding.homeQuickRecent);
+        attachCardPress(binding.homeQuickDownload);
+        attachCardPress(binding.homeCardGuess);
+        attachCardPress(binding.homeCardCharts);
+        attachCardPress(binding.homeCardShuffle);
+        attachCardPress(binding.homeChartCard);
         refreshCounts();
     }
 
@@ -356,6 +367,22 @@ public class MusicActivity extends BaseActivity {
      * 这里按 MusicListActivity 的现行模式承接：列出 MusicStore.loadRecent() 的曲目，
      * 点一行＝以整份历史为队列从该行开播并进播放页（与 MusicListActivity.playTrack 同写法）。
      */
+    /** 卡片按压反馈（GZ MotionKt 口径 0.96 微缩、回弹同长）：只加触感，不吞点击 */
+    private void attachCardPress(android.view.View v) {
+        if (v == null) return;
+        v.setOnTouchListener((view, e) -> {
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                view.animate().scaleX(0.96f).scaleY(0.96f).setDuration(150)
+                        .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
+            } else if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                    || e.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+                view.animate().scaleX(1f).scaleY(1f).setDuration(150)
+                        .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
+            }
+            return false;
+        });
+    }
+
     private void showRecent() {
         List<MusicTrack> recent;
         try {

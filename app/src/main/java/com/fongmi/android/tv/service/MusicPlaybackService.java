@@ -127,6 +127,8 @@ public class MusicPlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private int sleep = SLEEP_OFF;
     private Runnable sleepTask;
+    /** 定时截止时刻（elapsedRealtime 基准，供面板读剩余 m:ss，GZ B07）；未设定时为 0 */
+    private long sleepDeadlineElapsed;
     private boolean preparing;
     private int prepareSeq;
     /** 本次「播到尾」事件是否已被消费（防 ENDED 回调与心跳看门狗重复切歌）；新轨 READY 时复位 */
@@ -456,8 +458,15 @@ public class MusicPlaybackService extends MediaSessionService {
         listeners.forEach(l -> l.onSleepChanged(mode));
     }
 
+    public long getSleepRemainingMs() {
+        if (sleepDeadlineElapsed <= 0) return -1;
+        return Math.max(0, sleepDeadlineElapsed - android.os.SystemClock.elapsedRealtime());
+    }
+
     private void armSleep(long delayMs) {
+        sleepDeadlineElapsed = android.os.SystemClock.elapsedRealtime() + delayMs;
         sleepTask = () -> {
+            sleepDeadlineElapsed = 0;
             sleep = SLEEP_OFF;
             listeners.forEach(l -> l.onSleepChanged(SLEEP_OFF));
             pause();
@@ -467,6 +476,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     private void cancelSleep() {
+        sleepDeadlineElapsed = 0;
         if (sleepTask != null) {
             main.removeCallbacks(sleepTask);
             sleepTask = null;
@@ -1153,7 +1163,8 @@ public class MusicPlaybackService extends MediaSessionService {
                     }
                 } catch (Throwable ignored) {
                 }
-                main.postDelayed(this, 500);
+                // 进度 tick 250ms（GZ positionTicker 歌词态档位；UI 侧再以 200ms 补间/帧插值平滑，见播放页）
+                main.postDelayed(this, 250);
             }
         });
     }

@@ -189,6 +189,10 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         lyricSizeValue = null;
         lyricHint = null;
         binding.container.removeAllViews();
+        // 子面板切换过渡（GZ MotionKt.f/g：tween(260, bs4.a) 淡入）
+        binding.container.setAlpha(0f);
+        binding.container.animate().alpha(1f).setDuration(260)
+                .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
         switch (panel) {
             case PANEL_THEME:
                 buildThemePanel();
@@ -702,14 +706,24 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     /** 睡眠子面板（GZ Sleep 网格形态）：状态行（18sp）＋预设 3 列网格＋「播完这首」chip；
      * 档位只用星辰服务现成六档（关/播完这首/15/30/60/90 → MusicController.setSleep）。
-     * GZ 的 10/20/40 档、自定义分钟、倒计时读数服务无对应能力，不自创（见报告缺口）。 */
+     * GZ 的 10/20/40 档与自定义分钟服务无对应档位，不自创（见报告阻塞项）；倒计时读数走服务截止时刻（GZ B07）。 */
     private void buildSleepPanel() {
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_sleep)));
         int cur = MusicController.get().getSleep();
-        TextView status = text(cur == MusicPlaybackService.SLEEP_OFF
-                ? getString(R.string.sheet_sleep_not_on)
-                : MusicPlaybackService.sleepName(cur), 18, COLOR_MEDIUM, false);
+        // 状态行（GZ B07）：未开启显「未开启」；定时档显档名＋剩余 m:ss；播完这首显其档名
+        String statusText;
+        if (cur == MusicPlaybackService.SLEEP_OFF) {
+            statusText = getString(R.string.sheet_sleep_not_on);
+        } else {
+            statusText = MusicPlaybackService.sleepName(cur);
+            long remain = MusicController.get().sleepRemainingMs();
+            if (remain >= 0) {
+                long sec = (remain + 999) / 1000;
+                statusText += " · " + (sec / 60) + ":" + String.format("%02d", sec % 60);
+            }
+        }
+        TextView status = text(statusText, 18, COLOR_MEDIUM, false);
         LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         stlp.topMargin = dp(14);
@@ -1032,14 +1046,14 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         SeekBar bar = new SeekBar(getContext());
         bar.setProgressTintList(ColorStateList.valueOf(COLOR_RED));
         bar.setThumbTintList(ColorStateList.valueOf(COLOR_RED));
-        bar.setMax(32 - 14);
-        float cur = Math.max(14f, Math.min(32f, MusicStore.getLyricFontSize()));
-        bar.setProgress(Math.round(cur) - 14);
+        bar.setMax(40 - 16);
+        float cur = Math.max(16f, Math.min(40f, MusicStore.getLyricFontSize()));
+        bar.setProgress(Math.round(cur) - 16);
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (!fromUser) return;
-                float v = progress + 14f;
+                float v = progress + 16f;
                 if (lyricPreview != null) lyricPreview.setTextSize(v);
                 if (lyricSizeValue != null) lyricSizeValue.setText(String.valueOf(Math.round(v)));
             }
@@ -1050,7 +1064,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-                MusicStore.setLyricFontSize(seekBar.getProgress() + 14f);
+                MusicStore.setLyricFontSize(seekBar.getProgress() + 16f);
                 float stored = MusicStore.getLyricFontSize();
                 if (lyricSizeValue != null) lyricSizeValue.setText(String.valueOf(Math.round(stored)));
                 applyPreview();

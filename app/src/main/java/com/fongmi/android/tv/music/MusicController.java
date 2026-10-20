@@ -315,6 +315,11 @@ public class MusicController {
         return s == null ? MusicPlaybackService.SLEEP_OFF : s.getSleep();
     }
 
+    public long sleepRemainingMs() {
+        MusicPlaybackService s = service();
+        return s == null ? -1 : s.getSleepRemainingMs();
+    }
+
     // ================= 音效（App 内面板 → 服务 audiofx） =================
 
     /** 音效全量状态（面板打开用）；服务没起来返回 null */

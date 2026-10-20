@@ -33,6 +33,13 @@
                 android:layout_gravity="center"
                 android:scaleType="centerCrop" />
 
+            <!-- 切歌扫光层（GZ CdSongChange）：盖盘面 190dp 圆区，平时不绘制 -->
+            <com.fongmi.android.tv.ui.custom.CdSweepView
+                android:id="@+id/tpCdSweep"
+                android:layout_width="190dp"
+                android:layout_height="190dp"
+                android:layout_gravity="center" />
+
             <View
                 android:layout_width="14dp"
                 android:layout_height="14dp"

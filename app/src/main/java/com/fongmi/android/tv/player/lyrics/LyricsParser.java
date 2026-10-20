@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
 
 public class LyricsParser {
 
-    private static final Pattern TIME = Pattern.compile("\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?]");
+    // 时间标签两种写法都要认：[mm:ss(.x/xx/xxx)] 与纯秒 [ss(.x/xx/xxx)]（部分音源的 LRC 是秒制，
+    // 如 [50.87]无言地我在走——漏认会让整份词被当纯文本、标签原样上屏，或在混合格式里把该行吞掉）
+    private static final Pattern TIME = Pattern.compile("\\[(?:(\\d{1,3}):(\\d{2})|(\\d{1,3}))(?:[.:](\\d{1,3}))?]");
     private static final Pattern WORD_TIME = Pattern.compile("<\\d+,-?\\d+(?:,-?\\d+)?>");
     private static final Pattern WORD_TOKEN = Pattern.compile("<(\\d+),(-?\\d+)(?:,-?\\d+)?>([^<]*)");
     private static final Pattern BRACKET_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
@@ -332,9 +334,16 @@ public class LyricsParser {
     }
 
     private static long parseTime(Matcher matcher) {
-        long minute = parseLong(matcher.group(1));
-        long second = parseLong(matcher.group(2));
-        String fraction = matcher.group(3);
+        // group1/2 = [mm:ss] 的分/秒；group3 = 纯秒 [ss] 的秒；group4 = 两种写法共用的小数段
+        long minute = 0;
+        long second;
+        if (matcher.group(1) != null) {
+            minute = parseLong(matcher.group(1));
+            second = parseLong(matcher.group(2));
+        } else {
+            second = parseLong(matcher.group(3));
+        }
+        String fraction = matcher.group(4);
         long millis = 0;
         if (!TextUtils.isEmpty(fraction)) {
             if (fraction.length() == 1) millis = parseLong(fraction) * 100;

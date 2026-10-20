@@ -90,7 +90,7 @@ public class FreeJsMusicSource implements MusicSource {
             if (srcUrl.equals(s.srcUrl)) {
                 FreeJsBridge b = MusicSourceManager.get().bridgeOf(s);
                 if (b == null) return Collections.emptyList();
-                return b.getTopListDetail(listId).getTracks();
+                return b.getTopListDetail(listId, chart.rawJson).getTracks();
             }
         }
         return Collections.emptyList();

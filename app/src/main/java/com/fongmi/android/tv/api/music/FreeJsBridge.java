@@ -300,7 +300,12 @@ public class FreeJsBridge {
         return TextUtils.isEmpty(lyric.rawLrc) && TextUtils.isEmpty(lyric.translation) ? null : lyric;
     }
 
-    /** getTopLists()：可选，插件有就接 */
+    /**
+     * getTopLists()：可选，插件有就接。
+     * MusicFree 协议返回的是分组：[{title:组名, data:[榜单条目...]}]，真榜单在 data 里；
+     * 早先把组当榜单取 id，组上没 id → 每张榜 id 为空、点开必空（1.3.58 真机榜单全空定根）。
+     * 兼容少数直接平铺返回榜单数组的插件（元素自带 id、无 data）。
+     */
     public List<MusicChart> getTopLists() throws Exception {
         List<MusicChart> charts = new ArrayList<>();
         Object result = call("getTopLists");
@@ -311,18 +316,45 @@ public class FreeJsBridge {
         for (JsonElement el : arr) {
             if (!el.isJsonObject()) continue;
             JsonObject obj = el.getAsJsonObject();
-            MusicChart c = new MusicChart();
-            c.platform = FreeJsMusicSource.PLATFORM;
-            c.id = key() + "|" + optStr(obj, "id");
-            c.name = optStr(obj, "title");
-            charts.add(c);
+            if (obj.has("data") && obj.get("data").isJsonArray()) {
+                for (JsonElement item : obj.getAsJsonArray("data")) {
+                    if (item.isJsonObject()) addChart(charts, item.getAsJsonObject());
+                }
+            } else {
+                addChart(charts, obj);
+            }
         }
         return charts;
     }
 
-    /** getTopListDetail(id)：可选，返回榜单曲目 */
-    public MusicSearchResult getTopListDetail(String listId) throws Exception {
-        Object result = call("getTopListDetail", listId);
+    private void addChart(List<MusicChart> charts, JsonObject item) {
+        String id = optStr(item, "id");
+        if (TextUtils.isEmpty(id)) return;
+        MusicChart c = new MusicChart();
+        c.platform = FreeJsMusicSource.PLATFORM;
+        c.id = key() + "|" + id;
+        c.name = optStr(item, "title");
+        c.cover = optStr(item, "coverImg");
+        c.rawJson = item.toString();
+        charts.add(c);
+    }
+
+    /**
+     * getTopListDetail(榜单条目对象)：可选，返回榜单曲目。
+     * 协议要的是整个条目对象（插件读 topListItem.id 等字段）；早先传裸 id 字符串，
+     * 插件取到 undefined、请求打到空地址抛错被上层吞掉，点开榜单永远空。
+     * itemJson 缺失时退化为只带 id 的对象（只读 .id 的插件够用）。
+     */
+    public MusicSearchResult getTopListDetail(String listId, String itemJson) throws Exception {
+        String argJson = itemJson;
+        if (TextUtils.isEmpty(argJson)) {
+            JsonObject o = new JsonObject();
+            o.addProperty("id", listId == null ? "" : listId);
+            argJson = o.toString();
+        }
+        final String parseSrc = argJson;
+        Object arg = submit(() -> ctx.parse(parseSrc)).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        Object result = call("getTopListDetail", arg);
         String json = toJson(result);
         MusicSearchResult r = new MusicSearchResult();
         r.setEnd(true);

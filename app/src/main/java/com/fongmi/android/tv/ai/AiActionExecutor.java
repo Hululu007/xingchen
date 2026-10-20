@@ -111,7 +111,7 @@ public class AiActionExecutor {
                     return "已切换到" + (site == null || site.name == null ? "音乐源" : site.name);
                 }
                 case AiVoiceCommand.ACTION_MUSIC_QUALITY: {
-                    // 源层：音质四档轮换（流畅/标准/高清/无损）
+                    // 源层：音质四档轮换（128k/320k/FLAC/母带）
                     int q = (com.fongmi.android.tv.music.MusicStore.getQuality() + 1) % 4;
                     com.fongmi.android.tv.music.MusicStore.setQuality(q);
                     return "音质已切换为" + com.fongmi.android.tv.music.MusicStore.qualityName(q);

@@ -70,7 +70,7 @@ import java.util.regex.Pattern;
  *   music_prev      上一首 / 音乐上一首
  *   music_search    搜歌XXX / 找歌XXX（text=关键词，进音乐搜索页）
  *   music_source    切换音乐源 / 换音乐源（源层：轮换主源）
- *   music_quality   切换音质 / 换音质（源层：流畅/标准/高清/无损轮换）
+ *   music_quality   切换音质 / 换音质（源层：128k/320k/FLAC/母带轮换）
  * ======================================
  */
 public class AiVoiceCommand {

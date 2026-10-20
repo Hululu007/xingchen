@@ -165,17 +165,17 @@ public class MusicStore {
         Prefers.put(K_QUALITY, quality);
     }
 
-    /** 四档显示名（诚实名）：标准／高品／无损／母带。档位值与存档不变，只改名。 */
+    /** 四档显示名（真规格词）：128k／320k／FLAC／母带。档位值与存档不变，只改名。 */
     public static String qualityName(int q) {
         switch (q) {
             case QUALITY_LOW:
-                return "标准";
+                return "128k";
             case QUALITY_HIGH:
-                return "无损";
+                return "FLAC";
             case QUALITY_SUPER:
                 return "母带";
             default:
-                return "高品";
+                return "320k";
         }
     }
 

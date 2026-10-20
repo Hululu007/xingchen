@@ -17,10 +17,12 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaSession;
@@ -30,6 +32,8 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.MusicAudioInfo;
+import com.fongmi.android.tv.music.MusicBitDepthProbe;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
@@ -38,6 +42,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 
+import java.io.File;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -85,6 +90,10 @@ public class MusicPlaybackService extends MediaSessionService {
         default void onModeChanged(int mode) {
         }
 
+        /** 当前音频真实参数变化（音质格用它显示；null=取不到，回退所选档名） */
+        default void onAudioInfoChanged() {
+        }
+
         default void onSleepChanged(int sleep) {
         }
     }
@@ -99,6 +108,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private int sleep = SLEEP_OFF;
     private Runnable sleepTask;
     private boolean preparing;
+    private volatile MusicAudioInfo audioInfo;
 
     @Override
     public void onCreate() {
@@ -416,6 +426,133 @@ public class MusicPlaybackService extends MediaSessionService {
         }
     }
 
+    // ================= 真实音质参数 =================
+
+    /** 当前音频的真实参数（编码/码率/采样率/位深）；还没选轨或取不到时为 null */
+    public MusicAudioInfo audioInfo() {
+        return audioInfo;
+    }
+
+    /** 从当前选中的音频轨 Format 采集真实参数；变了才通知＋（本地无损时）补查位深 */
+    private void updateAudioInfo() {
+        if (player == null) return;
+        MusicAudioInfo info = null;
+        try {
+            for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+                if (info != null) break;
+                for (int i = 0; i < group.length; i++) {
+                    if (!group.isTrackSelected(i)) continue;
+                    Format f = group.getTrackFormat(i);
+                    if (f != null && f.sampleMimeType != null && f.sampleMimeType.startsWith("audio/")) {
+                        info = toAudioInfo(f);
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            info = null;
+        }
+        String oldSig = audioInfo == null ? "" : audioInfo.signature();
+        String newSig = info == null ? "" : info.signature();
+        if (newSig.equals(oldSig)) return;
+        audioInfo = info;
+        listeners.forEach(ServiceListener::onAudioInfoChanged);
+        if (info != null) probeBitDepth(info);
+    }
+
+    private MusicAudioInfo toAudioInfo(Format f) {
+        MusicAudioInfo info = new MusicAudioInfo();
+        info.codec = codecName(f.sampleMimeType);
+        info.lossless = isLossless(f.sampleMimeType);
+        int bps = f.averageBitrate > 0 ? f.averageBitrate : (f.bitrate > 0 ? f.bitrate : f.peakBitrate);
+        if (bps > 0) info.bitrateKbps = (bps + 500) / 1000;
+        if (f.sampleRate > 0) info.sampleRateHz = f.sampleRate;
+        return info;
+    }
+
+    private static String codecName(String mime) {
+        if (mime == null) return "";
+        switch (mime) {
+            case "audio/flac":
+                return "FLAC";
+            case "audio/mpeg":
+            case "audio/mpeg-L1":
+            case "audio/mpeg-L2":
+                return "MP3";
+            case "audio/mp4a-latm":
+            case "audio/aac":
+                return "AAC";
+            case "audio/vorbis":
+                return "OGG";
+            case "audio/opus":
+                return "Opus";
+            case "audio/raw":
+            case "audio/wav":
+            case "audio/x-wav":
+                return "WAV";
+            case "audio/alac":
+            case "audio/x-alac":
+                return "ALAC";
+            case "audio/ape":
+            case "audio/x-ape":
+                return "APE";
+            case "audio/ac3":
+                return "AC3";
+            case "audio/eac3":
+                return "E-AC3";
+            case "audio/true-hd":
+                return "TrueHD";
+            case "audio/dts":
+            case "audio/vnd.dts":
+            case "audio/dts-hd":
+                return "DTS";
+            case "audio/mp4":
+                return "MP4";
+            default:
+                return "";
+        }
+    }
+
+    private static boolean isLossless(String mime) {
+        if (mime == null) return false;
+        switch (mime) {
+            case "audio/flac":
+            case "audio/raw":
+            case "audio/wav":
+            case "audio/x-wav":
+            case "audio/alac":
+            case "audio/x-alac":
+            case "audio/ape":
+            case "audio/x-ape":
+            case "audio/true-hd":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * 位深只对本地文件实查（FLAC/WAV 文件头）；在线流拿不到就不填——
+     * bitDepth 保持 -1、master 保持 false。查实 24 位以上才改 master。
+     */
+    private void probeBitDepth(final MusicAudioInfo info) {
+        if (info == null || !info.lossless || info.bitDepth >= 0) return;
+        MusicTrack track = queue.current();
+        if (track == null || track.localPath == null || track.localPath.isEmpty()) return;
+        File file = new File(track.localPath);
+        if (!file.isFile()) return;
+        Task.execute(() -> {
+            int bd = MusicBitDepthProbe.probe(file);
+            if (bd <= 0) return;
+            App.post(() -> {
+                if (audioInfo != info) return; // 已经换歌，旧结果作废
+                info.bitDepth = bd;
+                info.master = info.lossless && bd >= 24;
+                listeners.forEach(ServiceListener::onAudioInfoChanged);
+            });
+        });
+    }
+
     // ================= 播放实现 =================
 
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
@@ -454,6 +591,8 @@ public class MusicPlaybackService extends MediaSessionService {
                                 .build())
                         .build();
                 queue.moveTo(index);
+                audioInfo = null; // 换歌先清旧参数，等新轨 Format 到齐再刷新
+                listeners.forEach(ServiceListener::onAudioInfoChanged);
                 player.setMediaItem(item, startPosition);
                 player.prepare();
                 player.setPlaybackSpeed(getSpeed());
@@ -497,7 +636,15 @@ public class MusicPlaybackService extends MediaSessionService {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) onTrackEnded();
-            else if (state == Player.STATE_READY) saveBreakpoint();
+            else if (state == Player.STATE_READY) {
+                saveBreakpoint();
+                updateAudioInfo();
+            }
+        }
+
+        @Override
+        public void onTracksChanged(Tracks tracks) {
+            updateAudioInfo();
         }
 
         @Override

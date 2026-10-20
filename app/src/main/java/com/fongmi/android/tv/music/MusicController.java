@@ -43,6 +43,9 @@ public class MusicController {
 
         default void onSleepChanged(int sleep) {
         }
+
+        default void onAudioInfoChanged() {
+        }
     }
 
     private static volatile MusicController instance;
@@ -124,6 +127,11 @@ public class MusicController {
         @Override
         public void onSleepChanged(int sleep) {
             App.post(() -> listeners.forEach(l -> l.onSleepChanged(sleep)));
+        }
+
+        @Override
+        public void onAudioInfoChanged() {
+            App.post(() -> listeners.forEach(Listener::onAudioInfoChanged));
         }
     };
 
@@ -360,6 +368,12 @@ public class MusicController {
     public long duration() {
         MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? 0 : s.duration();
+    }
+
+    /** 当前音频真实参数（音质格展示用）；无服务/未选轨返回 null */
+    public MusicAudioInfo audioInfo() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? null : s.audioInfo();
     }
 
     // ================= 迷你条同步（mobile 侧） =================

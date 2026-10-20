@@ -85,6 +85,11 @@ public class MusicPlayerActivity extends BaseActivity {
         public void onModeChanged(int mode) {
             runOnUiThread(() -> refreshModeIcon(mode));
         }
+
+        @Override
+        public void onAudioInfoChanged() {
+            runOnUiThread(() -> refreshQualityValue());
+        }
     };
 
     @Override
@@ -207,6 +212,7 @@ public class MusicPlayerActivity extends BaseActivity {
         }
         loadLyric(track);
         refreshFavorite(track);
+        refreshQualityValue();
     }
 
     /** 来源标签：查插件名；查不到不显示，本地文件标识为已下载 */
@@ -430,8 +436,19 @@ public class MusicPlayerActivity extends BaseActivity {
         MusicDownloadStore.download(track);
     }
 
+    /**
+     * 音质格显示真实参数（服务拿到的 Format：如「FLAC · 1411kbps」）；
+     * 还没起播或取不到格式时回退显示所选档名，点开仍是选档。
+     */
     private void refreshQualityValue() {
-        binding.tvQualityValue.setText(MusicStore.qualityName(MusicController.get().getQuality()));
+        String real = null;
+        try {
+            com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
+            if (info != null) real = info.describe();
+        } catch (Throwable ignored) {
+        }
+        binding.tvQualityValue.setText(real != null && !real.isEmpty()
+                ? real : MusicStore.qualityName(MusicController.get().getQuality()));
     }
 
     private void showQualityDialog() {

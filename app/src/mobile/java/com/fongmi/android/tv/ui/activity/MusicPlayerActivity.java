@@ -225,6 +225,9 @@ public class MusicPlayerActivity extends BaseActivity {
         } catch (Throwable ignored) {
         }
         if ("local".equals(track.platform)) return getString(R.string.music_downloaded);
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)) {
+            return getString(R.string.music_device);
+        }
         if (com.fongmi.android.tv.music.PyMusicSource.PLATFORM.equals(track.platform)) {
             return com.fongmi.android.tv.music.PyMusicSource.siteNameOf(track);
         }
@@ -432,6 +435,10 @@ public class MusicPlayerActivity extends BaseActivity {
     private void downloadCurrent() {
         MusicTrack track = MusicController.get().current();
         if (track == null) return;
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)) {
+            Notify.show(R.string.music_already_local);
+            return;
+        }
         if (MusicDownloadStore.isLocal(track)) {
             Notify.show(R.string.music_download_exists);
             return;

@@ -773,8 +773,10 @@ public class MusicPlaybackService extends MediaSessionService {
         preparing = true;
         int quality = MusicStore.getQuality();
         Task.execute(() -> {
-            // 移动网络播放开关：关了、当前是流量、且是需要联网的歌（本地/已下载不受影响）
-            boolean blocked = !MusicStore.isMobilePlay() && !MusicDownloadStore.isLocal(track) && isCellularNetwork();
+            // 移动网络播放开关：关了、当前是流量、且是需要联网的歌（本地/已下载/设备歌曲不受影响）
+            boolean blocked = !MusicStore.isMobilePlay() && !MusicDownloadStore.isLocal(track)
+                    && !com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
+                    && isCellularNetwork();
             String url = null;
             if (!blocked) url = MusicRepository.playUrl(track, quality);
             final boolean fBlocked = blocked;

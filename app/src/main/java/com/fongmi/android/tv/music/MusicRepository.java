@@ -30,6 +30,8 @@ public class MusicRepository {
         register(new LxMusicSource());
         // py 调用桥：已装的 py 点播音乐源递歌单进音乐播放器（跟阅读一样的调用口径）
         register(new PyMusicSource());
+        // 设备本地音乐（platform="device"）：取链/同目录 .lrc 歌词；列表走 DeviceMusicStore 扫描
+        register(new DeviceMusicSource());
     }
 
     public static void register(MusicSource source) {

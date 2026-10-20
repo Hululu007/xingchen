@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 音乐首页：只放四个导航行（歌单/收藏/榜单/已下载）。
+ * 音乐首页：导航行（歌单/收藏/榜单/已下载/本地音乐五项）。
  * 源列表不在首页：顶栏左上角 ☰ 图标钮点开左侧抽屉（插件管理→源管理页，设置→音乐设置页）。
  * 顶部播放行只做续播＋「N 个源」状态显示。
  * 顶栏只留标题，无返回箭头；卡片只有名字和状态，无介绍文字。
@@ -143,6 +143,8 @@ public class MusicActivity extends BaseActivity {
         navItems.add(new NavItem("favorite", getString(R.string.music_favorite), "", 0xFFEF4444, R.drawable.ic_music_heart));
         navItems.add(new NavItem("charts", getString(R.string.music_charts), "", 0xFFA855F7, R.drawable.ic_music_eq));
         navItems.add(new NavItem("download", getString(R.string.music_downloaded), "", 0xFFF2B33D, R.drawable.ic_music_download));
+        // 本地音乐：设备音频（MediaStore＋导入目录），排在四行之后，跟已下载分开
+        navItems.add(new NavItem("device", getString(R.string.music_device), "", 0xFF06B6D4, R.drawable.ic_music_note));
     }
 
     /** 首页大播放键：上次队列从断点位置续播；无断点播最近播放第一首；再无则不动作 */
@@ -176,6 +178,9 @@ public class MusicActivity extends BaseActivity {
                 break;
             case "download":
                 MusicListActivity.startDownload(this);
+                break;
+            case "device":
+                MusicListActivity.startDevice(this);
                 break;
         }
     }

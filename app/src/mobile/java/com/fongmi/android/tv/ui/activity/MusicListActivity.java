@@ -90,6 +90,12 @@ public class MusicListActivity extends BaseActivity {
         activity.startActivity(i);
     }
 
+    public static void startDevice(Activity activity) {
+        Intent i = new Intent(activity, MusicListActivity.class);
+        i.putExtra("mode", "device");
+        activity.startActivity(i);
+    }
+
     public static void startSearch(Activity activity, String keyword) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "search");
@@ -223,6 +229,9 @@ public class MusicListActivity extends BaseActivity {
                 bigTitle = getString(R.string.music_downloaded);
                 loadDownloads();
                 break;
+            case "device":
+                loadDevice();
+                break;
             case "sites":
                 bigTitle = getString(R.string.music_plugin_manage);
                 loadSites();
@@ -249,6 +258,8 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_charts);
             case "download":
                 return getString(R.string.music_downloaded);
+            case "device":
+                return getString(R.string.music_device);
             case "sites":
                 return getString(R.string.music_plugin_manage);
             default:
@@ -438,6 +449,172 @@ public class MusicListActivity extends BaseActivity {
         MusicDownloadStore.all(this::showTracks);
     }
 
+    // ================= 本地音乐（设备音频） =================
+
+    private static final int REQ_AUDIO_PERMISSION = 4312;
+    private static final int REQ_IMPORT_MUSIC = 4313;
+    /** 自动弹授权框只弹一次：永久拒绝后系统会立即回 denied，不护栏就会回调套回调死循环 */
+    private boolean permAutoAsked;
+
+    private boolean deviceHeader() {
+        return mode.equals("device");
+    }
+
+    private String audioPermission() {
+        return android.os.Build.VERSION.SDK_INT >= 33
+                ? android.Manifest.permission.READ_MEDIA_AUDIO
+                : android.Manifest.permission.READ_EXTERNAL_STORAGE;
+    }
+
+    private void loadDevice() {
+        bigTitle = getString(R.string.music_device);
+        binding.tvTitle.setText(titleForMode());
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, audioPermission())
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            // 没权限：不白屏不崩，给提示行＋点一行重新授权，第一次直接弹系统授权框
+            tracks.clear();
+            cards.clear();
+            adapter.notifyDataSetChanged();
+            binding.tvBigTitle.setText(bigTitle);
+            binding.tvBigCount.setText("");
+            binding.empty.setVisibility(View.VISIBLE);
+            binding.empty.setText(R.string.music_device_need_permission);
+            binding.empty.setOnClickListener(v ->
+                    requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION));
+            if (!permAutoAsked) {
+                permAutoAsked = true;
+                requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
+            }
+            return;
+        }
+        binding.empty.setOnClickListener(null);
+        showLoading();
+        Task.execute(() -> {
+            List<MusicTrack> list = com.fongmi.android.tv.music.DeviceMusicStore.scan(this);
+            runOnUiThread(() -> showTracks(list));
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_AUDIO_PERMISSION && deviceHeader()) {
+            // 无论授权与否都刷新：给了就加载，拒了就留提示行（不许静默）
+            loadDevice();
+        }
+    }
+
+    /** 导入加密歌曲：系统文件选择器多选（QQ 的 mflac 系、酷狗 kgm 系），解密落 music_library/ */
+    private void pickImportFiles() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(i, getString(R.string.music_import_encrypted)), REQ_IMPORT_MUSIC);
+    }
+
+    private String displayName(Uri uri) {
+        try (android.database.Cursor c = getContentResolver().query(
+                uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                String n = c.getString(0);
+                if (n != null && !n.isEmpty()) return n;
+            }
+        } catch (Throwable ignored) {
+        }
+        String p = uri.getPath();
+        if (p == null) return "未知文件";
+        int slash = p.lastIndexOf('/');
+        return slash >= 0 ? p.substring(slash + 1) : p;
+    }
+
+    private void runImport(Intent data) {
+        List<Uri> uris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) {
+                uris.add(data.getClipData().getItemAt(i).getUri());
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        if (uris.isEmpty()) return;
+        Notify.show(R.string.music_device_importing);
+        Task.execute(() -> {
+            java.io.File dir = com.fongmi.android.tv.music.DeviceMusicStore.libraryDir(this);
+            dir.mkdirs();
+            int ok = 0;
+            List<String> failed = new ArrayList<>();
+            for (Uri u : uris) {
+                String name = displayName(u);
+                try {
+                    byte[] bytes = readAllCapped(u, 200L * 1024 * 1024);
+                    com.fongmi.android.tv.music.MusicDecrypt.Result r =
+                            com.fongmi.android.tv.music.MusicDecrypt.decrypt(name, bytes);
+                    java.io.File out = uniqueFile(dir, safeName(name) + "." + r.ext);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                        fos.write(r.data);
+                    }
+                    ok++;
+                } catch (Exception e) {
+                    failed.add(name + "：" + (e.getMessage() == null ? "失败" : e.getMessage()));
+                }
+            }
+            final int fOk = ok;
+            final List<String> fFailed = failed;
+            runOnUiThread(() -> {
+                if (!fFailed.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    if (fOk > 0) sb.append("成功 ").append(fOk).append(" 首\n\n");
+                    for (String f : fFailed) sb.append(f).append("\n");
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle(R.string.music_import_encrypted)
+                            .setMessage(sb.toString().trim())
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                } else {
+                    Notify.show("导入成功 " + fOk + " 首");
+                }
+                loadDevice();
+            });
+        });
+    }
+
+    private static String safeName(String name) {
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        base = base.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return base.isEmpty() ? "imported" : base;
+    }
+
+    private static java.io.File uniqueFile(java.io.File dir, String name) {
+        java.io.File f = new java.io.File(dir, name);
+        if (!f.exists()) return f;
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        for (int i = 1; ; i++) {
+            java.io.File c = new java.io.File(dir, base + "_" + i + ext);
+            if (!c.exists()) return c;
+        }
+    }
+
+    private void bindImportRow(ListAdapter.CardHolder h) {
+        h.name.setText(R.string.music_import_encrypted);
+        h.status.setText("");
+        h.icon.setImageResource(R.drawable.ic_music_download);
+        h.icon.setBackground(circle(0xFF06B6D4));
+        h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+        h.itemView.setOnClickListener(v -> pickImportFiles());
+    }
+
+    private GradientDrawable circle(int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        return d;
+    }
+
     /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋添加卡＋开关/菜单 */
     private void loadSites() {
         showLoading();
@@ -481,6 +658,10 @@ public class MusicListActivity extends BaseActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMPORT_MUSIC) {
+            if (resultCode == RESULT_OK && data != null) runImport(data);
+            return;
+        }
         if (requestCode != REQ_PICK_PLUGIN || resultCode != RESULT_OK
                 || data == null || data.getData() == null) return;
         Uri uri = data.getData();
@@ -506,6 +687,21 @@ public class MusicListActivity extends BaseActivity {
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            return bos.toByteArray();
+        }
+    }
+
+    /** 带上限的整读（加密导入用）：边读边判，超上限立刻放弃，不许把大文件全灌进内存 */
+    private byte[] readAllCapped(Uri uri, long max) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IllegalStateException("读不到这个文件");
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                if (bos.size() + n > max) throw new Exception("文件太大（超 200MB），跳过");
+                bos.write(buf, 0, n);
+            }
             return bos.toByteArray();
         }
     }
@@ -641,6 +837,7 @@ public class MusicListActivity extends BaseActivity {
     private void onMore(MusicTrack track, int position) {
         FragmentActivity act = this;
         boolean local = MusicDownloadStore.isLocal(track);
+        boolean device = com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform);
         List<String> opts = new ArrayList<>();
         opts.add("播放");
         opts.add(getString(R.string.music_play_next));
@@ -654,6 +851,12 @@ public class MusicListActivity extends BaseActivity {
                 // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
                 deleteLocalIdx = opts.size();
                 opts.add(getString(R.string.music_download_delete));
+            } else if (device) {
+                // 设备歌曲：本来就在手机里，不给"下载"
+                if (mode.equals("sheet")) {
+                    removeIdx = opts.size();
+                    opts.add(getString(R.string.music_remove));
+                }
             } else {
                 if (mode.equals("sheet")) {
                     removeIdx = opts.size();
@@ -754,9 +957,16 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_TRACK = 0;
         private static final int TYPE_CARD = 1;
         private static final int TYPE_PLUGIN = 2;
+        private static final int TYPE_HEADER = 3;
+
+        /** 本地音乐页首行是「导入加密歌曲」头，歌曲行整体下移一位 */
+        private int headerCount() {
+            return deviceHeader() ? 1 : 0;
+        }
 
         @Override
         public int getItemViewType(int position) {
+            if (deviceHeader() && position == 0) return TYPE_HEADER;
             if (isCardMode()) {
                 // 插件管理页里插件行用专用布局（名＋版本＋格式标签＋开关＋⋮），添加卡仍走通用卡
                 if (mode.equals("sites") && cards.get(position) instanceof MusicSite) return TYPE_PLUGIN;
@@ -772,7 +982,7 @@ public class MusicListActivity extends BaseActivity {
             if (viewType == TYPE_PLUGIN) {
                 return new PluginHolder(inf.inflate(R.layout.item_music_plugin, parent, false));
             }
-            if (viewType == TYPE_CARD) {
+            if (viewType == TYPE_CARD || viewType == TYPE_HEADER) {
                 return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
             }
             return new TrackHolder(inf.inflate(R.layout.item_music_track, parent, false));
@@ -780,9 +990,13 @@ public class MusicListActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int position) {
+            if (deviceHeader() && position == 0) {
+                bindImportRow((CardHolder) h);
+                return;
+            }
             if (h instanceof PluginHolder) bindPlugin((PluginHolder) h, position);
             else if (h instanceof CardHolder) bindCard((CardHolder) h, position);
-            else bindTrack((TrackHolder) h, position);
+            else bindTrack((TrackHolder) h, position - headerCount());
         }
 
         /** 插件行：名＋版本号小字＋格式标签；右侧金开关（真接线启停）＋⋮菜单 */
@@ -903,7 +1117,7 @@ public class MusicListActivity extends BaseActivity {
 
         @Override
         public int getItemCount() {
-            return isCardMode() ? cards.size() : tracks.size();
+            return isCardMode() ? cards.size() : tracks.size() + headerCount();
         }
 
         class TrackHolder extends RecyclerView.ViewHolder {

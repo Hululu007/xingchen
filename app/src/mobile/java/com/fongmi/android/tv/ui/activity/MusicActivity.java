@@ -67,6 +67,9 @@ public class MusicActivity extends BaseActivity {
         lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
         binding.drawerPanel.setLayoutParams(lp);
         binding.drawerLayout.setScrimColor(0x99000000);
+        // 定根：DrawerLayout 在状态栏区默认画主题的 colorPrimaryDark（本主题金色系），与页面深蓝黑断成黄带；
+        // 改成页面渐变顶边色 #0E1622（bg_music_gradient 顶色），顶部与页面连成一体
+        binding.drawerLayout.setStatusBarBackgroundColor(0xFF0E1622);
         binding.btnSourceManage.setOnClickListener(v -> binding.drawerLayout.openDrawer(GravityCompat.START));
         // 抽屉里只有两项：插件管理（进源管理，原行为）／设置（进音乐设置页）
         binding.drawerSites.setOnClickListener(v -> {

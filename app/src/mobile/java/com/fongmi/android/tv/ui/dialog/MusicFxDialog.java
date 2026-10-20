@@ -210,7 +210,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
     }
 
     private int dp(int v) {
-        float d = getResources().getDisplayMetrics().density;
+        float d = getContext().getResources().getDisplayMetrics().density;
         return (int) (v * d + 0.5f);
     }
 

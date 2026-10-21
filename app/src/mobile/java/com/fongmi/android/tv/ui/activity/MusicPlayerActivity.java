@@ -1583,8 +1583,11 @@ public class MusicPlayerActivity extends BaseActivity {
                 cardBottom = topOff + coverView.getHeight();
             }
             float density = getResources().getDisplayMetrics().density;
+            // topOff／cardBottom 上面按条件改过值，lambda 抓不到非 final 变量：进后台前先定格成 final 副本
+            final int fTopOff = topOff;
+            final int fCardBottom = cardBottom;
             Task.execute(() -> {
-                Bitmap out = buildPlayerBackground(src, vw, vh, topOff, cardBottom, mode, density);
+                Bitmap out = buildPlayerBackground(src, vw, vh, fTopOff, fCardBottom, mode, density);
                 if (out == null) return;
                 runOnUiThread(() -> {
                     if (binding == null || destroyed) return;

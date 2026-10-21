@@ -14,7 +14,7 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop" />
 
-    <!-- 氛围色层：CoverColor 取色，颜色由代码 500ms 渐变过渡 -->
+    <!-- 氛围色层：CoverColor 取色，颜色由代码 450ms 渐变过渡 -->
     <View
         android:id="@+id/viewAmbient"
         android:layout_width="match_parent"
@@ -106,7 +106,7 @@
                             android:ellipsize="end"
                             android:includeFontPadding="false"
                             android:maxLines="1"
-                            android:textColor="#C9CDD4"
+                            android:textColor="#73FFFFFF"
                             android:textSize="14sp" />
 
                         <ImageView

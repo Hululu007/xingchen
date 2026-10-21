@@ -1,9 +1,15 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.res.ColorStateList;
+import android.graphics.Rect;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Interpolator;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -11,6 +17,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
+import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -81,29 +88,36 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             }
         } catch (Throwable ignored) {
         }
-        // 队列面板最大高度＝屏高 0.68（GZ PlayQueueSheet 口径）：布局后再钳高，内容短时不留白
-        if (getContext() != null) {
-            int maxH = Math.round(getContext().getResources().getDisplayMetrics().heightPixels * 0.68f);
-            binding.recycler.post(() -> {
-                if (binding == null) return;
-                ViewGroup.LayoutParams lp = binding.recycler.getLayoutParams();
-                if (binding.recycler.getHeight() > maxH && lp.height != maxH) {
-                    lp.height = maxH;
-                    binding.recycler.setLayoutParams(lp);
-                }
-            });
-        }
+        // 队列面板最大高度＝屏高 0.68（GZ PlayQueueSheet 口径：钳整面板，不是只钳列表；内容短时不留白，空态时整面板撑到 0.68 以便空态 weight 1f 居中）
         binding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
+        // 行 pitch 56＋行间 2dp＝58dp（GZ spacedBy 2dp）：最后一行后不加间隔
+        binding.recycler.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override
+            public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
+                                       @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                int pos = parent.getChildAdapterPosition(view);
+                if (pos >= 0 && parent.getAdapter() != null && pos < parent.getAdapter().getItemCount() - 1) {
+                    outRect.bottom = Math.round(2 * parent.getContext().getResources().getDisplayMetrics().density);
+                }
+            }
+        });
+        // 行移位动画（GZ queueRowShift：spring(1.0, 400) 临界阻尼弹簧，400ms）
+        binding.recycler.setItemAnimator(new QueueShiftAnimator());
         binding.recycler.setAdapter(adapter = new QueueAdapter());
         binding.btnClear.setOnClickListener(v -> {
             MusicController.get().clearQueue();
             dismissAllowingStateLoss();
         });
+        attachPress(binding.btnClear, 0.96f);
         // GZ SheetSubPanelHeader：‹ 与 ✕ 传的是同一个关闭回调——两个都是关面板，不是返回上一级
         binding.btnBack.setOnClickListener(v -> dismissAllowingStateLoss());
+        attachPress(binding.btnBack, 0.9f);
         binding.btnClose.setOnClickListener(v -> dismissAllowingStateLoss());
+        attachPress(binding.btnClose, 0.9f);
         touchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
                 ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
+            private int lastDragTarget = -1;
+
             @Override
             public boolean onMove(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh,
                                   @NonNull RecyclerView.ViewHolder target) {
@@ -113,6 +127,11 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 MusicController.get().move(from, to);
                 Collections.swap(tracks, from, to);
                 adapter.notifyItemMoved(from, to);
+                // 拖动触觉（GZ：目标下标变更时 a(9)＝TEXT_HANDLE_MOVE）
+                if (to != lastDragTarget) {
+                    vh.itemView.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE);
+                    lastDragTarget = to;
+                }
                 return true;
             }
 
@@ -129,9 +148,16 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             @Override
             public void onSelectedChanged(@Nullable RecyclerView.ViewHolder vh, int actionState) {
                 super.onSelectedChanged(vh, actionState);
-                // 被拖行底＝sheetListBg 白＋圆角 12（GZ QueueItem 拖动态）
+                // 被拖行：白底圆角 12dp 不动（旧证据 8dp 系误读，8 是阴影高）＋缩放 0.97＋阴影 8dp（仅被拖行）
                 if (vh != null && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
                     vh.itemView.setBackgroundResource(R.drawable.bg_sheet_row_drag);
+                    vh.itemView.setScaleX(0.97f);
+                    vh.itemView.setScaleY(0.97f);
+                    float density = vh.itemView.getContext().getResources().getDisplayMetrics().density;
+                    vh.itemView.setElevation(Math.round(8 * density));
+                    // 拖动触觉（GZ：开始 performHapticFeedback(0)＝LONG_PRESS）
+                    vh.itemView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    lastDragTarget = vh.getBindingAdapterPosition();
                 }
             }
 
@@ -139,11 +165,156 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
                 super.clearView(rv, vh);
                 vh.itemView.setBackground(null);
+                vh.itemView.setScaleX(1f);
+                vh.itemView.setScaleY(1f);
+                vh.itemView.setElevation(0f);
+                lastDragTarget = -1;
                 refresh();
             }
         });
         touchHelper.attachToRecyclerView(binding.recycler);
         refresh();
+        // 列表初始滚动（GZ：current−3，clamp 到 [0, size−1]）
+        binding.recycler.post(() -> {
+            if (binding == null || tracks.isEmpty()) return;
+            int idx = MusicController.get().index();
+            int target = Math.min(Math.max(idx - 3, 0), tracks.size() - 1);
+            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+            if (lm instanceof LinearLayoutManager) {
+                ((LinearLayoutManager) lm).scrollToPositionWithOffset(target, 0);
+            }
+        });
+    }
+
+    /** 整面板钳高（GZ fillMaxHeight 0.68）：根高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
+     * 空态时根高直接撑到 0.68×屏高，空态盒 weight 1f 才能占满居中；内容短时根高回 wrap_content，不留白 */
+    private void applyPanelHeight() {
+        if (binding == null || getContext() == null) return;
+        int maxH = Math.round(getContext().getResources().getDisplayMetrics().heightPixels * 0.68f);
+        View root = binding.getRoot();
+        root.post(() -> {
+            if (binding == null) return;
+            if (tracks.isEmpty()) {
+                ViewGroup.LayoutParams lp = root.getLayoutParams();
+                if (lp.height != maxH) {
+                    lp.height = maxH;
+                    root.setLayoutParams(lp);
+                }
+                return;
+            }
+            ViewGroup.LayoutParams rootLp = root.getLayoutParams();
+            ViewGroup.LayoutParams recLp = binding.recycler.getLayoutParams();
+            if (rootLp.height != ViewGroup.LayoutParams.WRAP_CONTENT
+                    || recLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                rootLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                recLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                root.setLayoutParams(rootLp);
+                binding.recycler.setLayoutParams(recLp);
+                root.post(this::applyPanelHeight);
+                return;
+            }
+            int rootH = root.getHeight();
+            int recH = binding.recycler.getHeight();
+            if (rootH > maxH && recH > 0) {
+                int newRecH = maxH - (rootH - recH);
+                if (newRecH > 0 && newRecH < recH) {
+                    recLp.height = newRecH;
+                    binding.recycler.setLayoutParams(recLp);
+                }
+            }
+        });
+    }
+
+    /** GZ 通用按压反馈（MotionKt：150ms；缩放值由调用方传） */
+    private void attachPress(View view, float scale) {
+        view.setOnTouchListener((v, e) -> {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                v.animate().scaleX(scale).scaleY(scale).setDuration(150).start();
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+            }
+            return false;
+        });
+    }
+
+    /** 行移位动画（GZ queueRowShift：spring(1.0, 400)）：临界阻尼弹簧插值器＋400ms，其余动画走 DefaultItemAnimator */
+    private static class QueueShiftAnimator extends DefaultItemAnimator {
+        private final List<RecyclerView.ViewHolder> moving = new ArrayList<>();
+
+        QueueShiftAnimator() {
+            setMoveDuration(400);
+        }
+
+        @Override
+        public boolean animateMove(RecyclerView.ViewHolder holder, int fromX, int fromY, int toX, int toY) {
+            if (fromX == toX && fromY == toY) {
+                dispatchMoveFinished(holder);
+                return false;
+            }
+            View view = holder.itemView;
+            view.setTranslationX(fromX - toX);
+            view.setTranslationY(fromY - toY);
+            moving.add(holder);
+            view.animate().translationX(0f).translationY(0f).setDuration(400)
+                    .setInterpolator(new CriticallyDampedSpringInterpolator())
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            view.setTranslationX(0f);
+                            view.setTranslationY(0f);
+                            moving.remove(holder);
+                            dispatchMoveFinished(holder);
+                        }
+
+                        @Override
+                        public void onAnimationCancel(Animator animation) {
+                            view.setTranslationX(0f);
+                            view.setTranslationY(0f);
+                            moving.remove(holder);
+                            dispatchMoveFinished(holder);
+                        }
+                    }).start();
+            return true;
+        }
+
+        @Override
+        public boolean isRunning() {
+            return super.isRunning() || !moving.isEmpty();
+        }
+
+        @Override
+        public void endAnimation(RecyclerView.ViewHolder holder) {
+            super.endAnimation(holder);
+            if (moving.remove(holder)) {
+                holder.itemView.animate().cancel();
+                holder.itemView.setTranslationX(0f);
+                holder.itemView.setTranslationY(0f);
+                dispatchMoveFinished(holder);
+            }
+        }
+
+        @Override
+        public void endAnimations() {
+            super.endAnimations();
+            List<RecyclerView.ViewHolder> copy = new ArrayList<>(moving);
+            moving.clear();
+            for (RecyclerView.ViewHolder h : copy) {
+                h.itemView.animate().cancel();
+                h.itemView.setTranslationX(0f);
+                h.itemView.setTranslationY(0f);
+                dispatchMoveFinished(h);
+            }
+        }
+    }
+
+    /** 临界阻尼弹簧（dampingRatio 1.0，无超调）：进度＝1−(1+ωt)·e^(−ωt)，ω 取 6.64 使 400ms 末约 0.99 */
+    private static class CriticallyDampedSpringInterpolator implements Interpolator {
+        @Override
+        public float getInterpolation(float t) {
+            double w = 6.64;
+            return (float) (1 - (1 + w * t) * Math.exp(-w * t));
+        }
     }
 
     private void refresh() {
@@ -160,6 +331,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         binding.tvHint.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.btnClear.setVisibility(empty ? View.GONE : View.VISIBLE);
         adapter.notifyDataSetChanged();
+        applyPanelHeight();
     }
 
     /**
@@ -198,21 +370,24 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         return null;
     }
 
-    /** 加歌单（与播放页宿主 pickPlaylist 同链）：选单/新建 → MusicLibrary.addToPlaylist */
+    /** 加歌单（GZ：关队列面板＋开加歌单面板）：先取宿主再关面板，回调里不再用 isAdded/getContext（面板已关） */
     private void pickPlaylist(MusicTrack track) {
         FragmentActivity host = getActivity();
         if (host == null || track == null) return;
+        String newPlaylist = getString(R.string.music_new_playlist);
+        String addTitle = getString(R.string.music_add_to_playlist);
+        dismissAllowingStateLoss();
         MusicLibrary.playlists(list -> {
-            if (!isAdded()) return;
+            if (host.isFinishing() || host.isDestroyed()) return;
             List<String> names = new ArrayList<>();
             for (MusicPlaylist p : list) names.add(p.getName());
-            names.add(getString(R.string.music_new_playlist));
-            MusicOptionsDialog.show(host, getString(R.string.music_add_to_playlist), names, -1, idx -> {
+            names.add(newPlaylist);
+            MusicOptionsDialog.show(host, addTitle, names, -1, idx -> {
                 if (idx < list.size()) {
                     MusicLibrary.addToPlaylist(list.get(idx).getId(), track, added ->
                             Notify.show(added ? R.string.music_added : R.string.music_already_in));
                 } else {
-                    inputPlaylistName(name -> {
+                    inputPlaylistName(host, name -> {
                         if (name == null || name.trim().isEmpty()) return;
                         MusicLibrary.createPlaylist(name.trim(), p ->
                                 MusicLibrary.addToPlaylist(p.getId(), track, added ->
@@ -227,14 +402,14 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         void onResult(String name);
     }
 
-    private void inputPlaylistName(NameInput cb) {
-        if (getContext() == null) return;
-        EditText et = new EditText(getContext());
+    private void inputPlaylistName(FragmentActivity host, NameInput cb) {
+        if (host == null) return;
+        EditText et = new EditText(host);
         et.setHint(R.string.music_playlist_name_hint);
         et.setSingleLine(true);
-        int pad = Math.round(16 * getResources().getDisplayMetrics().density);
+        int pad = Math.round(16 * host.getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad, pad, pad);
-        new MaterialAlertDialogBuilder(getContext())
+        new MaterialAlertDialogBuilder(host)
                 .setTitle(R.string.music_new_playlist)
                 .setView(et)
                 .setPositiveButton(android.R.string.ok, (d, w) -> cb.onResult(et.getText().toString()))
@@ -315,6 +490,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 btnRemove = v.findViewById(R.id.btnRemove);
                 btnAdd.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
                 btnRemove.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
+                attachPress(btnFav, 0.88f);
+                attachPress(btnAdd, 0.88f);
+                attachPress(btnRemove, 0.88f);
             }
         }
     }

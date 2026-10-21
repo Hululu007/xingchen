@@ -327,7 +327,7 @@
     <string name="lyr_word_off">逐字已关，整行显示</string>
     <string name="pl_play_pause">播放/暂停</string>
 
-    <string name="sheet_theme_desc">点卡片即切换播放页主题</string>
+    <string name="sheet_theme_desc">选择播放详情页的整体布局，新增主题会自动出现在这里。</string>
     <string name="sheet_sleep_not_on">未开启</string>
     <string name="sheet_advanced_fx_title">已开启高级动效</string>
     <string name="sheet_advanced_fx_msg">开启后可能影响性能和功耗，如出现卡顿发热等情况，请关闭。</string>

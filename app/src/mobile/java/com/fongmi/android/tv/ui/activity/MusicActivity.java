@@ -95,17 +95,20 @@ public class MusicActivity extends BaseActivity {
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
         binding.homeChartRow3.setOnClickListener(v -> playHomeChartFrom(2));
-        // 卡片按压反馈与 GZ Motion 同套（0.96 微缩）：搜索条/五快捷/三彩卡/榜单卡统一
+        // 卡片按压反馈：三彩卡按瓜子 Motion 0.98 微缩；搜索条／五快捷／榜单卡保持现行 0.96
         attachCardPress(binding.homeSearchBar);
         attachCardPress(binding.homeQuickFavorite);
         attachCardPress(binding.homeQuickSheets);
         attachCardPress(binding.homeQuickDevice);
         attachCardPress(binding.homeQuickRecent);
         attachCardPress(binding.homeQuickDownload);
-        attachCardPress(binding.homeCardGuess);
-        attachCardPress(binding.homeCardCharts);
-        attachCardPress(binding.homeCardShuffle);
+        attachCardPress(binding.homeCardGuess, 0.98f);
+        attachCardPress(binding.homeCardCharts, 0.98f);
+        attachCardPress(binding.homeCardShuffle, 0.98f);
         attachCardPress(binding.homeChartCard);
+        // 榜单封面圆角 12dp：ImgUtil.loadRounded 固定 8dp 且该文件不在本摊可改范围，
+        // 这里用视图轮廓裁切补到 12dp（12dp 形含于 8dp 形内，交集即 12dp 圆角）
+        applyChartCoverCorners();
         refreshCounts();
     }
 
@@ -222,7 +225,14 @@ public class MusicActivity extends BaseActivity {
             View bar = cell.getChildAt(1);
             boolean on = i == homeChartSel;
             label.setTextColor(on ? 0xFF141414 : 0xFF8A8A8A);
-            label.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            // 瓜子榜签：选中 800、未选中 500；API 28+ 按字重精确取，低版本退粗体／常规近似
+            // （取法同 KaraokeLyricsView.mainTypeface 的 API 28 分支口径）
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                label.setTypeface(android.graphics.Typeface.create(
+                        android.graphics.Typeface.DEFAULT, on ? 800 : 500, false));
+            } else {
+                label.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            }
             GradientDrawable bg = new GradientDrawable();
             bg.setCornerRadius(ResUtil.dp2px(2));
             bg.setColor(on ? 0xFFFA243C : Color.TRANSPARENT);
@@ -367,12 +377,17 @@ public class MusicActivity extends BaseActivity {
      * 这里按 MusicListActivity 的现行模式承接：列出 MusicStore.loadRecent() 的曲目，
      * 点一行＝以整份历史为队列从该行开播并进播放页（与 MusicListActivity.playTrack 同写法）。
      */
-    /** 卡片按压反馈（GZ MotionKt 口径 0.96 微缩、回弹同长）：只加触感，不吞点击 */
+    /** 卡片按压反馈（只加触感，不吞点击）：默认 0.96 微缩、回弹同长 */
     private void attachCardPress(android.view.View v) {
+        attachCardPress(v, 0.96f);
+    }
+
+    /** 卡片按压反馈：按压缩放由调用方给（瓜子三彩卡 0.98，其余现行 0.96） */
+    private void attachCardPress(android.view.View v, float scale) {
         if (v == null) return;
         v.setOnTouchListener((view, e) -> {
             if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                view.animate().scaleX(0.96f).scaleY(0.96f).setDuration(150)
+                view.animate().scaleX(scale).scaleY(scale).setDuration(150)
                         .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
             } else if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP
                     || e.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
@@ -381,6 +396,22 @@ public class MusicActivity extends BaseActivity {
             }
             return false;
         });
+    }
+
+    /** 榜单三封面按 12dp 圆角裁切（见 initView 处注释：不动 ImgUtil 的前提下实现瓜子圆角） */
+    private void applyChartCoverCorners() {
+        android.view.ViewOutlineProvider provider = new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), ResUtil.dp2px(12));
+            }
+        };
+        ImageView[] covers = {binding.homeChartCover1, binding.homeChartCover2, binding.homeChartCover3};
+        for (ImageView cover : covers) {
+            if (cover == null) continue;
+            cover.setOutlineProvider(provider);
+            cover.setClipToOutline(true);
+        }
     }
 
     private void showRecent() {

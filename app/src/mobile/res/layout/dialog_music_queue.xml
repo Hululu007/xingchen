@@ -35,7 +35,8 @@
             android:text="@string/sheet_queue_title"
             android:textColor="#1C1C1E"
             android:textSize="17sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:fontWeight="800" />
 
         <View
             android:layout_width="0dp"
@@ -82,7 +83,8 @@
             android:paddingBottom="6dp"
             android:text="@string/music_clear"
             android:textColor="#FA243C"
-            android:textSize="13sp" />
+            android:textSize="13sp"
+            android:fontWeight="500" />
 
         <ImageView
             android:id="@+id/btnClose"
@@ -126,7 +128,8 @@
             android:layout_marginStart="6dp"
             android:text="@string/sheet_queue_from"
             android:textColor="#9A9AA0"
-            android:textSize="11sp" />
+            android:textSize="11sp"
+            android:fontWeight="500" />
 
         <TextView
             android:id="@+id/sourceName"
@@ -138,14 +141,15 @@
             android:maxLines="1"
             android:textColor="#1C1C1E"
             android:textSize="13sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:fontWeight="600" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/tvHint"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="2dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:text="@string/sheet_queue_hint"
@@ -164,11 +168,10 @@
     <LinearLayout
         android:id="@+id/emptyBox"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center_horizontal"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
         android:orientation="vertical"
-        android:paddingBottom="26dp"
         android:visibility="gone">
 
         <ImageView

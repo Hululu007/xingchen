@@ -27,6 +27,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.api.music.PlaylistImporter;
@@ -48,8 +49,15 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.zip.GZIPInputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -657,6 +665,7 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private static final int REQ_PICK_PLUGIN = 4213;
+    private static final int REQ_PICK_LXMC = 4214;
 
     private void pickLocalFile() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
@@ -674,17 +683,30 @@ public class MusicListActivity extends BaseActivity {
             if (resultCode == RESULT_OK && data != null) runImport(data);
             return;
         }
+        if (requestCode == REQ_PICK_LXMC) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                runLxmcImport(data.getData());
+            }
+            return;
+        }
         if (requestCode != REQ_PICK_PLUGIN || resultCode != RESULT_OK
                 || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         Task.execute(() -> {
             try {
                 byte[] bytes = readAll(uri);
-                MusicSourceManager.get().addLocalSite(bytes);
-                runOnUiThread(() -> {
-                    Notify.show(R.string.music_site_added);
-                    loadSites();
-                });
+                runOnUiThread(() -> confirmPluginImport(() -> Task.execute(() -> {
+                    try {
+                        MusicSourceManager.get().addLocalSite(bytes);
+                        runOnUiThread(() -> {
+                            Notify.show(R.string.music_site_added);
+                            loadSites();
+                        });
+                    } catch (Exception e) {
+                        runOnUiThread(() -> Notify.show(e.getMessage() == null
+                                ? getString(R.string.music_plugin_add_failed) : e.getMessage()));
+                    }
+                })));
             } catch (Exception e) {
                 runOnUiThread(() -> Notify.show(e.getMessage() == null
                         ? getString(R.string.music_plugin_add_failed) : e.getMessage()));
@@ -733,21 +755,57 @@ public class MusicListActivity extends BaseActivity {
                             Notify.show(R.string.music_plugin_latest);
                             return;
                         }
-                        MusicSourceManager.get().applyUpdate(site, v);
-                        Notify.show(R.string.music_plugin_updated);
-                        loadSites();
+                        // 瓜子更新弹窗：标题「音源插件发现新版本」＋「立即更新」／「忽略」
+                        new MaterialAlertDialogBuilder(MusicListActivity.this)
+                                .setTitle("音源插件发现新版本")
+                                .setMessage((site.name == null ? "" : site.name) + "：" + v)
+                                .setPositiveButton("立即更新", (d, w) -> {
+                                    MusicSourceManager.get().applyUpdate(site, v);
+                                    Notify.show(R.string.music_plugin_updated);
+                                    loadSites();
+                                })
+                                .setNegativeButton("忽略", (d, w) -> {
+                                    MusicSourceManager.get().ignoreUpdate(site.srcUrl, v);
+                                    Notify.show("已忽略这个版本");
+                                })
+                                .show();
                     });
                 });
             } else {
-                Task.execute(() -> {
-                    MusicSourceManager.get().removeSite(site.srcUrl);
-                    runOnUiThread(() -> {
-                        Notify.show(R.string.music_deleted);
-                        loadSites();
-                    });
-                });
+                // 瓜子移除弹窗（仅本机文案；云端备份选项属排除项，不出）
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
+                        .setMessage("该插件只存在于本机，移除后需要重新导入脚本才能恢复。")
+                        .setPositiveButton(getString(R.string.music_delete), (d, w) -> Task.execute(() -> {
+                            MusicSourceManager.get().removeSite(site.srcUrl);
+                            runOnUiThread(() -> {
+                                Notify.show(R.string.music_deleted);
+                                loadSites();
+                            });
+                        }))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show();
             }
         });
+    }
+
+    /**
+     * 插件导入确认（瓜子「第三方插件导入确认」：标题＋导语照瓜子；风险条目前两条照瓜子，
+     * 第三条「先试运行一次、确认能提供音源才会保留」是星辰安装链本就有的行为（probe 先行再落盘），
+     * 故写成通用表述；瓜子第三条自家声明「不发布、不内置、不推荐任何第三方插件」与星辰预置口径
+     * 相反，未照抄）。
+     */
+    private void confirmPluginImport(Runnable onAgree) {
+        String msg = "请仔细阅读以下提示，点击「同意并导入」即代表你已同意\n\n"
+                + "1. 该脚本来自第三方，非星辰提供。请自行判断其用途与潜在风险（内容、播放链接等），相关责任由脚本作者和使用者自行承担；\n"
+                + "2. 脚本会在本应用内执行代码，并可发起网络请求，请仅导入你信任的来源；\n"
+                + "3. 安装前会先试运行一次，确认能正常提供音源才会保留。";
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("第三方插件导入确认")
+                .setMessage(msg)
+                .setPositiveButton("同意并导入", (d, w) -> onAgree.run())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void inputSiteUrl() {
@@ -764,7 +822,7 @@ public class MusicListActivity extends BaseActivity {
                 .setPositiveButton(android.R.string.ok, (d, w) -> {
                     String url = et.getText().toString().trim();
                     if (url.isEmpty()) return;
-                    Task.execute(() -> {
+                    confirmPluginImport(() -> Task.execute(() -> {
                         try {
                             MusicSourceManager.get().addSite(url);
                             runOnUiThread(() -> {
@@ -774,7 +832,7 @@ public class MusicListActivity extends BaseActivity {
                         } catch (Exception e) {
                             runOnUiThread(() -> Notify.show(e.getMessage() == null ? "添加失败" : e.getMessage()));
                         }
-                    });
+                    }));
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
@@ -993,6 +1051,7 @@ public class MusicListActivity extends BaseActivity {
                 .setTitle(R.string.music_import_playlist)
                 .setView(box)
                 .setPositiveButton(R.string.music_import_action, null)
+                .setNeutralButton("从洛雪 .lxmc 文件导入", (d, w) -> pickLxmcFile())
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
         dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
@@ -1078,6 +1137,333 @@ public class MusicListActivity extends BaseActivity {
             default:
                 return R.string.music_import_err_network;
         }
+    }
+
+    // ================= 洛雪 .lxmc 文件导入 =================
+
+    /** .lxmc 解析出的一个歌单（瓜子 LxPlaylistParser 的两种结构：备份多歌单／单歌单） */
+    private static class LxmcPlaylist {
+        final String name;
+        final List<MusicTrack> tracks;
+
+        LxmcPlaylist(String name, List<MusicTrack> tracks) {
+            this.name = name;
+            this.tracks = tracks;
+        }
+    }
+
+    private void pickLxmcFile() {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(Intent.createChooser(i, "从洛雪 .lxmc 文件导入"), REQ_PICK_LXMC);
+    }
+
+    private void runLxmcImport(Uri uri) {
+        Task.execute(() -> {
+            List<LxmcPlaylist> lists;
+            try {
+                byte[] bytes = readAllCappedLxmc(uri);
+                lists = parseLxmc(bytes);
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show(e.getMessage() == null ? "不是有效的 LX 歌单文件" : e.getMessage()));
+                return;
+            }
+            // 落雪源支撑情况在子线程先算好（hasLxSupport 要枚举落雪插件，不上主线程）
+            Set<String> unsupported = new java.util.LinkedHashSet<>();
+            for (LxmcPlaylist p : lists) {
+                for (MusicTrack t : p.tracks) {
+                    String key = lxmcPlatformKey(t);
+                    if (!key.isEmpty() && !unsupported.contains(key) && !PlaylistImporter.hasLxSupport(key)) {
+                        unsupported.add(key);
+                    }
+                }
+            }
+            runOnUiThread(() -> importLxmcPlaylists(lists, 0, 0, 0, unsupported));
+        });
+    }
+
+    /** 从落雪歌 id 反推平台键：id 形如 lx:<平台键>:<原生 id> */
+    private static String lxmcPlatformKey(MusicTrack t) {
+        if (t == null || t.id == null) return "";
+        String[] parts = t.id.split(":", 3);
+        return parts.length >= 2 ? parts[1] : "";
+    }
+
+    /** 逐个落库（MusicLibrary.importPlaylist 自带主线程回调，串行避免提示乱序） */
+    private void importLxmcPlaylists(List<LxmcPlaylist> lists, int idx, int imported, int inserted, Set<String> unsupported) {
+        if (idx >= lists.size()) {
+            if (inserted <= 0) {
+                Notify.show(R.string.music_import_err_empty);
+                return;
+            }
+            loadSheets();
+            String msg = "已导入 " + imported + " 个歌单，共 " + inserted + " 首";
+            if (!unsupported.isEmpty()) {
+                List<String> names = new ArrayList<>();
+                for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
+                StringBuilder joined = new StringBuilder();
+                for (String n : names) {
+                    if (joined.length() > 0) joined.append("、");
+                    joined.append(n);
+                }
+                msg += "，" + getString(R.string.music_import_need_lx, joined.toString());
+            }
+            Notify.show(msg);
+            return;
+        }
+        LxmcPlaylist p = lists.get(idx);
+        if (p.tracks.isEmpty()) {
+            importLxmcPlaylists(lists, idx + 1, imported, inserted, unsupported);
+            return;
+        }
+        MusicLibrary.importPlaylist(p.name, p.tracks, res ->
+                importLxmcPlaylists(lists, idx + 1, imported + 1, inserted + res.inserted, unsupported));
+    }
+
+    /** 带上限的整读（.lxmc 原文件不大，64MB 封顶；解压后上限另在解析里按瓜子 64MB 卡） */
+    private byte[] readAllCappedLxmc(Uri uri) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IllegalStateException("读不到这个文件");
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                if (bos.size() + n > 64 * 1024 * 1024) throw new Exception("文件太大（超 64MB），跳过");
+                bos.write(buf, 0, n);
+            }
+            return bos.toByteArray();
+        }
+    }
+
+    /**
+     * .lxmc 格式（瓜子 LxPlaylistParser.parse／decodeText／parseBackup／parsePart 原样）：
+     * 文件体＝明文 UTF-8 JSON，或首两字节 0x1F8B 的 GZIP（解压后超 64MB 拒收）；
+     * 根对象须有 data 对象；data.lists 在＝备份形（defaultList／loveList／tempList 三固定歌单＋
+     * userList 自建歌单数组）；否则 data.list／name 在＝单歌单形；其余结构拒收。
+     * 曲目字段：id／name／singer／source／interval（mm:ss）／meta（albumName／picUrl／平台原生 id）；
+     * source 只认 wy／tx／kg／kw／mg（与星辰落雪平台键同串），soda 等无星辰源的按瓜子「无映射源丢弃」处理。
+     */
+    private static List<LxmcPlaylist> parseLxmc(byte[] bytes) throws Exception {
+        if (bytes == null || bytes.length == 0) throw new Exception("文件为空");
+        String text;
+        if (bytes.length >= 2 && (((bytes[0] & 0xFF) << 8) | (bytes[1] & 0xFF)) == 0x1F8B) {
+            try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(bytes));
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int total = 0;
+                int n;
+                while ((n = gzip.read(buf)) > 0) {
+                    total += n;
+                    if (total > 64 * 1024 * 1024) throw new IllegalArgumentException("文件解压后过大，暂不支持");
+                    bos.write(buf, 0, n);
+                }
+                text = new String(bos.toByteArray(), "UTF-8");
+            } catch (IllegalArgumentException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IllegalArgumentException("文件解压失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+            }
+        } else {
+            text = new String(bytes, "UTF-8");
+        }
+        if (text.trim().isEmpty()) throw new Exception("文件内容为空");
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(text).getAsJsonObject();
+        } catch (Exception e) {
+            throw new Exception("不是有效的 LX 歌单文件（JSON 解析失败）");
+        }
+        if (!root.has("data") || !root.get("data").isJsonObject()) {
+            throw new Exception("不是有效的 LX 歌单文件（缺少 data）");
+        }
+        JsonObject data = root.getAsJsonObject("data");
+        List<LxmcPlaylist> out = new ArrayList<>();
+        if (data.has("lists") && data.get("lists").isJsonObject()) {
+            JsonObject lists = data.getAsJsonObject("lists");
+            addLxmcList(out, lists, "defaultList", "试听列表");
+            addLxmcList(out, lists, "loveList", "我的收藏");
+            addLxmcList(out, lists, "tempList", "临时列表");
+            if (lists.has("userList") && lists.get("userList").isJsonArray()) {
+                for (JsonElement el : lists.getAsJsonArray("userList")) {
+                    if (!el.isJsonObject()) continue;
+                    JsonObject o = el.getAsJsonObject();
+                    String name = lxmcStr(o, "name");
+                    if (name.isEmpty()) name = lxmcStr(o, "id");
+                    if (name.isEmpty()) name = "LX 自建歌单";
+                    out.add(new LxmcPlaylist(name, lxmcTracks(lxmcArr(o, "list"))));
+                }
+            }
+            return out;
+        }
+        if (data.has("list") || data.has("name")) {
+            String name = lxmcStr(data, "name");
+            if (name.isEmpty()) name = "LX 歌单";
+            out.add(new LxmcPlaylist(name, lxmcTracks(lxmcArr(data, "list"))));
+            return out;
+        }
+        throw new Exception("暂不支持的 LX 歌单文件结构");
+    }
+
+    private static void addLxmcList(List<LxmcPlaylist> out, JsonObject lists, String key, String name) {
+        if (lists.has(key) && lists.get(key).isJsonArray()) {
+            out.add(new LxmcPlaylist(name, lxmcTracks(lists.getAsJsonArray(key))));
+        }
+    }
+
+    private static JsonArray lxmcArr(JsonObject o, String key) {
+        if (o != null && o.has(key) && o.get(key).isJsonArray()) return o.getAsJsonArray(key);
+        return new JsonArray();
+    }
+
+    private static List<MusicTrack> lxmcTracks(JsonArray arr) {
+        List<MusicTrack> out = new ArrayList<>();
+        for (JsonElement el : arr) {
+            if (!el.isJsonObject()) continue;
+            MusicTrack t = lxmcTrack(el.getAsJsonObject());
+            if (t != null) out.add(t);
+        }
+        return out;
+    }
+
+    /**
+     * 单曲映射（瓜子 toSearchSong／resolvePlatformId 原样）：
+     * 名空或源无映射直接丢弃；平台原生 id 按源取首个非空候选，meta 里都没有时回退曲目 id
+     * （带「平台键_」前缀的剥掉前缀）；_item＝meta 全字段＋按星辰搜索条目惯例补的规范 id 字段，
+     * 取链时落雪脚本按各自习惯读，通用字段由 LxMusicSource.musicInfo 另补。
+     */
+    private static MusicTrack lxmcTrack(JsonObject o) {
+        String name = lxmcStr(o, "name");
+        if (name.isEmpty()) return null;
+        String source = lxmcStr(o, "source");
+        if (!"wy".equals(source) && !"tx".equals(source) && !"kg".equals(source)
+                && !"kw".equals(source) && !"mg".equals(source)) {
+            return null;
+        }
+        JsonObject meta = o.has("meta") && o.get("meta").isJsonObject()
+                ? o.getAsJsonObject("meta") : new JsonObject();
+        String rawId = lxmcPlatformId(source, meta);
+        if (rawId.isEmpty()) {
+            String id = lxmcStr(o, "id");
+            if (id.startsWith(source + "_")) id = id.substring(source.length() + 1);
+            rawId = id;
+        }
+        if (rawId.isEmpty()) return null;
+        MusicTrack t = new MusicTrack();
+        t.id = "lx:" + source + ":" + rawId;
+        t.title = name;
+        t.artist = lxmcStr(o, "singer");
+        t.album = lxmcStr(meta, "albumName");
+        t.cover = lxmcStr(meta, "picUrl");
+        t.duration = lxmcIntervalMs(lxmcStr(o, "interval"));
+        t.platform = LxMusicSource.PLATFORM;
+        JsonObject item = meta.deepCopy();
+        switch (source) {
+            case "tx":
+                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
+                break;
+            case "kw":
+                if (lxmcStr(item, "rid").isEmpty()) item.addProperty("rid", rawId);
+                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
+                break;
+            case "kg":
+                if (lxmcStr(item, "hash").isEmpty()) item.addProperty("hash", rawId);
+                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
+                break;
+            case "wy":
+                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
+                if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
+                break;
+            default: // mg
+                if (rawId.contains(":")) {
+                    String[] parts = rawId.split(":", 2);
+                    if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", parts[0]);
+                    if (lxmcStr(item, "copyrightId").isEmpty()) item.addProperty("copyrightId", parts[1]);
+                    if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
+                } else {
+                    if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
+                    if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
+                }
+                break;
+        }
+        JsonObject wrap = new JsonObject();
+        wrap.addProperty("_platform", source);
+        wrap.add("_item", item);
+        t.rawJson = wrap.toString();
+        return t;
+    }
+
+    /** 平台原生 id 候选顺序（瓜子 resolvePlatformId 原样） */
+    private static String lxmcPlatformId(String source, JsonObject meta) {
+        switch (source) {
+            case "tx": {
+                String songId = lxmcStr(meta, "songId");
+                // 瓜子：songId 含字母才进候选，全数字时跳过它
+                boolean songIdOk = false;
+                for (int i = 0; i < songId.length(); i++) {
+                    if (Character.isLetter(songId.charAt(i))) {
+                        songIdOk = true;
+                        break;
+                    }
+                }
+                return lxmcFirst(lxmcStr(meta, "songmid"), lxmcStr(meta, "mid"),
+                        songIdOk ? songId : "", lxmcStr(meta, "strMediaMid"));
+            }
+            case "kw":
+                return lxmcFirst(lxmcStr(meta, "rid"), lxmcStr(meta, "hash"), lxmcFirstQualityHash(meta));
+            case "kg":
+                return lxmcFirst(lxmcStr(meta, "hash"), lxmcFirstQualityHash(meta));
+            case "wy":
+                return lxmcFirst(lxmcStr(meta, "songId"), lxmcStr(meta, "id"));
+            default: { // mg
+                String contentId = lxmcStr(meta, "contentId");
+                String copyrightId = lxmcStr(meta, "copyrightId");
+                if (!contentId.isEmpty() && !copyrightId.isEmpty()) return contentId + ":" + copyrightId;
+                return lxmcFirst(contentId, copyrightId);
+            }
+        }
+    }
+
+    /** 瓜子 firstQualityHash：qualitys 数组里优先 type＝128k 的 hash，否则首个非空 hash */
+    private static String lxmcFirstQualityHash(JsonObject meta) {
+        if (!meta.has("qualitys") || !meta.get("qualitys").isJsonArray()) return "";
+        String first = "";
+        for (JsonElement el : meta.getAsJsonArray("qualitys")) {
+            if (!el.isJsonObject()) continue;
+            JsonObject q = el.getAsJsonObject();
+            String hash = lxmcStr(q, "hash");
+            if (hash.isEmpty()) continue;
+            if ("128k".equals(lxmcStr(q, "type"))) return hash;
+            if (first.isEmpty()) first = hash;
+        }
+        return first;
+    }
+
+    /** 瓜子 parseIntervalMs：取首个 mm:ss 匹配，转毫秒；无匹配为 0 */
+    private static long lxmcIntervalMs(String interval) {
+        if (interval == null) return 0;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{1,3}):(\\d{1,2})").matcher(interval);
+        if (!m.find()) return 0;
+        try {
+            long min = Long.parseLong(m.group(1));
+            long sec = Long.parseLong(m.group(2));
+            return (min * 60 + sec) * 1000;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static String lxmcFirst(String... vals) {
+        for (String v : vals) if (v != null && !v.isEmpty()) return v;
+        return "";
+    }
+
+    private static String lxmcStr(JsonObject o, String key) {
+        try {
+            if (o != null && o.has(key) && !o.get(key).isJsonNull()) return o.get(key).getAsString();
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     // ================= 列表 =================

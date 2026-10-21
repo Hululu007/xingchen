@@ -3,7 +3,6 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
@@ -32,9 +31,8 @@ import java.util.Map;
 /**
  * 用途：全屏逐字歌词视图——逐字上浮＋长音光晕、非当前行磨砂压暗、弹簧跟随滚动，经典 View＋Canvas 自绘。
  * 参数口径：GZ 反编译参数对照表第 2 节（LyricsViewKt）逐项对齐，2026-10-21；
- * 四色照 GZ 2.5 节原值落码（已唱红／非当前灰／翻译灰，见颜色常量区；当前行未唱深灰为浅面值，
- * 深面用白——GZ 各主题 palette 实例化赋值未抠到（参数表未抠到第 7 条），深面照原值会隐形，
- * 违「字体看得清」铁律，故深面未唱保留白、浅面用 GZ 原值 0xFF3C3C43）。
+ * redo3 歌词面：深色面当前行未唱改瓜子白×0.42、深色面翻译改白×0.55、深色面非当前行改白×0.30、
+ * 浅色面非当前行／翻译改回 GZ 原值（#9A9AA0／#8A8A90）；歌词斜体 SKEW=-0.12 按用户死令保留不动。
  */
 public class KaraokeLyricsView extends View {
 
@@ -153,8 +151,8 @@ public class KaraokeLyricsView extends View {
     static final int COLOR_TRANSLATION = 0xFF8A8A90;
     /** 已唱柔色 ColorSungSoft（GZ 原值，LyricsViewKt:306）：常量留档，柔和态用。 */
     static final int COLOR_SUNG_SOFT = 0xFFEAEAEA;
-    /** 主行未唱颜色（深色面）。 */
-    private static final int MAIN_COLOR = Color.WHITE;
+    /** 主行未唱颜色（深色面）＝瓜子白×0.42（redo3 N-01：0x6BFFFFFF）。 */
+    private static final int MAIN_COLOR = 0x6BFFFFFF;
     /**
      * 主行已唱／高亮颜色（深色面）＝GZ ColorSungSoft 0xFFEAEAEA 近白：
      * 证据 redo2-gz-player-evidence D 节——手机竖屏三主题＋全屏歌词页从不提供 palette、
@@ -162,16 +160,16 @@ public class KaraokeLyricsView extends View {
      * （immersiveDark=false）被选中，见 activeColor()。与录屏像素实测 (231,227,219) 一致。
      */
     private static final int ACTIVE_COLOR = COLOR_SUNG_SOFT;
-    /** 副行颜色（深色面）＝GZ 翻译色。 */
-    private static final int SUB_COLOR = COLOR_TRANSLATION;
+    /** 副行颜色（深色面）＝瓜子深色面翻译色白×0.55（redo3 N-03：0x8CFFFFFF）。 */
+    private static final int SUB_COLOR = 0x8CFFFFFF;
     /** 非当前行颜色（深色面）＝GZ 非当前行色（再乘按距离 alpha 与渐隐）。 */
     private static final int IDLE_COLOR = COLOR_INACTIVE;
     /** 空歌词提示颜色（深色面）。 */
     private static final int EMPTY_COLOR = 0x8AFFFFFF;
-    /** 浅色面（setLightScheme）：主行未唱＝GZ 当前行未唱原值、非当前行改深灰系，主行已唱保持 GZ 已唱红。 */
+    /** 浅色面（setLightScheme）：主行未唱＝GZ 当前行未唱原值、非当前行＝GZ 非当前行原值、副行＝GZ 翻译原值，主行已唱保持 GZ 已唱红。 */
     private static final int MAIN_COLOR_LIGHT = COLOR_ACTIVE_UNSUNG;
-    private static final int IDLE_COLOR_LIGHT = 0xFF636366;
-    private static final int SUB_COLOR_LIGHT = 0xFF747D89;
+    private static final int IDLE_COLOR_LIGHT = COLOR_INACTIVE;
+    private static final int SUB_COLOR_LIGHT = COLOR_TRANSLATION;
     private static final int EMPTY_COLOR_LIGHT = 0x8A000000;
 
     /** 整行模式无词时一行默认时长（算行进度用，末行兜底）。 */
@@ -216,6 +214,15 @@ public class KaraokeLyricsView extends View {
     private boolean showTranslation = true;
     private boolean showRomanization = true;
     private OnLineClickListener lineClickListener;
+
+    /** 歌词区空白处点按回调（点行未命中时触发；流光 CD 展开／收起用，点行 seek 不受影响）。 */
+    public interface OnEmptyTapListener {
+        void onEmptyTap();
+    }
+
+    private OnEmptyTapListener emptyTapListener;
+    /** 手动搜索歌词进行中（redo3 N-19：歌词区内嵌「搜索在线歌词中...」12sp 提示，取词回落后清除）。 */
+    private boolean searchingLyric;
 
     // 歌词样式（设置面板／播放页可调，GZ LyricStyle 口径）
     private boolean coverMode;
@@ -326,6 +333,7 @@ public class KaraokeLyricsView extends View {
 
     /** 输入歌词：translations／romanizations 与 lines 按下标对齐，可传 null。 */
     public void setLines(List<LyricsLine> lines, List<String> translations, List<String> romanizations) {
+        searchingLyric = false;
         this.lines = lines == null ? Collections.emptyList() : new ArrayList<>(lines);
         this.translations = translations == null ? null : new ArrayList<>(translations);
         this.romanizations = romanizations == null ? null : new ArrayList<>(romanizations);
@@ -345,20 +353,33 @@ public class KaraokeLyricsView extends View {
 
     /** 取词未定：什么都不画（默认态）。 */
     public void showLoading() {
+        searchingLyric = false;
         emptyState = STATE_LOADING;
         invalidate();
     }
 
     /** 已确认无词：显示低调空态（图标 40dp／alpha 0.5、「暂无歌词」12sp，GZ 参数表第 3 节）。 */
     public void showNoLyric() {
+        searchingLyric = false;
         emptyState = STATE_NO_LYRIC;
         invalidate();
     }
 
     /** 无曲目：等待播放态（图标 alpha 0.3、「等待播放」alpha 0.4、12sp，GZ 参数表第 3 节）。 */
     public void showWaiting() {
+        searchingLyric = false;
         emptyState = STATE_WAITING;
         invalidate();
+    }
+
+    /** 手动搜索歌词进行中：歌词区内嵌提示（见 onDraw 搜索态叠加绘制）。 */
+    public void showSearching() {
+        searchingLyric = true;
+        invalidate();
+    }
+
+    public void setOnEmptyTapListener(OnEmptyTapListener listener) {
+        emptyTapListener = listener;
     }
 
     /** 行高（GZ coverLyricLineHeight，LyricsViewKt:10901-10903）：行高＝字号×4/3。 */
@@ -858,6 +879,18 @@ public class KaraokeLyricsView extends View {
             boolean isCurrent = block.index == currentIndex;
             drawBlock(canvas, block, blockY, maxWidth, distance, isCurrent, pos, anchorY);
         }
+        // 搜索态叠加（redo3 N-19）：手动搜词进行中时在歌词区居中嵌「搜索在线歌词中...」12sp、非当前行色；
+        // 旧词仍在时亦叠加显示（瓜子内嵌文案形态），取词回落后由 setLines／showNoLyric 清除。
+        if (searchingLyric) {
+            int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
+            emptyPaint.setColor(base);
+            emptyPaint.setTextSize(sp(EMPTY_TEXT_SP));
+            emptyPaint.setAlpha(255);
+            Paint.FontMetrics fm = emptyPaint.getFontMetrics();
+            canvas.drawText("搜索在线歌词中...", getWidth() / 2f,
+                    getHeight() / 2f - (fm.ascent + fm.descent) / 2f, emptyPaint);
+            emptyPaint.setAlpha(255);
+        }
     }
 
     /**
@@ -868,6 +901,17 @@ public class KaraokeLyricsView extends View {
      * 图标与字样的纵向间距 GZ 列装配未抠到确数，此处居中成组排布。
      */
     private void drawEmptyState(Canvas canvas) {
+        if (searchingLyric) {
+            int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
+            emptyPaint.setColor(base);
+            emptyPaint.setTextSize(sp(EMPTY_TEXT_SP));
+            emptyPaint.setAlpha(255);
+            Paint.FontMetrics fm = emptyPaint.getFontMetrics();
+            canvas.drawText("搜索在线歌词中...", getWidth() / 2f,
+                    getHeight() / 2f - (fm.ascent + fm.descent) / 2f, emptyPaint);
+            emptyPaint.setAlpha(255);
+            return;
+        }
         if (emptyState == STATE_LOADING) return;
         boolean waiting = emptyState == STATE_WAITING;
         int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
@@ -935,7 +979,7 @@ public class KaraokeLyricsView extends View {
         if (blockTopY < topFadePx) {
             alphaRatio *= smoothstep(blockTopY / topFadePx);
         }
-        int color = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
+        int color = lightScheme ? IDLE_COLOR_LIGHT : 0x4DFFFFFF; // 深色面非当前行基色＝瓜子白×0.30（redo3 N-02；衰减模型瓜子源头未抠到，仍用现行按距离 alpha＋渐隐）
         int alpha = Math.round(255 * clampF(alphaRatio, 0f, 1f));
         // 模糊应用侧（GZ LyricsViewKt:478-511 转写）：半径先量化 E＝round(blur×2)、半径＝E/2；
         // 行 alpha 系数 ≥0.08 才取模糊值；SDK≥31 走 RenderEffect、失败冷却 30s 内不挂；API＜31 走 BlurMaskFilter 等效。
@@ -1142,9 +1186,25 @@ public class KaraokeLyricsView extends View {
                 glowPaint.setAlpha(255);
             }
         }
-        mainPaint.setColor(colorProgress > 0f ? activeColor() : (lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR));
+        // 逐字变色（redo3 N-06，瓜子 sungEdgeXFor 口径）：先整词画未唱色，再按词内进度
+        // （词宽×colorProgress）竖直裁剪画已唱色；斜体下裁剪边为竖直字符边界级。
+        int unsung = lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR;
+        mainPaint.setColor(unsung);
         mainPaint.setAlpha(alpha);
         canvas.drawText(seg.text, x, drawY, mainPaint);
+        if (colorProgress > 0f) {
+            mainPaint.setColor(activeColor());
+            if (colorProgress >= 1f) {
+                canvas.drawText(seg.text, x, drawY, mainPaint);
+            } else {
+                Paint.FontMetrics fm = mainPaint.getFontMetrics();
+                int saveClip = canvas.save();
+                canvas.clipRect(x, drawY + fm.top - em * 0.1f,
+                        x + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
+                canvas.drawText(seg.text, x, drawY, mainPaint);
+                canvas.restoreToCount(saveClip);
+            }
+        }
         if (save >= 0) canvas.restoreToCount(save);
     }
 
@@ -1234,6 +1294,8 @@ public class KaraokeLyricsView extends View {
                     int index = lineAtY(event.getY());
                     if (index >= 0 && lineClickListener != null) {
                         lineClickListener.onLineClick(index, lines.get(index).getTimeMs());
+                    } else if (index < 0 && emptyTapListener != null) {
+                        emptyTapListener.onEmptyTap();
                     }
                     // 点行后走 seek 弹簧滑向目标行（外部 seekUi 亦同规格）。
                     browsing = false;

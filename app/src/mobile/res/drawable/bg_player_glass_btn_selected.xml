@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 展开态玻璃圆钮选中态（redo3 V8：歌曲信息键选中态钮面白 0.28，普通态见 bg_player_glass_btn 白 0.14） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#47FFFFFF" />
+    <stroke android:width="1dp" android:color="#2EFFFFFF" />
+</shape>

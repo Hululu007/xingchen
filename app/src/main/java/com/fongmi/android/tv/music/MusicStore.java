@@ -30,16 +30,41 @@ public class MusicStore {
     private static final String K_RECENT = "music_recent";
     private static final int RECENT_MAX = 50;
 
+    /** 下载音质模式：固定档（默认，旧行为） */
+    public static final int DL_MODE_FIXED = 0;
+    /** 下载音质模式：跟随播放偏好（瓜子 DownloadQualitySettingsDialog「跟随播放偏好」） */
+    public static final int DL_MODE_FOLLOW = 1;
+
     // ===== 音乐设置页四项（2026-10-20） =====
     private static final String K_DL_QUALITY = "music_dl_quality";
+    private static final String K_DL_MODE = "music_dl_mode";
     private static final String K_AUTO_SKIP = "music_auto_skip_on_error";
     private static final String K_MOBILE_PLAY = "music_mobile_play";
     private static final String K_LYRIC_FALLBACK = "music_lyric_fallback";
     private static final String K_SPEED = "music_speed";
 
-    /** 下载默认音质（与播放默认音质相互独立，各管各的链） */
-    public static int getDownloadQuality() {
+    /** 下载音质模式：0 固定档 1 跟随播放偏好（默认固定档，旧行为不变） */
+    public static int getDownloadMode() {
+        int mode = Prefers.getInt(K_DL_MODE, DL_MODE_FIXED);
+        return mode == DL_MODE_FOLLOW ? DL_MODE_FOLLOW : DL_MODE_FIXED;
+    }
+
+    public static void setDownloadMode(int mode) {
+        Prefers.put(K_DL_MODE, mode == DL_MODE_FOLLOW ? DL_MODE_FOLLOW : DL_MODE_FIXED);
+    }
+
+    /** 下载固定档存值（跟随模式下不直接用它，下载链走 getDownloadQuality 生效值） */
+    public static int getDownloadQualityFixed() {
         return Prefers.getInt(K_DL_QUALITY, QUALITY_STANDARD);
+    }
+
+    /**
+     * 下载生效音质：跟随模式返回播放默认音质（下载链 MusicDownloadStore 直接读它，
+     * 无需改下载链）；固定模式返回固定档存值。设置页显示不走这里（见设置页模式行文案）。
+     */
+    public static int getDownloadQuality() {
+        if (getDownloadMode() == DL_MODE_FOLLOW) return getQuality();
+        return getDownloadQualityFixed();
     }
 
     public static void setDownloadQuality(int quality) {

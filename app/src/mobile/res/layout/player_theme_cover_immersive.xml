@@ -105,6 +105,14 @@
                 android:elevation="12dp"
                 android:scaleType="centerCrop" />
 
+            <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
+            <ImageView
+                android:id="@+id/tpCoverExit"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
             <!-- 展开态：卡内歌词窗/信息卡＋四玻璃键＋Scrubber（GZ PS:8987-9145） -->
             <LinearLayout
                 android:id="@+id/tpCoverExpanded"
@@ -340,7 +348,7 @@
                     <SeekBar
                         android:id="@+id/tpSeek"
                         android:layout_width="match_parent"
-                        android:layout_height="28dp"
+                        android:layout_height="18dp"
                         android:layout_marginTop="4dp"
                         android:maxHeight="4dp"
                         android:minHeight="4dp"
@@ -350,7 +358,11 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal">
+                        android:orientation="horizontal"
+                        android:paddingStart="2dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="2dp"
+                        android:paddingBottom="0dp">
 
                         <TextView
                             android:id="@+id/tpPosition"
@@ -399,6 +411,7 @@
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:background="@drawable/bg_cover_glass_bar"
+            android:elevation="4dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="16dp"

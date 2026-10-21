@@ -37,6 +37,8 @@ public class MusicSourceManager {
 
     private static final String K_SITES = "music_freejs_sites";
     private static final String K_PRIMARY = "music_freejs_primary";
+    /** 用户点「忽略」的插件更新：srcUrl → 被忽略的版本号（有更高版本时重新提示） */
+    private static final String K_IGNORED_UPDATES = "music_ignored_plugin_updates";
     private static final String PLUGIN_DIR = "music_plugins";
 
     private static volatile MusicSourceManager instance;
@@ -506,7 +508,7 @@ public class MusicSourceManager {
             }
             String remote = tmp.version;
             if (!TextUtils.isEmpty(remote) && !remote.equals(site.version)) {
-                if (compareVersion(remote, site.version) > 0) {
+                if (compareVersion(remote, site.version) > 0 && !isUpdateIgnored(site.srcUrl, remote)) {
                     // 把新名字先挂到入参上，applyUpdate 落盘时一并带上（此处不落盘）
                     if (!TextUtils.isEmpty(tmp.name)) site.name = tmp.name;
                     return remote;
@@ -516,6 +518,36 @@ public class MusicSourceManager {
             SpiderDebug.log("music", "checkUpdate error site=%s %s", site.name, t.getMessage());
         }
         return null;
+    }
+
+    /** 该插件的该版本是否被用户点过「忽略」（瓜子更新弹窗「忽略」语义） */
+    public synchronized boolean isUpdateIgnored(String srcUrl, String version) {
+        if (TextUtils.isEmpty(srcUrl) || TextUtils.isEmpty(version)) return false;
+        try {
+            String json = Prefers.getString(K_IGNORED_UPDATES, "");
+            if (TextUtils.isEmpty(json)) return false;
+            Type type = new TypeToken<Map<String, String>>() {
+            }.getType();
+            Map<String, String> map = gson.fromJson(json, type);
+            return map != null && version.equals(map.get(srcUrl));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 记一次「忽略」：只忽略这一版，远端再出更高版本时 checkUpdate 照常返回新版 */
+    public synchronized void ignoreUpdate(String srcUrl, String version) {
+        if (TextUtils.isEmpty(srcUrl) || TextUtils.isEmpty(version)) return;
+        try {
+            String json = Prefers.getString(K_IGNORED_UPDATES, "");
+            Type type = new TypeToken<Map<String, String>>() {
+            }.getType();
+            Map<String, String> map = TextUtils.isEmpty(json) ? null : gson.fromJson(json, type);
+            if (map == null) map = new java.util.HashMap<>();
+            map.put(srcUrl, version);
+            Prefers.put(K_IGNORED_UPDATES, gson.toJson(map));
+        } catch (Exception ignored) {
+        }
     }
 
     /** 有更新就更新本地元数据（版本＋名字），并销毁旧桥让新脚本生效 */

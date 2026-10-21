@@ -7,7 +7,7 @@
     android:paddingStart="24dp"
     android:paddingEnd="24dp"
     android:paddingTop="16dp"
-    android:paddingBottom="20dp">
+    android:paddingBottom="22dp">
 
     <!-- 大封面（手势同经典：双击收藏/长按工具面板/横滑切歌） -->
     <FrameLayout
@@ -22,17 +22,26 @@
             android:layout_height="match_parent"
             android:elevation="10dp"
             android:scaleType="centerCrop" />
+
+        <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
+        <ImageView
+            android:id="@+id/tpCoverExit"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- 歌名 20sp alpha .96 / 歌手 14sp alpha .6 / 第三行 12sp alpha .42（来源·实测音质，无实测整行隐藏） -->
     <TextView
         android:id="@+id/tpTitle"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="30dp"
         android:layout_marginTop="18dp"
         android:ellipsize="end"
+        android:gravity="center_vertical"
         android:includeFontPadding="false"
-        android:letterSpacing="-0.022"
+        android:letterSpacing="-0.02"
         android:lineHeight="26dp"
         android:maxLines="1"
         android:textColor="#F5FFFFFF"
@@ -42,9 +51,10 @@
     <TextView
         android:id="@+id/tpArtist"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="22dp"
         android:layout_marginTop="3dp"
         android:ellipsize="end"
+        android:gravity="center_vertical"
         android:includeFontPadding="false"
         android:lineHeight="18dp"
         android:maxLines="1"
@@ -54,9 +64,10 @@
     <TextView
         android:id="@+id/tpMeta"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="18dp"
         android:layout_marginTop="3dp"
         android:ellipsize="end"
+        android:gravity="center_vertical"
         android:includeFontPadding="false"
         android:lineHeight="16dp"
         android:maxLines="1"
@@ -64,7 +75,7 @@
         android:textSize="12sp"
         android:visibility="gone" />
 
-    <!-- 进度：轨道 6dp -->
+    <!-- 进度：轨道 6dp；Apple 调用无底时间行（redo3 A5），故不设底行 -->
     <SeekBar
         android:id="@+id/tpSeek"
         android:layout_width="match_parent"
@@ -75,40 +86,11 @@
         android:progressDrawable="@drawable/bg_player_seek6_progress"
         android:thumb="@drawable/bg_player_seek_thumb" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/tpPosition"
-            android:layout_width="40dp"
-            android:layout_height="wrap_content"
-            android:includeFontPadding="false"
-            android:text="00:00"
-            android:textColor="#99FFFFFF"
-            android:textSize="11sp" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/tpDuration"
-            android:layout_width="40dp"
-            android:layout_height="wrap_content"
-            android:gravity="end"
-            android:includeFontPadding="false"
-            android:text="00:00"
-            android:textColor="#99FFFFFF"
-            android:textSize="11sp" />
-    </LinearLayout>
-
-    <!-- 运输键行：高 96dp；上/下一首盒 56、播放盒 84（按压缩放代码侧 0.88/0.9） -->
+    <!-- 运输键行：高 96dp；进度后间隔 6dp（redo3 A1）；上/下一首盒 56、播放盒 84（按压缩放代码侧 0.88/0.9） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="96dp"
+        android:layout_marginTop="6dp"
         android:gravity="center"
         android:orientation="horizontal">
 
@@ -158,10 +140,11 @@
         android:progressDrawable="@drawable/bg_player_seek6_progress"
         android:thumb="@drawable/bg_player_seek_thumb" />
 
-    <!-- 功能筹行：高 52dp，图标 歌词24/音质24/播放列表28，间距 48dp -->
+    <!-- 功能筹行：高 52dp，音量条后间隔 2dp（redo3 A1），图标 歌词24/音质24/播放列表28，间距 48dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="52dp"
+        android:layout_marginTop="2dp"
         android:gravity="center"
         android:orientation="horizontal">
 

@@ -24,6 +24,14 @@
             android:layout_height="match_parent"
             android:elevation="12dp"
             android:scaleType="centerCrop" />
+
+        <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
+        <ImageView
+            android:id="@+id/tpCoverExit"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- SongMeta：外层横向内边距 28dp；歌名 18sp/行高 24sp/字距 -0.4、歌手 14sp/18sp、专辑行高 22dp；
@@ -78,9 +86,10 @@
             <TextView
                 android:id="@+id/tpArtist"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="22dp"
                 android:layout_marginTop="2dp"
                 android:ellipsize="end"
+                android:gravity="center_vertical"
                 android:includeFontPadding="false"
                 android:lineHeight="18dp"
                 android:maxLines="1"
@@ -245,11 +254,11 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 进度：轨道上方间隔 4dp、容器高 28dp、轨道基高 4dp；时间标签 11sp/字距 0.2/宽 40dp -->
+        <!-- 进度：轨道上方间隔 4dp、容器高 18dp（GZ Canvas 高）、轨道基高 4dp；时间标签 11sp/字距 0.2/宽 40dp -->
         <SeekBar
             android:id="@+id/tpSeek"
             android:layout_width="match_parent"
-            android:layout_height="28dp"
+            android:layout_height="18dp"
             android:layout_marginTop="4dp"
             android:maxHeight="4dp"
             android:minHeight="4dp"
@@ -259,7 +268,11 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingStart="2dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="2dp"
+            android:paddingBottom="0dp">
 
             <TextView
                 android:id="@+id/tpPosition"

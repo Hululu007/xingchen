@@ -33,6 +33,15 @@
                 android:layout_gravity="center"
                 android:scaleType="centerCrop" />
 
+            <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
+            <ImageView
+                android:id="@+id/tpCoverExit"
+                android:layout_width="190dp"
+                android:layout_height="190dp"
+                android:layout_gravity="center"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
             <!-- 切歌扫光层（GZ CdSongChange）：盖盘面 190dp 圆区，平时不绘制 -->
             <com.fongmi.android.tv.ui.custom.CdSweepView
                 android:id="@+id/tpCdSweep"
@@ -106,8 +115,8 @@
             android:includeFontPadding="false"
             android:letterSpacing="0.018"
             android:text="00:00"
-            android:textColor="#747D89"
-            android:textSize="11sp" />
+            android:textColor="#BD747D89"
+            android:textSize="9sp" />
 
         <View
             android:layout_width="0dp"
@@ -122,8 +131,8 @@
             android:includeFontPadding="false"
             android:letterSpacing="0.018"
             android:text="00:00"
-            android:textColor="#747D89"
-            android:textSize="11sp" />
+            android:textColor="#BD747D89"
+            android:textSize="9sp" />
     </LinearLayout>
 
     <!-- 裸图标主控行（尺寸照 52/72 既定值，图标着色代码按色板刷） -->

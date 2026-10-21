@@ -16,7 +16,8 @@
         android:layout_width="22dp"
         android:layout_height="wrap_content"
         android:textColor="#9A9AA0"
-        android:textSize="11sp" />
+        android:textSize="11sp"
+        android:fontWeight="500" />
 
     <ImageView
         android:id="@+id/cover"

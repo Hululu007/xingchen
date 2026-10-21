@@ -57,15 +57,41 @@ public class MusicSettingsActivity extends BaseActivity {
     private void initQualityRows() {
         binding.tvPlayQuality.setText(MusicStore.qualityName(MusicStore.getQuality()));
         binding.rowPlayQuality.setOnClickListener(v -> showQualityDialog(true));
-        binding.tvDlQuality.setText(MusicStore.qualityName(MusicStore.getDownloadQuality()));
-        binding.rowDlQuality.setOnClickListener(v -> showQualityDialog(false));
+        refreshDlQualityText();
+        binding.rowDlQuality.setOnClickListener(v -> showDownloadModeDialog());
+    }
+
+    /** 下载行值文案：跟随模式显「跟随播放偏好」，固定模式显固定档名（不走生效值，免得跟随下误显播放档名） */
+    private void refreshDlQualityText() {
+        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_FOLLOW) {
+            binding.tvDlQuality.setText("跟随播放偏好");
+        } else {
+            binding.tvDlQuality.setText(MusicStore.qualityName(MusicStore.getDownloadQualityFixed()));
+        }
+    }
+
+    /** 下载音质模式（瓜子三策略中的两项：跟随播放偏好／固定下载音质；每次询问的下载时弹窗未接线，故本页不提供该项） */
+    private void showDownloadModeDialog() {
+        List<String> opts = new ArrayList<>();
+        opts.add("跟随播放偏好");
+        opts.add("固定下载音质");
+        int cur = MusicStore.getDownloadMode() == MusicStore.DL_MODE_FOLLOW ? 0 : 1;
+        MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), opts, cur, idx -> {
+            if (idx == 0) {
+                MusicStore.setDownloadMode(MusicStore.DL_MODE_FOLLOW);
+                refreshDlQualityText();
+            } else {
+                MusicStore.setDownloadMode(MusicStore.DL_MODE_FIXED);
+                showQualityDialog(false);
+            }
+        });
     }
 
     private void showQualityDialog(boolean play) {
         int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD, MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
         List<String> opts = new ArrayList<>();
         for (int v : values) opts.add(MusicStore.qualityName(v));
-        int cur = play ? MusicStore.getQuality() : MusicStore.getDownloadQuality();
+        int cur = play ? MusicStore.getQuality() : MusicStore.getDownloadQualityFixed();
         MusicOptionsDialog.show(this, getString(play ? R.string.music_set_play_quality : R.string.music_set_download_quality),
                 opts, cur, idx -> {
                     if (play) {
@@ -74,7 +100,7 @@ public class MusicSettingsActivity extends BaseActivity {
                         binding.tvPlayQuality.setText(MusicStore.qualityName(values[idx]));
                     } else {
                         MusicStore.setDownloadQuality(values[idx]);
-                        binding.tvDlQuality.setText(MusicStore.qualityName(values[idx]));
+                        refreshDlQualityText();
                     }
                 });
     }

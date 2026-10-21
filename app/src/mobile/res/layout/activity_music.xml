@@ -28,8 +28,8 @@
         android:paddingEnd="4dp">
 
         <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="19dp"
+            android:layout_height="19dp"
             android:contentDescription="@null"
             android:src="@drawable/home_ic_search" />
 
@@ -40,8 +40,9 @@
             android:layout_weight="1"
             android:singleLine="true"
             android:text="@string/home_search_hint"
-            android:textColor="#6B6B6B"
-            android:textSize="15sp" />
+            android:textColor="#8E8E93"
+            android:textSize="13sp"
+            android:fontWeight="500" />
 
         <ImageView
             android:id="@+id/homeBtnMore"
@@ -276,7 +277,10 @@
                     android:layout_height="wrap_content"
                     android:text="@string/home_guess"
                     android:textColor="#141414"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
+                    android:lineHeight="19dp"
+                    android:letterSpacing="-0.029"
+                    android:fontWeight="800"
                     android:textStyle="bold" />
 
                 <TextView
@@ -284,7 +288,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/home_guess_sub"
-                    android:textColor="#8A8A8A"
+                    android:textColor="#8C1C1C1E"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -320,7 +324,10 @@
                     android:layout_height="wrap_content"
                     android:text="@string/home_charts"
                     android:textColor="#141414"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
+                    android:lineHeight="19dp"
+                    android:letterSpacing="-0.029"
+                    android:fontWeight="800"
                     android:textStyle="bold" />
 
                 <TextView
@@ -328,7 +335,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/home_charts_sub"
-                    android:textColor="#8A8A8A"
+                    android:textColor="#8C1C1C1E"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -364,7 +371,10 @@
                     android:layout_height="wrap_content"
                     android:text="@string/home_shuffle"
                     android:textColor="#141414"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
+                    android:lineHeight="19dp"
+                    android:letterSpacing="-0.029"
+                    android:fontWeight="800"
                     android:textStyle="bold" />
 
                 <TextView
@@ -372,7 +382,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/home_shuffle_sub"
-                    android:textColor="#8A8A8A"
+                    android:textColor="#8C1C1C1E"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -413,7 +423,10 @@
                 android:layout_weight="1"
                 android:singleLine="true"
                 android:textColor="#141414"
-                android:textSize="22sp"
+                android:textSize="20sp"
+                android:lineHeight="26dp"
+                android:letterSpacing="-0.02"
+                android:fontWeight="800"
                 android:textStyle="bold" />
 
             <TextView
@@ -434,43 +447,44 @@
             android:orientation="horizontal">
 
             <FrameLayout
-                android:layout_width="124dp"
-                android:layout_height="92dp">
+                android:layout_width="104dp"
+                android:layout_height="90dp">
 
                 <ImageView
                     android:id="@+id/homeChartCover3"
-                    android:layout_width="92dp"
-                    android:layout_height="92dp"
-                    android:layout_marginStart="32dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="50dp"
                     android:alpha="0.5"
                     android:contentDescription="@null"
                     android:scaleType="centerCrop" />
 
                 <ImageView
                     android:id="@+id/homeChartCover2"
-                    android:layout_width="92dp"
-                    android:layout_height="92dp"
-                    android:layout_marginStart="16dp"
+                    android:layout_width="67dp"
+                    android:layout_height="67dp"
+                    android:layout_marginStart="25dp"
                     android:alpha="0.75"
                     android:contentDescription="@null"
                     android:scaleType="centerCrop" />
 
                 <ImageView
                     android:id="@+id/homeChartCover1"
-                    android:layout_width="92dp"
-                    android:layout_height="92dp"
+                    android:layout_width="82dp"
+                    android:layout_height="82dp"
                     android:contentDescription="@null"
                     android:scaleType="centerCrop" />
 
                 <ImageView
                     android:id="@+id/homeChartPlay"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_gravity="center_vertical"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_gravity="top"
                     android:layout_marginStart="26dp"
+                    android:layout_marginTop="26dp"
                     android:background="@drawable/home_bg_chart_play"
                     android:contentDescription="@string/home_chart_play"
-                    android:padding="11dp"
+                    android:padding="4dp"
                     android:src="@drawable/ic_music_play" />
             </FrameLayout>
 
@@ -489,11 +503,13 @@
                     android:orientation="horizontal">
 
                     <TextView
-                        android:layout_width="22dp"
+                        android:layout_width="20dp"
                         android:layout_height="wrap_content"
                         android:text="1"
                         android:textColor="#141414"
-                        android:textSize="15sp"
+                        android:textSize="13sp"
+                        android:lineHeight="18dp"
+                        android:fontWeight="800"
                         android:textStyle="bold" />
 
                     <TextView
@@ -531,11 +547,13 @@
                     android:orientation="horizontal">
 
                     <TextView
-                        android:layout_width="22dp"
+                        android:layout_width="20dp"
                         android:layout_height="wrap_content"
                         android:text="2"
                         android:textColor="#141414"
-                        android:textSize="15sp"
+                        android:textSize="13sp"
+                        android:lineHeight="18dp"
+                        android:fontWeight="800"
                         android:textStyle="bold" />
 
                     <TextView
@@ -573,11 +591,13 @@
                     android:orientation="horizontal">
 
                     <TextView
-                        android:layout_width="22dp"
+                        android:layout_width="20dp"
                         android:layout_height="wrap_content"
                         android:text="3"
                         android:textColor="#141414"
-                        android:textSize="15sp"
+                        android:textSize="13sp"
+                        android:lineHeight="18dp"
+                        android:fontWeight="800"
                         android:textStyle="bold" />
 
                     <TextView

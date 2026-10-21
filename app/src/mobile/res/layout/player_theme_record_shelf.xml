@@ -8,7 +8,7 @@
     android:paddingTop="14dp"
     android:paddingBottom="20dp">
 
-    <!-- 歌名 15sp/行高 21sp、歌手 11sp/行高 15sp（GZ RecordShelfPlayerKt:615-616） -->
+    <!-- 歌名 15sp/行高 21sp、歌手 11sp/行高 15sp（GZ RecordShelfPlayerKt:615-616）；墨色系 #252522／#86857E（redo3 S2） -->
     <TextView
         android:id="@+id/tpTitle"
         android:layout_width="match_parent"
@@ -20,7 +20,7 @@
         android:maxLines="1"
         android:paddingStart="28dp"
         android:paddingEnd="28dp"
-        android:textColor="#FFFFFF"
+        android:textColor="#252522"
         android:textSize="15sp"
         android:textStyle="bold" />
 
@@ -36,7 +36,7 @@
         android:maxLines="1"
         android:paddingStart="28dp"
         android:paddingEnd="28dp"
-        android:textColor="#B3FFFFFF"
+        android:textColor="#86857E"
         android:textSize="11sp" />
 
     <!-- 唱片架横滑陈列 -->

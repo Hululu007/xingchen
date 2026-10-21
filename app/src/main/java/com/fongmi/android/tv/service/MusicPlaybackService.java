@@ -82,6 +82,13 @@ public class MusicPlaybackService extends MediaSessionService {
     public static final int SLEEP_30 = 3;
     public static final int SLEEP_60 = 4;
     public static final int SLEEP_90 = 5;
+    public static final int SLEEP_10 = 6;
+    public static final int SLEEP_20 = 7;
+    public static final int SLEEP_40 = 8;
+    public static final int SLEEP_CUSTOM = 9;
+    /** 自定义分钟编码档基数：面板经 MusicController.setSleep(int) 传档时，档值＝基数＋分钟（1–999），
+     * 服务侧按该分钟数计时；MusicController 只透传 int，不用改它。直接调服务时也可用 setSleepCustom(分钟)。 */
+    public static final int SLEEP_CUSTOM_MINUTES_BASE = 1000;
 
     private static volatile MusicPlaybackService instance;
 
@@ -451,11 +458,31 @@ public class MusicPlaybackService extends MediaSessionService {
     public void setSleep(int mode) {
         cancelSleep();
         sleep = mode;
-        if (mode == SLEEP_15) armSleep(15 * 60 * 1000L);
+        if (mode == SLEEP_10) armSleep(10 * 60 * 1000L);
+        else if (mode == SLEEP_15) armSleep(15 * 60 * 1000L);
+        else if (mode == SLEEP_20) armSleep(20 * 60 * 1000L);
         else if (mode == SLEEP_30) armSleep(30 * 60 * 1000L);
+        else if (mode == SLEEP_40) armSleep(40 * 60 * 1000L);
         else if (mode == SLEEP_60) armSleep(60 * 60 * 1000L);
         else if (mode == SLEEP_90) armSleep(90 * 60 * 1000L);
-        listeners.forEach(l -> l.onSleepChanged(mode));
+        else if (mode >= SLEEP_CUSTOM_MINUTES_BASE) {
+            int minutes = mode - SLEEP_CUSTOM_MINUTES_BASE;
+            if (minutes >= 1 && minutes <= 999) armSleep(minutes * 60 * 1000L);
+            else sleep = SLEEP_OFF;
+        }
+        listeners.forEach(l -> l.onSleepChanged(sleep));
+    }
+
+    /** 自定义分钟定时（直接调服务用）：分钟数 1–999，计时链就是 armSleep，任意分钟都支持，不做假档 */
+    public void setSleepCustom(int minutes) {
+        if (minutes < 1 || minutes > 999) return;
+        setSleep(SLEEP_CUSTOM_MINUTES_BASE + minutes);
+    }
+
+    /** 当前自定义分钟数（仅编码档有效，其余返回 -1） */
+    public int getSleepCustomMinutes() {
+        if (sleep >= SLEEP_CUSTOM_MINUTES_BASE) return sleep - SLEEP_CUSTOM_MINUTES_BASE;
+        return -1;
     }
 
     public long getSleepRemainingMs() {
@@ -486,16 +513,28 @@ public class MusicPlaybackService extends MediaSessionService {
     public static String sleepName(int s) {
         switch (s) {
             case SLEEP_AFTER_CURRENT:
-                return "播完这首";
+                return "本首结束";
+            case SLEEP_10:
+                return "10 分钟";
             case SLEEP_15:
                 return "15 分钟";
+            case SLEEP_20:
+                return "20 分钟";
             case SLEEP_30:
                 return "30 分钟";
+            case SLEEP_40:
+                return "40 分钟";
             case SLEEP_60:
                 return "60 分钟";
             case SLEEP_90:
                 return "90 分钟";
+            case SLEEP_CUSTOM:
+                return "自定义";
             default:
+                if (s >= SLEEP_CUSTOM_MINUTES_BASE && s - SLEEP_CUSTOM_MINUTES_BASE >= 1
+                        && s - SLEEP_CUSTOM_MINUTES_BASE <= 999) {
+                    return (s - SLEEP_CUSTOM_MINUTES_BASE) + " 分钟";
+                }
                 return "关闭";
         }
     }

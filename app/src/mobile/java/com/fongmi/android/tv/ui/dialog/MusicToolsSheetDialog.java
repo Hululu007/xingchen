@@ -221,7 +221,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         box.addView(buildSettingsCard(), marginTop(dp(20)));
     }
 
-    /** ① 歌曲信息头（GZ SongInfoHero T01）：封面 48dp 圆角 8＋歌名 16sp＋歌手 12sp，面板底上裸行，右端关闭钮；跟随 MusicController 当前轨 */
+    /** ① 歌曲信息头（GZ SongInfoHero T01）：封面 48dp 圆角 8＋歌名 16sp＋歌手 12sp，面板底上裸行，右端关闭钮；跟随 MusicController 当前轨。
+     * GZ 歌手行是「歌手 · 专辑」一并显示，星辰同形跟进（专辑为空时只显示歌手） */
     private View buildHero() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -253,7 +254,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             title.setText(R.string.music_no_track);
         } else {
             title.setText(track.displayTitle());
-            artist.setText(track.displayArtist());
+            String artistLine = track.displayArtist();
+            if (!TextUtils.isEmpty(track.album)) artistLine += " · " + track.album;
+            artist.setText(artistLine);
             ImgUtil.loadRounded(track.displayTitle(), track.cover, cover);
         }
         return row;
@@ -357,9 +360,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.bg_sheet_card);
-        card.setPadding(dp(16), dp(10), dp(16), dp(2));
-        TextView title = text(getString(R.string.music_system_volume), 13, COLOR_MEDIUM, false);
-        card.addView(title);
+        card.setPadding(dp(16), dp(8), dp(16), dp(8));
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -478,14 +479,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 addInfoRow(card, getString(R.string.music_info_source), source, first);
                 first = false;
             }
-            if (!TextUtils.isEmpty(track.displayArtist())) {
-                addInfoRow(card, getString(R.string.music_info_artist), track.displayArtist(), first);
-                first = false;
-            }
-            if (!TextUtils.isEmpty(track.album)) {
-                addInfoRow(card, getString(R.string.music_info_album), track.album, first);
-                first = false;
-            }
         }
         // GZ 设置卡形态（本体图 112768_26）：2 列格——首行 均衡器｜播放页主题、次行 倍速｜搜索歌词
         // （GZ 次行是「外观设置/自定义封面」，星辰无对应后端，按令以自有真功能 倍速/搜索歌词 替位，不做假入口）
@@ -529,30 +522,33 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return card;
     }
 
-    /** 设置卡 2 列格单格：图标 24dp＋标签 13sp＋可选副值 11sp 灰，整格点按（GZ 设置卡格形态） */
+    /** 设置卡 2 列格单格（GZ 本体图 112790_3：图标左＋文字右横向、整组在格内居中）：
+     * 图标 24dp＋标签 13sp，副值（主题名/倍速）跟在标签下方 11sp 灰——GZ 格内无副值，
+     * 星辰副值是自有状态显示，保留但不另起一行居中，避免格子被撑成纵向 */
     private View settingsCell(int icon, String label, String sub, View.OnClickListener click) {
         LinearLayout cell = new LinearLayout(getContext());
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setOrientation(LinearLayout.HORIZONTAL);
+        cell.setGravity(Gravity.CENTER_VERTICAL | Gravity.CENTER_HORIZONTAL);
         cell.setPadding(0, dp(12), 0, dp(12));
         ImageView iv = new ImageView(getContext());
         iv.setImageResource(icon);
         iv.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
         cell.addView(iv, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        LinearLayout texts = new LinearLayout(getContext());
+        texts.setOrientation(LinearLayout.VERTICAL);
         TextView tv = text(label, 13, COLOR_TEXT, false);
-        tv.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = dp(6);
-        cell.addView(tv, tlp);
+        texts.addView(tv);
         if (sub != null && !sub.isEmpty()) {
             TextView sv = text(sub, 11, COLOR_LOW, false);
-            sv.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             slp.topMargin = dp(2);
-            cell.addView(sv, slp);
+            texts.addView(sv, slp);
         }
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.setMarginStart(dp(8));
+        cell.addView(texts, tlp);
         cell.setOnClickListener(click);
         attachPress(cell, 0.96f);
         return cell;

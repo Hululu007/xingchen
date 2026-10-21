@@ -1,39 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐播放页骨架（全主题共用）：封面糊底背景层＋氛围色罩＋主题容器＋爱心粒子覆盖层。
-     主题容器按 MusicStore.getPlayerTheme() 装 player_theme_*.xml，控件接线在 MusicPlayerActivity。 -->
+<!-- 音乐播放页骨架（全主题共用）：封面糊底背景层＋主题容器＋爱心粒子覆盖层。
+     主题容器按 MusicStore.getPlayerTheme() 装 player_theme_*.xml，控件接线在 MusicPlayerActivity。
+     整页一体：根布局不吃 fitsSystemWindows，内容顶到边、状态栏透明压在封面底上（GZ 同款）；
+     氛围色罩与底部暗罩已撤——GZ 背景是封面本身铺底（上半原图、下半模糊延伸），不许再盖色块。
+     歌词内页不吃 fitsSystemWindows，页眉垫高由代码按状态栏高做（wireLyricsPage），其余层全顶到边。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0E16"
-    android:fitsSystemWindows="true">
+    android:background="#0A0E16">
 
-    <!-- 背景层：封面 64px 小图放大成糊底（无封面/取色失败时由 viewAmbient 兜底色盖住） -->
+    <!-- 背景层：封面图本身铺底（糊底是封面图的模糊延伸，歌词压在上面；无封面时才露兜底色） -->
     <ImageView
         android:id="@+id/ivBgBlur"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop" />
 
-    <!-- 流体背景层（A4）：盖在糊底之上、氛围色层之下；动态流体背景开时才可见，颜色由播放页封面取色传入 -->
+    <!-- 流体背景层（A4）：盖在糊底之上；动态流体背景开时才可见，颜色由播放页封面取色传入 -->
     <com.fongmi.android.tv.ui.custom.FluidCoverAmbientView
         android:id="@+id/fluidAmbient"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
-
-    <!-- 氛围色层：CoverColor 取色，颜色由代码 450ms 渐变过渡 -->
-    <View
-        android:id="@+id/viewAmbient"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:alpha="0.82"
-        android:background="#FF1C1C1E" />
-
-    <!-- 可读性渐变罩：上透下暗 -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/bg_player_scrim" />
 
     <!-- 主题容器 -->
     <FrameLayout
@@ -47,7 +35,6 @@
         android:id="@+id/lyricsPage"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#1C1C1E"
         android:visibility="gone">
 
         <LinearLayout

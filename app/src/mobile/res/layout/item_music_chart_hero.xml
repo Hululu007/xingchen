@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 第 3 项：榜单详情英雄卡（GZ BoardDetailHero：封面 96dp 圆角 16dp、榜名 24sp；标签胶囊无字段来源，不显） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingTop="8dp"
+    android:paddingBottom="16dp">
+
+    <ImageView
+        android:id="@+id/cover"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:scaleType="centerCrop" />
+
+    <TextView
+        android:id="@+id/name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_weight="1"
+        android:textColor="#1C1C1E"
+        android:textSize="24sp" />
+</LinearLayout>

@@ -22,6 +22,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -151,6 +152,13 @@ public class MusicPlaybackService extends MediaSessionService {
     private long sleepDeadlineElapsed;
     private boolean preparing;
     private int prepareSeq;
+    /**
+     * 本次 prepare 是不是自然播完自动推进（onTrackEnded／advancePastFailed 链）：
+     * 是＝失败时不许回滚到已播完的旧歌、也不许静默停住，必须走 onPlayFailed→自动跳歌往后找；
+     * 否＝用户主动点歌／切歌，失败回滚语义保留（界面指回播放器里真装着的那首）。
+     * READY 起播、stopPlayback、任何用户侧入队／切歌都清掉。
+     */
+    private boolean autoAdvancing;
     /** 本次「播到尾」事件是否已被消费（防 ENDED 回调与心跳看门狗重复切歌）；新轨 READY 时复位 */
     private boolean endedConsumed;
     private volatile MusicAudioInfo audioInfo;
@@ -207,7 +215,7 @@ public class MusicPlaybackService extends MediaSessionService {
         // 播放器自身不许带循环/随机状态，免得两套口径打架、队列模式形同虚设。
         player.setRepeatMode(Player.REPEAT_MODE_OFF);
         player.setShuffleModeEnabled(false);
-        session = new MediaSession.Builder(this, player).setId("xc_music").build();
+        session = new MediaSession.Builder(this, wrapPlayer(player)).setId("xc_music").build();
         session.setSessionActivity(buildPlayerIntent());
         // 必须显式登记会话：media3 的 MediaNotificationManager 只认 addSession 过的会话
         // （updateNotification 对未登记会话直接撤通知）。本 App 走本地 Binder 驱动、
@@ -354,6 +362,7 @@ public class MusicPlaybackService extends MediaSessionService {
     /** 播队列并写入队列级来源／route（B7：入队时写，面板不再反查） */
     public void playQueue(List<MusicTrack> tracks, int index,
                           String source, String route, java.util.Map<String, String> routeParams) {
+        autoAdvancing = false;
         queue.setTracks(tracks, index, source, route, routeParams);
         listeners.forEach(ServiceListener::onQueueChanged);
         prepareTrack(queue.getIndex(), 0, true);
@@ -367,6 +376,7 @@ public class MusicPlaybackService extends MediaSessionService {
     /** 播队列并从断点位置起，同时写入队列级来源／route（B7） */
     public void playQueueFrom(List<MusicTrack> tracks, int index, long position,
                               String source, String route, java.util.Map<String, String> routeParams) {
+        autoAdvancing = false;
         queue.setTracks(tracks, index, source, route, routeParams);
         listeners.forEach(ServiceListener::onQueueChanged);
         prepareTrack(queue.getIndex(), Math.max(0, position), true);
@@ -374,6 +384,7 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /** 播指定序号 */
     public void playAt(int index) {
+        autoAdvancing = false;
         if (queue.moveTo(index)) prepareTrack(index, 0, true);
     }
 
@@ -401,13 +412,62 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void next() {
+        autoAdvancing = false;
         int n = queue.nextIndex();
         if (n >= 0) prepareTrack(n, 0, true);
     }
 
     public void prev() {
+        autoAdvancing = false;
         int p = queue.prevIndex();
         if (p >= 0) prepareTrack(p, 0, true);
+    }
+
+    /**
+     * 灵动岛／系统媒体卡缺下一首根因：音乐服务一次只给 media3 装一首歌（setMediaItem 单首），
+     * 切歌走星辰自己的 MusicQueue，不走 media3 播放列表，media3 时间线里永远只有一首、没有下一首窗口，
+     * 系统就画不出下一首钮（上一首能画是因单首内 seekToPrevious 可回到本首开头）。
+     * 修法照视频 PlaybackService.wrap() 同款：ForwardingPlayer 显式加 SEEK_TO_NEXT／PREVIOUS
+     * （含 MEDIA_ITEM 版）命令，并把 seekToNext／seekToPrevious 接到星辰自己的队列上
+     * （next()＝queue.nextIndex，prev()＝queue.prevIndex）；不能只加命令不接线——media3 自带的
+     * seekToNext 在单首时间线里无动作。命令无条件加（同视频口径）：顺序模式到尾时 next() 本就是
+     * no-op，与 App 内下一首钮行为一致；上一首到头时 prevIndex 回本首＝重播本首，与 media3
+     * 默认 seekToPrevious 回开头行为一致。服务内其余调用仍走原始 player（监听、装歌、播停不变），
+     * 只有会话（系统 UI／通知栏／灵动岛）看到包过的播放器；player 只在 onCreate 建一次，包层不会 stale。
+     */
+    private ForwardingPlayer wrapPlayer(Player base) {
+        return new ForwardingPlayer(base) {
+            @Override
+            public void seekToPrevious() {
+                prev();
+            }
+
+            @Override
+            public void seekToPreviousMediaItem() {
+                prev();
+            }
+
+            @Override
+            public void seekToNext() {
+                next();
+            }
+
+            @Override
+            public void seekToNextMediaItem() {
+                next();
+            }
+
+            @NonNull
+            @Override
+            public Commands getAvailableCommands() {
+                return super.getAvailableCommands().buildUpon()
+                        .add(COMMAND_SEEK_TO_PREVIOUS)
+                        .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                        .add(COMMAND_SEEK_TO_NEXT)
+                        .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .build();
+            }
+        };
     }
 
     public void seekTo(long ms) {
@@ -480,6 +540,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     private void stopPlayback() {
+        autoAdvancing = false;
         cancelSleep();
         hasMediaItem = false;
         loadedTrack = null;
@@ -1040,9 +1101,9 @@ public class MusicPlaybackService extends MediaSessionService {
             preparing = false;
             prepareSeq++; // 让还在路上的旧结果作废
             SpiderDebug.log("music", "prepare timeout id=%s", track.id);
-            if (rollbackToLoaded(track)) return;
+            if (!autoAdvancing && rollbackToLoaded(track)) return;
             listeners.forEach(l -> l.onTrackChanged(track));
-            onPlayFailed();
+            onPlayFailed(track);
         }, PREPARE_TIMEOUT_MS);
         // 受理即通知 UI 切标题/封面（对差清单 D4）：不等取链回来才有反应，
         // 取链再慢界面先动，不给「点了没反应」的观感。
@@ -1063,6 +1124,13 @@ public class MusicPlaybackService extends MediaSessionService {
                 if (player == null || queue.get(index) != track) return;
                 if (fBlocked) {
                     Notify.show(R.string.music_mobile_play_blocked);
+                    if (autoAdvancing) {
+                        // 推进中被流量开关拦住：不许静默停住——先拉黑本首再走失败收口，
+                        // 自动跳歌会越过它往后找（不拉黑会原地反复试同一首直至熔断，别的歌永远轮不到）。
+                        if (track.id != null) failedBlacklist.add(track.id);
+                        onPlayFailed(track);
+                        return;
+                    }
                     // 不起播收口（对差清单 D5）：播放器里没东西在播时别把前台通知空挂着；
                     // 有旧歌在播则不动，那首的通知归它自己管。
                     if (!hasMediaItem && !player.isPlaying()) demoteForeground();
@@ -1070,9 +1138,9 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
                 if (fUrl == null || fUrl.isEmpty()) {
                     SpiderDebug.log("music", "playUrl empty id=%s", track.id);
-                    if (rollbackToLoaded(track)) return;
+                    if (!autoAdvancing && rollbackToLoaded(track)) return;
                     listeners.forEach(l -> l.onTrackChanged(track));
-                    onPlayFailed();
+                    onPlayFailed(track);
                     return;
                 }
                 MediaItem item = new MediaItem.Builder()
@@ -1139,10 +1207,11 @@ public class MusicPlaybackService extends MediaSessionService {
      * 下一首就是自己（单曲循环/单曲队列）不许原地重取链；同一首连续失败 2 次拉黑、
      * 自动跳歌绕开拉黑项；整个队列轮着失败一遍就停，别无限耗电耗流量。
      * 停下时一并撤前台（D5），别挂着空通知。
+     * 失败计数记在 failed 这首上（不是 queue.current()）：自动推进时 current 还是已播完的旧歌，
+     * 记错会把好歌拉黑、把坏歌漏掉；播放器报错时调用方传 queue.current()，与旧行为一致。
      */
-    private void onPlayFailed() {
-        MusicTrack cur = queue.current();
-        String id = cur == null ? null : cur.id;
+    private void onPlayFailed(MusicTrack failed) {
+        String id = failed == null ? null : failed.id;
         if (id != null) {
             int c = failCounts.getOrDefault(id, 0) + 1;
             failCounts.put(id, c);
@@ -1167,6 +1236,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 queue.moveTo(n); // 拉黑的先越过，继续往后找
                 continue;
             }
+            autoAdvancing = true;
             prepareTrack(n, 0, true);
             return true;
         }
@@ -1205,6 +1275,7 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
             } else if (state == Player.STATE_READY) {
                 endedConsumed = false;
+                autoAdvancing = false;
                 // 真起播了：失败计数全清零（D3 的熔断只管连续失败）
                 failCounts.clear();
                 failedBlacklist.clear();
@@ -1224,7 +1295,7 @@ public class MusicPlaybackService extends MediaSessionService {
             try {
                 SpiderDebug.log("music", "onPlayerError %s", error.getMessage());
                 preparing = false;
-                onPlayFailed();
+                onPlayFailed(queue.current());
             } catch (Throwable ignored) {
             }
         }
@@ -1245,6 +1316,7 @@ public class MusicPlaybackService extends MediaSessionService {
         int n = queue.nextIndex();
         SpiderDebug.log("music", "trackEnded mode=%d next=%d", queue.getMode(), n);
         if (n >= 0) {
+            autoAdvancing = true;
             prepareTrack(n, 0, true);
         } else {
             // 顺序播到尾：停住

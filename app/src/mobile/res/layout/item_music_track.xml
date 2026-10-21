@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- GZ 歌曲行（搜索／收藏／历史／下载／本地／歌单详情共用）：封面 50dp、名 14sp 行高 20sp、第二行 11sp、纵内边距 10dp -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="88dp"
+    android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="4dp"
     android:paddingEnd="4dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp">
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
 
     <ImageView
         android:id="@+id/cover"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
         android:scaleType="centerCrop" />
 
     <LinearLayout
@@ -27,9 +28,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ellipsize="end"
+            android:lineHeight="20sp"
             android:maxLines="1"
             android:textColor="#1C1C1E"
-            android:textSize="17sp" />
+            android:textSize="14sp" />
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -45,7 +47,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#9AA7B8"
-                android:textSize="14sp" />
+                android:textSize="11sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -69,13 +71,13 @@
         android:layout_height="wrap_content"
         android:layout_marginEnd="4dp"
         android:textColor="#9AA7B8"
-        android:textSize="14sp" />
+        android:textSize="11sp" />
 
     <ImageView
         android:id="@+id/more"
         android:layout_width="44dp"
         android:layout_height="44dp"
         android:contentDescription="@string/player_more"
-        android:padding="10dp"
+        android:padding="12dp"
         android:src="@drawable/ic_music_more" />
 </LinearLayout>

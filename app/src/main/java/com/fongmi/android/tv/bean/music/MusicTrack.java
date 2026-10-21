@@ -2,7 +2,7 @@ package com.fongmi.android.tv.bean.music;
 
 /**
  * 音乐曲目（一期源抽象契约，另一代理在定；播放器只按此契约取数）。
- * 字段以外的运行时信息（platform 供直链解析、qualityTag 供 SQ/HR 徽章）为播放器自有扩展。
+ * 字段以外的运行时信息（platform 供直链解析、qualityTag 供列表行音质徽章）为播放器自有扩展。
  */
 public class MusicTrack {
 
@@ -18,7 +18,7 @@ public class MusicTrack {
     public String platform;
     /** 本地文件绝对路径（platform="local" 时有效，LocalMusicSource 解析用） */
     public String localPath;
-    /** 音质徽章：SQ / HQ / HR，可空 */
+    /** 音质徽章：插件声明的最高档真规格词（FLAC／320k／128k），可空 */
     public String qualityTag;
 
     /**
@@ -26,6 +26,10 @@ public class MusicTrack {
      * 取链/歌词时桥按此原样重建 musicItem 再调插件，播放器侧不用管。
      */
     public String rawJson;
+    /** 歌单内加入时间（仅歌单曲目有值，供「加入歌单时间」排序；其它来源为 0） */
+    public long playlistAddedTime;
+    /** 收藏时间（仅收藏曲目有值，供「最近收藏／最早收藏」排序；其它来源为 0） */
+    public long favoriteAddedTime;
 
     public MusicTrack() {
     }

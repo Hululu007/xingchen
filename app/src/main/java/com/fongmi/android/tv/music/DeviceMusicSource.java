@@ -67,7 +67,7 @@ public class DeviceMusicSource implements MusicSource {
         return null;
     }
 
-    /** 同目录同名 .lrc 优先；没有就返回 null 给兜底链 */
+    /** 同目录同名 .lrc 优先；没有或为空再读内嵌歌词（GZ SIDECAR_FIRST 默认口径），都没有返回 null 给兜底链 */
     @Override
     public String lyric(MusicTrack track) {
         if (track == null) return null;
@@ -78,22 +78,32 @@ public class DeviceMusicSource implements MusicSource {
         String name = audio.getName();
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
-        File lrc = new File(audio.getParentFile(), base + ".lrc");
-        if (!lrc.isFile()) return null;
-        try {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            try (FileInputStream in = new FileInputStream(lrc)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+        File parent = audio.getParentFile();
+        if (parent != null) {
+            File lrc = new File(parent, base + ".lrc");
+            if (lrc.isFile()) {
+                try {
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    try (FileInputStream in = new FileInputStream(lrc)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                    }
+                    byte[] bytes = bos.toByteArray();
+                    String text = new String(bytes, Charset.forName("UTF-8"));
+                    if (text.contains("�")) text = new String(bytes, Charset.forName("GB18030"));
+                    if (!text.trim().isEmpty()) return text;
+                } catch (Throwable ignored) {
+                }
             }
-            byte[] bytes = bos.toByteArray();
-            String text = new String(bytes, Charset.forName("UTF-8"));
-            if (text.contains("�")) text = new String(bytes, Charset.forName("GB18030"));
-            return text.trim().isEmpty() ? null : text;
-        } catch (Throwable t) {
-            return null;
         }
+        // 内嵌歌词（ID3 USLT/SYLT、FLAC Vorbis、MP4 ©lyr，播放时现读；SYLT 已转 LRC，USLT 等无时间轴文本走静态显示）
+        try {
+            String embedded = com.fongmi.android.tv.music.EmbeddedLyricsReader.read(audio);
+            if (embedded != null && !embedded.trim().isEmpty()) return embedded;
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private static JsonObject raw(MusicTrack track) {

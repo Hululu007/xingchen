@@ -30,6 +30,7 @@ public class MusicLibrary {
         t.cover = f.getCover();
         t.platform = f.getPlatform();
         t.rawJson = f.getRawJson();
+        t.favoriteAddedTime = f.getCreateTime();
         return t;
     }
 
@@ -43,6 +44,7 @@ public class MusicLibrary {
         t.cover = i.getCover();
         t.platform = i.getPlatform();
         t.rawJson = i.getRawJson();
+        t.playlistAddedTime = i.getCreateTime();
         return t;
     }
 
@@ -231,6 +233,57 @@ public class MusicLibrary {
             }
             boolean r = added;
             post(() -> cb.onResult(r));
+        });
+    }
+
+    /** 换源/刷新：把歌单里某首原位换成另一首（位置与加入时间保留，歌单更新时间刷新） */
+    public static void replaceTrackInPlaylist(long playlistId, String oldTrackId, MusicTrack replacement, DataCallback<Boolean> cb) {
+        Task.execute(() -> {
+            boolean ok = false;
+            try {
+                if (replacement != null && replacement.id != null) {
+                    MusicPlaylistItem found = null;
+                    for (MusicPlaylistItem i : AppDatabase.get().getMusicPlaylistItemDao().findByPlaylist(playlistId)) {
+                        if (oldTrackId != null && oldTrackId.equals(i.getTrackId())) {
+                            found = i;
+                            break;
+                        }
+                    }
+                    if (found != null) {
+                        AppDatabase.get().getMusicPlaylistItemDao().delete(playlistId, oldTrackId);
+                        AppDatabase.get().getMusicPlaylistItemDao().insert(
+                                toItem(playlistId, replacement, found.getPosition(), found.getCreateTime()));
+                        MusicPlaylist p = AppDatabase.get().getMusicPlaylistDao().find(playlistId);
+                        if (p != null) {
+                            p.setUpdateTime(System.currentTimeMillis());
+                            AppDatabase.get().getMusicPlaylistDao().update(p);
+                        }
+                        ok = true;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            boolean r = ok;
+            post(() -> cb.onResult(r));
+        });
+    }
+
+    /** 重新匹配封面：只改歌单里某首的封面地址，其它字段不动 */
+    public static void updateTrackCover(long playlistId, String trackId, String cover, Runnable done) {
+        Task.execute(() -> {
+            try {
+                for (MusicPlaylistItem i : AppDatabase.get().getMusicPlaylistItemDao().findByPlaylist(playlistId)) {
+                    if (trackId != null && trackId.equals(i.getTrackId())) {
+                        i.setCover(cover);
+                        AppDatabase.get().getMusicPlaylistItemDao().update(i);
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            post(() -> {
+                if (done != null) done.run();
+            });
         });
     }
 

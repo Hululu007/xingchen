@@ -7,7 +7,7 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel"
+    android:background="@drawable/bg_sheet_panel_home"
     android:orientation="vertical">
 
     <ScrollView

@@ -303,6 +303,9 @@ public class KaraokeLyricsView extends View {
     private float downX;
     private float dragStartOffset;
     private long downTimeMs;
+    private OnTrackSwipeListener trackSwipeListener;
+    private float lastMoveY;
+    private long lastMoveTimeMs;
 
     // 布局缓存
     private List<Block> blocks = Collections.emptyList();
@@ -340,13 +343,16 @@ public class KaraokeLyricsView extends View {
         paint.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
     }
 
-    /** 主行／光晕画笔样式：字号（setMainTextSizeSp／setCoverMode 基线）＋粗细（setLyricWeight）。 */
+    /** 主行／光晕画笔样式：字号（setMainTextSizeSp／setCoverMode 基线）＋粗细（setLyricWeight）。
+     * 全屏字距按 GZ -0.2（Compose 侧以 sp 计，Paint 字距以 em 计，故除以字号换算；封面模式 GZ 未给字距值，保持默认 0）。 */
     private void applyMainStyle() {
         Typeface typeface = mainTypeface();
+        float letterSpacing = (coverMode || mainTextSizeSp <= 0) ? 0f : -0.2f / mainTextSizeSp;
         for (Paint paint : new Paint[]{mainPaint, glowPaint}) {
             paint.setTextSize(mainTextSizePx());
             paint.setTextSkewX(SKEW);
             paint.setTypeface(typeface);
+            paint.setLetterSpacing(letterSpacing);
             // API 28 以下无字重 API，特粗／加粗用 fakeBold 叠加近似；28+ 已由字重表达，不再叠。
             paint.setFakeBoldText(lyricWeight >= 1 && Build.VERSION.SDK_INT < 28);
         }
@@ -449,7 +455,7 @@ public class KaraokeLyricsView extends View {
     public void refreshLyricOffset() {
         if (lines.isEmpty()) return;
         currentIndex = indexForPosition(displayPositionMs());
-        scrollTarget = targetFor(currentIndex);
+        if (currentIndex >= 0) scrollTarget = targetFor(currentIndex);
         if (!playing) {
             scrollOffset = scrollTarget;
             scrollVelocity = 0f;
@@ -645,6 +651,15 @@ public class KaraokeLyricsView extends View {
         this.lineClickListener = listener;
     }
 
+    /** 歌词区竖滑切歌回调：快甩（见 onTouchEvent 的切歌门）时由宿主切上一曲／下一曲；慢拖仍是歌词滚动。 */
+    public interface OnTrackSwipeListener {
+        void onTrackSwipe(boolean next);
+    }
+
+    public void setOnTrackSwipeListener(OnTrackSwipeListener listener) {
+        this.trackSwipeListener = listener;
+    }
+
     public void setPlaying(boolean playing) {
         if (this.playing == playing) return;
         // 冻结／续推的基准对齐：暂停时把当前推算位置固化为基准。
@@ -739,7 +754,8 @@ public class KaraokeLyricsView extends View {
         if (!browsing && !dragging && !lines.isEmpty()) {
             int next = indexForPosition(displayPositionMs());
             if (next != currentIndex) currentIndex = next;
-            scrollTarget = targetFor(currentIndex);
+            // 无当前行（间奏前／无时间轴）不碰 scrollTarget：间奏初态本就是 0，无时间轴时用户手滑位置不被回锚拽回顶
+            if (currentIndex >= 0) scrollTarget = targetFor(currentIndex);
             stepSpring(dt);
         }
         invalidate();
@@ -1446,9 +1462,10 @@ public class KaraokeLyricsView extends View {
         } catch (Exception ex) {
             blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
             return false;
-        } finally {
-            node.discardDisplayList();
         }
+        // 注意：此处不许调 node.discardDisplayList()。硬件加速下当前帧的显示列表在 onDraw 返回后才由渲染线程消费，
+        // 立即 discard 会把刚录好的闲行显示列表清掉——闲行“绘制成功”却空白，只剩直绘的当前行可见。
+        // 两张实拍（播放页、歌词页）都只剩一句，根子就是这一行。节点随帧引用自然释放，不用手动清。
     }
 
     private void drawCurrentMain(Canvas canvas, Block block, LyricsLine line, float baseline, long pos) {
@@ -1666,6 +1683,8 @@ public class KaraokeLyricsView extends View {
                 browsing = true;
                 downX = event.getX();
                 downY = event.getY();
+                lastMoveY = event.getY();
+                lastMoveTimeMs = SystemClock.elapsedRealtime();
                 dragStartOffset = scrollOffset;
                 downTimeMs = SystemClock.elapsedRealtime();
                 scrollVelocity = 0f;
@@ -1677,11 +1696,30 @@ public class KaraokeLyricsView extends View {
                     float maxOffset = Math.max(0f, contentHeight - dp(80));
                     scrollOffset = clamp(dragStartOffset + (downY - event.getY()), -dp(60), maxOffset);
                     scrollTarget = scrollOffset;
+                    lastMoveY = event.getY();
+                    lastMoveTimeMs = SystemClock.elapsedRealtime();
                     invalidate();
                 }
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                // 歌词区竖滑切歌分流：慢拖＝歌词滚动（上面已滚），快甩＝切歌。门与封面手势同口径——
+                // 位移≥36dp、轴向占优（|dy|＞|dx|×1.5）、速度≥600dp/s 三者全过才算切歌；
+                // 否则走原逻辑（点行 seek／松手回锚）。GZ 歌词滚动与切歌的精确分流未抠到，此处为分流实现、真机核手感。
+                if (trackSwipeListener != null && event.getActionMasked() == MotionEvent.ACTION_UP && dragging) {
+                    float dy = event.getY() - downY;
+                    float dx = event.getX() - downX;
+                    float dtMs = Math.max(1f, (float) (lastMoveTimeMs - downTimeMs));
+                    float velocityDpS = Math.abs(lastMoveY - downY) / dtMs * 1000f / getResources().getDisplayMetrics().density;
+                    if (Math.abs(dy) >= dp(36) && Math.abs(dy) > Math.abs(dx) * 1.5f && velocityDpS >= 600f) {
+                        dragging = false;
+                        browsing = false;
+                        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+                        trackSwipeListener.onTrackSwipe(dy < 0);
+                        performClick();
+                        return true;
+                    }
+                }
                 boolean tap = dragging
                         && Math.abs(event.getX() - downX) < dp(TAP_SLOP_DP)
                         && Math.abs(event.getY() - downY) < dp(TAP_SLOP_DP)

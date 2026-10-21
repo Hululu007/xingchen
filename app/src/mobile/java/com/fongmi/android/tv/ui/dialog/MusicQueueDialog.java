@@ -6,6 +6,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Rect;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -80,11 +81,15 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        // 右缘防裁切：窗口宽强制 MATCH_PARENT
+        // 底部锚定修复：旧代码把窗口压成 WRAP_CONTENT 高，CoordinatorLayout 跟着缩、行为层失去底部锚点，
+        // 面板贴到屏顶（实拍：屏顶约 100px 到 62% 高）。改回窗口全高＋重力 BOTTOM，让行为层把面板钉在底部；
+        // 宽仍 MATCH_PARENT（右缘防裁切原意保留）；面板自身最大高 0.68 屏高见下面（内容短时不撑满）。
+        // 只改队列（基类与其他面板不动，工具面板同款调用未改、真机核其位置时一并看）。
         try {
             if (getDialog() != null && getDialog().getWindow() != null) {
                 getDialog().getWindow().setLayout(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                getDialog().getWindow().setGravity(Gravity.BOTTOM);
             }
         } catch (Throwable ignored) {
         }

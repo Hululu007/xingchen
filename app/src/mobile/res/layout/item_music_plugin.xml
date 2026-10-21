@@ -32,7 +32,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#1C1C1E"
-                android:textSize="17sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -48,33 +48,24 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <!-- GZ 副文案串（单行 11sp）：版本（去 v/V 前缀补 v）· 作者 ·，无独立作者行；两项都空则不显 -->
         <TextView
             android:id="@+id/version"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:textColor="#8E8E93"
-            android:textSize="13sp"
+            android:textSize="11sp"
             android:visibility="gone" />
 
-        <!-- 对照表 P10 作者行（版本行后，空则不显） -->
-        <TextView
-            android:id="@+id/author"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#8E8E93"
-            android:textSize="13sp"
-            android:visibility="gone" />
-
-        <!-- C4 检测状态文案（四态色见 MusicPluginTest.labelColor） -->
+        <!-- C4 检测状态文案（GZ 10sp＋圆点，四态色见 MusicPluginTest.labelColor） -->
         <TextView
             android:id="@+id/testStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:textColor="#FF8E8E93"
-            android:textSize="12sp" />
+            android:textSize="10sp" />
 
         <!-- 对照表 P12 失败 message 行内展开（检测失败且 message 非空时显，11sp，色与状态色一致） -->
         <TextView

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 第 9 项：猜你喜欢页标题（GZ：猜你喜欢 32sp＋副文案“你的每日私人推荐”；副文案字号未抠到，星辰侧自定 12sp） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="猜你喜欢"
+        android:textColor="#1C1C1E"
+        android:textSize="32sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="你的每日私人推荐"
+        android:textColor="#9AA7B8"
+        android:textSize="12sp" />
+</LinearLayout>

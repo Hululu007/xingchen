@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐列表/设置页底：复用首页 v7 浅色底（home_bg_page 同款暖米白→淡蓝紫三段），2026-10-21 浅色令由深蓝黑翻浅。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:angle="315" android:startColor="#EFE8DF" android:centerColor="#F3EDE6" android:endColor="#E4EAF3" android:type="linear" />
-</shape>

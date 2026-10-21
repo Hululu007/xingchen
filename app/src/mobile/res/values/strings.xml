@@ -218,6 +218,8 @@
     <string name="music_fx_virtualizer">环绕</string>
     <string name="music_fx_unsupported">不支持</string>
     <string name="music_device">本地音乐</string>
+    <string name="music_history">播放历史</string>
+    <string name="music_guess">猜你喜欢</string>
     <string name="music_output_device">播放设备</string>
     <string name="music_parametric_eq">参数均衡器</string>
     <string name="music_device_need_permission">需要授权才能读取手机里的歌曲</string>
@@ -239,6 +241,7 @@
     <string name="music_import_err_unrecognized">这个链接认不出来，复制歌单的分享链接再试</string>
     <string name="music_import_err_notfound">歌单不存在或没公开，先在原 App 里设为公开</string>
     <string name="music_import_err_empty">这个歌单里没有歌</string>
+    <string name="music_import_err_paste_empty">请粘贴歌单链接或分享文案</string>
     <string name="music_import_err_network">平台暂时连不上，稍后再试</string>
     <string name="music_add_to_playlist">加入歌单</string>
     <string name="music_added">已加入</string>
@@ -312,6 +315,9 @@
     <string name="music_surface_auto">自动</string>
     <string name="music_keep_screen_on">播放页不熄屏</string>
     <string name="music_lyric_settings">歌词设置</string>
+    <string name="music_lyric_versions">歌词版本</string>
+    <string name="music_all">全部</string>
+    <string name="music_no_multi_version">暂无多版本</string>
     <string name="music_lyric_font_size">字号</string>
     <string name="music_lyric_weight">粗细</string>
     <string name="music_weight_normal">标准</string>

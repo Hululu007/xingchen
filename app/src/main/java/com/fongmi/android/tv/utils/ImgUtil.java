@@ -183,6 +183,49 @@ public class ImgUtil {
         }
     }
 
+    /** 第 9 项：猜你喜欢叠卡单张圆角 16dp（loadRounded 写死 8dp，不够用，单张照 GZ 16dp 另起一个） */
+    public static void loadRounded16(String text, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        else try {
+            int r = ResUtil.dp2px(16);
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            builder.placeholder(getTextDrawable(text, true));
+            builder.transform(new CenterCrop(), new RoundedCorners(r));
+            builder.into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 第 3 项：榜单详情行封面圆角 10dp（loadRounded 写死 8dp，榜单详情行照 GZ 10dp 另起一个）。 */
+    public static void loadRounded10(String text, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        else try {
+            int r = ResUtil.dp2px(10);
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            builder.placeholder(getTextDrawable(text, true));
+            builder.transform(new CenterCrop(), new RoundedCorners(r));
+            builder.into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 第 10 项：随心听黑胶内圈封面圆形裁切（GZ SpinningDisc 内圈封面 0.68f 圆形） */
+    public static void loadCircle(String text, String url, ImageView view) {
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        else try {
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            builder.placeholder(getTextDrawable(text, true));
+            builder.circleCrop();
+            builder.into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
     /**
      * 小程序列表图标：URL 图标加载。对照 8.83
      * ArticleListRuleAdapter.smali:194（icon_mini_program_icon）：失败时用默认图标占位，

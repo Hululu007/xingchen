@@ -107,7 +107,8 @@ public class MusicDownloadStore {
                     save(t, task.getFilePath());
                 }
             } else if (task.getStatus() == DownloadTask.STATUS_ERROR) {
-                pending.remove(task.getId());
+                // 第 7 项尾巴：失败任务留待下载页“清除失败”，不静默丢掉（失败行＋清除失败就靠它）
+                // （重试时 downloadWithQuality 会先清掉同曲的失败旧任务，不会一曲两行）
             }
         });
     }
@@ -149,6 +150,16 @@ public class MusicDownloadStore {
             if (url == null || url.isEmpty()) {
                 post(() -> Notify.show(R.string.music_download_url_empty));
                 return;
+            }
+            // 重试同曲：先清掉该曲的失败旧任务（DownloadManager 删任务＋pending 除名），免得一曲两行
+            for (Map.Entry<String, MusicTrack> e : new ArrayList<>(pending.entrySet())) {
+                if (e.getValue() != null && localId(track).equals(e.getValue().id)) {
+                    DownloadTask old = DownloadManager.get().getTask(e.getKey());
+                    if (old == null || old.getStatus() == DownloadTask.STATUS_ERROR) {
+                        if (old != null) DownloadManager.get().delete(e.getKey());
+                        pending.remove(e.getKey());
+                    }
+                }
             }
             for (DownloadTask t : DownloadManager.get().getTasks()) {
                 if (url.equals(t.getUrl()) && (t.getStatus() == DownloadTask.STATUS_DOWNLOADING
@@ -197,7 +208,7 @@ public class MusicDownloadStore {
         });
     }
 
-    /** 删除本地歌曲：删登记＋删文件 */
+    /** 删除本地歌曲：删登记＋删文件（GZ「删除本地文件」口径：音频、封面、歌词一并删除，同名旁路文件同删） */
     public static void deleteLocal(MusicTrack track, Runnable done) {
         if (track == null || !isLocal(track)) {
             if (done != null) post(done);
@@ -210,7 +221,20 @@ public class MusicDownloadStore {
                 if (d != null) {
                     dao.deleteByTrackId(track.id);
                     if (d.getFilePath() != null && !d.getFilePath().isEmpty()) {
-                        new File(d.getFilePath()).delete();
+                        File audio = new File(d.getFilePath());
+                        audio.delete();
+                        // 同名旁路：封面图与歌词文件同删（只删同名文件，不碰其它歌的）
+                        String name = audio.getName();
+                        int dot = name.lastIndexOf('.');
+                        if (dot > 0) {
+                            String base = name.substring(0, dot);
+                            File parent = audio.getParentFile();
+                            if (parent != null) {
+                                for (String e : new String[]{"lrc", "jpg", "png", "jpeg"}) {
+                                    new File(parent, base + "." + e).delete();
+                                }
+                            }
+                        }
                     }
                 }
             } catch (Throwable ignored) {
@@ -219,5 +243,117 @@ public class MusicDownloadStore {
                 if (done != null) done.run();
             });
         });
+    }
+
+    /** 删除二选一之“仅删除记录”：删登记，文件留着 */
+    public static void deleteRecordOnly(MusicTrack track, Runnable done) {
+        if (track == null || !isLocal(track)) {
+            if (done != null) post(done);
+            return;
+        }
+        Task.execute(() -> {
+            try {
+                AppDatabase.get().getMusicDownloadDao().deleteByTrackId(track.id);
+            } catch (Throwable ignored) {
+            }
+            post(() -> {
+                if (done != null) done.run();
+            });
+        });
+    }
+
+    // ================= 第 7 项尾巴：进行中任务（供下载页） =================
+
+    /** 进行中任务快照：pending 登记＋DownloadManager 实时状态拼出来的行（内存数据，可 UI 线程读） */
+    public static class LiveTask {
+        public String taskId;
+        public String name;
+        public String url;
+        public String filePath;
+        public int status;
+        public int progress;
+        public long totalBytes;
+        public long downloadedBytes;
+        public String error;
+
+        /** GZ 行内状态文案映射：等待中／下载中 x%／已暂停／失败／合并中；解析链接中无对应态（取链是同步前置步，不产生任务行，见对照表） */
+        public String statusText() {
+            switch (status) {
+                case DownloadTask.STATUS_WAITING:
+                    return "等待中";
+                case DownloadTask.STATUS_DOWNLOADING:
+                    return "下载中 " + progress + "%";
+                case DownloadTask.STATUS_PAUSED:
+                    return "已暂停";
+                case DownloadTask.STATUS_ERROR:
+                    return error == null || error.isEmpty() ? "失败" : "失败：" + error;
+                case DownloadTask.STATUS_MERGING:
+                    return "合并中...";
+                default:
+                    return "";
+            }
+        }
+    }
+
+    /** 进行中任务：pending 里还有 DownloadManager 任务的（已完成已被监听除名，不会混进来） */
+    public static List<LiveTask> liveTasks() {
+        List<LiveTask> out = new ArrayList<>();
+        for (Map.Entry<String, MusicTrack> e : pending.entrySet()) {
+            DownloadTask t = DownloadManager.get().getTask(e.getKey());
+            if (t == null || t.getStatus() == DownloadTask.STATUS_COMPLETED) continue;
+            LiveTask lt = new LiveTask();
+            lt.taskId = t.getId();
+            lt.name = t.getName();
+            lt.url = t.getUrl();
+            lt.filePath = t.getFilePath();
+            lt.status = t.getStatus();
+            lt.progress = t.getProgress();
+            lt.totalBytes = t.getTotalBytes();
+            lt.downloadedBytes = t.getDownloadedBytes();
+            lt.error = t.getError();
+            out.add(lt);
+        }
+        return out;
+    }
+
+    /** 取消单个进行中任务（DownloadManager 删任务＋pending 除名） */
+    public static void cancelLive(String taskId) {
+        if (taskId == null) return;
+        DownloadManager.get().delete(taskId);
+        pending.remove(taskId);
+    }
+
+    /** 全部暂停：只动等待中／下载中的任务 */
+    public static void pauseAllLive() {
+        for (LiveTask lt : liveTasks()) {
+            if (lt.status == DownloadTask.STATUS_WAITING || lt.status == DownloadTask.STATUS_DOWNLOADING) {
+                DownloadManager.get().pause(lt.taskId);
+            }
+        }
+    }
+
+    /** 继续：只动已暂停的任务 */
+    public static void resumeAllLive() {
+        for (LiveTask lt : liveTasks()) {
+            if (lt.status == DownloadTask.STATUS_PAUSED) DownloadManager.get().resume(lt.taskId);
+        }
+    }
+
+    /** 取消：删全部进行中任务（DownloadManager.delete 连未完成文件一起删）＋pending 除名 */
+    public static void cancelAllLive() {
+        for (LiveTask lt : liveTasks()) {
+            DownloadManager.get().delete(lt.taskId);
+            pending.remove(lt.taskId);
+        }
+    }
+
+    /** 清除失败：只删失败态任务＋pending 除名 */
+    public static void clearFailedLive() {
+        for (LiveTask lt : liveTasks()) {
+            if (lt.status == DownloadTask.STATUS_ERROR) {
+                DownloadManager.get().delete(lt.taskId);
+                pending.remove(lt.taskId);
+            }
+        }
     }
 }

@@ -111,11 +111,15 @@ public class DeviceMusicStore {
                     t.duration = c.getLong(iDur);
                     t.platform = DeviceMusicSource.PLATFORM;
                     long albumId = c.getLong(iAlbumId);
-                    if (hasAlbumArt(albumId, artAlbums)) {
-                        t.cover = ContentUris.withAppendedId(
-                                Uri.parse("content://media/external/audio/albumart"), albumId).toString();
-                    }
+                    // 第 12 项：GZ 封面决议优先级（LocalMusicScanner.resolveCoverUri）——内嵌 ＞ 同目录旁路 ＞ 无；
+                    // 星辰旧链只有专辑 art 一路：有内嵌图却无专辑 art 记录的歌就丢了封面（用户 2 首就是这类）。
+                    // 此处内嵌／旁路优先，专辑 art 退为最后兜底（GZ 未用专辑 art 路，但星辰已有且有效，留作兜底不删）。
+                    String albumArt = hasAlbumArt(albumId, artAlbums) ? ContentUris.withAppendedId(
+                            Uri.parse("content://media/external/audio/albumart"), albumId).toString() : null;
                     String data = iData >= 0 ? c.getString(iData) : null;
+                    t.cover = embeddedCover(ctx, id, data);
+                    if (t.cover == null) t.cover = sidecarCover(data);
+                    if (t.cover == null) t.cover = albumArt;
                     t.localPath = data == null ? "" : data;
                     JsonObject raw = new JsonObject();
                     raw.addProperty("uri", ContentUris.withAppendedId(ext, id).toString());
@@ -128,6 +132,64 @@ public class DeviceMusicStore {
         } catch (Throwable t) {
             SpiderDebug.log("music", "mediastore scan error %s", t.getMessage());
         }
+    }
+
+    /**
+     * 第 12 项：GZ 内嵌封面（LocalMusicScanner.inspectAudio／getEmbeddedPicture）——提出来落盘成文件当封面地址，
+     * 不存 bitmap。缓存：filesDir/cover_cache/&lt;mediaId&gt;.jpg（GZ 同款目录与命名），同大小不重写。
+     * 文件不存在／提不到图返回 null（上层再试旁路／专辑 art／留空走素图）。
+     */
+    private static String embeddedCover(Context ctx, long mediaId, String data) {
+        if (data == null || data.isEmpty()) return null;
+        File audio = new File(data);
+        if (!audio.isFile()) return null;
+        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        try {
+            r.setDataSource(data);
+            byte[] pic = r.getEmbeddedPicture();
+            if (pic == null || pic.length == 0) return null;
+            File dir = new File(ctx.getFilesDir(), "cover_cache");
+            if (!dir.isDirectory() && !dir.mkdirs()) return null;
+            File art = new File(dir, mediaId + ".jpg");
+            if (!art.isFile() || art.length() != pic.length) {
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(art);
+                try {
+                    fos.write(pic);
+                } finally {
+                    fos.close();
+                }
+            }
+            return art.isFile() ? Uri.fromFile(art).toString() : null;
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * 第 12 项：GZ 同目录旁路封面（LocalMusicScanner.findSidecarCover）——同目录下依次找
+     * &lt;歌名&gt;.jpg／.png／.jpeg／.jpg.png／.jpg.jpeg，存在、可读、长度大于 0 才算。
+     */
+    private static String sidecarCover(String data) {
+        if (data == null || data.isEmpty()) return null;
+        File audio = new File(data);
+        File parent = audio.getParentFile();
+        if (parent == null || !parent.isDirectory()) return null;
+        String name = audio.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        String[] suffixes = {".jpg", ".png", ".jpeg", ".jpg.png", ".jpg.jpeg"};
+        for (String suf : suffixes) {
+            File cand = new File(parent, stem + suf);
+            if (cand.isFile() && cand.canRead() && cand.length() > 0) {
+                return Uri.fromFile(cand).toString();
+            }
+        }
+        return null;
     }
 
     private static void scanLibraryDir(Context ctx, List<MusicTrack> out) {

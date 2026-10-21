@@ -32,6 +32,7 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.utils.CoverColor;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -80,8 +81,21 @@ public class MusicActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 首页离边 16dp 实机生效：根布局已不吃 fitsSystemWindows（旧版系统左右 inset 0 会盖掉 XML 边距致贴边），
+        // 这里直接定死左右 16dp、顶＝状态栏高＋12dp、底 16dp；不依赖 inset 分发，旋转／异形屏也不丢边距。
+        // 圆角不动（搜索 24dp、三彩卡 20dp、五快捷 16dp）；三段上距见布局（32/40/40dp）。
+        View homeRoot = binding.getRoot();
+        int sbHome = 0;
+        int sbRes = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (sbRes > 0) sbHome = getResources().getDimensionPixelSize(sbRes);
+        float homeDensity = getResources().getDisplayMetrics().density;
+        homeRoot.setPadding(Math.round(16 * homeDensity), sbHome + Math.round(12 * homeDensity),
+                Math.round(16 * homeDensity), Math.round(16 * homeDensity));
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
+        // ⓪ 首页标题斜度：歌词同款 skewX(-0.12f)（他 16:42 令，幅度只要一点；
+        // TextView 无 setTextSkewX，照树内 MusicPlayerActivity:1788 用 getPaint().setTextSkewX）
+        binding.homeTitle.getPaint().setTextSkewX(-0.12f);
         // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
         binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
         binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
@@ -93,9 +107,15 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
         // ③ 三彩卡
         // 猜你喜欢：树内现行推荐来源只有榜单聚合页（MusicRepository.charts 聚合各源榜单），用 charts 模式承接
-        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
-        binding.homeCardShuffle.setOnClickListener(v -> shufflePlay());
+        binding.homeCardShuffle.setOnClickListener(v -> MusicRandomActivity.start(this));
+        // GZ 三彩卡按压缩放 0.98（MotionKt；返回 false 不吞点击，只做缩放反馈）
+        pressScale(binding.homeCardGuess);
+        pressScale(binding.homeCardCharts);
+        pressScale(binding.homeCardShuffle);
+        // 心情电台卡（GZ MoodRadioPanel 移植，见布局注释与本文件 mood 段）
+        initMoodCard();
         // ④ 榜单卡：完整榜单进现有榜单页；主封面播放从头播该榜；点行从该曲开播整榜
         binding.homeChartMore.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeChartMoreIcon.setOnClickListener(v -> MusicListActivity.startCharts(this));
@@ -136,6 +156,7 @@ public class MusicActivity extends BaseActivity {
         if (!homeChartLoaded) loadHomeChart();
         refreshCounts();
         refreshShuffleSubtitle();
+        refreshMoodState();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
@@ -280,6 +301,7 @@ public class MusicActivity extends BaseActivity {
                 homeChartLoaded = true;
                 fillHomeChart(chart, result);
                 binding.homeChartCard.setVisibility(View.VISIBLE);
+                applyShuffleTone();
             });
         });
     }
@@ -329,8 +351,8 @@ public class MusicActivity extends BaseActivity {
             dialog.getWindow().setGravity(Gravity.TOP);
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         }
-        dialog.setCancelable(false);
-        dialog.setCanceledOnTouchOutside(false);
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -401,6 +423,14 @@ public class MusicActivity extends BaseActivity {
             dialog.show();
         } catch (Throwable ignored) {
             return;
+        }
+        // py 脚本弹窗同款：decor 内容区点按即收（SourceScriptsDialog 在 onCreate 末尾给 android.R.id.content 挂 dismiss）。
+        // ⋮菜单原有根布局点击收起保留（220ms 滑收）；decor 点击只补“根点击链路未触发”的漏网点按，不改动画形态。
+        // 返回键仍走上面 OnKeyListener 的滑收（监听器先消费 BACK，不触发默认直接 dismiss）。
+        try {
+            View decorContent = dialog.findViewById(android.R.id.content);
+            if (decorContent != null) decorContent.setOnClickListener(v -> dismissThen.accept(null));
+        } catch (Throwable ignored) {
         }
         // 入场：先量高再从顶上滑下（INVISIBLE 起手，不闪一下）
         card.post(() -> {
@@ -535,102 +565,9 @@ public class MusicActivity extends BaseActivity {
         }
     }
 
+    /** 播放历史：走历史页（英雄卡＋排序＋续播卡＋多选＋清空），旧的首页对话框不再用 */
     private void showRecent() {
-        List<MusicTrack> recent;
-        try {
-            recent = MusicStore.loadRecent();
-        } catch (Throwable ignored) {
-            recent = new ArrayList<>();
-        }
-        HomeDialogRecentBinding dlg = HomeDialogRecentBinding.inflate(getLayoutInflater());
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(dlg.getRoot()).create();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        }
-        if (recent.isEmpty()) {
-            dlg.homeRecentEmpty.setVisibility(View.VISIBLE);
-        } else {
-            for (int i = 0; i < recent.size(); i++) {
-                MusicTrack track = recent.get(i);
-                int index = i;
-                View row = LayoutInflater.from(this)
-                        .inflate(R.layout.home_item_recent, dlg.homeRecentList, false);
-                TextView title = row.findViewById(R.id.homeRecentTitle);
-                TextView artist = row.findViewById(R.id.homeRecentArtist);
-                title.setText(track.displayTitle());
-                String a = track.displayArtist();
-                artist.setText(a == null ? "" : a);
-                artist.setVisibility(a == null || a.isEmpty() ? View.GONE : View.VISIBLE);
-                List<MusicTrack> queue = new ArrayList<>(recent);
-                row.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    // 历史行起播不是随心听队列：清来源类型，副题回落「随机漫游」
-                    clearShuffleSource();
-                    // B7：入队时写队列级来源＝播放历史；历史只是一组快照、无来源页，route 空＝只展示不可点
-                    MusicController.get().play(queue, index, getString(R.string.home_recent), null, null);
-                    MusicPlayerActivity.start(this);
-                });
-                dlg.homeRecentList.addView(row);
-            }
-        }
-        dialog.show();
-    }
-
-    // ================= 随心听（真随机播放） =================
-
-    /**
-     * 随机队列来源（按现行能力依次取）：当前队列 → 最近播放 → 收藏 → 已下载；
-     * 都为空才提示无歌。取到后照 MusicListActivity.shufflePlay 的现行写法：
-     * 打乱副本 → setMode(MODE_SHUFFLE) → play(队列, 0) → 进播放页。
-     */
-    private void shufflePlay() {
-        List<MusicTrack> queue = new ArrayList<>();
-        try {
-            queue = MusicController.get().queue();
-        } catch (Throwable ignored) {
-        }
-        if (queue != null && !queue.isEmpty()) {
-            startShuffle(new ArrayList<>(queue));
-            return;
-        }
-        List<MusicTrack> recent = new ArrayList<>();
-        try {
-            recent = MusicStore.loadRecent();
-        } catch (Throwable ignored) {
-        }
-        if (!recent.isEmpty()) {
-            startShuffle(recent);
-            return;
-        }
-        MusicLibrary.favorites(list -> {
-            if (list != null && !list.isEmpty()) {
-                startShuffle(new ArrayList<>(list));
-                return;
-            }
-            MusicDownloadStore.all(downloads -> {
-                if (downloads != null && !downloads.isEmpty()) {
-                    startShuffle(new ArrayList<>(downloads));
-                } else {
-                    Notify.show(R.string.music_no_track);
-                }
-            });
-        });
-    }
-
-    private void startShuffle(List<MusicTrack> tracks) {
-        if (tracks == null || tracks.isEmpty()) {
-            Notify.show(R.string.music_no_track);
-            return;
-        }
-        List<MusicTrack> shuffled = new ArrayList<>(tracks);
-        Collections.shuffle(shuffled);
-        // 记队列来源类型：本页随心听起播的队列即 shuffle_listen；快照用于回首页时核对队列是否被别处替换
-        homeQueueSourceType = "shuffle_listen";
-        shuffleQueueKeys = trackKeys(shuffled);
-        MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
-        // B7：入队时写队列级来源＝随心听、route＝home（随心听卡在首页，落点＝首页）
-        MusicController.get().play(shuffled, 0, getString(R.string.home_shuffle), "home", null);
-        MusicPlayerActivity.start(this);
+        MusicListActivity.startHistory(this);
     }
 
     private void clearShuffleSource() {
@@ -658,6 +595,276 @@ public class MusicActivity extends BaseActivity {
         binding.homeHaloShuffle.setPulsing(playingShuffle);
     }
 
+    // ================= 心情电台卡（GZ MoodRadioPanel 移植，链路按他令走星辰落雪插件搜索） =================
+    // GZ 原生链走网易云分类歌单服务端（o5→me3.j→me3.p→bd5.i，失败文案含「网易云分类歌单请求失败」，
+    // jp6 source 写死 netease；me3 虽持有 DataPluginManager 但心情链无其调用点，且该管理器只有
+    // getState/markAccessDenied/refresh，无搜歌入口）——星辰移植链是用户令定的自家落雪插件搜索方案，
+    // 不是 GZ 原文方法；不走 GZ 服务器红线不变。GZ 链路实证与字段见对照表。
+    // 12 心情数据照 GZ HomeScreenKt:314（名＋文案＋tone 色；渐变三段原始值见 moodGradient()，
+    // 卡渐变向白混合 0.08/0.20/0.32，播放钮渐变终色向白混合 0.22）：
+    // 怀旧 #D88445、清新 #20B996、浪漫 #DB5C98、伤感 #7388DB、治愈 #EAAF4B、放松 #9476D8、
+    // 夜晚 #747AD1、清晨 #F5AC4D、散步 #5AAF7B、运动 #ED795F、民谣 #D99353、电子 #8874E7。
+    // 点 pill：选中并建台（GZ 行为）；点播放钮：当前队列即本心情只 toggle，否则建台。
+    // “是本心情”判定＝ prefs 快照与现队列同序同曲（同随心听副题口径）；状态文案映射：
+    // 建台中→「正在连接」，本心情且正在播→「暂停收听」，本心情且已暂停→「继续收听」，否则→「开始收听」。
+    // 状态刷新只在 onResume 与本地动作后（与随心听副题同口径；别页切播后回首页前状态可能滞后）。
+    private String moodSelected;
+    private boolean moodBuilding;
+    private final List<View> moodPillViews = new ArrayList<>();
+
+    /** 心情表：{名，文案，tone}，顺序即 GZ HomeScreenKt:314 代码顺序 */
+    private static String[][] moodTable() {
+        return new String[][]{
+                {"怀旧", "让旧时光重新播放", "#D88445"}, {"清新", "给耳朵一阵清风", "#20B996"},
+                {"浪漫", "把心动写进旋律", "#DB5C98"}, {"伤感", "把没说完的话听完", "#7388DB"},
+                {"治愈", "让旋律轻轻接住你", "#EAAF4B"}, {"放松", "把紧绷慢慢放下", "#9476D8"},
+                {"夜晚", "留一盏灯给深夜", "#747AD1"}, {"清晨", "用好心情叫醒今天", "#F5AC4D"},
+                {"散步", "跟着晚风慢慢走", "#5AAF7B"}, {"运动", "让节拍推你向前", "#ED795F"},
+                {"民谣", "听见故事里的远方", "#D99353"}, {"电子", "让脉冲点亮此刻", "#8874E7"},
+        };
+    }
+
+    /** 心情卡渐变三段原始值（左→右，HomeScreenKt:314 前后渐变组；电子无专属组走默认） */
+    private static String[] moodGradient(String mood) {
+        switch (mood) {
+            case "伤感": return new String[]{"#E8ECFF", "#D6DEFF", "#C6D3FA"};
+            case "夜晚": return new String[]{"#E5E4FF", "#CDCFFA", "#BABFF2"};
+            case "怀旧": return new String[]{"#FFEDD5", "#FFDDBA", "#FFCAA5"};
+            case "放松": return new String[]{"#EFE7FF", "#E2D5FF", "#CCDFFF"};
+            case "散步": return new String[]{"#E6F7DE", "#D1F0C9", "#BFEADB"};
+            case "治愈": return new String[]{"#FFF3D6", "#FFE9B9", "#FFD9B5"};
+            case "民谣": return new String[]{"#FFF0DA", "#FFE2C0", "#FAD2AF"};
+            case "浪漫": return new String[]{"#FFE7F2", "#FFCFE8", "#F4BBE6"};
+            case "清新": return new String[]{"#DDF9F1", "#C5F3E3", "#DAF6AC"};
+            case "清晨": return new String[]{"#FFF5D9", "#FFE8AB", "#FFD3B4"};
+            case "运动": return new String[]{"#FFE7DA", "#FFCFBB", "#FFBFAE"};
+            default: return new String[]{"#EAE5FF", "#D7CEFF", "#C3D8FF"};
+        }
+    }
+
+    /** tone 色：GZ 12 心情 tone 值（moodTable 第三列，恒为 #RRGGBB） */
+    private static int moodTone(String mood) {
+        for (String[] m : moodTable()) if (m[0].equals(mood)) return Color.parseColor(m[2]);
+        return Color.parseColor("#D88445");
+    }
+
+    /** 文案：GZ 12 心情文案（moodTable 第二列） */
+    private static String moodCopy(String mood) {
+        for (String[] m : moodTable()) if (m[0].equals(mood)) return m[1];
+        return "";
+    }
+
+    /** 颜色向白混合：mix = c + (255-c)*ratio（GZ 渐变／播放钮混白公式） */
+    private static int mixWhite(int color, float ratio) {
+        int r = Color.red(color), g = Color.green(color), b = Color.blue(color);
+        return Color.rgb(Math.round(r + (255 - r) * ratio),
+                Math.round(g + (255 - g) * ratio), Math.round(b + (255 - b) * ratio));
+    }
+
+    /** 两色线性混合（ratio=0 取 a，=1 取 b）。 */
+    private static int mixColors(int a, int b, float ratio) {
+        return Color.rgb(Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * ratio),
+                Math.round(Color.green(a) + (Color.green(b) - Color.green(a)) * ratio),
+                Math.round(Color.blue(a) + (Color.blue(b) - Color.blue(a)) * ratio));
+    }
+
+    /** 随心听渐变跟封面取色混（GZ：基色混向取色向白 0.75 后的色，混合比＝取色 alpha×0.1f；
+     * 取色 alpha 未抠到，按 1.0 计即混合比 0.1；取色源是星辰侧口径：首页榜单首首封面（GZ 是首张每日歌曲封面，星辰无每日堆叠）；
+     * 无榜单／无封面／取色失败时保持基色原样；混后无固定值。只算一次，榜单首首不变则不重算。 */
+    private boolean shuffleToneApplied;
+
+    private void applyShuffleTone() {
+        if (binding == null || shuffleToneApplied || homeChartTracks.isEmpty()) return;
+        String cover = homeChartTracks.get(0).cover;
+        if (cover == null || cover.isEmpty()) return;
+        shuffleToneApplied = true;
+        try {
+            ImgUtil.load(cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                @Override
+                public void onResourceReady(android.graphics.Bitmap bitmap,
+                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                    if (binding == null || bitmap == null) return;
+                    try {
+                        int tone = CoverColor.dominantColor(bitmap);
+                        int lightTone = mixWhite(tone, 0.75f);
+                        int[] base = {0xFFB8EFF9, 0xFFBCEEDD, 0xFFE8FAA8};
+                        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                                new int[]{mixColors(base[0], lightTone, 0.1f),
+                                        mixColors(base[1], lightTone, 0.1f),
+                                        mixColors(base[2], lightTone, 0.1f)});
+                        bg.setCornerRadius(dp(20));
+                        binding.homeCardShuffle.setBackground(bg);
+                    } catch (Throwable ignored) {
+                    }
+                }
+
+                @Override
+                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static int alphaColor(int color, float alpha) {
+        return (Math.round(alpha * 255) << 24) | (color & 0x00FFFFFF);
+    }
+
+    /** 默认选中心情按 GZ：当前队列标签是“心情电台 · XX”时取 XX（须在 12 心情表内），否则取怀旧。 */
+    private String moodFromQueueSource() {
+        String src = MusicController.get().queueSource();
+        if (src != null && src.startsWith("心情电台 · ")) {
+            String name = src.substring("心情电台 · ".length());
+            for (String[] m : moodTable()) if (m[0].equals(name)) return name;
+        }
+        return "怀旧";
+    }
+
+    private void initMoodCard() {
+        // 默认选中按 GZ：从当前队列标签反推（剥“心情电台 · ”前缀），反推不到取怀旧；不用 prefs 上次选择。
+        moodSelected = moodFromQueueSource();
+        for (String[] m : moodTable()) {
+            final String name = m[0];
+            LinearLayout pill = new LinearLayout(this);
+            pill.setOrientation(LinearLayout.HORIZONTAL);
+            pill.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            pill.setPadding(dp(12), dp(8), dp(12), dp(8));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+            lp.setMarginEnd(dp(8));
+            pill.setLayoutParams(lp);
+            View dot = new View(this);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(5), dp(5));
+            dlp.setMarginEnd(dp(6));
+            dot.setLayoutParams(dlp);
+            GradientDrawable dotBg = new GradientDrawable();
+            dotBg.setShape(GradientDrawable.OVAL);
+            dotBg.setColor(moodTone(name));
+            dot.setBackground(dotBg);
+            TextView tv = new TextView(this);
+            tv.setText(name);
+            tv.setTextSize(12);
+            tv.setLineHeight(dp(16));
+            tv.setTextColor(Color.parseColor("#1C1C1E"));
+            pill.addView(dot);
+            pill.addView(tv);
+            pill.setTag(name);
+            pill.setOnClickListener(v -> {
+                moodSelected = name;
+                updateMoodUI();
+                buildMood(name);
+            });
+            binding.moodPills.addView(pill);
+            moodPillViews.add(pill);
+        }
+        pressScale(binding.btnMoodPlay, 0.9f);
+        binding.btnMoodPlay.setOnClickListener(v -> {
+            if (isThisMoodQueue()) {
+                MusicController.get().toggle();
+                refreshMoodState();
+            } else {
+                buildMood(moodSelected);
+            }
+        });
+        updateMoodUI();
+    }
+
+    /** 当前队列是否为本心情建台队列：prefs 快照非空且与现队列同序同曲 */
+    private boolean isThisMoodQueue() {
+        String snap = MusicStore.getMoodQueueKeys();
+        if (snap == null || snap.isEmpty()) return false;
+        List<String> cur = trackKeys(MusicController.get().queue());
+        if (cur.isEmpty()) return false;
+        StringBuilder sb = new StringBuilder();
+        for (String k : cur) sb.append(k).append('\n');
+        return sb.toString().equals(snap);
+    }
+
+    private void refreshMoodState() {
+        if (binding == null) return;
+        updateMoodUI();
+    }
+
+    private void updateMoodUI() {
+        if (binding == null || moodSelected == null) return;
+        int tone = moodTone(moodSelected);
+        // 卡渐变：横向三段（左→右），原始值向白混合 0.08/0.20/0.32，圆角 20dp
+        String[] g = moodGradient(moodSelected);
+        GradientDrawable cardBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{mixWhite(Color.parseColor(g[0]), 0.08f),
+                        mixWhite(Color.parseColor(g[1]), 0.20f),
+                        mixWhite(Color.parseColor(g[2]), 0.32f)});
+        cardBg.setCornerRadius(dp(20));
+        binding.homeMoodCard.setBackground(cardBg);
+        binding.tvMoodName.setText(moodSelected);
+        binding.tvMoodCopy.setText(moodCopy(moodSelected));
+        // pills：选中 tone 0.18 底＋字重 700，未选中白 50% 底＋字重 500（sans-serif-medium 近似）
+        for (View pill : moodPillViews) {
+            boolean sel = moodSelected.equals(pill.getTag());
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp(18));
+            bg.setColor(sel ? alphaColor(tone, 0.18f) : 0x80FFFFFF);
+            pill.setBackground(bg);
+            TextView tv = (TextView) ((ViewGroup) pill).getChildAt(1);
+            tv.setTypeface(sel ? android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                    : android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        }
+        // 播放钮：横向渐变 tone→tone 向白混合 0.22，圆；播放中暂停图标 18dp（内边距 11dp），未播放播放图标 24dp（内边距 8dp）
+        boolean playing = isThisMoodQueue() && MusicController.get().isPlaying();
+        GradientDrawable btnBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{tone, mixWhite(tone, 0.22f)});
+        btnBg.setShape(GradientDrawable.OVAL);
+        binding.btnMoodPlay.setBackground(btnBg);
+        binding.btnMoodPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+        binding.btnMoodPlay.setPadding(dp(playing ? 11 : 8), dp(playing ? 11 : 8), dp(playing ? 11 : 8), dp(playing ? 11 : 8));
+        binding.btnMoodPlay.setColorFilter(Color.WHITE);
+        // 波形：tone 0.7，播放振幅 1.0＋动画，暂停 0.35 静态
+        binding.moodWave.setTone(tone);
+        binding.moodWave.setPlaying(playing);
+        // 钮旁状态文案
+        binding.tvMoodState.setText(moodBuilding ? "正在连接"
+                : isThisMoodQueue() ? (MusicController.get().isPlaying() ? "暂停收听" : "继续收听")
+                : "开始收听");
+    }
+
+    /** 按心情名走星辰落雪插件搜索拼歌单播（不走 GZ 服务器）；搜不到 toast 同款文案 */
+    private void buildMood(String mood) {
+        if (moodBuilding) return;
+        moodBuilding = true;
+        updateMoodUI();
+        Task.execute(() -> {
+            List<MusicTrack> out = new ArrayList<>();
+            try {
+                for (MusicSite site : MusicRepository.searchableSites()) {
+                    if (!MusicSourceManager.isLx(site)) continue;
+                    try {
+                        List<MusicTrack> hits = MusicRepository.searchSite(site, mood);
+                        if (hits != null) out.addAll(hits);
+                    } catch (Throwable ignored) {
+                    }
+                    if (out.size() >= 30) break;
+                }
+            } catch (Throwable ignored) {
+            }
+            final List<MusicTrack> tracks = out.size() > 30 ? new ArrayList<>(out.subList(0, 30)) : out;
+            runOnUiThread(() -> {
+                moodBuilding = false;
+                if (tracks.isEmpty()) {
+                    Notify.show("暂时没找到这份心情音乐，请稍后重试");
+                    updateMoodUI();
+                    return;
+                }
+                List<String> keys = trackKeys(tracks);
+                StringBuilder sb = new StringBuilder();
+                for (String k : keys) sb.append(k).append('\n');
+                MusicStore.setMoodQueueKeys(sb.toString());
+                MusicController.get().play(new ArrayList<>(tracks), 0, "心情电台 · " + mood, "home", null);
+                updateMoodUI();
+                MusicPlayerActivity.start(this);
+            });
+        });
+    }
+
     /** 曲目键：优先 id，无 id 时用标题＋歌手拼键（同曲不同源时 id 不同即判为不同队列）。 */
     private static List<String> trackKeys(List<MusicTrack> tracks) {
         List<String> keys = new ArrayList<>();
@@ -672,5 +879,24 @@ public class MusicActivity extends BaseActivity {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    /** GZ 卡片按压缩放（入口卡 0.98、心情播放钮 0.9）：按下缩、抬起／取消回弹；返回 false 不吞点击 */
+    private void pressScale(android.view.View v, float scale) {
+        v.setOnTouchListener((view, e) -> {
+            int a = e.getActionMasked();
+            if (a == android.view.MotionEvent.ACTION_DOWN) {
+                view.setScaleX(scale);
+                view.setScaleY(scale);
+            } else if (a == android.view.MotionEvent.ACTION_UP || a == android.view.MotionEvent.ACTION_CANCEL) {
+                view.setScaleX(1f);
+                view.setScaleY(1f);
+            }
+            return false;
+        });
+    }
+
+    private void pressScale(android.view.View v) {
+        pressScale(v, 0.98f);
     }
 }

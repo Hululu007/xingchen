@@ -49,6 +49,7 @@ import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.service.MusicPlaybackService;
+import com.fongmi.android.tv.ui.activity.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -696,6 +697,17 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         MusicTrack track = MusicController.get().current();
         // 卡首「歌曲信息」导航行（GZ 设置卡首行，带 chevron，进歌曲信息子面板；来源行是星辰自有展示，排其后）
         addRow(card, getString(R.string.music_song_info), null, v -> showPanel(PANEL_SONG_INFO), true);
+        // 第 13 项：歌词版本行——仅播放页且多于 1 版时显，点开 GZ 式版本底卡（不进版本筛选条那套）
+        FragmentActivity playerHost = getActivity();
+        if (playerHost instanceof MusicPlayerActivity
+                && ((MusicPlayerActivity) playerHost).getLyricVersionCount() > 1) {
+            addRow(card, getString(R.string.music_lyric_versions),
+                    ((MusicPlayerActivity) playerHost).getLyricVersionCount() + " 个版本", v -> {
+                        dismissAllowingStateLoss();
+                        new Handler(Looper.getMainLooper()).post(
+                                () -> ((MusicPlayerActivity) playerHost).openLyricVersionDialog());
+                    }, false);
+        }
         boolean first = false;
         if (track != null) {
             String source = sourceName(track);
@@ -1177,7 +1189,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_lyric_settings)));
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(132));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(160));
         previewLp.topMargin = dp(12);
         box.addView(buildLyricPreview(), previewLp);
         box.addView(buildLyricSizeRow(), marginTop(dp(16)));
@@ -1258,19 +1270,31 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 .show();
     }
 
-    /** 顶部预览区（GZ T26）：高 132dp、内边 14/8，当前行歌词按当前样式实时渲染（500ms 跟随播放进度） */
+    /** 顶部预览区（GZ T26）：歌名大字＋当前行歌词样例，歌词行按当前样式实时渲染（500ms 跟随播放进度）；
+     * 旧版只有歌词行、没有歌名大字——GZ 预览是“歌名大字卡＋歌词行样例”，此处补歌名（当前曲名，28sp 粗体，
+     * GZ 标题确切字号未抠到）；歌词行样式逻辑不动。 */
     private View buildLyricPreview() {
-        FrameLayout frame = new FrameLayout(getContext());
-        frame.setBackgroundResource(R.drawable.bg_sheet_preview);
-        frame.setElevation(dp(2));
-        frame.setPadding(dp(14), dp(8), dp(14), dp(8));
+        LinearLayout column = new LinearLayout(getContext());
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setBackgroundResource(R.drawable.bg_sheet_preview);
+        column.setElevation(dp(2));
+        column.setPadding(dp(14), dp(8), dp(14), dp(8));
+        MusicTrack track = MusicController.get().current();
+        TextView title = text(track == null ? getString(R.string.music_no_track) : track.displayTitle(),
+                28, COLOR_TEXT, true);
+        title.setMaxLines(1);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        column.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         lyricPreview = text(getString(R.string.music_lyric_preview_sample), 22, COLOR_TEXT, false);
         lyricPreview.setMaxLines(2);
         lyricPreview.setEllipsize(TextUtils.TruncateAt.END);
-        frame.addView(lyricPreview, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        lp.topMargin = dp(4);
+        column.addView(lyricPreview, lp);
         applyPreview();
-        return frame;
+        return column;
     }
 
     private void applyPreview() {

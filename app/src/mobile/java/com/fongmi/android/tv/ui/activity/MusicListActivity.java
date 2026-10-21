@@ -45,6 +45,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -63,9 +64,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 歌曲列表页：大标题＋工具条，行＝封面左＋两行字＋徽章＋时长/⋮，
@@ -77,6 +80,70 @@ public class MusicListActivity extends BaseActivity {
     private final List<MusicTrack> tracks = new ArrayList<>();
     private final List<Object> cards = new ArrayList<>();
     private ListAdapter adapter;
+    // 第 11 项歌单页态：多选批量删除＋歌单名搜索过滤（星辰歌单全是本地自建，无平台属性，筛选只有“全部”）
+    private boolean sheetsMulti;
+    private final Set<Long> sheetsSelected = new java.util.HashSet<>();
+    private final List<MusicPlaylist> allSheets = new ArrayList<>();
+
+    // 第 7 项尾巴下载页态：进行中任务行＋已完成多选（全选／删除所选）＋下载监听
+    private final List<MusicDownloadStore.LiveTask> dlTasks = new ArrayList<>();
+    /** 下载已完成全量（不受搜索过滤影响；显示列表 tracks 是过滤后的） */
+    private final List<MusicTrack> dlAllTracks = new ArrayList<>();
+    private String dlSearchKw = "";
+    private boolean dlSearchWired;
+
+    // 第 8 项：本地音乐视图／排序／来源／组筛选（GZ：歌曲／专辑／歌手／文件夹 4 视图＋排序弹层＋来源弹层）
+    private static final int DEVICE_VIEW_SONGS = 0;
+    private static final int DEVICE_VIEW_ALBUMS = 1;
+    private static final int DEVICE_VIEW_ARTISTS = 2;
+    private static final int DEVICE_VIEW_FOLDERS = 3;
+    private int deviceView = DEVICE_VIEW_SONGS;
+    private int deviceSort = 0; // 0 默认 1 最近添加 2 时长 3 文件大小
+    private boolean deviceAsc = false; // 默认降序（新→旧／大→小；升降序在分组区块头右侧切换）
+    private int deviceSource = 0; // 0 全部 1 设备媒体库 2 导入目录（id 含 :lib: 即导入目录）
+    private int deviceGroupType = -1; // -1 无组筛选 0 专辑 1 歌手 2 文件夹
+    private String deviceGroupKey = "";
+    private final List<MusicTrack> deviceAll = new ArrayList<>();
+    private final List<Integer> deviceSectionPos = new ArrayList<>();
+    private final List<String> deviceSectionTitles = new ArrayList<>();
+    private final List<Integer> deviceSectionCounts = new ArrayList<>();
+
+    // 第 6 项：收藏／历史英雄卡（GZ：拼贴 76dp＋大标题 28sp＋N 首 12sp＋播放全部／随机播放＋搜索框＋排序＋续播卡＋多选）
+    private final List<MusicTrack> favHistAll = new ArrayList<>();
+    private String favHistSearchKw = "";
+    private int favHistSort = 0; // 收藏：0 最近收藏 1 最早收藏 2 歌曲名称；历史：0 最近播放 1 最早播放 2 歌曲名称
+    private boolean favHistMulti;
+    private final Set<String> favHistSelected = new java.util.HashSet<>();
+    private MusicTrack favHistResume;
+    private boolean favHistSearchWired;
+
+    // 第 1 项：歌单详情页（GZ：英雄卡＋操作行＋区头＋歌曲行＋排序弹层＋更多表；同步到云端需账号，排除只列不建）
+    private static final int REQ_SHEET_COVER = 4314;
+    private final List<MusicTrack> sheetAll = new ArrayList<>();
+    private String sheetSearchKw = "";
+    private int sheetSort = 0; // 0 歌单原顺序 1 加入时间从新到旧 2 加入时间从旧到新 3 按歌曲名 4 按专辑名 5 按歌手名
+    private boolean sheetMulti;
+    private final Set<String> sheetSelected = new java.util.HashSet<>();
+    private boolean sheetSearchWired;
+    private boolean sheetSearchShown;
+
+    // 第 3 项：榜单列表页（焦点卡＋普通卡＋分区头）与榜单详情页（英雄卡＋排名行）
+    private final java.util.Map<String, List<MusicTrack>> chartPreviews = new java.util.HashMap<>();
+    private String chartPlatform = "";
+    private String chartId = "";
+    private String chartCover = "";
+    private final Set<String> dlSelected = new java.util.HashSet<>();
+    private boolean dlListenerOn;
+    private final com.fongmi.android.tv.utils.download.DownloadManager.Listener dlListener = task -> {
+        if (!mode.equals("download")) return;
+        runOnUiThread(() -> {
+            if (task.getStatus() == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_COMPLETED) {
+                loadDownloads();
+            } else {
+                refreshDlTasks();
+            }
+        });
+    };
 
     private String mode = "tracks";
     private String keyword = "";
@@ -86,14 +153,20 @@ public class MusicListActivity extends BaseActivity {
     private String sitePlatform = "";
     private long playlistId = -1;
 
-    // 搜索模式：源横排＋按源分开的搜索结果（切排只换显示、不重搜）
-    private final List<MusicSite> searchTabs = new ArrayList<>();
-    private final Map<String, List<MusicTrack>> siteResults = new ConcurrentHashMap<>();
-    private final Set<String> siteLoading = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Set<String> siteFailed = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // 搜索模式：5 项分类（单曲／歌手／歌单／专辑／歌词，GZ SearchTab 枚举顺序）＋合并结果
+    private final List<String> searchCatNames = java.util.Arrays.asList("单曲", "歌手", "歌单", "专辑", "歌词");
+    private final List<MusicTrack> allResults = Collections.synchronizedList(new ArrayList<>());
+    private final AtomicInteger searchTotalSites = new AtomicInteger(0);
+    private final AtomicInteger searchFailedSites = new AtomicInteger(0);
     private TabAdapter tabAdapter;
-    private int selectedTab = -1;
+    private int selectedCat = 0;
     private int searchSeq = 0;
+    /** 搜索组内钻取：-1 不钻取，1 歌手组，3 专辑组（与分类下标对齐） */
+    private int searchGroupType = -1;
+    private String searchGroupKey = "";
+    /** 搜索落地页数据：热门搜索（首榜前 10 首，null＝未拉过）与猜你想搜（收藏／历史歌手去重） */
+    private List<MusicTrack> searchHotTerms;
+    private boolean searchRecentExpanded = false;
 
     public static void startSites(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
@@ -132,9 +205,21 @@ public class MusicListActivity extends BaseActivity {
         activity.startActivity(i);
     }
 
+    public static void startHistory(Activity activity) {
+        Intent i = new Intent(activity, MusicListActivity.class);
+        i.putExtra("mode", "history");
+        activity.startActivity(i);
+    }
+
     public static void startCharts(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "charts");
+        activity.startActivity(i);
+    }
+
+    public static void startGuess(Activity activity) {
+        Intent i = new Intent(activity, MusicListActivity.class);
+        i.putExtra("mode", "guess");
         activity.startActivity(i);
     }
 
@@ -184,25 +269,191 @@ public class MusicListActivity extends BaseActivity {
         sitePlatform = i.getStringExtra("sitePlatform");
         if (sitePlatform == null) sitePlatform = "";
         playlistId = i.getLongExtra("playlistId", -1);
+        chartPlatform = i.getStringExtra("chartPlatform");
+        chartId = i.getStringExtra("chartId");
+        chartCover = i.getStringExtra("chartCover");
+        if (chartPlatform == null) chartPlatform = "";
+        if (chartId == null) chartId = "";
+        if (chartCover == null) chartCover = "";
         bigTitle = i.getStringExtra("title");
         if (bigTitle == null) bigTitle = "";
 
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         binding.recycler.setAdapter(adapter = new ListAdapter());
+        // 第 6 项：收藏／历史行间分隔线（GZ：0.5dp 厚、起始偏移 76dp、末端 14dp，与 76dp 拼贴对齐；只在收藏／历史模式画）
+        binding.recycler.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override
+            public void onDraw(@NonNull android.graphics.Canvas c, @NonNull RecyclerView parent,
+                               @NonNull RecyclerView.State state) {
+                if (!mode.equals("favorite") && !mode.equals("history")) return;
+                float density = parent.getResources().getDisplayMetrics().density;
+                float left = 76 * density;
+                float right = parent.getWidth() - 14 * density;
+                float thickness = Math.max(1, 0.5f * density);
+                android.graphics.Paint paint = new android.graphics.Paint();
+                paint.setColor(0x14000000);
+                paint.setStrokeWidth(thickness);
+                int count = parent.getChildCount();
+                for (int i = 0; i < count - 1; i++) {
+                    android.view.View child = parent.getChildAt(i);
+                    float y = child.getBottom();
+                    c.drawLine(left, y, right, y, paint);
+                }
+            }
+        });
         binding.tabRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.tabRow.setAdapter(tabAdapter = new TabAdapter());
         binding.btnPlayAll.setOnClickListener(v -> shufflePlay());
-        binding.btnSort.setOnClickListener(v -> cycleSort());
+        binding.btnSort.setOnClickListener(v -> {
+            if (mode.equals("device")) showDeviceSortDialog();
+            else if (mode.equals("favorite") || mode.equals("history")) showFavHistSortDialog();
+            else if (mode.equals("search") && selectedCat != 0 && searchGroupType < 0) {
+                // 第 5 项：歌手／歌单／专辑分类是分组卡，排序只对歌曲列有意义，分组卡不支持排序
+                Notify.show("分组不支持排序");
+            } else cycleSort();
+        });
+        // 第 11 项歌单页头／操作行（仅 sheets 模式可见，其余模式布局里 GONE）
+        binding.btnSheetsNew.setOnClickListener(v -> inputPlaylistName(name ->
+                MusicLibrary.createPlaylist(name, p -> loadSheets())));
+        binding.btnSheetsImport.setOnClickListener(v -> showImportPlaylistDialog());
+        binding.btnSheetsSearch.setOnClickListener(v -> {
+            boolean show = binding.searchBar.getVisibility() != View.VISIBLE;
+            binding.searchBar.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (!show) applySheetsFilter();
+        });
+        binding.btnSheetsMulti.setOnClickListener(v -> setSheetsMulti(!sheetsMulti));
+        binding.btnSheetsFilter.setOnClickListener(v ->
+                MusicOptionsDialog.show(this, "歌单筛选",
+                        java.util.Collections.singletonList("全部"), 0, idx -> applySheetsFilter()));
         // 对照表 P4：页内两入口按钮直连现有 pickLocalFile／inputSiteUrl，不再走二选一弹窗
         binding.btnPluginLocal.setOnClickListener(v -> pickLocalFile());
         binding.btnPluginOnline.setOnClickListener(v -> inputSiteUrl());
         binding.btnPluginSort.setOnClickListener(v -> showPluginSortDialog());
+        // 第 7 项尾巴：下载批量管理条（随机播放走通用工具条的 shuffle，不在这里重复造入口）
+        binding.btnDlSelect.setOnClickListener(v -> toggleDlSelect());
+        binding.btnDlPauseAll.setOnClickListener(v -> {
+            MusicDownloadStore.pauseAllLive();
+            refreshDlTasks();
+        });
+        binding.btnDlResumeAll.setOnClickListener(v -> {
+            MusicDownloadStore.resumeAllLive();
+            refreshDlTasks();
+        });
+        binding.btnDlCancelAll.setOnClickListener(v -> {
+            // GZ 批量取消确认文案（单任务版在任务行取消钮）
+            if (dlTasks.isEmpty()) return;
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("取消下载")
+                    .setMessage("确定取消正在进行的 " + dlTasks.size() + " 个下载任务吗？已下载的临时内容将被删除，无法继续恢复。")
+                    .setPositiveButton("取消下载", (d, which) -> {
+                        MusicDownloadStore.cancelAllLive();
+                        refreshDlTasks();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+        binding.btnDlClearFailed.setOnClickListener(v -> {
+            MusicDownloadStore.clearFailedLive();
+            refreshDlTasks();
+        });
+        binding.btnDlPlayAll.setOnClickListener(v -> {
+            if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
+            else playTrack(0);
+        });
+        // 第 8 项：本地音乐视图切换＋来源＋组筛选清除
+        binding.tvDeviceViewSongs.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_SONGS));
+        binding.tvDeviceViewAlbums.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_ALBUMS));
+        binding.tvDeviceViewArtists.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_ARTISTS));
+        binding.tvDeviceViewFolders.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_FOLDERS));
+        binding.tvDeviceSource.setOnClickListener(v -> showDeviceSourceDialog());
+        binding.deviceFilterBar.setOnClickListener(v -> {
+            deviceGroupType = -1;
+            deviceGroupKey = "";
+            refreshDeviceDisplay();
+        });
+        // 第 6 项：收藏／历史英雄卡操作行
+        binding.btnFavHistPlayAll.setOnClickListener(v -> {
+            if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
+            else playTrack(0);
+        });
+        binding.btnFavHistShuffle.setOnClickListener(v -> shufflePlay());
+        binding.btnFavHistMulti.setOnClickListener(v -> setFavHistMulti(!favHistMulti));
+        binding.btnFavHistClear.setOnClickListener(v -> {
+            // 历史页清空（GZ：历史页有清除；收藏页无清空全部按钮，故本钮只在历史模式可见）
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("清空播放历史")
+                    .setMessage("确定清空全部播放历史吗？")
+                    .setPositiveButton("清空", (d, w) -> {
+                        com.fongmi.android.tv.music.MusicStore.clearRecent();
+                        loadHistory();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+        binding.favHistResume.setOnClickListener(v -> {
+            if (favHistResume == null) return;
+            int idx = -1;
+            for (int i = 0; i < favHistAll.size(); i++) {
+                if (favHistResume.id != null && favHistResume.id.equals(favHistAll.get(i).id)) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx < 0) return;
+            MusicController.get().play(new ArrayList<>(favHistAll), idx, bigTitle, "list", listRouteParams());
+            MusicPlayerActivity.start(this);
+        });
+        binding.btnFavHistClearSearch.setOnClickListener(v -> binding.etFavHistSearch.setText(""));
+        // 第 1 项：歌单详情页顶栏 ⋮＋页内搜索
+        binding.btnSheetMore.setOnClickListener(v -> showSheetTopMenu());
+        if (!sheetSearchWired) {
+            sheetSearchWired = true;
+            binding.etSheetSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int st, int c, int a) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int st, int b, int c) {
+                }
+
+                @Override
+                public void afterTextChanged(android.text.Editable s) {
+                    sheetSearchKw = s == null ? "" : s.toString().trim();
+                    refreshSheetDisplay();
+                }
+            });
+        }
+        if (!favHistSearchWired) {
+            favHistSearchWired = true;
+            binding.etFavHistSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int st, int c, int a) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int st, int b, int c) {
+                }
+
+                @Override
+                public void afterTextChanged(android.text.Editable s) {
+                    favHistSearchKw = s == null ? "" : s.toString().trim();
+                    binding.btnFavHistClearSearch.setVisibility(
+                            favHistSearchKw.isEmpty() ? View.GONE : View.VISIBLE);
+                    refreshFavHistDisplay();
+                }
+            });
+        }
         binding.btnSearch.setOnClickListener(v -> startSearch(this, ""));
-        binding.btnDoSearch.setOnClickListener(v -> doSearch());
+        binding.btnDoSearch.setOnClickListener(v -> {
+            if (mode.equals("sheets")) applySheetsFilter();
+            else doSearch();
+        });
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
-                doSearch();
+                if (mode.equals("sheets")) applySheetsFilter();
+                else doSearch();
                 return true;
             }
             return false;
@@ -213,6 +464,12 @@ public class MusicListActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        if (dlListenerOn) {
+            try {
+                com.fongmi.android.tv.utils.download.DownloadManager.get().removeListener(dlListener);
+            } catch (Throwable ignored) {
+            }
+        }
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
         super.onDestroy();
@@ -229,10 +486,47 @@ public class MusicListActivity extends BaseActivity {
         if (binding.pluginAddRow != null) binding.pluginAddRow.setVisibility(View.GONE);
         if (binding.pluginInstalledHeader != null) binding.pluginInstalledHeader.setVisibility(View.GONE);
         if (binding.pluginEmptyCard != null) binding.pluginEmptyCard.setVisibility(View.GONE);
+        // 第 7 项尾巴：下载专属视图默认 GONE，非 download 模式必须保持不可见
+        if (binding.downloadStatsCard != null) binding.downloadStatsCard.setVisibility(View.GONE);
+        if (binding.downloadBatchBar != null) binding.downloadBatchBar.setVisibility(View.GONE);
+        if (binding.tvDlLiveHeader != null) binding.tvDlLiveHeader.setVisibility(View.GONE);
+        if (binding.etDlSearch != null) binding.etDlSearch.setVisibility(View.GONE);
+        // 第 8 项：本地音乐视图条／组筛选条默认 GONE，非 device 模式必须保持不可见
+        if (binding.deviceViewBar != null) binding.deviceViewBar.setVisibility(View.GONE);
+        if (binding.deviceFilterBar != null) binding.deviceFilterBar.setVisibility(View.GONE);
+        // 第 6 项：收藏／历史英雄卡默认 GONE，非 favorite/history 模式必须保持不可见；多选态复位
+        if (binding.favHistHero != null) binding.favHistHero.setVisibility(View.GONE);
+        favHistMulti = false;
+        favHistSelected.clear();
+        // 第 1 项：歌单详情页内搜索框／顶栏 ⋮ 默认 GONE，非 sheet 模式必须保持不可见；多选态复位
+        if (binding.etSheetSearch != null) binding.etSheetSearch.setVisibility(View.GONE);
+        if (binding.btnSheetMore != null) binding.btnSheetMore.setVisibility(View.GONE);
+        sheetMulti = false;
+        sheetSelected.clear();
+        sheetSearchShown = false;
+        sheetSearchKw = "";
         binding.tvTitle.setText(titleForMode());
-        binding.toolbar.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
+        // 第 11 项：sheets 模式用 GZ 页头（YOUR PLAYLISTS＋大标题＋操作行），顶栏居中标题与大标题行、随机播放行都隐藏
+        // 第 6 项：收藏／历史模式同样用自己的英雄卡当页头，顶栏与大标题行隐藏；工具条只留排序（播放／随机播在英雄卡操作行）
+        boolean sheets = mode.equals("sheets");
+        boolean favHist = mode.equals("favorite") || mode.equals("history");
+        boolean sheet = mode.equals("sheet");
+        boolean chartDetail = mode.equals("chartDetail");
+        boolean guess = mode.equals("guess");
+        binding.headerBar.setVisibility((sheets || favHist || guess) ? View.GONE : View.VISIBLE);
+        binding.sheetsHeader.setVisibility(sheets ? View.VISIBLE : View.GONE);
+        binding.sheetsOpRow.setVisibility(sheets ? View.VISIBLE : View.GONE);
+        // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
+        // 第 3 项：榜单详情页同样用英雄卡当页头，大标题行与工具条隐藏（排名不参与列表排序）
+        // 第 9 项：猜你喜欢页同样用自己的标题＋英雄卡当页头，大标题行与工具条隐藏（播放／随机播／保存在英雄卡操作行）
+        binding.bigTitleRow.setVisibility((sheets || favHist || sheet || chartDetail || guess) ? View.GONE : View.VISIBLE);
+        binding.toolbar.setVisibility((mode.equals("sites") || sheets || chartDetail || guess) ? View.GONE : View.VISIBLE);
+        if (favHist) {
+            binding.btnPlayAll.setVisibility(View.GONE);
+            binding.btnSort.setVisibility(View.VISIBLE);
+        }
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
-        binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites")) ? View.GONE : View.VISIBLE);
+        binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
         if (!keyword.isEmpty()) {
             binding.etKeyword.setText(keyword);
             doSearch();
@@ -247,9 +541,20 @@ public class MusicListActivity extends BaseActivity {
                 bigTitle = getString(R.string.music_charts);
                 loadCharts();
                 break;
+            case "chartDetail":
+                loadChartDetail();
+                break;
             case "favorite":
                 bigTitle = getString(R.string.music_favorite);
                 loadFavorites();
+                break;
+            case "history":
+                bigTitle = getString(R.string.music_history);
+                loadHistory();
+                break;
+            case "guess":
+                bigTitle = getString(R.string.music_guess);
+                loadGuess();
                 break;
             case "site":
                 loadSiteTracks();
@@ -270,7 +575,7 @@ public class MusicListActivity extends BaseActivity {
                 break;
             case "search":
                 bigTitle = getString(R.string.music_search);
-                showTracks(new ArrayList<>());
+                showSearchLanding();
                 break;
             default:
                 showTracks(new ArrayList<>());
@@ -294,32 +599,43 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_device);
             case "sites":
                 return getString(R.string.music_plugin_manage);
+            case "history":
+                return getString(R.string.music_history);
+            case "guess":
+                return getString(R.string.music_guess);
             default:
                 return getString(R.string.music_playlist);
         }
     }
 
     /**
-     * 搜索：横排只放支持搜歌的源（歌词型插件不进排），所有源各自并发开搜、
-     * 结果按源分开存；点横排切源只换下面列表，已搜回的切回来不重搜。
-     * 某个源报错只影响它自己那一格，其它源照常出结果。
+     * 搜索：GZ 5 项分类（单曲／歌手／歌单／专辑／歌词，SearchTab 枚举顺序）；
+     * 全站并发搜、结果合并后按分类展示；切分类只换显示、不重搜。
+     * 某个源报错只影响它自己，其它源照常出结果；全部失败才显「搜索失败，请重试」。
      */
     private void doSearch() {
         keyword = binding.etKeyword.getText().toString().trim();
         if (keyword.isEmpty()) {
-            Notify.show(R.string.music_search_hint);
+            showSearchLanding();
             return;
         }
         bigTitle = keyword;
+        MusicStore.pushRecentSearch(keyword);
+        searchRecentExpanded = false;
         final int seq = ++searchSeq;
         final String kw = keyword;
-        searchTabs.clear();
-        siteResults.clear();
-        siteLoading.clear();
-        siteFailed.clear();
-        selectedTab = -1;
+        allResults.clear();
+        searchTotalSites.set(0);
+        searchFailedSites.set(0);
+        selectedCat = 0;
+        searchGroupType = -1;
+        searchGroupKey = "";
         tabAdapter.notifyDataSetChanged();
-        binding.tabRow.setVisibility(View.GONE);
+        binding.searchLanding.setVisibility(View.GONE);
+        binding.recycler.setVisibility(View.VISIBLE);
+        binding.searchCountBar.setVisibility(View.GONE);
+        binding.searchGroupBar.setVisibility(View.GONE);
+        binding.tabRow.setVisibility(View.VISIBLE);
         binding.tvTitle.setText(titleForMode());
         tracks.clear();
         cards.clear();
@@ -327,44 +643,26 @@ public class MusicListActivity extends BaseActivity {
         showLoading();
         Task.execute(() -> {
             List<MusicSite> tabs = MusicRepository.searchableSites();
-            // 先全部标"在搜"再刷 UI，否则首项的刷新可能跑在标记之前，误显示无结果
-            for (MusicSite site : tabs) siteLoading.add(site.srcUrl);
-            runOnUiThread(() -> {
-                if (seq != searchSeq) return;
-                searchTabs.addAll(tabs);
-                binding.tabRow.setVisibility(tabs.isEmpty() ? View.GONE : View.VISIBLE);
-                selectedTab = tabs.isEmpty() ? -1 : 0;
-                tabAdapter.notifyDataSetChanged();
-                if (tabs.isEmpty()) {
-                    binding.tvBigTitle.setText(bigTitle);
-                    binding.tvBigCount.setText("");
-                    binding.empty.setVisibility(View.VISIBLE);
-                    binding.empty.setText(R.string.music_no_result);
-                    return;
-                }
-                showSiteResults(selectedTab);
-            });
-            // 每个源各自一趟并发搜，失败互相隔离
+            searchTotalSites.set(tabs.size());
+            if (tabs.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (seq == searchSeq) showCategoryResults();
+                });
+                return;
+            }
+            final AtomicInteger pending = new AtomicInteger(tabs.size());
             for (MusicSite site : tabs) {
-                final String key = site.srcUrl;
                 Task.execute(() -> {
                     try {
                         List<MusicTrack> r = MusicRepository.searchSite(site, kw);
-                        if (seq != searchSeq) return; // 迟到的旧搜索不许覆盖新结果
-                        siteResults.put(key, r == null ? new ArrayList<>() : r);
+                        if (seq == searchSeq && r != null) allResults.addAll(r);
                     } catch (Throwable t) {
-                        if (seq == searchSeq) siteFailed.add(key);
+                        if (seq == searchSeq) searchFailedSites.incrementAndGet();
                     } finally {
                         // 旧搜索的迟到回调不许动新搜索的状态
-                        if (seq == searchSeq) {
-                            siteLoading.remove(key);
+                        if (seq == searchSeq && pending.decrementAndGet() == 0) {
                             runOnUiThread(() -> {
-                                if (seq != searchSeq) return;
-                                // 只有正看着的这一格需要立刻刷新，别的不动
-                                if (selectedTab >= 0 && selectedTab < searchTabs.size()
-                                        && key.equals(searchTabs.get(selectedTab).srcUrl)) {
-                                    showSiteResults(selectedTab);
-                                }
+                                if (seq == searchSeq) showCategoryResults();
                             });
                         }
                     }
@@ -373,65 +671,460 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    private void selectTab(int idx) {
-        if (idx < 0 || idx >= searchTabs.size()) return;
-        selectedTab = idx;
+    private void selectCategory(int idx) {
+        if (idx < 0 || idx >= searchCatNames.size()) return;
+        selectedCat = idx;
+        searchGroupType = -1;
+        searchGroupKey = "";
         tabAdapter.notifyDataSetChanged();
         binding.tabRow.smoothScrollToPosition(idx);
-        showSiteResults(idx);
+        showCategoryResults();
     }
 
-    /** 把某一源的状态（还在搜/失败/无结果/有结果）显示到下面的列表区 */
-    private void showSiteResults(int idx) {
-        if (idx < 0 || idx >= searchTabs.size()) return;
-        MusicSite site = searchTabs.get(idx);
-        List<MusicTrack> r = siteResults.get(site.srcUrl);
-        if (r != null) {
-            // 拷一份给列表：showTracks 会就地排序，别把存好的结果弄乱
-            showTracks(new ArrayList<>(r));
+    /** 按当前分类把合并后的搜索结果显示到列表区；组内钻取时只显示该组歌曲 */
+    private void showCategoryResults() {
+        binding.searchLanding.setVisibility(View.GONE);
+        binding.recycler.setVisibility(View.VISIBLE);
+        binding.tabRow.setVisibility(View.VISIBLE);
+        tabAdapter.notifyDataSetChanged();
+        binding.tvBigTitle.setText(bigTitle);
+        if (searchGroupType == 1 || searchGroupType == 3) {
+            // 组内歌曲列：按歌手／专辑过滤，筛选条点 × 回分类（筛选条是过滤控件、不是返回箭头）
+            List<MusicTrack> g = new ArrayList<>();
+            for (MusicTrack t : allResults) {
+                String k = searchGroupType == 1 ? artistOf(t) : albumOf(t);
+                if (k.equals(searchGroupKey)) g.add(t);
+            }
+            binding.searchCountBar.setVisibility(View.GONE);
+            binding.searchGroupBar.setVisibility(View.VISIBLE);
+            binding.searchGroupBar.setText((searchGroupType == 1 ? "歌手：" : "专辑：") + searchGroupKey + " ×");
+            binding.searchGroupBar.setOnClickListener(v -> {
+                searchGroupType = -1;
+                searchGroupKey = "";
+                showCategoryResults();
+            });
+            showTracks(g);
             return;
+        }
+        binding.searchGroupBar.setVisibility(View.GONE);
+        boolean allFailed = searchTotalSites.get() > 0 && searchFailedSites.get() >= searchTotalSites.get();
+        switch (selectedCat) {
+            case 0: // 单曲：直接列表，无计数行（GZ 单曲类无此行）
+                binding.searchCountBar.setVisibility(View.GONE);
+                showTracks(new ArrayList<>(allResults));
+                // showTracks 内部用 runOnUiThread 刷空文案，这里后发一条覆盖成分 Tab 文案
+                runOnUiThread(() -> {
+                    if (tracks.isEmpty()) {
+                        binding.empty.setVisibility(View.VISIBLE);
+                        binding.empty.setText(allFailed ? "搜索失败，请重试" : "没有找到『" + keyword + "』相关歌曲");
+                    }
+                });
+                break;
+            case 1: // 歌手：分组卡＋「N 位」
+                showGroupCards(1, " 位", "没有找到『" + keyword + "』相关歌手", allFailed);
+                break;
+            case 2: // 歌单：本地歌单名匹配＋「N 个」
+                showPlaylistCards(allFailed);
+                break;
+            case 3: // 专辑：分组卡＋「N 张」
+                showGroupCards(3, " 张", "没有找到『" + keyword + "』相关专辑", allFailed);
+                break;
+            default: // 歌词：星辰插件无歌词全文搜入口，只显不支持态（不编假结果）
+                tracks.clear();
+                cards.clear();
+                adapter.notifyDataSetChanged();
+                binding.searchCountBar.setVisibility(View.GONE);
+                binding.tvBigCount.setText("");
+                binding.empty.setVisibility(View.VISIBLE);
+                binding.empty.setText("暂不支持歌词全文搜索");
+                break;
+        }
+    }
+
+    private String artistOf(MusicTrack t) {
+        return t.artist == null || t.artist.isEmpty() ? "未知艺人" : t.artist;
+    }
+
+    private String albumOf(MusicTrack t) {
+        return t.album == null || t.album.isEmpty() ? "未知专辑" : t.album;
+    }
+
+    /** 歌手／专辑分组卡：按组名去重分组，点卡进该组歌曲列 */
+    private void showGroupCards(int type, String unit, String emptyCopy, boolean allFailed) {
+        LinkedHashMap<String, List<MusicTrack>> groups = new LinkedHashMap<>();
+        for (MusicTrack t : allResults) {
+            String k = type == 1 ? artistOf(t) : albumOf(t);
+            List<MusicTrack> g = groups.get(k);
+            if (g == null) {
+                g = new ArrayList<>();
+                groups.put(k, g);
+            }
+            g.add(t);
         }
         tracks.clear();
         cards.clear();
+        for (Map.Entry<String, List<MusicTrack>> e : groups.entrySet()) {
+            cards.add(new SearchGroupCard(type, e.getKey(), e.getValue().size()));
+        }
         adapter.notifyDataSetChanged();
+        binding.tvBigCount.setText("");
+        binding.searchCountBar.setVisibility(View.VISIBLE);
+        binding.searchCountBar.setText(groups.size() + unit);
+        binding.empty.setVisibility(cards.isEmpty() ? View.VISIBLE : View.GONE);
+        if (cards.isEmpty()) binding.empty.setText(allFailed ? "搜索失败，请重试" : emptyCopy);
+    }
+
+    /** 歌单分类：本地歌单名包含关键词即命中，曲目数逐个补齐后按原顺序刷 */
+    private void showPlaylistCards(boolean allFailed) {
+        String kw = keyword == null ? "" : keyword.toLowerCase(java.util.Locale.getDefault());
+        tracks.clear();
+        cards.clear();
+        adapter.notifyDataSetChanged();
+        MusicLibrary.playlists(list -> {
+            List<MusicPlaylist> hit = new ArrayList<>();
+            if (list != null) {
+                for (MusicPlaylist p : list) {
+                    if (p.getName() != null && p.getName().toLowerCase(java.util.Locale.getDefault()).contains(kw)) {
+                        hit.add(p);
+                    }
+                }
+            }
+            if (hit.isEmpty()) {
+                runOnUiThread(() -> finishPlaylistCards(new ArrayList<>(), allFailed));
+                return;
+            }
+            final SearchPlaylistCard[] arr = new SearchPlaylistCard[hit.size()];
+            final AtomicInteger left = new AtomicInteger(hit.size());
+            for (int i = 0; i < hit.size(); i++) {
+                final int idx = i;
+                final MusicPlaylist p = hit.get(i);
+                MusicLibrary.playlistTrackCount(p.getId(), n -> {
+                    arr[idx] = new SearchPlaylistCard(p.getId(), p.getName(), n);
+                    if (left.decrementAndGet() == 0) {
+                        List<SearchPlaylistCard> out = new ArrayList<>();
+                        for (SearchPlaylistCard c : arr) out.add(c);
+                        runOnUiThread(() -> finishPlaylistCards(out, allFailed));
+                    }
+                });
+            }
+        });
+    }
+
+    private void finishPlaylistCards(List<SearchPlaylistCard> list, boolean allFailed) {
+        tracks.clear();
+        cards.clear();
+        cards.addAll(list);
+        adapter.notifyDataSetChanged();
+        binding.tvBigCount.setText("");
+        binding.searchCountBar.setVisibility(View.VISIBLE);
+        binding.searchCountBar.setText(cards.size() + " 个");
+        binding.empty.setVisibility(cards.isEmpty() ? View.VISIBLE : View.GONE);
+        if (cards.isEmpty()) binding.empty.setText(allFailed ? "搜索失败，请重试" : "没有找到『" + keyword + "』相关歌单");
+    }
+
+    /** 搜索落地页：最近搜索胶囊＋热门搜索＋猜你想搜（无结果时显落地，不显空列表） */
+    private void showSearchLanding() {
+        binding.searchLanding.setVisibility(View.VISIBLE);
+        binding.recycler.setVisibility(View.GONE);
+        binding.tabRow.setVisibility(View.GONE);
+        binding.searchCountBar.setVisibility(View.GONE);
+        binding.searchGroupBar.setVisibility(View.GONE);
+        tracks.clear();
+        cards.clear();
+        adapter.notifyDataSetChanged();
+        binding.empty.setVisibility(View.GONE);
         binding.tvBigTitle.setText(bigTitle);
         binding.tvBigCount.setText("");
-        binding.empty.setVisibility(View.VISIBLE);
-        if (siteFailed.contains(site.srcUrl)) {
-            binding.empty.setText(site.name + " 搜索失败");
-        } else if (siteLoading.contains(site.srcUrl)) {
-            binding.empty.setText("正在加载…");
-        } else {
-            binding.empty.setText(R.string.music_no_result);
+        binding.btnHotRefresh.setOnClickListener(v -> loadSearchHot());
+        buildRecentChips();
+        buildGuessRows();
+        if (searchHotTerms == null) loadSearchHot();
+        else buildHotRows();
+    }
+
+    /** 最近搜索胶囊：词 12sp、内边距 10/6dp、圆角 8dp；默认收起取前 10 条，点「更多」展开 */
+    private void buildRecentChips() {
+        List<String> all = MusicStore.loadRecentSearches();
+        binding.recentFlow.removeAllViews();
+        int show = searchRecentExpanded ? all.size() : Math.min(all.size(), 10);
+        for (int i = 0; i < show; i++) {
+            String w = all.get(i);
+            TextView chip = new TextView(this);
+            chip.setText(w);
+            chip.setTextSize(12);
+            chip.setTextColor(0xFF3A3A3C);
+            chip.setBackgroundResource(R.drawable.bg_search_capsule);
+            chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+            chip.setOnClickListener(v -> {
+                binding.etKeyword.setText(w);
+                doSearch();
+            });
+            binding.recentFlow.addView(chip);
+        }
+        binding.recentHeader.setVisibility(all.isEmpty() ? View.GONE : View.VISIBLE);
+        binding.recentFlow.setVisibility(all.isEmpty() ? View.GONE : View.VISIBLE);
+        binding.tvRecentClear.setVisibility(all.isEmpty() ? View.GONE : View.VISIBLE);
+        binding.tvRecentClear.setOnClickListener(v -> {
+            MusicStore.clearRecentSearches();
+            searchRecentExpanded = false;
+            buildRecentChips();
+        });
+        binding.tvRecentMore.setVisibility(all.size() > 10 ? View.VISIBLE : View.GONE);
+        binding.tvRecentMore.setText(searchRecentExpanded ? "收起" : "更多");
+        binding.tvRecentMore.setOnClickListener(v -> {
+            searchRecentExpanded = !searchRecentExpanded;
+            buildRecentChips();
+        });
+    }
+
+    /**
+     * 热门搜索：GZ 走自家服务端，星辰无对应接口——来源替代：取首榜曲目前 10 首的歌名顶上，
+     * 副内容＝歌手；热度数值无来源，不编数（热度栏空着）。刷新即重拉。
+     */
+    private void loadSearchHot() {
+        binding.hotRows.removeAllViews();
+        TextView loading = new TextView(this);
+        loading.setText("正在加载…");
+        loading.setTextSize(12);
+        loading.setTextColor(0xFF9AA7B8);
+        binding.hotRows.addView(loading);
+        Task.execute(() -> {
+            List<MusicTrack> hot = new ArrayList<>();
+            try {
+                List<MusicSite> sites = MusicRepository.sites();
+                MusicChart first = null;
+                for (MusicSite s : sites) {
+                    List<MusicChart> cs = MusicRepository.charts(s);
+                    if (cs != null && !cs.isEmpty()) {
+                        first = cs.get(0);
+                        break;
+                    }
+                }
+                if (first != null) {
+                    List<MusicTrack> r = MusicRepository.chartTracks(first);
+                    if (r != null) hot.addAll(r.subList(0, Math.min(10, r.size())));
+                }
+            } catch (Throwable ignored) {
+            }
+            final List<MusicTrack> result = hot;
+            runOnUiThread(() -> {
+                if (!mode.equals("search")) return;
+                searchHotTerms = result;
+                buildHotRows();
+            });
+        });
+    }
+
+    /** 热搜行：排名 15sp 宽 28dp＋词 15sp＋副内容（歌手）12sp；热度栏无数据来源，不显 */
+    private void buildHotRows() {
+        binding.hotRows.removeAllViews();
+        if (searchHotTerms == null || searchHotTerms.isEmpty()) {
+            TextView none = new TextView(this);
+            none.setText("暂无热搜");
+            none.setTextSize(12);
+            none.setTextColor(0xFF9AA7B8);
+            binding.hotRows.addView(none);
+            return;
+        }
+        for (int i = 0; i < searchHotTerms.size(); i++) {
+            MusicTrack t = searchHotTerms.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(6), 0, dp(6));
+            TextView rank = new TextView(this);
+            rank.setText(String.valueOf(i + 1));
+            rank.setTextSize(15);
+            rank.setTextColor(0xFF9AA7B8);
+            rank.setGravity(android.view.Gravity.CENTER);
+            row.addView(rank, new LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
+            TextView term = new TextView(this);
+            term.setText(t.title == null ? "" : t.title);
+            term.setTextSize(15);
+            term.setTextColor(0xFF1C1C1E);
+            term.setSingleLine(true);
+            term.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams lpTerm = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lpTerm.leftMargin = dp(8);
+            row.addView(term, lpTerm);
+            if (t.artist != null && !t.artist.isEmpty()) {
+                TextView sub = new TextView(this);
+                sub.setText(t.artist);
+                sub.setTextSize(12);
+                sub.setTextColor(0xFF9AA7B8);
+                sub.setSingleLine(true);
+                sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams lpSub = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lpSub.leftMargin = dp(8);
+                row.addView(sub, lpSub);
+            }
+            final String w = t.title == null ? "" : t.title;
+            row.setOnClickListener(v -> {
+                binding.etKeyword.setText(w);
+                doSearch();
+            });
+            binding.hotRows.addView(row);
+        }
+    }
+
+    /**
+     * 猜你想搜：独立区头＋推荐词行。不是 GZ 的推荐算法——用本地真实数据：
+     * 最近播放歌手在前、收藏歌手补齐，去重取前 8 个，点词即搜。
+     */
+    private void buildGuessRows() {
+        List<String> terms = new ArrayList<>();
+        for (MusicTrack t : MusicStore.loadRecent()) addGuessArtist(terms, t.artist);
+        renderGuessRows(terms);
+        MusicLibrary.favorites(list -> {
+            if (!mode.equals("search")) return;
+            List<String> all = new ArrayList<>(terms);
+            if (list != null) {
+                for (MusicTrack t : list) addGuessArtist(all, t.artist);
+            }
+            runOnUiThread(() -> renderGuessRows(all));
+        });
+    }
+
+    private void addGuessArtist(List<String> out, String artist) {
+        if (artist == null || artist.isEmpty() || out.contains(artist)) return;
+        if (out.size() >= 8) return;
+        out.add(artist);
+    }
+
+    private void renderGuessRows(List<String> terms) {
+        binding.guessRows.removeAllViews();
+        binding.guessHeader.setVisibility(terms.isEmpty() ? View.GONE : View.VISIBLE);
+        for (String w : terms) {
+            TextView row = new TextView(this);
+            row.setText(w);
+            row.setTextSize(15);
+            row.setTextColor(0xFF1C1C1E);
+            row.setPadding(0, dp(6), 0, dp(6));
+            row.setOnClickListener(v -> {
+                binding.etKeyword.setText(w);
+                doSearch();
+            });
+            binding.guessRows.addView(row);
         }
     }
 
     private void loadSheets() {
         showLoading();
         MusicLibrary.playlists(list -> {
-            cards.clear();
-            cards.add(new NewPlaylistCard());
-            cards.add(new ImportPlaylistCard());
-            for (MusicPlaylist p : list) cards.add(p);
+            allSheets.clear();
+            allSheets.addAll(list);
             runOnUiThread(() -> {
-                adapter.notifyDataSetChanged();
-                binding.tvBigTitle.setText(bigTitle);
-                binding.tvBigCount.setText(list.size() + " 个歌单");
+                binding.sheetsTitle.setText(bigTitle);
+                applySheetsFilter();
                 binding.empty.setVisibility(View.GONE);
-                // 异步补每首歌单的曲目数
-                for (int idx = 0; idx < cards.size(); idx++) {
-                    Object o = cards.get(idx);
-                    if (o instanceof MusicPlaylist) {
-                        int pos = idx;
-                        MusicPlaylist p = (MusicPlaylist) o;
-                        MusicLibrary.playlistTrackCount(p.getId(), n -> {
-                            p.trackCount = n;
-                            adapter.notifyItemChanged(pos);
-                        });
-                    }
+                // 异步补每个歌单的曲目数（按 id 在当前过滤后列表里定位，不依赖加载时下标）
+                for (MusicPlaylist p : list) {
+                    MusicLibrary.playlistTrackCount(p.getId(), n -> {
+                        p.trackCount = n;
+                        for (int i = 0; i < cards.size(); i++) {
+                            if (cards.get(i) instanceof MusicPlaylist
+                                    && ((MusicPlaylist) cards.get(i)).getId() == p.getId()) {
+                                adapter.notifyItemChanged(i);
+                                break;
+                            }
+                        }
+                    });
                 }
             });
         });
+    }
+
+    /** 第 11 项：歌单名过滤（操作行搜索钮切出的搜索框内关键字，空则全量；新建／导入卡已由操作行替代，不再进列表） */
+    private void applySheetsFilter() {
+        String q = binding.etKeyword.getText() == null ? ""
+                : binding.etKeyword.getText().toString().trim();
+        cards.clear();
+        for (MusicPlaylist p : allSheets) {
+            if (q.isEmpty() || (p.getName() != null && p.getName().contains(q))) cards.add(p);
+        }
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    /** 第 11 项：多选开关——开则行点按变勾选、工具条变“删除所选 (N)”；关则清空勾选恢复正常 */
+    private void setSheetsMulti(boolean on) {
+        sheetsMulti = on;
+        if (!on) sheetsSelected.clear();
+        binding.btnSheetsMulti.setText(on ? "取消多选" : "多选");
+        binding.btnSheetsMulti.setTextColor(on ? 0xFFFA243C : 0xFF1C1C1E);
+        binding.toolbar.setVisibility(on ? View.VISIBLE : View.GONE);
+        binding.btnSort.setVisibility(on ? View.GONE : View.VISIBLE);
+        binding.tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
+        binding.ivPlayAllIcon.setImageResource(on ? R.drawable.ic_music_delete
+                : R.drawable.ic_music_shuffle);
+        binding.btnPlayAll.setOnClickListener(on ? v -> deleteSheetsSelected()
+                : v -> shufflePlay());
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    private void deleteSheetsSelected() {
+        if (sheetsSelected.isEmpty()) {
+            Notify.show("请先选歌单");
+            return;
+        }
+        List<Long> ids = new ArrayList<>(sheetsSelected);
+        sheetsSelected.clear();
+        for (Long id : ids) MusicLibrary.deletePlaylist(id, null);
+        setSheetsMulti(false);
+        loadSheets();
+    }
+
+    /** 第 9 项：猜你喜欢线索数（文案「来自收藏与最近播放的 N 条线索」里的 N，收藏＋最近播放去重后条数） */
+    private int guessClueCount = 0;
+
+    /**
+     * 第 9 项：猜你喜欢。推荐算法待他定——先用本地已有数据简单轮换顶上，不假装是 GZ 的推荐算法：
+     * 收藏／最近播放／已下载三路轮流取、按 id 去重、上限 50 首。
+     * 设备媒体库扫描要权限流程，不在猜你喜欢页内触发（“本地”口径这里＝已下载本地文件）。
+     * 空态用 GZ 空文案；“推荐获取失败／重试”是拉取失败态，本地数据没有失败触发点，只显空态。
+     */
+    private void loadGuess() {
+        showLoading();
+        MusicLibrary.favorites(favs -> {
+            if (!mode.equals("guess")) return;
+            MusicDownloadStore.all(dls -> {
+                if (!mode.equals("guess")) return;
+                List<MusicTrack> recents = MusicStore.loadRecent();
+                List<MusicTrack> favList = favs == null ? new ArrayList<>() : favs;
+                List<MusicTrack> dlList = dls == null ? new ArrayList<>() : dls;
+                java.util.Set<String> clueSeen = new java.util.HashSet<>();
+                int clues = 0;
+                for (MusicTrack t : favList) if (t.id == null || clueSeen.add(t.id)) clues++;
+                for (MusicTrack t : recents) if (t.id == null || clueSeen.add(t.id)) clues++;
+                guessClueCount = clues;
+                final List<MusicTrack> pool = buildGuessPool(favList, recents, dlList);
+                runOnUiThread(() -> {
+                    if (!mode.equals("guess")) return;
+                    tracks.clear();
+                    tracks.addAll(pool);
+                    adapter.notifyDataSetChanged();
+                    binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+                    if (tracks.isEmpty()) binding.empty.setText("熟悉的偏爱，也有意外的新发现\n多听几首，让推荐慢慢懂你");
+                });
+            });
+        });
+    }
+
+    /** 三路轮流取、按 id 去重、上限 50 首（收藏→最近播放→已下载，每轮各取 1 首） */
+    private List<MusicTrack> buildGuessPool(List<MusicTrack> favs, List<MusicTrack> recents, List<MusicTrack> dls) {
+        List<List<MusicTrack>> srcs = java.util.Arrays.asList(favs, recents, dls);
+        List<MusicTrack> pool = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        int max = Math.max(favs.size(), Math.max(recents.size(), dls.size()));
+        for (int i = 0; i < max && pool.size() < 50; i++) {
+            for (List<MusicTrack> s : srcs) {
+                if (pool.size() >= 50) break;
+                if (i >= s.size()) continue;
+                MusicTrack t = s.get(i);
+                if (t.id == null || seen.add(t.id)) pool.add(t);
+            }
+        }
+        return pool;
     }
 
     private void loadCharts() {
@@ -443,18 +1136,298 @@ public class MusicListActivity extends BaseActivity {
             runOnUiThread(() -> {
                 cards.clear();
                 cards.addAll(charts);
+                chartPreviews.clear();
                 adapter.notifyDataSetChanged();
                 binding.tvBigTitle.setText(bigTitle);
                 binding.tvBigCount.setText(charts.size() + " 个榜单");
                 binding.empty.setVisibility(charts.isEmpty() ? View.VISIBLE : View.GONE);
                 if (charts.isEmpty()) binding.empty.setText(R.string.music_no_result);
+                // 逐榜拉曲目当卡内预览（焦点 3 条、普通 2 条），到一条刷一条；失败的卡预览区留空，不编假数据
+                for (int i = 0; i < charts.size(); i++) {
+                    final MusicChart c = charts.get(i);
+                    final int idx = i;
+                    Task.execute(() -> {
+                        List<MusicTrack> r = MusicRepository.chartTracks(c);
+                        runOnUiThread(() -> {
+                            if (!mode.equals("charts")) return;
+                            chartPreviews.put(c.platform + ":" + c.id, r == null ? new ArrayList<>() : r);
+                            adapter.notifyItemChanged(idx == 0 ? 0 : idx + 1);
+                        });
+                    });
+                }
             });
+        });
+    }
+
+    /** 第 3 项：榜单详情开新页（系统返回回榜单列表；本页不放自己的返回箭头） */
+    private void openChartDetail(MusicChart chart) {
+        Intent i = new Intent(this, MusicListActivity.class);
+        i.putExtra("mode", "chartDetail");
+        i.putExtra("title", chart.name);
+        i.putExtra("chartPlatform", chart.platform);
+        i.putExtra("chartId", chart.id);
+        i.putExtra("chartCover", chart.cover);
+        startActivity(i);
+    }
+
+    private void loadChartDetail() {
+        showLoading();
+        binding.tvTitle.setText(bigTitle);
+        MusicChart chart = new MusicChart(chartPlatform, chartId, bigTitle);
+        chart.cover = chartCover;
+        Task.execute(() -> {
+            List<MusicTrack> r = MusicRepository.chartTracks(chart);
+            runOnUiThread(() -> {
+                tracks.clear();
+                if (r != null) tracks.addAll(r);
+                adapter.notifyDataSetChanged();
+                binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+                if (tracks.isEmpty()) binding.empty.setText(R.string.music_no_result);
+            });
+        });
+    }
+
+    /** 第 3 项：榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染底；取色失败保持默认白卡） */
+    private void tintChartCard(View cardRoot, MusicChart chart, int cornerDp) {
+        String key = chart.platform + ":" + chart.id;
+        cardRoot.setTag(key);
+        if (chart.cover == null || chart.cover.isEmpty()) return;
+        ImgUtil.load(chart.cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                if (!key.equals(cardRoot.getTag())) return;
+                Task.execute(() -> {
+                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
+                    int r = (int) (android.graphics.Color.red(dom) * 0.15f + 255 * 0.85f);
+                    int g = (int) (android.graphics.Color.green(dom) * 0.15f + 255 * 0.85f);
+                    int b = (int) (android.graphics.Color.blue(dom) * 0.15f + 255 * 0.85f);
+                    int tinted = android.graphics.Color.rgb(r, g, b);
+                    runOnUiThread(() -> {
+                        if (!key.equals(cardRoot.getTag())) return;
+                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+                        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                        d.setColor(tinted);
+                        d.setStroke(dp(1), 0x14000000);
+                        d.setCornerRadius(dp(cornerDp));
+                        cardRoot.setBackground(d);
+                    });
+                });
+            }
+
+            @Override
+            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+            }
+        });
+    }
+
+    /** 第 9 项：猜你喜欢英雄卡跟随首张封面取色淡染（榜单 tintChartCard 同款口径，圆角 20dp，失败回落白卡） */
+    private void tintGuessHero(View cardRoot) {
+        String key = "guess";
+        cardRoot.setTag(key);
+        if (tracks.isEmpty() || tracks.get(0).cover == null || tracks.get(0).cover.isEmpty()) return;
+        ImgUtil.load(tracks.get(0).cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                if (!key.equals(cardRoot.getTag())) return;
+                Task.execute(() -> {
+                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
+                    int r = (int) (android.graphics.Color.red(dom) * 0.15f + 255 * 0.85f);
+                    int g = (int) (android.graphics.Color.green(dom) * 0.15f + 255 * 0.85f);
+                    int b = (int) (android.graphics.Color.blue(dom) * 0.15f + 255 * 0.85f);
+                    int tinted = android.graphics.Color.rgb(r, g, b);
+                    runOnUiThread(() -> {
+                        if (!key.equals(cardRoot.getTag())) return;
+                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+                        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                        d.setColor(tinted);
+                        d.setStroke(dp(1), 0x14000000);
+                        d.setCornerRadius(dp(20));
+                        cardRoot.setBackground(d);
+                    });
+                });
+            }
+
+            @Override
+            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+            }
         });
     }
 
     private void loadFavorites() {
         showLoading();
-        MusicLibrary.favorites(this::showTracks);
+        MusicLibrary.favorites(list -> {
+            favHistAll.clear();
+            if (list != null) favHistAll.addAll(list);
+            refreshFavHistDisplay();
+        });
+    }
+
+    private void loadHistory() {
+        showLoading();
+        favHistAll.clear();
+        try {
+            favHistAll.addAll(com.fongmi.android.tv.music.MusicStore.loadRecent());
+        } catch (Throwable ignored) {
+        }
+        refreshFavHistDisplay();
+    }
+
+    /** 第 6 项：收藏／历史显示刷新（英雄卡＋搜索过滤＋排序＋续播卡；空态用 GZ 文案） */
+    private void refreshFavHistDisplay() {
+        boolean fav = mode.equals("favorite");
+        binding.favHistHero.setVisibility(View.VISIBLE);
+        binding.tvFavHistLabel.setVisibility(fav ? View.VISIBLE : View.GONE);
+        binding.tvFavHistTitle.setText(bigTitle);
+        binding.tvFavHistCount.setText(favHistAll.size() + " 首");
+        binding.btnFavHistClear.setVisibility(fav ? View.GONE : View.VISIBLE);
+        binding.btnFavHistMulti.setText(favHistMulti ? "取消多选" : "多选");
+        binding.etFavHistSearch.setHint(fav ? "搜索喜欢的歌曲" : "搜索历史歌曲");
+        // 拼贴：前 4 首的封面（没封面的格子留灰底）
+        ImageView[] cells = {binding.ivMosaic0, binding.ivMosaic1, binding.ivMosaic2, binding.ivMosaic3};
+        for (int i = 0; i < cells.length; i++) {
+            ImageView iv = cells[i];
+            String cover = i < favHistAll.size() ? favHistAll.get(i).cover : null;
+            if (cover == null || cover.isEmpty()) {
+                try {
+                    com.bumptech.glide.Glide.with(iv).clear(iv);
+                } catch (Throwable ignored) {
+                }
+                iv.setImageDrawable(null);
+                iv.setBackgroundColor(0xFFE5E5EA);
+            } else {
+                iv.setBackgroundColor(0x00000000);
+                ImgUtil.loadRounded(favHistAll.get(i).displayTitle(), cover, iv);
+            }
+        }
+        // 续播卡：收藏页＝最近播放里第一首在收藏里的；历史页＝最近播放第一首（无则不显）
+        favHistResume = null;
+        try {
+            List<MusicTrack> recent = com.fongmi.android.tv.music.MusicStore.loadRecent();
+            if (fav) {
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                for (MusicTrack t : favHistAll) if (t.id != null) ids.add(t.id);
+                for (MusicTrack r : recent) {
+                    if (r.id != null && ids.contains(r.id)) {
+                        favHistResume = r;
+                        break;
+                    }
+                }
+            } else if (!recent.isEmpty()) {
+                favHistResume = recent.get(0);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (favHistResume != null) {
+            binding.favHistResume.setVisibility(View.VISIBLE);
+            MusicTrack cur = MusicController.get().current();
+            boolean playing = MusicController.get().isPlaying()
+                    && cur != null && cur.id != null && cur.id.equals(favHistResume.id);
+            binding.tvFavHistResumeTitle.setText((playing ? "正在播放 · " : "已暂停 · ")
+                    + favHistResume.displayTitle());
+            binding.tvFavHistResumeState.setText("上次听到这首"
+                    + (favHistResume.displayArtist().isEmpty() ? "" : " · " + favHistResume.displayArtist()));
+        } else {
+            binding.favHistResume.setVisibility(View.GONE);
+        }
+        // 搜索过滤＋排序
+        List<MusicTrack> show = new ArrayList<>();
+        for (MusicTrack t : favHistAll) {
+            if (!favHistSearchKw.isEmpty()) {
+                String kw = favHistSearchKw.toLowerCase(java.util.Locale.getDefault());
+                String title = t.title == null ? "" : t.title.toLowerCase(java.util.Locale.getDefault());
+                String artist = t.artist == null ? "" : t.artist.toLowerCase(java.util.Locale.getDefault());
+                if (!title.contains(kw) && !artist.contains(kw)) continue;
+            }
+            show.add(t);
+        }
+        if (favHistSort == 2) {
+            Collections.sort(show, java.util.Comparator.comparing(t -> t.title == null ? "" : t.title));
+        } else if (fav) {
+            if (favHistSort == 0) Collections.sort(show, (a, b) -> Long.compare(b.favoriteAddedTime, a.favoriteAddedTime));
+            else Collections.sort(show, (a, b) -> Long.compare(a.favoriteAddedTime, b.favoriteAddedTime));
+        } else {
+            // 历史：0 最近播放＝loadRecent 顺序（已是最近在前），1 最早播放＝倒序
+            if (favHistSort == 1) Collections.reverse(show);
+        }
+        tracks.clear();
+        tracks.addAll(show);
+        adapter.notifyDataSetChanged();
+        if (tracks.isEmpty()) {
+            binding.empty.setVisibility(View.VISIBLE);
+            binding.empty.setText(fav
+                    ? "还没有喜欢的歌曲\n播放时点亮爱心，它们会出现在这里"
+                    : "还没有播放记录\n听歌后这里会记录你的播放历史");
+        } else {
+            binding.empty.setVisibility(View.GONE);
+        }
+        refreshFavHistMultiText();
+    }
+
+    /** 第 6 项：收藏／历史排序弹层（GZ：收藏 3 项／历史 3 项＋当前项文案「当前：…」） */
+    private void showFavHistSortDialog() {
+        boolean fav = mode.equals("favorite");
+        String[] items = fav
+                ? new String[]{"最近收藏", "最早收藏", "歌曲名称"}
+                : new String[]{"最近播放", "最早播放", "歌曲名称"};
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(fav ? "收藏排序" : "历史排序")
+                .setMessage("当前：" + items[favHistSort])
+                .setSingleChoiceItems(items, favHistSort, (d, which) -> {
+                    favHistSort = which;
+                    d.dismiss();
+                    refreshFavHistDisplay();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 第 6 项：收藏／历史多选态切换（GZ：选中圆圈 24dp＋「已选 N 首」；工具条复用歌单页口径：删除所选／取消） */
+    private void setFavHistMulti(boolean on) {
+        favHistMulti = on;
+        if (!on) favHistSelected.clear();
+        binding.btnFavHistMulti.setText(on ? "取消多选" : "多选");
+        if (on) {
+            binding.btnPlayAll.setVisibility(View.VISIBLE);
+            binding.btnSort.setVisibility(View.GONE);
+            binding.tvPlayAll.setText("删除所选 (" + favHistSelected.size() + ")");
+            binding.btnPlayAll.setOnClickListener(v -> deleteFavHistSelected());
+        } else {
+            binding.btnPlayAll.setVisibility(View.GONE);
+            binding.btnSort.setVisibility(View.VISIBLE);
+            binding.btnPlayAll.setOnClickListener(v -> shufflePlay());
+        }
+        refreshFavHistMultiText();
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    private void refreshFavHistMultiText() {
+        if (favHistMulti) binding.tvPlayAll.setText("删除所选 (" + favHistSelected.size() + ")");
+    }
+
+    private void deleteFavHistSelected() {
+        if (favHistSelected.isEmpty()) {
+            setFavHistMulti(false);
+            return;
+        }
+        List<MusicTrack> sel = new ArrayList<>();
+        for (MusicTrack t : favHistAll) if (t.id != null && favHistSelected.contains(t.id)) sel.add(t);
+        if (mode.equals("favorite")) {
+            final int[] left = {sel.size()};
+            for (MusicTrack t : sel) {
+                MusicLibrary.setFavorite(t, false, () -> {
+                    if (--left[0] <= 0) {
+                        setFavHistMulti(false);
+                        loadFavorites();
+                    }
+                });
+            }
+        } else {
+            com.fongmi.android.tv.music.MusicStore.removeRecentByIds(new java.util.HashSet<>(favHistSelected));
+            setFavHistMulti(false);
+            loadHistory();
+        }
     }
 
     private void loadSiteTracks() {
@@ -474,12 +1447,429 @@ public class MusicListActivity extends BaseActivity {
 
     private void loadSheetTracks() {
         showLoading();
-        MusicLibrary.playlistTracks(playlistId, this::showTracks);
+        // 歌单详情页顶栏标题＝歌单名（英雄卡里也有名；大标题行在 sheet 模式隐藏，见 load()）
+        binding.tvTitle.setText(bigTitle);
+        binding.btnSheetMore.setVisibility(View.VISIBLE);
+        MusicLibrary.playlistTracks(playlistId, list -> {
+            sheetAll.clear();
+            if (list != null) sheetAll.addAll(list);
+            refreshSheetDisplay();
+        });
+    }
+
+    /** 第 1 项：歌单详情显示刷新（搜索过滤＋排序；区头 N 首＝当前显示条数） */
+    private void refreshSheetDisplay() {
+        List<MusicTrack> show = new ArrayList<>();
+        for (MusicTrack t : sheetAll) {
+            if (!sheetSearchKw.isEmpty()) {
+                String kw = sheetSearchKw.toLowerCase(java.util.Locale.getDefault());
+                String title = t.title == null ? "" : t.title.toLowerCase(java.util.Locale.getDefault());
+                String artist = t.artist == null ? "" : t.artist.toLowerCase(java.util.Locale.getDefault());
+                if (!title.contains(kw) && !artist.contains(kw)) continue;
+            }
+            show.add(t);
+        }
+        if (sheetSort == 1) Collections.sort(show, (a, b) -> Long.compare(b.playlistAddedTime, a.playlistAddedTime));
+        else if (sheetSort == 2) Collections.sort(show, (a, b) -> Long.compare(a.playlistAddedTime, b.playlistAddedTime));
+        else if (sheetSort == 3) Collections.sort(show, java.util.Comparator.comparing(t -> t.title == null ? "" : t.title));
+        else if (sheetSort == 4) Collections.sort(show, java.util.Comparator.comparing(t -> t.album == null ? "" : t.album));
+        else if (sheetSort == 5) Collections.sort(show, java.util.Comparator.comparing(t -> t.artist == null ? "" : t.artist));
+        // 原顺序＝findByPlaylist 的 position 顺序，即 sheetAll 本身的顺序，不动
+        tracks.clear();
+        tracks.addAll(show);
+        adapter.notifyDataSetChanged();
+        binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+        if (tracks.isEmpty()) binding.empty.setText(R.string.music_no_track);
+    }
+
+    /** 第 1 项：歌单详情页顶栏 ⋮ 菜单（GZ PlaylistMoreButton：刷新歌单／随机播放／搜索歌曲／排序歌曲／分享歌单；多选是星辰侧入口） */
+    private void showSheetTopMenu() {
+        List<String> opts = new ArrayList<>();
+        opts.add("刷新歌单");
+        opts.add("随机播放");
+        opts.add("搜索歌曲");
+        opts.add("排序歌曲");
+        opts.add("分享歌单");
+        opts.add(sheetMulti ? "取消多选" : "多选");
+        MusicOptionsDialog.show(this, bigTitle, opts, -1, idx -> {
+            if (idx == 0) loadSheetTracks();
+            else if (idx == 1) shufflePlay();
+            else if (idx == 2) {
+                sheetSearchShown = !sheetSearchShown;
+                binding.etSheetSearch.setVisibility(sheetSearchShown ? View.VISIBLE : View.GONE);
+                if (!sheetSearchShown) {
+                    sheetSearchKw = "";
+                    binding.etSheetSearch.setText("");
+                    refreshSheetDisplay();
+                } else {
+                    binding.etSheetSearch.requestFocus();
+                }
+            } else if (idx == 3) showSheetSortDialog();
+            else if (idx == 4) shareSheet();
+            else if (idx == 5) setSheetMulti(!sheetMulti);
+        });
+    }
+
+    /** 第 1 项：歌单排序弹层（GZ：首项固定「歌单原顺序」，其后 5 项按 p66 枚举顺序） */
+    private void showSheetSortDialog() {
+        String[] items = {"歌单原顺序", "加入歌单时间从新到旧", "加入歌单时间从旧到新",
+                "按歌曲名排序", "按专辑名排序", "按歌手名排序"};
+        MusicOptionsDialog.show(this, "排序方式", java.util.Arrays.asList(items), sheetSort, idx -> {
+            sheetSort = idx;
+            refreshSheetDisplay();
+        });
+    }
+
+    /** 第 1 项：分享歌单（GZ 分享歌单项；星辰侧用系统分享发歌单名＋曲目文本，无云端） */
+    private void shareSheet() {
+        if (sheetAll.isEmpty()) {
+            Notify.show(R.string.music_no_track);
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(bigTitle).append("\n");
+        for (MusicTrack t : sheetAll) {
+            sb.append(t.displayTitle());
+            if (!t.displayArtist().isEmpty()) sb.append(" - ").append(t.displayArtist());
+            sb.append("\n");
+        }
+        Intent i = new Intent(Intent.ACTION_SEND);
+        i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_TEXT, sb.toString());
+        startActivity(Intent.createChooser(i, "分享歌单"));
+    }
+
+    /** 第 1 项：改封面（GZ 封面表：修改封面／恢复默认封面；「仅本机 · 赞助用户可同步到云端」与同步到云端需账号，星辰侧不建） */
+    private void showSheetCoverDialog() {
+        MusicOptionsDialog.show(this, "封面", java.util.Arrays.asList("修改封面", "恢复默认封面"), -1, idx -> {
+            if (idx == 0) {
+                Intent i = new Intent(Intent.ACTION_PICK);
+                i.setType("image/*");
+                startActivityForResult(Intent.createChooser(i, "选择封面"), REQ_SHEET_COVER);
+            } else {
+                com.fongmi.android.tv.music.MusicStore.setSheetCover(playlistId, null);
+                adapter.notifyItemChanged(0);
+            }
+        });
+    }
+
+    /** 第 1 项：歌单多选态切换（GZ 批量态：移除；行尾 24dp 选中圆圈＋已选 N 首口径与收藏／历史多选一致） */
+    private void setSheetMulti(boolean on) {
+        sheetMulti = on;
+        if (!on) sheetSelected.clear();
+        adapter.notifyDataSetChanged();
+    }
+
+    private void deleteSheetSelected() {
+        if (sheetSelected.isEmpty()) {
+            setSheetMulti(false);
+            return;
+        }
+        java.util.Set<String> ids = new java.util.HashSet<>(sheetSelected);
+        Task.execute(() -> {
+            try {
+                for (String id : ids) {
+                    com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao().delete(playlistId, id);
+                }
+            } catch (Throwable ignored) {
+            }
+            runOnUiThread(() -> {
+                setSheetMulti(false);
+                loadSheetTracks();
+            });
+        });
     }
 
     private void loadDownloads() {
         showLoading();
-        MusicDownloadStore.all(this::showTracks);
+        registerDlListener();
+        if (binding.downloadStatsCard != null) binding.downloadStatsCard.setVisibility(View.VISIBLE);
+        if (binding.downloadBatchBar != null) binding.downloadBatchBar.setVisibility(View.VISIBLE);
+        if (binding.tvDlLiveHeader != null) binding.tvDlLiveHeader.setVisibility(View.VISIBLE);
+        if (binding.etDlSearch != null) {
+            binding.etDlSearch.setVisibility(View.VISIBLE);
+            if (!dlSearchWired) {
+                dlSearchWired = true;
+                binding.etDlSearch.addTextChangedListener(new android.text.TextWatcher() {
+                    @Override
+                    public void beforeTextChanged(CharSequence s, int st, int c, int a) {
+                    }
+
+                    @Override
+                    public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    }
+
+                    @Override
+                    public void afterTextChanged(android.text.Editable s) {
+                        dlSearchKw = s == null ? "" : s.toString().trim();
+                        refreshDlDisplay();
+                    }
+                });
+            }
+        }
+        MusicDownloadStore.all(list -> {
+            refreshDlTasksData();
+            dlAllTracks.clear();
+            dlAllTracks.addAll(list);
+            refreshDlDisplay();
+            refreshDlStats();
+        });
+    }
+
+    /** 下载已完成列表按搜索词过滤（GZ「搜索已下载歌曲」；进行中任务行不受过滤影响） */
+    private void refreshDlDisplay() {
+        List<MusicTrack> show = new ArrayList<>();
+        for (MusicTrack t : dlAllTracks) {
+            if (dlSearchKw.isEmpty()) {
+                show.add(t);
+                continue;
+            }
+            String kw = dlSearchKw.toLowerCase(java.util.Locale.getDefault());
+            String title = t.title == null ? "" : t.title.toLowerCase(java.util.Locale.getDefault());
+            String artist = t.artist == null ? "" : t.artist.toLowerCase(java.util.Locale.getDefault());
+            if (title.contains(kw) || artist.contains(kw)) show.add(t);
+        }
+        showTracks(show);
+    }
+
+    private void registerDlListener() {
+        if (dlListenerOn) return;
+        dlListenerOn = true;
+        try {
+            com.fongmi.android.tv.utils.download.DownloadManager.get().addListener(dlListener);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 只重建进行中数据（不刷 UI；给 loadDownloads 里 showTracks 之前的空态判断用） */
+    private void refreshDlTasksData() {
+        dlTasks.clear();
+        try {
+            dlTasks.addAll(MusicDownloadStore.liveTasks());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 重建进行中数据＋刷列表＋刷统计卡 */
+    private void refreshDlTasks() {
+        refreshDlTasksData();
+        refreshDlStats();
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    /** 下载概览统计卡（GZ：大数字 34sp＋首已下载、副行占用 X 11sp、失败红色 N 首下载失败 11sp；
+     * 进行中区标题三态：N 首正在下载／N 首等待继续／暂无进行中的下载） */
+    private void refreshDlStats() {
+        long size = 0;
+        for (MusicTrack t : dlAllTracks) {
+            try {
+                if (t.localPath != null && !t.localPath.isEmpty()) size += new java.io.File(t.localPath).length();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (binding.tvDlBigNumber != null) binding.tvDlBigNumber.setText(String.valueOf(dlAllTracks.size()));
+        if (binding.tvDlSub != null) {
+            binding.tvDlSub.setText("占用 " + com.fongmi.android.tv.music.MusicCache.formatSize(size));
+        }
+        int failed = 0;
+        int downloading = 0;
+        int waiting = 0;
+        for (MusicDownloadStore.LiveTask t : dlTasks) {
+            if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_ERROR) failed++;
+            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_DOWNLOADING) downloading++;
+            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_WAITING
+                    || t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_PAUSED) waiting++;
+        }
+        if (binding.tvDlFailed != null) {
+            if (failed > 0) {
+                binding.tvDlFailed.setVisibility(View.VISIBLE);
+                binding.tvDlFailed.setText(failed + " 首下载失败");
+            } else binding.tvDlFailed.setVisibility(View.GONE);
+        }
+        if (binding.tvDlLiveHeader != null) {
+            if (dlTasks.isEmpty()) binding.tvDlLiveHeader.setText("暂无进行中的下载");
+            else if (waiting > 0) binding.tvDlLiveHeader.setText(downloading + " 首正在下载 · " + waiting + " 首等待继续");
+            else binding.tvDlLiveHeader.setText(downloading + " 首正在下载");
+        }
+    }
+
+    /** 全选钮文案：无选中＝全选，有选中＝删除所选 (N)（与歌单页多选的工具条互换口径一致） */
+    private void refreshDlSelectText() {
+        if (binding.btnDlSelect == null) return;
+        binding.btnDlSelect.setText(dlSelected.isEmpty() ? "全选" : "删除所选 (" + dlSelected.size() + ")");
+    }
+
+    private void toggleDlSelect() {
+        if (!dlSelected.isEmpty()) {
+            // 已有选中：按删除所选走删除二选一（记录／记录＋文件二选一，整批同选）
+            List<MusicTrack> sel = new ArrayList<>();
+            for (MusicTrack t : tracks) if (t.id != null && dlSelected.contains(t.id)) sel.add(t);
+            if (sel.isEmpty()) {
+                dlSelected.clear();
+                refreshDlSelectText();
+                if (adapter != null) adapter.notifyDataSetChanged();
+                return;
+            }
+            deleteDownloadBatch(sel);
+            return;
+        }
+        for (MusicTrack t : tracks) if (t.id != null) dlSelected.add(t.id);
+        refreshDlSelectText();
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    /** 批量删除二选一（GZ 弹层标题「删除下载」＋两项文案：删除本地文件／仅移出列表；
+     * 含义与旧的两项一致：删除本地文件＝记录＋文件一并删，仅移出列表＝只删记录、文件留着仍可被本地库扫描） */
+    private void deleteDownloadBatch(List<MusicTrack> sel) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("删除下载")
+                .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
+                .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
+                    List<MusicTrack> copy = new ArrayList<>(sel);
+                    Runnable done = new Runnable() {
+                        int left = copy.size();
+
+                        @Override
+                        public void run() {
+                            if (--left <= 0) {
+                                dlSelected.clear();
+                                refreshDlSelectText();
+                                loadDownloads();
+                            }
+                        }
+                    };
+                    for (MusicTrack t : copy) {
+                        if (which == 1) MusicDownloadStore.deleteRecordOnly(t, done);
+                        else MusicDownloadStore.deleteLocal(t, done);
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 单首删除二选一（GZ 弹层标题「删除下载」＋两项文案；仅 download 模式的 ⋮ 菜单走这里；其它模式仍走旧的 confirmDeleteLocal） */
+    private void deleteDownloadTwoChoice(MusicTrack track) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("删除下载")
+                .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
+                .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
+                    Runnable done = () -> {
+                        Notify.show(R.string.music_deleted);
+                        if (mode.equals("download")) loadDownloads();
+                    };
+                    if (which == 1) MusicDownloadStore.deleteRecordOnly(track, done);
+                    else MusicDownloadStore.deleteLocal(track, done);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 外层时长格式化（与 adapter 内 fmt 同款，供详情弹层用） */
+    private static String fmtMs(long ms) {
+        if (ms <= 0) return "--:--";
+        long s = ms / 1000;
+        return String.format("%02d:%02d", s / 60, s % 60);
+    }
+
+    /** 下载详情弹层（GZ 字段顺序：文件名／保存位置／格式／下载音质／文件大小／时长／音频规格／
+     * 下载时间／原始来源／附加文件／文件 URI；附加文件行值为「封面／歌词／无旁路文件」拼接；
+     * 原始来源无平台记录，只显「本地下载」不冒充；下载音质无档位记录，显实测码率） */
+    private void showDownloadDetail(MusicTrack track) {
+        Task.execute(() -> {
+            String createTime = "";
+            try {
+                com.fongmi.android.tv.bean.MusicDownload d = com.fongmi.android.tv.db.AppDatabase.get()
+                        .getMusicDownloadDao().findByTrackId(track.id);
+                if (d != null && d.getCreateTime() > 0) {
+                    createTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                            .format(new java.util.Date(d.getCreateTime()));
+                }
+            } catch (Throwable ignored) {
+            }
+            String path = track.localPath == null ? "" : track.localPath;
+            java.io.File f = path.isEmpty() ? null : new java.io.File(path);
+            String name = f == null ? track.displayTitle() : f.getName();
+            String ext = "";
+            int dot = name.lastIndexOf('.');
+            if (dot > 0 && dot < name.length() - 1) ext = name.substring(dot + 1).toUpperCase(java.util.Locale.US);
+            String bitrate = "未知";
+            try {
+                android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+                mmr.setDataSource(path);
+                String br = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_BITRATE);
+                if (br != null && !br.isEmpty()) {
+                    long bps = Long.parseLong(br);
+                    if (bps > 0) bitrate = (bps / 1000) + "kbps";
+                }
+                try {
+                    mmr.release();
+                } catch (Throwable ignored) {
+                }
+            } catch (Throwable ignored) {
+            }
+            String size = f == null ? "未知"
+                    : com.fongmi.android.tv.music.MusicCache.formatSize(f.length());
+            String base = dot > 0 ? name.substring(0, dot) : name;
+            String parent = f == null ? "" : f.getParent();
+            boolean hasCoverSidecar = false;
+            boolean hasLrc = false;
+            if (parent != null) {
+                for (String e : new String[]{"jpg", "png", "jpeg"}) {
+                    if (new java.io.File(parent, base + "." + e).exists()) {
+                        hasCoverSidecar = true;
+                        break;
+                    }
+                }
+                hasLrc = new java.io.File(parent, base + ".lrc").exists();
+            }
+            // GZ 附加文件行值：封面／歌词／无旁路文件 三者拼接，不是独立的封面、歌词两行
+            java.util.List<String> extraParts = new java.util.ArrayList<>();
+            if (hasCoverSidecar) extraParts.add("封面");
+            if (hasLrc) extraParts.add("歌词");
+            if (extraParts.isEmpty()) extraParts.add("无旁路文件");
+            String fCreateTime = createTime;
+            String fExt = ext.isEmpty() ? "未知" : ext;
+            String fBitrate = bitrate;
+            String fSize = size;
+            // 音频规格：扩展名＋实测码率；都拿不到时按 GZ 空值口径显「设备未提供」
+            String fSpec = ext.isEmpty() && bitrate.equals("未知")
+                    ? "设备未提供"
+                    : (ext.isEmpty() ? "" : ext) + (bitrate.equals("未知") ? "" : " · " + bitrate);
+            String fExtras = android.text.TextUtils.join("／", extraParts);
+            String fPath = path.isEmpty() ? "未知" : path;
+            runOnUiThread(() -> {
+                LinearLayout box = new LinearLayout(this);
+                box.setOrientation(LinearLayout.VERTICAL);
+                int pad = dp(20);
+                box.setPadding(pad, pad, pad, pad);
+                String[][] rows = {
+                        {"文件名", name},
+                        {"保存位置", fPath},
+                        {"格式", fExt},
+                        {"下载音质", fBitrate},
+                        {"文件大小", fSize},
+                        {"时长", fmtMs(track.duration)},
+                        {"音频规格", fSpec},
+                        {"下载时间", fCreateTime.isEmpty() ? "未知" : fCreateTime},
+                        {"原始来源", "本地下载"},
+                        {"附加文件", fExtras},
+                        {"文件 URI", fPath.isEmpty() ? "未知" : "file://" + fPath},
+                };
+                for (String[] r : rows) {
+                    TextView tv = new TextView(this);
+                    tv.setText(r[0] + "：" + r[1]);
+                    tv.setTextSize(14);
+                    tv.setTextColor(0xFF1C1C1E);
+                    tv.setPadding(0, dp(3), 0, dp(3));
+                    box.addView(tv);
+                }
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(track.displayTitle())
+                        .setView(box)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+            });
+        });
     }
 
     // ================= 本地音乐（设备音频） =================
@@ -524,8 +1914,301 @@ public class MusicListActivity extends BaseActivity {
         showLoading();
         Task.execute(() -> {
             List<MusicTrack> list = com.fongmi.android.tv.music.DeviceMusicStore.scan(this);
-            runOnUiThread(() -> showTracks(list));
+            runOnUiThread(() -> {
+                // 忽略掉的歌（行内「移除」）不进列表，重启仍生效
+                java.util.Set<String> ignored = com.fongmi.android.tv.music.MusicStore.loadIgnoredDeviceIds();
+                deviceAll.clear();
+                for (MusicTrack t : list) {
+                    if (t != null && t.id != null && !ignored.contains(t.id)) deviceAll.add(t);
+                }
+                refreshDeviceDisplay();
+            });
         });
+    }
+
+    /** 第 8 项：本地音乐视图切换（切视图清掉组筛选） */
+    private void setDeviceView(int view) {
+        deviceView = view;
+        deviceGroupType = -1;
+        deviceGroupKey = "";
+        refreshDeviceDisplay();
+    }
+
+    /** 第 8 项：本地音乐排序弹层（GZ 标题「选择排序方式」＋4 项副文案；升/降序不在弹层内，只在分组区块头右侧切换） */
+    private void showDeviceSortDialog() {
+        String[] items = {"默认", "最近添加", "时长", "文件大小"};
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择排序方式")
+                .setMessage("切换后列表将按该方式分组展示，升/降序在区块头右侧切换\n\n"
+                        + "默认：按添加时间新→旧平铺\n"
+                        + "最近添加：按 今天/昨天/本周/更早 分组\n"
+                        + "时长：按 短/中/长/超长 分组\n"
+                        + "文件大小：按 小/中/大/超大 分组")
+                .setSingleChoiceItems(items, deviceSort, (d, which) -> {
+                    deviceSort = which;
+                    d.dismiss();
+                    refreshDeviceDisplay();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 第 8 项：本地音乐来源弹层（GZ 4 源里星辰只有本地音乐是真实来源；按扫描的两路来源分：媒体库／导入目录） */
+    private void showDeviceSourceDialog() {
+        String[] items = {"全部来源", "设备媒体库", "导入目录"};
+        MusicOptionsDialog.show(this, "选择音乐库来源", java.util.Arrays.asList(items), deviceSource, idx -> {
+            deviceSource = idx;
+            binding.tvDeviceSource.setText("来源：" + items[idx].replace("设备媒体库", "媒体库"));
+            refreshDeviceDisplay();
+        });
+    }
+
+    private static boolean isLibTrack(MusicTrack t) {
+        return t != null && t.id != null && t.id.contains(":lib:");
+    }
+
+    private static long fileMtime(MusicTrack t) {
+        try {
+            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
+                return new java.io.File(t.localPath).lastModified();
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
+    private static long fileSizeOf(MusicTrack t) {
+        try {
+            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
+                return new java.io.File(t.localPath).length();
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
+    private static String groupVal(String s) {
+        return s == null || s.trim().isEmpty() ? "" : s.trim();
+    }
+
+    private static String folderOf(MusicTrack t) {
+        try {
+            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
+                java.io.File parent = new java.io.File(t.localPath).getParentFile();
+                if (parent != null && parent.getName() != null && !parent.getName().isEmpty()) {
+                    return parent.getName();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "未知文件夹";
+    }
+
+    /** 第 8 项：本地行尾徽标文案（真实格式：只显编码名，flac＝FLAC，其余显扩展名大写；取不到扩展名则不显） */
+    private static String deviceBadge(MusicTrack t) {
+        String path = t == null ? null : t.localPath;
+        if (path == null || path.isEmpty()) path = t == null ? null : t.title;
+        if (path == null) return "";
+        int dot = path.lastIndexOf('.');
+        if (dot < 0 || dot >= path.length() - 1) return "";
+        String ext = path.substring(dot + 1).toLowerCase(java.util.Locale.US);
+        if (ext.equals("flac")) return "FLAC";
+        return ext.toUpperCase(java.util.Locale.US);
+    }
+
+    /** 第 8 项：本地音乐显示刷新（歌曲视图：平铺／分组；组视图：专辑／歌手／文件夹卡） */
+    private void refreshDeviceDisplay() {
+        if (binding.deviceViewBar != null) binding.deviceViewBar.setVisibility(View.VISIBLE);
+        // 视图 chips 选中态（选中红字加粗，其余默认色）
+        TextView[] chips = {binding.tvDeviceViewSongs, binding.tvDeviceViewAlbums,
+                binding.tvDeviceViewArtists, binding.tvDeviceViewFolders};
+        for (int i = 0; i < chips.length; i++) {
+            if (chips[i] == null) continue;
+            boolean sel = i == deviceView;
+            chips[i].setTextColor(sel ? 0xFFFA243C : 0xFF1C1C1E);
+            chips[i].getPaint().setFakeBoldText(sel);
+        }
+        if (deviceGroupType >= 0) {
+            binding.deviceFilterBar.setVisibility(View.VISIBLE);
+            String label = deviceGroupType == 0 ? "专辑：" : deviceGroupType == 1 ? "歌手：" : "文件夹：";
+            binding.deviceFilterBar.setText(label + deviceGroupKey + " ×");
+        } else {
+            binding.deviceFilterBar.setVisibility(View.GONE);
+        }
+        List<MusicTrack> base = new ArrayList<>();
+        for (MusicTrack t : deviceAll) {
+            if (deviceSource == 1 && isLibTrack(t)) continue;
+            if (deviceSource == 2 && !isLibTrack(t)) continue;
+            if (deviceGroupType == 0 && !groupVal(t.album).equals(deviceGroupKey)) continue;
+            if (deviceGroupType == 1 && !groupVal(t.artist).equals(deviceGroupKey)) continue;
+            if (deviceGroupType == 2 && !folderOf(t).equals(deviceGroupKey)) continue;
+            base.add(t);
+        }
+        deviceSectionPos.clear();
+        deviceSectionTitles.clear();
+        deviceSectionCounts.clear();
+        cards.clear();
+        if (deviceView == DEVICE_VIEW_SONGS) {
+            List<MusicTrack> ordered;
+            if (deviceGroupType >= 0 || deviceSort == 0) ordered = sortDeviceFlat(base);
+            else ordered = groupDevice(base);
+            tracks.clear();
+            tracks.addAll(ordered);
+            binding.tvBigTitle.setText(bigTitle);
+            binding.tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
+            binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+            if (tracks.isEmpty()) binding.empty.setText("尚未添加本地音乐");
+        } else {
+            java.util.Map<String, List<MusicTrack>> groups = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            for (MusicTrack t : base) {
+                String key = deviceView == DEVICE_VIEW_ALBUMS
+                        ? (groupVal(t.album).isEmpty() ? "未知专辑" : groupVal(t.album))
+                        : deviceView == DEVICE_VIEW_ARTISTS
+                        ? (groupVal(t.artist).isEmpty() ? "未知艺人" : groupVal(t.artist))
+                        : folderOf(t);
+                List<MusicTrack> g = groups.get(key);
+                if (g == null) {
+                    g = new ArrayList<>();
+                    groups.put(key, g);
+                }
+                g.add(t);
+            }
+            for (java.util.Map.Entry<String, List<MusicTrack>> e : groups.entrySet()) {
+                cards.add(new DeviceGroupCard(deviceView, e.getKey(), e.getValue().size()));
+            }
+            tracks.clear();
+            binding.tvBigTitle.setText(bigTitle);
+            binding.tvBigCount.setText(cards.size() + " 组");
+            binding.empty.setVisibility(cards.isEmpty() ? View.VISIBLE : View.GONE);
+            if (cards.isEmpty()) binding.empty.setText("尚未添加本地音乐");
+        }
+        adapter.notifyDataSetChanged();
+    }
+
+    /** 第 8 项：本地歌曲平铺排序（默认／组筛选内：按排序键＋当前方向；默认＝添加时间新→旧） */
+    private List<MusicTrack> sortDeviceFlat(List<MusicTrack> base) {
+        List<MusicTrack> out = new ArrayList<>(base);
+        java.util.Comparator<MusicTrack> cmp;
+        if (deviceSort == 2) cmp = java.util.Comparator.comparingLong(t -> t.duration);
+        else if (deviceSort == 3) cmp = java.util.Comparator.comparingLong(MusicListActivity::fileSizeOf);
+        else cmp = java.util.Comparator.comparingLong(MusicListActivity::fileMtime);
+        if (!deviceAsc) cmp = cmp.reversed();
+        Collections.sort(out, cmp);
+        return out;
+    }
+
+    /** 第 8 项：本地歌曲分组（最近添加／时长／文件大小；组顺序跟方向走；同时填区块头位置表） */
+    private List<MusicTrack> groupDevice(List<MusicTrack> base) {
+        java.util.Map<String, List<MusicTrack>> groups = new java.util.LinkedHashMap<>();
+        for (MusicTrack t : base) {
+            String key;
+            if (deviceSort == 1) key = recentBucket(fileMtime(t));
+            else if (deviceSort == 2) key = durationBucket(t.duration);
+            else key = sizeBucket(fileSizeOf(t));
+            List<MusicTrack> g = groups.get(key);
+            if (g == null) {
+                g = new ArrayList<>();
+                groups.put(key, g);
+            }
+            g.add(t);
+        }
+        List<String> order;
+        if (deviceSort == 1) order = java.util.Arrays.asList("今天", "昨天", "本周", "更早");
+        else if (deviceSort == 2) order = java.util.Arrays.asList("短", "中", "长", "超长");
+        else order = java.util.Arrays.asList("小", "中", "大", "超大");
+        if (!deviceAsc) Collections.reverse(order);
+        List<MusicTrack> flat = new ArrayList<>();
+        int pos = 1; // 设备头占 1 位（导入行）
+        for (String key : order) {
+            List<MusicTrack> g = groups.get(key);
+            if (g == null || g.isEmpty()) continue;
+            java.util.Comparator<MusicTrack> cmp;
+            if (deviceSort == 1) cmp = java.util.Comparator.comparingLong(MusicListActivity::fileMtime);
+            else if (deviceSort == 2) cmp = java.util.Comparator.comparingLong(t -> t.duration);
+            else cmp = java.util.Comparator.comparingLong(MusicListActivity::fileSizeOf);
+            if (!deviceAsc) cmp = cmp.reversed();
+            Collections.sort(g, cmp);
+            deviceSectionPos.add(pos);
+            deviceSectionTitles.add(key);
+            deviceSectionCounts.add(g.size());
+            pos += 1 + g.size();
+            flat.addAll(g);
+        }
+        return flat;
+    }
+
+    /** 最近添加分组桶（GZ 只给分组名未给边界；星辰侧自定：今天／昨天／过去 7 天内／更早） */
+    private static String recentBucket(long mtime) {
+        if (mtime <= 0) return "更早";
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        java.util.Calendar day = java.util.Calendar.getInstance();
+        day.setTimeInMillis(mtime);
+        boolean sameDay = now.get(java.util.Calendar.YEAR) == day.get(java.util.Calendar.YEAR)
+                && now.get(java.util.Calendar.DAY_OF_YEAR) == day.get(java.util.Calendar.DAY_OF_YEAR);
+        if (sameDay) return "今天";
+        java.util.Calendar yesterday = java.util.Calendar.getInstance();
+        yesterday.add(java.util.Calendar.DAY_OF_YEAR, -1);
+        boolean isYesterday = yesterday.get(java.util.Calendar.YEAR) == day.get(java.util.Calendar.YEAR)
+                && yesterday.get(java.util.Calendar.DAY_OF_YEAR) == day.get(java.util.Calendar.DAY_OF_YEAR);
+        if (isYesterday) return "昨天";
+        long diff = System.currentTimeMillis() - mtime;
+        if (diff < 7L * 24 * 60 * 60 * 1000) return "本周";
+        return "更早";
+    }
+
+    /** 时长分组桶（GZ 阈值未抠到；星辰侧自定：短＜3 分钟／中 3–6 分钟／长 6–10 分钟／超长＞10 分钟） */
+    private static String durationBucket(long ms) {
+        if (ms < 180 * 1000) return "短";
+        if (ms < 360 * 1000) return "中";
+        if (ms < 600 * 1000) return "长";
+        return "超长";
+    }
+
+    /** 文件大小分组桶（GZ 阈值未抠到；星辰侧自定：小＜5MB／中 5–20MB／大 20–100MB／超大＞100MB） */
+    private static String sizeBucket(long bytes) {
+        if (bytes < 5L * 1024 * 1024) return "小";
+        if (bytes < 20L * 1024 * 1024) return "中";
+        if (bytes < 100L * 1024 * 1024) return "大";
+        return "超大";
+    }
+
+    /** 第 8 项：本地组卡（专辑／歌手／文件夹；点卡进该组的歌曲列） */
+    private static class DeviceGroupCard {
+        final int view;
+        final String key;
+        final int count;
+
+        DeviceGroupCard(int view, String key, int count) {
+            this.view = view;
+            this.key = key;
+            this.count = count;
+        }
+    }
+
+    /** 第 5 项：搜索分组卡（1 歌手组／3 专辑组；点卡进该组歌曲列） */
+    private static class SearchGroupCard {
+        final int type;
+        final String key;
+        final int count;
+
+        SearchGroupCard(int type, String key, int count) {
+            this.type = type;
+            this.key = key;
+            this.count = count;
+        }
+    }
+
+    /** 第 5 项：搜索歌单卡（本地歌单；点卡进歌单详情，不挂长按改名／删单——搜索页不是歌单管理页） */
+    private static class SearchPlaylistCard {
+        final long id;
+        final String name;
+        final int count;
+
+        SearchPlaylistCard(long id, String name, int count) {
+            this.id = id;
+            this.name = name;
+            this.count = count;
+        }
     }
 
     @Override
@@ -659,8 +2342,9 @@ public class MusicListActivity extends BaseActivity {
                 cards.clear();
                 cards.addAll(ordered);
                 adapter.notifyDataSetChanged();
-                binding.tvBigTitle.setText(bigTitle);
-                binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_plugins));
+                // 第 8 项去双标题：sites 模式只留顶部居中“插件管理”，下方大标题行整行隐藏
+                // （GZ 页内只有头卡标题“ N 个插件”，没有第二个“插件管理 N 个插件”大标题）
+                binding.bigTitleRow.setVisibility(View.GONE);
                 refreshPluginHeader(sites);
                 refreshPluginSections();
                 // P22：sites 模式空态改为空态卡，替代原 empty 文本；非空时两者都隐藏
@@ -708,7 +2392,8 @@ public class MusicListActivity extends BaseActivity {
             MusicPluginTest t = MusicSourceManager.get().loadPluginTest(s.srcUrl);
             if (t == null || t.state != MusicPluginTest.State.FAILED) working++;
         }
-        binding.pluginInstalledCount.setText(total + " / " + working + " " + getString(R.string.music_plugin_working));
+        // GZ 计数顺序（复核纠偏）：字面是“工作数 / 总数 正在工作”，不是总数在前
+        binding.pluginInstalledCount.setText(working + " / " + total + " " + getString(R.string.music_plugin_working));
         binding.btnPluginSort.setText(pluginSortLabel() + " ▾");
         // P23 头卡徽章（仅展示，不弹面板）：优先级 隔离＞失败＞启动中＞无本地＞正常
         MusicRuntimeStatus st = MusicSourceManager.get().runtimeStatus();
@@ -825,6 +2510,30 @@ public class MusicListActivity extends BaseActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_IMPORT_MUSIC) {
             if (resultCode == RESULT_OK && data != null) runImport(data);
+            return;
+        }
+        if (requestCode == REQ_SHEET_COVER) {
+            // 第 1 项：改封面＝把选的图拷到应用文件目录，按歌单 id 索引（不改 Room schema）
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                Task.execute(() -> {
+                    try {
+                        java.io.File dir = new java.io.File(getFilesDir(), "sheet_covers");
+                        if (!dir.exists()) dir.mkdirs();
+                        java.io.File out = new java.io.File(dir, playlistId + ".jpg");
+                        java.io.InputStream in = getContentResolver().openInputStream(data.getData());
+                        java.io.OutputStream os = new java.io.FileOutputStream(out);
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) os.write(buf, 0, n);
+                        in.close();
+                        os.close();
+                        com.fongmi.android.tv.music.MusicStore.setSheetCover(playlistId, out.getAbsolutePath());
+                        runOnUiThread(() -> adapter.notifyItemChanged(0));
+                    } catch (Throwable t) {
+                        runOnUiThread(() -> Notify.show("封面设置失败"));
+                    }
+                });
+            }
             return;
         }
         if (requestCode == REQ_PICK_LXMC) {
@@ -980,12 +2689,10 @@ public class MusicListActivity extends BaseActivity {
         }
         binding.pluginSections.setVisibility(View.VISIBLE);
         binding.pluginSections.removeAllViews();
-        // ---- C5 多插件智能切换行（标题 15sp，说明行照瓜子抄两态文案） ----
+        // ---- C5 多插件智能切换行（标题 15sp；说明句按忌介绍文字铁律去掉，只留名字＋开关，功能不动。
+        // GZ 本体该行有 12sp 副文，用户令高于瓜子值，此处不照抄） ----
         boolean smartOn = MusicStore.isSmartSwitch();
-        String smartDesc = smartOn
-                ? "已开启：同一平台多个插件时自动优先使用检测最快的插件"
-                : "需 ≥2 个插件完成检测后开启；按各平台取链耗时自动选用最快的插件";
-        LinearLayout smartRow = sectionSwitchRow("多插件智能切换", smartDesc, smartOn, 0.75f,
+        LinearLayout smartRow = sectionSwitchRow("多插件智能切换", smartOn, 0.75f,
                 (sw, on) -> {
                     if (!on) {
                         MusicStore.setSmartSwitch(false);
@@ -1010,18 +2717,10 @@ public class MusicListActivity extends BaseActivity {
                     }
                 });
         binding.pluginSections.addView(smartRow);
-        // ---- C4 自动屏蔽行（另一类行，开关缩放 0.72，与插件行 0.75 区分） ----
+        // ---- C4 自动屏蔽行（另一类行，开关缩放 0.72，与插件行 0.75 区分；说明句同上按铁律去掉。
+        // 注意 GZ 没有页级全局自动屏蔽行，只有单插件屏蔽面板内开关——星辰这行是自有功能，只动呈现不删） ----
         boolean blockOn = MusicStore.isAutoBlockInvalid();
-        int blockedCount = 0;
-        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
-            if (t != null && t.state == MusicPluginTest.State.BLOCKED) blockedCount++;
-        }
-        String blockDesc = !blockOn
-                ? "开启后立即检测，自动屏蔽失败/超时的无效平台"
-                : blockedCount > 0
-                        ? "开启中 · 已自动屏蔽 " + blockedCount + " 个：恢复可用自动解除"
-                        : "开启中：失败/超时平台将自动屏蔽，恢复可用自动解除";
-        LinearLayout blockRow = sectionSwitchRow("自动屏蔽无效平台", blockDesc, blockOn, 0.72f,
+        LinearLayout blockRow = sectionSwitchRow("自动屏蔽无效平台", blockOn, 0.72f,
                 (sw, on) -> {
                     MusicStore.setAutoBlockInvalid(on);
                     if (on) {
@@ -1036,8 +2735,9 @@ public class MusicListActivity extends BaseActivity {
         MusicRuntimeStatus st = MusicSourceManager.get().runtimeStatus();
         LinearLayout card = sectionCard();
         TextView title = new TextView(this);
-        title.setText("运行时状态");
-        title.setTextSize(15);
+        // GZ 面板标题“插件运行状态”18sp；星辰是页内卡不是独立面板，标题照 GZ 取名，说明段按铁律全删、只留名字＋状态行
+        title.setText("插件运行状态");
+        title.setTextSize(18);
         title.setTextColor(0xFF1C1C1E);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         card.addView(title);
@@ -1048,28 +2748,8 @@ public class MusicListActivity extends BaseActivity {
         card.addView(sectionLine("启动失败 " + st.failedPlugins + " 个"
                 + (st.failedNames.isEmpty() ? "" : "：" + android.text.TextUtils.join("、", st.failedNames))));
         card.addView(sectionLine("已启用插件 " + st.enabledLocalPlugins + " 个"));
-        TextView note = new TextView(this);
-        note.setTextSize(11);
-        note.setTextColor(0xFF8E8E93);
-        if (st.initializing) {
-            note.setText("正在启动插件，首次可能需要几秒。");
-        } else if (st.quarantinedRunners > 0) {
-            note.setText("有插件连续多次没有响应，已经被自动停用（免得每次播放都白等）。重新加载会把它们重启一遍，通常就能恢复。");
-        } else if (st.failedPlugins > 0) {
-            note.setText("有插件启动时就失败了，重新加载解决不了，需要重新导入或更新这个插件。");
-        } else if (st.enabledLocalPlugins == 0 && MusicSourceManager.get().listSites().isEmpty()) {
-            note.setText("当前没有安装第三方插件，在线内容由系统服务提供，不需要本地插件参与。");
-        } else {
-            note.setText("插件是随用随启的：播放、检测、取歌词时才会启动。播放或取歌词异常时，可以在这里重新加载。");
-        }
-        card.addView(note);
-        TextView reloadNote = new TextView(this);
-        reloadNote.setTextSize(10);
-        reloadNote.setTextColor(0xFF8E8E93);
-        reloadNote.setText("重新加载会中断正在进行的取链与检测（当前播放不受影响）。");
-        card.addView(reloadNote);
         TextView reloadBtn = new TextView(this);
-        reloadBtn.setText("重新加载");
+        reloadBtn.setText("重新加载插件");
         reloadBtn.setTextSize(14);
         reloadBtn.setTextColor(0xFFFA243C);
         reloadBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -1108,26 +2788,18 @@ public class MusicListActivity extends BaseActivity {
         void onChanged(com.google.android.material.switchmaterial.SwitchMaterial sw, boolean on);
     }
 
-    private LinearLayout sectionSwitchRow(String titleText, String desc, boolean checked,
+    private LinearLayout sectionSwitchRow(String titleText, boolean checked,
                                           float scale, SectionSwitchListener listener) {
         LinearLayout card = sectionCard();
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
         title.setText(titleText);
         title.setTextSize(15);
         title.setTextColor(0xFF1C1C1E);
-        texts.addView(title);
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextSize(12);
-        d.setTextColor(0xFF8E8E93);
-        texts.addView(d);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        row.addView(texts, tlp);
+        row.addView(title, tlp);
         com.google.android.material.switchmaterial.SwitchMaterial sw =
                 new com.google.android.material.switchmaterial.SwitchMaterial(this);
         sw.setScaleX(scale);
@@ -1173,11 +2845,14 @@ public class MusicListActivity extends BaseActivity {
                 opts.add(getString(R.string.music_plugin_move_down));
             }
         }
+        int blockIdx = opts.size();
+        opts.add("屏蔽平台（" + MusicStore.getBlockedPlatforms(site.srcUrl).size() + "）");
         int deleteIdx = opts.size();
         opts.add(getString(R.string.music_delete));
         final int fUpdateIdx = updateIdx;
         final int fUpIdx = upIdx;
         final int fDownIdx = downIdx;
+        final int fBlockIdx = blockIdx;
         final int fDeleteIdx = deleteIdx;
         MusicOptionsDialog.show(this, site.name == null ? "" : site.name, opts, -1, idx -> {
             if (idx == fUpdateIdx) {
@@ -1209,6 +2884,8 @@ public class MusicListActivity extends BaseActivity {
                 movePlugin(site, -1);
             } else if (idx == fDownIdx) {
                 movePlugin(site, 1);
+            } else if (idx == fBlockIdx) {
+                showPlatformBlockSheet(site);
             } else if (idx == fDeleteIdx) {
                 // 瓜子移除弹窗（仅本机文案；云端备份选项属排除项，不出）
                 new MaterialAlertDialogBuilder(this)
@@ -1225,6 +2902,92 @@ public class MusicListActivity extends BaseActivity {
                         .show();
             }
         });
+    }
+
+    /** 第 11 项②：单插件屏蔽平台弹层（GZ PlatformBlockSheet：标题 18sp、说明 12sp、平台行 15sp＋行尾已屏蔽态、
+     * 自动屏蔽开关行 14sp；单插件屏蔽＝改该插件自身的 blockedPlatforms，不动其他插件；
+     * 平台全集＝全部站点 platform 去重（按站点顺序首次出现）＋该插件已屏蔽但站点已不在的平台（仍可见可恢复）；
+     * 行点按即切换并立即写 prefs，无单独保存钮；自动屏蔽开关复用全局偏好，与页级开关同一实现） */
+    private void showPlatformBlockSheet(MusicSite site) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        root.setPadding(pad, dp(16), pad, dp(8));
+        TextView title = new TextView(this);
+        title.setText("屏蔽平台");
+        title.setTextSize(18);
+        title.getPaint().setFakeBoldText(true);
+        title.setTextColor(0xFF1C1C1E);
+        root.addView(title);
+        TextView desc = new TextView(this);
+        desc.setText("对『" + (site.name == null ? "" : site.name) + "』屏蔽的平台，将不再用于该插件的取链／换源／内容与歌词");
+        desc.setTextSize(12);
+        desc.setTextColor(0xFF9AA7B8);
+        desc.setPadding(0, dp(8), 0, dp(12));
+        root.addView(desc);
+        List<String> plats = new ArrayList<>();
+        for (MusicSite s : MusicRepository.sites()) {
+            if (s.platform != null && !s.platform.isEmpty() && !plats.contains(s.platform)) plats.add(s.platform);
+        }
+        for (String p : MusicStore.getBlockedPlatforms(site.srcUrl)) {
+            if (!plats.contains(p)) plats.add(p);
+        }
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        for (String p : plats) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(10), 0, dp(10));
+            TextView name = new TextView(this);
+            name.setText(LxPlatformSearch.platformName(p));
+            name.setTextSize(15);
+            name.setTextColor(0xFF1C1C1E);
+            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView state = new TextView(this);
+            state.setTextSize(14);
+            state.setTextColor(0xFFFA243C);
+            row.addView(state);
+            Runnable refresh = () -> state.setText(
+                    MusicStore.getBlockedPlatforms(site.srcUrl).contains(p) ? "已屏蔽" : "");
+            refresh.run();
+            row.setOnClickListener(v -> {
+                java.util.Set<String> cur = MusicStore.getBlockedPlatforms(site.srcUrl);
+                if (cur.contains(p)) cur.remove(p);
+                else cur.add(p);
+                MusicStore.setBlockedPlatforms(site.srcUrl, cur);
+                refresh.run();
+            });
+            rows.addView(row);
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(rows);
+        root.addView(scroll);
+        LinearLayout autoRow = new LinearLayout(this);
+        autoRow.setOrientation(LinearLayout.HORIZONTAL);
+        autoRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        autoRow.setPadding(0, dp(12), 0, dp(4));
+        TextView autoName = new TextView(this);
+        autoName.setText("自动屏蔽无效平台");
+        autoName.setTextSize(14);
+        autoName.setTextColor(0xFF1C1C1E);
+        autoRow.addView(autoName, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        com.google.android.material.switchmaterial.SwitchMaterial sw =
+                new com.google.android.material.switchmaterial.SwitchMaterial(this);
+        sw.setChecked(MusicStore.isAutoBlockInvalid());
+        sw.setOnCheckedChangeListener((v, on) -> {
+            MusicStore.setAutoBlockInvalid(on);
+            if (on) {
+                for (MusicSite s : MusicSourceManager.get().enabledSites()) {
+                    startPluginTest(s, false);
+                }
+            }
+        });
+        autoRow.addView(sw);
+        root.addView(autoRow);
+        new MaterialAlertDialogBuilder(this).setView(root)
+                .setPositiveButton("完成", null)
+                .show();
     }
 
     /**
@@ -1312,7 +3075,10 @@ public class MusicListActivity extends BaseActivity {
             adapter.notifyDataSetChanged();
             binding.tvBigTitle.setText(bigTitle);
             binding.tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
-            binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+            // 第 7 项尾巴：download 模式有进行中任务时不显空态（已完成为空不等于没内容）
+            boolean showEmpty = tracks.isEmpty()
+                    && !(mode.equals("download") && !dlTasks.isEmpty());
+            binding.empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
             if (tracks.isEmpty() && !mode.equals("search")) binding.empty.setText(R.string.music_no_track);
             else if (tracks.isEmpty()) binding.empty.setText(R.string.music_no_result);
         });
@@ -1336,6 +3102,33 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private void shufflePlay() {
+        // 第 8 项：本地页组视图（卡）下没有歌曲行，随机播按当前来源过滤的全库打乱播
+        if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
+            List<MusicTrack> pool = new ArrayList<>();
+            for (MusicTrack t : deviceAll) {
+                if (deviceSource == 1 && isLibTrack(t)) continue;
+                if (deviceSource == 2 && !isLibTrack(t)) continue;
+                pool.add(t);
+            }
+            if (pool.isEmpty()) {
+                Notify.show(R.string.music_no_track);
+                return;
+            }
+            Collections.shuffle(pool);
+            MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
+            MusicController.get().play(pool, 0, bigTitle, "list", listRouteParams());
+            MusicPlayerActivity.start(this);
+            return;
+        }
+        if (mode.equals("search") && tracks.isEmpty() && !allResults.isEmpty()) {
+            // 第 5 项：搜索分组卡下没有歌曲行，随机播按合并后的全站结果打乱播
+            List<MusicTrack> shuffled = new ArrayList<>(allResults);
+            Collections.shuffle(shuffled);
+            MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
+            MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
+            MusicPlayerActivity.start(this);
+            return;
+        }
         if (tracks.isEmpty()) {
             Notify.show(R.string.music_no_track);
             return;
@@ -1390,15 +3183,31 @@ public class MusicListActivity extends BaseActivity {
             int downloadIdx = -1;
             int removeIdx = -1;
             int deleteLocalIdx = -1;
+            int detailIdx = -1;
+            int removeDeviceIdx = -1;
+            int deleteFileIdx = -1;
+            int removeHistIdx = -1;
             if (local) {
                 // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
                 deleteLocalIdx = opts.size();
                 opts.add(getString(R.string.music_download_delete));
+                // 第 7 项尾巴：仅 download 模式给详情弹层入口
+                if (mode.equals("download")) {
+                    detailIdx = opts.size();
+                    opts.add("详情");
+                }
             } else if (device) {
                 // 设备歌曲：本来就在手机里，不给"下载"
                 if (mode.equals("sheet")) {
                     removeIdx = opts.size();
                     opts.add(getString(R.string.music_remove));
+                } else if (mode.equals("device")) {
+                    // 第 8 项：本地页行内移除（移出曲库，重启仍生效）／删文件（真删文件＋同名旁路）
+                    // GZ 本地库行内未抠到删除入口（只有文件夹排除管理＋下载页删除二选一），这两项是任务要求的星辰侧实现
+                    removeDeviceIdx = opts.size();
+                    opts.add("移除");
+                    deleteFileIdx = opts.size();
+                    opts.add("删除文件");
                 }
             } else {
                 if (mode.equals("sheet")) {
@@ -1411,6 +3220,15 @@ public class MusicListActivity extends BaseActivity {
             int dIdx = downloadIdx;
             int rIdx = removeIdx;
             int delIdx = deleteLocalIdx;
+            int detIdx = detailIdx;
+            int rmDevIdx = removeDeviceIdx;
+            int delFileIdx = deleteFileIdx;
+            // 第 6 项：历史页行级移除（GZ：历史页有「移除／移除历史」行级操作）
+            if (mode.equals("history")) {
+                removeHistIdx = opts.size();
+                opts.add("移除历史");
+            }
+            int rmHistIdx = removeHistIdx;
             MusicOptionsDialog.show(act, track.displayTitle(), opts, -1, idx -> {
                 if (idx == 0) playTrack(position);
                 else if (idx == 1) {
@@ -1418,23 +3236,52 @@ public class MusicListActivity extends BaseActivity {
                     Notify.show(getString(R.string.music_play_next));
                 } else if (idx == 2) pickPlaylist(track);
                 else if (idx == 3) toggleFavorite(track, opts.get(3));
-                else if (idx == dIdx) {
-                    if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
-                        int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
-                                MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
-                        List<String> qopts = new ArrayList<>();
-                        for (int v : values) qopts.add(MusicStore.qualityName(v));
-                        int fixed = MusicStore.getDownloadQualityFixed();
-                        int checked = 1;
-                        for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
-                        MusicOptionsDialog.show(act, getString(R.string.music_set_download_quality), qopts, checked,
-                                qidx -> MusicDownloadStore.downloadWithQuality(track, values[qidx]));
-                    } else {
-                        MusicDownloadStore.download(track);
-                    }
-                }
+                else if (idx == dIdx) downloadTrack(track);
                 else if (idx == rIdx) removeFromSheet(track);
-                else if (idx == delIdx) confirmDeleteLocal(track);
+                else if (idx == rmDevIdx) {
+                    // 第 8 项：行内移除＝记入忽略集，列表立即刷新，重启仍生效（恢复入口待定，见对照表）
+                    com.fongmi.android.tv.music.MusicStore.ignoreDeviceId(track.id);
+                    Notify.show("已移出本地库");
+                    loadDevice();
+                } else if (idx == delFileIdx) {
+                    new MaterialAlertDialogBuilder(act)
+                            .setTitle(track.displayTitle())
+                            .setMessage("确定删除这个文件吗？文件将从手机中彻底删除，同名歌词与封面文件一并删除。")
+                            .setPositiveButton("删除", (d, w) -> {
+                                try {
+                                    if (track.localPath != null && !track.localPath.isEmpty()) {
+                                        java.io.File audio = new java.io.File(track.localPath);
+                                        String name = audio.getName();
+                                        int dot = name.lastIndexOf('.');
+                                        audio.delete();
+                                        if (dot > 0) {
+                                            String base = name.substring(0, dot);
+                                            java.io.File parent = audio.getParentFile();
+                                            if (parent != null) {
+                                                for (String e : new String[]{"lrc", "jpg", "png", "jpeg"}) {
+                                                    new java.io.File(parent, base + "." + e).delete();
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (Throwable ignored) {
+                                }
+                                Notify.show(R.string.music_deleted);
+                                loadDevice();
+                            })
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show();
+                }
+                else if (idx == rmHistIdx) {
+                    com.fongmi.android.tv.music.MusicStore.removeRecentByIds(
+                            java.util.Collections.singleton(track.id));
+                    loadHistory();
+                }
+                else if (idx == detIdx) showDownloadDetail(track);
+                else if (idx == delIdx) {
+                    if (mode.equals("download")) deleteDownloadTwoChoice(track);
+                    else confirmDeleteLocal(track);
+                }
             });
         });
     }
@@ -1510,50 +3357,39 @@ public class MusicListActivity extends BaseActivity {
     // ================= 导入歌单 =================
 
     /** 粘贴弹窗：点导入后不关窗，后台拉取，失败原因就显示在输入框下方 */
+    /** 第 11 项：GZ 导入歌单大面板（替代旧小 dialog；分享链接导入与 .lxmc 导入复用现有逻辑） */
     private void showImportPlaylistDialog() {
-        float density = getResources().getDisplayMetrics().density;
-        int pad = (int) (20 * density);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(pad, (int) (8 * density), pad, 0);
-        EditText et = new EditText(this);
-        et.setHint(R.string.music_import_hint);
-        et.setTextColor(0xFFFFFFFF);
-        et.setHintTextColor(0xFF5E6B7E);
-        et.setMinLines(3);
-        et.setGravity(android.view.Gravity.TOP);
-        box.addView(et, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView status = new TextView(this);
-        status.setTextSize(13);
-        status.setVisibility(View.GONE);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = (int) (10 * density);
-        box.addView(status, slp);
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.music_import_playlist)
-                .setView(box)
-                .setPositiveButton(R.string.music_import_action, null)
-                .setNeutralButton("从洛雪 .lxmc 文件导入", (d, w) -> pickLxmcFile())
-                .setNegativeButton(android.R.string.cancel, null)
-                .create();
-        dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
-                .setOnClickListener(v -> runPlaylistImport(dialog, et, status)));
-        dialog.show();
+        MusicPlaylistImportDialog.show(this, new MusicPlaylistImportDialog.Listener() {
+            @Override
+            public void onImportText(String text, MusicPlaylistImportDialog dialog) {
+                runPlaylistImportNew(text, dialog);
+            }
+
+            @Override
+            public void onLxmc() {
+                pickLxmcFile();
+            }
+
+            @Override
+            public void onAccountImport(String platform) {
+                showAccountLoginDialog(platform);
+            }
+        });
     }
 
-    private void runPlaylistImport(AlertDialog dialog, EditText et, TextView status) {
-        String text = et.getText().toString();
-        android.widget.Button ok = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
-        android.widget.Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
-        setImportBusy(et, status, ok, cancel, true);
+    private void runPlaylistImportNew(String text, MusicPlaylistImportDialog dialog) {
+        String input = text == null ? "" : text.trim();
+        if (input.isEmpty()) {
+            dialog.setError(R.string.music_import_err_paste_empty);
+            return;
+        }
+        dialog.setBusy(true);
         Task.execute(() -> {
             PlaylistImporter.Result result = null;
             PlaylistImporter.Fail fail = null;
             boolean lxOk = false;
             try {
-                result = PlaylistImporter.importFromText(text);
+                result = PlaylistImporter.importFromText(input);
                 lxOk = PlaylistImporter.hasLxSupport(result.platformKey);
             } catch (PlaylistImporter.ImportException e) {
                 fail = e.fail;
@@ -1566,21 +3402,18 @@ public class MusicListActivity extends BaseActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 if (f != null || r == null) {
-                    setImportBusy(et, status, ok, cancel, false);
-                    status.setTextColor(0xFFFF8A80);
-                    status.setText(importErrorText(f == null ? PlaylistImporter.Fail.NETWORK : f));
+                    dialog.setBusy(false);
+                    dialog.setError(importErrorText(f == null ? PlaylistImporter.Fail.NETWORK : f));
                     return;
                 }
                 MusicLibrary.importPlaylist(r.name, r.tracks, res -> {
                     if (res.inserted <= 0) {
-                        // 一首都没落库（全是重复歌）不留空歌单，按空单报
                         if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
-                        setImportBusy(et, status, ok, cancel, false);
-                        status.setTextColor(0xFFFF8A80);
-                        status.setText(R.string.music_import_err_empty);
+                        dialog.setBusy(false);
+                        dialog.setError(R.string.music_import_err_empty);
                         return;
                     }
-                    dialog.dismiss();
+                    dialog.dismissAllowingStateLoss();
                     loadSheets();
                     String msg;
                     if (r.total > res.inserted) {
@@ -1598,16 +3431,50 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    private void setImportBusy(EditText et, TextView status, android.widget.Button ok,
-                               android.widget.Button cancel, boolean busy) {
-        et.setEnabled(!busy);
-        if (ok != null) ok.setEnabled(!busy);
-        if (cancel != null) cancel.setEnabled(!busy);
-        if (busy) {
-            status.setVisibility(View.VISIBLE);
-            status.setTextColor(0xFF9AA7B8);
-            status.setText(R.string.music_importing);
-        }
+    /**
+     * 第 11 项：登录账号导入——只放开这一处。登录页照 GZ：WebView 载平台站、开第三方 Cookie、
+     * GZ 提示原文、“完成，获取Cookie”钮。Cookie 读到后：拉歌单接口在 GZ 混淆 ViewModel 里未抠到
+     * （类文件与接口地址均未抠到），此处不明示成功、不编假导入，只报接口待接。
+     */
+    private void showAccountLoginDialog(String platform) {
+        boolean netease = "netease".equals(platform);
+        String url = netease ? "https://music.163.com/" : "https://y.qq.com/";
+        String title = "登录 " + (netease ? "网易云音乐" : "QQ音乐");
+        android.webkit.WebView web = new android.webkit.WebView(this);
+        android.webkit.WebSettings st = web.getSettings();
+        st.setJavaScriptEnabled(true);
+        st.setDomStorageEnabled(true);
+        android.webkit.CookieManager.getInstance().setAcceptCookie(true);
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        web.loadUrl(url);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        TextView tip = new TextView(this);
+        tip.setText("请在网页中使用桌面版登录（可用手机端 App 扫码，或账号密码登录），登录完成后点下方按钮");
+        tip.setTextSize(13);
+        tip.setTextColor(0xFF8E8E93);
+        int pad = dp(16);
+        box.setPadding(pad, pad, pad, 0);
+        box.addView(tip);
+        box.addView(web, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("完成，获取Cookie", null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
+                    if (cookie == null || cookie.isEmpty()) {
+                        Notify.show("未读到登录 Cookie，请先在网页里登录");
+                        return;
+                    }
+                    dialog.dismiss();
+                    Notify.show("已读到登录 Cookie，歌单拉取接口待接");
+                }));
+        dialog.show();
     }
 
     private int importErrorText(PlaylistImporter.Fail fail) {
@@ -1958,6 +3825,22 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_CARD = 1;
         private static final int TYPE_PLUGIN = 2;
         private static final int TYPE_HEADER = 3;
+        private static final int TYPE_SHEET = 4;
+        private static final int TYPE_DL_TASK = 5;
+        private static final int TYPE_SECTION = 6;
+        private static final int TYPE_SHEET_HERO = 7;
+        private static final int TYPE_SHEET_ACTIONS = 8;
+        private static final int TYPE_SHEET_SECTION = 9;
+        private static final int TYPE_SHEET_TRACK = 10;
+        private static final int TYPE_CHART_FOCUS = 11;
+        private static final int TYPE_CHART_SECTION = 12;
+        private static final int TYPE_CHART_CARD = 13;
+        private static final int TYPE_CHART_HERO = 14;
+        private static final int TYPE_CHART_TRACK = 15;
+        private static final int TYPE_GUESS_TITLE = 16;
+        private static final int TYPE_GUESS_HERO = 17;
+        private static final int TYPE_GUESS_SECTION = 18;
+        private static final int TYPE_GUESS_TRACK = 19;
 
         /** 本地音乐页首行是「导入加密歌曲」头，歌曲行整体下移一位 */
         private int headerCount() {
@@ -1967,9 +3850,39 @@ public class MusicListActivity extends BaseActivity {
         @Override
         public int getItemViewType(int position) {
             if (deviceHeader() && position == 0) return TYPE_HEADER;
+            // 第 1 项：歌单详情页＝英雄卡＋操作行＋区头＋歌曲行（英雄卡随列表滚动，与 GZ 一致）
+            if (mode.equals("sheet")) {
+                if (position == 0) return TYPE_SHEET_HERO;
+                if (position == 1) return TYPE_SHEET_ACTIONS;
+                if (position == 2) return TYPE_SHEET_SECTION;
+                return TYPE_SHEET_TRACK;
+            }
+            // 第 3 项：榜单列表＝焦点卡＋分区头＋普通卡；榜单详情＝英雄卡＋排名行
+            if (mode.equals("charts")) {
+                if (position == 0) return TYPE_CHART_FOCUS;
+                if (position == 1) return TYPE_CHART_SECTION;
+                return TYPE_CHART_CARD;
+            }
+            if (mode.equals("chartDetail")) {
+                if (position == 0) return TYPE_CHART_HERO;
+                return TYPE_CHART_TRACK;
+            }
+            // 第 9 项：猜你喜欢＝标题＋英雄卡＋精选区头＋精选行（标题与英雄卡随列表滚动，与 GZ 一致）
+            if (mode.equals("guess")) {
+                if (position == 0) return TYPE_GUESS_TITLE;
+                if (position == 1) return TYPE_GUESS_HERO;
+                if (position == 2) return TYPE_GUESS_SECTION;
+                return TYPE_GUESS_TRACK;
+            }
+            // 第 8 项：本地页组视图走卡、歌曲分组视图的区块头走分组头
+            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) return TYPE_CARD;
+            if (mode.equals("device") && deviceSectionPos.contains(position)) return TYPE_SECTION;
+            if (mode.equals("download") && position < dlTasks.size()) return TYPE_DL_TASK;
             if (isCardMode()) {
                 // 插件管理页里插件行用专用布局（名＋版本＋格式标签＋开关＋⋮），添加卡仍走通用卡
                 if (mode.equals("sites") && cards.get(position) instanceof MusicSite) return TYPE_PLUGIN;
+                // 歌单页用 GZ 歌单行（50dp 格＋名 14sp＋“N 首”11sp＋播放圆钮＋⋮），榜单页仍走通用卡
+                if (mode.equals("sheets") && cards.get(position) instanceof MusicPlaylist) return TYPE_SHEET;
                 return TYPE_CARD;
             }
             return TYPE_TRACK;
@@ -1979,8 +3892,56 @@ public class MusicListActivity extends BaseActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
+            if (viewType == TYPE_DL_TASK) {
+                return new DlTaskHolder(inf.inflate(R.layout.item_music_download_task, parent, false));
+            }
+            if (viewType == TYPE_SECTION) {
+                return new SectionHolder(inf.inflate(R.layout.item_music_device_section, parent, false));
+            }
+            if (viewType == TYPE_SHEET_HERO) {
+                return new SheetHeroHolder(inf.inflate(R.layout.item_music_sheet_hero, parent, false));
+            }
+            if (viewType == TYPE_SHEET_ACTIONS) {
+                return new SheetActionsHolder(inf.inflate(R.layout.item_music_sheet_actions, parent, false));
+            }
+            if (viewType == TYPE_SHEET_SECTION) {
+                return new SheetSectionHolder(inf.inflate(R.layout.item_music_sheet_section, parent, false));
+            }
+            if (viewType == TYPE_SHEET_TRACK) {
+                return new SheetTrackHolder(inf.inflate(R.layout.item_music_sheet_track, parent, false));
+            }
+            if (viewType == TYPE_CHART_FOCUS) {
+                return new ChartFocusHolder(inf.inflate(R.layout.item_music_chart_focus, parent, false));
+            }
+            if (viewType == TYPE_CHART_SECTION) {
+                return new ChartSectionHolder(inf.inflate(R.layout.item_music_chart_section, parent, false));
+            }
+            if (viewType == TYPE_CHART_CARD) {
+                return new ChartCardHolder(inf.inflate(R.layout.item_music_chart_card, parent, false));
+            }
+            if (viewType == TYPE_CHART_HERO) {
+                return new ChartHeroHolder(inf.inflate(R.layout.item_music_chart_hero, parent, false));
+            }
+            if (viewType == TYPE_CHART_TRACK) {
+                return new ChartTrackHolder(inf.inflate(R.layout.item_music_chart_track, parent, false));
+            }
+            if (viewType == TYPE_GUESS_TITLE) {
+                return new GuessTitleHolder(inf.inflate(R.layout.item_music_guess_title, parent, false));
+            }
+            if (viewType == TYPE_GUESS_HERO) {
+                return new GuessHeroHolder(inf.inflate(R.layout.item_music_guess_hero, parent, false));
+            }
+            if (viewType == TYPE_GUESS_SECTION) {
+                return new GuessSectionHolder(inf.inflate(R.layout.item_music_guess_section, parent, false));
+            }
+            if (viewType == TYPE_GUESS_TRACK) {
+                return new GuessTrackHolder(inf.inflate(R.layout.item_music_guess_track, parent, false));
+            }
             if (viewType == TYPE_PLUGIN) {
                 return new PluginHolder(inf.inflate(R.layout.item_music_plugin, parent, false));
+            }
+            if (viewType == TYPE_SHEET) {
+                return new PlaylistHolder(inf.inflate(R.layout.item_music_playlist_row, parent, false));
             }
             if (viewType == TYPE_CARD || viewType == TYPE_HEADER) {
                 return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
@@ -1994,9 +3955,62 @@ public class MusicListActivity extends BaseActivity {
                 bindImportRow((CardHolder) h);
                 return;
             }
-            if (h instanceof PluginHolder) bindPlugin((PluginHolder) h, position);
+            // 第 1 项：歌单详情页四类行
+            if (mode.equals("sheet")) {
+                if (h instanceof SheetHeroHolder) bindSheetHero((SheetHeroHolder) h);
+                else if (h instanceof SheetActionsHolder) bindSheetActions((SheetActionsHolder) h);
+                else if (h instanceof SheetSectionHolder) bindSheetSection((SheetSectionHolder) h);
+                else bindSheetTrack((SheetTrackHolder) h, trackIndex(position));
+                return;
+            }
+            // 第 3 项：榜单列表与榜单详情
+            if (mode.equals("charts")) {
+                if (h instanceof ChartFocusHolder) bindChartFocus((ChartFocusHolder) h, (MusicChart) cards.get(0));
+                else if (h instanceof ChartSectionHolder) bindChartSection((ChartSectionHolder) h);
+                else bindChartCard((ChartCardHolder) h, (MusicChart) cards.get(position - 1));
+                return;
+            }
+            if (mode.equals("chartDetail")) {
+                if (h instanceof ChartHeroHolder) bindChartHero((ChartHeroHolder) h);
+                else bindChartTrack((ChartTrackHolder) h, trackIndex(position));
+                return;
+            }
+            // 第 9 项：猜你喜欢四类行
+            if (mode.equals("guess")) {
+                if (h instanceof GuessTitleHolder) return;
+                else if (h instanceof GuessHeroHolder) bindGuessHero((GuessHeroHolder) h);
+                else if (h instanceof GuessSectionHolder) bindGuessSection((GuessSectionHolder) h);
+                else bindGuessTrack((GuessTrackHolder) h, trackIndex(position));
+                return;
+            }
+            // 第 8 项：本地组视图的卡要减设备头；分组区块头单独绑
+            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
+                bindCard((CardHolder) h, position - headerCount());
+                return;
+            }
+            if (mode.equals("device") && deviceSectionPos.contains(position)) {
+                bindDeviceSection((SectionHolder) h, deviceSectionPos.indexOf(position));
+                return;
+            }
+            if (h instanceof DlTaskHolder) bindDlTask((DlTaskHolder) h, position);
+            else if (h instanceof PluginHolder) bindPlugin((PluginHolder) h, position);
+            else if (h instanceof PlaylistHolder) bindPlaylistRow((PlaylistHolder) h, position);
             else if (h instanceof CardHolder) bindCard((CardHolder) h, position);
-            else bindTrack((TrackHolder) h, position - headerCount());
+            else bindTrack((TrackHolder) h, trackIndex(position));
+        }
+
+        /** 歌曲行在列表里的下标：download 模式前面有进行中任务行，要减掉；歌单详情页前面有英雄卡／操作行／区头 3 行；本地分组视图还要减掉前面的区块头；其它模式减设备头 */
+        private int trackIndex(int position) {
+            if (mode.equals("download")) return position - dlTasks.size();
+            if (mode.equals("sheet")) return position - 3;
+            if (mode.equals("chartDetail")) return position - 1;
+            if (mode.equals("guess")) return position - 3;
+            if (mode.equals("device")) {
+                int sectionsBefore = 0;
+                for (int p : deviceSectionPos) if (p < position) sectionsBefore++;
+                return position - headerCount() - sectionsBefore;
+            }
+            return position - headerCount();
         }
 
         /** 插件行：名＋版本号小字＋格式标签；右侧金开关（真接线启停）＋⋮菜单 */
@@ -2006,18 +4020,22 @@ public class MusicListActivity extends BaseActivity {
             boolean lx = MusicSourceManager.isLx(s);
             h.formatTag.setText(lx ? "落雪" : "FreeJS");
             h.formatTag.setTextColor(lx ? 0xFFFA243C : 0xFF9AA7B8);
+            // GZ 无独立作者行：副文案串单行“版本 · 作者”（版本去 v/V 前缀补 v），两项都空则整行不显
+            StringBuilder sub = new StringBuilder();
             if (s.version != null && !s.version.isEmpty()) {
+                String v = s.version.trim();
+                while (v.startsWith("v") || v.startsWith("V")) v = v.substring(1);
+                sub.append("v").append(v);
+            }
+            if (s.author != null && !s.author.isEmpty()) {
+                if (sub.length() > 0) sub.append(" · ");
+                sub.append(s.author);
+            }
+            if (sub.length() > 0) {
                 h.version.setVisibility(View.VISIBLE);
-                h.version.setText(s.version);
+                h.version.setText(sub.toString());
             } else {
                 h.version.setVisibility(View.GONE);
-            }
-            // P10：版本行后补作者（空则不显）
-            if (s.author != null && !s.author.isEmpty()) {
-                h.author.setVisibility(View.VISIBLE);
-                h.author.setText(s.author);
-            } else {
-                h.author.setVisibility(View.GONE);
             }
             h.pluginSwitch.setOnCheckedChangeListener(null);
             h.pluginSwitch.setChecked(s.enabled);
@@ -2055,6 +4073,41 @@ public class MusicListActivity extends BaseActivity {
             h.itemView.setOnClickListener(menu);
         }
 
+        /** 第 11 项：GZ 歌单行绑定（多选态下行点按变勾选，播放钮播整单，⋮走重命名／删除） */
+        private void bindPlaylistRow(PlaylistHolder h, int position) {
+            MusicPlaylist p = (MusicPlaylist) cards.get(position);
+            boolean sel = sheetsSelected.contains(p.getId());
+            h.name.setText(p.getName());
+            String count = p.trackCount >= 0 ? p.trackCount + " 首" : "";
+            h.status.setText(count + (sel ? " · 已选" : ""));
+            h.icon.setImageResource(R.drawable.ic_music_queue);
+            h.icon.setBackground(circle(sel ? 0xFFFA243C : 0xFF3B82F6));
+            h.rowPlay.setBackground(circle(0xFFFA243C));
+            h.rowPlay.setVisibility(sheetsMulti ? View.GONE : View.VISIBLE);
+            h.rowMore.setVisibility(sheetsMulti ? View.GONE : View.VISIBLE);
+            View.OnClickListener toggle = v -> {
+                if (sheetsSelected.contains(p.getId())) sheetsSelected.remove(p.getId());
+                else sheetsSelected.add(p.getId());
+                binding.tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
+                adapter.notifyItemChanged(h.getBindingAdapterPosition());
+            };
+            h.itemView.setOnClickListener(sheetsMulti ? toggle
+                    : v -> startSheet(MusicListActivity.this, p.getId(), p.getName()));
+            h.itemView.setOnLongClickListener(v -> {
+                if (sheetsMulti) return false;
+                sheetLongPress(p);
+                return true;
+            });
+            h.rowPlay.setOnClickListener(v -> MusicLibrary.playlistTracks(p.getId(), list -> {
+                if (list == null || list.isEmpty()) {
+                    Notify.show(R.string.music_no_track);
+                    return;
+                }
+                MusicController.get().play(new ArrayList<>(list), 0, p.getName(), "list", listRouteParams());
+            }));
+            h.rowMore.setOnClickListener(v -> sheetLongPress(p));
+        }
+
         private void bindCard(CardHolder h, int position) {
             Object o = cards.get(position);
             if (o instanceof NewPlaylistCard) {
@@ -2088,18 +4141,49 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setImageResource(R.drawable.ic_music_eq);
                 h.icon.setBackground(circle(0xFFA855F7));
                 h.itemView.setOnClickListener(v -> openChart(c));
+            } else if (o instanceof DeviceGroupCard) {
+                // 第 8 项：本地组卡（点卡进该组的歌曲列，筛选条可清掉回到全部）
+                DeviceGroupCard g = (DeviceGroupCard) o;
+                h.name.setText(g.key);
+                h.status.setText(g.count + " 首");
+                h.icon.setImageResource(R.drawable.ic_music_queue);
+                int color = g.view == DEVICE_VIEW_ALBUMS ? 0xFF3B82F6
+                        : g.view == DEVICE_VIEW_ARTISTS ? 0xFF22C55E : 0xFFA855F7;
+                h.icon.setBackground(circle(color));
+                h.itemView.setOnClickListener(v -> {
+                    deviceGroupType = g.view == DEVICE_VIEW_ALBUMS ? 0
+                            : g.view == DEVICE_VIEW_ARTISTS ? 1 : 2;
+                    deviceGroupKey = g.key;
+                    deviceView = DEVICE_VIEW_SONGS;
+                    refreshDeviceDisplay();
+                });
+            } else if (o instanceof SearchGroupCard) {
+                // 第 5 项：搜索分组卡（点卡进该组歌曲列，筛选条点 × 回分类）
+                SearchGroupCard g = (SearchGroupCard) o;
+                h.name.setText(g.key);
+                h.status.setText(g.count + " 首");
+                h.icon.setImageResource(R.drawable.ic_music_queue);
+                h.icon.setBackground(circle(g.type == 1 ? 0xFF22C55E : 0xFF3B82F6));
+                h.itemView.setOnClickListener(v -> {
+                    searchGroupType = g.type;
+                    searchGroupKey = g.key;
+                    showCategoryResults();
+                });
+            } else if (o instanceof SearchPlaylistCard) {
+                // 第 5 项：搜索歌单卡（点卡进歌单详情）
+                SearchPlaylistCard g = (SearchPlaylistCard) o;
+                h.name.setText(g.name);
+                h.status.setText(g.count + " 首");
+                h.icon.setImageResource(R.drawable.ic_music_queue);
+                h.icon.setBackground(circle(0xFF3B82F6));
+                h.itemView.setOnClickListener(v -> startSheet(MusicListActivity.this, g.id, g.name));
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
         }
 
         private void openChart(MusicChart chart) {
-            bigTitle = chart.name;
-            mode = "tracks";
-            showLoading();
-            Task.execute(() -> {
-                List<MusicTrack> r = MusicRepository.chartTracks(chart);
-                runOnUiThread(() -> showTracks(r));
-            });
+            // 第 3 项：榜单详情开新页（旧的同页切 tracks 已废弃，详情有自己的英雄卡＋排名行）
+            openChartDetail(chart);
         }
 
         private void sheetLongPress(MusicPlaylist p) {
@@ -2130,13 +4214,47 @@ public class MusicListActivity extends BaseActivity {
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
             h.title.getPaint().setFakeBoldText(isCurrent);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
-            if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
+            // 第 7 项尾巴：下载多选态（选中行同正在播行的底）
+            boolean dlSel = mode.equals("download") && t.id != null && dlSelected.contains(t.id);
+            if (dlSel) h.itemView.setBackgroundResource(R.drawable.card_music_current);
+            if (mode.equals("device")) {
+                // 第 8 项：本地行尾音质徽标 9sp（GZ LocalQualityBadge 9sp、胶囊内边距 4/1dp；
+                // GZ 档位判定要逐文件读采样率/位深/码率，扫描会变慢，星辰侧显真实格式：只显编码名（flac＝FLAC），其余显扩展名，不冒充档位）
+                String badge = deviceBadge(t);
+                if (!badge.isEmpty()) {
+                    h.badge.setVisibility(View.VISIBLE);
+                    h.badge.setText(badge);
+                    h.badge.setTextSize(9);
+                    int p4 = dp(4);
+                    int p1 = dp(1);
+                    h.badge.setPadding(p4, p1, p4, p1);
+                } else {
+                    h.badge.setVisibility(View.GONE);
+                }
+            } else if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(t.qualityTag);
+                h.badge.setTextSize(11);
+                int p6 = dp(6);
+                int p2 = dp(2);
+                h.badge.setPadding(p6, p2, p6, p2);
             } else {
                 h.badge.setVisibility(View.GONE);
             }
-            h.artist.setText(t.displayArtist());
+            if (mode.equals("download")) {
+                // 第 7 项尾巴：已下载行第二行＝歌手 · 已下载 · 大小（实测文件大小）
+                String size = "";
+                try {
+                    if (t.localPath != null && !t.localPath.isEmpty()) {
+                        size = com.fongmi.android.tv.music.MusicCache.formatSize(
+                                new java.io.File(t.localPath).length());
+                    }
+                } catch (Throwable ignored) {
+                }
+                h.artist.setText(t.displayArtist() + " · 已下载" + (size.isEmpty() ? "" : " · " + size));
+            } else {
+                h.artist.setText(t.displayArtist());
+            }
             h.duration.setText(fmt(t.duration));
             if (t.cover == null || t.cover.isEmpty()) {
                 // 没封面地址才上素图（素灰底＋歌名排字）；有地址的一律走加载、
@@ -2151,8 +4269,89 @@ public class MusicListActivity extends BaseActivity {
             } else {
                 ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
             }
-            h.itemView.setOnClickListener(v -> playTrack(position));
-            h.more.setOnClickListener(v -> onMore(t, position));
+            if (mode.equals("download") && !dlSelected.isEmpty()) {
+                // 多选态下行点按变勾选（与歌单页多选口径一致）；⋮ 仍进菜单（详情／删除）
+                h.itemView.setOnClickListener(v -> {
+                    if (t.id != null) {
+                        if (dlSelected.contains(t.id)) dlSelected.remove(t.id);
+                        else dlSelected.add(t.id);
+                    }
+                    refreshDlSelectText();
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                });
+                h.more.setImageResource(R.drawable.ic_music_more);
+                int p12d = dp(12);
+                h.more.setPadding(p12d, p12d, p12d, p12d);
+                h.more.setOnClickListener(v -> onMore(t, position));
+            } else if (favHistMulti && (mode.equals("favorite") || mode.equals("history"))) {
+                // 第 6 项：收藏／历史多选态（行点按变勾选；行尾 24dp 选中圆圈，选中红底、未选灰框）
+                boolean sel = t.id != null && favHistSelected.contains(t.id);
+                android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
+                circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                int s24 = dp(24);
+                circle.setSize(s24, s24);
+                if (sel) circle.setColor(0xFFFA243C);
+                else circle.setStroke(dp(2), 0xFF9AA7B8);
+                h.more.setImageDrawable(circle);
+                int p10 = dp(10);
+                h.more.setPadding(p10, p10, p10, p10);
+                android.view.View.OnClickListener toggle = v -> {
+                    if (t.id != null) {
+                        if (favHistSelected.contains(t.id)) favHistSelected.remove(t.id);
+                        else favHistSelected.add(t.id);
+                    }
+                    refreshFavHistMultiText();
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                };
+                h.itemView.setOnClickListener(toggle);
+                h.more.setOnClickListener(toggle);
+            } else {
+                h.itemView.setOnClickListener(v -> playTrack(position));
+                // 回收行复位：多选圆圈换回 ⋮ 图标
+                h.more.setImageResource(R.drawable.ic_music_more);
+                int p12 = dp(12);
+                h.more.setPadding(p12, p12, p12, p12);
+                h.more.setOnClickListener(v -> onMore(t, position));
+            }
+        }
+
+        /** 第 7 项尾巴：进行中任务行绑定（名＋GZ 状态文案＋进度＋暂停/继续／取消） */
+        private void bindDlTask(DlTaskHolder h, int position) {
+            MusicDownloadStore.LiveTask t = dlTasks.get(position);
+            h.name.setText(t.name == null ? "" : t.name);
+            h.status.setText(t.statusText());
+            h.progress.setProgress(Math.max(0, Math.min(100, t.progress)));
+            int st = t.status;
+            if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_PAUSED) {
+                h.btnPause.setVisibility(View.VISIBLE);
+                h.btnPause.setText("继续");
+                h.btnPause.setOnClickListener(v -> {
+                    com.fongmi.android.tv.utils.download.DownloadManager.get().resume(t.taskId);
+                    refreshDlTasks();
+                });
+            } else if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_WAITING
+                    || st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_DOWNLOADING) {
+                h.btnPause.setVisibility(View.VISIBLE);
+                h.btnPause.setText("暂停");
+                h.btnPause.setOnClickListener(v -> {
+                    com.fongmi.android.tv.utils.download.DownloadManager.get().pause(t.taskId);
+                    refreshDlTasks();
+                });
+            } else {
+                h.btnPause.setVisibility(View.GONE);
+            }
+            h.btnCancel.setOnClickListener(v -> {
+                // GZ 单任务取消确认文案
+                new MaterialAlertDialogBuilder(MusicListActivity.this)
+                        .setTitle("取消下载")
+                        .setMessage("确定取消「" + (t.name == null ? "" : t.name) + "」的下载吗？已下载的临时内容将被删除，无法继续恢复。")
+                        .setPositiveButton("取消下载", (d, which) -> {
+                            MusicDownloadStore.cancelLive(t.taskId);
+                            refreshDlTasks();
+                        })
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show();
+            });
         }
 
         private String fmt(long ms) {
@@ -2161,9 +4360,888 @@ public class MusicListActivity extends BaseActivity {
             return String.format("%02d:%02d", s / 60, s % 60);
         }
 
+        /** 第 8 项：本地分组区块头绑定（组名＋N 首＋右侧升/降序切换，点切换即重排） */
+        private void bindDeviceSection(SectionHolder h, int sectionIdx) {
+            h.name.setText(deviceSectionTitles.get(sectionIdx));
+            h.count.setText(deviceSectionCounts.get(sectionIdx) + " 首");
+            h.direction.setText(deviceAsc ? "升序" : "降序");
+            h.direction.setOnClickListener(v -> {
+                deviceAsc = !deviceAsc;
+                refreshDeviceDisplay();
+            });
+        }
+
+        class SectionHolder extends RecyclerView.ViewHolder {
+            final TextView name;
+            final TextView count;
+            final TextView direction;
+
+            SectionHolder(View v) {
+                super(v);
+                name = v.findViewById(R.id.name);
+                count = v.findViewById(R.id.count);
+                direction = v.findViewById(R.id.direction);
+            }
+        }
+
+        // ================= 第 1 项：歌单详情页 =================
+
+        class SheetHeroHolder extends RecyclerView.ViewHolder {
+            final ImageView heroCover;
+            final TextView heroName;
+            final TextView heroDesc;
+
+            SheetHeroHolder(View v) {
+                super(v);
+                heroCover = v.findViewById(R.id.heroCover);
+                heroName = v.findViewById(R.id.heroName);
+                heroDesc = v.findViewById(R.id.heroDesc);
+            }
+        }
+
+        class SheetActionsHolder extends RecyclerView.ViewHolder {
+            final View normalRow;
+            final View multiRow;
+            final TextView btnShuffle;
+            final TextView btnPlayAll;
+            final TextView btnFav;
+            final TextView btnDeleteSel;
+            final TextView btnCancelMulti;
+            final TextView tvResume;
+
+            SheetActionsHolder(View v) {
+                super(v);
+                normalRow = v.findViewById(R.id.normalRow);
+                multiRow = v.findViewById(R.id.multiRow);
+                btnShuffle = v.findViewById(R.id.btnShuffle);
+                btnPlayAll = v.findViewById(R.id.btnPlayAll);
+                btnFav = v.findViewById(R.id.btnFav);
+                btnDeleteSel = v.findViewById(R.id.btnDeleteSel);
+                btnCancelMulti = v.findViewById(R.id.btnCancelMulti);
+                tvResume = v.findViewById(R.id.tvResume);
+            }
+        }
+
+        class SheetSectionHolder extends RecyclerView.ViewHolder {
+            final TextView count;
+
+            SheetSectionHolder(View v) {
+                super(v);
+                count = v.findViewById(R.id.count);
+            }
+        }
+
+        class SheetTrackHolder extends RecyclerView.ViewHolder {
+            final ImageView cover;
+            final TextView title;
+            final TextView artist;
+            final ImageView more;
+
+            SheetTrackHolder(View v) {
+                super(v);
+                cover = v.findViewById(R.id.cover);
+                title = v.findViewById(R.id.title);
+                artist = v.findViewById(R.id.artist);
+                more = v.findViewById(R.id.more);
+            }
+        }
+
+        /** 第 1 项：歌单英雄卡绑定（背景高 0.56×屏高；封面＝自定义＞首首歌封面＞灰底；简介仅非空时显示） */
+        private void bindSheetHero(SheetHeroHolder h) {
+            int screenH = h.itemView.getResources().getDisplayMetrics().heightPixels;
+            android.view.ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
+            if (lp != null) {
+                lp.height = (int) (screenH * 0.56f);
+                h.itemView.setLayoutParams(lp);
+            }
+            h.heroName.setText(bigTitle);
+            h.heroName.setLetterSpacing(-0.03f);
+            String desc = com.fongmi.android.tv.music.MusicStore.getSheetDesc(playlistId);
+            if (desc == null || desc.isEmpty()) {
+                h.heroDesc.setVisibility(View.GONE);
+            } else {
+                h.heroDesc.setVisibility(View.VISIBLE);
+                h.heroDesc.setText(desc);
+            }
+            String custom = com.fongmi.android.tv.music.MusicStore.getSheetCover(playlistId);
+            String cover = null;
+            if (custom != null && !custom.isEmpty() && new java.io.File(custom).isFile()) {
+                cover = custom;
+            } else if (!sheetAll.isEmpty() && sheetAll.get(0).cover != null && !sheetAll.get(0).cover.isEmpty()) {
+                cover = sheetAll.get(0).cover;
+            }
+            if (cover == null) {
+                try {
+                    com.bumptech.glide.Glide.with(h.heroCover).clear(h.heroCover);
+                } catch (Throwable ignored) {
+                }
+                h.heroCover.setImageDrawable(null);
+                h.heroCover.setBackgroundColor(0xFF3A3A3C);
+            } else {
+                h.heroCover.setBackgroundColor(0x00000000);
+                try {
+                    java.io.File f = new java.io.File(cover);
+                    if (f.isFile()) {
+                        com.bumptech.glide.Glide.with(h.heroCover).load(f).centerCrop().into(h.heroCover);
+                    } else {
+                        com.bumptech.glide.Glide.with(h.heroCover).load(cover).centerCrop().into(h.heroCover);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        /** 第 1 项：歌单操作行绑定（固定顺序：随机播放／播放全部（主按钮）／收藏歌单；续播行；多选行） */
+        private void bindSheetActions(SheetActionsHolder h) {
+            h.normalRow.setVisibility(sheetMulti ? View.GONE : View.VISIBLE);
+            h.multiRow.setVisibility(sheetMulti ? View.VISIBLE : View.GONE);
+            h.btnShuffle.setOnClickListener(v -> shufflePlay());
+            h.btnPlayAll.setOnClickListener(v -> {
+                if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
+                else playTrack(0);
+            });
+            boolean fav = com.fongmi.android.tv.music.MusicStore.loadSheetFavs().contains(playlistId);
+            h.btnFav.setText(fav ? "取消收藏歌单" : "收藏歌单");
+            h.btnFav.setOnClickListener(v -> {
+                boolean nowFav = !com.fongmi.android.tv.music.MusicStore.loadSheetFavs().contains(playlistId);
+                com.fongmi.android.tv.music.MusicStore.setSheetFav(playlistId, nowFav);
+                adapter.notifyItemChanged(1);
+            });
+            // 续播行：最近播放里第一首在本单里的，否则「暂无播放进度」
+            String resume = null;
+            try {
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                for (MusicTrack t : sheetAll) if (t.id != null) ids.add(t.id);
+                for (MusicTrack r : com.fongmi.android.tv.music.MusicStore.loadRecent()) {
+                    if (r.id != null && ids.contains(r.id)) {
+                        resume = r.displayTitle();
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            h.tvResume.setText(resume == null ? "暂无播放进度" : "继续上次播放：" + resume);
+            h.btnDeleteSel.setText("删除所选 (" + sheetSelected.size() + ")");
+            h.btnDeleteSel.setOnClickListener(v -> deleteSheetSelected());
+            h.btnCancelMulti.setOnClickListener(v -> setSheetMulti(false));
+        }
+
+        private void bindSheetSection(SheetSectionHolder h) {
+            h.count.setText(tracks.size() + " 首");
+        }
+
+        /** 第 1 项：歌单歌曲行绑定（封面 46dp、歌名 14sp、第二行 12sp＝歌手［· 专辑］［· 平台］［· 不可播原因］） */
+        private void bindSheetTrack(SheetTrackHolder h, int position) {
+            MusicTrack t = tracks.get(position);
+            MusicTrack cur = MusicController.get().current();
+            boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
+            h.title.setText(t.displayTitle());
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
+            h.title.getPaint().setFakeBoldText(isCurrent);
+            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+            StringBuilder second = new StringBuilder();
+            second.append(t.displayArtist().isEmpty() ? "未知艺人" : t.displayArtist());
+            if (t.album != null && !t.album.isEmpty()) second.append(" · ").append(t.album);
+            String plat = sheetPlatformName(t);
+            if (!plat.isEmpty()) second.append(" · ").append(plat);
+            String reason = sheetUnplayableReason(t);
+            if (!reason.isEmpty()) second.append(" · ").append(reason);
+            h.artist.setText(second.toString());
+            if (t.cover == null || t.cover.isEmpty()) {
+                try {
+                    com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+                } catch (Throwable ignored) {
+                }
+                h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                        t.displayTitle(), false, 8 * h.cover.getResources().getDisplayMetrics().density));
+            } else {
+                ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
+            }
+            if (sheetMulti) {
+                boolean sel = t.id != null && sheetSelected.contains(t.id);
+                android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
+                circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                int s24 = dp(24);
+                circle.setSize(s24, s24);
+                if (sel) circle.setColor(0xFFFA243C);
+                else circle.setStroke(dp(2), 0xFF9AA7B8);
+                h.more.setImageDrawable(circle);
+                int p6 = dp(6);
+                h.more.setPadding(p6, p6, p6, p6);
+                android.view.View.OnClickListener toggle = v -> {
+                    if (t.id != null) {
+                        if (sheetSelected.contains(t.id)) sheetSelected.remove(t.id);
+                        else sheetSelected.add(t.id);
+                    }
+                    adapter.notifyItemChanged(1);
+                    adapter.notifyDataSetChanged();
+                };
+                h.itemView.setOnClickListener(toggle);
+                h.more.setOnClickListener(toggle);
+            } else {
+                h.itemView.setOnClickListener(v -> playTrack(position));
+                h.more.setImageResource(R.drawable.ic_music_more);
+                int p8 = dp(8);
+                h.more.setPadding(p8, p8, p8, p8);
+                h.more.setOnClickListener(v -> sheetRowMore(t, position));
+            }
+        }
+
+        /** 第 1 项：歌单行平台名（本地／设备＝「本地」，其余走瓜子平台名，取不到则不显） */
+        private String sheetPlatformName(MusicTrack t) {
+            if (t == null || t.platform == null || t.platform.isEmpty()) return "";
+            if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(t.platform)) return "本地";
+            if (com.fongmi.android.tv.music.MusicDownloadStore.isLocal(t)) return "本地";
+            return com.fongmi.android.tv.api.music.LxPlatformSearch.platformName(t.platform);
+        }
+
+        /** 第 1 项：歌单行不可播原因（GZ 原因来自服务端字段，星辰无此字段；只做实测的一种：本地／设备文件不存在） */
+        private String sheetUnplayableReason(MusicTrack t) {
+            try {
+                if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
+                    if (!new java.io.File(t.localPath).exists()) return "文件不存在";
+                }
+            } catch (Throwable ignored) {
+            }
+            return "";
+        }
+
+    /** 第 1 项：歌单行内「更多」表（GZ 行表＋任务要求的移除／换源／刷新／改封面；同步到云端需账号，排除只列不建） */
+    private void sheetRowMore(MusicTrack track, int position) {
+        MusicLibrary.isFavorite(track.id, fav -> {
+            List<String> opts = new ArrayList<>();
+            opts.add("播放");
+            opts.add(getString(R.string.music_play_next));
+            opts.add(fav ? getString(R.string.music_unfavorite) : getString(R.string.music_favorite));
+            opts.add(getString(R.string.music_download));
+            opts.add("加入播放队列");
+            opts.add(getString(R.string.music_add_to_playlist));
+            opts.add("歌曲信息");
+            opts.add("获取元数据");
+            opts.add("重新匹配封面");
+            opts.add("换源");
+            opts.add(getString(R.string.music_remove));
+            opts.add("改封面");
+            MusicOptionsDialog.show(this, track.displayTitle(), opts, -1, idx -> {
+                if (idx == 0) playTrack(position);
+                else if (idx == 1) {
+                    MusicController.get().insertNext(track);
+                    Notify.show(getString(R.string.music_play_next));
+                } else if (idx == 2) toggleFavorite(track, opts.get(2));
+                else if (idx == 3) downloadTrack(track);
+                else if (idx == 4) {
+                    MusicController.get().appendTrack(track);
+                    Notify.show("已加入播放队列");
+                } else if (idx == 5) pickPlaylist(track);
+                else if (idx == 6) showTrackInfo(track);
+                else if (idx == 7) refreshSheetTrack(track);
+                else if (idx == 8) rematchSheetCover(track);
+                else if (idx == 9) switchSheetSource(track);
+                else if (idx == 10) removeFromSheet(track);
+                else if (idx == 11) showSheetCoverDialog();
+            });
+        });
+    }
+
+    /** 第 1 项：歌曲信息（歌名／歌手／专辑／时长／来源／封面有无，全是实测值） */
+    private void showTrackInfo(MusicTrack track) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        box.setPadding(pad, pad, pad, pad);
+        String[][] rows = {
+                {"歌名", track.displayTitle()},
+                {"歌手", track.displayArtist().isEmpty() ? "未知艺人" : track.displayArtist()},
+                {"专辑", track.album == null || track.album.isEmpty() ? "未知专辑" : track.album},
+                {"时长", fmtMs(track.duration)},
+                {"来源", sheetPlatformName(track).isEmpty() ? "未知" : sheetPlatformName(track)},
+                {"封面", track.cover == null || track.cover.isEmpty() ? "无" : "有"},
+        };
+        for (String[] r : rows) {
+            TextView tv = new TextView(this);
+            tv.setText(r[0] + "：" + r[1]);
+            tv.setTextSize(14);
+            tv.setTextColor(0xFF1C1C1E);
+            tv.setPadding(0, dp(3), 0, dp(3));
+            box.addView(tv);
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("歌曲信息")
+                .setView(box)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** 第 1 项：下载（从通用 ⋮ 菜单抽出来的同一段逻辑：每次询问档时先选档，否则直接下载） */
+    private void downloadTrack(MusicTrack track) {
+        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+            int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                    MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+            List<String> qopts = new ArrayList<>();
+            for (int v : values) qopts.add(MusicStore.qualityName(v));
+            int fixed = MusicStore.getDownloadQualityFixed();
+            int checked = 1;
+            for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
+            MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), qopts, checked,
+                    qidx -> MusicDownloadStore.downloadWithQuality(track, values[qidx]));
+        } else {
+            MusicDownloadStore.download(track);
+        }
+    }
+
+    /** 第 1 项：获取元数据（刷新）＝按原插件／同平台重搜同名歌，命中则原位替换全部字段；本地／设备歌暂不支持 */
+    private void refreshSheetTrack(MusicTrack track) {
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
+                || com.fongmi.android.tv.music.MusicDownloadStore.isLocal(track)) {
+            Notify.show("本地歌曲暂不支持刷新");
+            return;
+        }
+        Notify.show("正在刷新…");
+        Task.execute(() -> {
+            MusicTrack hit = null;
+            try {
+                hit = searchSameTrack(track);
+            } catch (Throwable ignored) {
+            }
+            MusicTrack h = hit;
+            runOnUiThread(() -> {
+                if (h == null) {
+                    Notify.show("没有找到匹配的歌曲");
+                    return;
+                }
+                MusicLibrary.replaceTrackInPlaylist(playlistId, track.id, h, ok -> {
+                    Notify.show(ok ? "已刷新" : "刷新失败");
+                    if (ok) loadSheetTracks();
+                });
+            });
+        });
+    }
+
+    /** 第 1 项：重新匹配封面＝重搜同名歌，只把封面换成命中那首的（其它字段不动） */
+    private void rematchSheetCover(MusicTrack track) {
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
+                || com.fongmi.android.tv.music.MusicDownloadStore.isLocal(track)) {
+            Notify.show("本地歌曲暂不支持重新匹配封面");
+            return;
+        }
+        Notify.show("正在匹配封面…");
+        Task.execute(() -> {
+            MusicTrack hit = null;
+            try {
+                hit = searchSameTrack(track);
+            } catch (Throwable ignored) {
+            }
+            MusicTrack h = hit;
+            runOnUiThread(() -> {
+                if (h == null || h.cover == null || h.cover.isEmpty()) {
+                    Notify.show("没有找到匹配的封面");
+                    return;
+                }
+                MusicLibrary.updateTrackCover(playlistId, track.id, h.cover, () -> {
+                    Notify.show("封面已更新");
+                    loadSheetTracks();
+                });
+            });
+        });
+    }
+
+    /** 第 1 项：换源＝全站搜同名歌，按平台去重（跳过本首、跳过单插件屏蔽的平台对），选一个原位替换 */
+    private void switchSheetSource(MusicTrack track) {
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
+                || com.fongmi.android.tv.music.MusicDownloadStore.isLocal(track)) {
+            Notify.show("本地歌曲暂不支持换源");
+            return;
+        }
+        Notify.show("正在搜索其它来源…");
+        Task.execute(() -> {
+            List<MusicTrack> found = new ArrayList<>();
+            java.util.Set<String> seenPlatforms = new java.util.HashSet<>();
+            try {
+                String kw = ((track.title == null ? "" : track.title) + " "
+                        + (track.artist == null ? "" : track.artist)).trim();
+                for (MusicSite s : MusicRepository.sites()) {
+                    if (s == null || s.srcUrl == null) continue;
+                    try {
+                        List<MusicTrack> r = MusicRepository.searchSite(s, kw);
+                        if (r == null) continue;
+                        for (MusicTrack c : r) {
+                            if (c == null || c.id == null || c.id.equals(track.id)) continue;
+                            if (!sameSongName(track, c)) continue;
+                            String plat = c.platform == null ? "" : c.platform;
+                            if (seenPlatforms.contains(plat)) continue;
+                            // 第 11 项：单插件屏蔽平台＝该插件屏蔽掉的平台不进换源候选
+                            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(s.srcUrl, plat)) continue;
+                            seenPlatforms.add(plat);
+                            found.add(c);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            runOnUiThread(() -> {
+                if (found.isEmpty()) {
+                    Notify.show("没有找到其它来源");
+                    return;
+                }
+                List<String> names = new ArrayList<>();
+                for (MusicTrack c : found) {
+                    String plat = sheetPlatformName(c);
+                    names.add((plat.isEmpty() ? "" : plat + " · ") + c.displayTitle()
+                            + (c.displayArtist().isEmpty() ? "" : " - " + c.displayArtist()));
+                }
+                MusicOptionsDialog.show(this, "换源", names, -1, idx -> {
+                    MusicTrack pick = found.get(idx);
+                    MusicLibrary.replaceTrackInPlaylist(playlistId, track.id, pick, ok -> {
+                        Notify.show(ok ? "已换源" : "换源失败");
+                        if (ok) loadSheetTracks();
+                    });
+                });
+            });
+        });
+    }
+
+    /** 换源／刷新用的同名判定（与 MusicRepository.matchSong 同口径：歌名双向包含＋歌手双向包含） */
+    private static boolean sameSongName(MusicTrack target, MusicTrack c) {
+        String title = normalizeName(target.title);
+        if (title.isEmpty()) return false;
+        String ct = normalizeName(c.title);
+        if (ct.isEmpty()) return false;
+        if (!ct.contains(title) && !title.contains(ct)) return false;
+        String artist = normalizeName(target.artist);
+        if (!artist.isEmpty()) {
+            String ca = normalizeName(c.artist);
+            if (!ca.isEmpty() && !ca.contains(artist) && !artist.contains(ca)) return false;
+        }
+        return true;
+    }
+
+    private static String normalizeName(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (char ch : s.toLowerCase().toCharArray()) {
+            if (Character.isLetterOrDigit(ch)) sb.append(ch);
+        }
+        return sb.toString();
+    }
+
+    /** 刷新／重新匹配封面用的原站重搜（先 rawJson _plugin 对站，再同平台站兜底） */
+    private MusicTrack searchSameTrack(MusicTrack track) throws Exception {
+        String kw = ((track.title == null ? "" : track.title) + " "
+                + (track.artist == null ? "" : track.artist)).trim();
+        String plugin = null;
+        try {
+            if (track.rawJson != null && !track.rawJson.isEmpty()) {
+                com.google.gson.JsonObject o = com.google.gson.JsonParser.parseString(track.rawJson).getAsJsonObject();
+                if (o.has("_plugin") && !o.get("_plugin").isJsonNull()) plugin = o.get("_plugin").getAsString();
+            }
+        } catch (Throwable ignored) {
+        }
+        for (MusicSite s : MusicRepository.sites()) {
+            if (s == null || s.srcUrl == null) continue;
+            if (plugin != null && !plugin.equals(s.srcUrl)) continue;
+            try {
+                MusicTrack hit = MusicRepository.matchSong(track, MusicRepository.searchSite(s, kw));
+                if (hit != null) return hit;
+            } catch (Throwable ignored) {
+            }
+        }
+        if (plugin != null) {
+            for (MusicSite s : MusicRepository.sites()) {
+                if (s == null || s.platform == null) continue;
+                if (!s.platform.equals(track.platform)) continue;
+                try {
+                    MusicTrack hit = MusicRepository.matchSong(track, MusicRepository.searchSite(s, kw));
+                    if (hit != null) return hit;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    // ================= 第 3 项：榜单列表与榜单详情 =================
+
+    class ChartFocusHolder extends RecyclerView.ViewHolder {
+        final View cardRoot;
+        final ImageView cover;
+        final TextView name;
+        final TextView preview0;
+        final TextView preview1;
+        final TextView preview2;
+        final TextView btnExplore;
+
+        ChartFocusHolder(View v) {
+            super(v);
+            cardRoot = v.findViewById(R.id.chartCardRoot);
+            cover = v.findViewById(R.id.cover);
+            name = v.findViewById(R.id.name);
+            preview0 = v.findViewById(R.id.preview0);
+            preview1 = v.findViewById(R.id.preview1);
+            preview2 = v.findViewById(R.id.preview2);
+            btnExplore = v.findViewById(R.id.btnExplore);
+        }
+    }
+
+    class ChartSectionHolder extends RecyclerView.ViewHolder {
+        final TextView count;
+
+        ChartSectionHolder(View v) {
+            super(v);
+            count = v.findViewById(R.id.count);
+        }
+    }
+
+    class ChartCardHolder extends RecyclerView.ViewHolder {
+        final View cardRoot;
+        final ImageView cover;
+        final TextView name;
+        final TextView preview0;
+        final TextView preview1;
+
+        ChartCardHolder(View v) {
+            super(v);
+            cardRoot = v.findViewById(R.id.chartCardRoot);
+            cover = v.findViewById(R.id.cover);
+            name = v.findViewById(R.id.name);
+            preview0 = v.findViewById(R.id.preview0);
+            preview1 = v.findViewById(R.id.preview1);
+        }
+    }
+
+    class ChartHeroHolder extends RecyclerView.ViewHolder {
+        final ImageView cover;
+        final TextView name;
+
+        ChartHeroHolder(View v) {
+            super(v);
+            cover = v.findViewById(R.id.cover);
+            name = v.findViewById(R.id.name);
+            cover.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(16));
+                }
+            });
+            cover.setClipToOutline(true);
+        }
+    }
+
+    class ChartTrackHolder extends RecyclerView.ViewHolder {
+        final TextView rank;
+        final ImageView stateIcon;
+        final ImageView cover;
+        final TextView title;
+        final TextView artist;
+        final TextView duration;
+
+        ChartTrackHolder(View v) {
+            super(v);
+            rank = v.findViewById(R.id.rank);
+            stateIcon = v.findViewById(R.id.stateIcon);
+            cover = v.findViewById(R.id.cover);
+            title = v.findViewById(R.id.title);
+            artist = v.findViewById(R.id.artist);
+            duration = v.findViewById(R.id.duration);
+            cover.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(10));
+                }
+            });
+            cover.setClipToOutline(true);
+        }
+    }
+
+    private void bindChartFocus(ChartFocusHolder h, MusicChart chart) {
+        h.name.setText(chart.name);
+        if (chart.cover == null || chart.cover.isEmpty()) {
+            try {
+                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+            } catch (Throwable ignored) {
+            }
+            h.cover.setImageDrawable(null);
+            h.cover.setBackgroundColor(0xFFE5E5EA);
+        } else {
+            h.cover.setBackgroundColor(0x00000000);
+            ImgUtil.loadRounded(chart.name, chart.cover, h.cover);
+        }
+        tintChartCard(h.cardRoot, chart, 20);
+        List<MusicTrack> prev = chartPreviews.get(chart.platform + ":" + chart.id);
+        TextView[] views = {h.preview0, h.preview1, h.preview2};
+        for (int i = 0; i < views.length; i++) {
+            if (prev != null && i < prev.size() && prev.get(i) != null) {
+                views[i].setVisibility(View.VISIBLE);
+                views[i].setText(prev.get(i).displayTitle());
+            } else {
+                views[i].setVisibility(View.GONE);
+            }
+        }
+        h.btnExplore.setOnClickListener(v -> openChart(chart));
+        h.itemView.setOnClickListener(v -> openChart(chart));
+    }
+
+    private void bindChartSection(ChartSectionHolder h) {
+        h.count.setText(cards.size() + " 个榜单");
+    }
+
+    private void bindChartCard(ChartCardHolder h, MusicChart chart) {
+        h.name.setText(chart.name);
+        if (chart.cover == null || chart.cover.isEmpty()) {
+            try {
+                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+            } catch (Throwable ignored) {
+            }
+            h.cover.setImageDrawable(null);
+            h.cover.setBackgroundColor(0xFFE5E5EA);
+        } else {
+            h.cover.setBackgroundColor(0x00000000);
+            ImgUtil.loadRounded(chart.name, chart.cover, h.cover);
+        }
+        tintChartCard(h.cardRoot, chart, 16);
+        List<MusicTrack> prev = chartPreviews.get(chart.platform + ":" + chart.id);
+        TextView[] views = {h.preview0, h.preview1};
+        for (int i = 0; i < views.length; i++) {
+            if (prev != null && i < prev.size() && prev.get(i) != null) {
+                views[i].setVisibility(View.VISIBLE);
+                views[i].setText(prev.get(i).displayTitle());
+            } else {
+                views[i].setVisibility(View.GONE);
+            }
+        }
+        h.itemView.setOnClickListener(v -> openChart(chart));
+    }
+
+    private void bindChartHero(ChartHeroHolder h) {
+        h.name.setText(bigTitle);
+        if (chartCover == null || chartCover.isEmpty()) {
+            try {
+                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+            } catch (Throwable ignored) {
+            }
+            h.cover.setImageDrawable(null);
+            h.cover.setBackgroundColor(0xFFE5E5EA);
+        } else {
+            h.cover.setBackgroundColor(0x00000000);
+            ImgUtil.loadRounded(bigTitle, chartCover, h.cover);
+        }
+    }
+
+    private void bindChartTrack(ChartTrackHolder h, int position) {
+        MusicTrack t = tracks.get(position);
+        MusicTrack cur = MusicController.get().current();
+        boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
+        if (isCurrent) {
+            h.rank.setVisibility(View.GONE);
+            h.stateIcon.setVisibility(View.VISIBLE);
+            boolean playing = MusicController.get().isPlaying();
+            h.stateIcon.setImageResource(playing ? R.drawable.ic_music_eq : R.drawable.ic_music_pause);
+            h.stateIcon.setImageTintList(android.content.res.ColorStateList.valueOf(
+                    playing ? 0xFFFA243C : 0xFF9AA7B8));
+            android.view.ViewGroup.LayoutParams lp = h.stateIcon.getLayoutParams();
+            lp.width = dp(playing ? 14 : 12);
+            lp.height = dp(playing ? 14 : 12);
+            h.stateIcon.setLayoutParams(lp);
+        } else {
+            h.rank.setVisibility(View.VISIBLE);
+            h.rank.setText(String.valueOf(position + 1));
+            h.stateIcon.setVisibility(View.GONE);
+        }
+        h.title.setText(t.displayTitle());
+        h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
+        h.title.getPaint().setFakeBoldText(isCurrent);
+        h.artist.setText(t.displayArtist());
+        h.duration.setText(fmt(t.duration));
+        if (t.cover == null || t.cover.isEmpty()) {
+            try {
+                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+            } catch (Throwable ignored) {
+            }
+            h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                    t.displayTitle(), false, 10 * h.cover.getResources().getDisplayMetrics().density));
+        } else {
+            ImgUtil.loadRounded10(t.displayTitle(), t.cover, h.cover);
+        }
+        h.itemView.setOnClickListener(v -> playTrack(position));
+        h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+    }
+
         @Override
+        /** 第 9 项：猜你喜欢四类行 ViewHolder（标题行是纯静态文案，无需字段） */
+        class GuessTitleHolder extends RecyclerView.ViewHolder {
+            GuessTitleHolder(View v) {
+                super(v);
+            }
+        }
+
+        class GuessHeroHolder extends RecyclerView.ViewHolder {
+            final View root;
+            final ImageView deckBack2;
+            final ImageView deckBack1;
+            final ImageView deckFront;
+            final TextView countNum;
+            final TextView clue;
+            final TextView btnPlayAll;
+            final ImageView btnShuffle;
+            final ImageView btnSave;
+
+            GuessHeroHolder(View v) {
+                super(v);
+                root = v.findViewById(R.id.guessHeroRoot);
+                deckBack2 = v.findViewById(R.id.deckBack2);
+                deckBack1 = v.findViewById(R.id.deckBack1);
+                deckFront = v.findViewById(R.id.deckFront);
+                countNum = v.findViewById(R.id.tvGuessCountNum);
+                clue = v.findViewById(R.id.tvGuessClue);
+                btnPlayAll = v.findViewById(R.id.btnGuessPlayAll);
+                btnShuffle = v.findViewById(R.id.btnGuessShuffle);
+                btnSave = v.findViewById(R.id.btnGuessSave);
+            }
+        }
+
+        class GuessSectionHolder extends RecyclerView.ViewHolder {
+            final TextView count;
+            final View btnRefresh;
+            final TextView tvRefresh;
+
+            GuessSectionHolder(View v) {
+                super(v);
+                count = v.findViewById(R.id.tvGuessSectionCount);
+                btnRefresh = v.findViewById(R.id.btnGuessRefresh);
+                tvRefresh = v.findViewById(R.id.tvGuessRefresh);
+            }
+        }
+
+        class GuessTrackHolder extends RecyclerView.ViewHolder {
+            final ImageView cover;
+            final TextView title;
+            final TextView artist;
+            final ImageView more;
+
+            GuessTrackHolder(View v) {
+                super(v);
+                cover = v.findViewById(R.id.cover);
+                title = v.findViewById(R.id.title);
+                artist = v.findViewById(R.id.artist);
+                more = v.findViewById(R.id.more);
+            }
+        }
+
+        private void bindGuessHero(GuessHeroHolder h) {
+            // 叠卡：前一张取第 1 首封面，后两张取第 2、3 首；不够 3 首的层直接隐藏，不编假封面
+            loadDeckCover(h.deckFront, tracks.size() > 0 ? tracks.get(0) : null);
+            loadDeckCover(h.deckBack1, tracks.size() > 1 ? tracks.get(1) : null);
+            loadDeckCover(h.deckBack2, tracks.size() > 2 ? tracks.get(2) : null);
+            h.countNum.setText(String.valueOf(tracks.size()));
+            h.clue.setText("来自收藏与最近播放的 " + guessClueCount + " 条线索\n越常听，越懂你");
+            // 英雄卡跟随首张封面取色淡染（同榜单玻璃卡口径，失败回落白卡）
+            tintGuessHero(h.root);
+            h.btnPlayAll.setOnClickListener(v -> {
+                if (tracks.isEmpty()) return;
+                MusicController.get().play(new ArrayList<>(tracks), 0, bigTitle, "list", listRouteParams());
+                MusicPlayerActivity.start(MusicListActivity.this);
+            });
+            h.btnShuffle.setBackground(circle(0xFFF2F2F7));
+            h.btnShuffle.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+            h.btnShuffle.setOnClickListener(v -> {
+                if (tracks.isEmpty()) return;
+                List<MusicTrack> shuffled = new ArrayList<>(tracks);
+                Collections.shuffle(shuffled);
+                MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
+                MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
+                MusicPlayerActivity.start(MusicListActivity.this);
+            });
+            h.btnSave.setBackground(circle(0xFFF2F2F7));
+            h.btnSave.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+            h.btnSave.setOnClickListener(v -> {
+                if (tracks.isEmpty()) return;
+                inputPlaylistName(name -> MusicLibrary.importPlaylist(name, new ArrayList<>(tracks), res -> {
+                    if (res.inserted <= 0) {
+                        Notify.show(R.string.music_import_err_empty);
+                        return;
+                    }
+                    Notify.show(getString(R.string.music_imported, res.playlist.getName(), res.inserted));
+                }));
+            });
+        }
+
+        private void loadDeckCover(ImageView iv, MusicTrack t) {
+            if (t == null || t.cover == null || t.cover.isEmpty()) {
+                iv.setVisibility(View.GONE);
+                return;
+            }
+            iv.setVisibility(View.VISIBLE);
+            ImgUtil.loadRounded16(t.displayTitle(), t.cover, iv);
+        }
+
+        private void bindGuessSection(GuessSectionHolder h) {
+            h.count.setText(tracks.size() + " 首");
+            View.OnClickListener refresh = v -> {
+                // 换一批＝重排顺序（本地轮换池重排，不是 GZ 的推荐算法重算；英雄卡叠卡随新前 3 首一起换）
+                Collections.shuffle(tracks);
+                notifyDataSetChanged();
+            };
+            h.btnRefresh.setOnClickListener(refresh);
+            h.tvRefresh.setOnClickListener(refresh);
+        }
+
+        private void bindGuessTrack(GuessTrackHolder h, int position) {
+            MusicTrack t = tracks.get(position);
+            MusicTrack cur = MusicController.get().current();
+            boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
+            h.title.setText(t.displayTitle());
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
+            h.title.getPaint().setFakeBoldText(isCurrent);
+            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+            StringBuilder second = new StringBuilder();
+            second.append(t.displayArtist().isEmpty() ? "未知艺人" : t.displayArtist());
+            if (t.album != null && !t.album.isEmpty()) second.append(" · ").append(t.album);
+            h.artist.setText(second.toString());
+            if (t.cover == null || t.cover.isEmpty()) {
+                try {
+                    com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+                } catch (Throwable ignored) {
+                }
+                h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                        t.displayTitle(), false, 8 * h.cover.getResources().getDisplayMetrics().density));
+            } else {
+                ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
+            }
+            h.itemView.setOnClickListener(v -> playTrack(position));
+            h.more.setOnClickListener(v -> onMore(t, position));
+        }
+
         public int getItemCount() {
-            return isCardMode() ? cards.size() : tracks.size() + headerCount();
+            if (mode.equals("charts")) return cards.isEmpty() ? 0 : 2 + (cards.size() - 1);
+            if (mode.equals("chartDetail")) return 1 + tracks.size();
+            if (mode.equals("guess")) return tracks.isEmpty() ? 0 : 3 + tracks.size();
+            if (isCardMode()) return cards.size();
+            if (mode.equals("download")) return dlTasks.size() + tracks.size();
+            if (mode.equals("sheet")) return 3 + tracks.size();
+            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
+                return cards.size() + headerCount();
+            }
+            if (mode.equals("device")) {
+                return tracks.size() + deviceSectionPos.size() + headerCount();
+            }
+            return tracks.size() + headerCount();
+        }
+
+        class DlTaskHolder extends RecyclerView.ViewHolder {
+            final TextView name;
+            final TextView status;
+            final android.widget.ProgressBar progress;
+            final TextView btnPause;
+            final TextView btnCancel;
+
+            DlTaskHolder(View v) {
+                super(v);
+                name = v.findViewById(R.id.name);
+                status = v.findViewById(R.id.status);
+                progress = v.findViewById(R.id.progress);
+                btnPause = v.findViewById(R.id.btnPause);
+                btnCancel = v.findViewById(R.id.btnCancel);
+            }
         }
 
         class TrackHolder extends RecyclerView.ViewHolder {
@@ -2198,11 +5276,27 @@ public class MusicListActivity extends BaseActivity {
             }
         }
 
+        class PlaylistHolder extends RecyclerView.ViewHolder {
+            final ImageView icon;
+            final TextView name;
+            final TextView status;
+            final ImageView rowPlay;
+            final ImageView rowMore;
+
+            PlaylistHolder(View v) {
+                super(v);
+                icon = v.findViewById(R.id.icon);
+                name = v.findViewById(R.id.name);
+                status = v.findViewById(R.id.status);
+                rowPlay = v.findViewById(R.id.rowPlay);
+                rowMore = v.findViewById(R.id.rowMore);
+            }
+        }
+
         class PluginHolder extends RecyclerView.ViewHolder {
             final TextView name;
             final TextView formatTag;
             final TextView version;
-            final TextView author;
             final TextView testStatus;
             final TextView pluginError;
             final TextView pluginTest;
@@ -2214,7 +5308,6 @@ public class MusicListActivity extends BaseActivity {
                 name = v.findViewById(R.id.name);
                 formatTag = v.findViewById(R.id.formatTag);
                 version = v.findViewById(R.id.version);
-                author = v.findViewById(R.id.author);
                 testStatus = v.findViewById(R.id.testStatus);
                 pluginError = v.findViewById(R.id.pluginError);
                 pluginTest = v.findViewById(R.id.pluginTest);
@@ -2236,7 +5329,7 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-    /** 搜索页源横排：选中红字＋红下划线，未选中灰字 */
+    /** 搜索页分类横排：5 项固定分类，选中红字＋圆角 20dp 红指示条，未选中灰字 */
     private class TabAdapter extends RecyclerView.Adapter<TabAdapter.TabHolder> {
 
         @NonNull
@@ -2249,18 +5342,17 @@ public class MusicListActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull TabHolder h, int position) {
-            MusicSite s = searchTabs.get(position);
-            boolean sel = position == selectedTab;
-            h.name.setText(s.name);
+            boolean sel = position == selectedCat;
+            h.name.setText(searchCatNames.get(position));
             h.name.setTextColor(sel ? 0xFFFA243C : 0xFF9AA7B8);
             h.name.getPaint().setFakeBoldText(sel);
-            h.bar.setBackgroundColor(sel ? 0xFFFA243C : 0x00000000);
-            h.itemView.setOnClickListener(v -> selectTab(h.getBindingAdapterPosition()));
+            h.bar.setBackgroundResource(sel ? R.drawable.bg_tab_indicator : 0);
+            h.itemView.setOnClickListener(v -> selectCategory(h.getBindingAdapterPosition()));
         }
 
         @Override
         public int getItemCount() {
-            return searchTabs.size();
+            return searchCatNames.size();
         }
 
         class TabHolder extends RecyclerView.ViewHolder {

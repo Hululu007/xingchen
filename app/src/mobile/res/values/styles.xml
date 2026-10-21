@@ -243,6 +243,16 @@
     <!-- 音乐设置页行：跟首页导航行同一张卡皮，名字左、值/开关右。
          U4：瓜子设置行无固定高（内边距＋内容撑起），行间 0 间距＋0.5dp 分隔线（分隔线见布局内 divider 行）。
          本页是深色皮，文字色取 GlassTokens 深色值：名 textHigh #F2F2F7；值沿用红（音质值是强调色）。 -->
+    <style name="MusicSettingSection">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">24dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:textColor">#8E8E93</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <style name="MusicSettingRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>

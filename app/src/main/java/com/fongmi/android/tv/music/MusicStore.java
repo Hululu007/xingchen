@@ -33,6 +33,17 @@ public class MusicStore {
     private static final String K_RECENT = "music_recent";
     private static final int RECENT_MAX = 50;
 
+    /** 心情电台：建台时保存的队列曲目 keys（\n 连接） */
+    private static final String K_MOOD_QUEUE_KEYS = "music_mood_queue_keys";
+
+    public static String getMoodQueueKeys() {
+        return Prefers.getString(K_MOOD_QUEUE_KEYS, "");
+    }
+
+    public static void setMoodQueueKeys(String keys) {
+        Prefers.put(K_MOOD_QUEUE_KEYS, keys == null ? "" : keys);
+    }
+
     /** 下载音质模式：固定档（默认，旧行为） */
     public static final int DL_MODE_FIXED = 0;
     /** 下载音质模式：跟随播放偏好（瓜子 DownloadQualitySettingsDialog「跟随播放偏好」） */
@@ -369,6 +380,211 @@ public class MusicStore {
             return list == null ? new ArrayList<>() : list;
         } catch (Throwable ignored) {
             return new ArrayList<>();
+        }
+    }
+
+    /** 历史页行级移除：按 id 删掉若干条最近播放（不在场的 id 直接跳过） */
+    public static void removeRecentByIds(java.util.Set<String> ids) {
+        if (ids == null || ids.isEmpty()) return;
+        try {
+            List<MusicTrack> list = loadRecent();
+            List<MusicTrack> kept = new ArrayList<>();
+            for (MusicTrack t : list) {
+                if (t == null || t.id == null || !ids.contains(t.id)) kept.add(t);
+            }
+            Prefers.put(K_RECENT, App.gson().toJson(kept));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 历史页清空：最近播放全部清掉 */
+    public static void clearRecent() {
+        Prefers.put(K_RECENT, "");
+    }
+
+    // ===== 搜索历史（搜索页「最近搜索」胶囊；GZ 胶囊 12sp、内边距 10/6dp） =====
+    private static final String K_RECENT_SEARCH = "music_recent_search";
+    private static final int RECENT_SEARCH_MAX = 20;
+
+    public static List<String> loadRecentSearches() {
+        try {
+            String json = Prefers.getString(K_RECENT_SEARCH, "");
+            if (json.isEmpty()) return new ArrayList<>();
+            Type type = TypeToken.getParameterized(List.class, String.class).getType();
+            List<String> list = App.gson().fromJson(json, type);
+            return list == null ? new ArrayList<>() : list;
+        } catch (Throwable ignored) {
+            return new ArrayList<>();
+        }
+    }
+
+    /** 搜过的词记一条：去重、最前、上限 20 条 */
+    public static void pushRecentSearch(String kw) {
+        if (kw == null) return;
+        kw = kw.trim();
+        if (kw.isEmpty()) return;
+        try {
+            List<String> list = loadRecentSearches();
+            list.remove(kw);
+            list.add(0, kw);
+            while (list.size() > RECENT_SEARCH_MAX) list.remove(list.size() - 1);
+            Prefers.put(K_RECENT_SEARCH, App.gson().toJson(list));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static void clearRecentSearches() {
+        Prefers.put(K_RECENT_SEARCH, "");
+    }
+
+    // ===== 单插件屏蔽平台（插件页 ⋮「屏蔽平台」；GZ：改该插件自身的 blockedPlatforms 列表，不动其他插件） =====
+    // 存法：Map<插件 srcUrl, 逗号拼起来的平台 key>，平台 key 里没有逗号，拼法够用
+    private static final String K_BLOCKED_PLATFORMS = "music_blocked_platforms";
+
+    private static java.util.Map<String, String> loadBlockedMap() {
+        try {
+            String json = Prefers.getString(K_BLOCKED_PLATFORMS, "");
+            if (json.isEmpty()) return new java.util.HashMap<>();
+            Type type = TypeToken.getParameterized(java.util.Map.class, String.class, String.class).getType();
+            java.util.Map<String, String> map = App.gson().fromJson(json, type);
+            return map == null ? new java.util.HashMap<>() : map;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    /** 某插件屏蔽掉的平台集合（空 = 没屏蔽） */
+    public static java.util.Set<String> getBlockedPlatforms(String srcUrl) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        if (srcUrl == null) return out;
+        String joined = loadBlockedMap().get(srcUrl);
+        if (joined == null || joined.isEmpty()) return out;
+        for (String p : joined.split(",")) {
+            if (p != null && !p.isEmpty()) out.add(p);
+        }
+        return out;
+    }
+
+    public static void setBlockedPlatforms(String srcUrl, java.util.Set<String> platforms) {
+        if (srcUrl == null) return;
+        try {
+            java.util.Map<String, String> map = loadBlockedMap();
+            if (platforms == null || platforms.isEmpty()) map.remove(srcUrl);
+            else {
+                StringBuilder sb = new StringBuilder();
+                for (String p : platforms) {
+                    if (p == null || p.isEmpty()) continue;
+                    if (sb.length() > 0) sb.append(",");
+                    sb.append(p);
+                }
+                map.put(srcUrl, sb.toString());
+            }
+            Prefers.put(K_BLOCKED_PLATFORMS, App.gson().toJson(map));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 某插件是否屏蔽了某平台（取链/换源/歌词路由侧用） */
+    public static boolean isPlatformBlocked(String srcUrl, String platform) {
+        if (srcUrl == null || platform == null || platform.isEmpty()) return false;
+        return getBlockedPlatforms(srcUrl).contains(platform);
+    }
+
+    // ===== 歌单自定义封面/简介/收藏（歌单详情页英雄卡；不改 Room schema，prefs 存） =====
+    private static final String K_SHEET_COVER = "music_sheet_cover";
+    private static final String K_SHEET_DESC = "music_sheet_desc";
+    private static final String K_SHEET_FAV = "music_sheet_fav";
+
+    private static java.util.Map<String, String> loadStringMap(String key) {
+        try {
+            String json = Prefers.getString(key, "");
+            if (json.isEmpty()) return new java.util.HashMap<>();
+            Type type = TypeToken.getParameterized(java.util.Map.class, String.class, String.class).getType();
+            java.util.Map<String, String> map = App.gson().fromJson(json, type);
+            return map == null ? new java.util.HashMap<>() : map;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    private static void saveStringMap(String key, java.util.Map<String, String> map) {
+        try {
+            Prefers.put(key, App.gson().toJson(map));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 歌单自定义封面：应用文件目录里的图路径（空 = 没自定义） */
+    public static String getSheetCover(long playlistId) {
+        return loadStringMap(K_SHEET_COVER).get(String.valueOf(playlistId));
+    }
+
+    public static void setSheetCover(long playlistId, String path) {
+        java.util.Map<String, String> map = loadStringMap(K_SHEET_COVER);
+        if (path == null || path.isEmpty()) map.remove(String.valueOf(playlistId));
+        else map.put(String.valueOf(playlistId), path);
+        saveStringMap(K_SHEET_COVER, map);
+    }
+
+    /** 歌单简介（空 = 没写简介，英雄卡不显示简介行） */
+    public static String getSheetDesc(long playlistId) {
+        return loadStringMap(K_SHEET_DESC).get(String.valueOf(playlistId));
+    }
+
+    public static void setSheetDesc(long playlistId, String desc) {
+        java.util.Map<String, String> map = loadStringMap(K_SHEET_DESC);
+        if (desc == null || desc.trim().isEmpty()) map.remove(String.valueOf(playlistId));
+        else map.put(String.valueOf(playlistId), desc.trim());
+        saveStringMap(K_SHEET_DESC, map);
+    }
+
+    /** 收藏的歌单 id 集合（歌单详情页「收藏歌单」两态） */
+    public static java.util.Set<Long> loadSheetFavs() {
+        java.util.Set<Long> out = new java.util.HashSet<>();
+        try {
+            String json = Prefers.getString(K_SHEET_FAV, "");
+            if (json.isEmpty()) return out;
+            Type type = TypeToken.getParameterized(List.class, Long.class).getType();
+            List<Long> list = App.gson().fromJson(json, type);
+            if (list != null) out.addAll(list);
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    public static void setSheetFav(long playlistId, boolean fav) {
+        try {
+            java.util.Set<Long> set = loadSheetFavs();
+            if (fav) set.add(playlistId);
+            else set.remove(playlistId);
+            Prefers.put(K_SHEET_FAV, App.gson().toJson(new ArrayList<>(set)));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ===== 本地音乐忽略（本地页行内「移除」；重启仍生效，恢复入口待定） =====
+    private static final String K_IGNORED_DEVICE = "music_ignored_device";
+
+    public static java.util.Set<String> loadIgnoredDeviceIds() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        try {
+            String json = Prefers.getString(K_IGNORED_DEVICE, "");
+            if (json.isEmpty()) return out;
+            Type type = TypeToken.getParameterized(List.class, String.class).getType();
+            List<String> list = App.gson().fromJson(json, type);
+            if (list != null) out.addAll(list);
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    public static void ignoreDeviceId(String trackId) {
+        if (trackId == null) return;
+        try {
+            java.util.Set<String> set = loadIgnoredDeviceIds();
+            set.add(trackId);
+            Prefers.put(K_IGNORED_DEVICE, App.gson().toJson(new ArrayList<>(set)));
+        } catch (Throwable ignored) {
         }
     }
 

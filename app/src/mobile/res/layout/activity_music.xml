@@ -1,19 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐首页 v7 定稿：浅色底／搜索胶囊＋⋮／五快捷白卡／三张渐变入口卡。
+<!-- 音乐首页 v7 定稿：浅色底／标题＋搜索胶囊＋⋮／五快捷白卡／三张渐变入口卡／心情电台卡。
      底部迷你条是 ListenMiniBar 悬浮条（只在音乐首页显示），本页不内嵌。
-     无返回箭头（铁律），界面只放名字和状态，无介绍文字。 -->
+     无返回箭头（铁律），界面只放名字和状态，无介绍文字。
+     离边口径（2026-10-21 15:28 纠正，前令作废）：16dp 指卡片离屏两边的边距，不是圆角——
+     根布局左右内边距 16dp（代码侧再按状态栏高垫顶，见 MusicActivity）；圆角一律不动
+     （搜索胶囊 24dp、三彩卡 20dp、五快捷 16dp，均为现状保持）。
+     根布局不吃 fitsSystemWindows：旧版 fitsSystemWindows=true 时系统左右 inset（0）会盖掉 XML 的边距，
+     实机卡片贴边；改由代码固定 16dp 离边＋状态栏高垫顶。
+     首页顺序定死：标题 → 搜索胶囊条 → 五快捷白卡 → 三彩卡 → 心情电台卡 → 榜单白卡。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/home_bg_page"
-    android:fitsSystemWindows="true"
     android:orientation="vertical"
-    android:paddingStart="20dp"
+    android:paddingStart="16dp"
     android:paddingTop="12dp"
-    android:paddingEnd="20dp"
+    android:paddingEnd="16dp"
     android:paddingBottom="16dp">
 
-    <!-- ① 搜索条＋右侧 ⋮（用户 06:15 令：缩小一号、高 48dp、圆角 16dp） -->
+    <!-- ⓪ 首页标题（GZ HomeTopBar 样式：28sp／800／字距 -0.8／颜色 #1C1C1E／下 2dp；
+         文案按他亲口定用“星辰音乐”（不用 GZ 的“发现好音乐”）；另加歌词同款斜度 skewX(-0.12f)；
+         根布局已给 16dp 离边＋状态栏高＋12dp 垫顶，标题不再另加左右上边距，正好落 GZ 位置；
+         搜索条下移量＝标题块高度（28sp 行高约 34dp＋下 2dp，约 36dp，真机实测为准） -->
+    <TextView
+        android:id="@+id/homeTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingBottom="2dp"
+        android:text="星辰音乐"
+        android:textColor="#1C1C1E"
+        android:textSize="28sp"
+        android:letterSpacing="-0.029"
+        android:fontWeight="800"
+        android:textStyle="bold" />
+
+    <!-- ① 搜索条＋右侧 ⋮（高 48dp、圆角 24dp 保持不动） -->
     <LinearLayout
         android:id="@+id/homeSearchBar"
         android:layout_width="match_parent"
@@ -55,11 +76,11 @@
     </LinearLayout>
 
     <!-- ② 五快捷白卡：收藏／歌单／本地（正中）／历史／下载，图标＋名字＋数量
-         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰；尺寸随 06:15 缩小令） -->
+         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰；上距 32dp＝往下移＋拉开，见表 H7） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="32dp"
         android:background="@drawable/home_bg_card_white"
         android:elevation="3dp"
         android:orientation="horizontal"
@@ -249,17 +270,17 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- ③ 三张渐变入口卡横排垫底 -->
+    <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="28dp"
+        android:layout_marginTop="40dp"
         android:orientation="horizontal">
 
         <FrameLayout
             android:id="@+id/homeCardGuess"
             android:layout_width="0dp"
-            android:layout_height="88dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_pink"
             android:clickable="true"
@@ -281,7 +302,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_guess"
-                    android:textColor="#141414"
+                    android:textColor="#1C1C1E"
                     android:textSize="14sp"
                     android:lineHeight="19dp"
                     android:letterSpacing="-0.029"
@@ -296,22 +317,23 @@
                     android:textColor="#8C1C1C1E"
                     android:textSize="9sp"
                     android:lineHeight="13dp" />
-            </LinearLayout>
+            <View
+                android:layout_width="wrap_content"
+                android:layout_height="48dp" />
 
             <ImageView
-                android:layout_width="84dp"
-                android:layout_height="84dp"
-                android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-20dp"
-                android:layout_marginBottom="-20dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_ring_heart" />
+                android:src="@drawable/home_ic_favorite"
+                android:tint="#FFFFFF" />
+            </LinearLayout>
         </FrameLayout>
 
         <FrameLayout
             android:id="@+id/homeCardCharts"
             android:layout_width="0dp"
-            android:layout_height="88dp"
+            android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_teal"
@@ -334,7 +356,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_charts"
-                    android:textColor="#141414"
+                    android:textColor="#1C1C1E"
                     android:textSize="14sp"
                     android:lineHeight="19dp"
                     android:letterSpacing="-0.029"
@@ -349,22 +371,23 @@
                     android:textColor="#8C1C1C1E"
                     android:textSize="9sp"
                     android:lineHeight="13dp" />
-            </LinearLayout>
+            <View
+                android:layout_width="wrap_content"
+                android:layout_height="48dp" />
 
             <ImageView
-                android:layout_width="84dp"
-                android:layout_height="84dp"
-                android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-20dp"
-                android:layout_marginBottom="-20dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_ring_chart" />
+                android:src="@drawable/ic_bar_chart"
+                android:tint="#FFFFFF" />
+            </LinearLayout>
         </FrameLayout>
 
         <FrameLayout
             android:id="@+id/homeCardShuffle"
             android:layout_width="0dp"
-            android:layout_height="88dp"
+            android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_lime"
@@ -387,7 +410,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/home_shuffle"
-                    android:textColor="#141414"
+                    android:textColor="#1C1C1E"
                     android:textSize="14sp"
                     android:lineHeight="19dp"
                     android:letterSpacing="-0.029"
@@ -403,17 +426,144 @@
                     android:textColor="#8C1C1C1E"
                     android:textSize="9sp"
                     android:lineHeight="13dp" />
-            </LinearLayout>
+            <View
+                android:layout_width="wrap_content"
+                android:layout_height="48dp" />
 
             <ImageView
-                android:layout_width="84dp"
-                android:layout_height="84dp"
-                android:layout_gravity="bottom|end"
-                android:layout_marginEnd="-20dp"
-                android:layout_marginBottom="-20dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:contentDescription="@null"
-                android:src="@drawable/home_ic_ring_play" />
+                android:src="@drawable/ic_music_play"
+                android:tint="#FFFFFF" />
+            </LinearLayout>
         </FrameLayout>
+    </LinearLayout>
+
+    <!-- 心情电台卡（GZ MoodRadioPanel：圆角 20dp、横向三色渐变（按选中心情换色，向白混合 0.08/0.20/0.32，代码侧算）、
+         区头 10sp/600/字距0.1/行高14sp＋12dp 箭头标、当前心情大字 22sp/700/字距-0.4/行高28sp、
+         文案 11sp/行高16sp、纵向间距 6dp、波形区宽 0.44 比例×高 92dp（播放振幅 1.0／暂停 0.35）、
+         pills 行间距 8dp、行边距 12/0/12/12dp、pill 高 36dp、内边距 12/8dp、圆点 5dp、文字 12sp/行高16sp、
+         选中字重700底 tone 0.18、未选中字重500、播放钮 40dp 圆、横向渐变 tone→tone 向白混合 0.22、
+         图标播放中 18dp／未播放 24dp、按压缩放 0.9；卡前间隔 20dp（GZ）；
+         卡内边距／波形色／钮旁状态文字号未抠到，星辰侧自定 16dp／tone 0.7／11sp；
+         队列标题「心情电台 · XX」、搜不到 toast 同款；默认选中＝上次选择（prefs），无则怀旧；
+         “是本心情”判定＝ prefs 快照与现队列同序同曲（同随心听副题口径），不留假态） -->
+    <LinearLayout
+        android:id="@+id/homeMoodCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="16dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="0.56"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="心情电台"
+                        android:textColor="#1C1C1E"
+                        android:textSize="10sp"
+                        android:lineHeight="14dp"
+                        android:letterSpacing="0.01"
+                        android:fontWeight="600"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:layout_marginStart="2dp"
+                        android:src="@drawable/ic_player_chevron_right"
+                        android:tint="#1C1C1E" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvMoodName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="#1C1C1E"
+                    android:textSize="22sp"
+                    android:lineHeight="28dp"
+                    android:letterSpacing="-0.018"
+                    android:fontWeight="700"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvMoodCopy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="#5A5A5E"
+                    android:textSize="11sp"
+                    android:lineHeight="16dp" />
+            </LinearLayout>
+
+            <com.fongmi.android.tv.ui.view.MoodWaveView
+                android:id="@+id/moodWave"
+                android:layout_width="0dp"
+                android:layout_height="92dp"
+                android:layout_weight="0.44" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="12dp">
+
+            <HorizontalScrollView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:scrollbars="none"
+                android:overScrollMode="never">
+
+                <LinearLayout
+                    android:id="@+id/moodPills"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/tvMoodState"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="#5A5A5E"
+                android:textSize="11sp" />
+
+            <ImageView
+                android:id="@+id/btnMoodPlay"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:padding="8dp"
+                android:src="@drawable/ic_music_play" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- ④ 榜单白卡（用户 06:20 令，形态照参照图 112784_6：卡头榜名＋完整榜单、
@@ -422,7 +572,7 @@
         android:id="@+id/homeChartCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="28dp"
+        android:layout_marginTop="40dp"
         android:background="@drawable/home_bg_card_white"
         android:elevation="3dp"
         android:orientation="vertical"

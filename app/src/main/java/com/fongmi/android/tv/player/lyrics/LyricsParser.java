@@ -244,16 +244,34 @@ public class LyricsParser {
                 .replaceAll("<\\d[^>]*>", "");
     }
 
-    /** 纯文本回落：先剥逐字标记残渣（[ms,dur] 行头与时间标记形状的词标记），不许标记垃圾冒充整行词 */
+    /**
+     * 无时间轴纯文本回落（GZ untimed 口径：显示、但不滚动、不均分）：
+     * 每行 timeMs 一律 0（不是按 5 秒均分的假时间）；findLine 见首末时间相同即判无当前行（-1），
+     * 歌词视图只作静态浏览（手滑可看、松手不回锚到假行）。旧实现经 parsePlain(cleaned, 0) 按 5000ms
+     * 步进造假时间，等于给无时间轴文本编了滚动节奏——本轮改掉，视频侧 LyricsResult 的 parsePlain
+     * （带真实时长均分）不动，不属音乐链。
+     * 行过滤与旧 parsePlain 口径一致：空行、首尾方括号标签行、元数据行、制作行一律丢。
+     */
     private static List<LyricsLine> parsePlainFallback(String content) {
-        StringBuilder cleaned = new StringBuilder();
+        List<LyricsLine> lines = new ArrayList<>();
+        if (TextUtils.isEmpty(content)) return lines;
         for (String raw : content.replace("\r", "").split("\n")) {
             String line = stripWordMarkers(raw.trim()
                     .replaceAll("^\\[\\d+,\\d+]", ""))
                     .trim();
-            cleaned.append(line).append('\n');
+            if (line.isEmpty()) continue;
+            if (line.startsWith("[") && line.endsWith("]")) continue;
+            if (line.startsWith(META_PREFIX)) continue;
+            if (shouldDropCreditLine(line)) continue;
+            lines.add(new LyricsLine(0, line));
         }
-        return parsePlain(cleaned.toString(), 0);
+        return lines;
+    }
+
+    /** 无时间轴判定（GZ rememberFrameLyricIndex 口径）：2 行以上且首末行时间相同＝无时间变化＝无当前行 */
+    public static boolean isUntimed(List<LyricsLine> lines) {
+        return lines != null && lines.size() >= 2
+                && lines.get(0).getTimeMs() == lines.get(lines.size() - 1).getTimeMs();
     }
 
     /**
@@ -380,6 +398,8 @@ public class LyricsParser {
 
     public static int findLine(List<LyricsLine> lines, long positionMs) {
         if (lines == null || lines.isEmpty()) return -1;
+        // 无时间轴不推进当前行（见 isUntimed）：不许按假时间指到末行
+        if (isUntimed(lines)) return -1;
         int low = 0;
         int high = lines.size() - 1;
         int result = 0;

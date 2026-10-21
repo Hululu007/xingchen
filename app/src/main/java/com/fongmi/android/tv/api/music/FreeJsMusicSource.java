@@ -174,6 +174,7 @@ public class FreeJsMusicSource implements MusicSource {
             for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
                 if (own != null && own.equals(site.srcUrl)) continue;
+                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
                 FreeJsBridge b;
                 try {
                     b = MusicSourceManager.get().bridgeOf(site);
@@ -217,6 +218,7 @@ public class FreeJsMusicSource implements MusicSource {
             for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
                 if (own != null && own.equals(site.srcUrl)) continue;
+                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
                 FreeJsBridge b;
                 try {
                     b = MusicSourceManager.get().bridgeOf(site);
@@ -340,6 +342,7 @@ public class FreeJsMusicSource implements MusicSource {
             for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
                 if (site == null || site.srcUrl == null) continue;
                 if (own != null && own.equals(site.srcUrl)) continue;
+                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
                 FreeJsBridge b;
                 try {
                     b = MusicSourceManager.get().bridgeOf(site);

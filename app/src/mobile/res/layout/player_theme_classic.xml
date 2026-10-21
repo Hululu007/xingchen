@@ -9,22 +9,19 @@
     android:orientation="vertical"
     android:paddingTop="0dp">
 
-    <!-- 封面区：手势在代码侧挂 tpCoverWrap（双击收藏/长按工具面板/横滑切歌/单击开全屏歌词页）；
-         U-07：weight 4.4 删掉，改实测高（非权重）——封面图按 adjustViewBounds 由图实测宽高比定高，
-         歌词区改 Column 内唯一 weight 1，占封面（实测高）＋歌名行＋进度行之外全部剩余高度。 -->
+    <!-- 封面区：GZ 经典＝封面图本身满幅铺底（上半原图、下半模糊延伸），不是 28dp 边距的卡片；
+         手势在代码侧挂 tpCoverWrap（双击收藏/长按工具面板/竖滑切歌/单击开全屏歌词页）。
+         满幅后封面不再是卡片：去边距、去卡片投影，宽＝屏宽、高随图（方图即方幅）。 -->
     <FrameLayout
         android:id="@+id/tpCoverWrap"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingStart="28dp"
-        android:paddingEnd="28dp">
+        android:layout_height="wrap_content">
 
         <ImageView
             android:id="@+id/tpCover"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:adjustViewBounds="true"
-            android:elevation="12dp"
             android:scaleType="centerCrop" />
 
         <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
@@ -37,8 +34,10 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- SongMeta：外层横向内边距 28dp；歌名 18sp/行高 24sp/字距 -0.4、歌手 14sp/18sp、专辑行高 22dp；
-         歌名行内收藏小爱心 13dp（padding 7dp，已收藏才显示）；右侧三键点击区 40dp 见方，与标题间距 8dp -->
+    <!-- SongMeta：GZ 经典两行——歌名一行、歌手 ♡ 专辑同行一行（不是星辰旧的三行）；
+         歌名 18sp/800/白 0.95/行高 24sp/字距 -0.022em，歌手 14sp/白 0.34、专辑 14sp/白 0.26、
+         收藏心 13dp＋外垫 7dp（27dp 盒）在歌手专辑同一行里恒在；右侧三键点击区 40dp 见方，与标题间距 8dp；
+         歌名到第二行间距 2dp（GZ 紧凑口径确数未抠到，先按现行 2dp，真机核）。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -66,6 +65,7 @@
                     android:layout_height="match_parent"
                     android:layout_weight="1"
                     android:ellipsize="end"
+                    android:fontWeight="800"
                     android:gravity="center_vertical"
                     android:includeFontPadding="false"
                     android:letterSpacing="-0.022"
@@ -74,6 +74,27 @@
                     android:textColor="#F2FFFFFF"
                     android:textSize="18sp"
                     android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="22dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tpArtist"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="false"
+                    android:lineHeight="18dp"
+                    android:maxLines="1"
+                    android:textColor="#57FFFFFF"
+                    android:textSize="14sp" />
 
                 <ImageView
                     android:id="@+id/tpFavHeart"
@@ -81,36 +102,22 @@
                     android:layout_height="27dp"
                     android:contentDescription="@string/music_favorite"
                     android:padding="7dp"
-                    android:src="@drawable/ic_music_heart_fill"
-                    android:tint="#FA243C"
+                    android:src="@drawable/ic_music_heart"
+                    android:tint="#FFFFFF" />
+
+                <TextView
+                    android:id="@+id/tpAlbum"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="false"
+                    android:lineHeight="18dp"
+                    android:maxLines="1"
+                    android:textColor="#42FFFFFF"
+                    android:textSize="14sp"
                     android:visibility="gone" />
             </LinearLayout>
-
-            <TextView
-                android:id="@+id/tpArtist"
-                android:layout_width="match_parent"
-                android:layout_height="22dp"
-                android:layout_marginTop="2dp"
-                android:ellipsize="end"
-                android:gravity="center_vertical"
-                android:includeFontPadding="false"
-                android:lineHeight="18dp"
-                android:maxLines="1"
-                android:textColor="#57FFFFFF"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/tpAlbum"
-                android:layout_width="match_parent"
-                android:layout_height="22dp"
-                android:ellipsize="end"
-                android:gravity="center_vertical"
-                android:includeFontPadding="false"
-                android:lineHeight="18dp"
-                android:maxLines="1"
-                android:textColor="#42FFFFFF"
-                android:textSize="14sp"
-                android:visibility="gone" />
         </LinearLayout>
 
         <LinearLayout
@@ -257,7 +264,8 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 进度：轨道上方间隔 4dp、容器高 18dp（GZ Canvas 高）、轨道基高 4dp；时间标签 11sp/字距 0.2/宽 40dp -->
+        <!-- 进度：轨道上方间隔 4dp、容器高 18dp（GZ Canvas 高）、轨道基高 4dp（拖动 5dp 见代码 swapSeekDrawable）；
+             顶盒两侧时间 11sp：静止不可见、拖动 0.72（GZ 口径，代码 setTopTimesAlpha） -->
         <SeekBar
             android:id="@+id/tpSeek"
             android:layout_width="match_parent"
@@ -268,40 +276,33 @@
             android:progressDrawable="@drawable/bg_player_seek_progress"
             android:thumb="@drawable/bg_player_seek_thumb" />
 
+        <!-- 下一首（GZ 底部裁图标准）：进度线下两行居中——“下一首”＋下首歌名；点按切下首；
+             无下首整块隐藏（该藏的藏）。GZ 行字号／颜色／间距确数未抠到，先按次级字阶落、表里标未对齐。
+             旧底部时间行（00:38 / -03:15）已删：GZ 该处没有时间字，时间只在拖动顶盒出现。 -->
         <LinearLayout
+            android:id="@+id/tpNextBlock"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="2dp"
-            android:paddingTop="2dp"
-            android:paddingEnd="2dp"
-            android:paddingBottom="0dp">
+            android:layout_marginTop="16dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
             <TextView
-                android:id="@+id/tpPosition"
-                android:layout_width="40dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:includeFontPadding="false"
-                android:letterSpacing="0.018"
-                android:text="00:00"
+                android:text="@string/music_next"
                 android:textColor="#A6FFFFFF"
                 android:textSize="12sp" />
 
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
             <TextView
-                android:id="@+id/tpDuration"
-                android:layout_width="40dp"
+                android:id="@+id/tpNextTitle"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="end"
-                android:includeFontPadding="false"
-                android:letterSpacing="0.018"
-                android:text="00:00"
-                android:textColor="#A6FFFFFF"
-                android:textSize="12sp" />
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#E6FFFFFF"
+                android:textSize="14sp" />
         </LinearLayout>
     </LinearLayout>
 

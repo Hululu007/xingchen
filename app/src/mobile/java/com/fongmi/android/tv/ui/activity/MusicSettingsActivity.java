@@ -18,9 +18,13 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityMusicSettingsBinding;
 import com.fongmi.android.tv.music.MusicCache;
+import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.MusicFxDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.dialog.ParametricEqDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 
@@ -30,10 +34,14 @@ import java.util.List;
 /**
  * 音乐设置页（音乐组件自己的设置，不进星辰全局设置）。
  * 顶栏只有标题「设置」，无返回箭头，走系统返回；浅色皮跟音乐页一致。
- * 六项（全部真接线，判读点见各自注释）：
- * 1 播放音质=取链默认 quality（prepareTrack 读）；2 失败自动下一首（onPlayFailed 读）；
- * 3 移动网络播放（prepareTrack 取链前读）；4 下载音质（下载取链读，独立于播放音质）；
- * 5 歌词缺失自动搜索（MusicRepository.lyric 读）；6 清除音乐缓存（Glide 磁盘缓存）。
+ * 第 4 项尾巴：按 GZ 12 分类重排，只放适用项——9 类有适用项（播放设置／音质选择／均衡器／
+ * 主题与外观／播放器视觉／歌词显示／下载设置／系统媒体与设备／存储与诊断），
+ * 3 类无适用项不建分区（曲库与扫描／搜索与通用／底栏与黑胶，原因见布局注释与对照表）。
+ * 星辰自有六项底线全部保留：默认播放音质（音质选择）、播放失败自动跳下一首（播放设置）、
+ * 移动网络播放开关（播放设置）、下载音质（下载设置）、歌词缺失自动去别的插件找（歌词显示）、
+ * 清音乐缓存（存储与诊断）。需登录的功能（云同步、插件同步等）一律排除；
+ * 需系统能力／不适用项（桌面歌词、词幕＋LSPosed 等）不搬。
+ * 新增行全部真接线已有偏好／对话框，不造假开关。
  */
 public class MusicSettingsActivity extends BaseActivity {
 
@@ -75,13 +83,55 @@ public class MusicSettingsActivity extends BaseActivity {
         // U-05：歌词时间偏移行（位置：歌词缺失自动搜索行之后、清除缓存行之前）
         refreshOffsetText();
         binding.rowLyricOffset.setOnClickListener(v -> showOffsetDialog());
+        // 第 4 项尾巴新增行（全部真接线已有偏好／对话框）
+        refreshPlayModeText();
+        binding.rowPlayMode.setOnClickListener(v -> showPlayModeDialog());
+        refreshSpeedText();
+        binding.rowSpeed.setOnClickListener(v -> showSpeedDialog());
+        binding.rowEqSystem.setOnClickListener(v -> MusicFxDialog.show(this));
+        binding.rowEqParam.setOnClickListener(v -> ParametricEqDialog.show(this));
+        refreshThemeText();
+        binding.rowPlayerTheme.setOnClickListener(v -> showThemeDialog());
+        refreshCdSurfaceText();
+        binding.rowCdSurface.setOnClickListener(v -> showCdSurfaceDialog());
+        initSwitch(binding.swFluidBg, MusicStore.isFluidBg(), MusicStore::setFluidBg);
+        binding.rowFluidBg.setOnClickListener(v -> binding.swFluidBg.toggle());
+        initSwitch(binding.swKeepScreen, MusicStore.isPlayerKeepScreenOn(), MusicStore::setPlayerKeepScreenOn);
+        binding.rowKeepScreen.setOnClickListener(v -> binding.swKeepScreen.toggle());
+        initSwitch(binding.swLeftHand, MusicStore.isLeftHandLandscape(), MusicStore::setLeftHandLandscape);
+        binding.rowLeftHand.setOnClickListener(v -> binding.swLeftHand.toggle());
+        refreshLyricFontSizeText();
+        binding.rowLyricFontSize.setOnClickListener(v -> showFontSizeDialog());
+        refreshLyricWeightText();
+        binding.rowLyricWeight.setOnClickListener(v -> showLyricWeightDialog());
+        refreshLyricAlignText();
+        binding.rowLyricAlign.setOnClickListener(v -> showLyricAlignDialog());
+        refreshLyricBlurText();
+        binding.rowLyricBlur.setOnClickListener(v -> showLyricBlurDialog());
+        refreshLyricPrimaryText();
+        binding.rowLyricPrimary.setOnClickListener(v -> showLyricPrimaryDialog());
+        initSwitch(binding.swShowTranslation, MusicStore.isShowTranslation(), MusicStore::setShowTranslation);
+        binding.rowShowTranslation.setOnClickListener(v -> binding.swShowTranslation.toggle());
+        initSwitch(binding.swShowRomanization, MusicStore.isShowRomanization(), MusicStore::setShowRomanization);
+        binding.rowShowRomanization.setOnClickListener(v -> binding.swShowRomanization.toggle());
+        initSwitch(binding.swAdvancedFx, MusicStore.isAdvancedFx(), MusicStore::setAdvancedFx);
+        binding.rowAdvancedFx.setOnClickListener(v -> binding.swAdvancedFx.toggle());
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 从系统电池优化设置返回后，副文二态按实读刷新
+        // 从系统电池优化设置返回后，副文二态按实读刷新；其余值行也刷新（工具面板可能改过同一偏好）
         refreshBatteryText();
+        refreshPlayModeText();
+        refreshSpeedText();
+        refreshThemeText();
+        refreshCdSurfaceText();
+        refreshLyricFontSizeText();
+        refreshLyricWeightText();
+        refreshLyricAlignText();
+        refreshLyricBlurText();
+        refreshLyricPrimaryText();
     }
 
     /** S1 播放失败行右侧值：关＝停止播放，开＝自动下一首 */
@@ -180,6 +230,244 @@ public class MusicSettingsActivity extends BaseActivity {
                 .setView(box)
                 .setPositiveButton("完成", null)
                 .show();
+    }
+
+    // ================= 第 4 项尾巴新增行 =================
+
+    /** 播放模式行：顺序／单曲循环／全部循环／随机（MusicQueue 四档；存 MusicStore.K_MODE，播控读它作默认） */
+    private void refreshPlayModeText() {
+        int m = MusicStore.getMode();
+        binding.tvPlayMode.setText(m == MusicQueue.MODE_REPEAT_ONE ? "单曲循环"
+                : m == MusicQueue.MODE_REPEAT_ALL ? "全部循环"
+                : m == MusicQueue.MODE_SHUFFLE ? "随机播放" : "顺序播放");
+    }
+
+    private void showPlayModeDialog() {
+        int[] values = {MusicQueue.MODE_SEQUENTIAL, MusicQueue.MODE_REPEAT_ONE,
+                MusicQueue.MODE_REPEAT_ALL, MusicQueue.MODE_SHUFFLE};
+        List<String> opts = new ArrayList<>();
+        opts.add("顺序播放");
+        opts.add("单曲循环");
+        opts.add("全部循环");
+        opts.add("随机播放");
+        int cur = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == MusicStore.getMode()) cur = i;
+        MusicOptionsDialog.show(this, "播放模式", opts, cur, idx -> {
+            MusicStore.setMode(values[idx]);
+            try {
+                MusicController.get().setMode(values[idx]);
+            } catch (Throwable ignored) {
+            }
+            refreshPlayModeText();
+        });
+    }
+
+    /** 倍速行：档位与工具面板同款 {0.5, 0.75, 1, 1.25, 1.5, 2}，写播控＋偏好双份（同值，防单边） */
+    private void refreshSpeedText() {
+        binding.tvSpeed.setText(speedLabel(MusicController.get().getSpeed()));
+    }
+
+    private static String speedLabel(float s) {
+        return (s == Math.floor(s) ? String.format("%.1f", s) : String.valueOf(s)) + "×";
+    }
+
+    private void showSpeedDialog() {
+        float[] speeds = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+        List<String> opts = new ArrayList<>();
+        int checked = 2;
+        float cur = MusicController.get().getSpeed();
+        for (int i = 0; i < speeds.length; i++) {
+            opts.add(speedLabel(speeds[i]));
+            if (Math.abs(speeds[i] - cur) < 0.01f) checked = i;
+        }
+        MusicOptionsDialog.show(this, getString(R.string.music_speed), opts, checked, idx -> {
+            try {
+                MusicController.get().setSpeed(speeds[idx]);
+            } catch (Throwable ignored) {
+            }
+            MusicStore.setSpeed(speeds[idx]);
+            refreshSpeedText();
+        });
+    }
+
+    /** 播放页主题行：五主题（默认封面卡片不改）；主题名用现有 music_theme_* 文案 */
+    private void refreshThemeText() {
+        String t = MusicStore.getPlayerTheme();
+        binding.tvPlayerTheme.setText(MusicStore.THEME_CLASSIC.equals(t) ? R.string.music_theme_classic
+                : MusicStore.THEME_APPLE_MUSIC.equals(t) ? R.string.music_theme_apple
+                : MusicStore.THEME_LUMINOUS_CD.equals(t) ? R.string.music_theme_cd
+                : MusicStore.THEME_RECORD_SHELF.equals(t) ? R.string.music_theme_vinyl
+                : R.string.music_theme_cover);
+    }
+
+    private void showThemeDialog() {
+        String[] ids = {MusicStore.THEME_CLASSIC, MusicStore.THEME_APPLE_MUSIC,
+                MusicStore.THEME_COVER_IMMERSIVE, MusicStore.THEME_LUMINOUS_CD,
+                MusicStore.THEME_RECORD_SHELF};
+        List<String> opts = new ArrayList<>();
+        opts.add(getString(R.string.music_theme_classic));
+        opts.add(getString(R.string.music_theme_apple));
+        opts.add(getString(R.string.music_theme_cover));
+        opts.add(getString(R.string.music_theme_cd));
+        opts.add(getString(R.string.music_theme_vinyl));
+        int cur = 2;
+        for (int i = 0; i < ids.length; i++) if (ids[i].equals(MusicStore.getPlayerTheme())) cur = i;
+        MusicOptionsDialog.show(this, "播放页主题", opts, cur, idx -> {
+            MusicStore.setPlayerTheme(ids[idx]);
+            refreshThemeText();
+        });
+    }
+
+    /** 流光 CD 盘面行：0 浅 1 深 2 自动（默认自动；播放页 applyCdPalette 读） */
+    private void refreshCdSurfaceText() {
+        int s = MusicStore.getCdSurface();
+        binding.tvCdSurface.setText(s == MusicStore.CD_SURFACE_LIGHT ? "浅色"
+                : s == MusicStore.CD_SURFACE_DARK ? "深色" : "自动");
+    }
+
+    private void showCdSurfaceDialog() {
+        int[] values = {MusicStore.CD_SURFACE_LIGHT, MusicStore.CD_SURFACE_DARK, MusicStore.CD_SURFACE_AUTO};
+        List<String> opts = new ArrayList<>();
+        opts.add("浅色");
+        opts.add("深色");
+        opts.add("自动");
+        int cur = 2;
+        for (int i = 0; i < values.length; i++) if (values[i] == MusicStore.getCdSurface()) cur = i;
+        MusicOptionsDialog.show(this, "流光 CD 盘面", opts, cur, idx -> {
+            MusicStore.setCdSurface(values[idx]);
+            refreshCdSurfaceText();
+        });
+    }
+
+    /** 歌词字号行：步进编辑框（±2sp，范围由 setLyricFontSize 钳制 16–40，默认 24sp） */
+    private void refreshLyricFontSizeText() {
+        binding.tvLyricFontSize.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+    }
+
+    private void showFontSizeDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        TextView value = new TextView(this);
+        value.setTextSize(22);
+        value.setTextColor(0xFFFFFFFF);
+        value.setGravity(Gravity.CENTER);
+        value.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+        box.addView(value, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.topMargin = pad;
+        Button minus = new Button(this);
+        minus.setText("−2sp");
+        Button plus = new Button(this);
+        plus.setText("+2sp");
+        Runnable apply = () -> {
+            value.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+            refreshLyricFontSizeText();
+        };
+        minus.setOnClickListener(v -> {
+            MusicStore.setLyricFontSize(MusicStore.getLyricFontSize() - 2);
+            apply.run();
+        });
+        plus.setOnClickListener(v -> {
+            MusicStore.setLyricFontSize(MusicStore.getLyricFontSize() + 2);
+            apply.run();
+        });
+        row.addView(minus);
+        row.addView(plus);
+        box.addView(row, rowLp);
+        Button reset = new Button(this);
+        reset.setText("恢复 24sp");
+        LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        resetLp.topMargin = pad / 2;
+        reset.setOnClickListener(v -> {
+            MusicStore.setLyricFontSize(24);
+            apply.run();
+        });
+        box.addView(reset, resetLp);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("歌词字号")
+                .setView(box)
+                .setPositiveButton("完成", null)
+                .show();
+    }
+
+    /** 歌词粗细行：0 标准 1 加粗 2 特粗（默认标准） */
+    private void refreshLyricWeightText() {
+        int w = MusicStore.getLyricWeight();
+        binding.tvLyricWeight.setText(w == 2 ? "特粗" : w == 1 ? "加粗" : "标准");
+    }
+
+    private void showLyricWeightDialog() {
+        int[] values = {0, 1, 2};
+        List<String> opts = new ArrayList<>();
+        opts.add("标准");
+        opts.add("加粗");
+        opts.add("特粗");
+        MusicOptionsDialog.show(this, "歌词粗细", opts, MusicStore.getLyricWeight(), idx -> {
+            MusicStore.setLyricWeight(values[idx]);
+            refreshLyricWeightText();
+        });
+    }
+
+    /** 歌词对齐行：0 左 1 中 2 右（默认左） */
+    private void refreshLyricAlignText() {
+        int a = MusicStore.getLyricAlign();
+        binding.tvLyricAlign.setText(a == 2 ? "靠右" : a == 1 ? "居中" : "靠左");
+    }
+
+    private void showLyricAlignDialog() {
+        int[] values = {0, 1, 2};
+        List<String> opts = new ArrayList<>();
+        opts.add("靠左");
+        opts.add("居中");
+        opts.add("靠右");
+        MusicOptionsDialog.show(this, "歌词对齐", opts, MusicStore.getLyricAlign(), idx -> {
+            MusicStore.setLyricAlign(values[idx]);
+            refreshLyricAlignText();
+        });
+    }
+
+    /** 非当前行模糊行：0 关闭 1 轻度 2 中度 */
+    private void refreshLyricBlurText() {
+        int b = MusicStore.getLyricBlur();
+        binding.tvLyricBlur.setText(b == 0 ? "关闭" : b == 2 ? "中度" : "轻度");
+    }
+
+    private void showLyricBlurDialog() {
+        int[] values = {0, 1, 2};
+        List<String> opts = new ArrayList<>();
+        opts.add("关闭");
+        opts.add("轻度");
+        opts.add("中度");
+        MusicOptionsDialog.show(this, "非当前行模糊", opts, MusicStore.getLyricBlur(), idx -> {
+            MusicStore.setLyricBlur(values[idx]);
+            refreshLyricBlurText();
+        });
+    }
+
+    /** 主歌词行：0 原文 1 翻译 2 音译（默认原文） */
+    private void refreshLyricPrimaryText() {
+        int p = MusicStore.getLyricPrimary();
+        binding.tvLyricPrimary.setText(p == 2 ? "音译" : p == 1 ? "翻译" : "原文");
+    }
+
+    private void showLyricPrimaryDialog() {
+        int[] values = {0, 1, 2};
+        List<String> opts = new ArrayList<>();
+        opts.add("原文");
+        opts.add("翻译");
+        opts.add("音译");
+        MusicOptionsDialog.show(this, "主歌词", opts, MusicStore.getLyricPrimary(), idx -> {
+            MusicStore.setLyricPrimary(values[idx]);
+            refreshLyricPrimaryText();
+        });
     }
 
     private void initQualityRows() {

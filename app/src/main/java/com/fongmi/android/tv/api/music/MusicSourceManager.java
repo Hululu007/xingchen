@@ -522,7 +522,12 @@ public class MusicSourceManager {
                 FreeJsBridge b = bridgeOf(site);
                 if (b == null) continue;
                 MusicSearchResult r = b.search(keyword, page, type);
-                if (r != null && !r.isEmpty()) tracks.addAll(r.getTracks());
+                if (r != null && !r.isEmpty()) {
+                    // 单插件屏蔽平台：该插件屏蔽掉的平台的歌不进聚合结果（GZ：屏蔽的平台不再用于该插件的内容）
+                    for (MusicTrack t : r.getTracks()) {
+                        if (t != null && !MusicStore.isPlatformBlocked(site.srcUrl, t.platform)) tracks.add(t);
+                    }
+                }
                 if (r != null && !r.isEnd()) end = false;
                 noteBridgeSuccess(site.srcUrl);
             } catch (Throwable t) {

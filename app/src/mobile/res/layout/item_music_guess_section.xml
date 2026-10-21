@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 第 9 项：猜你喜欢精选区头（GZ：本次精选 20sp＋副文案 11sp＋右侧 N 首 10sp 胶囊；
+     换一批按钮图标 22dp，星辰侧自定为区头右侧图标＋文字；区头边距未抠到，星辰侧自定上下 20/4dp） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="20dp"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="本次精选"
+            android:textColor="#1C1C1E"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tvGuessSectionCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_search_capsule"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:textColor="#9AA7B8"
+            android:textSize="10sp" />
+
+        <ImageView
+            android:id="@+id/btnGuessRefresh"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="7dp"
+            android:src="@drawable/ic_action_refresh" />
+
+        <TextView
+            android:id="@+id/tvGuessRefresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="换一批"
+            android:textColor="#9AA7B8"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="综合收藏偏好与近期播放排序&#10;继续听歌，推荐会越来越懂你"
+        android:textColor="#9AA7B8"
+        android:textSize="11sp" />
+</LinearLayout>

@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_music_gradient"
+    android:background="@drawable/home_bg_page"
     android:fitsSystemWindows="true">
 
     <LinearLayout
@@ -27,204 +27,537 @@
                 android:textStyle="bold" />
         </FrameLayout>
 
-        <!-- 1. 播放音质 -->
-        <LinearLayout
-            android:id="@+id/rowPlayQuality"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_play_quality" />
-
-            <TextView
-                android:id="@+id/tvPlayQuality"
-                style="@style/MusicSettingValue" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
+        <!-- 第 4 项尾巴：设置页按 GZ 12 分类重排，只放适用项。
+             12 分类中 8 类有适用项（下）；3 类无适用项不建分区、只在对照表列出：
+             曲库与扫描（本地扫描随页打开自动进行，无独立开关）、搜索与通用（搜索历史清空在搜索页）、
+             底栏与黑胶（底栏黑胶参数未抠到，无可调项）。
+             需登录的功能（云同步、插件同步等）一律排除；需系统能力／不适用项（桌面歌词、词幕＋LSPosed 等）不搬。
+             行区包 ScrollView：分类比分区后行数超一屏，不包则底部行被截。 -->
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- 2. 播放失败（S1：开关改两档单选：停止播放／自动下一首，存值沿用 isAutoSkipOnError） -->
-        <LinearLayout
-            android:id="@+id/rowAutoSkip"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_play_failed" />
-
-            <TextView
-                android:id="@+id/tvAutoSkip"
-                style="@style/MusicSettingValue" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- 3. 移动网络播放 -->
-        <LinearLayout
-            android:id="@+id/rowMobilePlay"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_mobile_play" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/swMobilePlay"
-                style="@style/MusicSettingSwitch" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- S1 电池优化白名单（动作行，跳系统电池优化设置；副文二态按系统实读） -->
-        <LinearLayout
-            android:id="@+id/rowBatteryOpt"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_battery_opt" />
-
-            <TextView
-                android:id="@+id/tvBatteryOpt"
-                style="@style/MusicSettingValue" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- 4. 下载音质 -->
-        <LinearLayout
-            android:id="@+id/rowDlQuality"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_download_quality" />
-
-            <TextView
-                android:id="@+id/tvDlQuality"
-                style="@style/MusicSettingValue" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- 5. 歌词缺失自动搜索 -->
-        <LinearLayout
-            android:id="@+id/rowLyricFallback"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_lyric_fallback" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/swLyricFallback"
-                style="@style/MusicSettingSwitch" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- S6 AMLL 歌词（星辰单源合一行；副文见下方小字，开关默认开＝现行行为） -->
-        <LinearLayout
-            android:id="@+id/rowAmll"
-            style="@style/MusicSettingRow">
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:overScrollMode="never">
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:orientation="vertical">
 
+                <!-- 播放设置 -->
                 <TextView
-                    style="@style/MusicSettingName"
-                    android:layout_width="wrap_content"
-                    android:layout_weight="0"
-                    android:text="@string/music_amll_title" />
+                    style="@style/MusicSettingSection"
+                    android:text="播放设置" />
 
+                <LinearLayout
+                    android:id="@+id/rowPlayMode"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="播放模式" />
+
+                    <TextView
+                        android:id="@+id/tvPlayMode"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowSpeed"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_speed" />
+
+                    <TextView
+                        android:id="@+id/tvSpeed"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <!-- 播放失败（S1：开关改两档单选：停止播放／自动下一首，存值沿用 isAutoSkipOnError） -->
+                <LinearLayout
+                    android:id="@+id/rowAutoSkip"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_play_failed" />
+
+                    <TextView
+                        android:id="@+id/tvAutoSkip"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <!-- 移动网络播放 -->
+                <LinearLayout
+                    android:id="@+id/rowMobilePlay"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_mobile_play" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swMobilePlay"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <!-- 音质选择 -->
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/music_amll_desc"
-                    android:textColor="#8E8E93"
-                    android:textSize="12sp" />
+                    style="@style/MusicSettingSection"
+                    android:text="音质选择" />
+
+                <!-- 播放音质（下载音质归下载设置，不在这里重复列） -->
+                <LinearLayout
+                    android:id="@+id/rowPlayQuality"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_play_quality" />
+
+                    <TextView
+                        android:id="@+id/tvPlayQuality"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <!-- 均衡器 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="均衡器" />
+
+                <LinearLayout
+                    android:id="@+id/rowEqSystem"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="系统均衡器" />
+
+                    <TextView
+                        style="@style/MusicSettingValue"
+                        android:text="›"
+                        android:textColor="#8E8E93" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowEqParam"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="参数均衡器" />
+
+                    <TextView
+                        style="@style/MusicSettingValue"
+                        android:text="›"
+                        android:textColor="#8E8E93" />
+                </LinearLayout>
+
+                <!-- 主题与外观 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="主题与外观" />
+
+                <LinearLayout
+                    android:id="@+id/rowPlayerTheme"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="播放页主题" />
+
+                    <TextView
+                        android:id="@+id/tvPlayerTheme"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowCdSurface"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="流光 CD 盘面" />
+
+                    <TextView
+                        android:id="@+id/tvCdSurface"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <!-- 播放器视觉 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="播放器视觉" />
+
+                <LinearLayout
+                    android:id="@+id/rowFluidBg"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="流体背景" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swFluidBg"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowKeepScreen"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="播放页不熄屏" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swKeepScreen"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLeftHand"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="左手布局" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swLeftHand"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <!-- 歌词显示 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="歌词显示" />
+
+                <!-- 歌词缺失自动搜索 -->
+                <LinearLayout
+                    android:id="@+id/rowLyricFallback"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_lyric_fallback" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swLyricFallback"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <!-- S6 AMLL 歌词（星辰单源合一行；副文见下方小字，开关默认开＝现行行为） -->
+                <LinearLayout
+                    android:id="@+id/rowAmll"
+                    style="@style/MusicSettingRow">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/MusicSettingName"
+                            android:layout_width="wrap_content"
+                            android:layout_weight="0"
+                            android:text="@string/music_amll_title" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/music_amll_desc"
+                            android:textColor="#8E8E93"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swAmll"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <!-- U-05 歌词时间偏移（瓜子 LocalLyricOffsetMs，默认 0ms；行样式同 U4 设置行） -->
+                <LinearLayout
+                    android:id="@+id/rowLyricOffset"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="歌词时间偏移" />
+
+                    <TextView
+                        android:id="@+id/tvLyricOffset"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLyricFontSize"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="歌词字号" />
+
+                    <TextView
+                        android:id="@+id/tvLyricFontSize"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLyricWeight"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="歌词粗细" />
+
+                    <TextView
+                        android:id="@+id/tvLyricWeight"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLyricAlign"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="歌词对齐" />
+
+                    <TextView
+                        android:id="@+id/tvLyricAlign"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLyricBlur"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="非当前行模糊" />
+
+                    <TextView
+                        android:id="@+id/tvLyricBlur"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowLyricPrimary"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="主歌词" />
+
+                    <TextView
+                        android:id="@+id/tvLyricPrimary"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowShowTranslation"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="显示翻译" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swShowTranslation"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowShowRomanization"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="显示音译" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swShowRomanization"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#0F000000" />
+
+                <LinearLayout
+                    android:id="@+id/rowAdvancedFx"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="歌词高级动效" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swAdvancedFx"
+                        style="@style/MusicSettingSwitch" />
+                </LinearLayout>
+
+                <!-- 下载设置 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="下载设置" />
+
+                <!-- 下载音质 -->
+                <LinearLayout
+                    android:id="@+id/rowDlQuality"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_download_quality" />
+
+                    <TextView
+                        android:id="@+id/tvDlQuality"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <!-- 系统媒体与设备（播放设备入口只在播放页工具面板，不在这里重复造入口） -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="系统媒体与设备" />
+
+                <!-- S1 电池优化白名单（动作行，跳系统电池优化设置；副文二态按系统实读） -->
+                <LinearLayout
+                    android:id="@+id/rowBatteryOpt"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_battery_opt" />
+
+                    <TextView
+                        android:id="@+id/tvBatteryOpt"
+                        style="@style/MusicSettingValue" />
+                </LinearLayout>
+
+                <!-- 存储与诊断 -->
+                <TextView
+                    style="@style/MusicSettingSection"
+                    android:text="存储与诊断" />
+
+                <!-- 清除音乐缓存 -->
+                <LinearLayout
+                    android:id="@+id/rowClearCache"
+                    style="@style/MusicSettingRow">
+
+                    <TextView
+                        style="@style/MusicSettingName"
+                        android:text="@string/music_set_clear_cache" />
+
+                    <TextView
+                        android:id="@+id/tvCacheSize"
+                        style="@style/MusicSettingValue"
+                        android:textColor="#FF8E8E93" />
+                </LinearLayout>
             </LinearLayout>
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/swAmll"
-                style="@style/MusicSettingSwitch" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- U-05 歌词时间偏移（瓜子 LocalLyricOffsetMs，默认 0ms；行样式同 U4 设置行） -->
-        <LinearLayout
-            android:id="@+id/rowLyricOffset"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="歌词时间偏移" />
-
-            <TextView
-                android:id="@+id/tvLyricOffset"
-                style="@style/MusicSettingValue" />
-        </LinearLayout>
-
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="0.5dp"
-            android:layout_marginEnd="16dp"
-            android:background="#0F000000" />
-
-        <!-- 6. 清除音乐缓存 -->
-        <LinearLayout
-            android:id="@+id/rowClearCache"
-            style="@style/MusicSettingRow">
-
-            <TextView
-                style="@style/MusicSettingName"
-                android:text="@string/music_set_clear_cache" />
-
-            <TextView
-                android:id="@+id/tvCacheSize"
-                style="@style/MusicSettingValue"
-                android:textColor="#FF8E8E93" />
-        </LinearLayout>
+        </ScrollView>
     </LinearLayout>
 </FrameLayout>

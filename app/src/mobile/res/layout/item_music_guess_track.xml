@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 第 9 项：猜你喜欢精选行（GZ：封面 46dp、歌名 14sp、第二行 11sp；行边距未抠到，照歌单行同款 20/2dp；
+     第二行内容未抠到，星辰侧自定为歌手［· 专辑］；更多钮同款 20dp 图标、36dp 点击区） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="20dp"
+    android:paddingTop="2dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="2dp">
+
+    <ImageView
+        android:id="@+id/cover"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
+        android:scaleType="centerCrop" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#1C1C1E"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/artist"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#9AA7B8"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/more"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:contentDescription="@string/player_more"
+        android:padding="8dp"
+        android:src="@drawable/ic_music_more" />
+</LinearLayout>

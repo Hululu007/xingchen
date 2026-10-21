@@ -81,6 +81,8 @@ public class MusicListActivity extends BaseActivity {
     private String mode = "tracks";
     private String keyword = "";
     private String bigTitle = "";
+    /** 对照表 P2：插件导入进行中（头卡标题变「正在导入插件」、本地按钮标题变「导入中…」） */
+    private boolean pluginImporting;
     private String sitePlatform = "";
     private long playlistId = -1;
 
@@ -191,6 +193,10 @@ public class MusicListActivity extends BaseActivity {
         binding.tabRow.setAdapter(tabAdapter = new TabAdapter());
         binding.btnPlayAll.setOnClickListener(v -> shufflePlay());
         binding.btnSort.setOnClickListener(v -> cycleSort());
+        // 对照表 P4：页内两入口按钮直连现有 pickLocalFile／inputSiteUrl，不再走二选一弹窗
+        binding.btnPluginLocal.setOnClickListener(v -> pickLocalFile());
+        binding.btnPluginOnline.setOnClickListener(v -> inputSiteUrl());
+        binding.btnPluginSort.setOnClickListener(v -> showPluginSortDialog());
         binding.btnSearch.setOnClickListener(v -> startSearch(this, ""));
         binding.btnDoSearch.setOnClickListener(v -> doSearch());
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
@@ -218,6 +224,11 @@ public class MusicListActivity extends BaseActivity {
 
     private void load() {
         if (binding.pluginSections != null) binding.pluginSections.setVisibility(View.GONE);
+        // 对照表 P2/P4/P7/P22：sites 专属视图默认 GONE，非 sites 模式必须保持不可见
+        if (binding.pluginHeaderCard != null) binding.pluginHeaderCard.setVisibility(View.GONE);
+        if (binding.pluginAddRow != null) binding.pluginAddRow.setVisibility(View.GONE);
+        if (binding.pluginInstalledHeader != null) binding.pluginInstalledHeader.setVisibility(View.GONE);
+        if (binding.pluginEmptyCard != null) binding.pluginEmptyCard.setVisibility(View.GONE);
         binding.tvTitle.setText(titleForMode());
         binding.toolbar.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
@@ -637,34 +648,164 @@ public class MusicListActivity extends BaseActivity {
         return d;
     }
 
-    /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋添加卡＋开关/菜单 */
+    /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋头卡／两按钮／已安装头／排序后列表 */
     private void loadSites() {
         showLoading();
         Task.execute(() -> {
             List<MusicSite> sites = MusicSourceManager.get().listSites();
+            List<MusicSite> ordered = sortSites(sites);
             runOnUiThread(() -> {
+                pluginImporting = false;
                 cards.clear();
-                cards.add(new NewSiteCard());
-                cards.addAll(sites);
+                cards.addAll(ordered);
                 adapter.notifyDataSetChanged();
                 binding.tvBigTitle.setText(bigTitle);
                 binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_plugins));
+                refreshPluginHeader(sites);
                 refreshPluginSections();
-                binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
-                if (sites.isEmpty()) binding.empty.setText(R.string.music_plugin_none);
+                // P22：sites 模式空态改为空态卡，替代原 empty 文本；非空时两者都隐藏
+                binding.empty.setVisibility(View.GONE);
+                binding.pluginEmptyCard.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
             });
         });
     }
 
-    /** 添加插件二选一：在线地址（贴 URL 下载安装）／本地文件（系统文件选择器选 .js） */
-    private void showAddPluginSheet() {
+    /** 对照表 P2/P3/P23：头卡标题／副标题／徽章（仅 sites 模式；图标用现有 ic_music_note 近似，星辰无拼图图标） */
+    private void refreshPluginHeader(List<MusicSite> sites) {
+        if (!mode.equals("sites")) return;
+        binding.pluginHeaderCard.setVisibility(View.VISIBLE);
+        binding.pluginAddRow.setVisibility(View.VISIBLE);
+        binding.pluginInstalledHeader.setVisibility(View.VISIBLE);
+        int total = sites.size();
+        int enabled = 0;
+        int lyricCount = 0;
+        for (MusicSite s : sites) {
+            if (s.enabled) enabled++;
+            MusicPluginTest t = MusicSourceManager.get().loadPluginTest(s.srcUrl);
+            if (t != null && t.lyricOk && !t.audioOk) lyricCount++;
+        }
+        int audioCount = total - lyricCount;
+        if (pluginImporting) {
+            binding.pluginHeaderTitle.setText(R.string.music_plugin_importing);
+        } else if (total == 0) {
+            binding.pluginHeaderTitle.setText(R.string.music_plugin_no_plugin);
+        } else {
+            binding.pluginHeaderTitle.setText(total + " " + getString(R.string.music_plugins));
+        }
+        if (total == 0) {
+            binding.pluginHeaderSub.setText(R.string.music_plugin_import_desc);
+        } else if (enabled == 0) {
+            binding.pluginHeaderSub.setText(R.string.music_plugin_all_disabled);
+        } else {
+            binding.pluginHeaderSub.setText(getString(R.string.music_plugin_running) + "：" + enabled
+                    + " 音源：" + audioCount + " 歌词：" + lyricCount);
+        }
+        binding.pluginLocalTitle.setText(pluginImporting ? "导入中…" : getString(R.string.music_plugin_local_title));
+        // P7 已安装头计数：N / M 正在工作（M=启用且检测态非 FAILED；未检测计入工作数）
+        int working = 0;
+        for (MusicSite s : sites) {
+            if (!s.enabled) continue;
+            MusicPluginTest t = MusicSourceManager.get().loadPluginTest(s.srcUrl);
+            if (t == null || t.state != MusicPluginTest.State.FAILED) working++;
+        }
+        binding.pluginInstalledCount.setText(total + " / " + working + " " + getString(R.string.music_plugin_working));
+        binding.btnPluginSort.setText(pluginSortLabel() + " ▾");
+        // P23 头卡徽章（仅展示，不弹面板）：优先级 隔离＞失败＞启动中＞无本地＞正常
+        MusicRuntimeStatus st = MusicSourceManager.get().runtimeStatus();
+        String badge;
+        int badgeColor;
+        if (st.quarantinedRunners > 0) {
+            badge = "运行异常";
+            badgeColor = 0xFFFF3B30;
+        } else if (st.failedPlugins > 0) {
+            badge = "启动失败";
+            badgeColor = 0xFFFF3B30;
+        } else if (st.initializing) {
+            badge = "启动中";
+            badgeColor = 0xFF8E8E93;
+        } else if (st.enabledLocalPlugins == 0) {
+            badge = "无本地插件";
+            badgeColor = 0xFF8E8E93;
+        } else {
+            badge = "运行正常";
+            badgeColor = 0xFF34C759;
+        }
+        binding.pluginHeaderBadge.setText(badge);
+        binding.pluginHeaderBadge.setTextColor(badgeColor);
+    }
+
+    /** 对照表 P7/P8：排序钮文案与排序应用（PLATFORM_COUNT 语义未抠到，选它时保持存盘顺序） */
+    private String pluginSortLabel() {
+        switch (MusicStore.getPluginSort()) {
+            case MusicStore.PLUGIN_SORT_PLATFORM_COUNT:
+                return getString(R.string.music_plugin_sort_platform);
+            case MusicStore.PLUGIN_SORT_SPEED:
+                return getString(R.string.music_plugin_sort_speed);
+            case MusicStore.PLUGIN_SORT_AVAILABLE:
+                return getString(R.string.music_plugin_sort_available);
+            default:
+                return getString(R.string.music_plugin_sort_manual);
+        }
+    }
+
+    private List<MusicSite> sortSites(List<MusicSite> sites) {
+        List<MusicSite> out = new ArrayList<>(sites);
+        String sort = MusicStore.getPluginSort();
+        if (MusicStore.PLUGIN_SORT_AVAILABLE.equals(sort)) {
+            Collections.sort(out, (a, b) -> {
+                MusicPluginTest ta = MusicSourceManager.get().loadPluginTest(a.srcUrl);
+                MusicPluginTest tb = MusicSourceManager.get().loadPluginTest(b.srcUrl);
+                int va = (ta != null && ta.state == MusicPluginTest.State.AVAILABLE) ? 0 : 1;
+                int vb = (tb != null && tb.state == MusicPluginTest.State.AVAILABLE) ? 0 : 1;
+                return va - vb;
+            });
+        } else if (MusicStore.PLUGIN_SORT_SPEED.equals(sort)) {
+            Collections.sort(out, (a, b) -> Long.compare(pluginSpeedMs(a), pluginSpeedMs(b)));
+        }
+        // MANUAL 与 PLATFORM_COUNT（语义未抠到）均保持存盘顺序
+        return out;
+    }
+
+    /** SPEED 拟映射：检测取链耗时升序，未检测（无表或耗时 ≤0）排后 */
+    private long pluginSpeedMs(MusicSite s) {
+        MusicPluginTest t = MusicSourceManager.get().loadPluginTest(s.srcUrl);
+        if (t == null || t.latencyMs <= 0) return Long.MAX_VALUE;
+        return t.latencyMs;
+    }
+
+    private void showPluginSortDialog() {
         List<String> opts = new ArrayList<>();
-        opts.add(getString(R.string.music_plugin_online));
-        opts.add(getString(R.string.music_plugin_local));
-        MusicOptionsDialog.show(this, getString(R.string.music_plugin_add), opts, -1, idx -> {
-            if (idx == 0) inputSiteUrl();
-            else if (idx == 1) pickLocalFile();
+        opts.add(getString(R.string.music_plugin_sort_manual));
+        opts.add(getString(R.string.music_plugin_sort_platform));
+        opts.add(getString(R.string.music_plugin_sort_speed));
+        opts.add(getString(R.string.music_plugin_sort_available));
+        String cur = MusicStore.getPluginSort();
+        int checked = MusicStore.PLUGIN_SORT_PLATFORM_COUNT.equals(cur) ? 1
+                : MusicStore.PLUGIN_SORT_SPEED.equals(cur) ? 2
+                : MusicStore.PLUGIN_SORT_AVAILABLE.equals(cur) ? 3 : 0;
+        String[] values = {MusicStore.PLUGIN_SORT_MANUAL, MusicStore.PLUGIN_SORT_PLATFORM_COUNT,
+                MusicStore.PLUGIN_SORT_SPEED, MusicStore.PLUGIN_SORT_AVAILABLE};
+        MusicOptionsDialog.show(this, getString(R.string.music_plugin_installed), opts, checked, idx -> {
+            MusicStore.setPluginSort(values[idx]);
+            loadSites();
         });
+    }
+
+    /** 对照表 P14：手动排序模式下相邻换位＋落盘＋刷新（仅 sites 模式内，存盘顺序即现序） */
+    private void movePlugin(MusicSite site, int delta) {
+        List<MusicSite> sites = MusicSourceManager.get().listSites();
+        int idx = -1;
+        for (int i = 0; i < sites.size(); i++) {
+            if (sites.get(i) != null && site.srcUrl != null && site.srcUrl.equals(sites.get(i).srcUrl)) {
+                idx = i;
+                break;
+            }
+        }
+        int to = idx + delta;
+        if (idx < 0 || to < 0 || to >= sites.size()) return;
+        Collections.swap(sites, idx, to);
+        MusicSourceManager.get().saveSites(sites);
+        loadSites();
     }
 
     private static final int REQ_PICK_PLUGIN = 4213;
@@ -698,21 +839,31 @@ public class MusicListActivity extends BaseActivity {
         Task.execute(() -> {
             try {
                 byte[] bytes = readAll(uri);
-                runOnUiThread(() -> confirmPluginImport(() -> Task.execute(() -> {
-                    try {
-                        MusicSourceManager.get().addLocalSite(bytes);
-                        runOnUiThread(() -> {
-                            Notify.show(R.string.music_site_added);
-                            loadSites();
-                        });
-                    } catch (Exception e) {
-                        runOnUiThread(() -> Notify.show(e.getMessage() == null
-                                ? getString(R.string.music_plugin_add_failed) : e.getMessage()));
-                    }
-                })));
+                runOnUiThread(() -> confirmPluginImport(() -> {
+                    pluginImporting = true;
+                    refreshPluginHeader(MusicSourceManager.get().listSites());
+                    Task.execute(() -> {
+                        try {
+                            MusicSourceManager.get().addLocalSite(bytes);
+                            runOnUiThread(() -> {
+                                Notify.show(R.string.music_site_added);
+                                loadSites();
+                            });
+                        } catch (Exception e) {
+                            // P28：两路失败统一「导入失败：＋原因」，无原因→「导入失败：请稍后重试」
+                            runOnUiThread(() -> {
+                                pluginImporting = false;
+                                Notify.show(e.getMessage() == null || e.getMessage().isEmpty()
+                                        ? getString(R.string.music_import_failed_retry)
+                                        : "导入失败：" + e.getMessage());
+                            });
+                        }
+                    });
+                }));
             } catch (Exception e) {
-                runOnUiThread(() -> Notify.show(e.getMessage() == null
-                        ? getString(R.string.music_plugin_add_failed) : e.getMessage()));
+                runOnUiThread(() -> Notify.show(e.getMessage() == null || e.getMessage().isEmpty()
+                        ? getString(R.string.music_import_failed_retry)
+                        : "导入失败：" + e.getMessage()));
             }
         });
     }
@@ -764,6 +915,7 @@ public class MusicListActivity extends BaseActivity {
             public void onResult(MusicPluginTest result) {
                 runOnUiThread(() -> {
                     if (adapter != null) adapter.notifyDataSetChanged();
+                    refreshPluginHeader(MusicSourceManager.get().listSites());
                     refreshPluginSections();
                     if (showDetail) showTestDetail(site, result);
                 });
@@ -889,6 +1041,8 @@ public class MusicListActivity extends BaseActivity {
         title.setTextColor(0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         card.addView(title);
+        // P24：C10 卡置顶补「已加载插件 N 个」行（N＝listSites 总数）
+        card.addView(sectionLine("已加载插件 " + MusicSourceManager.get().listSites().size() + " 个"));
         card.addView(sectionLine("暂时停用 " + st.quarantinedRunners + " 个"
                 + (st.quarantinedNames.isEmpty() ? "" : "：" + android.text.TextUtils.join("、", st.quarantinedNames))));
         card.addView(sectionLine("启动失败 " + st.failedPlugins + " 个"
@@ -989,14 +1143,44 @@ public class MusicListActivity extends BaseActivity {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
-    /** 插件行 ⋮ 菜单：在线装的才有「更新」；删除连插件文件一起删 */
+    /** 插件行 ⋮ 菜单：在线装的才有「更新」；手动排序模式下加「上移」「下移」；删除连插件文件一起删 */
     private void pluginMenu(MusicSite site) {
         boolean online = !MusicSourceManager.isLocal(site);
         List<String> opts = new ArrayList<>();
-        if (online) opts.add(getString(R.string.music_plugin_update));
+        int updateIdx = -1;
+        int upIdx = -1;
+        int downIdx = -1;
+        if (online) {
+            updateIdx = opts.size();
+            opts.add(getString(R.string.music_plugin_update));
+        }
+        // P14：仅手动排序模式给上移／下移（首尾不给对应方向）
+        if (MusicStore.PLUGIN_SORT_MANUAL.equals(MusicStore.getPluginSort())) {
+            List<MusicSite> all = MusicSourceManager.get().listSites();
+            int pos = -1;
+            for (int i = 0; i < all.size(); i++) {
+                if (all.get(i) != null && site.srcUrl != null && site.srcUrl.equals(all.get(i).srcUrl)) {
+                    pos = i;
+                    break;
+                }
+            }
+            if (pos > 0) {
+                upIdx = opts.size();
+                opts.add(getString(R.string.music_plugin_move_up));
+            }
+            if (pos >= 0 && pos < all.size() - 1) {
+                downIdx = opts.size();
+                opts.add(getString(R.string.music_plugin_move_down));
+            }
+        }
+        int deleteIdx = opts.size();
         opts.add(getString(R.string.music_delete));
+        final int fUpdateIdx = updateIdx;
+        final int fUpIdx = upIdx;
+        final int fDownIdx = downIdx;
+        final int fDeleteIdx = deleteIdx;
         MusicOptionsDialog.show(this, site.name == null ? "" : site.name, opts, -1, idx -> {
-            if (online && idx == 0) {
+            if (idx == fUpdateIdx) {
                 Task.execute(() -> {
                     String v = MusicSourceManager.get().checkUpdate(site);
                     runOnUiThread(() -> {
@@ -1004,10 +1188,11 @@ public class MusicListActivity extends BaseActivity {
                             Notify.show(R.string.music_plugin_latest);
                             return;
                         }
-                        // 瓜子更新弹窗：标题「音源插件发现新版本」＋「立即更新」／「忽略」
+                        // 瓜子更新弹窗：标题「音源插件发现新版本」＋「立即更新」／「忽略」＋P20 副文
                         new MaterialAlertDialogBuilder(MusicListActivity.this)
                                 .setTitle("音源插件发现新版本")
-                                .setMessage((site.name == null ? "" : site.name) + "：" + v)
+                                .setMessage((site.name == null ? "" : site.name) + "：" + v
+                                        + "\n\n" + getString(R.string.music_plugin_update_desc))
                                 .setPositiveButton("立即更新", (d, w) -> {
                                     MusicSourceManager.get().applyUpdate(site, v);
                                     Notify.show(R.string.music_plugin_updated);
@@ -1020,7 +1205,11 @@ public class MusicListActivity extends BaseActivity {
                                 .show();
                     });
                 });
-            } else {
+            } else if (idx == fUpIdx) {
+                movePlugin(site, -1);
+            } else if (idx == fDownIdx) {
+                movePlugin(site, 1);
+            } else if (idx == fDeleteIdx) {
                 // 瓜子移除弹窗（仅本机文案；云端备份选项属排除项，不出）
                 new MaterialAlertDialogBuilder(this)
                         .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
@@ -1039,16 +1228,16 @@ public class MusicListActivity extends BaseActivity {
     }
 
     /**
-     * 插件导入确认（瓜子「第三方插件导入确认」：标题＋导语照瓜子；风险条目前两条照瓜子，
-     * 第三条「先试运行一次、确认能提供音源才会保留」是星辰安装链本就有的行为（probe 先行再落盘），
-     * 故写成通用表述；瓜子第三条自家声明「不发布、不内置、不推荐任何第三方插件」与星辰预置口径
-     * 相反，未照抄）。
+     * 插件导入确认（瓜子「第三方插件导入确认」：标题＋导语＋前两条照瓜子；
+     * P26：第 3 条改写为星辰版——原「先试运行一次」句按对照表落码口径替换，
+     * probe 先行再落盘仍是安装链行为，只是对话框文案不再单列）。
      */
     private void confirmPluginImport(Runnable onAgree) {
         String msg = "请仔细阅读以下提示，点击「同意并导入」即代表你已同意\n\n"
                 + "1. 该脚本来自第三方，非星辰提供。请自行判断其用途与潜在风险（内容、播放链接等），相关责任由脚本作者和使用者自行承担；\n"
                 + "2. 脚本会在本应用内执行代码，并可发起网络请求，请仅导入你信任的来源；\n"
-                + "3. 安装前会先试运行一次，确认能正常提供音源才会保留。";
+                + "3. 星辰不发布、不内置、不推荐任何第三方插件，在线播放与歌词由用户自行导入的脚本提供。\n"
+                + "4. 安装前会先试运行一次，确认能正常提供音源才会保留。";
         new MaterialAlertDialogBuilder(this)
                 .setTitle("第三方插件导入确认")
                 .setMessage(msg)
@@ -1058,30 +1247,52 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private void inputSiteUrl() {
+        // P29：标题改为「从链接导入」＋说明行「粘贴脚本地址，支持 raw / latest.js」；空值直接返回保留
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        TextView desc = new TextView(this);
+        desc.setText(R.string.music_plugin_import_url_desc);
+        desc.setTextSize(13);
+        desc.setTextColor(0xFF8E8E93);
+        box.addView(desc);
         EditText et = new EditText(this);
         et.setHint(R.string.music_site_url_hint);
         et.setTextColor(0xFFFFFFFF);
         et.setHintTextColor(0xFF5E6B7E);
         et.setSingleLine(true);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        et.setPadding(pad, pad, pad, pad);
+        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        etLp.topMargin = pad / 2;
+        box.addView(et, etLp);
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.music_plugin_add)
-                .setView(et)
+                .setTitle(R.string.music_plugin_import_url)
+                .setView(box)
                 .setPositiveButton(android.R.string.ok, (d, w) -> {
                     String url = et.getText().toString().trim();
                     if (url.isEmpty()) return;
-                    confirmPluginImport(() -> Task.execute(() -> {
-                        try {
-                            MusicSourceManager.get().addSite(url);
-                            runOnUiThread(() -> {
-                                Notify.show(R.string.music_site_added);
-                                loadSites();
-                            });
-                        } catch (Exception e) {
-                            runOnUiThread(() -> Notify.show(e.getMessage() == null ? "添加失败" : e.getMessage()));
-                        }
-                    }));
+                    confirmPluginImport(() -> {
+                        pluginImporting = true;
+                        refreshPluginHeader(MusicSourceManager.get().listSites());
+                        Task.execute(() -> {
+                            try {
+                                MusicSourceManager.get().addSite(url);
+                                runOnUiThread(() -> {
+                                    Notify.show(R.string.music_site_added);
+                                    loadSites();
+                                });
+                            } catch (Exception e) {
+                                // P28：两路失败统一「导入失败：＋原因」，无原因→「导入失败：请稍后重试」
+                                runOnUiThread(() -> {
+                                    pluginImporting = false;
+                                    Notify.show(e.getMessage() == null || e.getMessage().isEmpty()
+                                            ? getString(R.string.music_import_failed_retry)
+                                            : "导入失败：" + e.getMessage());
+                                });
+                            }
+                        });
+                    });
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
@@ -1162,9 +1373,6 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private static class ImportPlaylistCard {
-    }
-
-    private static class NewSiteCard {
     }
 
     // ================= ⋮ 菜单 =================
@@ -1804,6 +2012,13 @@ public class MusicListActivity extends BaseActivity {
             } else {
                 h.version.setVisibility(View.GONE);
             }
+            // P10：版本行后补作者（空则不显）
+            if (s.author != null && !s.author.isEmpty()) {
+                h.author.setVisibility(View.VISIBLE);
+                h.author.setText(s.author);
+            } else {
+                h.author.setVisibility(View.GONE);
+            }
             h.pluginSwitch.setOnCheckedChangeListener(null);
             h.pluginSwitch.setChecked(s.enabled);
             h.pluginSwitch.setOnCheckedChangeListener((v, checked) ->
@@ -1821,6 +2036,18 @@ public class MusicListActivity extends BaseActivity {
                 h.testStatus.setTextColor(test.labelColor());
                 h.pluginTest.setText("检测");
                 h.pluginTest.setEnabled(true);
+            }
+            // P12：检测失败且 message 非空时行内另起一行显 message（11sp，色与状态色一致）
+            MusicPluginTest rowTest = MusicSourceManager.get().loadPluginTest(s.srcUrl);
+            if (rowTest == null) rowTest = new MusicPluginTest();
+            if (!MusicSourceManager.get().isTesting(s.srcUrl)
+                    && rowTest.state == MusicPluginTest.State.FAILED
+                    && rowTest.message != null && !rowTest.message.isEmpty()) {
+                h.pluginError.setVisibility(View.VISIBLE);
+                h.pluginError.setText(rowTest.message);
+                h.pluginError.setTextColor(rowTest.labelColor());
+            } else {
+                h.pluginError.setVisibility(View.GONE);
             }
             h.pluginTest.setOnClickListener(v -> startPluginTest(s));
             View.OnClickListener menu = v -> pluginMenu(s);
@@ -1861,12 +2088,6 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setImageResource(R.drawable.ic_music_eq);
                 h.icon.setBackground(circle(0xFFA855F7));
                 h.itemView.setOnClickListener(v -> openChart(c));
-            } else if (o instanceof NewSiteCard) {
-                h.name.setText(R.string.music_plugin_add);
-                h.status.setText("");
-                h.icon.setImageResource(R.drawable.ic_music_plus);
-                h.icon.setBackground(circle(0xFF22C55E));
-                h.itemView.setOnClickListener(v -> showAddPluginSheet());
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
         }
@@ -1981,7 +2202,9 @@ public class MusicListActivity extends BaseActivity {
             final TextView name;
             final TextView formatTag;
             final TextView version;
+            final TextView author;
             final TextView testStatus;
+            final TextView pluginError;
             final TextView pluginTest;
             final com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch;
             final ImageView pluginMore;
@@ -1991,7 +2214,9 @@ public class MusicListActivity extends BaseActivity {
                 name = v.findViewById(R.id.name);
                 formatTag = v.findViewById(R.id.formatTag);
                 version = v.findViewById(R.id.version);
+                author = v.findViewById(R.id.author);
                 testStatus = v.findViewById(R.id.testStatus);
+                pluginError = v.findViewById(R.id.pluginError);
                 pluginTest = v.findViewById(R.id.pluginTest);
                 pluginSwitch = v.findViewById(R.id.pluginSwitch);
                 pluginMore = v.findViewById(R.id.pluginMore);

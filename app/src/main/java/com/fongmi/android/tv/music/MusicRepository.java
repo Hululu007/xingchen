@@ -305,11 +305,14 @@ public class MusicRepository {
             break;
         }
         // 4. AMLL（B8）：最后兜底，AMLL 档带档位元数据；无命中返回空，不冒充
-        try {
-            MusicLyric amll = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
-            if (hasRaw(amll)) return amll;
-        } catch (Throwable t) {
-            SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
+        // S6 门控：AMLL 开关关时跳过本步；默认开，行为与原来一致
+        if (MusicStore.isAmllEnabled()) {
+            try {
+                MusicLyric amll = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
+                if (hasRaw(amll)) return amll;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
+            }
         }
         return own != null && own.hasLyric() ? own : null;
     }
@@ -384,11 +387,13 @@ public class MusicRepository {
             }
             break;
         }
-        // 4. AMLL（B8）
-        try {
-            addVersion(out, seen, normalizeRich(new AmllMusicLyricSource().lyricRich(track)));
-        } catch (Throwable t) {
-            SpiderDebug.log("music", "lyricRichAll amll error %s", t.getMessage());
+        // 4. AMLL（B8）；S6 门控：关时跳过，默认开行为不变
+        if (MusicStore.isAmllEnabled()) {
+            try {
+                addVersion(out, seen, normalizeRich(new AmllMusicLyricSource().lyricRich(track)));
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRichAll amll error %s", t.getMessage());
+            }
         }
         return out;
     }

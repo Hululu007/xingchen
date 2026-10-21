@@ -647,6 +647,41 @@ public class MusicStore {
         Prefers.put(K_AUTO_BLOCK, on);
     }
 
+    /** 插件排序（瓜子 LxPluginSortMode，见对照表 P7/P8）：manual 手动（默认）／platform_count 平台／speed 速度／available 可用 */
+    public static final String PLUGIN_SORT_MANUAL = "manual";
+    public static final String PLUGIN_SORT_PLATFORM_COUNT = "platform_count";
+    public static final String PLUGIN_SORT_SPEED = "speed";
+    public static final String PLUGIN_SORT_AVAILABLE = "available";
+    private static final String K_PLUGIN_SORT = "music_plugin_sort";
+
+    public static String getPluginSort() {
+        String v = Prefers.getString(K_PLUGIN_SORT, PLUGIN_SORT_MANUAL);
+        if (PLUGIN_SORT_MANUAL.equals(v) || PLUGIN_SORT_PLATFORM_COUNT.equals(v)
+                || PLUGIN_SORT_SPEED.equals(v) || PLUGIN_SORT_AVAILABLE.equals(v)) return v;
+        return PLUGIN_SORT_MANUAL;
+    }
+
+    public static void setPluginSort(String sort) {
+        Prefers.put(K_PLUGIN_SORT, getPluginSortValidated(sort));
+    }
+
+    private static String getPluginSortValidated(String sort) {
+        if (PLUGIN_SORT_PLATFORM_COUNT.equals(sort) || PLUGIN_SORT_SPEED.equals(sort)
+                || PLUGIN_SORT_AVAILABLE.equals(sort)) return sort;
+        return PLUGIN_SORT_MANUAL;
+    }
+
+    /** AMLL 歌词开关（对照表 S6，星辰单源合一行；默认开＝现行行为，关则跳过 AMLL 兜底步） */
+    private static final String K_AMLL_ENABLED = "music_amll_enabled";
+
+    public static boolean isAmllEnabled() {
+        return Prefers.getBoolean(K_AMLL_ENABLED, true);
+    }
+
+    public static void setAmllEnabled(boolean on) {
+        Prefers.put(K_AMLL_ENABLED, on);
+    }
+
     /** 歌词时间偏移 ms（默认 0；读写都钳制 ±5000ms，钳制为星辰侧自定，非瓜子值） */
     public static int getLyricOffsetMs() {
         int v = Prefers.getInt(K_LYRIC_OFFSET_MS, 0);

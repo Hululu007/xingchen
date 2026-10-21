@@ -113,6 +113,256 @@
                 android:textSize="20sp" />
         </LinearLayout>
 
+        <!-- 对照表 P2/P23 插件头卡（仅 sites 模式可见）：图标 46dp／圆角 15dp 近似（卡皮 card_music）、
+             图标 24dp、图标文字间距 14dp、标题 18sp、副标题 11sp（标题下 3dp）；徽章在右上角 -->
+        <LinearLayout
+            android:id="@+id/pluginHeaderCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_music"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/pluginHeaderIcon"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/badge_music"
+                android:padding="11dp"
+                android:src="@drawable/ic_music_note" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/pluginHeaderTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#F2F2F7"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/pluginHeaderSub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="#8E8E93"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/pluginHeaderBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/badge_music"
+                android:paddingStart="8dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="4dp"
+                android:scaleX="0.92"
+                android:scaleY="0.92"
+                android:textColor="#8E8E93"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- 对照表 P4 两入口按钮行（仅 sites 模式可见）：卡顶内边距 10dp、两按钮横向平分；
+             按钮横内边距 12dp、图标框 32dp、副标题 11sp（上间距 2dp） -->
+        <LinearLayout
+            android:id="@+id/pluginAddRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/btnPluginLocal"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/card_music"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="12dp">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="@drawable/badge_music"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_music_plus" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/pluginLocalTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/music_plugin_local_title"
+                        android:textColor="#F2F2F7"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/music_plugin_local_desc"
+                        android:textColor="#8E8E93"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnPluginOnline"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/card_music"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="12dp">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="@drawable/badge_music"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_music_download" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/music_plugin_online_title"
+                        android:textColor="#F2F2F7"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/music_plugin_online_desc"
+                        android:textColor="#8E8E93"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 对照表 P7 已安装头（仅 sites 模式可见）：横外边距 16dp、「已安装」20sp、计数 11sp、排序胶囊 -->
+        <LinearLayout
+            android:id="@+id/pluginInstalledHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/music_plugin_installed"
+                android:textColor="#F2F2F7"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/pluginInstalledCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:textColor="#8E8E93"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/btnPluginSort"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/badge_music"
+                android:paddingStart="10dp"
+                android:paddingTop="7dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="7dp"
+                android:scaleX="0.96"
+                android:scaleY="0.96"
+                android:textColor="#F2F2F7"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- 对照表 P22 空态卡（仅 sites 模式真零插件时可见）：横内边距 20dp、纵内边距 28dp、
+             图标框 52dp、图标 28dp、图标下 14dp、主标题 15sp、副文案上间距 6dp -->
+        <LinearLayout
+            android:id="@+id/pluginEmptyCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:background="@drawable/card_music"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="28dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/badge_music"
+                android:padding="12dp"
+                android:src="@drawable/ic_music_note" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/music_plugin_empty_title"
+                android:textColor="#F2F2F7"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:lineSpacingExtra="7sp"
+                android:text="@string/music_plugin_empty_desc"
+                android:textColor="#8E8E93"
+                android:textSize="11sp" />
+        </LinearLayout>
+
         <!-- C5/C10 插件管理页专区（仅 sites 模式可见，代码里动态搭行）：智能切换开关＋自动屏蔽行＋运行时状态区 -->
         <LinearLayout
             android:id="@+id/pluginSections"

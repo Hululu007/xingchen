@@ -11,10 +11,8 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow;
 import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
@@ -23,6 +21,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.databinding.HomeDialogRecentBinding;
 import com.fongmi.android.tv.music.DeviceMusicStore;
@@ -44,7 +43,7 @@ import java.util.List;
 
 /**
  * 音乐首页（v7 定稿，2026-10-21 用户逐版改定）：
- * ① 搜索胶囊条（占位「搜索歌曲、歌手、专辑」）＋右侧竖三点 ⋮ 小菜单（插件管理／设置，非全屏）；
+ * ① 搜索胶囊条（占位「搜索歌曲、歌手、专辑」）＋右侧竖三点 ⋮ 菜单（顶上滑下的白色圆角卡，非全屏）；
  * ② 白色圆角卡内五个快捷横排：音乐收藏／我的歌单／本地音乐（正中）／播放历史／下载音乐，
  *    彩色图标＋名字＋下方真实数量（异步回填，取不到显示 0）；
  * ③ 三张渐变入口卡垫底：猜你喜欢·每日精选（粉）／排行榜·此刻热门（蓝绿）／随心听（绿黄，
@@ -316,49 +315,147 @@ public class MusicActivity extends BaseActivity {
         MusicPlayerActivity.start(this);
     }
 
-    // ================= ⋮ 小菜单（小下拉，非全屏） =================
+    // ================= ⋮ 菜单（顶上滑下的白色圆角卡，非全屏） =================
+    // 行形态照瓜子菜单行（ProfileScreenKt m282MenuRow）：行内边距 16×14dp、图标框 32dp／圆角 9dp／图标色 12% 底、
+    // 图标到标题 14dp、粗标题、右 12sp 灰字、按压 0.98；图标色插件管理 #AF52DE、软件设置 #FF2D55（瓜子代码值）。
+    // 插件行右字不抄瓜子「LX 音源插件」（星辰还有 FreeJS）：显示实际插件数。
 
     private void showMoreMenu(View anchor) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.getWindow().setDimAmount(0f);
+            dialog.getWindow().setGravity(Gravity.TOP);
+            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundResource(R.drawable.home_bg_menu);
-        root.setElevation(dp(6));
-        int pad = dp(6);
-        root.setPadding(pad, pad, pad, pad);
-        PopupWindow pw = new PopupWindow(root,
-                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true);
-        pw.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        pw.setElevation(dp(6));
-        addMenuRow(root, pw, getString(R.string.music_plugin_manage),
-                () -> MusicListActivity.startSites(this));
-        addMenuRow(root, pw, getString(R.string.music_setting),
-                () -> MusicSettingsActivity.start(this));
+        root.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.home_bg_menu);
+        card.setElevation(dp(6));
+        card.setClickable(true);
+        final LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        int side = dp(16);
+        cardLp.leftMargin = side;
+        cardLp.rightMargin = side;
+        cardLp.topMargin = getStatusBarHeight() + dp(8);
+        card.setVisibility(View.INVISIBLE);
+        root.addView(card, cardLp);
+
+        final boolean[] closing = new boolean[]{false};
+        final java.util.function.Consumer<Runnable> dismissThen = (after) -> {
+            if (closing[0]) return;
+            closing[0] = true;
+            card.animate().translationY(-(card.getHeight() + cardLp.topMargin)).setDuration(220)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .withEndAction(() -> {
+                        try {
+                            dialog.dismiss();
+                        } catch (Throwable ignored) {
+                        }
+                        if (after != null) after.run();
+                    }).start();
+        };
+
+        int pluginCount = 0;
         try {
-            pw.showAsDropDown(anchor, -dp(110), dp(4), Gravity.END);
-        } catch (Throwable t) {
-            pw.showAsDropDown(anchor, 0, 0);
+            pluginCount = MusicSourceManager.get().listSites().size();
+        } catch (Throwable ignored) {
         }
+        // 插件行：紫色拼图＋实际插件数；设置行：红色齿轮＋「播放／下载／外观」
+        card.addView(menuRow(R.drawable.ic_music_puzzle, 0xFFAF52DE,
+                getString(R.string.music_plugin_manage),
+                pluginCount + " " + getString(R.string.music_plugins),
+                () -> dismissThen.accept(() -> MusicListActivity.startSites(this))));
+        View divider = new View(this);
+        divider.setBackgroundColor(0x14000000);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerLp.leftMargin = dp(62);
+        card.addView(divider, dividerLp);
+        card.addView(menuRow(R.drawable.ic_control_setting, 0xFFFF2D55,
+                getString(R.string.music_setting),
+                getString(R.string.music_menu_setting_sub),
+                () -> dismissThen.accept(() -> MusicSettingsActivity.start(this))));
+
+        root.setOnClickListener(v -> dismissThen.accept(null));
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK
+                    && event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                dismissThen.accept(null);
+                return true;
+            }
+            return false;
+        });
+        dialog.setContentView(root);
+        try {
+            dialog.show();
+        } catch (Throwable ignored) {
+            return;
+        }
+        // 入场：先量高再从顶上滑下（INVISIBLE 起手，不闪一下）
+        card.post(() -> {
+            if (closing[0]) return;
+            int h = card.getHeight() + cardLp.topMargin;
+            card.setTranslationY(-h);
+            card.setVisibility(View.VISIBLE);
+            card.animate().translationY(0).setDuration(280)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        });
     }
 
-    private void addMenuRow(LinearLayout root, PopupWindow pw, String text, Runnable action) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(0xFF1A1A1A);
-        tv.setTextSize(15);
-        tv.setMinWidth(dp(150));
-        int hp = dp(16);
-        int vp = dp(12);
-        tv.setPadding(hp, vp, hp, vp);
-        tv.setBackgroundResource(R.drawable.home_bg_menu_row);
-        tv.setOnClickListener(v -> {
-            try {
-                pw.dismiss();
-            } catch (Throwable ignored) {
-            }
-            action.run();
-        });
-        root.addView(tv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    /** ⋮ 菜单行：浅色圆角方块图标＋粗标题＋右灰小字（瓜子菜单行形态，见 showMoreMenu 处注释）。 */
+    private LinearLayout menuRow(int iconRes, int iconColor, String title, String sub, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(14), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable box = new android.graphics.drawable.GradientDrawable();
+        box.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        box.setCornerRadius(dp(9));
+        box.setColor((0x1F << 24) | (iconColor & 0x00FFFFFF));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(iconColor));
+        icon.setBackground(box);
+        icon.setPadding(dp(6), dp(6), dp(6), dp(6));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText(title);
+        tvTitle.setTextSize(16);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setTextColor(0xFF1A1A1A);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.leftMargin = dp(14);
+        row.addView(tvTitle, titleLp);
+        View spacer = new View(this);
+        row.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
+        TextView tvSub = new TextView(this);
+        tvSub.setText(sub);
+        tvSub.setTextSize(12);
+        tvSub.setTextColor(0xFF9A9AA0);
+        tvSub.setSingleLine(true);
+        row.addView(tvSub, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        attachCardPress(row, 0.98f);
+        row.setOnClickListener(v -> action.run());
+        return row;
+    }
+
+    private int getStatusBarHeight() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (id > 0) return getResources().getDimensionPixelSize(id);
+        return dp(24);
     }
 
     // ================= 五快捷数量（真数据，异步回填） =================

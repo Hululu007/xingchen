@@ -57,6 +57,16 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
+        <!-- 对照表 P10 作者行（版本行后，空则不显） -->
+        <TextView
+            android:id="@+id/author"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#8E8E93"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
         <!-- C4 检测状态文案（四态色见 MusicPluginTest.labelColor） -->
         <TextView
             android:id="@+id/testStatus"
@@ -65,6 +75,16 @@
             android:layout_marginTop="2dp"
             android:textColor="#FF8E8E93"
             android:textSize="12sp" />
+
+        <!-- 对照表 P12 失败 message 行内展开（检测失败且 message 非空时显，11sp，色与状态色一致） -->
+        <TextView
+            android:id="@+id/pluginError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#FFFF3B30"
+            android:textSize="11sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- C4 行内“检测”钮（放开关左侧；与 pluginMenu 菜单项二选一，定行内钮，菜单不另加检测项） -->
@@ -93,6 +113,6 @@
         android:layout_width="44dp"
         android:layout_height="44dp"
         android:contentDescription="@string/player_more"
-        android:padding="11dp"
+        android:padding="10dp"
         android:src="@drawable/ic_music_more" />
 </LinearLayout>

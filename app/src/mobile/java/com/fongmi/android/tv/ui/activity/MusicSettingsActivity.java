@@ -1,8 +1,11 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -49,17 +52,65 @@ public class MusicSettingsActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         initQualityRows();
-        initSwitch(binding.swAutoSkip, MusicStore.isAutoSkipOnError(), MusicStore::setAutoSkipOnError);
-        binding.rowAutoSkip.setOnClickListener(v -> binding.swAutoSkip.toggle());
+        // S1：播放失败行由开关改两档单选（停止播放／自动下一首；存值沿用 isAutoSkipOnError，行为不变）
+        refreshAutoSkipText();
+        binding.rowAutoSkip.setOnClickListener(v -> showAutoSkipDialog());
         initSwitch(binding.swMobilePlay, MusicStore.isMobilePlay(), MusicStore::setMobilePlay);
         binding.rowMobilePlay.setOnClickListener(v -> binding.swMobilePlay.toggle());
+        // S1：电池优化白名单行（动作行，跳系统电池优化设置；副文二态按系统实读）
+        refreshBatteryText();
+        binding.rowBatteryOpt.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception ignored) {
+            }
+        });
         initSwitch(binding.swLyricFallback, MusicStore.isLyricFallback(), MusicStore::setLyricFallback);
         binding.rowLyricFallback.setOnClickListener(v -> binding.swLyricFallback.toggle());
+        // S6：AMLL 歌词开关一行（默认开＝现行行为；门控见 MusicRepository.lyricRich／lyricRichAll）
+        initSwitch(binding.swAmll, MusicStore.isAmllEnabled(), MusicStore::setAmllEnabled);
+        binding.rowAmll.setOnClickListener(v -> binding.swAmll.toggle());
         binding.rowClearCache.setOnClickListener(v -> clearCache());
         refreshCacheSize();
         // U-05：歌词时间偏移行（位置：歌词缺失自动搜索行之后、清除缓存行之前）
         refreshOffsetText();
         binding.rowLyricOffset.setOnClickListener(v -> showOffsetDialog());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 从系统电池优化设置返回后，副文二态按实读刷新
+        refreshBatteryText();
+    }
+
+    /** S1 播放失败行右侧值：关＝停止播放，开＝自动下一首 */
+    private void refreshAutoSkipText() {
+        binding.tvAutoSkip.setText(MusicStore.isAutoSkipOnError()
+                ? R.string.music_play_failed_next : R.string.music_play_failed_stop);
+    }
+
+    private void showAutoSkipDialog() {
+        List<String> opts = new ArrayList<>();
+        opts.add(getString(R.string.music_play_failed_stop));
+        opts.add(getString(R.string.music_play_failed_next));
+        MusicOptionsDialog.show(this, getString(R.string.music_set_play_failed), opts,
+                MusicStore.isAutoSkipOnError() ? 1 : 0, idx -> {
+                    MusicStore.setAutoSkipOnError(idx == 1);
+                    refreshAutoSkipText();
+                });
+    }
+
+    /** S1 电池优化白名单副文二态：按 PowerManager.isIgnoringBatteryOptimizations 实读 */
+    private void refreshBatteryText() {
+        boolean ignoring = false;
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) ignoring = pm.isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Exception ignored) {
+        }
+        binding.tvBatteryOpt.setText(ignoring
+                ? R.string.music_battery_ignored : R.string.music_battery_not_ignored);
     }
 
     /** U-05 右侧当前值：默认“0ms”，非零带符号（如“+200ms”“-200ms”） */

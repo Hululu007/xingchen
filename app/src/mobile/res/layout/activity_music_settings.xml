@@ -48,18 +48,18 @@
             android:layout_marginEnd="16dp"
             android:background="#0FFFFFFF" />
 
-        <!-- 2. 播放失败自动跳下一首 -->
+        <!-- 2. 播放失败（S1：开关改两档单选：停止播放／自动下一首，存值沿用 isAutoSkipOnError） -->
         <LinearLayout
             android:id="@+id/rowAutoSkip"
             style="@style/MusicSettingRow">
 
             <TextView
                 style="@style/MusicSettingName"
-                android:text="@string/music_set_auto_skip" />
+                android:text="@string/music_set_play_failed" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/swAutoSkip"
-                style="@style/MusicSettingSwitch" />
+            <TextView
+                android:id="@+id/tvAutoSkip"
+                style="@style/MusicSettingValue" />
         </LinearLayout>
 
         <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
@@ -81,6 +81,27 @@
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swMobilePlay"
                 style="@style/MusicSettingSwitch" />
+        </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
+
+        <!-- S1 电池优化白名单（动作行，跳系统电池优化设置；副文二态按系统实读） -->
+        <LinearLayout
+            android:id="@+id/rowBatteryOpt"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="@string/music_battery_opt" />
+
+            <TextView
+                android:id="@+id/tvBatteryOpt"
+                style="@style/MusicSettingValue" />
         </LinearLayout>
 
         <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
@@ -122,6 +143,44 @@
 
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swLyricFallback"
+                style="@style/MusicSettingSwitch" />
+        </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
+
+        <!-- S6 AMLL 歌词（星辰单源合一行；副文见下方小字，开关默认开＝现行行为） -->
+        <LinearLayout
+            android:id="@+id/rowAmll"
+            style="@style/MusicSettingRow">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/MusicSettingName"
+                    android:layout_width="wrap_content"
+                    android:layout_weight="0"
+                    android:text="@string/music_amll_title" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/music_amll_desc"
+                    android:textColor="#8E8E93"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/swAmll"
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
 

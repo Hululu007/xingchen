@@ -135,10 +135,10 @@
             android:textSize="9sp" />
     </LinearLayout>
 
-    <!-- 裸图标主控行（尺寸照 52/72 既定值，图标着色代码按色板刷） -->
+    <!-- 裸图标主控行（行高 80dp：LuminousCdPlayerKt:3055；播放盒 68dp／图标播放态 54／暂停态 58dp 由代码随态改，见 MPA applyPlayButtonSize） -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="80dp"
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -164,11 +164,11 @@
 
         <ImageView
             android:id="@+id/tpPlay"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
             android:layout_marginStart="22dp"
             android:layout_marginEnd="22dp"
-            android:padding="18dp"
+            android:padding="7dp"
             android:src="@drawable/ic_music_pause" />
 
         <ImageView

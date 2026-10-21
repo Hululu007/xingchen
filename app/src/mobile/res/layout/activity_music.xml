@@ -380,6 +380,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/homeShuffleSub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
@@ -440,6 +441,15 @@
                 android:text="@string/home_chart_more"
                 android:textColor="#9A9AA0"
                 android:textSize="13sp" />
+
+            <ImageView
+                android:id="@+id/homeChartMoreIcon"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_gravity="center_vertical"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_player_chevron_right"
+                android:tint="#9A9AA0" />
         </LinearLayout>
 
         <LinearLayout

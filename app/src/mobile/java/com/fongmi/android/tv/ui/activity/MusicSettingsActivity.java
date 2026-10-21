@@ -61,24 +61,31 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowDlQuality.setOnClickListener(v -> showDownloadModeDialog());
     }
 
-    /** 下载行值文案：跟随模式显「跟随播放偏好」，固定模式显固定档名（不走生效值，免得跟随下误显播放档名） */
+    /** 下载行值文案：跟随模式显「跟随播放偏好」，每次询问模式显「每次询问」，固定模式显固定档名（不走生效值，免得跟随下误显播放档名） */
     private void refreshDlQualityText() {
         if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_FOLLOW) {
             binding.tvDlQuality.setText("跟随播放偏好");
+        } else if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+            binding.tvDlQuality.setText(R.string.music_dl_mode_ask);
         } else {
             binding.tvDlQuality.setText(MusicStore.qualityName(MusicStore.getDownloadQualityFixed()));
         }
     }
 
-    /** 下载音质模式（瓜子三策略中的两项：跟随播放偏好／固定下载音质；每次询问的下载时弹窗未接线，故本页不提供该项） */
+    /** 下载音质模式（瓜子三策略：跟随播放偏好／固定下载音质／每次询问；每次询问的下载时选档窗在下载调用点弹，见 MusicDownloadStore） */
     private void showDownloadModeDialog() {
         List<String> opts = new ArrayList<>();
         opts.add("跟随播放偏好");
         opts.add("固定下载音质");
-        int cur = MusicStore.getDownloadMode() == MusicStore.DL_MODE_FOLLOW ? 0 : 1;
+        opts.add(getString(R.string.music_dl_mode_ask));
+        int mode = MusicStore.getDownloadMode();
+        int cur = mode == MusicStore.DL_MODE_FOLLOW ? 0 : mode == MusicStore.DL_MODE_ASK ? 2 : 1;
         MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), opts, cur, idx -> {
             if (idx == 0) {
                 MusicStore.setDownloadMode(MusicStore.DL_MODE_FOLLOW);
+                refreshDlQualityText();
+            } else if (idx == 2) {
+                MusicStore.setDownloadMode(MusicStore.DL_MODE_ASK);
                 refreshDlQualityText();
             } else {
                 MusicStore.setDownloadMode(MusicStore.DL_MODE_FIXED);

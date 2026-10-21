@@ -141,8 +141,16 @@ public class MusicPlayerActivity extends BaseActivity {
     private static final android.view.animation.Interpolator INTERP_EXIT = new android.view.animation.PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
     /** bs4.c (0.3,0,1,1)：歌名／歌手出场交叉淡化 fadeOut 150ms 用（redo3 M7／F2）。 */
     private static final android.view.animation.Interpolator INTERP_OUT_C = new android.view.animation.PathInterpolator(0.3f, 0f, 1f, 1f);
-    /** bs4.d 近似（类 Emphasized 路径缓动，树内 CdSweep 已用同族贝塞尔 (0.3,0,0.1,1)）：CD 歌词展开 600／收起 500ms 用（redo3 D7／F4）。 */
-    private static final android.view.animation.Interpolator INTERP_CD_EXPAND = new android.view.animation.PathInterpolator(0.3f, 0f, 0.1f, 1f);
+    /** bs4.d 原路径（GZ defpackage/bs4.java：Emphasized 路径缓动，moveTo(0,0) 后两段 cubicTo；x 单调递增，可作 PathInterpolator）：CD 歌词展开 600／收起 500ms 用（redo3 D7／F4）。扫光动画在 CdSweepView 内（不在本轮文件范围），仍用同族贝塞尔，D8 缓动仍近似。 */
+    private static final android.view.animation.Interpolator INTERP_CD_EXPAND = createBs4dInterpolator();
+
+    private static android.view.animation.Interpolator createBs4dInterpolator() {
+        android.graphics.Path path = new android.graphics.Path();
+        path.moveTo(0f, 0f);
+        path.cubicTo(0.05f, 0f, 0.133333f, 0.06f, 0.166666f, 0.4f);
+        path.cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f);
+        return new android.view.animation.PathInterpolator(path);
+    }
     // ===== 全屏歌词内页（GZ 本体为播放页内 HorizontalPager 第 2 页，与播放页同一状态源；
     // 原独立 MusicLyricsActivity 自带一份取词/解析/取色/进度监听链、与播放页双份打架，已整条删除） =====
     private View lyricsPage;
@@ -438,6 +446,10 @@ public class MusicPlayerActivity extends BaseActivity {
                 lyricView.setCoverMode(true);
             }
             if (THEME_SHELF.equals(themeId)) lyricView.setLightScheme(true);
+            // 空态字样主题覆盖（redo3 第三轮 S8／V9）：架 16sp／行高 25sp／无图标／ShelfMuted；
+            // 封面卡片展开态 14sp／无图标／白 0.65；其余主题走 KLV 默认（图标＋12sp）。
+            if (THEME_SHELF.equals(themeId)) lyricView.setEmptyTextStyle(16f, 25f, true, 0xFF86857E);
+            else if (THEME_IMMERSIVE.equals(themeId)) lyricView.setEmptyTextStyle(14f, 0f, true, 0xA6FFFFFF);
             lyricView.setOnLineClickListener((index, positionMs) -> {
                 if (THEME_CLASSIC.equals(themeId)) openLyricsPage();
                 else if (THEME_CD.equals(themeId)) {
@@ -549,13 +561,13 @@ public class MusicPlayerActivity extends BaseActivity {
         } else if (THEME_CD.equals(themeId)) {
             attachPressScale(prevView, 0.96f);
             attachPressScale(nextView, 0.96f);
-            attachPressScale(playView, 0.96f);
+            attachPressScale(playView, 0.9f);
             attachPressScale(queueView, 0.96f);
             attachPressScale(modeView, 0.96f);
         } else if (THEME_SHELF.equals(themeId)) {
             attachPressScale(prevView, 0.96f);
             attachPressScale(nextView, 0.96f);
-            attachPressScale(playView, 0.96f);
+            attachPressScale(playView, 0.9f);
             attachPressScale(modeView, 0.96f);
             attachPressScale(favBtnView, 0.88f);
         }
@@ -1682,10 +1694,44 @@ public class MusicPlayerActivity extends BaseActivity {
         return String.format("%02d:%02d", s / 60, s % 60);
     }
 
+    /**
+     * 播放键盒与图标尺寸随态改（redo3 第三轮 D12／S9）：流光 CD 盒 68dp、播放态图标 54dp／暂停态 58dp
+     *（LuminousCdPlayerKt:3110-3145）；唱片架盒 68dp、图标两态均为 52dp（RecordShelfPlayerKt:2303-2332）。
+     * 图标尺寸以盒内 padding 实现（盒−图标）／2；其余主题不动。加载圆环（两主题均为 30dp／线宽 2.5）
+     * 因星辰音乐链无 loading 信号源、且架分支方向未复核清，本轮不补视图，见分表缺失节。
+     */
+    private void applyPlayButtonSize(boolean isPlaying) {
+        if (playView == null) return;
+        float d = getResources().getDisplayMetrics().density;
+        int boxDp;
+        int iconDp;
+        if (THEME_CD.equals(themeId)) {
+            boxDp = 68;
+            iconDp = isPlaying ? 54 : 58;
+        } else if (THEME_SHELF.equals(themeId)) {
+            boxDp = 68;
+            iconDp = 52;
+        } else {
+            return;
+        }
+        int boxPx = Math.round(boxDp * d);
+        int padPx = Math.round((boxDp - iconDp) / 2f * d);
+        android.view.ViewGroup.LayoutParams lp = playView.getLayoutParams();
+        if (lp != null && (lp.width != boxPx || lp.height != boxPx)) {
+            lp.width = boxPx;
+            lp.height = boxPx;
+            playView.setLayoutParams(lp);
+        }
+        if (playView.getPaddingLeft() != padPx || playView.getPaddingTop() != padPx) {
+            playView.setPadding(padPx, padPx, padPx, padPx);
+        }
+    }
+
     private void setPlaying(boolean isPlaying) {
         playing = isPlaying;
         if (playView != null) {
             playView.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+            applyPlayButtonSize(isPlaying);
         }
         // 经典 SongMeta 播放键：图标播放中 28dp / 暂停态 25dp（40dp 点击区内靠 padding 换尺寸，GZ animateDpAsState tween(300) 真动画）
         if (playTopView != null) {
@@ -2101,6 +2147,18 @@ public class MusicPlayerActivity extends BaseActivity {
         }
         if (MusicDownloadStore.isLocal(track)) {
             Notify.show(R.string.music_download_exists);
+            return;
+        }
+        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+            int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                    MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+            List<String> opts = new ArrayList<>();
+            for (int v : values) opts.add(MusicStore.qualityName(v));
+            int fixed = MusicStore.getDownloadQualityFixed();
+            int checked = 1;
+            for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
+            MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), opts, checked,
+                    idx -> MusicDownloadStore.downloadWithQuality(track, values[idx]));
             return;
         }
         MusicDownloadStore.download(track);

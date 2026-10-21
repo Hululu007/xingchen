@@ -948,7 +948,21 @@ public class MusicListActivity extends BaseActivity {
                     Notify.show(getString(R.string.music_play_next));
                 } else if (idx == 2) pickPlaylist(track);
                 else if (idx == 3) toggleFavorite(track, opts.get(3));
-                else if (idx == dIdx) MusicDownloadStore.download(track);
+                else if (idx == dIdx) {
+                    if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+                        int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                                MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+                        List<String> qopts = new ArrayList<>();
+                        for (int v : values) qopts.add(MusicStore.qualityName(v));
+                        int fixed = MusicStore.getDownloadQualityFixed();
+                        int checked = 1;
+                        for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
+                        MusicOptionsDialog.show(act, getString(R.string.music_set_download_quality), qopts, checked,
+                                qidx -> MusicDownloadStore.downloadWithQuality(track, values[qidx]));
+                    } else {
+                        MusicDownloadStore.download(track);
+                    }
+                }
                 else if (idx == rIdx) removeFromSheet(track);
                 else if (idx == delIdx) confirmDeleteLocal(track);
             });

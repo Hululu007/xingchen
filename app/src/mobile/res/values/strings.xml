@@ -233,6 +233,8 @@
     <string name="music_setting">设置</string>
     <string name="music_set_play_quality">播放音质</string>
     <string name="music_set_download_quality">下载音质</string>
+    <string name="music_dl_mode_ask">每次询问</string>
+    <string name="music_dl_ask_no_activity">下载音质设为每次询问，请从播放页或列表里点下载选档</string>
     <string name="music_set_auto_skip">播放失败自动跳下一首</string>
     <string name="music_set_mobile_play">移动网络播放</string>
     <string name="music_set_lyric_fallback">歌词缺失自动搜索</string>
@@ -311,13 +313,14 @@
     <string name="music_lyric_chip_line">逐行</string>
     <string name="music_lyric_chip_plain">纯文本</string>
     <string name="music_lyric_chip_none">无词</string>
-    <string name="home_chart_more">完整榜单 ›</string>
+    <string name="home_chart_more">完整榜单</string>
     <string name="home_chart_play">播放榜单</string>
     <string name="home_guess_sub">每日精选</string>
     <string name="home_charts">排行榜</string>
     <string name="home_charts_sub">此刻热门</string>
     <string name="home_shuffle">随心听</string>
     <string name="home_shuffle_sub">随机漫游</string>
+    <string name="home_shuffle_playing">正在播放</string>
     <string name="home_no_recent">还没有播放记录</string>
     <string name="home_next">下一首</string>
     <string name="home_play">播放或暂停</string>

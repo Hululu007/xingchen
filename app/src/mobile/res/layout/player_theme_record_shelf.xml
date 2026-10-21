@@ -100,9 +100,10 @@
                 android:layout_height="wrap_content"
                 android:includeFontPadding="false"
                 android:letterSpacing="0.018"
+                android:lineHeight="14dp"
                 android:text="00:00"
                 android:textColor="#99FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
 
             <View
                 android:layout_width="0dp"
@@ -116,16 +117,17 @@
                 android:gravity="end"
                 android:includeFontPadding="false"
                 android:letterSpacing="0.018"
+                android:lineHeight="14dp"
                 android:text="00:00"
                 android:textColor="#99FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部主控行（同经典） -->
+    <!-- 底部主控行（行高 76dp：RecordShelfPlayerKt:2156 起 ShelfControls；播放盒 68dp／图标 52dp 由代码随态改，见 MPA applyPlayButtonSize） -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="76dp"
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -154,12 +156,12 @@
 
         <ImageView
             android:id="@+id/tpPlay"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
+            android:layout_width="68dp"
+            android:layout_height="68dp"
             android:layout_marginStart="24dp"
             android:layout_marginEnd="24dp"
             android:background="@drawable/bg_player_play_ring"
-            android:padding="22dp"
+            android:padding="8dp"
             android:src="@drawable/ic_music_pause"
             android:tint="#FFFFFF" />
 

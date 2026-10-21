@@ -66,6 +66,17 @@ public class KaraokeLyricsView extends View {
     private static final float EMPHASIZE_LETTER_FLOAT_EM = -0.05f;
     /** 光晕释放尾巴（ms，行末字进度分母再加）。 */
     private static final long EMPH_RELEASE_TAIL_MS = 400L;
+    /** 长音光晕强度／半径系数（GZ emphasizeGlow，LyricsViewKt:11404-11427 全公式，第三轮逐系数核对后整段落为静态方法）。 */
+    private static final float EMPH_GLOW_BASE = 0.6f;
+    private static final float EMPH_GLOW_PER_SEC = 0.045f;
+    private static final float EMPH_GLOW_CAP = 0.85f;
+    private static final float EMPH_GLOW_LAST_MUL = 1.1f;
+    private static final float EMPH_GLOW_LAST_CAP = 0.95f;
+    private static final float EMPH_RADIUS_BASE = 0.3f;
+    private static final float EMPH_RADIUS_PER_SEC = 0.012f;
+    private static final float EMPH_RADIUS_CAP = 0.5f;
+    private static final float EMPH_RADIUS_LAST_MUL = 1.15f;
+    private static final float EMPH_RADIUS_LAST_CAP = 0.6f;
 
     // —— 弹簧（GZ 2.4：amllPosYComposeStiffness 公式＋三组弹簧规格） ——
     /** 刚度公式缺省帧间隔 delta（ms，GZ $default）。 */
@@ -130,6 +141,11 @@ public class KaraokeLyricsView extends View {
     private static final float EMPTY_ICON_DP = 40f;
     /** 空态字样字号 12sp。 */
     private static final float EMPTY_TEXT_SP = 12f;
+    /** 空态字样主题覆盖（默认 0＝未覆盖，走 EMPTY_TEXT_SP／图标＋字样两段式；唱片架／封面卡片展开态按瓜子空态文案覆盖，见 setEmptyTextStyle）。 */
+    private float emptyTextSp = EMPTY_TEXT_SP;
+    private float emptyLineHeightSp;
+    private boolean emptyTextOnly;
+    private int emptyTextColor;
     /** 无歌词：图标 alpha 0.5（字样用非当前行色原值）。 */
     private static final float EMPTY_NO_LYRIC_ICON_ALPHA = 0.5f;
     /** 等待播放：图标 alpha 0.3、字样 alpha 0.4。 */
@@ -355,6 +371,20 @@ public class KaraokeLyricsView extends View {
     public void showLoading() {
         searchingLyric = false;
         emptyState = STATE_LOADING;
+        invalidate();
+    }
+
+    /**
+     * 空态字样主题覆盖（redo3 第三轮 S8／V9）：唱片架空态 16sp／行高 25sp／无图标／ShelfMuted 色
+     *（RecordShelfPlayerKt:840-875）；封面卡片展开态空态 14sp／无图标／白 0.65（PlayerScreenKt:9062）。
+     * textColor 传 0 表示不覆盖颜色（走非当前行色）；lineHeightSp 传 0 表示不按行高定行盒。
+     * 仅作用于无词／等待两态的空态绘制，搜索中内嵌文案（N-19 全局 12sp 口径）与加载态（什么都不画）不动。
+     */
+    public void setEmptyTextStyle(float textSp, float lineHeightSp, boolean textOnly, int textColor) {
+        emptyTextSp = textSp;
+        emptyLineHeightSp = lineHeightSp;
+        emptyTextOnly = textOnly;
+        emptyTextColor = textColor;
         invalidate();
     }
 
@@ -917,6 +947,19 @@ public class KaraokeLyricsView extends View {
         int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
         float cx = getWidth() / 2f;
         float cy = getHeight() / 2f;
+        if (emptyTextOnly) {
+            // 主题覆盖空态（唱片架 16sp／行高 25sp、封面卡片展开态 14sp）：无图标、纯字样居中；
+            // 行高作为单行行盒高参与垂直居中（多行换行时亦为行距，当前空态文案均为单行）。
+            emptyPaint.setColor(emptyTextColor != 0 ? emptyTextColor : base);
+            emptyPaint.setTextSize(sp(emptyTextSp));
+            emptyPaint.setAlpha(waiting ? Math.round(255f * EMPTY_WAITING_TEXT_ALPHA) : 255);
+            Paint.FontMetrics fm = emptyPaint.getFontMetrics();
+            float lineBox = emptyLineHeightSp > 0 ? sp(emptyLineHeightSp) : (fm.descent - fm.ascent);
+            float textBaseline = cy - lineBox / 2f - fm.ascent;
+            canvas.drawText(waiting ? "等待播放" : "暂无歌词", cx, textBaseline, emptyPaint);
+            emptyPaint.setAlpha(255);
+            return;
+        }
         emptyPaint.setColor(base);
         emptyPaint.setTextSize(dp(EMPTY_ICON_DP));
         emptyPaint.setAlpha(Math.round(255f * (waiting ? EMPTY_WAITING_ICON_ALPHA : EMPTY_NO_LYRIC_ICON_ALPHA)));
@@ -1148,21 +1191,18 @@ public class KaraokeLyricsView extends View {
             // 分母＝max(1000, 时长)，行末字释放段再＋400ms（EMPH_RELEASE_TAIL_MS）。
             long denom = Math.max(LONG_WORD_MS, duration) + (isLastWord ? EMPH_RELEASE_TAIL_MS : 0L);
             glowProgress = empEasing(clampF((relative - start) / (float) denom, 0f, 1f));
-            // 强度／半径（GZ emphasizeGlow 全公式）：s＝clamp(时长ms/1000,1,8)。
-            float s = clampF(word.getDurationMs() / 1000f, 1f, 8f);
-            glowIntensity = Math.min((s - 1f) * 0.045f + 0.6f, 0.85f);
-            float radiusCoef = Math.min((s - 1f) * 0.012f + 0.3f, 0.5f);
-            if (isLastWord) {
-                glowIntensity = Math.min(glowIntensity * 1.1f, 0.95f);
-                radiusCoef = Math.min(radiusCoef * 1.15f, 0.6f);
-            }
-            glowRadius = radiusCoef * em;
-            // 长音字母另浮 −0.05em（按光晕包络）＋GZ 缩放变换的纵向漂移 −0.025×缩放量×进度×字号。
+            // 强度／半径／边距走 GZ emphasizeGlow／emphasizeGlowMargin 静态方法（见本文件末段）。
+            glowIntensity = emphasizeGlowIntensity(word.getDurationMs(), isLastWord);
+            glowRadius = emphasizeGlowRadius(word.getDurationMs(), isLastWord, em);
+            // 长音字母另浮 −0.05em（按光晕包络；GZ 逐字母正弦浮动路径见 emphasizeUnitFloatTime，整词近似用包络）＋
+            // GZ 缩放变换的纵向漂移 −0.025×缩放量×进度×字号（LyricsViewKt:10376，CJK 与否同式）。
             scaleAmount = emphasizeScaleAmount(word.getDurationMs(), isLastWord);
             drawY += EMPHASIZE_LETTER_FLOAT_EM * em * glowProgress;
             drawY += -0.025f * scaleAmount * glowProgress * em;
-            // 长音缩放（GZ 应用式）：scale＝1＋0.1×光晕进度×缩放量（非 CJK 式；View 按整词近似，CJK 词同式）。
-            scale = 1f + 0.1f * glowProgress * scaleAmount;
+            // 长音缩放（GZ 应用式 LyricsViewKt:10369）：scale＝1＋0.1×光晕进度×缩放量，且只对非 CJK 字；
+            // CJK 字缩放恒 1（GZ isCJK 分支）；整词按全词是否全 CJK 取门（逐字门需逐字布局，见残留注记）。
+            // GZ 逐字横向漂移 0.03 项（:10377）为逐字偏移，整词粒度无确证均值，不落。
+            if (!isCjkWord(seg.text)) scale = 1f + 0.1f * glowProgress * scaleAmount;
         }
 
         int save = -1;
@@ -1174,9 +1214,9 @@ public class KaraokeLyricsView extends View {
             canvas.translate(-cx, -drawY);
         }
         if (isLong && glowProgress > 0.01f && glowRadius > 0f) {
-            // 光晕边距（GZ emphasizeGlowMargin＝字号×0.12＋半径×3＋2）：GZ 用于光晕位图外扩；
+            // 光晕边距（GZ emphasizeGlowMargin，见本文件末段）：GZ 用于光晕位图外扩；
             // Canvas 文字模糊不裁剪、无需扩图，此处按公式算出留档，绘制直接用 BlurMaskFilter 等价呈边缘辉光（应用侧等价）。
-            float glowMargin = em * 0.12f + glowRadius * 3f + 2f;
+            float glowMargin = emphasizeGlowMargin(glowRadius, em);
             if (glowMargin > 0f) {
                 glowPaint.setColor(activeColor());
                 glowPaint.setAlpha(Math.round(255f * glowIntensity * glowProgress));
@@ -1218,6 +1258,49 @@ public class KaraokeLyricsView extends View {
         float amount = shaped * 0.6f;
         if (isLastWord) amount *= 1.6f;
         return Math.min(amount, 1.2f);
+    }
+
+    /**
+     * GZ emphasizeGlow（LyricsViewKt:11404-11427）整段转写：入参为词时长 ms、是否行末、字号 px；
+     * s＝clamp(时长/1000, 1, 8)。强度与半径系数各走先封顶、行末再乘系数再封顶的顺序，不可调换。
+     * 触发门仍为星辰侧整词近似（时长 ≥1000ms 的词）：GZ 强调区间来自 AMLL 强调数据、无时长门，
+     * 星辰无强调区间输入，故时长门为近似触发条件，不是瓜子触发条件，见残留注记。
+     */
+    static float emphasizeGlowIntensity(long durationMs, boolean isLastWord) {
+        float s = clampF(durationMs / 1000f, 1f, 8f);
+        float intensity = Math.min((s - 1f) * EMPH_GLOW_PER_SEC + EMPH_GLOW_BASE, EMPH_GLOW_CAP);
+        if (isLastWord) intensity = Math.min(intensity * EMPH_GLOW_LAST_MUL, EMPH_GLOW_LAST_CAP);
+        return intensity;
+    }
+
+    static float emphasizeGlowRadius(long durationMs, boolean isLastWord, float em) {
+        float s = clampF(durationMs / 1000f, 1f, 8f);
+        float coef = Math.min((s - 1f) * EMPH_RADIUS_PER_SEC + EMPH_RADIUS_BASE, EMPH_RADIUS_CAP);
+        if (isLastWord) coef = Math.min(coef * EMPH_RADIUS_LAST_MUL, EMPH_RADIUS_LAST_CAP);
+        return coef * em;
+    }
+
+    /** GZ emphasizeGlowMargin（LyricsViewKt:11428-11430）：入参顺序为（光晕半径 px，字号 px）。 */
+    static float emphasizeGlowMargin(float radiusPx, float em) {
+        return em * 0.12f + radiusPx * 3f + 2f;
+    }
+
+    /** GZ isCJK（LyricsViewKt:11550-11563）逐值转写：平假名／CJK 统一表意／兼容表意区段。 */
+    static boolean isCJK(char c) {
+        if (12352 <= c && c < 12544) return true;
+        if (19968 <= c && c < 40960) return true;
+        if (13312 <= c && c < 19904) return true;
+        if (63744 > c || c >= 64256) return 12288 <= c && c < 12352;
+        return true;
+    }
+
+    /** 整词是否全 CJK（空串／null 按非 CJK 计，缩放门放行）。 */
+    static boolean isCjkWord(String text) {
+        if (text == null || text.isEmpty()) return false;
+        for (int i = 0; i < text.length(); i++) {
+            if (!isCJK(text.charAt(i))) return false;
+        }
+        return true;
     }
 
     /** 整行模式：当前行按行进度整体提亮（主行无逐字词时）。 */

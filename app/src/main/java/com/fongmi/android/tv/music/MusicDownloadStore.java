@@ -112,8 +112,22 @@ public class MusicDownloadStore {
         });
     }
 
-    /** 歌曲行 ⋮ 菜单「下载」唯一入口：取直链 → 交 DownloadManager 下载 */
+    /** 歌曲行 ⋮ 菜单「下载」入口（固定／跟随模式）：取直链 → 交 DownloadManager 下载。
+     * 每次询问模式下本入口无 Activity 弹不了选档窗，不静默按固定档下载，只提示后返回；
+     * 逐首选档走 downloadWithQuality（调用点在 mobile 侧弹 MusicOptionsDialog 后调入），
+     * 播放页 downloadCurrent 的 ASK 分支见协调员补丁规格（本文件在 main 源集，不引 mobile 弹窗，
+     * 否则 leanback 变体编不过）。 */
     public static void download(MusicTrack track) {
+        if (track == null || isLocal(track)) return;
+        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+            post(() -> Notify.show(R.string.music_dl_ask_no_activity));
+            return;
+        }
+        downloadWithQuality(track, MusicStore.getDownloadQuality());
+    }
+
+    /** 逐首选档后的下载核心（ASK 弹窗的落点；固定／跟随模式由 download 转调）：取指定档直链 → 交 DownloadManager 下载 */
+    public static void downloadWithQuality(MusicTrack track, int quality) {
         if (track == null || isLocal(track)) return;
         ensureListener();
         Task.execute(() -> {
@@ -128,7 +142,7 @@ public class MusicDownloadStore {
             }
             String url;
             try {
-                url = MusicRepository.playUrl(track, MusicStore.getDownloadQuality());
+                url = MusicRepository.playUrl(track, quality);
             } catch (Throwable t) {
                 url = null;
             }

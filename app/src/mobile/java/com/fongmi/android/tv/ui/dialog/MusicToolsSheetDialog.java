@@ -40,6 +40,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.DialogMusicToolsBinding;
 import com.fongmi.android.tv.music.DeviceMusicSource;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
@@ -288,6 +289,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setClipChildren(false);
         row.addView(quickCell(R.drawable.ic_music_download, R.string.music_download, v -> {
+            if (askDownloadHere()) return;
             // 下载对接宿主 downloadCurrent()：本地歌/已下载拦截后走 MusicDownloadStore.download
             if (listener != null) listener.onDownload();
             dismissAllowingStateLoss();
@@ -299,6 +301,34 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             dismissAllowingStateLoss();
         }), quickLp(dp(8)));
         return row;
+    }
+
+    /**
+     * 面板下载格的每次询问分支（瓜子「每次询问」：下载前逐首选档）：仅当模式为 ASK 且当前轨可下载
+     * （非空、非本地、非设备歌曲）时弹选档窗，选档后直接走下载核心并关面板；选档窗取消则面板保持打开、
+     * 不下载。其它模式或不可下载的轨一律返回 false，走原宿主 downloadCurrent() 路径（宿主负责
+     * 本地／已下载提示）。文件大小瓜子侧逐档显示，星辰取链只回直链、无档位大小接口，故本窗只列四档名、不写大小。
+     */
+    private boolean askDownloadHere() {
+        if (MusicStore.getDownloadMode() != MusicStore.DL_MODE_ASK) return false;
+        FragmentActivity host = getActivity();
+        if (host == null) return false;
+        MusicTrack track = MusicController.get().current();
+        if (track == null || MusicDownloadStore.isLocal(track)
+                || DeviceMusicSource.PLATFORM.equals(track.platform)) return false;
+        int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+        List<String> opts = new ArrayList<>();
+        for (int v : values) opts.add(MusicStore.qualityName(v));
+        int fixed = MusicStore.getDownloadQualityFixed();
+        int checked = 1;
+        for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
+        MusicOptionsDialog.show(host, getString(R.string.music_set_download_quality), opts, checked,
+                idx -> {
+                    MusicDownloadStore.downloadWithQuality(track, values[idx]);
+                    dismissAllowingStateLoss();
+                });
+        return true;
     }
 
     private LinearLayout.LayoutParams quickLp(int startMargin) {
@@ -971,6 +1001,16 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     // ================= 歌词设置子面板 =================
 
     private void buildLyricPanel() {
+        // 瓜子歌词面板无翻译／音译开关行：唯一歌词类型控件是主歌词三 chip 单选（本面板 music_lyric_primary 行，
+        // GZ CoverLyricStylePanel「主歌词」M3 段控：原文恒有＋翻译／音译有数据时出）；副行在瓜子常态下有数据即显。
+        // 故两开关行删掉，卡内只留高级动效行；此前存过关的副行偏好在此一次性回到全显并通知播放页，
+        // 否则关过的值将再无入口改回（MusicStore 两键与 setter 保留，供回滚与播放页读取；动态选项门——
+        // 瓜子无数据档不出 chip——未做：面板歌词数据异步到达，建面板时无数据可门控，见分表第三轮节）。
+        boolean subReset = !MusicStore.isShowTranslation() || !MusicStore.isShowRomanization();
+        if (subReset) {
+            MusicStore.setShowTranslation(true);
+            MusicStore.setShowRomanization(true);
+        }
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_lyric_settings)));
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
@@ -1016,20 +1056,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         lyricHint.setVisibility(View.GONE);
         box.addView(lyricHint, marginTop(dp(8)));
         LinearLayout card = cardBox();
-        card.addView(switchRow(getString(R.string.music_show_translation), MusicStore.isShowTranslation(),
-                on -> {
-                    MusicStore.setShowTranslation(on);
-                    fireLyricChanged();
-                    refreshLyricHint();
-                }));
-        addDivider(card);
-        card.addView(switchRow(getString(R.string.music_show_romanization), MusicStore.isShowRomanization(),
-                on -> {
-                    MusicStore.setShowRomanization(on);
-                    fireLyricChanged();
-                    refreshLyricHint();
-                }));
-        addDivider(card);
         // 高级动效行高 60dp（GZ 歌词设置行高口径）；开启时弹确认框（GZ T33 文案照抄）
         card.addView(switchRow(getString(R.string.music_advanced_fx), MusicStore.isAdvancedFx(), 60,
                 on -> {
@@ -1057,6 +1083,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         rlp.topMargin = dp(16);
         box.addView(restore, rlp);
         loadLyricForPanel();
+        if (subReset) fireLyricChanged();
     }
 
     private void showAdvancedFxConfirm() {

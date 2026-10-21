@@ -47,7 +47,8 @@ import java.util.List;
  * ① 搜索胶囊条（占位「搜索歌曲、歌手、专辑」）＋右侧竖三点 ⋮ 小菜单（插件管理／设置，非全屏）；
  * ② 白色圆角卡内五个快捷横排：音乐收藏／我的歌单／本地音乐（正中）／播放历史／下载音乐，
  *    彩色图标＋名字＋下方真实数量（异步回填，取不到显示 0）；
- * ③ 三张渐变入口卡垫底：猜你喜欢·每日精选（粉）／排行榜·此刻热门（蓝绿）／随心听·随机漫游（绿黄）。
+ * ③ 三张渐变入口卡垫底：猜你喜欢·每日精选（粉）／排行榜·此刻热门（蓝绿）／随心听（绿黄，
+ *    副题动态：未播随心听队列时「随机漫游」，正在播随心听队列时「正在播放」，见 refreshShuffleSubtitle）。
  * 底部迷你条是 ListenMiniBar 悬浮条（只在音乐首页显示，白名单机制在迷你条侧），本页不内嵌。
  * 源列表不放首页；顶栏无返回箭头；界面只放名字和状态，无介绍文字。
  */
@@ -60,6 +61,13 @@ public class MusicActivity extends BaseActivity {
     private List<MusicTrack> homeChartTracks = new ArrayList<>();
     private int homeChartSel = -1;
     private boolean homeChartLoaded;
+
+    // 随心听队列来源类型（瓜子 HomeScreenKt:2843 的 z5 条件：queueSource.type == "shuffle_listen" 且正在播）。
+    // 只有本页随心听起播的队列才记 "shuffle_listen"；其它来源的队列不记，副题即回落「随机漫游」。
+    // 另存一份打乱后队列的曲目键快照：回首页时若服务队列已不是这份队列（别处起了新队列），
+    // 即使本字段仍为 shuffle_listen 也回落，不做「只在点击时改字、永不回落」的假态。
+    private String homeQueueSourceType;
+    private List<String> shuffleQueueKeys;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicActivity.class));
@@ -91,6 +99,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeCardShuffle.setOnClickListener(v -> shufflePlay());
         // ④ 榜单卡：完整榜单进现有榜单页；主封面播放从头播该榜；点行从该曲开播整榜
         binding.homeChartMore.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeChartMoreIcon.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeChartPlay.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
@@ -122,6 +131,7 @@ public class MusicActivity extends BaseActivity {
         ReadingSkin.setSystemBarIconAppearance(this, false);
         if (!homeChartLoaded) loadHomeChart();
         refreshCounts();
+        refreshShuffleSubtitle();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
@@ -291,6 +301,8 @@ public class MusicActivity extends BaseActivity {
 
     private void playHomeChartFrom(int index) {
         if (homeChartTracks.isEmpty() || index >= homeChartTracks.size()) return;
+        // 榜单起播不是随心听队列：清来源类型，副题回落「随机漫游」
+        clearShuffleSource();
         MusicController.get().play(new ArrayList<>(homeChartTracks), index);
         MusicPlayerActivity.start(this);
     }
@@ -446,6 +458,8 @@ public class MusicActivity extends BaseActivity {
                 List<MusicTrack> queue = new ArrayList<>(recent);
                 row.setOnClickListener(v -> {
                     dialog.dismiss();
+                    // 历史行起播不是随心听队列：清来源类型，副题回落「随机漫游」
+                    clearShuffleSource();
                     MusicController.get().play(queue, index);
                     MusicPlayerActivity.start(this);
                 });
@@ -503,9 +517,46 @@ public class MusicActivity extends BaseActivity {
         }
         List<MusicTrack> shuffled = new ArrayList<>(tracks);
         Collections.shuffle(shuffled);
+        // 记队列来源类型：本页随心听起播的队列即 shuffle_listen；快照用于回首页时核对队列是否被别处替换
+        homeQueueSourceType = "shuffle_listen";
+        shuffleQueueKeys = trackKeys(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
         MusicController.get().play(shuffled, 0);
         MusicPlayerActivity.start(this);
+    }
+
+    private void clearShuffleSource() {
+        homeQueueSourceType = null;
+        shuffleQueueKeys = null;
+    }
+
+    /**
+     * 随心听副题（瓜子 HomeScreenKt:2848：z5 ? "正在播放" : "随机漫游"，z5 见字段注释）：
+     * 来源类型为 shuffle_listen、服务正在播、且服务现队列与随心听快照同序同曲，三者齐了才显「正在播放」，
+     * 任一不满足即显「随机漫游」。暂停、切到别队列、Activity 重建丢字段时均回落，不留假态。
+     * 残留口径：别处恰好播了与快照同序同曲的队列时无法区分，仍会显「正在播放」——队列来源字段在
+     * MusicQueue 侧缺失（本摊文件范围外），本页字段＋快照是文件范围内的最严判定。
+     */
+    private void refreshShuffleSubtitle() {
+        if (binding == null) return;
+        boolean playingShuffle = "shuffle_listen".equals(homeQueueSourceType)
+                && shuffleQueueKeys != null
+                && MusicController.get().isPlaying()
+                && trackKeys(MusicController.get().queue()).equals(shuffleQueueKeys);
+        binding.homeShuffleSub.setText(playingShuffle
+                ? R.string.home_shuffle_playing : R.string.home_shuffle_sub);
+    }
+
+    /** 曲目键：优先 id，无 id 时用标题＋歌手拼键（同曲不同源时 id 不同即判为不同队列）。 */
+    private static List<String> trackKeys(List<MusicTrack> tracks) {
+        List<String> keys = new ArrayList<>();
+        if (tracks == null) return keys;
+        for (MusicTrack t : tracks) {
+            if (t == null) keys.add("");
+            else if (t.id != null && !t.id.isEmpty()) keys.add(t.id);
+            else keys.add((t.title == null ? "" : t.title) + "\n" + (t.artist == null ? "" : t.artist));
+        }
+        return keys;
     }
 
     private int dp(int v) {

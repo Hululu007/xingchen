@@ -46,6 +46,10 @@ public class MusicController {
 
         default void onAudioInfoChanged() {
         }
+
+        /** 落雪密钥问题（B4）：脚本明确报了 401／403，UI 侧弹密钥提示；其它失败不走这里 */
+        default void onKeyIssue(String platform, String detail) {
+        }
     }
 
     private static volatile MusicController instance;
@@ -133,6 +137,11 @@ public class MusicController {
         public void onAudioInfoChanged() {
             App.post(() -> listeners.forEach(Listener::onAudioInfoChanged));
         }
+
+        @Override
+        public void onKeyIssue(String platform, String detail) {
+            App.post(() -> listeners.forEach(l -> l.onKeyIssue(platform, detail)));
+        }
     };
 
     public void addListener(Listener l) {
@@ -209,14 +218,26 @@ public class MusicController {
     // ================= 播放控制 =================
 
     public void play(List<MusicTrack> queue, int index) {
+        play(queue, index, null, null, null);
+    }
+
+    /** 播队列并写入队列级来源／route（B7：入队时写，面板不再反查） */
+    public void play(List<MusicTrack> queue, int index,
+                     String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
-        runOnService(() -> service().playQueue(new ArrayList<>(queue), index));
+        runOnService(() -> service().playQueue(new ArrayList<>(queue), index, source, route, routeParams));
     }
 
     /** 播队列并从断点位置起 */
     public void playFrom(List<MusicTrack> queue, int index, long position) {
+        playFrom(queue, index, position, null, null, null);
+    }
+
+    /** 播队列并从断点位置起，同时写入队列级来源／route（B7） */
+    public void playFrom(List<MusicTrack> queue, int index, long position,
+                         String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
-        runOnService(() -> service().playQueueFrom(new ArrayList<>(queue), index, position));
+        runOnService(() -> service().playQueueFrom(new ArrayList<>(queue), index, position, source, route, routeParams));
     }
 
     public void playAt(int index) {
@@ -353,6 +374,26 @@ public class MusicController {
         runOnService(() -> service().setFxVirtualizer(strength));
     }
 
+    // ================= 参数均衡器（B6：与系统 audiofx 并存的另一套，面板走这里） =================
+
+    public void setParametricEnabled(boolean on) {
+        runOnService(() -> service().setParametricEnabled(on));
+    }
+
+    public void setParametricBands(java.util.List<ParametricEq.Band> bands) {
+        runOnService(() -> service().setParametricBands(bands));
+    }
+
+    public boolean isParametricEnabled() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s != null && s.isParametricEnabled();
+    }
+
+    public java.util.List<ParametricEq.Band> parametricBands() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? MusicStore.getParametricBands() : s.parametricBands();
+    }
+
     public boolean openEqualizer(Activity activity) {
         MusicPlaybackService s = service();
         if (s == null) {
@@ -391,6 +432,24 @@ public class MusicController {
     public List<MusicTrack> queue() {
         MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? new ArrayList<>() : s.getQueue().getTracks();
+    }
+
+    /** 队列级来源（B7：入队时写入；空＝未知，老断点队列回落面板反查） */
+    public String queueSource() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? null : s.getQueue().getSource();
+    }
+
+    /** 队列级 route（B7：空＝无跳转落点，来源行只展示不可点） */
+    public String queueRoute() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? null : s.getQueue().getRoute();
+    }
+
+    /** route 参数（B7：list 路由带 mode／keyword／sitePlatform／playlistId／title） */
+    public java.util.Map<String, String> queueRouteParams() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? null : s.getQueue().getRouteParams();
     }
 
     public int index() {

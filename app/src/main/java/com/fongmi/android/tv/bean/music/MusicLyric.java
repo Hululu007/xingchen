@@ -9,6 +9,10 @@ public class MusicLyric {
     public String translation;
     /** 音译歌词（罗马音），可空 */
     public String romanization;
+    /** 歌词档位元数据（B8）：如 "AMLL"；空＝普通 LRC 档，档位名不冒充 */
+    public String format;
+    /** 歌词来源名（B2 版本筛选条用）：如站点名、"AMLL"；空＝未知 */
+    public String sourceName;
 
     public MusicLyric() {
     }

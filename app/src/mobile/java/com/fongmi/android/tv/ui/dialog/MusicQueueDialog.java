@@ -335,27 +335,97 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 来源行（GZ Q02）：GZ 是队列级 QueueSource；星辰 MusicQueue 不存队列级来源，
-     * 开面板时按各 track.platform 反查站点名统计——全队同源才显示，混源/无源整行隐藏。
-     * GZ 的 route 跳转星辰无对应物：整行不可点、无 ›（差异残留，见对照表）。
+     * 来源行（GZ Q02）：优先读入队时写的队列级来源／route（B7：MusicQueue.source／route，
+     * 榜单／随心听／列表页起播时写入，断点恢复时同存同取）；老断点队列无此信息时回落旧反查口径。
+     * 有可解析 route 才给 › 且可点跳来源页；无 route／route 无落点时只展示、不可点、无 ›（与 GZ 无 route 形态一致）。
      */
     private void bindSourceRow() {
-        String label = null;
-        boolean uniform = !tracks.isEmpty();
-        for (MusicTrack t : tracks) {
-            String l = sourceLabel(t);
-            if (l == null || (label != null && !label.equals(l))) {
-                uniform = false;
-                break;
+        String label = MusicController.get().queueSource();
+        String route = MusicController.get().queueRoute();
+        if (label == null || label.isEmpty()) {
+            boolean uniform = !tracks.isEmpty();
+            for (MusicTrack t : tracks) {
+                String l = sourceLabel(t);
+                if (l == null || (label != null && !label.equals(l))) {
+                    uniform = false;
+                    break;
+                }
+                label = l;
             }
-            label = l;
+            if (!uniform) label = null;
+            route = null;
         }
-        if (uniform && label != null) {
-            binding.sourceName.setText(label);
-            binding.sourceRow.setVisibility(View.VISIBLE);
-        } else {
+        if (label == null || label.isEmpty()) {
             binding.sourceRow.setVisibility(View.GONE);
+            return;
         }
+        binding.sourceName.setText(label);
+        android.content.Intent intent = queueSourceIntent(route, MusicController.get().queueRouteParams());
+        android.view.View chevron = binding.sourceRow.findViewWithTag("queueSourceChevron");
+        if (chevron == null) {
+            TextView cv = new TextView(getContext());
+            cv.setTag("queueSourceChevron");
+            cv.setText("›");
+            cv.setTextSize(16);
+            cv.setTextColor(COLOR_LOW);
+            binding.sourceRow.addView(cv, new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            chevron = cv;
+        }
+        if (intent != null) {
+            chevron.setVisibility(View.VISIBLE);
+            binding.sourceRow.setOnClickListener(v -> {
+                FragmentActivity host = getActivity();
+                dismissAllowingStateLoss();
+                if (host != null) host.startActivity(intent);
+            });
+        } else {
+            chevron.setVisibility(View.GONE);
+            binding.sourceRow.setOnClickListener(null);
+            binding.sourceRow.setClickable(false);
+        }
+        binding.sourceRow.setVisibility(View.VISIBLE);
+    }
+
+    /**
+     * B7：route → 来源页落点。只认入队时写入的两条真实路由，其余一律返回空（只展示不可点）：
+     * home＝首页（榜单卡／随心听卡都在首页）；list＝列表页（参数与 MusicListActivity onCreate 读的
+     * intent extras 同名同值，可重建本页；无标题／关键词／歌单 id 三者时无落点，不跳空页）。
+     */
+    private android.content.Intent queueSourceIntent(String route, java.util.Map<String, String> params) {
+        FragmentActivity host = getActivity();
+        if (host == null || route == null || route.isEmpty()) return null;
+        if ("home".equals(route)) {
+            android.content.Intent i = new android.content.Intent(host,
+                    com.fongmi.android.tv.ui.activity.MusicActivity.class);
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            return i;
+        }
+        if ("list".equals(route)) {
+            if (params == null) return null;
+            String title = params.get("title");
+            String keyword = params.get("keyword");
+            String playlistId = params.get("playlistId");
+            boolean hasTarget = (playlistId != null && !playlistId.isEmpty() && !"-1".equals(playlistId))
+                    || (keyword != null && !keyword.isEmpty())
+                    || (title != null && !title.isEmpty());
+            if (!hasTarget) return null;
+            long pid = -1;
+            try {
+                pid = Long.parseLong(playlistId);
+            } catch (Throwable ignored) {
+            }
+            android.content.Intent i = new android.content.Intent(host,
+                    com.fongmi.android.tv.ui.activity.MusicListActivity.class);
+            i.putExtra("mode", params.get("mode"));
+            i.putExtra("keyword", keyword == null ? "" : keyword);
+            i.putExtra("sitePlatform", params.get("sitePlatform"));
+            i.putExtra("playlistId", pid);
+            i.putExtra("title", title == null ? "" : title);
+            return i;
+        }
+        return null;
     }
 
     private String sourceLabel(MusicTrack t) {

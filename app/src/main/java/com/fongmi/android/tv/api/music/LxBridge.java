@@ -278,20 +278,30 @@ public class LxBridge {
      * 返回脚本 Promise 的兑现值（字符串原样、对象转 JSON）；失败抛异常。
      */
     public String request(String source, String action, JsonObject musicInfo, String quality) throws Exception {
-        return submit(() -> {
-            if (requestHandler == null) throw new IllegalStateException("脚本没有注册解析入口");
-            JsonObject info = new JsonObject();
-            info.add("musicInfo", musicInfo);
-            info.addProperty("type", quality);
-            info.addProperty("quality", quality);
-            JsonObject arg = new JsonObject();
-            arg.addProperty("source", source);
-            arg.addProperty("action", action);
-            arg.add("info", info);
-            Object argObj = ctx.parse(arg.toString());
-            Object result = requestHandler.call(argObj);
-            return awaitPromise(result);
-        }).get(40, TimeUnit.SECONDS);
+        try {
+            return submit(() -> {
+                if (requestHandler == null) throw new IllegalStateException("脚本没有注册解析入口");
+                JsonObject info = new JsonObject();
+                info.add("musicInfo", musicInfo);
+                info.addProperty("type", quality);
+                info.addProperty("quality", quality);
+                JsonObject arg = new JsonObject();
+                arg.addProperty("source", source);
+                arg.addProperty("action", action);
+                arg.add("info", info);
+                Object argObj = ctx.parse(arg.toString());
+                Object result = requestHandler.call(argObj);
+                return awaitPromise(result);
+            }).get(40, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.ExecutionException e) {
+            // B4：脚本拒绝消息带显式 401／403 标记时包成密钥问题错误向上传递；
+            // 其余失败（超时、断网、脚本内部错误）原样抛，不冒充密钥问题
+            Throwable cause = e.getCause();
+            String msg = cause == null ? null : cause.getMessage();
+            int code = LxKeyIssue.detectStatusCode(msg);
+            if (code > 0) throw new LxKeyIssue(source, msg, code);
+            throw e;
+        }
     }
 
     /** 挂 then/catch 等 Promise 兑现（参照 quickjs Async 的做法，在桥线程内同步等） */

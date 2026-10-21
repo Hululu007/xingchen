@@ -163,6 +163,7 @@ public class LxMusicSource implements MusicSource {
                     return url;
                 }
             } catch (Throwable t) {
+                rethrowKeyIssue(t);
                 SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
             }
         }
@@ -189,6 +190,7 @@ public class LxMusicSource implements MusicSource {
                 String text = extractLyric(r);
                 if (!TextUtils.isEmpty(text)) return text;
             } catch (Throwable t) {
+                rethrowKeyIssue(t);
                 SpiderDebug.log("music", "lx lyric error plugin=%s %s", plugin.name, t.getMessage());
             }
         }
@@ -222,13 +224,54 @@ public class LxMusicSource implements MusicSource {
                 if (lyric != null && lyric.hasBodyText()) return lyric;
                 if (lyric != null && lyric.hasLyric() && romajiOnly == null) romajiOnly = lyric;
             } catch (Throwable t) {
+                rethrowKeyIssue(t);
                 SpiderDebug.log("music", "lx lyricRich error plugin=%s %s", plugin.name, t.getMessage());
             }
         }
         return romajiOnly;
     }
 
+    /** 插件循环的全量版（B2）：同一条插件遍历，收集全部实际命中（含纯音译），不截断；平台歌词不在内（仓库 own 步已覆盖） */
+    public java.util.List<MusicLyric> lyricPluginAllRich(MusicTrack track) {
+        java.util.List<MusicLyric> out = new java.util.ArrayList<>();
+        Parsed p = parse(track);
+        if (p == null) return out;
+        JsonObject musicInfo = musicInfo(track, p);
+        for (MusicSite plugin : sites()) {
+            LxBridge b;
+            try {
+                b = MusicSourceManager.get().lxBridgeOf(plugin);
+            } catch (Throwable t) {
+                continue;
+            }
+            if (b == null || !b.supports(p.platform, "lyric")) continue;
+            try {
+                String r = b.request(p.platform, "lyric", musicInfo, "");
+                MusicLyric lyric = extractLyricRich(r);
+                if (lyric != null && lyric.hasLyric()) {
+                    if (lyric.sourceName == null || lyric.sourceName.isEmpty()) lyric.sourceName = plugin.name;
+                    out.add(lyric);
+                }
+            } catch (Throwable t) {
+                rethrowKeyIssue(t);
+                SpiderDebug.log("music", "lx lyricPluginAllRich error plugin=%s %s", plugin.name, t.getMessage());
+            }
+        }
+        return out;
+    }
+
     /* ---------------- 内部 ---------------- */
+
+    /** B4：把包在 ExecutionException／CompletionException 里的密钥问题错误解出来重抛；其余原样记日志 */
+    private static void rethrowKeyIssue(Throwable t) {
+        Throwable root = t;
+        while (root instanceof java.util.concurrent.ExecutionException
+                || root instanceof java.util.concurrent.CompletionException) {
+            if (root.getCause() == null) break;
+            root = root.getCause();
+        }
+        if (root instanceof LxKeyIssue) throw (LxKeyIssue) root;
+    }
 
     private String platformKeyOf(MusicSite site) {
         if (site == null || site.srcUrl == null || !site.srcUrl.startsWith(SITE_PREFIX)) return "";

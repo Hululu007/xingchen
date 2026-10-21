@@ -27,6 +27,9 @@ public class MusicStore {
     private static final String K_QUEUE = "music_last_queue";
     private static final String K_INDEX = "music_last_index";
     private static final String K_POSITION = "music_last_position";
+    private static final String K_QUEUE_SOURCE = "music_last_queue_source";
+    private static final String K_QUEUE_ROUTE = "music_last_queue_route";
+    private static final String K_QUEUE_ROUTE_PARAMS = "music_last_queue_route_params";
     private static final String K_RECENT = "music_recent";
     private static final int RECENT_MAX = 50;
 
@@ -178,6 +181,41 @@ public class MusicStore {
         Prefers.put(K_FX_VIRT, Math.max(0, Math.min(1000, strength)));
     }
 
+    // ===== 参数均衡器（B6：Media3 处理链，频段增删／滤波类型／Q 值；与系统 audiofx 两套并存，不改称） =====
+    private static final String K_PARAMETRIC_ENABLED = "music_parametric_enabled";
+    private static final String K_PARAMETRIC_BANDS = "music_parametric_bands";
+
+    /** 参数均衡器总开关（默认关） */
+    public static boolean isParametricEnabled() {
+        return Prefers.getBoolean(K_PARAMETRIC_ENABLED, false);
+    }
+
+    public static void setParametricEnabled(boolean on) {
+        Prefers.put(K_PARAMETRIC_ENABLED, on);
+    }
+
+    /** 参数均衡器频段（JSON 存；解析失败返回空列表，不崩） */
+    public static java.util.List<ParametricEq.Band> getParametricBands() {
+        String s = Prefers.getString(K_PARAMETRIC_BANDS, "");
+        if (s == null || s.isEmpty()) return new java.util.ArrayList<>();
+        try {
+            java.lang.reflect.Type type = TypeToken.getParameterized(java.util.List.class,
+                    ParametricEq.Band.class).getType();
+            java.util.List<ParametricEq.Band> out = App.gson().fromJson(s, type);
+            return out == null ? new java.util.ArrayList<>() : out;
+        } catch (Throwable ignored) {
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    public static void setParametricBands(java.util.List<ParametricEq.Band> bands) {
+        try {
+            Prefers.put(K_PARAMETRIC_BANDS, App.gson().toJson(bands == null
+                    ? new java.util.ArrayList<>() : bands));
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static int getMode() {
         return Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
     }
@@ -228,10 +266,19 @@ public class MusicStore {
 
     /** 断点：存队列＋序号＋进度 */
     public static void saveBreakpoint(List<MusicTrack> queue, int index, long position) {
+        saveBreakpoint(queue, index, position, null, null, null);
+    }
+
+    /** 断点：存队列＋序号＋进度＋队列级来源／route（B7：恢复的队列也带来源，不再反查） */
+    public static void saveBreakpoint(List<MusicTrack> queue, int index, long position,
+                                     String source, String route, java.util.Map<String, String> routeParams) {
         try {
             Prefers.put(K_QUEUE, App.gson().toJson(queue == null ? new ArrayList<>() : queue));
             Prefers.put(K_INDEX, index);
             Prefers.put(K_POSITION, position);
+            Prefers.put(K_QUEUE_SOURCE, source == null ? "" : source);
+            Prefers.put(K_QUEUE_ROUTE, route == null ? "" : route);
+            Prefers.put(K_QUEUE_ROUTE_PARAMS, routeParams == null ? "" : App.gson().toJson(routeParams));
         } catch (Throwable ignored) {
         }
     }
@@ -250,6 +297,39 @@ public class MusicStore {
 
     public static int loadIndex() {
         return Prefers.getInt(K_INDEX, 0);
+    }
+
+    /** 断点恢复：队列级来源（B7；老版本断点无此键，返回空＝未知） */
+    public static String loadQueueSource() {
+        try {
+            String s = Prefers.getString(K_QUEUE_SOURCE, "");
+            return s == null ? "" : s;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** 断点恢复：队列级 route（B7；老版本断点无此键，返回空＝无跳转） */
+    public static String loadQueueRoute() {
+        try {
+            String s = Prefers.getString(K_QUEUE_ROUTE, "");
+            return s == null ? "" : s;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** 断点恢复：route 参数（B7；解析失败返回空 map） */
+    public static java.util.Map<String, String> loadQueueRouteParams() {
+        try {
+            String s = Prefers.getString(K_QUEUE_ROUTE_PARAMS, "");
+            if (s == null || s.isEmpty()) return new java.util.HashMap<>();
+            java.lang.reflect.Type type = TypeToken.getParameterized(java.util.Map.class, String.class, String.class).getType();
+            java.util.Map<String, String> m = App.gson().fromJson(s, type);
+            return m == null ? new java.util.HashMap<>() : m;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
     }
 
     public static long loadPosition() {

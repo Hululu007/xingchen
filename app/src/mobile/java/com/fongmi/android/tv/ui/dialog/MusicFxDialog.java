@@ -78,6 +78,18 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
                 MusicController.get().setFxVirtualizer(sb.getProgress() * 10);
             }
         });
+        // B6：参数均衡器入口（与系统 audiofx 并存的另一套，点开独立面板；本面板不改称）
+        TextView eqRow = new TextView(getContext());
+        eqRow.setText(getString(R.string.music_parametric_eq) + " ›");
+        eqRow.setTextSize(15);
+        eqRow.setTextColor(0xFFFFFFFF);
+        eqRow.setPadding(0, dp(16), 0, dp(4));
+        eqRow.setOnClickListener(v -> {
+            FragmentActivity host = getActivity();
+            dismissAllowingStateLoss();
+            if (host != null) ParametricEqDialog.show(host);
+        });
+        ((LinearLayout) binding.getRoot()).addView(eqRow);
         refresh();
     }
 

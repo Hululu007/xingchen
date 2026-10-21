@@ -98,7 +98,8 @@
             android:tint="#8E8E93" />
     </LinearLayout>
 
-    <!-- 来源行：≣♪ 来自 X（全队同一来源才显示；星辰无 GZ 的 route 跳转，不可点、无 ›） -->
+    <!-- 来源行：≣♪ 来自 X（优先读入队时写的队列级来源；老断点队列回落反查，全队同源才显示；
+         route 可解析时给 › 且可点跳来源页，无 route 时只展示不可点） -->
     <LinearLayout
         android:id="@+id/sourceRow"
         android:layout_width="match_parent"

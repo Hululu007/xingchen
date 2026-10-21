@@ -186,6 +186,8 @@
     <string name="music_fx_virtualizer">环绕</string>
     <string name="music_fx_unsupported">不支持</string>
     <string name="music_device">本地音乐</string>
+    <string name="music_output_device">播放设备</string>
+    <string name="music_parametric_eq">参数均衡器</string>
     <string name="music_device_need_permission">需要授权才能读取手机里的歌曲</string>
     <string name="music_device_grant">去授权</string>
     <string name="music_import_encrypted">导入加密歌曲</string>
@@ -310,6 +312,7 @@
     <string name="home_download">下载音乐</string>
     <string name="home_guess">猜你喜欢</string>
     <string name="music_lyric_chip_word">逐字</string>
+    <string name="music_lyric_chip_amll">AMLL</string>
     <string name="music_lyric_chip_line">逐行</string>
     <string name="music_lyric_chip_plain">纯文本</string>
     <string name="music_lyric_chip_none">无词</string>

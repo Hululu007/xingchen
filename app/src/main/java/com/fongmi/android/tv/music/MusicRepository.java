@@ -4,14 +4,21 @@ import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.bean.music.LyricVersion;
+import com.fongmi.android.tv.api.music.AmllMusicLyricSource;
 import com.fongmi.android.tv.api.music.FreeJsMusicSource;
+import com.fongmi.android.tv.api.music.LxKeyIssue;
 import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.fongmi.android.tv.api.music.QqChartSource;
+import com.fongmi.android.tv.player.lyrics.LyricsLine;
+import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -167,6 +174,7 @@ public class MusicRepository {
         try {
             return s.playUrl(track, quality);
         } catch (Throwable t) {
+            rethrowKeyIssue(t);
             SpiderDebug.log("music", "playUrl error platform=%s %s", track.platform, t.getMessage());
             return null;
         }
@@ -185,6 +193,7 @@ public class MusicRepository {
         try {
             own = s.lyric(track);
         } catch (Throwable t) {
+            rethrowKeyIssue(t);
             SpiderDebug.log("music", "lyric error platform=%s %s", track.platform, t.getMessage());
         }
         if (own != null && !own.trim().isEmpty()) return own;
@@ -214,7 +223,8 @@ public class MusicRepository {
                 String lrc = other.lyric(hit);
                 if (lrc != null && !lrc.trim().isEmpty()) return lrc;
             } catch (Throwable t) {
-                SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
+                rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
             }
         }
         // 3. 歌词型插件直查：歌词网/歌词千寻的 search 只认 type="lyric"，
@@ -250,6 +260,7 @@ public class MusicRepository {
         try {
             own = normalizeRich(richOf(s, track));
         } catch (Throwable t) {
+            rethrowKeyIssue(t);
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
         if (hasRaw(own)) return own;
@@ -278,7 +289,8 @@ public class MusicRepository {
                 MusicLyric lrc = normalizeRich(richOf(other, hit));
                 if (hasRaw(lrc)) return lrc;
             } catch (Throwable t) {
-                SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
+                rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
             }
         }
         // 3. 歌词型插件直查（与 lyric() 同一步、同口径）
@@ -292,7 +304,139 @@ public class MusicRepository {
             }
             break;
         }
+        // 4. AMLL（B8）：最后兜底，AMLL 档带档位元数据；无命中返回空，不冒充
+        try {
+            MusicLyric amll = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
+            if (hasRaw(amll)) return amll;
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
+        }
         return own != null && own.hasLyric() ? own : null;
+    }
+
+    /**
+     * lyricRich 的全量版（B2）：同一条回退链，但收集全部实际命中，不截断；去重口径 rawLrc.trim()。
+     * 返回按链顺序排列的版本列表；force／歌词缺失开关口径与 lyricRich 一致。
+     * 注意：本方法会多发网络请求（同源插件＋跨源＋歌词插件＋AMLL），只供版本筛选条用，不替代快路径 lyricRich。
+     */
+    public static List<LyricVersion> lyricRichAll(MusicTrack track, boolean force) {
+        List<LyricVersion> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (track == null) return out;
+        MusicSource s = find(track.platform);
+        if (s == null) return out;
+        try {
+            MusicLyric ownRich = normalizeRich(richOf(s, track));
+            if (ownRich != null && (ownRich.sourceName == null || ownRich.sourceName.isEmpty())) {
+                ownRich.sourceName = siteNameForPlatform(track.platform);
+            }
+            addVersion(out, seen, ownRich);
+        } catch (Throwable t) {
+            rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lyricRichAll error platform=%s %s", track.platform, t.getMessage());
+        }
+        if (!force && !MusicStore.isLyricFallback()) return out;
+        String keyword = (track.title == null ? "" : track.title).trim()
+                + " " + (track.artist == null ? "" : track.artist).trim();
+        keyword = keyword.trim();
+        if (keyword.isEmpty()) return out;
+
+        // 1. 本源内部的其它插件（FreeJS 多插件／落雪插件循环，全量，不截断）
+        try {
+            if (s instanceof FreeJsMusicSource) {
+                for (MusicLyric l : ((FreeJsMusicSource) s).lyricFallbackAllRich(track)) {
+                    addVersion(out, seen, normalizeRich(l));
+                }
+            } else if (s instanceof LxMusicSource) {
+                for (MusicLyric l : ((LxMusicSource) s).lyricPluginAllRich(track)) {
+                    addVersion(out, seen, normalizeRich(l));
+                }
+            }
+        } catch (Throwable t) {
+            rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lyricRichAll fallback error %s", t.getMessage());
+        }
+        // 2. 其它源（本地源跳过）：每源各收一命中
+        for (MusicSource other : SOURCES) {
+            if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+            try {
+                MusicTrack hit = matchSong(track, other.search(keyword));
+                if (hit == null) continue;
+                MusicLyric alt = normalizeRich(richOf(other, hit));
+                if (alt != null && (alt.sourceName == null || alt.sourceName.isEmpty())) {
+                    alt.sourceName = siteNameForPlatform(hit.platform);
+                }
+                addVersion(out, seen, alt);
+            } catch (Throwable t) {
+                rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lyricRichAll alt search error platform=%s %s", other.platform(), t.getMessage());
+            }
+        }
+        // 3. 歌词型插件直查（与快路径同一步：只问第一个 FreeJS 源的歌词插件）
+        for (MusicSource other : SOURCES) {
+            if (!(other instanceof FreeJsMusicSource)) continue;
+            try {
+                for (MusicLyric l : ((FreeJsMusicSource) other).lyricPluginsAllRich(track)) {
+                    addVersion(out, seen, normalizeRich(l));
+                }
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRichAll plugin search error %s", t.getMessage());
+            }
+            break;
+        }
+        // 4. AMLL（B8）
+        try {
+            addVersion(out, seen, normalizeRich(new AmllMusicLyricSource().lyricRich(track)));
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lyricRichAll amll error %s", t.getMessage());
+        }
+        return out;
+    }
+
+    /** B4：密钥问题错误不许被回退链吞掉——解包重抛；其余照旧记日志 */
+    private static void rethrowKeyIssue(Throwable t) {
+        Throwable root = t;
+        while (root instanceof java.util.concurrent.ExecutionException
+                || root instanceof java.util.concurrent.CompletionException) {
+            if (root.getCause() == null) break;
+            root = root.getCause();
+        }
+        if (root instanceof LxKeyIssue) throw (LxKeyIssue) root;
+    }
+
+    /** B2：platform → 站点名（版本筛选条的来源名；查不到返回空，筛选条只显档位） */
+    private static String siteNameForPlatform(String platform) {
+        if (platform == null || platform.isEmpty()) return null;
+        try {
+            for (MusicSite site : sites()) {
+                if (platform.equals(site.platform)) return site.name;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /** B2：版本收集合并——无词跳过；rawLrc.trim() 去重（纯译文／纯音译版本用三格拼接去重）；档位由解析结果判定 */
+    private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric) {
+        if (lyric == null || !lyric.hasLyric()) return;
+        String key = lyric.rawLrc == null ? "" : lyric.rawLrc.trim();
+        if (key.isEmpty()) {
+            key = (lyric.translation == null ? "" : lyric.translation.trim())
+                    + "|" + (lyric.romanization == null ? "" : lyric.romanization.trim());
+        }
+        if (key.isEmpty() || !seen.add(key)) return;
+        boolean word = false;
+        boolean line = false;
+        try {
+            List<LyricsLine> lines = LyricsParser.parseWordLyric(lyric.rawLrc == null ? "" : lyric.rawLrc);
+            for (LyricsLine l : lines) {
+                if (l == null) continue;
+                if (l.hasWords()) word = true;
+                if (l.getTimeMs() > 0) line = true;
+            }
+        } catch (Throwable ignored) {
+        }
+        out.add(new LyricVersion(lyric, lyric.sourceName, word, line));
     }
 
     /** 单源取 rich 歌词：FreeJS/落雪走 rich 通道，其它源只有纯文本就包一层 */

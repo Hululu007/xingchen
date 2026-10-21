@@ -41,6 +41,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.DialogMusicToolsBinding;
 import com.fongmi.android.tv.music.DeviceMusicSource;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicDeviceRouter;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
@@ -94,6 +95,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private static final int PANEL_LYRIC = 3;
     private static final int PANEL_SONG_INFO = 4;
     private static final int PANEL_APPEARANCE = 5;
+    private static final int PANEL_DEVICE = 6;
 
     // GZ SheetTokensKt 浅色套
     private static final int COLOR_PANEL = 0xFFF3F3F3;
@@ -123,6 +125,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private Listener listener;
     private int currentPanel = PANEL_MAIN;
     private int initialPanel = PANEL_MAIN;
+    /** B5：播放设备路由（懒建；建不起来＝通道未通，音量卡不画设备入口） */
+    private MusicDeviceRouter deviceRouter;
 
     // 音量卡：外部音量变化同步（ContentObserver）
     private ContentObserver volumeObserver;
@@ -188,6 +192,10 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     public void onDestroyView() {
         stopLyricTicker();
         unregisterVolumeObserver();
+        if (deviceRouter != null) {
+            deviceRouter.destroy();
+            deviceRouter = null;
+        }
         super.onDestroyView();
     }
 
@@ -220,6 +228,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 break;
             case PANEL_APPEARANCE:
                 buildAppearancePanel();
+                break;
+            case PANEL_DEVICE:
+                buildDevicePanel();
                 break;
             default:
                 buildMainPanel();
@@ -478,10 +489,69 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         anim.start();
     }
 
+    /** B5：设备路由懒建（建不起来＝通道未通，返回空，入口不画） */
+    private MusicDeviceRouter deviceRouter() {
+        if (deviceRouter == null) {
+            deviceRouter = MusicDeviceRouter.create(getContext(), () -> {
+                if (currentPanel == PANEL_DEVICE) mainHandler.post(() -> showPanel(PANEL_DEVICE));
+            });
+        }
+        return deviceRouter;
+    }
+
+    /** B5：播放设备子面板——只列 MediaRouter 真实路由；当前项标「当前」，点选即切路由并刷新本面板 */
+    private void buildDevicePanel() {
+        LinearLayout box = binding.container;
+        box.addView(subHeader(getString(R.string.music_output_device)));
+        MusicDeviceRouter router = deviceRouter();
+        if (router == null) {
+            showPanel(PANEL_MAIN);
+            return;
+        }
+        List<MusicDeviceRouter.Route> routes = router.routes();
+        if (routes.isEmpty()) {
+            TextView empty = text("暂无可用播放设备", 13, COLOR_LOW, false);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(14);
+            box.addView(empty, lp);
+            return;
+        }
+        for (MusicDeviceRouter.Route r : routes) {
+            LinearLayout row = new LinearLayout(getContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackgroundResource(R.drawable.bg_sheet_card);
+            row.setPadding(dp(16), dp(12), dp(16), dp(12));
+            LinearLayout texts = new LinearLayout(getContext());
+            texts.setOrientation(LinearLayout.VERTICAL);
+            TextView name = text(r.name.isEmpty() ? "未知设备" : r.name, 14, COLOR_TEXT, r.selected);
+            texts.addView(name);
+            if (!r.description.isEmpty()) {
+                TextView desc = text(r.description, 12, COLOR_LOW, false);
+                texts.addView(desc);
+            }
+            row.addView(texts, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            if (r.selected) {
+                TextView mark = text("当前", 12, COLOR_RED, true);
+                row.addView(mark);
+            }
+            row.setOnClickListener(v -> {
+                router.select(r);
+                showPanel(PANEL_DEVICE);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            box.addView(row, lp);
+        }
+    }
+
     /** ④ 系统音量卡（GZ SystemVolumeCard T07）：白卡——滑杆区（高 48dp：喇叭＋深色填充细线滑杆＋百分比同行靠右 12sp/500）；
      * AudioManager STREAM_MUSIC 读写，拖动即时生效；填充/拇指＝AccentRed（GZ 本体图）；ContentObserver 同步外部改量。
      * 音量 0 时喇叭换 VolumeOff 图标（GZ T07 f==0 分支）。卡纵向无内边距（内容高 48dp，旧 8/8 已删）。
-     * GZ 右侧「播放设备」入口（T08）星辰无对应底层，本版不做假入口（见报告缺口）。 */
+     * GZ 右侧「播放设备」入口（T08，B5）：通道通（MediaRouter 可建）才在行尾画投屏钮、点开设备子面板；通道未通不画。 */
     private View buildVolumeCard() {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
@@ -507,6 +577,20 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         applyWeight(volumePct, 500);
         volumePct.setGravity(Gravity.END);
         row.addView(volumePct, new LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT));
+        // B5：GZ T08 播放设备入口——通道通才画，点开设备子面板；通道未通不画假入口
+        if (deviceRouter() != null) {
+            ImageView device = new ImageView(getContext());
+            device.setImageResource(R.drawable.ic_player_cast);
+            device.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
+            device.setPadding(dp(8), dp(8), dp(8), dp(8));
+            device.setBackgroundResource(R.drawable.bg_sheet_circle_btn);
+            device.setContentDescription(getString(R.string.music_output_device));
+            device.setOnClickListener(v -> showPanel(PANEL_DEVICE));
+            attachPress(device, 0.9f);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(36), dp(36));
+            dlp.setMarginStart(dp(4));
+            row.addView(device, dlp);
+        }
         card.addView(row, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         AudioManager am = audioManager();

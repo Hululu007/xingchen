@@ -308,7 +308,11 @@ public class MusicActivity extends BaseActivity {
         if (homeChartTracks.isEmpty() || index >= homeChartTracks.size()) return;
         // 榜单起播不是随心听队列：清来源类型，副题回落「随机漫游」
         clearShuffleSource();
-        MusicController.get().play(new ArrayList<>(homeChartTracks), index);
+        // B7：入队时写队列级来源＝榜单名、route＝home（榜单卡在首页，落点＝首页）
+        MusicChart chart = (homeChartSel >= 0 && homeChartSel < homeChartTabs.size())
+                ? homeChartTabs.get(homeChartSel) : null;
+        MusicController.get().play(new ArrayList<>(homeChartTracks), index,
+                chart == null ? null : chart.name, "home", null);
         MusicPlayerActivity.start(this);
     }
 
@@ -465,7 +469,8 @@ public class MusicActivity extends BaseActivity {
                     dialog.dismiss();
                     // 历史行起播不是随心听队列：清来源类型，副题回落「随机漫游」
                     clearShuffleSource();
-                    MusicController.get().play(queue, index);
+                    // B7：入队时写队列级来源＝播放历史；历史只是一组快照、无来源页，route 空＝只展示不可点
+                    MusicController.get().play(queue, index, getString(R.string.home_recent), null, null);
                     MusicPlayerActivity.start(this);
                 });
                 dlg.homeRecentList.addView(row);
@@ -526,7 +531,8 @@ public class MusicActivity extends BaseActivity {
         homeQueueSourceType = "shuffle_listen";
         shuffleQueueKeys = trackKeys(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
-        MusicController.get().play(shuffled, 0);
+        // B7：入队时写队列级来源＝随心听、route＝home（随心听卡在首页，落点＝首页）
+        MusicController.get().play(shuffled, 0, getString(R.string.home_shuffle), "home", null);
         MusicPlayerActivity.start(this);
     }
 

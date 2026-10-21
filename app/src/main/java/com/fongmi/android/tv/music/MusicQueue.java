@@ -27,10 +27,44 @@ public class MusicQueue {
     private int index = -1;
     private int mode = MODE_SEQUENTIAL;
 
+    /**
+     * 队列级来源（B7，入队时随队列写入）：展示用来源名，如榜单名、歌单标题、随心听。
+     * 空＝未知来源（老断点恢复的队列无此信息，面板回落旧反查口径）。
+     */
+    private String source;
+    /**
+     * 队列级来源 route（B7，入队时随队列写入）：可跳转的来源页标识，如 home（首页）、
+     * list（列表页，参数见 routeParams）。空＝无跳转落点，来源行只展示、不可点（与 GZ 无 route 形态一致）。
+     */
+    private String route;
+    /** route 参数（B7，纯 Java Map，不依赖安卓 Bundle）：list 路由带 mode／keyword／sitePlatform／playlistId／title。 */
+    private java.util.Map<String, String> routeParams;
+
     public synchronized void setTracks(List<MusicTrack> list, int startIndex) {
+        setTracks(list, startIndex, null, null, null);
+    }
+
+    /** 入队时写来源／route：来源行读这里，不再开面板时反查（B7）。 */
+    public synchronized void setTracks(List<MusicTrack> list, int startIndex,
+                                       String source, String route, java.util.Map<String, String> routeParams) {
         tracks.clear();
         if (list != null) tracks.addAll(list);
         index = tracks.isEmpty() ? -1 : Math.max(0, Math.min(startIndex, tracks.size() - 1));
+        this.source = (source == null || source.isEmpty()) ? null : source;
+        this.route = (route == null || route.isEmpty()) ? null : route;
+        this.routeParams = routeParams == null ? null : new java.util.HashMap<>(routeParams);
+    }
+
+    public synchronized String getSource() {
+        return source;
+    }
+
+    public synchronized String getRoute() {
+        return route;
+    }
+
+    public synchronized java.util.Map<String, String> getRouteParams() {
+        return routeParams == null ? null : new java.util.HashMap<>(routeParams);
     }
 
     public synchronized List<MusicTrack> getTracks() {
@@ -153,6 +187,9 @@ public class MusicQueue {
     public synchronized void clear() {
         tracks.clear();
         index = -1;
+        source = null;
+        route = null;
+        routeParams = null;
     }
 
     public static String modeName(int mode) {

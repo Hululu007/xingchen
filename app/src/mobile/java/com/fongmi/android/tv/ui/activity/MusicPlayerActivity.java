@@ -26,7 +26,9 @@ import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -41,6 +43,9 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicLyric;
+import com.fongmi.android.tv.bean.music.LyricVersion;
+import com.fongmi.android.tv.api.music.LxKeyIssue;
+import com.fongmi.android.tv.ui.dialog.LxKeyIssueDialog;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.databinding.ActivityMusicPlayerBinding;
@@ -133,6 +138,8 @@ public class MusicPlayerActivity extends BaseActivity {
     private int shelfPrevIndex = -1;
     private int shelfSwitchToken;
     private boolean shelfSwitchDone;
+    /** B1：唱片架槽位弹簧（切歌定位由此驱动，RecyclerView 只作视图复用） */
+    private com.fongmi.android.tv.ui.custom.ShelfSlotAnimator shelfSlotAnimator;
     private android.animation.AnimatorSet shelfSwitchAnim;
     private android.animation.AnimatorSet coverExpandAnim;
     private RecyclerView shelfList;
@@ -148,6 +155,16 @@ public class MusicPlayerActivity extends BaseActivity {
     private final List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> lyricTransWords = new ArrayList<>();
     private final List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> lyricRomaWords = new ArrayList<>();
     private int lyricIndex = -1;
+    /** B2：当前曲的歌词版本列表（lyricRichAll 全量聚合，只含实际拿到的版本）；空＝单版本或未聚合 */
+    private final List<LyricVersion> currentLyricVersions = new ArrayList<>();
+    /** B2：当前应用歌词的 rawLrc.trim()（版本筛选条定位当前版用） */
+    private String currentLyricKey;
+    /** B8：当前应用歌词的档位元数据（"AMLL" 时档位筹显 AMLL） */
+    private String currentLyricFormat;
+    /** B2：全屏歌词页内的版本筛选条（代码方式插在 pgLyricsView 上方，仅多版本时显示） */
+    private HorizontalScrollView lyricVersionRow;
+    private LinearLayout lyricVersionChips;
+    private int lyricVersionSel = -1;
     private boolean seeking;
     private boolean favorited;
     private boolean playing;
@@ -236,6 +253,15 @@ public class MusicPlayerActivity extends BaseActivity {
                 refreshPageQualityChip();
             });
         }
+
+        @Override
+        public void onKeyIssue(String platform, String detail) {
+            // B4：取链路密钥问题——当前曲是落雪歌才弹（防过期事件）；重试＝重播当前曲
+            runOnUiThread(() -> showKeyIssue(platform, detail, () -> {
+                int idx = MusicController.get().index();
+                if (idx >= 0) MusicController.get().playAt(idx);
+            }));
+        }
     };
 
     @Override
@@ -297,6 +323,7 @@ public class MusicPlayerActivity extends BaseActivity {
         MusicController.get().unbind();
         if (ambientAnimator != null) ambientAnimator.cancel();
         if (cdAnimator != null) cdAnimator.cancel();
+        if (shelfSlotAnimator != null) shelfSlotAnimator.cancel();
         super.onDestroy();
     }
 
@@ -1235,6 +1262,12 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricTransWords.clear();
         lyricRomaWords.clear();
         lyricIndex = -1;
+        // B2：切歌先清版本条状态，旧曲版本不许残留到新曲
+        currentLyricVersions.clear();
+        currentLyricFormat = null;
+        currentLyricKey = null;
+        lyricVersionSel = -1;
+        if (lyricVersionRow != null) lyricVersionRow.setVisibility(View.GONE);
         updateCurrentLyricTexts(MusicController.get().position());
         Task.execute(() -> {
             List<LyricsLine> mains = new ArrayList<>();
@@ -1242,6 +1275,10 @@ public class MusicPlayerActivity extends BaseActivity {
             List<String> romas = new ArrayList<>();
             List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> transWords = new ArrayList<>();
             List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> romaWords = new ArrayList<>();
+            String richFormat = null;
+            String richKey = null;
+            boolean richProvided = false;
+            LxKeyIssue keyIssue = null;
             try {
                 MusicLyric rich = MusicRepository.lyricRich(track, force);
                 if (rich != null) {
@@ -1266,11 +1303,19 @@ public class MusicPlayerActivity extends BaseActivity {
                         romaWords.add(line.romanizationWords);
                     }
                 }
+                richProvided = !mains.isEmpty();
+                if (richProvided) {
+                    richFormat = rich.format;
+                    richKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
+                }
                 if (mains.isEmpty()) {
                     // rich 通道没拿到正文时回退旧纯文本链（口径与旧版 loadLyric 一致）
                     String lrc = MusicRepository.lyric(track, force);
                     if (lrc != null && !lrc.isEmpty()) mains = LyricsParser.parseWordLyric(lrc);
                 }
+            } catch (LxKeyIssue e) {
+                // B4：密钥问题不吞——记下来给 UI 回调弹提示；其余失败照旧静默
+                keyIssue = e;
             } catch (Throwable ignored) {
             }
             List<LyricsLine> resultMains = mains;
@@ -1278,9 +1323,14 @@ public class MusicPlayerActivity extends BaseActivity {
             List<String> resultRomas = romas;
             List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultTransWords = transWords;
             List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultRomaWords = romaWords;
+            String resultFormat = richProvided ? richFormat : null;
+            String resultKey = richProvided ? richKey : null;
+            LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
                 if (cur == null || !cur.equals(track)) return;
+                currentLyricFormat = resultFormat;
+                currentLyricKey = resultKey;
                 applyLyricData(resultMains, resultTrans, resultRomas, resultTransWords, resultRomaWords);
                 // 取词确认为空才露空态
                 if (resultMains.isEmpty() && lyricView != null) lyricView.showNoLyric();
@@ -1288,6 +1338,28 @@ public class MusicPlayerActivity extends BaseActivity {
                 if (force) {
                     Notify.show(resultMains.isEmpty() ? R.string.music_lyric_not_found : R.string.music_lyric_found);
                 }
+                // B4：歌词路密钥问题——仍是当前曲才弹；重试＝强制重取本曲歌词
+                if (resultKeyIssue != null) {
+                    showKeyIssue(resultKeyIssue.getPlatform(), resultKeyIssue.getMessage(),
+                            () -> loadLyric(track, true));
+                }
+                // B2 第二阶段：快路径先显词不被聚合拖慢；后台再全量聚合版本，仍是当前曲且多于 1 版才露筛选条
+                Task.execute(() -> {
+                    List<LyricVersion> versions;
+                    try {
+                        versions = MusicRepository.lyricRichAll(track, force);
+                    } catch (Throwable ignored) {
+                        versions = new ArrayList<>();
+                    }
+                    List<LyricVersion> resultVersions = versions;
+                    runOnUiThread(() -> {
+                        MusicTrack cur2 = MusicController.get().current();
+                        if (cur2 == null || !cur2.equals(track)) return;
+                        currentLyricVersions.clear();
+                        currentLyricVersions.addAll(resultVersions);
+                        showLyricVersionRow();
+                    });
+                });
             });
         });
     }
@@ -1311,9 +1383,13 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
-    /** 歌词筹文案照 GZ lyricChipLabel 五档中星辰可判定的四档（AMLL 是 GZ 专有格式，星辰无此来源不冒充） */
+    /** 歌词筹文案：GZ lyricChipLabel 五档——AMLL 档（B8，当前词 format＝"AMLL" 时）＋星辰可判定的四档 */
     private void updateLyricChipLabel(List<LyricsLine> mains) {
         if (lyricChipTextView == null) return;
+        if ("AMLL".equals(currentLyricFormat)) {
+            lyricChipTextView.setText(R.string.music_lyric_chip_amll);
+            return;
+        }
         int label;
         if (mains == null || mains.isEmpty()) label = R.string.music_lyric_chip_none;
         else {
@@ -1326,6 +1402,146 @@ public class MusicPlayerActivity extends BaseActivity {
             label = word ? R.string.music_lyric_chip_word : timed ? R.string.music_lyric_chip_line : R.string.music_lyric_chip_plain;
         }
         lyricChipTextView.setText(label);
+    }
+
+    /** B4：密钥问题弹窗——只接 LxKeyIssue 事件；当前曲是落雪歌才弹（防过期事件）；只提示＋重试，不做密钥／登录入口 */
+    private void showKeyIssue(String platform, String detail, Runnable onRetry) {
+        MusicTrack cur = MusicController.get().current();
+        if (cur == null || !"lx".equals(cur.platform)) return;
+        LxKeyIssueDialog.show(this, platform, detail, onRetry);
+    }
+    /** B2：版本筛选条——仅多于 1 版时显示；当前版按 currentLyricKey 定位，找不到回落首版 */
+    private void showLyricVersionRow() {
+        if (currentLyricVersions.size() <= 1) {
+            if (lyricVersionRow != null) lyricVersionRow.setVisibility(View.GONE);
+            return;
+        }
+        ensureLyricVersionRow();
+        if (lyricVersionChips == null) return;
+        lyricVersionChips.removeAllViews();
+        int sel = 0;
+        for (int i = 0; i < currentLyricVersions.size(); i++) {
+            MusicLyric l = currentLyricVersions.get(i).getLyric();
+            String key = l == null || l.rawLrc == null ? null : l.rawLrc.trim();
+            if (currentLyricKey != null && currentLyricKey.equals(key)) sel = i;
+        }
+        lyricVersionSel = sel;
+        for (int i = 0; i < currentLyricVersions.size(); i++) {
+            final int index = i;
+            TextView chip = new TextView(this);
+            chip.setText(currentLyricVersions.get(i).displayLabel());
+            chip.setTextSize(12);
+            chip.setPadding(lyricDp(12), lyricDp(6), lyricDp(12), lyricDp(6));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.setMarginEnd(lyricDp(8));
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> {
+                if (lyricVersionSel == index) return;
+                lyricVersionSel = index;
+                refreshLyricVersionChips();
+                applyLyricVersion(currentLyricVersions.get(index));
+            });
+            lyricVersionChips.addView(chip);
+        }
+        refreshLyricVersionChips();
+        lyricVersionRow.setVisibility(View.VISIBLE);
+    }
+
+    /** B2：版本筛选条只建一次，插在全屏歌词页纵列中 pgLyricsView 上方（页内，不改布局文件） */
+    private void ensureLyricVersionRow() {
+        if (lyricVersionRow != null || lyricsPage == null) return;
+        ViewGroup page = (ViewGroup) lyricsPage;
+        if (page.getChildCount() == 0) return;
+        View column = page.getChildAt(0);
+        if (!(column instanceof ViewGroup)) return;
+        ViewGroup col = (ViewGroup) column;
+        int idx = -1;
+        for (int i = 0; i < col.getChildCount(); i++) {
+            if (col.getChildAt(i) == pageLyricView) {
+                idx = i;
+                break;
+            }
+        }
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.setPadding(lyricDp(16), lyricDp(4), lyricDp(16), lyricDp(4));
+        hsv.addView(chips, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        col.addView(hsv, idx < 0 ? 0 : idx, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricVersionRow = hsv;
+        lyricVersionChips = chips;
+    }
+
+    /** B2：版本筹样式——选中深底白字，未选中描边＋深字（与歌词页浅色面同一口径） */
+    private void refreshLyricVersionChips() {
+        if (lyricVersionChips == null) return;
+        for (int i = 0; i < lyricVersionChips.getChildCount(); i++) {
+            View child = lyricVersionChips.getChildAt(i);
+            if (!(child instanceof TextView)) continue;
+            boolean sel = i == lyricVersionSel;
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(lyricDp(16));
+            if (sel) {
+                bg.setColor(0xFF1C1C1E);
+                ((TextView) child).setTextColor(0xFFFFFFFF);
+            } else {
+                bg.setStroke(lyricDp(1), 0xFF8E8E93);
+                ((TextView) child).setTextColor(0xFF1C1C1E);
+            }
+            child.setBackground(bg);
+        }
+    }
+
+    /** B2：切版本——重走解析＋对齐＋喂词（与 loadLyric 同一口径），只换词数据，不换曲目 */
+    private void applyLyricVersion(LyricVersion version) {
+        if (version == null || version.getLyric() == null) return;
+        MusicTrack track = MusicController.get().current();
+        if (track == null) return;
+        MusicLyric rich = version.getLyric();
+        Task.execute(() -> {
+            List<LyricsLine> mains = new ArrayList<>();
+            List<String> trans = new ArrayList<>();
+            List<String> romas = new ArrayList<>();
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> transWords = new ArrayList<>();
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> romaWords = new ArrayList<>();
+            try {
+                if (rich.rawLrc != null && !rich.rawLrc.isEmpty()) {
+                    mains = LyricsParser.parseWordLyric(rich.rawLrc);
+                }
+                List<LyricsLine> transLines = rich.translation == null || rich.translation.isEmpty()
+                        ? null : LyricsParser.parseWordLyric(rich.translation);
+                List<LyricsLine> romaLines = rich.romanization == null || rich.romanization.isEmpty()
+                        ? null : LyricsParser.parseWordLyric(rich.romanization);
+                List<RichLyrics.Line> aligned = RichLyrics.align(mains, transLines, romaLines);
+                for (RichLyrics.Line line : aligned) {
+                    trans.add(line.translation);
+                    romas.add(line.romanization);
+                    transWords.add(line.translationWords);
+                    romaWords.add(line.romanizationWords);
+                }
+            } catch (Throwable ignored) {
+            }
+            List<LyricsLine> resultMains = mains;
+            List<String> resultTrans = trans;
+            List<String> resultRomas = romas;
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultTransWords = transWords;
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultRomaWords = romaWords;
+            runOnUiThread(() -> {
+                MusicTrack cur = MusicController.get().current();
+                if (cur == null || !cur.equals(track)) return;
+                currentLyricFormat = rich.format;
+                currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
+                applyLyricData(resultMains, resultTrans, resultRomas, resultTransWords, resultRomaWords);
+            });
+        });
+    }
+
+    private int lyricDp(float dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
     private void applyLyricData(List<LyricsLine> mains, List<String> trans, List<String> romas,
@@ -2256,8 +2472,9 @@ public class MusicPlayerActivity extends BaseActivity {
         if (shelfList == null) return;
         int idx = MusicController.get().index();
         if (idx < 0) return;
-        // redo3 第四轮 S10：切歌时旧当前项先跑 150ms 出场（动画结束回绑为 S4 非当前态），滚动保持 smoothScrollToPosition；
-        // 新当前项入场由滚动到位后（滚动空闲或已可见时）的一次性接线跑 animateShelfPageSwitch(…, true)。
+        // redo3 第四轮 S10：切歌时旧当前项先跑 150ms 出场（动画结束回绑为 S4 非当前态）；
+        // B1：定位改槽位弹簧（ShelfSlotAnimator，spring(0.9, 300)＋snap 0.001 槽位），不再用 smoothScrollToPosition；
+        // 新当前项入场由弹簧落位回调（或目标已可见时的一次性接线）跑 animateShelfPageSwitch(…, true)。
         int prev = shelfPrevIndex;
         shelfPrevIndex = idx;
         if (prev >= 0 && prev != idx) {
@@ -2267,19 +2484,22 @@ public class MusicPlayerActivity extends BaseActivity {
         final int token = ++shelfSwitchToken;
         shelfSwitchDone = false;
         shelfList.post(() -> {
-            shelfList.smoothScrollToPosition(idx);
+            if (!startShelfSlotSpring(idx, () -> tryShelfPageEnter(token, idx))) {
+                shelfList.smoothScrollToPosition(idx);
+            }
             shelfList.post(() -> tryShelfPageEnter(token, idx));
         });
-        RecyclerView.OnScrollListener listener = new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    rv.removeOnScrollListener(this);
-                    tryShelfPageEnter(token, idx);
-                }
-            }
-        };
-        shelfList.addOnScrollListener(listener);
+    }
+
+    /** B1：起槽位弹簧——槽宽取架项 LayoutParams（封套 dp×density），起不来返回 false 回落旧滚动 */
+    private boolean startShelfSlotSpring(int idx, Runnable onSettled) {
+        if (shelfList == null || shelfAdapter == null) return false;
+        float d = getResources().getDisplayMetrics().density;
+        int slotW = (int) (shelfAdapter.shelfSleeveDp() * d);
+        if (slotW <= 0 || shelfList.getWidth() <= 0) return false;
+        if (shelfSlotAnimator != null) shelfSlotAnimator.cancel();
+        shelfSlotAnimator = new com.fongmi.android.tv.ui.custom.ShelfSlotAnimator(shelfList, slotW);
+        return shelfSlotAnimator.animateToCenter(idx, onSettled);
     }
 
     private void tryShelfPageEnter(int token, int idx) {

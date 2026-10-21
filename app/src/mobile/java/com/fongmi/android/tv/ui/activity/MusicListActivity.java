@@ -1132,13 +1132,26 @@ public class MusicListActivity extends BaseActivity {
         List<MusicTrack> shuffled = new ArrayList<>(tracks);
         Collections.shuffle(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
-        MusicController.get().play(shuffled, 0);
+        // B7：入队时写队列级来源＝本页标题、route＝list（参数可重建本页，落点＝本列表页）
+        MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
         MusicPlayerActivity.start(this);
     }
 
     private void playTrack(int position) {
-        MusicController.get().play(new ArrayList<>(tracks), position);
+        // B7：入队时写队列级来源＝本页标题、route＝list（参数可重建本页，落点＝本列表页）
+        MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
         MusicPlayerActivity.start(this);
+    }
+
+    /** B7：list 路由参数——与本页 onCreate 读的 intent extras 同名同值，可重建本页 */
+    private java.util.Map<String, String> listRouteParams() {
+        java.util.Map<String, String> params = new java.util.HashMap<>();
+        params.put("mode", mode == null ? "" : mode);
+        params.put("keyword", keyword == null ? "" : keyword);
+        params.put("sitePlatform", sitePlatform == null ? "" : sitePlatform);
+        params.put("playlistId", String.valueOf(playlistId));
+        params.put("title", bigTitle == null ? "" : bigTitle);
+        return params;
     }
 
     private void refreshCurrentRow() {

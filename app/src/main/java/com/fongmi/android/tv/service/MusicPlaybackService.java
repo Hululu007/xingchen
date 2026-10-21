@@ -36,11 +36,14 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.api.music.LxKeyIssue;
 import com.fongmi.android.tv.music.MusicAudioInfo;
 import com.fongmi.android.tv.music.MusicBitDepthProbe;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
+import com.fongmi.android.tv.music.ParametricEq;
+import com.fongmi.android.tv.music.ParametricEqProcessor;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -123,6 +126,10 @@ public class MusicPlaybackService extends MediaSessionService {
 
         default void onSleepChanged(int sleep) {
         }
+
+        /** 落雪密钥问题（B4）：脚本明确报了 401／403，UI 侧弹密钥提示；其它失败不走这里 */
+        default void onKeyIssue(String platform, String detail) {
+        }
     }
 
     private final List<ServiceListener> listeners = new CopyOnWriteArrayList<>();
@@ -132,6 +139,8 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private MediaSession session;
     private ExoPlayer player;
+    /** B6：参数均衡器处理链（建播放器时串入，面板改配置下一 buffer 起生效） */
+    private ParametricEqProcessor parametricEq;
     private int sleep = SLEEP_OFF;
     private Runnable sleepTask;
     /** 定时截止时刻（elapsedRealtime 基准，供面板读剩余 m:ss，GZ B07）；未设定时为 0 */
@@ -164,6 +173,10 @@ public class MusicPlaybackService extends MediaSessionService {
         // 慢一点就赶不上（1.3.58 真机实证崩点），所以先用占位通知占住前台。
         startForegroundNow();
         queue.setMode(MusicStore.getMode());
+        // B6：参数均衡器处理链先建好、带上存量配置，再串进播放器
+        parametricEq = new ParametricEqProcessor();
+        parametricEq.setEnabled(MusicStore.isParametricEnabled());
+        parametricEq.setBands(MusicStore.getParametricBands());
         player = new ExoPlayer.Builder(this)
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(C.USAGE_MEDIA)
@@ -171,6 +184,7 @@ public class MusicPlaybackService extends MediaSessionService {
                         .build(), true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
+                .setAudioProcessors(parametricEq)
                 .build();
         player.addListener(playerListener);
         // 播放模式只由 MusicQueue 一处决策（onTrackEnded 按 queue.nextIndex 走）：
@@ -318,14 +332,26 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /** 播队列 */
     public void playQueue(List<MusicTrack> tracks, int index) {
-        queue.setTracks(tracks, index);
+        playQueue(tracks, index, null, null, null);
+    }
+
+    /** 播队列并写入队列级来源／route（B7：入队时写，面板不再反查） */
+    public void playQueue(List<MusicTrack> tracks, int index,
+                          String source, String route, java.util.Map<String, String> routeParams) {
+        queue.setTracks(tracks, index, source, route, routeParams);
         listeners.forEach(ServiceListener::onQueueChanged);
         prepareTrack(queue.getIndex(), 0, true);
     }
 
     /** 播队列并从指定位置起（断点续播用） */
     public void playQueueFrom(List<MusicTrack> tracks, int index, long position) {
-        queue.setTracks(tracks, index);
+        playQueueFrom(tracks, index, position, null, null, null);
+    }
+
+    /** 播队列并从断点位置起，同时写入队列级来源／route（B7） */
+    public void playQueueFrom(List<MusicTrack> tracks, int index, long position,
+                              String source, String route, java.util.Map<String, String> routeParams) {
+        queue.setTracks(tracks, index, source, route, routeParams);
         listeners.forEach(ServiceListener::onQueueChanged);
         prepareTrack(queue.getIndex(), Math.max(0, position), true);
     }
@@ -881,6 +907,26 @@ public class MusicPlaybackService extends MediaSessionService {
         }
     }
 
+    // ================= 参数均衡器（B6：Media3 处理链，与系统 audiofx 并存，不改称） =================
+
+    public void setParametricEnabled(boolean on) {
+        MusicStore.setParametricEnabled(on);
+        if (parametricEq != null) parametricEq.setEnabled(on);
+    }
+
+    public void setParametricBands(List<ParametricEq.Band> bands) {
+        MusicStore.setParametricBands(bands);
+        if (parametricEq != null) parametricEq.setBands(bands);
+    }
+
+    public boolean isParametricEnabled() {
+        return parametricEq != null ? parametricEq.isEnabled() : MusicStore.isParametricEnabled();
+    }
+
+    public List<ParametricEq.Band> parametricBands() {
+        return parametricEq != null ? parametricEq.copyBands() : MusicStore.getParametricBands();
+    }
+
     public void setFxBandLevel(int band, int millibel) {
         ensureFx();
         if (fxEqualizer == null) return;
@@ -934,6 +980,7 @@ public class MusicPlaybackService extends MediaSessionService {
      */
     private String playUrlWithFallback(MusicTrack track, int quality, int seq) {
         long start = System.currentTimeMillis();
+        boolean keyIssueFired = false;
         for (int q = quality; q >= MusicStore.QUALITY_LOW; q--) {
             if (q != quality) {
                 if (seq != prepareSeq) return null;
@@ -942,7 +989,17 @@ public class MusicPlaybackService extends MediaSessionService {
                     break;
                 }
             }
-            String url = MusicRepository.playUrl(track, q);
+            String url;
+            try {
+                url = MusicRepository.playUrl(track, q);
+            } catch (LxKeyIssue e) {
+                // B4：密钥问题不降档重试（换档也一样 401／403），只发一次事件给 UI 弹提示，走正常失败路径
+                if (!keyIssueFired) {
+                    keyIssueFired = true;
+                    listeners.forEach(l -> l.onKeyIssue(e.getPlatform(), e.getMessage()));
+                }
+                return null;
+            }
             if (url != null && !url.isEmpty()) {
                 if (q != quality) {
                     SpiderDebug.log("music", "playUrl fallback id=%s %s->%s", track.id,
@@ -1214,7 +1271,8 @@ public class MusicPlaybackService extends MediaSessionService {
         try {
             MusicTrack t = queue.current();
             if (t == null || queue.isEmpty()) return;
-            MusicStore.saveBreakpoint(queue.getTracks(), queue.getIndex(), position());
+            MusicStore.saveBreakpoint(queue.getTracks(), queue.getIndex(), position(),
+                    queue.getSource(), queue.getRoute(), queue.getRouteParams());
         } catch (Throwable ignored) {
         }
     }
@@ -1229,7 +1287,8 @@ public class MusicPlaybackService extends MediaSessionService {
                 int idx = Math.max(0, Math.min(MusicStore.loadIndex(), q.size() - 1));
                 App.post(() -> {
                     if (!queue.isEmpty()) return;
-                    queue.setTracks(q, idx);
+                    queue.setTracks(q, idx, MusicStore.loadQueueSource(), MusicStore.loadQueueRoute(),
+                            MusicStore.loadQueueRouteParams());
                     // 只摆好、不自动播：用户点播放才从断点起
                     listeners.forEach(ServiceListener::onQueueChanged);
                     listeners.forEach(l -> l.onTrackChanged(queue.current()));

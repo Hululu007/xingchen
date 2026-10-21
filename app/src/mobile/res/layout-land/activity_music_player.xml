@@ -37,8 +37,8 @@
         android:layout_height="match_parent"
         android:background="@drawable/bg_player_scrim" />
 
-    <!-- 主题容器 -->
-    <FrameLayout
+    <!-- 主题容器：与竖屏一致，用 PlayerPageSwipeLayout，类型不一致 Binding 会退化成 View，竖屏 5 处调用全挂 -->
+    <com.fongmi.android.tv.ui.custom.PlayerPageSwipeLayout
         android:id="@+id/themeContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

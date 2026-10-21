@@ -213,19 +213,6 @@ public class ImgUtil {
         }
     }
 
-    /** 第 10 项：随心听黑胶内圈封面圆形裁切（GZ SpinningDisc 内圈封面 0.68f 圆形） */
-    public static void loadCircle(String text, String url, ImageView view) {
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
-        else try {
-            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
-            builder.placeholder(getTextDrawable(text, true));
-            builder.circleCrop();
-            builder.into(view);
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
-    }
-
     /**
      * 小程序列表图标：URL 图标加载。对照 8.83
      * ArticleListRuleAdapter.smali:194（icon_mini_program_icon）：失败时用默认图标占位，

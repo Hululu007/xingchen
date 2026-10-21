@@ -16,6 +16,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -134,6 +135,7 @@ public class MusicListActivity extends BaseActivity {
     private String chartCover = "";
     private final Set<String> dlSelected = new java.util.HashSet<>();
     private boolean dlListenerOn;
+    private String mode = "tracks";
     private final com.fongmi.android.tv.utils.download.DownloadManager.Listener dlListener = task -> {
         if (!mode.equals("download")) return;
         runOnUiThread(() -> {
@@ -145,7 +147,6 @@ public class MusicListActivity extends BaseActivity {
         });
     };
 
-    private String mode = "tracks";
     private String keyword = "";
     private String bigTitle = "";
     /** 对照表 P2：插件导入进行中（头卡标题变「正在导入插件」、本地按钮标题变「导入中…」） */
@@ -393,9 +394,9 @@ public class MusicListActivity extends BaseActivity {
         binding.favHistResume.setOnClickListener(v -> {
             if (favHistResume == null) return;
             int idx = -1;
-            for (int i = 0; i < favHistAll.size(); i++) {
-                if (favHistResume.id != null && favHistResume.id.equals(favHistAll.get(i).id)) {
-                    idx = i;
+            for (int j = 0; j < favHistAll.size(); j++) {
+                if (favHistResume.id != null && favHistResume.id.equals(favHistAll.get(j).id)) {
+                    idx = j;
                     break;
                 }
             }
@@ -1192,7 +1193,7 @@ public class MusicListActivity extends BaseActivity {
         String key = chart.platform + ":" + chart.id;
         cardRoot.setTag(key);
         if (chart.cover == null || chart.cover.isEmpty()) return;
-        ImgUtil.load(chart.cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+        ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
             @Override
             public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
                                         com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
@@ -1226,7 +1227,7 @@ public class MusicListActivity extends BaseActivity {
         String key = "guess";
         cardRoot.setTag(key);
         if (tracks.isEmpty() || tracks.get(0).cover == null || tracks.get(0).cover.isEmpty()) return;
-        ImgUtil.load(tracks.get(0).cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+        ImgUtil.load(tracks.get(0).cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
             @Override
             public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
                                         com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
@@ -3170,6 +3171,23 @@ public class MusicListActivity extends BaseActivity {
 
     // ================= ⋮ 菜单 =================
 
+    /** 第 1 项：下载（从通用 ⋮ 菜单抽出来的同一段逻辑：每次询问档时先选档，否则直接下载；原在 ListAdapter 内，onMore 菜单调不到，挪到外层） */
+    private void downloadTrack(MusicTrack track) {
+        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
+            int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                    MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+            List<String> qopts = new ArrayList<>();
+            for (int v : values) qopts.add(MusicStore.qualityName(v));
+            int fixed = MusicStore.getDownloadQualityFixed();
+            int checked = 1;
+            for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
+            MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), qopts, checked,
+                    qidx -> MusicDownloadStore.downloadWithQuality(track, values[qidx]));
+        } else {
+            MusicDownloadStore.download(track);
+        }
+    }
+
     private void onMore(MusicTrack track, int position) {
         FragmentActivity act = this;
         boolean local = MusicDownloadStore.isLocal(track);
@@ -4622,7 +4640,7 @@ public class MusicListActivity extends BaseActivity {
             opts.add("换源");
             opts.add(getString(R.string.music_remove));
             opts.add("改封面");
-            MusicOptionsDialog.show(this, track.displayTitle(), opts, -1, idx -> {
+            MusicOptionsDialog.show(MusicListActivity.this, track.displayTitle(), opts, -1, idx -> {
                 if (idx == 0) playTrack(position);
                 else if (idx == 1) {
                     MusicController.get().insertNext(track);
@@ -4645,7 +4663,7 @@ public class MusicListActivity extends BaseActivity {
 
     /** 第 1 项：歌曲信息（歌名／歌手／专辑／时长／来源／封面有无，全是实测值） */
     private void showTrackInfo(MusicTrack track) {
-        LinearLayout box = new LinearLayout(this);
+        LinearLayout box = new LinearLayout(MusicListActivity.this);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
         box.setPadding(pad, pad, pad, pad);
@@ -4658,35 +4676,18 @@ public class MusicListActivity extends BaseActivity {
                 {"封面", track.cover == null || track.cover.isEmpty() ? "无" : "有"},
         };
         for (String[] r : rows) {
-            TextView tv = new TextView(this);
+            TextView tv = new TextView(MusicListActivity.this);
             tv.setText(r[0] + "：" + r[1]);
             tv.setTextSize(14);
             tv.setTextColor(0xFF1C1C1E);
             tv.setPadding(0, dp(3), 0, dp(3));
             box.addView(tv);
         }
-        new MaterialAlertDialogBuilder(this)
+        new MaterialAlertDialogBuilder(MusicListActivity.this)
                 .setTitle("歌曲信息")
                 .setView(box)
                 .setPositiveButton(android.R.string.ok, null)
                 .show();
-    }
-
-    /** 第 1 项：下载（从通用 ⋮ 菜单抽出来的同一段逻辑：每次询问档时先选档，否则直接下载） */
-    private void downloadTrack(MusicTrack track) {
-        if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
-            int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
-                    MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
-            List<String> qopts = new ArrayList<>();
-            for (int v : values) qopts.add(MusicStore.qualityName(v));
-            int fixed = MusicStore.getDownloadQualityFixed();
-            int checked = 1;
-            for (int i = 0; i < values.length; i++) if (values[i] == fixed) checked = i;
-            MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), qopts, checked,
-                    qidx -> MusicDownloadStore.downloadWithQuality(track, values[qidx]));
-        } else {
-            MusicDownloadStore.download(track);
-        }
     }
 
     /** 第 1 项：获取元数据（刷新）＝按原插件／同平台重搜同名歌，命中则原位替换全部字段；本地／设备歌暂不支持 */
@@ -4790,7 +4791,7 @@ public class MusicListActivity extends BaseActivity {
                     names.add((plat.isEmpty() ? "" : plat + " · ") + c.displayTitle()
                             + (c.displayArtist().isEmpty() ? "" : " - " + c.displayArtist()));
                 }
-                MusicOptionsDialog.show(this, "换源", names, -1, idx -> {
+                MusicOptionsDialog.show(MusicListActivity.this, "换源", names, -1, idx -> {
                     MusicTrack pick = found.get(idx);
                     MusicLibrary.replaceTrackInPlaylist(playlistId, track.id, pick, ok -> {
                         Notify.show(ok ? "已换源" : "换源失败");
@@ -5066,7 +5067,6 @@ public class MusicListActivity extends BaseActivity {
         h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
     }
 
-        @Override
         /** 第 9 项：猜你喜欢四类行 ViewHolder（标题行是纯静态文案，无需字段） */
         class GuessTitleHolder extends RecyclerView.ViewHolder {
             GuessTitleHolder(View v) {

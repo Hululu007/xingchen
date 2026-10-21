@@ -15,6 +15,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.GestureDetector;
 import android.view.Gravity;
@@ -1121,8 +1122,8 @@ public class MusicPlayerActivity extends BaseActivity {
         if (nextBlockView == null) return;
         MusicTrack next = null;
         try {
-            List<MusicTrack> tracks = MusicController.get().getTracks();
-            int index = MusicController.get().getIndex();
+            List<MusicTrack> tracks = MusicController.get().queue();
+            int index = MusicController.get().index();
             if (tracks != null && index >= 0 && index + 1 < tracks.size()) next = tracks.get(index + 1);
         } catch (Throwable ignored) {
         }

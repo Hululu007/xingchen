@@ -679,7 +679,7 @@ public class MusicActivity extends BaseActivity {
         if (cover == null || cover.isEmpty()) return;
         shuffleToneApplied = true;
         try {
-            ImgUtil.load(cover, new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+            ImgUtil.load(cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
                 @Override
                 public void onResourceReady(android.graphics.Bitmap bitmap,
                         com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {

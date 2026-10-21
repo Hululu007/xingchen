@@ -58,14 +58,14 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(16), dp(20), dp(20));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF1C1C1E);
+        bg.setColor(0xFFFFFFFF);
         bg.setCornerRadius(dp(20));
         root.setBackground(bg);
 
         TextView title = new TextView(inflater.getContext());
         title.setText(R.string.music_parametric_eq);
         title.setTextSize(17);
-        title.setTextColor(0xFFFFFFFF);
+        title.setTextColor(0xFF1C1C1E);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
@@ -76,7 +76,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         TextView swLabel = new TextView(inflater.getContext());
         swLabel.setText("启用");
         swLabel.setTextSize(14);
-        swLabel.setTextColor(0xFFFFFFFF);
+        swLabel.setTextColor(0xFF1C1C1E);
         swRow.addView(swLabel, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         SwitchCompat sw = new SwitchCompat(inflater.getContext());
@@ -124,7 +124,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         add.setGravity(Gravity.CENTER);
         add.setPadding(0, dp(12), 0, dp(12));
         GradientDrawable d = new GradientDrawable();
-        d.setColor(0xFF26262A);
+        d.setColor(0xFFF3F3F3);
         d.setCornerRadius(dp(12));
         add.setBackground(d);
         add.setOnClickListener(v -> {
@@ -144,7 +144,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(12), dp(12), dp(12));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF26262A);
+        bg.setColor(0xFFF3F3F3);
         bg.setCornerRadius(dp(12));
         card.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -161,7 +161,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         type.setTextColor(0xFFFA243C);
         type.setPadding(dp(8), dp(4), dp(8), dp(4));
         GradientDrawable td = new GradientDrawable();
-        td.setColor(0xFF1C1C1E);
+        td.setColor(0xFFF3F3F3);
         td.setCornerRadius(dp(16));
         type.setBackground(td);
         type.setOnClickListener(v -> {
@@ -173,7 +173,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         TextView freqLabel = new TextView(getContext());
         freqLabel.setText(freqText(band.freq));
         freqLabel.setTextSize(14);
-        freqLabel.setTextColor(0xFFFFFFFF);
+        freqLabel.setTextColor(0xFF1C1C1E);
         LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         flp.setMarginStart(dp(8));

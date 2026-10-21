@@ -61,6 +61,7 @@ import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.KaraokeLyricsView;
+import com.fongmi.android.tv.ui.custom.ShelfStageGeometry;
 import com.fongmi.android.tv.ui.dialog.MusicFxDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
@@ -2596,24 +2597,30 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** 唱片架项：封面方卡（左）＋黑胶圆盘（右侧滑出）；当前项盘旋转 30°/s，其余静止；点按切歌；
-     * redo3 第四轮 S4：项尺寸走瓜子舞台公式链（约束维取屏宽 dp：舞台 clamp(宽×0.66,180,300)，f2 = min(宽×0.5, 舞台-36)，
-     * 封套 = f2×0.95，圆盘 = 0.97×封套）；圆盘以 0.24×封套的位移量向右探出（GZ 槽位位移 0.24 项，见分表残留）；
-     * 封面本体圆角 2dp、阴影 4dp；非当前项缩小约 0.82×＋按相对位置位移、去掉 alpha 0.75 压暗（瓜子无压暗）。 */
+     * S4 全量：项几何走 ShelfStageGeometry（瓜子舞台公式链，约束维取屏宽 dp：舞台 clamp(宽×0.66,180,300)，
+     * f2 = min(宽×0.5, 舞台-36)，封套 = f2×0.95，圆盘 = 0.97×封套，中心参考 = 宽×0.59，
+     * 非当前缩放 f4 = (f2×0.78)／封套由公式算出）；圆盘以 0.24×封套向右探出；
+     * 封面本体圆角 2dp、阴影 4dp（袖层值）；非当前项按 f4 缩小＋按相对位置位移、无 alpha 压暗（瓜子无压暗）。
+     * 列表改编（见 ShelfStageGeometry 类注释）：c×slot 摊位项由列表布局承担；外 Box 1.48×封套、架板、
+     * 盘心图／点、0.18×封套图标只出系数未渲染；圆盘不设 elevation（防盘盖封面）。 */
     private class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.Holder> {
 
-        float shelfSleeveDp() {
+        ShelfStageGeometry shelfGeometry() {
             float w = getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density;
-            float stage = Math.max(180f, Math.min(300f, w * 0.66f));
-            float f2 = Math.min(w * 0.5f, stage - 36f);
-            return f2 * 0.95f;
+            return ShelfStageGeometry.fromWidthDp(w);
+        }
+
+        float shelfSleeveDp() {
+            return shelfGeometry().sleeveDp;
         }
 
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             float d = getResources().getDisplayMetrics().density;
-            float sleeve = shelfSleeveDp();
-            float discSize = sleeve * 0.97f;
+            ShelfStageGeometry g = shelfGeometry();
+            float sleeve = g.sleeveDp;
+            float discSize = g.discDp;
             FrameLayout root = new FrameLayout(parent.getContext());
             root.setClipChildren(false);
             root.setLayoutParams(new RecyclerView.LayoutParams((int) (sleeve * d), (int) (sleeve * d)));
@@ -2622,7 +2629,8 @@ public class MusicPlayerActivity extends BaseActivity {
             discLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
             disc.setLayoutParams(discLp);
             disc.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            disc.setTranslationX(sleeve * 0.24f * d);
+            disc.setTranslationX(sleeve * ShelfStageGeometry.PROTRUDE_FACTOR * d);
+            // 圆盘不设 elevation：GZ 盘阴影 5dp 不可用 elevation 搬（会把盘抬到封面之上），见 ShelfStageGeometry。
             setCircle(disc);
             root.addView(disc);
             ImageView cover = new ImageView(parent.getContext());
@@ -2630,8 +2638,8 @@ public class MusicPlayerActivity extends BaseActivity {
             coverLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
             cover.setLayoutParams(coverLp);
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setElevation(4 * d);
-            setRounded(cover, 2);
+            cover.setElevation(ShelfStageGeometry.SLEEVE_SHADOW_DP * d);
+            setRounded(cover, ShelfStageGeometry.COVER_CORNER_DP);
             root.addView(cover);
             ImageView fav = new ImageView(parent.getContext());
             FrameLayout.LayoutParams favLp = new FrameLayout.LayoutParams((int) (40 * d), (int) (40 * d));
@@ -2661,19 +2669,21 @@ public class MusicPlayerActivity extends BaseActivity {
                 ImgUtil.load(title, track.cover, h.disc);
             }
             boolean current = position == MusicController.get().index();
-            // S4：非当前项不再 alpha 压暗；改缩小约 0.82×（f2×0.78／封套 ≈ 0.821）＋按相对位置位移，当前项复位。
-            float sleeve = shelfSleeveDp();
+            // S4：非当前项不再 alpha 压暗（瓜子变换内无 alpha 调用）；缩放取公式算出的 f4＝(f2×0.78)／封套，
+            // 不写死 0.82；位移取公式第一项 (1−v)×封套×0.24×缩放（相邻项 v＝0），c×slot 项由列表布局承担、不叠加。
+            ShelfStageGeometry g = shelfGeometry();
+            float sleeve = g.sleeveDp;
             if (current) {
                 h.itemView.setScaleX(1f);
                 h.itemView.setScaleY(1f);
                 h.itemView.setTranslationX(0f);
                 h.itemView.setAlpha(1f);
             } else {
-                float s = 0.82f;
+                float s = g.nonCurrentScale;
                 h.itemView.setScaleX(s);
                 h.itemView.setScaleY(s);
                 int dir = position < MusicController.get().index() ? -1 : 1;
-                h.itemView.setTranslationX(dir * sleeve * 0.24f * s * getResources().getDisplayMetrics().density);
+                h.itemView.setTranslationX(dir * sleeve * ShelfStageGeometry.PROTRUDE_FACTOR * s * getResources().getDisplayMetrics().density);
                 h.itemView.setAlpha(1f);
             }
             h.stopSpin();

@@ -449,4 +449,131 @@ public class MusicStore {
     public static void setPlayerKeepScreenOn(boolean on) {
         Prefers.put(K_PLAYER_KEEP_SCREEN_ON, on);
     }
+
+    // ===== 面板＋设置面（redo3 round4） =====
+
+    /** 左手布局（横屏）（A7；默认右手） */
+    private static final String K_LEFT_HAND = "music_left_hand_landscape";
+    /** 动态流体背景（A4；默认关） */
+    private static final String K_FLUID_BG = "music_fluid_bg";
+    /** 音乐律动（A4；默认关） */
+    private static final String K_RHYTHM = "music_rhythm";
+    /** 插件检测结果表（C4；srcUrl → MusicPluginTest 的 JSON） */
+    private static final String K_PLUGIN_TESTS = "music_plugin_tests";
+    /** 取链耗时表（C5；平台 → 插件 srcUrl → 最近取链耗时 ms 的 JSON） */
+    private static final String K_PLUGIN_LATENCY = "music_plugin_latency";
+    /** 多插件智能切换（C5；默认关） */
+    private static final String K_SMART_SWITCH = "music_plugin_smart_switch";
+    /** 自动屏蔽无效平台（C4；默认关） */
+    private static final String K_AUTO_BLOCK = "music_plugin_auto_block";
+    /** 歌词时间偏移（U-05；毫秒整数，默认 0；范围钳制 ±5000ms 为星辰侧自定，非瓜子值） */
+    private static final String K_LYRIC_OFFSET_MS = "music_lyric_offset_ms";
+    /** 歌词时间偏移钳制（星辰侧自定，非瓜子值） */
+    public static final int LYRIC_OFFSET_MAX_MS = 5000;
+
+    public static boolean isLeftHandLandscape() {
+        return Prefers.getBoolean(K_LEFT_HAND, false);
+    }
+
+    public static void setLeftHandLandscape(boolean on) {
+        Prefers.put(K_LEFT_HAND, on);
+    }
+
+    public static boolean isFluidBg() {
+        return Prefers.getBoolean(K_FLUID_BG, false);
+    }
+
+    public static void setFluidBg(boolean on) {
+        Prefers.put(K_FLUID_BG, on);
+    }
+
+    public static boolean isRhythm() {
+        return Prefers.getBoolean(K_RHYTHM, false);
+    }
+
+    public static void setRhythm(boolean on) {
+        Prefers.put(K_RHYTHM, on);
+    }
+
+    /** 插件检测结果表（读不到／解析失败返回空表，不抛） */
+    public static java.util.Map<String, com.fongmi.android.tv.bean.music.MusicPluginTest> loadPluginTests() {
+        try {
+            String json = Prefers.getString(K_PLUGIN_TESTS, "");
+            if (json == null || json.isEmpty()) return new java.util.HashMap<>();
+            Type type = TypeToken.getParameterized(java.util.Map.class, String.class,
+                    com.fongmi.android.tv.bean.music.MusicPluginTest.class).getType();
+            java.util.Map<String, com.fongmi.android.tv.bean.music.MusicPluginTest> map =
+                    App.gson().fromJson(json, type);
+            return map == null ? new java.util.HashMap<>() : map;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    public static void savePluginTests(java.util.Map<String, com.fongmi.android.tv.bean.music.MusicPluginTest> tests) {
+        try {
+            Prefers.put(K_PLUGIN_TESTS, App.gson().toJson(tests == null ? new java.util.HashMap<>() : tests));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 取链耗时表（平台 → srcUrl → 最近取链耗时 ms；读不到返回空表） */
+    public static java.util.Map<String, java.util.Map<String, Long>> loadPluginLatency() {
+        try {
+            String json = Prefers.getString(K_PLUGIN_LATENCY, "");
+            if (json == null || json.isEmpty()) return new java.util.HashMap<>();
+            Type type = TypeToken.getParameterized(java.util.Map.class, String.class,
+                    TypeToken.getParameterized(java.util.Map.class, String.class, Long.class).getType()).getType();
+            java.util.Map<String, java.util.Map<String, Long>> map = App.gson().fromJson(json, type);
+            return map == null ? new java.util.HashMap<>() : map;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    /**
+     * 记一次取链耗时（C5：最近一次口径，直接覆盖）。
+     * fromTest=true 时只作初始值：已有真实取链耗时不覆盖（检测耗时不覆盖真实耗时）。
+     */
+    public static void notePluginLatency(String platform, String srcUrl, long ms, boolean fromTest) {
+        if (platform == null || srcUrl == null) return;
+        try {
+            java.util.Map<String, java.util.Map<String, Long>> all = loadPluginLatency();
+            java.util.Map<String, Long> per = all.get(platform);
+            if (per == null) {
+                per = new java.util.HashMap<>();
+                all.put(platform, per);
+            }
+            if (fromTest && per.containsKey(srcUrl)) return;
+            per.put(srcUrl, ms);
+            Prefers.put(K_PLUGIN_LATENCY, App.gson().toJson(all));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static boolean isSmartSwitch() {
+        return Prefers.getBoolean(K_SMART_SWITCH, false);
+    }
+
+    public static void setSmartSwitch(boolean on) {
+        Prefers.put(K_SMART_SWITCH, on);
+    }
+
+    public static boolean isAutoBlockInvalid() {
+        return Prefers.getBoolean(K_AUTO_BLOCK, false);
+    }
+
+    public static void setAutoBlockInvalid(boolean on) {
+        Prefers.put(K_AUTO_BLOCK, on);
+    }
+
+    /** 歌词时间偏移 ms（默认 0；读写都钳制 ±5000ms，钳制为星辰侧自定，非瓜子值） */
+    public static int getLyricOffsetMs() {
+        int v = Prefers.getInt(K_LYRIC_OFFSET_MS, 0);
+        return Math.max(-LYRIC_OFFSET_MAX_MS, Math.min(LYRIC_OFFSET_MAX_MS, v));
+    }
+
+    public static void setLyricOffsetMs(int ms) {
+        Prefers.put(K_LYRIC_OFFSET_MS, Math.max(-LYRIC_OFFSET_MAX_MS, Math.min(LYRIC_OFFSET_MAX_MS, ms)));
+    }
 }

@@ -6,8 +6,16 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSearchResult;
 import com.fongmi.android.tv.bean.music.MusicSite;
+import com.fongmi.android.tv.bean.music.MusicPluginTest;
+import com.fongmi.android.tv.bean.music.MusicQuality;
+import com.fongmi.android.tv.bean.music.MusicRuntimeStatus;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.MusicStore;
+import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
 import com.google.gson.Gson;
@@ -18,6 +26,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +55,28 @@ public class MusicSourceManager {
     private final Gson gson = new Gson();
     private final Map<String, FreeJsBridge> bridges = new ConcurrentHashMap<>();
     private final Map<String, LxBridge> lxBridges = new ConcurrentHashMap<>();
+
+    // ===== C4/C5/C10 运行时态（内存态，不落盘） =====
+    /** 检测探针关键词（星辰侧自定通用词，不照抄瓜子源专属探针曲目） */
+    public static final String TEST_PROBE_KEYWORD = "爱情";
+    /** 隔离阈值：连续 3 次请求超时即隔离（瓜子 QUARANTINE_TIMEOUT_THRESHOLD） */
+    public static final int QUARANTINE_THRESHOLD = 3;
+    /** 隔离恢复：60s 后下次取链时重建桥（瓜子 QUARANTINE_RECOVERY_MS） */
+    public static final long QUARANTINE_RECOVERY_MS = 60000;
+    private final Map<String, Long> quarantineUntil = new ConcurrentHashMap<>();
+    private final Map<String, Integer> timeoutCounts = new ConcurrentHashMap<>();
+    private final java.util.Set<String> failedNames = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> testing = ConcurrentHashMap.newKeySet();
+    private volatile int initializingCount;
+    private volatile boolean reloading;
+    private volatile long testGeneration;
+
+    /** 插件检测回调（manager 回调在检测线程上，调用方自己切回主线程） */
+    public interface PluginTestCallback {
+        void onTesting();
+
+        void onResult(MusicPluginTest result);
+    }
 
     private MusicSourceManager() {
     }
@@ -336,6 +367,8 @@ public class MusicSourceManager {
             if (b != null) b.destroy();
             LxBridge lb = lxBridges.remove(srcUrl);
             if (lb != null) lb.destroy();
+            quarantineUntil.remove(srcUrl);
+            timeoutCounts.remove(srcUrl);
         }
     }
 
@@ -347,33 +380,54 @@ public class MusicSourceManager {
         return js;
     }
 
-    /** 取某 FreeJS 插件的桥（懒加载，阻塞，请在子线程调）；落雪插件返回 null，别串桥 */
+    /** 取某 FreeJS 插件的桥（懒加载，阻塞，请在子线程调）；落雪插件返回 null，别串桥。
+     * C10：隔离期内（60s 未到）拒绝建桥并抛错，调用方按失败收口；创建失败记启动失败名表。 */
     public FreeJsBridge bridgeOf(MusicSite site) throws Exception {
         if (site == null || TextUtils.isEmpty(site.srcUrl) || isLx(site)) return null;
+        checkQuarantine(site);
         FreeJsBridge b = bridges.get(site.srcUrl);
         if (b != null) return b;
         synchronized (bridges) {
             b = bridges.get(site.srcUrl);
             if (b != null) return b;
-            FreeJsBridge nb = new FreeJsBridge(site, readJs(site));
-            nb.init();
-            bridges.put(site.srcUrl, nb);
-            return nb;
+            initializingCount++;
+            try {
+                FreeJsBridge nb = new FreeJsBridge(site, readJs(site));
+                nb.init();
+                bridges.put(site.srcUrl, nb);
+                failedNames.remove(site.srcUrl);
+                return nb;
+            } catch (Throwable t) {
+                failedNames.add(site.srcUrl);
+                throw t;
+            } finally {
+                initializingCount--;
+            }
         }
     }
 
-    /** 取某落雪插件的桥（懒加载，阻塞，请在子线程调） */
+    /** 取某落雪插件的桥（懒加载，阻塞，请在子线程调）；隔离／启动失败口径同 bridgeOf */
     public LxBridge lxBridgeOf(MusicSite site) throws Exception {
         if (site == null || TextUtils.isEmpty(site.srcUrl) || !isLx(site)) return null;
+        checkQuarantine(site);
         LxBridge b = lxBridges.get(site.srcUrl);
         if (b != null) return b;
         synchronized (lxBridges) {
             b = lxBridges.get(site.srcUrl);
             if (b != null) return b;
-            LxBridge nb = new LxBridge(site, readJs(site));
-            nb.init();
-            lxBridges.put(site.srcUrl, nb);
-            return nb;
+            initializingCount++;
+            try {
+                LxBridge nb = new LxBridge(site, readJs(site));
+                nb.init();
+                lxBridges.put(site.srcUrl, nb);
+                failedNames.remove(site.srcUrl);
+                return nb;
+            } catch (Throwable t) {
+                failedNames.add(site.srcUrl);
+                throw t;
+            } finally {
+                initializingCount--;
+            }
         }
     }
 
@@ -410,8 +464,10 @@ public class MusicSourceManager {
     }
 
     public FreeJsBridge primaryBridge() throws Exception {
-        // 主源只在 FreeJS 插件里轮换（语音「切换音乐源」的老语义），落雪不掺
-        List<MusicSite> enabled = enabledSitesOfFormat(FORMAT_FREEJS);
+        // 主源只在 FreeJS 插件里轮换（语音「切换音乐源」的老语义），落雪不掺；
+        // C5 开启时同一平台多个插件按耗时表升序取（最快优先，无记录排后），未开启保持现有顺序；
+        // C4 已屏蔽／C10 隔离期内的插件不进候选
+        List<MusicSite> enabled = orderCandidates(enabledSitesOfFormat(FORMAT_FREEJS));
         if (enabled.isEmpty()) return null;
         String key = primaryKey();
         for (MusicSite s : enabled) {
@@ -461,14 +517,16 @@ public class MusicSourceManager {
         all.setType(type);
         List<MusicTrack> tracks = new ArrayList<>();
         boolean end = true;
-        for (MusicSite site : enabledSitesOfFormat(FORMAT_FREEJS)) {
+        for (MusicSite site : orderCandidates(enabledSitesOfFormat(FORMAT_FREEJS))) {
             try {
                 FreeJsBridge b = bridgeOf(site);
                 if (b == null) continue;
                 MusicSearchResult r = b.search(keyword, page, type);
                 if (r != null && !r.isEmpty()) tracks.addAll(r.getTracks());
                 if (r != null && !r.isEnd()) end = false;
+                noteBridgeSuccess(site.srcUrl);
             } catch (Throwable t) {
+                if (isTimeoutError(t)) noteBridgeTimeout(site.srcUrl);
                 SpiderDebug.log("music", "searchAll error site=%s %s", site.name, t.getMessage());
             }
         }
@@ -583,6 +641,413 @@ public class MusicSourceManager {
         } catch (Exception ignored) {
         }
         return 0;
+    }
+
+
+    /* ---------------- C4 插件检测／C5 智能切换／C10 隔离与重载 ---------------- */
+
+    /** 隔离检查：隔离期内抛错（调用方按失败收口）；60s 到期自动解除，下次取链重建桥 */
+    private void checkQuarantine(MusicSite site) {
+        Long until = quarantineUntil.get(site.srcUrl);
+        if (until == null) return;
+        if (System.currentTimeMillis() >= until) {
+            quarantineUntil.remove(site.srcUrl);
+            timeoutCounts.remove(site.srcUrl);
+            return;
+        }
+        throw new IllegalStateException("插件已被自动停用，60s 后自动恢复");
+    }
+
+    public boolean isQuarantined(String srcUrl) {
+        Long until = quarantineUntil.get(srcUrl);
+        if (until == null) return false;
+        if (System.currentTimeMillis() >= until) {
+            quarantineUntil.remove(srcUrl);
+            timeoutCounts.remove(srcUrl);
+            return false;
+        }
+        return true;
+    }
+
+    /** 是否在检测屏蔽列表里（C4：检测失败／超时且自动屏蔽开启时进表，检测通过自动解除） */
+    public boolean isBlocked(String srcUrl) {
+        MusicPluginTest t = loadPluginTest(srcUrl);
+        return t != null && t.state == MusicPluginTest.State.BLOCKED;
+    }
+
+    public boolean isTesting(String srcUrl) {
+        return testing.contains(srcUrl);
+    }
+
+    public MusicPluginTest loadPluginTest(String srcUrl) {
+        if (TextUtils.isEmpty(srcUrl)) return null;
+        return MusicStore.loadPluginTests().get(srcUrl);
+    }
+
+    private void savePluginTest(String srcUrl, MusicPluginTest test) {
+        java.util.Map<String, MusicPluginTest> map = MusicStore.loadPluginTests();
+        map.put(srcUrl, test);
+        MusicStore.savePluginTests(map);
+    }
+
+    /** 候选排序：C5 开启时按耗时表升序（最快优先，无记录排后）；未开启保持现有顺序 */
+    private List<MusicSite> orderCandidates(List<MusicSite> sites) {
+        List<MusicSite> out = new ArrayList<>();
+        for (MusicSite s : sites) {
+            if (s == null || TextUtils.isEmpty(s.srcUrl)) continue;
+            if (isQuarantined(s.srcUrl) || isBlocked(s.srcUrl)) continue;
+            out.add(s);
+        }
+        if (!MusicStore.isSmartSwitch()) return out;
+        final java.util.Map<String, java.util.Map<String, Long>> latency = MusicStore.loadPluginLatency();
+        out.sort(Comparator.comparingLong(s -> {
+            java.util.Map<String, Long> per = latency.get(s.platform);
+            Long v = per == null ? null : per.get(s.srcUrl);
+            return v == null ? Long.MAX_VALUE : v;
+        }));
+        return out;
+    }
+
+    private static boolean isTimeoutError(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof java.util.concurrent.TimeoutException) return true;
+            String m = c.getMessage();
+            if (m != null && (m.contains("timed out") || m.contains("Timeout") || m.contains("超时"))) return true;
+        }
+        return false;
+    }
+
+    /** 桥调用成功：连续超时计数清零（瓜子成功清零口径） */
+    public void noteBridgeSuccess(String srcUrl) {
+        if (!TextUtils.isEmpty(srcUrl)) timeoutCounts.remove(srcUrl);
+    }
+
+    /** 桥调用超时：连续计数＋1，满 3 次即隔离（名进隔离表，60s 后自动重建） */
+    public void noteBridgeTimeout(String srcUrl) {
+        if (TextUtils.isEmpty(srcUrl)) return;
+        int n = timeoutCounts.getOrDefault(srcUrl, 0) + 1;
+        timeoutCounts.put(srcUrl, n);
+        if (n >= QUARANTINE_THRESHOLD) {
+            quarantineUntil.put(srcUrl, System.currentTimeMillis() + QUARANTINE_RECOVERY_MS);
+            SpiderDebug.log("music", "插件连续 %s 次请求超时，已自动停用，60s 后自动重建：%s", n, srcUrl);
+        }
+    }
+
+    /** C5 门槛：完成过检测的音源插件 ≥2 且至少一个平台可用（AVAILABLE） */
+    public int testedPluginCount() {
+        int n = 0;
+        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
+            if (t != null && t.state != MusicPluginTest.State.UNTESTED) n++;
+        }
+        return n;
+    }
+
+    public boolean hasAvailableTestedPlugin() {
+        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
+            if (t != null && t.state == MusicPluginTest.State.AVAILABLE) return true;
+        }
+        return false;
+    }
+
+    /** 尝试开启智能切换：门槛不过返回 false（调用方弹“暂时无法开启”弹窗，N 取实数） */
+    public boolean tryEnableSmartSwitch() {
+        if (testedPluginCount() >= 2 && hasAvailableTestedPlugin()) {
+            MusicStore.setSmartSwitch(true);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * C4 检测（子线程跑，回调在检测线程上）：搜索固定探针关键词＋首条取链计时＋歌词探针。
+     * 任一步失败／超时记 FAILED；音源可用且歌词可用（或插件无歌词能力时只看音源）记 AVAILABLE；
+     * 歌词型插件（搜不到 music 但 lyric 搜＋取词成功）同样记 AVAILABLE（音源档为空、只看歌词）。
+     * 自动屏蔽开启时 FAILED 转 BLOCKED；检测通过自动解除屏蔽与隔离。
+     */
+    public void testPlugin(MusicSite site, PluginTestCallback cb) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl)) return;
+        if (!testing.add(site.srcUrl)) return;
+        final long gen = testGeneration;
+        Task.execute(() -> {
+            try {
+                if (cb != null) cb.onTesting();
+                quarantineUntil.remove(site.srcUrl);
+                MusicPluginTest r = runPluginTest(site);
+                if (gen != testGeneration) return;
+                if (r.state == MusicPluginTest.State.FAILED && MusicStore.isAutoBlockInvalid()) {
+                    r.state = MusicPluginTest.State.BLOCKED;
+                }
+                if (r.state == MusicPluginTest.State.AVAILABLE) {
+                    quarantineUntil.remove(site.srcUrl);
+                    timeoutCounts.remove(site.srcUrl);
+                    failedNames.remove(site.srcUrl);
+                }
+                r.testedAt = System.currentTimeMillis();
+                savePluginTest(site.srcUrl, r);
+                if (cb != null) cb.onResult(r);
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "testPlugin error site=%s %s", site.name, t.getMessage());
+            } finally {
+                testing.remove(site.srcUrl);
+            }
+        });
+    }
+
+    private MusicPluginTest runPluginTest(MusicSite site) {
+        MusicPluginTest r = new MusicPluginTest();
+        try {
+            MusicTrack first;
+            boolean lyricOnly = false;
+            if (isLx(site)) {
+                LxBridge b = lxBridgeOf(site);
+                String key = null;
+                for (Map.Entry<String, LxBridge.LxSource> e : b.sources().entrySet()) {
+                    if (LxPlatformSearch.supported(e.getKey()) && e.getValue().actions.contains("musicUrl")) {
+                        key = e.getKey();
+                        break;
+                    }
+                }
+                if (key == null) {
+                    r.message = "该插件没有可检测的平台";
+                    r.state = MusicPluginTest.State.FAILED;
+                    return r;
+                }
+                List<MusicTrack> tracks = LxPlatformSearch.search(key, TEST_PROBE_KEYWORD);
+                if (tracks == null || tracks.isEmpty()) {
+                    r.message = "搜不到探针歌曲";
+                    r.state = MusicPluginTest.State.FAILED;
+                    return r;
+                }
+                first = tracks.get(0);
+                String platform = platformOf(first, key);
+                JsonObject info = lxMusicInfo(first, platform);
+                long a0 = System.currentTimeMillis();
+                String resp = b.request(platform, "musicUrl", info, "320k");
+                String url = extractUrl(resp);
+                long ms = System.currentTimeMillis() - a0;
+                r.audioOk = !TextUtils.isEmpty(url);
+                r.latencyMs = ms;
+                if (r.audioOk) MusicStore.notePluginLatency(site.platform, site.srcUrl, ms, true);
+                if (b.supports(platform, "lyric")) {
+                    r.lyricCapable = true;
+                    String lr = b.request(platform, "lyric", info, "");
+                    String text = extractLyric(lr);
+                    r.lyricOk = !TextUtils.isEmpty(text);
+                    if (r.lyricOk) r.preview = previewOf(text);
+                } else {
+                    r.lyricCapable = false;
+                }
+            } else {
+                FreeJsBridge b = bridgeOf(site);
+                if (b == null) {
+                    r.message = "桥建不起来";
+                    r.state = MusicPluginTest.State.FAILED;
+                    return r;
+                }
+                MusicSearchResult sr = b.search(TEST_PROBE_KEYWORD, 1, "music");
+                List<MusicTrack> tracks = sr == null ? null : sr.getTracks();
+                if (tracks == null || tracks.isEmpty()) {
+                    MusicSearchResult lr = b.search(TEST_PROBE_KEYWORD, 1, "lyric");
+                    List<MusicTrack> ltracks = lr == null ? null : lr.getTracks();
+                    if (ltracks == null || ltracks.isEmpty()) {
+                        r.message = "搜不到探针歌曲";
+                        r.state = MusicPluginTest.State.FAILED;
+                        return r;
+                    }
+                    lyricOnly = true;
+                    first = ltracks.get(0);
+                } else {
+                    first = tracks.get(0);
+                }
+                if (!lyricOnly) {
+                    long a0 = System.currentTimeMillis();
+                    com.fongmi.android.tv.bean.music.MusicMediaSource ms = b.getMediaSource(first, MusicQuality.STANDARD);
+                    long took = System.currentTimeMillis() - a0;
+                    r.audioOk = ms != null && !TextUtils.isEmpty(ms.url);
+                    r.latencyMs = took;
+                    if (r.audioOk) MusicStore.notePluginLatency(site.platform, site.srcUrl, took, true);
+                }
+                try {
+                    com.fongmi.android.tv.bean.music.MusicLyric lyric = b.getLyric(first);
+                    r.lyricOk = lyric != null && !TextUtils.isEmpty(lyric.rawLrc);
+                    r.lyricCapable = r.lyricOk;
+                    if (r.lyricOk) r.preview = previewOf(lyric.rawLrc);
+                } catch (Throwable ignored) {
+                    r.lyricCapable = false;
+                }
+            }
+            if (lyricOnly) {
+                r.state = r.lyricOk ? MusicPluginTest.State.AVAILABLE : MusicPluginTest.State.FAILED;
+                if (!r.lyricOk) r.message = "歌词探针失败";
+            } else if (r.audioOk && (r.lyricOk || !r.lyricCapable)) {
+                r.state = MusicPluginTest.State.AVAILABLE;
+            } else {
+                r.state = MusicPluginTest.State.FAILED;
+                r.message = !r.audioOk ? "取链失败" : "歌词探针失败";
+            }
+            return r;
+        } catch (Throwable t) {
+            r.state = MusicPluginTest.State.FAILED;
+            r.message = t.getMessage() == null ? "检测失败" : t.getMessage();
+            return r;
+        }
+    }
+
+    private static String platformOf(MusicTrack track, String fallback) {
+        try {
+            JsonObject wrap = JsonParser.parseString(track.rawJson).getAsJsonObject();
+            String p = wrap.has("_platform") ? wrap.get("_platform").getAsString() : "";
+            return TextUtils.isEmpty(p) ? fallback : p;
+        } catch (Throwable ignored) {
+            return fallback;
+        }
+    }
+
+    /** 落雪 musicInfo（照 LxMusicSource.musicInfo 的字段拼，不走跨插件回退，只问自有桥） */
+    private static JsonObject lxMusicInfo(MusicTrack track, String platform) {
+        JsonObject info = new JsonObject();
+        try {
+            JsonObject wrap = JsonParser.parseString(track.rawJson).getAsJsonObject();
+            if (wrap.has("_item") && wrap.get("_item").isJsonObject()) {
+                for (Map.Entry<String, JsonElement> e : wrap.getAsJsonObject("_item").entrySet()) {
+                    info.add(e.getKey(), e.getValue());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        info.addProperty("name", track.title == null ? "" : track.title);
+        info.addProperty("singer", track.artist == null ? "" : track.artist);
+        info.addProperty("albumName", track.album == null ? "" : track.album);
+        if (!info.has("album")) info.addProperty("album", track.album == null ? "" : track.album);
+        info.addProperty("source", platform);
+        info.addProperty("type", "music");
+        if (track.duration > 0) info.addProperty("interval", track.duration / 1000);
+        if (!TextUtils.isEmpty(track.cover)) info.addProperty("img", track.cover);
+        return info;
+    }
+
+    /** 落雪取链结果取 url（照 LxMusicSource.extractUrl 口径） */
+    private static String extractUrl(String result) {
+        if (TextUtils.isEmpty(result)) return null;
+        String r = result.trim();
+        if (r.startsWith("http")) return r;
+        if (r.startsWith("\"")) {
+            try {
+                String s = JsonParser.parseString(r).getAsString();
+                return s.startsWith("http") ? s : null;
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        if (r.startsWith("{")) {
+            try {
+                JsonObject o = JsonParser.parseString(r).getAsJsonObject();
+                String url = o.has("url") ? o.get("url").getAsString() : "";
+                return url.startsWith("http") ? url : null;
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** 落雪歌词结果取正文（照 LxMusicSource.extractLyric 口径） */
+    private static String extractLyric(String result) {
+        if (TextUtils.isEmpty(result)) return null;
+        String r = result.trim();
+        if (r.startsWith("\"")) {
+            try {
+                return JsonParser.parseString(r).getAsString();
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        if (r.startsWith("{")) {
+            try {
+                JsonObject o = JsonParser.parseString(r).getAsJsonObject();
+                String s = firstNonEmpty(o, "lyric", "rawLrc", "lrc");
+                return s.isEmpty() ? null : s;
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return r.contains("[") ? r : null;
+    }
+
+    private static String firstNonEmpty(JsonObject o, String... keys) {
+        for (String k : keys) {
+            if (o.has(k) && !o.get(k).isJsonNull()) {
+                String v = o.get(k).getAsString();
+                if (!TextUtils.isEmpty(v)) return v;
+            }
+        }
+        return "";
+    }
+
+    private static String previewOf(String text) {
+        if (text == null) return "";
+        String line = text.split("\n")[0].replaceAll("^\\[.*?\\]", "").trim();
+        return line.length() > 30 ? line.substring(0, 30) : line;
+    }
+
+    /** C10 运行时状态快照（内存态，不落盘） */
+    public MusicRuntimeStatus runtimeStatus() {
+        MusicRuntimeStatus st = new MusicRuntimeStatus();
+        st.liveRunners = bridges.size() + lxBridges.size();
+        List<String> qNames = new ArrayList<>();
+        for (String srcUrl : new ArrayList<>(quarantineUntil.keySet())) {
+            if (isQuarantined(srcUrl)) qNames.add(nameOf(srcUrl));
+        }
+        st.quarantinedRunners = qNames.size();
+        st.quarantinedNames = qNames;
+        st.failedPlugins = failedNames.size();
+        List<String> fNames = new ArrayList<>();
+        for (String srcUrl : failedNames) fNames.add(nameOf(srcUrl));
+        st.failedNames = fNames;
+        st.enabledLocalPlugins = enabledSites().size();
+        st.initializing = initializingCount > 0;
+        st.reloading = reloading;
+        return st;
+    }
+
+    private String nameOf(String srcUrl) {
+        for (MusicSite s : listSites()) {
+            if (srcUrl.equals(s.srcUrl)) return s.name == null ? srcUrl : s.name;
+        }
+        return srcUrl;
+    }
+
+    /**
+     * C10 重新加载：清 bridges／lxBridges 并 destroy，中断正在进行的检测（代次失效，旧回调丢弃），
+     * 隔离表清掉（手动重载即恢复候选），启动失败名表保留（瓜子口径：重载解决不了启动失败，需重导入或更新）。
+     * 当前播放不受影响：播放器持有的是已解析出的直链 MediaItem，不直持桥实例（MusicPlaybackService
+     * prepareTrack → MusicRepository.playUrl 逐次取桥取链，播中那首的 URL 已进 ExoPlayer），
+     * 清管理器缓存只影响下一次取链（重建桥），不碰播中媒体。
+     */
+    public void reloadBridges() {
+        reloading = true;
+        testGeneration++;
+        testing.clear();
+        try {
+            for (FreeJsBridge b : bridges.values()) {
+                try {
+                    b.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
+            bridges.clear();
+            for (LxBridge b : lxBridges.values()) {
+                try {
+                    b.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
+            lxBridges.clear();
+            quarantineUntil.clear();
+            timeoutCounts.clear();
+        } finally {
+            reloading = false;
+        }
     }
 
     public void destroy() {

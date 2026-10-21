@@ -20,7 +20,8 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.widget.SwitchCompat;
+import com.fongmi.android.tv.bean.music.MusicPluginTest;
+import com.fongmi.android.tv.bean.music.MusicRuntimeStatus;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -216,6 +217,7 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private void load() {
+        if (binding.pluginSections != null) binding.pluginSections.setVisibility(View.GONE);
         binding.tvTitle.setText(titleForMode());
         binding.toolbar.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
@@ -647,6 +649,7 @@ public class MusicListActivity extends BaseActivity {
                 adapter.notifyDataSetChanged();
                 binding.tvBigTitle.setText(bigTitle);
                 binding.tvBigCount.setText(sites.size() + " " + getString(R.string.music_plugins));
+                refreshPluginSections();
                 binding.empty.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
                 if (sites.isEmpty()) binding.empty.setText(R.string.music_plugin_none);
             });
@@ -738,6 +741,252 @@ public class MusicListActivity extends BaseActivity {
             }
             return bos.toByteArray();
         }
+    }
+
+
+    // ================= C4/C5/C10 插件管理专区 =================
+
+    /** C4：行内钮启动检测（唯一检测入口）；回调回主线程后刷新行态与专区，完成后出分检测面板 */
+    private void startPluginTest(MusicSite site) {
+        startPluginTest(site, true);
+    }
+
+    private void startPluginTest(MusicSite site, boolean showDetail) {
+        MusicSourceManager.get().testPlugin(site, new MusicSourceManager.PluginTestCallback() {
+            @Override
+            public void onTesting() {
+                runOnUiThread(() -> {
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                });
+            }
+
+            @Override
+            public void onResult(MusicPluginTest result) {
+                runOnUiThread(() -> {
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                    refreshPluginSections();
+                    if (showDetail) showTestDetail(site, result);
+                });
+            }
+        });
+    }
+
+    /** C4 分检测面板：标题“音源检测”／“歌词检测”（18sp），结果分两行出 */
+    private void showTestDetail(MusicSite site, MusicPluginTest result) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        box.setPadding(pad, pad, pad, pad);
+        TextView audioTitle = new TextView(this);
+        audioTitle.setText("音源检测");
+        audioTitle.setTextSize(18);
+        audioTitle.setTextColor(0xFFFFFFFF);
+        audioTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        box.addView(audioTitle);
+        TextView audioLine = new TextView(this);
+        audioLine.setText(result.audioOk
+                ? "可用（取链耗时 " + result.latencyMs + "ms）"
+                : "失败" + (result.message == null || result.message.isEmpty() ? "" : "：" + result.message));
+        audioLine.setTextSize(14);
+        audioLine.setTextColor(result.audioOk ? 0xFF34C759 : 0xFFFF3B30);
+        box.addView(audioLine);
+        TextView lyricTitle = new TextView(this);
+        lyricTitle.setText("歌词检测");
+        lyricTitle.setTextSize(18);
+        lyricTitle.setTextColor(0xFFFFFFFF);
+        lyricTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(16);
+        box.addView(lyricTitle, lp);
+        TextView lyricLine = new TextView(this);
+        if (!result.lyricCapable) {
+            lyricLine.setText("该插件无歌词能力，只看音源");
+            lyricLine.setTextColor(0xFF8E8E93);
+        } else if (result.lyricOk) {
+            lyricLine.setText("可用" + (result.preview == null || result.preview.isEmpty() ? "" : "：" + result.preview));
+            lyricLine.setTextColor(0xFF34C759);
+        } else {
+            lyricLine.setText("失败" + (result.message == null || result.message.isEmpty() ? "" : "：" + result.message));
+            lyricLine.setTextColor(0xFFFF3B30);
+        }
+        lyricLine.setTextSize(14);
+        box.addView(lyricLine);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(site.name == null ? "" : site.name)
+                .setView(box)
+                .setPositiveButton("知道了", null)
+                .show();
+    }
+
+    /** C5 开关行＋C4 自动屏蔽行＋C10 运行时状态区（仅插件管理页 sites 模式） */
+    private void refreshPluginSections() {
+        if (binding.pluginSections == null) return;
+        if (!mode.equals("sites")) {
+            binding.pluginSections.setVisibility(View.GONE);
+            return;
+        }
+        binding.pluginSections.setVisibility(View.VISIBLE);
+        binding.pluginSections.removeAllViews();
+        // ---- C5 多插件智能切换行（标题 15sp，说明行照瓜子抄两态文案） ----
+        boolean smartOn = MusicStore.isSmartSwitch();
+        String smartDesc = smartOn
+                ? "已开启：同一平台多个插件时自动优先使用检测最快的插件"
+                : "需 ≥2 个插件完成检测后开启；按各平台取链耗时自动选用最快的插件";
+        LinearLayout smartRow = sectionSwitchRow("多插件智能切换", smartDesc, smartOn, 0.75f,
+                (sw, on) -> {
+                    if (!on) {
+                        MusicStore.setSmartSwitch(false);
+                        refreshPluginSections();
+                        return;
+                    }
+                    if (MusicSourceManager.get().tryEnableSmartSwitch()) {
+                        refreshPluginSections();
+                    } else {
+                        sw.setOnCheckedChangeListener(null);
+                        sw.setChecked(false);
+                        sw.setOnCheckedChangeListener((v, c) -> {
+                        });
+                        int n = MusicSourceManager.get().testedPluginCount();
+                        new MaterialAlertDialogBuilder(MusicListActivity.this)
+                                .setTitle("暂时无法开启")
+                                .setMessage("多插件智能切换需要至少 2 个音源插件完成过「检测」（且至少一个平台可用）。当前已检测 "
+                                        + n + " 个，请先在插件上执行「检测」后再开启。")
+                                .setPositiveButton("知道了", null)
+                                .show();
+                        refreshPluginSections();
+                    }
+                });
+        binding.pluginSections.addView(smartRow);
+        // ---- C4 自动屏蔽行（另一类行，开关缩放 0.72，与插件行 0.75 区分） ----
+        boolean blockOn = MusicStore.isAutoBlockInvalid();
+        int blockedCount = 0;
+        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
+            if (t != null && t.state == MusicPluginTest.State.BLOCKED) blockedCount++;
+        }
+        String blockDesc = !blockOn
+                ? "开启后立即检测，自动屏蔽失败/超时的无效平台"
+                : blockedCount > 0
+                        ? "开启中 · 已自动屏蔽 " + blockedCount + " 个：恢复可用自动解除"
+                        : "开启中：失败/超时平台将自动屏蔽，恢复可用自动解除";
+        LinearLayout blockRow = sectionSwitchRow("自动屏蔽无效平台", blockDesc, blockOn, 0.72f,
+                (sw, on) -> {
+                    MusicStore.setAutoBlockInvalid(on);
+                    if (on) {
+                        for (MusicSite site : MusicSourceManager.get().enabledSites()) {
+                            startPluginTest(site, false);
+                        }
+                    }
+                    refreshPluginSections();
+                });
+        binding.pluginSections.addView(blockRow);
+        // ---- C10 运行时状态区（三行统计＋状态说明＋重新加载钮） ----
+        MusicRuntimeStatus st = MusicSourceManager.get().runtimeStatus();
+        LinearLayout card = sectionCard();
+        TextView title = new TextView(this);
+        title.setText("运行时状态");
+        title.setTextSize(15);
+        title.setTextColor(0xFFFFFFFF);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        card.addView(title);
+        card.addView(sectionLine("暂时停用 " + st.quarantinedRunners + " 个"
+                + (st.quarantinedNames.isEmpty() ? "" : "：" + android.text.TextUtils.join("、", st.quarantinedNames))));
+        card.addView(sectionLine("启动失败 " + st.failedPlugins + " 个"
+                + (st.failedNames.isEmpty() ? "" : "：" + android.text.TextUtils.join("、", st.failedNames))));
+        card.addView(sectionLine("已启用插件 " + st.enabledLocalPlugins + " 个"));
+        TextView note = new TextView(this);
+        note.setTextSize(11);
+        note.setTextColor(0xFF8E8E93);
+        if (st.initializing) {
+            note.setText("正在启动插件，首次可能需要几秒。");
+        } else if (st.quarantinedRunners > 0) {
+            note.setText("有插件连续多次没有响应，已经被自动停用（免得每次播放都白等）。重新加载会把它们重启一遍，通常就能恢复。");
+        } else if (st.failedPlugins > 0) {
+            note.setText("有插件启动时就失败了，重新加载解决不了，需要重新导入或更新这个插件。");
+        } else if (st.enabledLocalPlugins == 0 && MusicSourceManager.get().listSites().isEmpty()) {
+            note.setText("当前没有安装第三方插件，在线内容由系统服务提供，不需要本地插件参与。");
+        } else {
+            note.setText("插件是随用随启的：播放、检测、取歌词时才会启动。播放或取歌词异常时，可以在这里重新加载。");
+        }
+        card.addView(note);
+        TextView reloadNote = new TextView(this);
+        reloadNote.setTextSize(10);
+        reloadNote.setTextColor(0xFF8E8E93);
+        reloadNote.setText("重新加载会中断正在进行的取链与检测（当前播放不受影响）。");
+        card.addView(reloadNote);
+        TextView reloadBtn = new TextView(this);
+        reloadBtn.setText("重新加载");
+        reloadBtn.setTextSize(14);
+        reloadBtn.setTextColor(0xFFFA243C);
+        reloadBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        reloadBtn.setOnClickListener(v -> {
+            MusicSourceManager.get().reloadBridges();
+            refreshPluginSections();
+            if (adapter != null) adapter.notifyDataSetChanged();
+            Notify.show("已重新加载");
+        });
+        card.addView(reloadBtn);
+        binding.pluginSections.addView(card);
+    }
+
+    private LinearLayout sectionCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_music);
+        int pad = dp(14);
+        card.setPadding(pad, pad, pad, pad);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+        return card;
+    }
+
+    private TextView sectionLine(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(13);
+        tv.setTextColor(0xFFF2F2F7);
+        return tv;
+    }
+
+    private interface SectionSwitchListener {
+        void onChanged(com.google.android.material.switchmaterial.SwitchMaterial sw, boolean on);
+    }
+
+    private LinearLayout sectionSwitchRow(String titleText, String desc, boolean checked,
+                                          float scale, SectionSwitchListener listener) {
+        LinearLayout card = sectionCard();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextSize(15);
+        title.setTextColor(0xFFF2F2F7);
+        texts.addView(title);
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextSize(12);
+        d.setTextColor(0xFF8E8E93);
+        texts.addView(d);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(texts, tlp);
+        com.google.android.material.switchmaterial.SwitchMaterial sw =
+                new com.google.android.material.switchmaterial.SwitchMaterial(this);
+        sw.setScaleX(scale);
+        sw.setScaleY(scale);
+        sw.setChecked(checked);
+        sw.setOnCheckedChangeListener((v, on) -> listener.onChanged(sw, on));
+        row.addView(sw);
+        card.addView(row);
+        return card;
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     /** 插件行 ⋮ 菜单：在线装的才有「更新」；删除连插件文件一起删 */
@@ -1546,6 +1795,21 @@ public class MusicListActivity extends BaseActivity {
             h.pluginSwitch.setChecked(s.enabled);
             h.pluginSwitch.setOnCheckedChangeListener((v, checked) ->
                     Task.execute(() -> MusicSourceManager.get().setEnabled(s.srcUrl, checked)));
+            // C4：四态显示＋检测中态（行内钮定为唯一检测入口，pluginMenu 不另加检测项）
+            MusicPluginTest test = MusicSourceManager.get().loadPluginTest(s.srcUrl);
+            if (MusicSourceManager.get().isTesting(s.srcUrl)) {
+                h.testStatus.setText("检测中…");
+                h.testStatus.setTextColor(0xFF8E8E93);
+                h.pluginTest.setText("检测中…");
+                h.pluginTest.setEnabled(false);
+            } else {
+                if (test == null) test = new MusicPluginTest();
+                h.testStatus.setText(test.label());
+                h.testStatus.setTextColor(test.labelColor());
+                h.pluginTest.setText("检测");
+                h.pluginTest.setEnabled(true);
+            }
+            h.pluginTest.setOnClickListener(v -> startPluginTest(s));
             View.OnClickListener menu = v -> pluginMenu(s);
             h.pluginMore.setOnClickListener(menu);
             h.itemView.setOnClickListener(menu);
@@ -1704,7 +1968,9 @@ public class MusicListActivity extends BaseActivity {
             final TextView name;
             final TextView formatTag;
             final TextView version;
-            final SwitchCompat pluginSwitch;
+            final TextView testStatus;
+            final TextView pluginTest;
+            final com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch;
             final ImageView pluginMore;
 
             PluginHolder(View v) {
@@ -1712,8 +1978,13 @@ public class MusicListActivity extends BaseActivity {
                 name = v.findViewById(R.id.name);
                 formatTag = v.findViewById(R.id.formatTag);
                 version = v.findViewById(R.id.version);
+                testStatus = v.findViewById(R.id.testStatus);
+                pluginTest = v.findViewById(R.id.pluginTest);
                 pluginSwitch = v.findViewById(R.id.pluginSwitch);
                 pluginMore = v.findViewById(R.id.pluginMore);
+                // U4：插件行开关 M3 Switch 缩放 0.75（与自动屏蔽行 0.72 区分，不混）
+                pluginSwitch.setScaleX(0.75f);
+                pluginSwitch.setScaleY(0.75f);
                 // 插件开关（选中红、未选灰）：音乐点缀统一 GZ 红，代旧金
                 ColorStateList thumb = new ColorStateList(
                         new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},

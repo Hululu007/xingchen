@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音量滑杆拇指（GZ 本体图：AccentRed 实心圆 14dp） -->
+<!-- 音量滑杆拇指（P32：GZ 自绘滑杆拇指直径 10dp，AccentRed 实心圆，无描边环） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
     <solid android:color="#FA243C" />
-    <size android:width="14dp" android:height="14dp" />
+    <size android:width="10dp" android:height="10dp" />
 </shape>

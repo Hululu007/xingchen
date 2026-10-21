@@ -14,6 +14,13 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop" />
 
+    <!-- 流体背景层（A4）：盖在糊底之上、氛围色层之下；动态流体背景开时才可见，颜色由播放页封面取色传入 -->
+    <com.fongmi.android.tv.ui.custom.FluidCoverAmbientView
+        android:id="@+id/fluidAmbient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <!-- 氛围色层：CoverColor 取色，颜色由代码 450ms 渐变过渡 -->
     <View
         android:id="@+id/viewAmbient"
@@ -48,24 +55,8 @@
             android:layout_height="match_parent"
             android:orientation="vertical">
 
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="45">
-
-                <ImageView
-                    android:id="@+id/pgCover"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@null"
-                    android:scaleType="centerCrop" />
-
-                <View
-                    android:id="@+id/pgCoverFade"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent" />
-            </FrameLayout>
-
+            <!-- U-03 内页去封面大区：封面只在页眉以 40dp 方形缩略图出现（id 不变，MPA loadIntoCover 照旧喂图；
+                 原 pgCoverFade 大区渐变随大区一并去掉，MPA 侧已对 pageCoverFade 判空，不会崩）。 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -74,6 +65,14 @@
                 android:orientation="horizontal"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp">
+
+                <ImageView
+                    android:id="@+id/pgCover"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="12dp"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -153,7 +152,7 @@
                 android:id="@+id/pgLyricsView"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="55"
+                android:layout_weight="1"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp" />
 

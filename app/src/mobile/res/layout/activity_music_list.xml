@@ -113,6 +113,15 @@
                 android:textSize="20sp" />
         </LinearLayout>
 
+        <!-- C5/C10 插件管理页专区（仅 sites 模式可见，代码里动态搭行）：智能切换开关＋自动屏蔽行＋运行时状态区 -->
+        <LinearLayout
+            android:id="@+id/pluginSections"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/toolbar"
             android:layout_width="match_parent"

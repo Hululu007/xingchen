@@ -54,6 +54,68 @@
                 android:layout_height="14dp"
                 android:layout_gravity="center"
                 android:background="@drawable/bg_player_center_dot" />
+
+            <!-- 光泽层（redo3 第四轮 D11）：盖盘面，代码侧设斜向白光渐变、700ms 淡入／450ms 淡出；中心点 14dp 不动 -->
+            <View
+                android:id="@+id/tpCdSheen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="visible" />
+
+            <!-- 表面细节层（redo3 第四轮 D11）：盘面歌曲信息行，行首边距 40dp，内含 40dp 拇指＋歌名／歌手；透明度由代码侧 applyCdDetail 按进度公式算 -->
+            <LinearLayout
+                android:id="@+id/tpCdDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="40dp"
+                android:paddingEnd="16dp"
+                android:visibility="visible">
+
+                <ImageView
+                    android:id="@+id/tpCdDetailThumb"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:scaleType="centerCrop" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tpCdDetailTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#282D36"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tpCdDetailArtist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#747D89"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- CD 细节内容切换键（redo3 第四轮 D11）：新增键位，只切 CD 细节层 LYRICS／SONG_INFO，不复用封面卡片 toggleCoverInfo -->
+            <ImageView
+                android:id="@+id/tpCdDetailBtn"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="top|end"
+                android:padding="10dp"
+                android:src="@drawable/ic_player_info" />
         </FrameLayout>
     </FrameLayout>
 
@@ -85,23 +147,28 @@
         android:textColor="#747D89"
         android:textSize="11sp" />
 
-    <!-- 歌词区：CoverCurrentLyric（cover 模式，21sp/居中，点行 seek——GZ CdLyricsList 走 onLyricSeek） -->
+    <!-- 歌词区：CoverCurrentLyric（cover 模式，21sp/居中，点行 seek——GZ CdLyricsList 走 onLyricSeek）；
+         U-06：132dp 固定改 weight 1 占剩余高度（盘区／进度／控制行之外全部剩余高度），左右 padding 12dp；
+         本体 21sp 由 MPA CD 分支 setMainTextSizeSp(21) 已落（见分表对 KLV 自绘 padding 的说明）。 -->
     <com.fongmi.android.tv.ui.custom.KaraokeLyricsView
         android:id="@+id/tpLyricView"
         android:layout_width="match_parent"
-        android:layout_height="132dp"
-        android:layout_marginTop="16dp" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp" />
 
-    <!-- 细进度＋时间 -->
+    <!-- 细进度＋时间（redo3 第四轮 D14：轨线 2dp、瓜子无拇指 thumb="@null"；底轨 ink×0.10 由代码侧对 background 层着色，填充色 j 未追到底、填充层原样保留） -->
     <SeekBar
         android:id="@+id/tpSeek"
         android:layout_width="match_parent"
         android:layout_height="28dp"
         android:layout_marginTop="14dp"
-        android:maxHeight="4dp"
-        android:minHeight="4dp"
+        android:maxHeight="2dp"
+        android:minHeight="2dp"
         android:progressDrawable="@drawable/bg_player_seek_progress_dark"
-        android:thumb="@drawable/bg_player_seek_thumb" />
+        android:thumb="@null" />
 
     <LinearLayout
         android:layout_width="match_parent"

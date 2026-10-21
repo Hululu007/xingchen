@@ -41,6 +41,13 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
+
         <!-- 2. 播放失败自动跳下一首 -->
         <LinearLayout
             android:id="@+id/rowAutoSkip"
@@ -50,10 +57,17 @@
                 style="@style/MusicSettingName"
                 android:text="@string/music_set_auto_skip" />
 
-            <androidx.appcompat.widget.SwitchCompat
+            <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swAutoSkip"
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
 
         <!-- 3. 移动网络播放 -->
         <LinearLayout
@@ -64,10 +78,17 @@
                 style="@style/MusicSettingName"
                 android:text="@string/music_set_mobile_play" />
 
-            <androidx.appcompat.widget.SwitchCompat
+            <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swMobilePlay"
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
 
         <!-- 4. 下载音质 -->
         <LinearLayout
@@ -83,6 +104,13 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
+
         <!-- 5. 歌词缺失自动搜索 -->
         <LinearLayout
             android:id="@+id/rowLyricFallback"
@@ -92,10 +120,38 @@
                 style="@style/MusicSettingName"
                 android:text="@string/music_set_lyric_fallback" />
 
-            <androidx.appcompat.widget.SwitchCompat
+            <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swLyricFallback"
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
+
+        <!-- U-05 歌词时间偏移（瓜子 LocalLyricOffsetMs，默认 0ms；行样式同 U4 设置行） -->
+        <LinearLayout
+            android:id="@+id/rowLyricOffset"
+            style="@style/MusicSettingRow">
+
+            <TextView
+                style="@style/MusicSettingName"
+                android:text="歌词时间偏移" />
+
+            <TextView
+                android:id="@+id/tvLyricOffset"
+                style="@style/MusicSettingValue" />
+        </LinearLayout>
+
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0.5dp"
+            android:layout_marginEnd="16dp"
+            android:background="#0FFFFFFF" />
 
         <!-- 6. 清除音乐缓存 -->
         <LinearLayout
@@ -108,7 +164,8 @@
 
             <TextView
                 android:id="@+id/tvCacheSize"
-                style="@style/MusicSettingValue" />
+                style="@style/MusicSettingValue"
+                android:textColor="#FF8E8E93" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

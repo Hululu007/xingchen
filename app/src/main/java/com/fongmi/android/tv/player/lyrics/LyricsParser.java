@@ -92,17 +92,67 @@ public class LyricsParser {
         return builder.toString();
     }
 
+    /** 边车元数据（M-05）：TtmlClient.toEnhancedLrc 在定时行前写一行 {@code @@LYRICMETA …}，
+     * 旧解析器无时间标签会直接跳过该行；新解析器把它当作下一行的 songPart／agent／isBG／isDuet。
+     * 格式：{@code @@LYRICMETA part=副歌|agent=A|bg=0|duet=0}（值内竖线已由生产侧替换为空格）。 */
+    public static final String META_PREFIX = "@@LYRICMETA ";
+
+    private static class Meta {
+        String songPart = "";
+        String agent = "";
+        boolean bg;
+        boolean duet;
+    }
+
+    private static Meta parseMetaLine(String line) {
+        Meta meta = new Meta();
+        String body = line.substring(META_PREFIX.length()).trim();
+        for (String item : body.split("\\|")) {
+            int eq = item.indexOf('=');
+            if (eq <= 0) continue;
+            String key = item.substring(0, eq).trim();
+            String value = item.substring(eq + 1).trim();
+            if ("part".equals(key)) meta.songPart = value;
+            else if ("agent".equals(key)) meta.agent = value;
+            else if ("bg".equals(key)) meta.bg = "1".equals(value);
+            else if ("duet".equals(key)) meta.duet = "1".equals(value);
+        }
+        return meta;
+    }
+
+    private static void applyMeta(LyricsLine line, Meta meta) {
+        if (line == null || meta == null) return;
+        line.setSongPart(meta.songPart);
+        line.setAgentName(meta.agent);
+        line.setBG(meta.bg);
+        line.setDuet(meta.duet);
+    }
+
     public static List<LyricsLine> parseTimed(String text) {
         List<LyricsLine> lines = new ArrayList<>();
         if (TextUtils.isEmpty(text)) return lines;
+        Meta pending = null;
         for (String raw : text.replace("\r", "").split("\n")) {
+            String trimmed = raw.trim();
+            if (trimmed.startsWith(META_PREFIX)) {
+                pending = parseMetaLine(trimmed);
+                continue;
+            }
             Matcher matcher = TIME.matcher(raw);
             List<Mark> marks = new ArrayList<>();
             while (matcher.find()) {
                 marks.add(new Mark(parseTime(matcher), matcher.start(), matcher.end()));
             }
-            if (marks.isEmpty()) continue;
-            addLine(lines, raw, marks);
+            if (marks.isEmpty()) {
+                pending = null;
+                continue;
+            }
+            int before = lines.size();
+            addLine(lines, raw, marks, pending == null ? "" : pending.songPart);
+            if (pending != null) {
+                for (int i = before; i < lines.size(); i++) applyMeta(lines.get(i), pending);
+                pending = null;
+            }
         }
         lines.sort(Comparator.comparingLong(LyricsLine::getTimeMs));
         return compact(lines);
@@ -132,13 +182,19 @@ public class LyricsParser {
             // 无任何定时行但有纯文本歌词：按无时间轴整行词出（空态只许真无词时出现）
             return parsePlainFallback(content);
         }
+        Meta pending = null;
         for (String raw : content.replace("\r", "").split("\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
+            if (line.startsWith(META_PREFIX)) {
+                pending = parseMetaLine(line);
+                continue;
+            }
             Matcher lineMatcher = BRACKET_LINE.matcher(line);
             if (!lineMatcher.matches()) {
                 // 混排的普通 LRC 行按老路解析，不丢行
                 lines.addAll(parseTimed(line));
+                pending = null;
                 continue;
             }
             long lineStart = parseLong(lineMatcher.group(1));
@@ -154,9 +210,19 @@ public class LyricsParser {
                 String salvaged = stripWordMarkers(rest).trim();
                 if (!salvaged.isEmpty()) lineText = salvaged;
             }
-            if (lineText.isEmpty()) continue;
-            if (shouldDropCreditLine(lineText)) continue;
-            lines.add(new LyricsLine(lineStart, lineText, words));
+            if (lineText.isEmpty()) {
+                pending = null;
+                continue;
+            }
+            // M-05 收窄：带 songPart 的行不丢制作标签规则。
+            if ((pending == null || pending.songPart.isEmpty()) && shouldDropCreditLine(lineText)) {
+                pending = null;
+                continue;
+            }
+            LyricsLine created = new LyricsLine(lineStart, lineText, words);
+            applyMeta(created, pending);
+            pending = null;
+            lines.add(created);
         }
         lines.sort(Comparator.comparingLong(LyricsLine::getTimeMs));
         List<LyricsLine> result = compact(lines);
@@ -300,6 +366,7 @@ public class LyricsParser {
             for (String raw : text.replace("\r", "").split("\n")) {
                 String line = raw.trim();
                 if (line.isEmpty() || line.startsWith("[") && line.endsWith("]")) continue;
+                if (line.startsWith(META_PREFIX)) continue;
                 if (shouldDropCreditLine(line)) continue;
                 texts.add(line);
             }
@@ -334,7 +401,9 @@ public class LyricsParser {
         boolean changed = false;
         for (int i = 0; i < lines.size(); i++) {
             LyricsLine line = lines.get(i);
-            if (i < 4 && line.getTimeMs() <= 10_000 && shouldDropIdentityLine(line.getText(), title, artist)) {
+            // M-05 收窄：带 songPart 的行豁免前 4 行身份行丢弃规则。
+            if (i < 4 && line.getTimeMs() <= 10_000 && line.getSongPart().isEmpty()
+                    && shouldDropIdentityLine(line.getText(), title, artist)) {
                 changed = true;
                 continue;
             }
@@ -371,11 +440,13 @@ public class LyricsParser {
         }
     }
 
-    private static void addLine(List<LyricsLine> lines, String raw, List<Mark> marks) {
+    private static void addLine(List<LyricsLine> lines, String raw, List<Mark> marks, String songPart) {
+        boolean hasPart = songPart != null && !songPart.isEmpty();
         if (isPrefixTimed(raw, marks)) {
             Content content = parseContent(raw.substring(marks.get(marks.size() - 1).end));
             if (content.text.isEmpty()) return;
-            if (shouldDropCreditLine(content.text)) return;
+            // M-05 收窄：带 songPart 的段落标签行不丢（即使形似制作标签）。
+            if (!hasPart && shouldDropCreditLine(content.text)) return;
             for (Mark mark : marks) lines.add(new LyricsLine(mark.time, content.text, content.words));
             return;
         }
@@ -386,7 +457,7 @@ public class LyricsParser {
             Content content = parseContent(raw.substring(mark.end, next));
             pending.add(mark.time);
             if (content.text.isEmpty()) continue;
-            if (shouldDropCreditLine(content.text)) {
+            if (!hasPart && shouldDropCreditLine(content.text)) {
                 pending.clear();
                 continue;
             }
@@ -430,7 +501,7 @@ public class LyricsParser {
         String last = null;
         long lastTime = -1;
         for (LyricsLine line : input) {
-            if (line.getText().equals(last) && line.getTimeMs() == lastTime && sameWords(line, output)) continue;
+            if (line.getText().equals(last) && line.getTimeMs() == lastTime && sameWords(line, output) && sameMeta(line, output)) continue;
             output.add(line);
             last = line.getText();
             lastTime = line.getTimeMs();
@@ -440,6 +511,14 @@ public class LyricsParser {
 
     private static boolean sameWords(LyricsLine line, List<LyricsLine> output) {
         return !output.isEmpty() && line.getWords().equals(output.get(output.size() - 1).getWords());
+    }
+
+    /** 去重不许把主行与同文本同时间的伴唱／段落行合并（M-03／M-05）。 */
+    private static boolean sameMeta(LyricsLine line, List<LyricsLine> output) {
+        if (output.isEmpty()) return false;
+        LyricsLine prev = output.get(output.size() - 1);
+        return line.isBG() == prev.isBG() && line.isDuet() == prev.isDuet()
+                && line.getSongPart().equals(prev.getSongPart()) && line.getAgentName().equals(prev.getAgentName());
     }
 
     private static void collectAuxLines(List<AuxLine> output, String text) {

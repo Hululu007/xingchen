@@ -117,6 +117,11 @@ public class MusicActivity extends BaseActivity {
         attachCardPress(binding.homeCardGuess, 0.98f);
         attachCardPress(binding.homeCardCharts, 0.98f);
         attachCardPress(binding.homeCardShuffle, 0.98f);
+        // 三彩卡光晕（瓜子 HomeEntryHalo，浅色分支 only：星辰首页固定浅色）：色按卡取，
+        // 常驻静态层（脉动门控在 refreshShuffleSubtitle）；84dp 半出环（C10）保留不动，光晕是另加的一层。
+        binding.homeHaloGuess.setHaloColor(0xFFFFE8F3);
+        binding.homeHaloCharts.setHaloColor(0xFF9DF3EE);
+        binding.homeHaloShuffle.setHaloColor(0xFFEAF989);
         attachCardPress(binding.homeChartCard);
         // 榜单封面圆角 12dp：ImgUtil.loadRounded 固定 8dp 且该文件不在本摊可改范围，
         // 这里用视图轮廓裁切补到 12dp（12dp 形含于 8dp 形内，交集即 12dp 圆角）
@@ -545,6 +550,9 @@ public class MusicActivity extends BaseActivity {
                 && trackKeys(MusicController.get().queue()).equals(shuffleQueueKeys);
         binding.homeShuffleSub.setText(playingShuffle
                 ? R.string.home_shuffle_playing : R.string.home_shuffle_sub);
+        // 光晕脉动与副题同用 playingShuffle（oa3 z5），不分叉：只有随心听卡动，另两卡恒为静态层；
+        // 系统动画开关在 HomeEntryHaloView 内再判，关时落回静态 0.5。
+        binding.homeHaloShuffle.setPulsing(playingShuffle);
     }
 
     /** 曲目键：优先 id，无 id 时用标题＋歌手拼键（同曲不同源时 id 不同即判为不同队列）。 */

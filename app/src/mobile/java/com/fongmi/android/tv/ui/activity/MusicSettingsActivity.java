@@ -3,7 +3,12 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
 
@@ -52,6 +57,78 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowLyricFallback.setOnClickListener(v -> binding.swLyricFallback.toggle());
         binding.rowClearCache.setOnClickListener(v -> clearCache());
         refreshCacheSize();
+        // U-05：歌词时间偏移行（位置：歌词缺失自动搜索行之后、清除缓存行之前）
+        refreshOffsetText();
+        binding.rowLyricOffset.setOnClickListener(v -> showOffsetDialog());
+    }
+
+    /** U-05 右侧当前值：默认“0ms”，非零带符号（如“+200ms”“-200ms”） */
+    private static String offsetText(int ms) {
+        if (ms == 0) return "0ms";
+        return (ms > 0 ? "+" : "") + ms + "ms";
+    }
+
+    private void refreshOffsetText() {
+        binding.tvLyricOffset.setText(offsetText(MusicStore.getLyricOffsetMs()));
+    }
+
+    /**
+     * U-05 编辑框：−50ms／+50ms 步进按钮＋当前值显示＋“恢复 0ms”复位；
+     * 范围钳制 ±5000ms（星辰侧自定，非瓜子值；存值走 MusicStore.setLyricOffsetMs 的钳制）。
+     * 本批只做行＋编辑框＋存值；偏移真正作用到歌词时间由歌词路接同一键名，不在这里改。
+     */
+    private void showOffsetDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        TextView value = new TextView(this);
+        value.setTextSize(22);
+        value.setTextColor(0xFFFFFFFF);
+        value.setGravity(Gravity.CENTER);
+        value.setText(offsetText(MusicStore.getLyricOffsetMs()));
+        box.addView(value, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.topMargin = pad;
+        Button minus = new Button(this);
+        minus.setText("−50ms");
+        Button plus = new Button(this);
+        plus.setText("+50ms");
+        Runnable apply = () -> {
+            value.setText(offsetText(MusicStore.getLyricOffsetMs()));
+            refreshOffsetText();
+        };
+        minus.setOnClickListener(v -> {
+            MusicStore.setLyricOffsetMs(MusicStore.getLyricOffsetMs() - 50);
+            apply.run();
+        });
+        plus.setOnClickListener(v -> {
+            MusicStore.setLyricOffsetMs(MusicStore.getLyricOffsetMs() + 50);
+            apply.run();
+        });
+        row.addView(minus);
+        row.addView(plus);
+        box.addView(row, rowLp);
+        Button reset = new Button(this);
+        reset.setText("恢复 0ms");
+        LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        resetLp.topMargin = pad / 2;
+        reset.setOnClickListener(v -> {
+            MusicStore.setLyricOffsetMs(0);
+            apply.run();
+        });
+        box.addView(reset, resetLp);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("歌词时间偏移")
+                .setView(box)
+                .setPositiveButton("完成", null)
+                .show();
     }
 
     private void initQualityRows() {

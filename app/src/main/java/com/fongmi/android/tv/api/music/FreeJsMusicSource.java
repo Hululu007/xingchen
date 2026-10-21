@@ -130,7 +130,18 @@ public class FreeJsMusicSource implements MusicSource {
     public String playUrl(MusicTrack track, int quality) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeForTrack(track);
         if (b == null) return null;
+        long t0 = System.currentTimeMillis();
         MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality));
+        // C5 真实取链耗时（最近一次口径，覆盖检测初始值）：归属取自 track.rawJson 的 _plugin
+        if (ms != null && !TextUtils.isEmpty(ms.url)) {
+            try {
+                String plugin = com.google.gson.JsonParser.parseString(track.rawJson)
+                        .getAsJsonObject().get("_plugin").getAsString();
+                com.fongmi.android.tv.music.MusicStore.notePluginLatency(
+                        PLATFORM, plugin, System.currentTimeMillis() - t0, false);
+            } catch (Throwable ignored) {
+            }
+        }
         return ms == null ? null : ms.url;
     }
 

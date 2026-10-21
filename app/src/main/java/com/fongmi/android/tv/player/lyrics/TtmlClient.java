@@ -142,6 +142,9 @@ public class TtmlClient {
             NodeList paragraphs = document.getElementsByTagNameNS("*", "p");
             long globalOffset = readGlobalOffset(document);
             StringBuilder builder = new StringBuilder();
+            // M-03／M-05：songPart／agent 用边车映射（见 LyricsParser.META_PREFIX），不改增强 LRC 定时行本身；
+            // 对唱＝agent 与上一行不同，伴唱＝x-bg span 另起一行（isBG），不做左右两栏并排。
+            String prevAgent = "";
             for (int i = 0; i < paragraphs.getLength(); i++) {
                 Node node = paragraphs.item(i);
                 if (!(node instanceof Element)) continue;
@@ -150,9 +153,24 @@ public class TtmlClient {
                 if (lineStart < 0) lineStart = firstSpanBegin(p);
                 if (lineStart < 0) continue;
                 lineStart = Math.max(0, lineStart + globalOffset);
+                String songPart = songPartOf(p);
+                String agent = attribute(p, "agent");
+                boolean duet = !agent.isEmpty() && !prevAgent.isEmpty() && !agent.equals(prevAgent);
+                if (!agent.isEmpty()) prevAgent = agent;
                 StringBuilder line = new StringBuilder();
-                appendWords(line, p, lineStart, globalOffset);
-                if (line.length() > 0) builder.append(formatTime(lineStart)).append(line).append('\n');
+                appendWords(line, p, lineStart, globalOffset, false);
+                if (line.length() > 0) {
+                    appendMeta(builder, songPart, agent, false, duet);
+                    builder.append(formatTime(lineStart)).append(line).append('\n');
+                }
+                long bgStart = firstBgBegin(p);
+                bgStart = bgStart < 0 ? lineStart : Math.max(0, bgStart + globalOffset);
+                StringBuilder bgLine = new StringBuilder();
+                appendWords(bgLine, p, bgStart, globalOffset, true);
+                if (bgLine.length() > 0) {
+                    appendMeta(builder, songPart, agent, true, duet);
+                    builder.append(formatTime(bgStart)).append(bgLine).append('\n');
+                }
             }
             return builder.toString();
         } catch (Exception e) {
@@ -170,17 +188,50 @@ public class TtmlClient {
         return 0;
     }
 
-    private static void appendWords(StringBuilder builder, Element parent, long lineStart, long globalOffset) {
+    /** 段落回退链（M-05，照瓜子 jl7：itunes:song-part → itunes:songPart → song-part → songPart；
+     * attribute() 已按直接名／命名空间／后缀匹配，song-part 一次查找即覆盖 itunes 前缀情形）。 */
+    private static String songPartOf(Element p) {
+        String value = attribute(p, "song-part");
+        if (!TextUtils.isEmpty(value)) return value;
+        return attribute(p, "songPart");
+    }
+
+    /** 边车行：仅当任一字段非空／非零时写出（空行不写，旧解析器跳过该行亦无害）。 */
+    private static void appendMeta(StringBuilder builder, String songPart, String agent, boolean bg, boolean duet) {
+        if (TextUtils.isEmpty(songPart) && TextUtils.isEmpty(agent) && !bg && !duet) return;
+        builder.append(LyricsParser.META_PREFIX)
+                .append("part=").append(escapeMeta(songPart))
+                .append("|agent=").append(escapeMeta(agent))
+                .append("|bg=").append(bg ? "1" : "0")
+                .append("|duet=").append(duet ? "1" : "0")
+                .append('\n');
+    }
+
+    private static String escapeMeta(String value) {
+        if (value == null) return "";
+        return value.replace("|", " ").replace("\n", " ").replace("\r", " ").trim();
+    }
+
+    private static void appendWords(StringBuilder builder, Element parent, long lineStart, long globalOffset, boolean bgOnly) {
         NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child.getNodeType() == Node.TEXT_NODE) {
-                builder.append(child.getTextContent());
+                // 伴唱行只取 x-bg span 文本，段落直属文本不进伴唱行。
+                if (!bgOnly) builder.append(child.getTextContent());
                 continue;
             }
             if (!(child instanceof Element)) continue;
             Element span = (Element) child;
-            if (skipRole(span)) continue;
+            String role = attribute(span, "role");
+            boolean isBg = "x-bg".equals(role);
+            if (bgOnly && !isBg) {
+                // 伴唱行只收 x-bg（及其后代），非伴唱包装层只递归、不直接出文本，避免重复计入伴唱文本。
+                if (hasElementChild(span)) appendWords(builder, span, lineStart, globalOffset, true);
+                continue;
+            }
+            if (!bgOnly && isBg) continue;
+            if ("x-translation".equals(role) || "x-roman".equals(role)) continue;
             long begin = parseTime(timingAttribute(span, "begin"));
             long end = parseTime(timingAttribute(span, "end"));
             String text = span.getTextContent();
@@ -195,7 +246,7 @@ public class TtmlClient {
                         .append('>')
                         .append(text);
             } else if (hasElementChild(span)) {
-                appendWords(builder, span, lineStart, globalOffset);
+                appendWords(builder, span, lineStart, globalOffset, bgOnly);
             } else {
                 builder.append(text);
             }
@@ -209,9 +260,20 @@ public class TtmlClient {
         }
     }
 
-    private static boolean skipRole(Element element) {
-        String role = attribute(element, "role");
-        return "x-translation".equals(role) || "x-roman".equals(role) || "x-bg".equals(role);
+    /** 首个伴唱 span 的 begin（无伴唱 span 时返回 -1，调用方回落主行行首）。 */
+    private static long firstBgBegin(Element parent) {
+        long best = -1;
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (!(child instanceof Element)) continue;
+            Element element = (Element) child;
+            if (!"span".equals(localName(element))) continue;
+            if (!"x-bg".equals(attribute(element, "role"))) continue;
+            long begin = parseTime(timingAttribute(element, "begin"));
+            if (begin >= 0 && (best < 0 || begin < best)) best = begin;
+        }
+        return best;
     }
 
     private static long firstSpanBegin(Element parent) {

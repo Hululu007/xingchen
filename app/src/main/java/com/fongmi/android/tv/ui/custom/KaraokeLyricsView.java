@@ -18,6 +18,7 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.player.lyrics.LyricsWord;
@@ -44,12 +45,19 @@ public class KaraokeLyricsView extends View {
     /** 歌词字号钳制（GZ LYRIC_SIZE_MIN／LYRIC_SIZE_MAX）。 */
     private static final float LYRIC_SIZE_MIN = 16f;
     private static final float LYRIC_SIZE_MAX = 40f;
-    /** 副行（翻译／音译）字号（sp，星辰口径）。 */
-    private static final float SUB_SP = 15f;
-    /** 歌词字形斜切（带一点斜，定稿口径）。 */
+    /** 副行字号比（U-02：副行＝主行×0.62，行高＝副行字号×4/3，见 rebuildLayout）。 */
+    private static final float SUB_RATIO = 0.62f;
+    /** 独立音译行默认（U-02：瓜子 AutoScrollRomaLine 默认 15sp／19sp；星辰音译无独立视图，
+     * 音译只作副行或主行，故 15sp 仅作构造时副行画笔初值，19sp 仅作默认主行 24sp 时的自洽参照
+     *（副行 24×0.62＝14.88≈15，行高 14.88×4/3≈19.84，与 19sp 量级自洽，不另立行高常量）；
+     * 主行改字号后副行一律按 SUB_RATIO 跟着变，不再固定 15sp）。 */
+    private static final float ROMA_SP = 15f;
+    /** 歌词字形斜切（带一点斜，定稿口径）。死令：不动。 */
     private static final float SKEW = -0.12f;
-    /** 当前行锚点：视图高度的 38% 处（星辰口径）。 */
-    private static final float ANCHOR = 0.38f;
+    /** 当前行锚点档位（U-01：瓜子 lyricAnchor 档位制，默认 "top"；星辰固定分数 0.38 已删，
+     * top 档＝当前行块顶对齐歌词区顶部（anchorY() 返回视图顶），不写录屏帧量估计值作常量——
+     * 帧量（顶约 0.03、中心约 0.07，误差 ±0.04）只是实测估计，见分表，绝不进代码常量；
+     * 其它档位换算无单一分数常量，本面只实现默认 top 档）。 */
 
     // —— 逐字上浮（GZ 2.2：WORD_LIFT_EM／WORD_LIFT_MIN_DURATION_MS／wordLiftProgressTime） ——
     /** 逐字上浮距离（em，负＝向上）：唱到的字上浮量＝0.09×字号。 */
@@ -193,6 +201,22 @@ public class KaraokeLyricsView extends View {
     /** 点击判定：位移小于该值视为点击（dp）。 */
     private static final float TAP_SLOP_DP = 10f;
 
+    // —— 伴唱（M-03：瓜子伴唱分支字号×0.7、缩放 0.2×bg＋0.8、透明度×clamp(bg,0,1)、
+    // 入场位移 (1-bg)×(-0.8)×行高；bg 入场 300ms 走星辰 INTERP_FOSI 映射（见 bgValue），终态 1） ——
+    private static final float BG_FONT_RATIO = 0.7f;
+    private static final long BG_ENTER_MS = 300L;
+    // —— 间奏圆点（M-04，B 档拟映射：尺寸基准 f 取当前主行字号 sp 值，24sp 时直径 7.2dp、
+    // 间距 2.4dp、总宽 26.4dp；待真机目视验证后再定死，见分表） ——
+    private static final long INTERLUDE_THRESHOLD_MS = 4000L;
+    private static final long INTERLUDE_PRE_OFFSET_MS = 250L;
+    // —— 段落标签（M-05，B 档拟映射：字号 10sp、底部 3dp、颜色＝非当前行色×0.75；
+    // 待真机目视验证后再定死，见分表） ——
+    private static final float PART_TEXT_SP = 10f;
+    private static final float PART_BOTTOM_DP = 3f;
+    private static final float PART_COLOR_ALPHA = 0.75f;
+    /* 歌词时间偏移（U-05）：读 MusicStore.getLyricOffsetMs()（面板路键 music_lyric_offset_ms，
+     * 毫秒整数，默认 0，面板路钳制 ±5000ms）；本面只读值，不建设置 UI、不写键。 */
+
     /** 行点击回调（seek 用）。 */
     public interface OnLineClickListener {
         void onLineClick(int index, long positionMs);
@@ -202,6 +226,10 @@ public class KaraokeLyricsView extends View {
     private final Paint subPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint emptyPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** 段落标签画笔（M-05：10sp，颜色见 applySchemeColors）。 */
+    private final Paint partLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** 间奏圆点画笔（M-04：颜色取已唱色，逐颗设 alpha）。 */
+    private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Map<Float, BlurMaskFilter> blurCache = new HashMap<>();
     /** API≥31 模糊缓存：按量化档 E 缓存 RenderEffect（GZ 应用侧同口径）；blurRetryAfterMs 为失败冷却截止时刻。 */
     private final Map<Integer, RenderEffect> blurEffectCache = new HashMap<>();
@@ -224,6 +252,9 @@ public class KaraokeLyricsView extends View {
     private List<LyricsLine> lines = Collections.emptyList();
     private List<String> translations;
     private List<String> romanizations;
+    /** 翻译／音译逐词表（M-02：与 lines 按下标对齐，空表＝无逐词）。 */
+    private List<List<LyricsWord>> translationWordLists;
+    private List<List<LyricsWord>> romanizationWordLists;
     private int primaryMode; // 0=原文 1=翻译 2=音译 作主行
     /** 逐字显示开关（歌词页「逐字」胶囊切换）：开＝逐字分段渲染（上浮/光晕/逐字变色），关＝整行渲染路径。 */
     private boolean wordByWord = true;
@@ -290,7 +321,11 @@ public class KaraokeLyricsView extends View {
         super(context, attrs, defStyleAttr);
         // API≥31 走 RenderEffect（需硬件加速层）；API＜31 的 BlurMaskFilter 需要软件层才稳定生效。
         setLayerType(Build.VERSION.SDK_INT >= 31 ? LAYER_TYPE_HARDWARE : LAYER_TYPE_SOFTWARE, null);
-        initPaint(subPaint, SUB_SP, SUB_COLOR, false);
+        initPaint(subPaint, ROMA_SP, SUB_COLOR, false);
+        partLabelPaint.setTextSize(sp(PART_TEXT_SP));
+        partLabelPaint.setTextSkewX(SKEW);
+        partLabelPaint.setTypeface(Typeface.DEFAULT);
+        dotPaint.setStyle(Paint.Style.FILL);
         emptyPaint.setTextAlign(Paint.Align.CENTER);
         applyMainStyle();
         applySchemeColors();
@@ -316,6 +351,12 @@ public class KaraokeLyricsView extends View {
             paint.setFakeBoldText(lyricWeight >= 1 && Build.VERSION.SDK_INT < 28);
         }
         glowPaint.setColor(ACTIVE_COLOR);
+        applySubStyle();
+    }
+
+    /** 副行字号跟主行（U-02：副行＝主行×0.62，不再固定 15sp；主行改字号／切封面模式时经 applyMainStyle 跟着变）。 */
+    private void applySubStyle() {
+        subPaint.setTextSize(sp(mainTextSizeSp * SUB_RATIO));
     }
 
     /**
@@ -335,6 +376,9 @@ public class KaraokeLyricsView extends View {
         mainPaint.setColor(lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR);
         subPaint.setColor(lightScheme ? SUB_COLOR_LIGHT : SUB_COLOR);
         emptyPaint.setColor(lightScheme ? EMPTY_COLOR_LIGHT : EMPTY_COLOR);
+        // M-05 拟映射：段落标签色＝非当前行色×0.75（alpha 乘 0.75，GZ g91.c(0.75, 基色)口径），待真机目视验证。
+        partLabelPaint.setColor(lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR);
+        partLabelPaint.setAlpha(Math.round(255f * PART_COLOR_ALPHA));
     }
 
     private float mainTextSizePx() {
@@ -349,19 +393,67 @@ public class KaraokeLyricsView extends View {
 
     /** 输入歌词：translations／romanizations 与 lines 按下标对齐，可传 null。 */
     public void setLines(List<LyricsLine> lines, List<String> translations, List<String> romanizations) {
+        setLines(lines, translations, romanizations, null, null);
+    }
+
+    /** 输入歌词（含逐词表，M-02）：translationWords／romanizationWords 与 lines 按下标对齐，可传 null。 */
+    public void setLines(List<LyricsLine> lines, List<String> translations, List<String> romanizations,
+                         List<List<LyricsWord>> translationWords, List<List<LyricsWord>> romanizationWords) {
         searchingLyric = false;
         this.lines = lines == null ? Collections.emptyList() : new ArrayList<>(lines);
         this.translations = translations == null ? null : new ArrayList<>(translations);
         this.romanizations = romanizations == null ? null : new ArrayList<>(romanizations);
+        this.translationWordLists = translationWords;
+        this.romanizationWordLists = romanizationWords;
         currentIndex = -1;
         scrollSnapped = false;
         layoutWidth = -1;
         rebuildLayout();
         if (!this.lines.isEmpty()) {
-            currentIndex = LyricsParser.findLine(this.lines, displayPositionMs());
+            currentIndex = indexForPosition(displayPositionMs());
             snapScrollToCurrent();
         }
         ensureFrameLoop();
+        invalidate();
+    }
+
+    /** 当前行锚点 Y（U-01：默认 top 档＝视图顶）。 */
+    private float anchorY() {
+        return 0f;
+    }
+
+    /** 歌词时间偏移（U-05：毫秒整数，默认 0；读 MusicStore 统一口径，读失败回 0）。 */
+    private long lyricOffsetMs() {
+        try {
+            return MusicStore.getLyricOffsetMs();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 查找用歌词位置＝播放位置 − offset（U-05：正偏移＝歌词延后显示，负偏移＝歌词提前显示；0 时与原来一致）。 */
+    private long lyricPosition(long playbackPositionMs) {
+        return playbackPositionMs - lyricOffsetMs();
+    }
+
+    /** 当前行匹配入口（U-05＋M-04）：先按偏移换算歌词位置，再判间奏——首行前间奏内不推进当前行（返回 -1，onDraw 以圆点占位），其余走 findLine。 */
+    private int indexForPosition(long playbackPositionMs) {
+        if (lines.isEmpty()) return -1;
+        long pos = lyricPosition(playbackPositionMs);
+        Interlude interlude = detectInterlude(lines, pos);
+        if (interlude != null && interlude.nextIndex == 0) return -1;
+        return LyricsParser.findLine(lines, pos);
+    }
+
+    /** 偏移变化后立即按新偏移重算当前行（U-05：面板路写值后调此方法，不用等切歌；未播放时直接贴合新当前行）。 */
+    public void refreshLyricOffset() {
+        if (lines.isEmpty()) return;
+        currentIndex = indexForPosition(displayPositionMs());
+        scrollTarget = targetFor(currentIndex);
+        if (!playing) {
+            scrollOffset = scrollTarget;
+            scrollVelocity = 0f;
+        }
         invalidate();
     }
 
@@ -578,7 +670,7 @@ public class KaraokeLyricsView extends View {
             baseRealtimeMs = SystemClock.elapsedRealtime();
         }
         if (!browsing) {
-            int next = lines.isEmpty() ? -1 : LyricsParser.findLine(lines, basePositionMs);
+            int next = lines.isEmpty() ? -1 : indexForPosition(basePositionMs);
             if (next != currentIndex) {
                 currentIndex = next;
             }
@@ -593,7 +685,7 @@ public class KaraokeLyricsView extends View {
         baseRealtimeMs = SystemClock.elapsedRealtime();
         browsing = false;
         removeCallbacks(returnRunnable);
-        currentIndex = lines.isEmpty() ? -1 : LyricsParser.findLine(lines, Math.max(0, posMs));
+        currentIndex = lines.isEmpty() ? -1 : indexForPosition(Math.max(0, posMs));
         seekSpringActive = true;
         scrollTarget = targetFor(currentIndex);
         ensureFrameLoop();
@@ -645,7 +737,7 @@ public class KaraokeLyricsView extends View {
         float dt = Math.max(1, Math.min(50, frameMs)) / 1000f;
 
         if (!browsing && !dragging && !lines.isEmpty()) {
-            int next = LyricsParser.findLine(lines, displayPositionMs());
+            int next = indexForPosition(displayPositionMs());
             if (next != currentIndex) currentIndex = next;
             scrollTarget = targetFor(currentIndex);
             stepSpring(dt);
@@ -786,8 +878,8 @@ public class KaraokeLyricsView extends View {
         float maxMainWidth = width - dp(H_PADDING_DP) * 2f;
         // 行高＝字号 ×4/3（GZ coverLyricLineHeight，全屏／封面同公式，LyricsViewKt:10901-10903）。
         float mainRowHeight = lyricLineHeight(mainTextSizePx());
-        Paint.FontMetrics subFm = subPaint.getFontMetrics();
-        float subRowHeight = (subFm.descent - subFm.ascent) * 1.15f;
+        // U-02：副行行高＝副行字号×4/3（与主行同公式，副行字号已按 SUB_RATIO 跟主行）。
+        float subRowHeight = lyricLineHeight(subPaint.getTextSize());
         float gapPx = dp(coverMode ? LINE_GAP_COVER_DP : LINE_GAP_FULLSCREEN_DP);
         List<Block> list = new ArrayList<>(lines.size());
         float top = 0f;
@@ -797,10 +889,15 @@ public class KaraokeLyricsView extends View {
             block.top = top;
             block.mainRows = layoutMainRows(i, maxMainWidth);
             block.subTexts = subTextsFor(i);
-            block.height = block.mainRows.size() * mainRowHeight
+            block.partLabel = partLabelFor(i);
+            block.labelHeight = block.partLabel.isEmpty() ? 0f : sp(PART_TEXT_SP) + dp(PART_BOTTOM_DP);
+            // M-03：伴唱行主行行高按伴唱字号（基值×0.7）计。
+            float blockMainRowHeight = lines.get(i).isBG() ? lyricLineHeight(mainTextSizePx() * BG_FONT_RATIO) : mainRowHeight;
+            block.height = block.mainRows.size() * blockMainRowHeight
                     + block.subTexts.size() * subRowHeight
+                    + block.labelHeight
                     + gapPx;
-            block.mainRowHeight = mainRowHeight;
+            block.mainRowHeight = blockMainRowHeight;
             block.subRowHeight = subRowHeight;
             list.add(block);
             top += block.height;
@@ -810,7 +907,9 @@ public class KaraokeLyricsView extends View {
         if (!scrollSnapped && currentIndex >= 0) snapScrollToCurrent();
     }
 
-    /** 主行分段：有逐字词且原文作主行时按词分段折行；否则整行按宽度折行（仅量宽，绘制时整段处理）。 */
+    /** 主行分段：有逐字词时按词分段折行；否则整行按宽度折行（仅量宽，绘制时整段处理）。
+     * M-02：按词分段条件从 primaryMode==0 放宽为三档通用（各档取对应词表，作主行的那路为空时回落原文词）。
+     * M-03：伴唱行量宽按伴唱字号（基值×0.7）缩放。 */
     private List<List<Seg>> layoutMainRows(int index, float maxWidth) {
         List<List<Seg>> rows = new ArrayList<>();
         String mainText = mainTextFor(index);
@@ -819,17 +918,22 @@ public class KaraokeLyricsView extends View {
             return rows;
         }
         LyricsLine line = lines.get(index);
-        boolean wordMode = primaryMode == 0 && wordByWord && line.hasWords();
+        List<LyricsWord> mainWords = wordsForMain(index, line);
+        boolean wordMode = wordByWord && !mainWords.isEmpty();
         List<Seg> segs = new ArrayList<>();
         if (wordMode) {
-            for (LyricsWord word : line.getWords()) {
+            for (LyricsWord word : mainWords) {
                 if (TextUtils.isEmpty(word.getText())) continue;
-                segs.add(new Seg(word.getText(), word, mainPaint.measureText(word.getText())));
+                float width = mainPaint.measureText(word.getText());
+                if (line.isBG()) width *= BG_FONT_RATIO;
+                segs.add(new Seg(word.getText(), word, width));
             }
             if (segs.isEmpty()) wordMode = false;
         }
         if (!wordMode) {
-            segs.add(new Seg(mainText, null, mainPaint.measureText(mainText)));
+            float width = mainPaint.measureText(mainText);
+            if (line.isBG()) width *= BG_FONT_RATIO;
+            segs.add(new Seg(mainText, null, width));
         }
         int maxRows = currentMaxLines();
         List<Seg> row = new ArrayList<>();
@@ -857,6 +961,164 @@ public class KaraokeLyricsView extends View {
             if (!TextUtils.isEmpty(t)) return t;
         }
         return line.getText();
+    }
+
+    /** 作主行的那路逐词表（M-02：1 档取翻译词表、2 档取音译词表；该路字符串为空时回落原文词，词空时返回空表）。 */
+    private List<LyricsWord> wordsForMain(int index, LyricsLine line) {
+        if (primaryMode == 1) {
+            if (!TextUtils.isEmpty(at(translations, index))) return atWords(translationWordLists, index);
+        } else if (primaryMode == 2) {
+            if (!TextUtils.isEmpty(at(romanizations, index))) return atWords(romanizationWordLists, index);
+        }
+        return line.getWords();
+    }
+
+    private static List<LyricsWord> atWords(List<List<LyricsWord>> lists, int index) {
+        if (lists == null || index < 0 || index >= lists.size() || lists.get(index) == null) return Collections.emptyList();
+        return lists.get(index);
+    }
+
+    /** 段落标签文案（M-05）：仅本行 songPart 非空且与上一行不同时生成；空项处理后以 " / " 连接段落与演唱者。 */
+    private String partLabelFor(int index) {
+        LyricsLine line = lines.get(index);
+        String part = line.getSongPart();
+        if (part.isEmpty()) return "";
+        if (index > 0 && part.equals(lines.get(index - 1).getSongPart())) return "";
+        String display = songPartDisplay(part);
+        if (display == null) return "";
+        String agent = line.getAgentName();
+        return agent.isEmpty() ? display : display + " / " + agent;
+    }
+
+    /** 段落文案映射（M-05，照瓜子 songPartDisplay 抄）：空／空白返回 null；去引号后，
+     * C／Chorus→副歌，B／Bridge→桥段，I／Intro→前奏，O／Outro→尾奏，
+     * V 前缀→主歌＋剩余字符，Verse 前缀返回原串（去引号后），其余未映射值原样返回。 */
+    static String songPartDisplay(String part) {
+        if (part == null) return null;
+        String v = part.replace("\"", "").trim();
+        if (v.isEmpty()) return null;
+        if ("C".equals(v) || "Chorus".equals(v)) return "副歌";
+        if ("B".equals(v) || "Bridge".equals(v)) return "桥段";
+        if ("I".equals(v) || "Intro".equals(v)) return "前奏";
+        if ("O".equals(v) || "Outro".equals(v)) return "尾奏";
+        if (v.startsWith("Verse")) return v;
+        if (v.startsWith("V")) return "主歌" + v.substring(1);
+        return v;
+    }
+
+    /** 伴唱动画值（M-03，星辰侧映射）：当前伴唱行自本行行首起 300ms 内按 INTERP_FOSI
+     *（PathInterpolator(0.2,0,0,1)，此处以同参数 cubicBezier 求值）从 0→1；非当前伴唱行取终态 1。 */
+    private float bgValue(LyricsLine line, boolean isCurrent, long lyricPosMs) {
+        if (!line.isBG() || !isCurrent) return 1f;
+        float t = clampF((lyricPosMs - line.getTimeMs()) / (float) BG_ENTER_MS, 0f, 1f);
+        return cubicBezier(0.2f, 0f, 0f, 1f, t);
+    }
+
+    /** 间奏区间（M-04）：nextIndex＝间奏后下一行下标（首行前间奏为 0），startMs／endMs 为区间起止（歌词时间轴）。 */
+    private static final class Interlude {
+        final int nextIndex;
+        final long startMs;
+        final long endMs;
+
+        Interlude(int nextIndex, long startMs, long endMs) {
+            this.nextIndex = nextIndex;
+            this.startMs = startMs;
+            this.endMs = endMs;
+        }
+    }
+
+    /**
+     * 间奏判定（M-04，照瓜子 detectInterlude 抄）：首行前要求首行 timeMs−250≥4000 且当前时间在首行前；
+     * 行间要求 (下一行 timeMs−250)−上一行末尾≥4000 且当前时间落在该区间内。
+     * 上一行末尾：有词行取末词 endMs；星辰 LyricsLine 无 durationMs 字段，词空行按 KLV 现有行兜底
+     * LINE_FALLBACK_MS（4000ms）计末尾（即词空行间触发等价于行首间距≥8250ms，有词行间等价于
+     * 下一行首−250−末词末≥4000，与报告“空隙至少 4250ms”为同一式子、不同末尾口径，见分表）。
+     */
+    static Interlude detectInterlude(List<LyricsLine> lines, long pos) {
+        if (lines == null || lines.isEmpty()) return null;
+        LyricsLine first = lines.get(0);
+        if (pos < first.getTimeMs() && first.getTimeMs() - INTERLUDE_PRE_OFFSET_MS >= INTERLUDE_THRESHOLD_MS) {
+            return new Interlude(0, 0, first.getTimeMs());
+        }
+        for (int i = 0; i < lines.size() - 1; i++) {
+            LyricsLine prev = lines.get(i);
+            LyricsLine next = lines.get(i + 1);
+            long prevEnd;
+            if (prev.hasWords()) {
+                prevEnd = prev.getTimeMs();
+                for (LyricsWord word : prev.getWords()) prevEnd = Math.max(prevEnd, prev.getTimeMs() + word.getEndOffsetMs());
+            } else {
+                prevEnd = prev.getTimeMs() + LINE_FALLBACK_MS;
+            }
+            if ((next.getTimeMs() - INTERLUDE_PRE_OFFSET_MS) - prevEnd >= INTERLUDE_THRESHOLD_MS
+                    && pos >= prevEnd && pos < next.getTimeMs()) {
+                return new Interlude(i + 1, prevEnd, next.getTimeMs());
+            }
+        }
+        return null;
+    }
+
+    /** GZ easeOutExpo：淡入系数（已走＜2000ms 时乘此值）。 */
+    static float easeOutExpo(float t) {
+        if (t <= 0f) return 0f;
+        if (t >= 1f) return 1f;
+        return 1f - (float) Math.pow(2, -10 * t);
+    }
+
+    /** GZ easeInOutBack（c1＝1.70158）：收尾系数（剩余＜750ms 时乘 1−easeInOutBack(((750−剩余)/750)/2)）。 */
+    static float easeInOutBack(float t) {
+        float v = clampF(t, 0f, 1f);
+        float c1 = 1.70158f;
+        float c2 = c1 * 1.70158f;
+        if (v < 0.5f) return (float) (Math.pow(2 * v, 2) * ((c2 + 1) * 2 * v - c2) / 2);
+        return (float) (Math.pow(2 * v - 2, 2) * ((c2 + 1) * (2 * v - 2) + c2) + 2) / 2;
+    }
+
+    /**
+     * 间奏圆点（M-04，照瓜子 InterludeDots 公式抄）：固定 3 颗，颜色取已唱色，对齐默认居中（调用方传中心 x）。
+     * 跳动：周期分段 ceil(总时长/1500)，正弦项 sin(4.712…−(已走/(总时长/段数))×2)/20＋1，半径系数再乘 0.7；
+     * 淡入：已走＜2000ms 乘 easeOutExpo(已走/2000)，已走＜500ms 时 alpha 因子 0、500–1000ms 线性 ramp、之后 1；
+     * 收尾：剩余＜750ms 乘 1−easeInOutBack(((750−剩余)/750)/2)，剩余＜375ms 时 alpha 因子再乘 剩余/375；
+     * 三颗逐颗相位错开（每颗 alpha 用 (已走−i×(总时长−750)/3)×3/(总时长−750)×0.75 钳 0.25–1）。
+     * 尺寸基准 f 为拟映射（当前主行字号 sp 值），待真机目视验证后再定死。
+     */
+    private void drawInterludeDots(Canvas canvas, float x, float y, long elapsed, long remaining) {
+        float f = mainTextSizeSp;
+        float diameter = dp(0.3f * f);
+        float step = dp(0.4f * f);
+        float totalWidth = dp(1.1f * f);
+        long total = elapsed + remaining;
+        if (total <= 0) total = 1;
+        int segments = (int) Math.ceil(total / 1500.0);
+        if (segments <= 0) segments = 1;
+        float segDur = total / (float) segments;
+        float bounce = (float) (Math.sin(4.71238898 - (elapsed / segDur) * 2.0) / 20.0 + 1.0);
+        float scale = bounce * 0.7f;
+        if (elapsed < 2000) scale *= easeOutExpo(elapsed / 2000f);
+        if (remaining < 750) scale *= 1f - easeInOutBack(((750f - remaining) / 750f) / 2f);
+        float alphaBase;
+        if (elapsed < 500) alphaBase = 0f;
+        else if (elapsed < 1000) alphaBase = (elapsed - 500) / 500f;
+        else alphaBase = 1f;
+        if (remaining < 375) alphaBase *= remaining / 375f;
+        float startX = x - totalWidth / 2f + diameter / 2f;
+        for (int i = 0; i < 3; i++) {
+            float perDot = 1f;
+            if (total > 750) {
+                perDot = clampF((elapsed - i * (total - 750) / 3f) * 3f / (total - 750) * 0.75f, 0.25f, 1f);
+            }
+            dotPaint.setColor(activeColor());
+            dotPaint.setAlpha(Math.round(255f * clampF(alphaBase * perDot, 0f, 1f)));
+            float radius = diameter / 2f * scale;
+            if (radius > 0f) canvas.drawCircle(startX + i * step, y, radius, dotPaint);
+        }
+        dotPaint.setAlpha(255);
+    }
+
+    private static float maxRowWidth(Block block) {
+        float max = 0f;
+        for (List<Seg> row : block.mainRows) max = Math.max(max, rowWidth(row));
+        return max;
     }
 
     private List<String> subTextsFor(int index) {
@@ -895,16 +1157,24 @@ public class KaraokeLyricsView extends View {
             return;
         }
         if (blocks.isEmpty()) return;
-        long pos = displayPositionMs();
-        float anchorY = getHeight() * ANCHOR;
+        // U-05：绘制用歌词位置同样按偏移换算（与当前行匹配同一口径）。
+        long pos = lyricPosition(displayPositionMs());
+        float anchorY = anchorY();
         float maxWidth = getWidth() - dp(H_PADDING_DP) * 2f;
         int windowBefore = coverMode ? WINDOW_BEFORE_COVER : WINDOW_BEFORE_FULLSCREEN;
         int windowAfter = coverMode ? WINDOW_AFTER_COVER : WINDOW_AFTER_FULLSCREEN;
+        // M-04：间奏区间内，下一行位置画圆点占位（行间占位行，落码时定），不画该行正文。
+        Interlude interlude = detectInterlude(lines, pos);
         for (Block block : blocks) {
             // 渲染窗口（GZ 窗口常量）：当前行前 before 行、后 after 行之外不画。
             if (currentIndex >= 0 && (block.index < currentIndex - windowBefore || block.index > currentIndex + windowAfter)) continue;
             float blockY = anchorY - scrollOffset + block.top;
             if (blockY + block.height < -dp(40) || blockY > getHeight() + dp(40)) continue;
+            if (interlude != null && block.index == interlude.nextIndex) {
+                drawInterludeDots(canvas, getWidth() / 2f, blockY + block.mainRowHeight * 0.5f,
+                        pos - interlude.startMs, interlude.endMs - pos);
+                continue;
+            }
             int distance = currentIndex < 0 ? Math.abs(block.index) + 4 : Math.abs(block.index - currentIndex);
             boolean isCurrent = block.index == currentIndex;
             drawBlock(canvas, block, blockY, maxWidth, distance, isCurrent, pos, anchorY);
@@ -975,12 +1245,56 @@ public class KaraokeLyricsView extends View {
     private void drawBlock(Canvas canvas, Block block, float blockTopY, float maxWidth,
                            int distance, boolean isCurrent, long pos, float anchorY) {
         LyricsLine line = lines.get(block.index);
+        boolean isBG = line.isBG();
+        // M-03：伴唱行主行画笔按伴唱字号（基值×0.7）绘制，绘制后还原（副行画笔不受影响）。
+        float savedMainSize = 0f;
+        float savedGlowSize = 0f;
+        if (isBG) {
+            savedMainSize = mainPaint.getTextSize();
+            savedGlowSize = glowPaint.getTextSize();
+            mainPaint.setTextSize(savedMainSize * BG_FONT_RATIO);
+            glowPaint.setTextSize(savedGlowSize * BG_FONT_RATIO);
+        }
         Paint.FontMetrics fm = mainPaint.getFontMetrics();
         float baseline = blockTopY - fm.ascent + dp(2);
+        // M-05：段落标签占一行（10sp 字高＋底部 3dp），画在正文上方，正文基线下移标签行高。
+        if (block.partLabel != null && !block.partLabel.isEmpty()) {
+            String label = ellipsize(block.partLabel, partLabelPaint, maxWidth);
+            float labelX = rowStartX(partLabelPaint.measureText(label));
+            Paint.FontMetrics labelFm = partLabelPaint.getFontMetrics();
+            canvas.drawText(label, labelX, blockTopY - labelFm.ascent, partLabelPaint);
+            baseline += block.labelHeight;
+        }
+        // M-03：伴唱入场变换只作用于主行（副行不进变换）：透明度乘 clamp(bg,0,1)（saveLayerAlpha）、
+        // 缩放乘 (0.2×bg＋0.8)、入场位移 (1-bg)×(-0.8)×行高；变换原点：对唱行横向 1.0／非对唱行 0.0、
+        // 纵向伴唱 0（块顶）；bg 已到终态 1 时不包变换层。
+        float bg = bgValue(line, isCurrent, pos);
+        boolean bgAnimating = isBG && bg < 1f;
+        int layerSave = -1;
+        int transformSave = -1;
+        if (bgAnimating) {
+            float rowWidthMax = maxRowWidth(block);
+            float pivotX = rowStartX(rowWidthMax) + (line.isDuet() ? rowWidthMax : 0f);
+            layerSave = canvas.saveLayerAlpha(0f, 0f, (float) getWidth(), (float) getHeight(),
+                    Math.round(255f * clampF(bg, 0f, 1f)));
+            transformSave = canvas.save();
+            canvas.translate(0f, (1f - bg) * (-0.8f) * block.mainRowHeight);
+            canvas.translate(pivotX, blockTopY);
+            canvas.scale(0.2f * bg + 0.8f, 0.2f * bg + 0.8f);
+            canvas.translate(-pivotX, -blockTopY);
+        }
         if (isCurrent) {
             drawCurrentMain(canvas, block, line, baseline, pos);
         } else {
             drawIdleMain(canvas, block, baseline, distance, blockTopY, anchorY);
+        }
+        if (bgAnimating) {
+            canvas.restoreToCount(transformSave);
+            canvas.restoreToCount(layerSave);
+        }
+        if (isBG) {
+            mainPaint.setTextSize(savedMainSize);
+            glowPaint.setTextSize(savedGlowSize);
         }
         float subBaseline = baseline + fm.descent + block.subRowHeight * 0.92f;
         subPaint.setAlpha(255);
@@ -1141,7 +1455,8 @@ public class KaraokeLyricsView extends View {
         Paint paint = mainPaint;
         paint.setMaskFilter(null);
         long relative = pos - line.getTimeMs();
-        boolean wordMode = primaryMode == 0 && wordByWord && line.hasWords();
+        // M-02：逐字提亮复用原文词渲染路径（布局已按三档词表分段）；词空时 Seg.word 为 null，走整行提亮回落。
+        boolean wordMode = wordByWord;
         float em = paint.getTextSize();
         float y = baseline;
         int totalRows = block.mainRows.size();
@@ -1403,7 +1718,7 @@ public class KaraokeLyricsView extends View {
     }
 
     private int lineAtY(float y) {
-        float anchorY = getHeight() * ANCHOR;
+        float anchorY = anchorY();
         float contentY = y - anchorY + scrollOffset;
         for (Block block : blocks) {
             if (contentY >= block.top && contentY < block.top + block.height) return block.index;
@@ -1462,6 +1777,9 @@ public class KaraokeLyricsView extends View {
         float height;
         float mainRowHeight;
         float subRowHeight;
+        /** 段落标签文案（M-05，空＝无标签行）与标签行高（10sp＋3dp，空标签时 0）。 */
+        String partLabel = "";
+        float labelHeight;
         List<List<Seg>> mainRows = Collections.emptyList();
         List<String> subTexts = Collections.emptyList();
     }

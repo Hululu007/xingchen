@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.database.ContentObserver;
 import android.graphics.Typeface;
@@ -65,10 +66,10 @@ import java.util.regex.Pattern;
  * ＋系统音量卡＋设置卡（分组白卡、行内「名字左/值右」同一行），
  * ＋三子面板（播放页主题/定时/歌词设置），同 Dialog 内换内容区切换。
  * 令牌照 GZ 参数表第 7 节浅色套（SheetTokensKt）：sheetBg 白、sheetPanelBg #F3F3F3、卡面白、
- * 主字 #1C1C1E、次字 #9A9AA0、中字 #8E8E93、分割线/描边黑 0.06、内嵌黑 0.04、拖动条黑 0.14；
+ * 主字 #1C1C1E、次字 #9A9AA0、中字 #8E8E93、分割线/描边黑 0.06、内嵌黑 0.04；
  * 面板内边距 16dp 底 10dp（GlassSheetPanelKt）、区块间隔 20dp、子面板头 44dp/圆钮 40dp。
- * 颜色差异（用户口径）：GZ 的 AccentRed 品牌红不进星辰——模式选中态改中性深底白字、
- * 音量填充/滑杆/开关选中态改深色填充（#1C1C1E），结构与尺寸仍照 GZ。
+ * P04：瓜子工具面板无拖动条，星辰自绘条已删。P39/U1：不熄屏开关选中轨红 #FA243C（smali 实证）、
+ * 拇指恒白、未选轨黑 0.10——旧「开关选中态改深色填充 #1C1C1E」口径已废止。
  */
 public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
@@ -82,6 +83,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         void onAddToPlaylist();
 
         void onDownload();
+
+        /** A4 外观开关变化（流体／律动）时通知播放页刷新流体层 */
+        void onAppearanceChanged();
     }
 
     private static final int PANEL_MAIN = 0;
@@ -89,11 +93,12 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private static final int PANEL_SLEEP = 2;
     private static final int PANEL_LYRIC = 3;
     private static final int PANEL_SONG_INFO = 4;
+    private static final int PANEL_APPEARANCE = 5;
 
     // GZ SheetTokensKt 浅色套
     private static final int COLOR_PANEL = 0xFFF3F3F3;
     private static final int COLOR_CARD = 0xFFFFFFFF;
-    private static final int COLOR_DARK = 0xFF1C1C1E;   // 仅余开关轨/恢复默认等无 GZ 色值证据处用
+    private static final int COLOR_DARK = 0xFF1C1C1E;   // 深色文字/恢复默认行用；开关选中轨已改红，不再用它
     private static final int COLOR_RED = 0xFFFA243C;    // GZ AccentRed（本体多处实证；上一版「中性深代红」口径无原话、已废止）
     private static final int COLOR_TEXT = 0xFF1C1C1E;
     private static final int COLOR_LOW = 0xFF9A9AA0;
@@ -213,6 +218,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             case PANEL_SONG_INFO:
                 buildSongInfoPanel();
                 break;
+            case PANEL_APPEARANCE:
+                buildAppearancePanel();
+                break;
             default:
                 buildMainPanel();
                 break;
@@ -283,7 +291,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return row;
     }
 
-    /** ② 快捷格一排 4（GZ 快捷格行 T02–T05）：盒高 56dp、白方格圆角 16dp＋阴影 2dp、图标 26dp、标签 12sp/700、标距 8dp、格间距 8dp */
+    /** ② 快捷格一排 4（GZ 快捷格行 T02–T05）：盒高 56dp、白方格圆角 16dp＋阴影 2dp、图标 26dp、标签 12sp/700、标距 8dp、格间距 8dp。
+     * P17：下载＝回调＋关面板；歌词／定时＝showPanel 切子面板不关（showPanel 内 260ms 淡入）；格子本身不关面板。 */
     private View buildQuickGrid() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -296,6 +305,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }), quickLp(0));
         row.addView(quickCell(R.drawable.ic_music_note, R.string.music_tab_lyric, v -> showPanel(PANEL_LYRIC)), quickLp(dp(8)));
         row.addView(quickCell(R.drawable.ic_music_timer, R.string.music_sleep, v -> showPanel(PANEL_SLEEP)), quickLp(dp(8)));
+        // P17 已核：加歌单＝回调＋关面板，宿主回调（MPA pickPlaylist）随即开加歌单面板，
+        // 与瓜子「关工具面板＋开加歌单面板」一致；格子本身不内置关闭。
         row.addView(quickCell(R.drawable.ic_music_plus, R.string.music_add_to_playlist, v -> {
             if (listener != null) listener.onAddToPlaylist();
             dismissAllowingStateLoss();
@@ -400,7 +411,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             ImageView iv = new ImageView(getContext());
             iv.setImageResource(icons[i]);
             iv.setImageTintList(ColorStateList.valueOf(sel ? COLOR_RED : COLOR_LOW));
-            segCell.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            segCell.addView(iv, new LinearLayout.LayoutParams(dp(16), dp(16)));
             TextView tv = text(labels[i], 12, sel ? COLOR_RED : COLOR_LOW, sel);
             if (!sel) applyWeight(tv, 500);
             tv.setGravity(Gravity.CENTER);
@@ -610,7 +621,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             }
         }
         // GZ 设置卡形态（本体图 112768_26）：2 列格——首行 均衡器｜播放页主题、次行 倍速｜搜索歌词
-        // （GZ 次行是「外观设置/自定义封面」，星辰无对应后端，按令以自有真功能 倍速/搜索歌词 替位，不做假入口）
+        // （GZ 次行是「外观设置/自定义封面」：外观设置已按 A4 落真格＋子面板（下 grid3），自定义封面是赞助版锁仍不做；
+        // 倍速／搜索歌词是星辰自有真功能，保留，不冒充瓜子格）
         LinearLayout grid1 = new LinearLayout(getContext());
         grid1.setOrientation(LinearLayout.HORIZONTAL);
         grid1.addView(settingsCell(R.drawable.ic_music_eq, getString(R.string.music_equalizer), null, v -> {
@@ -631,9 +643,28 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             dismissAllowingStateLoss();
         }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         card.addView(grid2);
+        // A4：设置卡新增“外观设置”格（调色板图标取现有图标；自定义封面是瓜子赞助版锁，排除项，不做假入口）
+        LinearLayout grid3 = new LinearLayout(getContext());
+        grid3.setOrientation(LinearLayout.HORIZONTAL);
+        grid3.addView(settingsCell(R.drawable.ic_music_palette, "外观设置", null,
+                v -> showPanel(PANEL_APPEARANCE)),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        grid3.addView(new View(getContext()),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(grid3);
         addDivider(card);
         card.addView(switchRow(getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
                 on -> MusicStore.setPlayerKeepScreenOn(on)));
+        // A7 门控照瓜子双非空：仅横屏时传状态值与变更回调，竖屏行不出（对话框横屏才建行）
+        if (isLandscape()) {
+            addDivider(card);
+            card.addView(switchRow("左手布局（横屏）", MusicStore.isLeftHandLandscape(),
+                    on -> {
+                        MusicStore.setLeftHandLandscape(on);
+                        // 横屏分支在 applyTheme 内重算，开关拨动即刷新主题装配使换位立即生效
+                        if (listener != null) listener.onThemeChanged();
+                    }));
+        }
         addRow(card, getString(R.string.music_play_next), null, v -> {
             if (track != null) {
                 MusicController.get().insertNext(track);
@@ -731,6 +762,54 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     private static String speedLabel(float s) {
         return (s == Math.floor(s) ? String.format("%.1f", s) : String.valueOf(s)) + "×";
+    }
+
+    // ================= 外观设置子面板（A4） =================
+
+    /** A4 子面板：头“外观设置”，分区“背景动效”，两行 switchRow 复用：
+     * “动态流体背景”（开时 AnimatedVisibility 式子内容：说明行显隐）＋“音乐律动”。
+     * 音乐律动行不设禁用态（瓜子第 5 布尔参疑似禁用标志、未完全解码，不编造）。
+     * 自定义封面不做（瓜子赞助版锁，排除项）。 */
+    private void buildAppearancePanel() {
+        LinearLayout box = binding.container;
+        box.addView(subHeader("外观设置"));
+        TextView section = text("背景动效", 13, COLOR_LOW, false);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(12);
+        box.addView(section, slp);
+        LinearLayout card = cardBox();
+        LinearLayout fluidSub = new LinearLayout(getContext());
+        fluidSub.setOrientation(LinearLayout.VERTICAL);
+        fluidSub.setPadding(dp(16), 0, dp(16), dp(12));
+        TextView fluidNote = text("开启后播放页背景改为流体氛围（封面取色，仍按时间正弦漂移）", 12, COLOR_LOW, false);
+        fluidSub.addView(fluidNote);
+        fluidSub.setVisibility(MusicStore.isFluidBg() ? View.VISIBLE : View.GONE);
+        card.addView(switchRow("动态流体背景", MusicStore.isFluidBg(), on -> {
+            MusicStore.setFluidBg(on);
+            fluidSub.setVisibility(on ? View.VISIBLE : View.GONE);
+            if (listener != null) listener.onAppearanceChanged();
+        }));
+        card.addView(fluidSub);
+        card.addView(switchRow("音乐律动", MusicStore.isRhythm(),
+                on -> {
+                    MusicStore.setRhythm(on);
+                    if (listener != null) listener.onAppearanceChanged();
+                }));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(8);
+        box.addView(card, clp);
+    }
+
+    /** A7 门控：仅横屏时建左手行（瓜子双非空：横屏调用方传状态＋回调，竖屏传空行不出） */
+    private boolean isLandscape() {
+        try {
+            return getContext() != null && getContext().getResources().getConfiguration().orientation
+                    == Configuration.ORIENTATION_LANDSCAPE;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     // ================= 主题子面板 =================
@@ -1487,7 +1566,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 new int[]{0xFFFFFFFF, 0xFFFFFFFF}));
         sw.setTrackTintList(new ColorStateList(
                 new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
-                new int[]{COLOR_DARK, 0xFFD9D9DE}));
+                new int[]{COLOR_RED, 0x1A000000}));
         sw.setOnCheckedChangeListener((button, on) -> onChange.accept(on));
         row.addView(sw);
         return row;

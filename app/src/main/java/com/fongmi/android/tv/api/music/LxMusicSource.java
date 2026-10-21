@@ -147,6 +147,7 @@ public class LxMusicSource implements MusicSource {
             if (wait <= 0) break;
             try {
                 // 单脚本 8 秒上限：get 到点就放弃这个脚本换下一个（脚本桥线程自己还有内层上限兜底）
+                long lxT0 = System.currentTimeMillis();
                 String r = CompletableFuture.supplyAsync(() -> {
                     try {
                         return b.request(p.platform, "musicUrl", musicInfo, q);
@@ -155,7 +156,12 @@ public class LxMusicSource implements MusicSource {
                     }
                 }, Task.executor()).get(wait, TimeUnit.MILLISECONDS);
                 String url = extractUrl(r);
-                if (!TextUtils.isEmpty(url)) return url;
+                if (!TextUtils.isEmpty(url)) {
+                    // C5 真实取链耗时（最近一次口径）：记到实际出链的那个脚本名下
+                    com.fongmi.android.tv.music.MusicStore.notePluginLatency(
+                            PLATFORM, plugin.srcUrl, System.currentTimeMillis() - lxT0, false);
+                    return url;
+                }
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
             }

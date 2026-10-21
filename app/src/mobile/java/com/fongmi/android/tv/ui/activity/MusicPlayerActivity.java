@@ -118,13 +118,35 @@ public class MusicPlayerActivity extends BaseActivity {
     private TextView lyricLineView;
     private View cdRoot;
     private View cdDisc;
+    private View cdSheenView;
+    private View cdDetailView;
+    private ImageView cdDetailThumb;
+    private TextView cdDetailTitle;
+    private TextView cdDetailArtist;
+    private View cdDetailBtn;
+    private android.animation.AnimatorSet cdSheenAnim;
+    private android.animation.ValueAnimator cdDetailAnim;
+    private float cdDetailAnimValue;
+    private float cdDetailAnimTarget = -1f;
+    private CdDetailContent cdDetailContent = CdDetailContent.LYRICS;
+    private boolean favoriteBusy;
+    private int shelfPrevIndex = -1;
+    private int shelfSwitchToken;
+    private boolean shelfSwitchDone;
+    private android.animation.AnimatorSet shelfSwitchAnim;
+    private android.animation.AnimatorSet coverExpandAnim;
     private RecyclerView shelfList;
     private ShelfAdapter shelfAdapter;
+
+    private enum CdDetailContent { LYRICS, SONG_INFO }
 
     // ===== 状态 =====
     private final List<LyricsLine> lyricMains = new ArrayList<>();
     private final List<String> lyricTrans = new ArrayList<>();
     private final List<String> lyricRomas = new ArrayList<>();
+    /** 翻译／音译逐词表（M-02：与 lyricMains 按下标对齐，元素为该行逐词表，空表＝无逐词）。 */
+    private final List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> lyricTransWords = new ArrayList<>();
+    private final List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> lyricRomaWords = new ArrayList<>();
     private int lyricIndex = -1;
     private boolean seeking;
     private boolean favorited;
@@ -250,6 +272,8 @@ public class MusicPlayerActivity extends BaseActivity {
         else {
             applyLyricStyle();
             if (lyricView != null) lyricView.setPlaying(playing);
+            // U-05：从设置页回来时按新偏移重算一次（暂停态下逐帧循环不跑，单行与 KLV 静态显示靠这次刷新对齐新偏移）
+            refreshLyricOffset();
         }
         applyKeepScreenOn();
         refreshVolume();
@@ -325,6 +349,8 @@ public class MusicPlayerActivity extends BaseActivity {
         refreshModeIcon(MusicController.get().getMode());
         refreshQualityValue();
         refreshVolume();
+        applyFluidBg();
+        applyLandscapeLayout();
     }
 
     private <T extends View> T find(int id) {
@@ -363,6 +389,15 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricLineView = find(R.id.tpLyricLine);
         cdRoot = find(R.id.tpCdRoot);
         cdDisc = find(R.id.tpCdDisc);
+        cdSheenView = find(R.id.tpCdSheen);
+        cdDetailView = find(R.id.tpCdDetail);
+        cdDetailThumb = find(R.id.tpCdDetailThumb);
+        cdDetailTitle = find(R.id.tpCdDetailTitle);
+        cdDetailArtist = find(R.id.tpCdDetailArtist);
+        cdDetailBtn = find(R.id.tpCdDetailBtn);
+        cdDetailAnimValue = 0f;
+        cdDetailAnimTarget = -1f;
+        cdDetailContent = CdDetailContent.LYRICS;
         cdSweepView = find(R.id.tpCdSweep);
         shelfList = find(R.id.tpShelfList);
     }
@@ -385,14 +420,14 @@ public class MusicPlayerActivity extends BaseActivity {
         if (queueView != null) queueView.setOnClickListener(v -> MusicQueueDialog.show(this));
         if (favBtnView != null) favBtnView.setOnClickListener(v -> toggleFavorite(v));
 
-        // 封面圆角：经典沿用现有 28dp 裁剪口径，其余主题按各自版式；出场封面层与主封面同形裁剪
+        // 封面圆角（redo3 第四轮 C7）：经典 0dp 方形（GZ 经典封面传 0.0f、无 shape 裁剪），其余主题按各自版式；出场封面层与主封面同形裁剪
         if (coverView != null) {
             if (THEME_CD.equals(themeId)) setCircle(coverView);
-            else setRounded(coverView, THEME_CLASSIC.equals(themeId) ? 28 : THEME_APPLE.equals(themeId) ? 20 : THEME_IMMERSIVE.equals(themeId) ? 22 : 24);
+            else setRounded(coverView, THEME_CLASSIC.equals(themeId) ? 0 : THEME_APPLE.equals(themeId) ? 20 : THEME_IMMERSIVE.equals(themeId) ? 22 : 24);
         }
         if (coverExitView != null) {
             if (THEME_CD.equals(themeId)) setCircle(coverExitView);
-            else setRounded(coverExitView, THEME_CLASSIC.equals(themeId) ? 28 : THEME_APPLE.equals(themeId) ? 20 : THEME_IMMERSIVE.equals(themeId) ? 22 : 24);
+            else setRounded(coverExitView, THEME_CLASSIC.equals(themeId) ? 0 : THEME_APPLE.equals(themeId) ? 20 : THEME_IMMERSIVE.equals(themeId) ? 22 : 24);
         }
 
         // 封面手势（G01–G03）：经典/Apple/封面卡片三套带大封面的主题共用
@@ -510,10 +545,21 @@ public class MusicPlayerActivity extends BaseActivity {
             if (infoBtn != null) infoBtn.setOnClickListener(v -> toggleCoverInfo());
         }
 
-        // 流光 CD：色板生效＋建旋转动画
+        // 流光 CD：色板生效＋建旋转动画＋盘面响应式尺寸（D4）＋光泽层底色（D11）＋细节键（D11）
         if (THEME_CD.equals(themeId)) {
             applyCdPalette();
             buildCdAnimator();
+            applyCdDiscSize();
+            if (cdSheenView != null && cdSheenView.getBackground() == null) {
+                android.graphics.drawable.GradientDrawable sheen = new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                        new int[]{0x00FFFFFF, 0x2EFFFFFF, 0x00FFFFFF});
+                sheen.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                cdSheenView.setBackground(sheen);
+                cdSheenView.setAlpha(0f);
+            }
+            if (cdDetailBtn != null) cdDetailBtn.setOnClickListener(v -> toggleCdDetailContent());
+            if (cdDetailView != null) cdDetailView.setAlpha(0f);
         }
         // 黑胶唱片架：横向队列陈列
         if (shelfList != null) {
@@ -613,11 +659,15 @@ public class MusicPlayerActivity extends BaseActivity {
     /**
      * 封面手势（GZ §2 锚点模型转写）：双击→收藏＋burstCover（大爆）；长按→工具面板；
      * 单击→开歌词内页/切展开；滑动切歌按主题分轴——经典竖滑（锚点距 clamp(屏高×0.42, 240, 400)dp、
-     * 轴锁 1.5）、封面卡片横滑（锚点距 clamp(屏宽×0.42, 220, 360)dp、轴锁 1.2）、其余主题横滑（轴锁 1.5、无跟手）；
+     * 轴锁 1.5）、封面卡片横滑（锚点距 clamp(屏宽×0.42, 220, 360)dp、轴锁 1.2）、其余主题横滑（轴锁 1.5、无跟手），
+     * Apple 竖屏除外（A10：取消封面切歌滑动）；
      * 触发距离 36dp、甩动速度 600dp/s、拖动 1:1 跟手钳在锚点内、过阈 CONTEXT_CLICK 震动一次、
      * 提交先 150ms(bs4.f) 滑到锚点再切歌、不提交回中（GZ 弹簧 0.9/1400 以 250ms tween 近似）。
      */
     private void attachCoverGestures(View wrap) {
+        // redo3 第四轮 A10：Apple 竖屏封面无切歌滑动（GZ Apple 竖屏封面无滑动处理器，横滑只在横屏黑胶／封面卡片）；
+        // Apple 页仅取消封面切歌滑动（onScroll 守卫），单击／双击／长按与歌词页 pager 滑动不受影响；其余主题横滑口径不动。
+        final boolean swipeEnabled = !THEME_APPLE.equals(themeId);
         final boolean vertical = THEME_CLASSIC.equals(themeId);
         final boolean follow = vertical || THEME_IMMERSIVE.equals(themeId);
         final float dominance = THEME_IMMERSIVE.equals(themeId) ? 1.2f : 1.5f;
@@ -680,6 +730,7 @@ public class MusicPlayerActivity extends BaseActivity {
             @Override
             public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
                 if (e1 == null || e2 == null) return false;
+                if (!swipeEnabled) return false; // A10：Apple 竖屏封面不处理切歌滑动
                 float dx = e2.getX() - e1.getX();
                 float dy = e2.getY() - e1.getY();
                 float off = vertical ? dy : dx;
@@ -1053,6 +1104,49 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** 氛围色 450ms 渐变过渡（GZ animateColorAsState tween(450, bs4.a)，PlayerScreenKt coverDominantAmbient） */
+    /** A4 流体层：开时可见、颜色取当前封面取色（氛围色＋主色＋toneAdjust）；关时隐藏走原糊底＋氛围层。
+     * 律动未接通（level 恒 0，见 MusicRhythmSource 说明），流体仍按时间正弦漂移。 */
+    private void applyFluidBg() {
+        try {
+            if (binding == null || binding.fluidAmbient == null) return;
+            boolean on = MusicStore.isFluidBg();
+            binding.fluidAmbient.setVisibility(on ? View.VISIBLE : View.GONE);
+            if (on) {
+                binding.fluidAmbient.setColors(ambientColor, dominantColor,
+                        CoverColor.toneAdjust(ambientColor));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * A7 横屏排布分支（仅横屏，竖屏直接返回；旋转会重建 Activity，分支每次重算，无需复位）。
+     * 骨架横屏布局里歌词内页已是左右分栏（封面列左、歌词＋主控右列）；
+     * 左手模式把封面列换到右侧（主控行与功能键居左半区，封面与歌词居右半区），右手模式保持默认列序。
+     * 边界：主题内页沿用竖屏组合（封面／歌词／主控都在主题布局内竖排），逐主题横版文件不在本批文件清单内，
+     * 主题内页的左右分栏未做，见报告未落项。
+     */
+    private void applyLandscapeLayout() {
+        try {
+            if (getResources().getConfiguration().orientation
+                    != android.content.res.Configuration.ORIENTATION_LANDSCAPE) return;
+            View coverCol = findViewById(R.id.lyricsCoverCol);
+            View mainCol = findViewById(R.id.lyricsMainCol);
+            if (coverCol == null || mainCol == null || coverCol.getParent() != mainCol.getParent()) return;
+            ViewGroup parent = (ViewGroup) coverCol.getParent();
+            boolean leftHand = MusicStore.isLeftHandLandscape();
+            int coverIdx = parent.indexOfChild(coverCol);
+            if (leftHand && coverIdx == 0) {
+                parent.removeView(coverCol);
+                parent.addView(coverCol);
+            } else if (!leftHand && coverIdx != 0) {
+                parent.removeView(coverCol);
+                parent.addView(coverCol, 0);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void animateAmbient(int to) {
         if (ambientAnimator != null) ambientAnimator.cancel();
         ambientAnimator = ValueAnimator.ofObject(new ArgbEvaluator(), ambientColor, to);
@@ -1062,6 +1156,10 @@ public class MusicPlayerActivity extends BaseActivity {
             ambientColor = (int) a.getAnimatedValue();
             binding.viewAmbient.setBackgroundColor(ambientColor);
             if (lyricsPageOpen && lyricsPage != null) lyricsPage.setBackgroundColor(ambientColor);
+            if (binding.fluidAmbient != null && binding.fluidAmbient.getVisibility() == View.VISIBLE) {
+                binding.fluidAmbient.setColors(ambientColor, dominantColor,
+                        CoverColor.toneAdjust(ambientColor));
+            }
         });
         ambientAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override
@@ -1134,28 +1232,38 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricMains.clear();
         lyricTrans.clear();
         lyricRomas.clear();
+        lyricTransWords.clear();
+        lyricRomaWords.clear();
         lyricIndex = -1;
         updateCurrentLyricTexts(MusicController.get().position());
         Task.execute(() -> {
             List<LyricsLine> mains = new ArrayList<>();
             List<String> trans = new ArrayList<>();
             List<String> romas = new ArrayList<>();
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> transWords = new ArrayList<>();
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> romaWords = new ArrayList<>();
             try {
                 MusicLyric rich = MusicRepository.lyricRich(track, force);
                 if (rich != null) {
                     if (rich.rawLrc != null && !rich.rawLrc.isEmpty()) {
                         mains = LyricsParser.parseWordLyric(rich.rawLrc);
                     }
+                    // M-02：翻译／音译改走 parseWordLyric 保词（不再走丢词时间的 parseTimed）；
+                    // 词时间已由解析侧换算为相对行首偏移，整行字符串仍作词空时回落。
                     List<LyricsLine> transLines = rich.translation == null || rich.translation.isEmpty()
-                            ? null : LyricsParser.parseTimed(rich.translation);
+                            ? null : LyricsParser.parseWordLyric(rich.translation);
                     List<LyricsLine> romaLines = rich.romanization == null || rich.romanization.isEmpty()
-                            ? null : LyricsParser.parseTimed(rich.romanization);
+                            ? null : LyricsParser.parseWordLyric(rich.romanization);
                     List<RichLyrics.Line> aligned = RichLyrics.align(mains, transLines, romaLines);
                     trans.clear();
                     romas.clear();
+                    transWords.clear();
+                    romaWords.clear();
                     for (RichLyrics.Line line : aligned) {
                         trans.add(line.translation);
                         romas.add(line.romanization);
+                        transWords.add(line.translationWords);
+                        romaWords.add(line.romanizationWords);
                     }
                 }
                 if (mains.isEmpty()) {
@@ -1168,10 +1276,12 @@ public class MusicPlayerActivity extends BaseActivity {
             List<LyricsLine> resultMains = mains;
             List<String> resultTrans = trans;
             List<String> resultRomas = romas;
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultTransWords = transWords;
+            List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> resultRomaWords = romaWords;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
                 if (cur == null || !cur.equals(track)) return;
-                applyLyricData(resultMains, resultTrans, resultRomas);
+                applyLyricData(resultMains, resultTrans, resultRomas, resultTransWords, resultRomaWords);
                 // 取词确认为空才露空态
                 if (resultMains.isEmpty() && lyricView != null) lyricView.showNoLyric();
                 if (resultMains.isEmpty() && lyricsPageOpen && pageLyricView != null) pageLyricView.showNoLyric();
@@ -1218,13 +1328,19 @@ public class MusicPlayerActivity extends BaseActivity {
         lyricChipTextView.setText(label);
     }
 
-    private void applyLyricData(List<LyricsLine> mains, List<String> trans, List<String> romas) {
+    private void applyLyricData(List<LyricsLine> mains, List<String> trans, List<String> romas,
+                                List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> transWords,
+                                List<List<com.fongmi.android.tv.player.lyrics.LyricsWord>> romaWords) {
         lyricMains.clear();
         lyricMains.addAll(mains);
         lyricTrans.clear();
         lyricTrans.addAll(trans);
         lyricRomas.clear();
         lyricRomas.addAll(romas);
+        lyricTransWords.clear();
+        if (transWords != null) lyricTransWords.addAll(transWords);
+        lyricRomaWords.clear();
+        if (romaWords != null) lyricRomaWords.addAll(romaWords);
         lyricIndex = -1;
         updateLyricChipLabel(mains);
         feedLyricView();
@@ -1233,7 +1349,8 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private void feedLyricView() {
         if (lyricView != null) {
-            lyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas));
+            lyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas),
+                    new ArrayList<>(lyricTransWords), new ArrayList<>(lyricRomaWords));
             lyricView.setPlaying(playing);
             lyricView.updatePosition(MusicController.get().position());
         }
@@ -1243,10 +1360,28 @@ public class MusicPlayerActivity extends BaseActivity {
     /** 歌词内页喂词：与播放页同一份 lyricMains 数据，不再单独取词/解析（双份链已删） */
     private void feedPageLyricView() {
         if (pageLyricView == null) return;
-        pageLyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas));
+        pageLyricView.setLines(new ArrayList<>(lyricMains), new ArrayList<>(lyricTrans), new ArrayList<>(lyricRomas),
+                new ArrayList<>(lyricTransWords), new ArrayList<>(lyricRomaWords));
         pageLyricView.setPlaying(playing);
         pageLyricView.updatePosition(MusicController.get().position());
         refreshPageWordChip();
+    }
+
+    /** 歌词时间偏移读值（U-05：读 MusicStore.getLyricOffsetMs()，面板路键 music_lyric_offset_ms，毫秒整数，默认 0；本面只读值，不建设置 UI）。 */
+    private long lyricOffsetMs() {
+        try {
+            return MusicStore.getLyricOffsetMs();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 偏移变化后单行歌词立即重算（U-05：面板路写值后调此方法＋两 KLV 的 refreshLyricOffset，不用等切歌）。 */
+    public void refreshLyricOffset() {
+        lyricIndex = Integer.MIN_VALUE;
+        updateCurrentLyricTexts(MusicController.get().position());
+        if (lyricView != null) lyricView.refreshLyricOffset();
+        if (pageLyricView != null) pageLyricView.refreshLyricOffset();
     }
 
     /**
@@ -1306,9 +1441,10 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
-    /** 当前行文本刷新（封面卡片一行；流光 CD 走 KaraokeLyricsView 组件，不经此处） */
+    /** 当前行文本刷新（封面卡片一行；流光 CD 走 KaraokeLyricsView 组件，不经此处）
+     * U-05：单行匹配同样按偏移换算（查找位置＝播放位置 − offset，正偏移＝歌词延后显示，负偏移＝提前；0 时与原来一致）。 */
     private void updateCurrentLyricTexts(long position) {
-        int idx = lyricMains.isEmpty() ? -1 : LyricsParser.findLine(lyricMains, position);
+        int idx = lyricMains.isEmpty() ? -1 : LyricsParser.findLine(lyricMains, position - lyricOffsetMs());
         if (idx == lyricIndex) return;
         lyricIndex = idx;
         String main = "";
@@ -1322,18 +1458,84 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
-    /** 封面卡片展开态开关（GZ：点封面切换；展开时玻璃条中段文案变「返回到封面模式」） */
+    /** 封面卡片展开态开关（GZ：点封面切换；展开时玻璃条中段文案变「返回到封面模式」）；
+     * redo3 第四轮 V11：不再 setVisibility 硬切，改走 animateCoverExpanded 三路 350ms 动画；
+     * lyricLineView 文案切换与 lyricIndex 复位逻辑原样保留。 */
     private void toggleCoverExpanded() {
         View exp = find(R.id.tpCoverExpanded);
         if (exp == null) return;
         coverExpanded = exp.getVisibility() != View.VISIBLE;
-        exp.setVisibility(coverExpanded ? View.VISIBLE : View.GONE);
+        animateCoverExpanded(coverExpanded);
         if (lyricLineView != null) {
             if (coverExpanded) lyricLineView.setText(R.string.music_cover_back);
             else {
                 lyricIndex = Integer.MIN_VALUE;
                 updateCurrentLyricTexts(MusicController.get().position());
             }
+        }
+    }
+
+    /** 封面卡片展开切换动画（redo3 第四轮 V11，GZ coverAlternate 三路 350ms）：
+     * 平移（满幅入场／四分之一幅出场，展开取一向、收起取反向：入场自右侧满幅滑入，收起向右侧滑出四分之一幅）、
+     * 透明度（淡入／淡出均 INTERP_FOSI）、缩放（入场 0.94→1／出场 1→0.92）；
+     * 入场平移／缩放用 INTERP_EMPH，出场平移／缩放用 INTERP_OUT_C；出场动画结束后再 setVisibility(GONE)。 */
+    private void animateCoverExpanded(boolean expand) {
+        View exp = find(R.id.tpCoverExpanded);
+        if (exp == null) return;
+        if (coverExpandAnim != null) coverExpandAnim.cancel();
+        if (expand) {
+            exp.setVisibility(View.VISIBLE);
+            if (exp.getWidth() <= 0) {
+                exp.post(() -> animateCoverExpanded(true));
+                return;
+            }
+            float w = exp.getWidth();
+            exp.setTranslationX(w);
+            exp.setAlpha(0f);
+            exp.setScaleX(0.94f);
+            exp.setScaleY(0.94f);
+            android.animation.ObjectAnimator tx = android.animation.ObjectAnimator.ofFloat(exp, View.TRANSLATION_X, w, 0f);
+            tx.setDuration(350);
+            tx.setInterpolator(INTERP_EMPH);
+            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(exp, View.ALPHA, 0f, 1f);
+            al.setDuration(350);
+            al.setInterpolator(INTERP_FOSI);
+            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(exp, View.SCALE_X, 0.94f, 1f);
+            sx.setDuration(350);
+            sx.setInterpolator(INTERP_EMPH);
+            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(exp, View.SCALE_Y, 0.94f, 1f);
+            sy.setDuration(350);
+            sy.setInterpolator(INTERP_EMPH);
+            coverExpandAnim = new android.animation.AnimatorSet();
+            coverExpandAnim.playTogether(tx, al, sx, sy);
+            coverExpandAnim.start();
+        } else {
+            float w = exp.getWidth() > 0 ? exp.getWidth() : getResources().getDisplayMetrics().widthPixels;
+            android.animation.ObjectAnimator tx = android.animation.ObjectAnimator.ofFloat(exp, View.TRANSLATION_X, exp.getTranslationX(), w / 4f);
+            tx.setDuration(350);
+            tx.setInterpolator(INTERP_OUT_C);
+            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(exp, View.ALPHA, exp.getAlpha(), 0f);
+            al.setDuration(350);
+            al.setInterpolator(INTERP_FOSI);
+            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(exp, View.SCALE_X, exp.getScaleX(), 0.92f);
+            sx.setDuration(350);
+            sx.setInterpolator(INTERP_OUT_C);
+            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(exp, View.SCALE_Y, exp.getScaleY(), 0.92f);
+            sy.setDuration(350);
+            sy.setInterpolator(INTERP_OUT_C);
+            coverExpandAnim = new android.animation.AnimatorSet();
+            coverExpandAnim.playTogether(tx, al, sx, sy);
+            coverExpandAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(android.animation.Animator animation) {
+                    exp.setVisibility(View.GONE);
+                    exp.setTranslationX(0f);
+                    exp.setAlpha(1f);
+                    exp.setScaleX(1f);
+                    exp.setScaleY(1f);
+                }
+            });
+            coverExpandAnim.start();
         }
     }
 
@@ -1670,6 +1872,9 @@ public class MusicPlayerActivity extends BaseActivity {
         if (!seeking && duration > 0 && seekView != null) {
             animateSeekTo((int) (position * 1000 / duration));
         }
+        if (THEME_CD.equals(themeId) && cdDetailView != null && duration > 0) {
+            applyCdDetail((float) position / duration, cdDetailContent == CdDetailContent.SONG_INFO);
+        }
         if (positionView != null) positionView.setText(fmt(position));
         // GZ Scrubber 底行右＝负剩余（-mm:ss），不是总时长
         if (durationView != null) durationView.setText("-" + fmt(Math.max(0, duration - position)));
@@ -1821,6 +2026,112 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** CdPalette：浅 Pearl(base #F4F2EE/mist #E9EFF5/ink #282D36/muted #747D89)，深 Space(base #14161C/ink #F2F2F7/muted #8E96A3) */
+    /** 流光 CD 盘／封面响应式尺寸（redo3 第四轮 D4）：基径 = min(盘区宽, 盘区高, 400dp)，盘 = 基径×0.89285713，封面 = 盘×0.68；
+     * 盘区取 tpCoverWrap 实测尺寸（布局后 post 取数，未量出时不动、沿用布局值）；中心点 14dp 无瓜子对应值，留着不动。 */
+    private void applyCdDiscSize() {
+        View wrap = find(R.id.tpCoverWrap);
+        if (wrap == null || cdDisc == null) return;
+        wrap.post(() -> {
+            if (cdDisc == null) return;
+            float d = getResources().getDisplayMetrics().density;
+            float availW = wrap.getWidth() / d;
+            float availH = wrap.getHeight() / d;
+            if (availW <= 0 || availH <= 0) return;
+            float base = Math.min(Math.min(availW, availH), 400f);
+            float disc = base * 0.89285713f;
+            float cover = disc * 0.68f;
+            int discPx = Math.round(disc * d);
+            int coverPx = Math.round(cover * d);
+            ViewGroup.LayoutParams dlp = cdDisc.getLayoutParams();
+            if (dlp != null && (dlp.width != discPx || dlp.height != discPx)) {
+                dlp.width = discPx;
+                dlp.height = discPx;
+                cdDisc.setLayoutParams(dlp);
+            }
+            for (View v : new View[]{coverView, coverExitView, cdSweepView}) {
+                if (v == null) continue;
+                ViewGroup.LayoutParams lp = v.getLayoutParams();
+                if (lp != null && (lp.width != coverPx || lp.height != coverPx)) {
+                    lp.width = coverPx;
+                    lp.height = coverPx;
+                    v.setLayoutParams(lp);
+                }
+            }
+        });
+    }
+
+    /** 流光 CD 光泽（redo3 第四轮 D11）：切歌／表面切换时淡入 700ms（INTERP_CD_EXPAND，bs4.d）后淡出 450ms（INTERP_FOSI）；
+     * 与 D10 表面切换的 500ms 根背景动画分属两个动画器、分开跑。 */
+    private void triggerCdSheen() {
+        if (cdSheenView == null) return;
+        if (cdSheenAnim != null) cdSheenAnim.cancel();
+        cdSheenView.setAlpha(0f);
+        android.animation.ObjectAnimator in = android.animation.ObjectAnimator.ofFloat(cdSheenView, View.ALPHA, 0f, 1f);
+        in.setDuration(700);
+        in.setInterpolator(INTERP_CD_EXPAND);
+        android.animation.ObjectAnimator out = android.animation.ObjectAnimator.ofFloat(cdSheenView, View.ALPHA, 1f, 0f);
+        out.setDuration(450);
+        out.setInterpolator(INTERP_FOSI);
+        cdSheenAnim = new android.animation.AnimatorSet();
+        cdSheenAnim.playSequentially(in, out);
+        cdSheenAnim.start();
+    }
+
+    /** CD 细节内容切换（redo3 第四轮 D11）：只切 CD 布局自己的细节层，不复用封面卡片的 toggleCoverInfo；
+     * SONG_INFO 显示细节行（拇指＋歌名／歌手），LYRICS 藏细节行（歌词走下方 tpLyricView）。 */
+    private void toggleCdDetailContent() {
+        if (cdDetailView == null) return;
+        cdDetailContent = cdDetailContent == CdDetailContent.SONG_INFO ? CdDetailContent.LYRICS : CdDetailContent.SONG_INFO;
+        if (cdDetailContent == CdDetailContent.SONG_INFO) refreshCdDetailTexts();
+        long dur = MusicController.get().duration();
+        float progress = dur > 0 ? (float) MusicController.get().position() / dur : 0f;
+        applyCdDetail(progress, cdDetailContent == CdDetailContent.SONG_INFO);
+    }
+
+    private void refreshCdDetailTexts() {
+        MusicTrack t = MusicController.get().current();
+        if (t == null) return;
+        if (cdDetailTitle != null) cdDetailTitle.setText(t.displayTitle());
+        if (cdDetailArtist != null) cdDetailArtist.setText(t.displayArtist());
+        if (cdDetailThumb != null && t.cover != null && !t.cover.isEmpty()) {
+            ImgUtil.load(t.displayTitle(), t.cover, cdDetailThumb);
+        }
+    }
+
+    /** CD 表面细节透明度（redo3 第四轮 D11）：细节动画值 tween(300, INTERP_FOSI)；进度门 0.02、区间 0.33，
+     * smoothstep (3-2v)v²；细节透明度 = min(动画值, 1 - smoothstep((clamp(进度,0,1) - 0.02) / 0.33))；
+     * 进度未过门时细节层透明且细节键图标 alpha 乘 0.35；文字滑移 20dp（入／出两向取反）。 */
+    private void applyCdDetail(float progress, boolean entered) {
+        if (cdDetailView == null) return;
+        float target = entered ? 1f : 0f;
+        if (cdDetailAnimTarget != target) {
+            cdDetailAnimTarget = target;
+            if (cdDetailAnim != null) cdDetailAnim.cancel();
+            cdDetailAnim = ValueAnimator.ofFloat(cdDetailAnimValue, target);
+            cdDetailAnim.setDuration(300);
+            cdDetailAnim.setInterpolator(INTERP_FOSI);
+            cdDetailAnim.addUpdateListener(a -> {
+                cdDetailAnimValue = (float) a.getAnimatedValue();
+                applyCdDetailAlpha(progress, entered);
+            });
+            cdDetailAnim.start();
+        }
+        applyCdDetailAlpha(progress, entered);
+    }
+
+    private void applyCdDetailAlpha(float progress, boolean entered) {
+        if (cdDetailView == null) return;
+        float p = Math.max(0f, Math.min(1f, progress));
+        float v = Math.max(0f, Math.min(1f, (p - 0.02f) / 0.33f));
+        float smooth = (3f - 2f * v) * v * v;
+        float alpha = Math.min(cdDetailAnimValue, 1f - smooth);
+        if (p <= 0.02f) alpha = 0f;
+        cdDetailView.setAlpha(alpha);
+        float d = getResources().getDisplayMetrics().density;
+        cdDetailView.setTranslationX((1f - cdDetailAnimValue) * 20f * d * (entered ? 1f : -1f));
+        if (cdDetailBtn != null) cdDetailBtn.setAlpha(p <= 0.02f ? 0.35f : 1f);
+    }
+
     private void applyCdPalette() {
         if (cdRoot == null) return;
         boolean dark = cdIsDark();
@@ -1852,9 +2163,22 @@ public class MusicPlayerActivity extends BaseActivity {
         if (seekView != null) {
             seekView.setProgressDrawable(getDrawable(dark
                     ? R.drawable.bg_player_seek_progress : R.drawable.bg_player_seek_progress_dark));
-            seekView.setThumb(getDrawable(R.drawable.bg_player_seek_thumb));
-            if (seekView.getThumb() != null) {
-                seekView.getThumb().setTintList(ColorStateList.valueOf(ink));
+            // redo3 第四轮 D14：瓜子 CD 轨无拇指——去掉透明 thumb 盒（布局侧 thumb="@null" 同步），不再设 thumb／不再 tint；
+            // 底轨改 ink×0.10：对 progressDrawable 的 background 层做 ink 0.10 着色（共享 drawable 先 mutate，不影响他处）；
+            // 填充色瓜子传入色 j 未追到底，不写成黑 0.42，填充层原样保留、记表为残留。
+            seekView.setThumb(null);
+            try {
+                android.graphics.drawable.Drawable pd = seekView.getProgressDrawable();
+                if (pd instanceof android.graphics.drawable.LayerDrawable) {
+                    android.graphics.drawable.Drawable bg = ((android.graphics.drawable.LayerDrawable) pd)
+                            .findDrawableByLayerId(android.R.id.background);
+                    if (bg != null) {
+                        bg.mutate();
+                        bg.setColorFilter((ink & 0x00FFFFFF) | 0x1A000000,
+                                android.graphics.PorterDuff.Mode.SRC_IN);
+                    }
+                }
+            } catch (Throwable ignored) {
             }
         }
         ColorStateList inkList = ColorStateList.valueOf(ink);
@@ -1862,6 +2186,7 @@ public class MusicPlayerActivity extends BaseActivity {
         if (nextView != null) nextView.setImageTintList(inkList);
         if (playView != null) playView.setImageTintList(inkList);
         if (queueView != null) queueView.setImageTintList(inkList);
+        triggerCdSheen(); // D11：光泽与 D10 表面切换分开跑（独立动画器）
         // 盘面三段色：fresh 向主色混 0.22 / middle 0.12 / bottom 向 mist 侧混 0.08（CdPalette 梯度）
         if (cdDisc != null) {
             int fresh = blend(base, dominantColor, 0.22f);
@@ -1930,34 +2255,174 @@ public class MusicPlayerActivity extends BaseActivity {
     private void scrollShelfToCurrent() {
         if (shelfList == null) return;
         int idx = MusicController.get().index();
-        if (idx >= 0) shelfList.post(() -> shelfList.smoothScrollToPosition(idx));
+        if (idx < 0) return;
+        // redo3 第四轮 S10：切歌时旧当前项先跑 150ms 出场（动画结束回绑为 S4 非当前态），滚动保持 smoothScrollToPosition；
+        // 新当前项入场由滚动到位后（滚动空闲或已可见时）的一次性接线跑 animateShelfPageSwitch(…, true)。
+        int prev = shelfPrevIndex;
+        shelfPrevIndex = idx;
+        if (prev >= 0 && prev != idx) {
+            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(prev);
+            if (vh instanceof ShelfAdapter.Holder) animateShelfPageSwitch((ShelfAdapter.Holder) vh, false);
+        }
+        final int token = ++shelfSwitchToken;
+        shelfSwitchDone = false;
+        shelfList.post(() -> {
+            shelfList.smoothScrollToPosition(idx);
+            shelfList.post(() -> tryShelfPageEnter(token, idx));
+        });
+        RecyclerView.OnScrollListener listener = new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    rv.removeOnScrollListener(this);
+                    tryShelfPageEnter(token, idx);
+                }
+            }
+        };
+        shelfList.addOnScrollListener(listener);
     }
 
-    /** 唱片架项：封面方卡（左）＋黑胶圆盘（右侧滑出）；当前项盘旋转 30°/s，其余静止；点按切歌 */
+    private void tryShelfPageEnter(int token, int idx) {
+        if (shelfSwitchDone || token != shelfSwitchToken || shelfList == null) return;
+        RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(idx);
+        if (vh instanceof ShelfAdapter.Holder) {
+            shelfSwitchDone = true;
+            animateShelfPageSwitch((ShelfAdapter.Holder) vh, true);
+        }
+    }
+
+    /** 唱片架封套切换动画（redo3 第四轮 S10，GZ shelfInnerPage AnimatedContent）：
+     * 入场＝淡入 300ms＋150ms 延迟（INTERP_LOSI）＋缩放 0.98→1（INTERP_EMPH）；
+     * 出场＝淡出 150ms（INTERP_OUT_C）＋缩放 1→0.98；尺寸变换 null（不改项尺寸）；
+     * View 侧适配：RecyclerView 旧项不会被移除，出场结束回绑该项（恢复 S4 非当前态），不让旧项停在透明态。 */
+    private void animateShelfPageSwitch(ShelfAdapter.Holder holder, boolean entering) {
+        if (holder == null) return;
+        View root = holder.itemView;
+        if (shelfSwitchAnim != null) shelfSwitchAnim.cancel();
+        if (entering) {
+            root.setAlpha(0f);
+            root.setScaleX(0.98f);
+            root.setScaleY(0.98f);
+            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(root, View.ALPHA, 0f, 1f);
+            al.setDuration(300);
+            al.setStartDelay(150);
+            al.setInterpolator(INTERP_LOSI);
+            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_X, 0.98f, 1f);
+            sx.setDuration(300);
+            sx.setStartDelay(150);
+            sx.setInterpolator(INTERP_EMPH);
+            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_Y, 0.98f, 1f);
+            sy.setDuration(300);
+            sy.setStartDelay(150);
+            sy.setInterpolator(INTERP_EMPH);
+            shelfSwitchAnim = new android.animation.AnimatorSet();
+            shelfSwitchAnim.playTogether(al, sx, sy);
+            shelfSwitchAnim.start();
+        } else {
+            final int pos = holder.getBindingAdapterPosition();
+            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(root, View.ALPHA, root.getAlpha(), 0f);
+            al.setDuration(150);
+            al.setInterpolator(INTERP_OUT_C);
+            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_X, root.getScaleX(), 0.98f);
+            sx.setDuration(150);
+            sx.setInterpolator(INTERP_OUT_C);
+            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_Y, root.getScaleY(), 0.98f);
+            sy.setDuration(150);
+            sy.setInterpolator(INTERP_OUT_C);
+            shelfSwitchAnim = new android.animation.AnimatorSet();
+            shelfSwitchAnim.playTogether(al, sx, sy);
+            shelfSwitchAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(android.animation.Animator animation) {
+                    if (shelfAdapter != null && pos >= 0 && pos != MusicController.get().index()) {
+                        shelfAdapter.notifyItemChanged(pos);
+                    }
+                }
+            });
+            shelfSwitchAnim.start();
+        }
+    }
+
+    /** 唱片架项收藏 reveal（redo3 第四轮 S7）：300ms 收起（INTERP_OUT_C）→调现有 toggleFavorite（写盘＋paintFavoriteIcons＋burstFavorite 原样保留）
+     * →600ms 放回（INTERP_FOSI）；全程 favoriteBusy 防重入；主控行收藏键保持直通 toggleFavorite 不变；
+     * 架项收藏键只在当前项显示（toggleFavorite 只作用于当前曲目，非当前项点收藏会错指曲目，故非当前项不露键）。 */
+    private void revealFavorite(ShelfAdapter.Holder holder) {
+        if (holder == null || favoriteBusy) return;
+        int pos = holder.getBindingAdapterPosition();
+        if (pos < 0 || pos != MusicController.get().index()) return;
+        favoriteBusy = true;
+        View root = holder.itemView;
+        try {
+            root.animate().scaleX(0.85f).scaleY(0.85f).alpha(0.6f).setDuration(300).setInterpolator(INTERP_OUT_C)
+                    .withEndAction(() -> {
+                        try {
+                            toggleFavorite(holder.fav);
+                        } catch (Throwable ignored) {
+                        }
+                        root.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(600).setInterpolator(INTERP_FOSI)
+                                .withEndAction(() -> {
+                                    favoriteBusy = false;
+                                    if (holder.fav != null) {
+                                        holder.fav.setImageResource(favorited
+                                                ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
+                                        holder.fav.setImageTintList(android.content.res.ColorStateList.valueOf(
+                                                favorited ? 0xFFF2433D : 0xFFFFFFFF));
+                                    }
+                                }).start();
+                    }).start();
+        } catch (Throwable ignored) {
+            favoriteBusy = false;
+        }
+    }
+
+    /** 唱片架项：封面方卡（左）＋黑胶圆盘（右侧滑出）；当前项盘旋转 30°/s，其余静止；点按切歌；
+     * redo3 第四轮 S4：项尺寸走瓜子舞台公式链（约束维取屏宽 dp：舞台 clamp(宽×0.66,180,300)，f2 = min(宽×0.5, 舞台-36)，
+     * 封套 = f2×0.95，圆盘 = 0.97×封套）；圆盘以 0.24×封套的位移量向右探出（GZ 槽位位移 0.24 项，见分表残留）；
+     * 封面本体圆角 2dp、阴影 4dp；非当前项缩小约 0.82×＋按相对位置位移、去掉 alpha 0.75 压暗（瓜子无压暗）。 */
     private class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.Holder> {
+
+        float shelfSleeveDp() {
+            float w = getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density;
+            float stage = Math.max(180f, Math.min(300f, w * 0.66f));
+            float f2 = Math.min(w * 0.5f, stage - 36f);
+            return f2 * 0.95f;
+        }
 
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             float d = getResources().getDisplayMetrics().density;
+            float sleeve = shelfSleeveDp();
+            float discSize = sleeve * 0.97f;
             FrameLayout root = new FrameLayout(parent.getContext());
-            root.setLayoutParams(new RecyclerView.LayoutParams((int) (196 * d), (int) (196 * d)));
+            root.setClipChildren(false);
+            root.setLayoutParams(new RecyclerView.LayoutParams((int) (sleeve * d), (int) (sleeve * d)));
             ImageView disc = new ImageView(parent.getContext());
-            FrameLayout.LayoutParams discLp = new FrameLayout.LayoutParams((int) (150 * d), (int) (150 * d));
+            FrameLayout.LayoutParams discLp = new FrameLayout.LayoutParams((int) (discSize * d), (int) (discSize * d));
             discLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
             disc.setLayoutParams(discLp);
             disc.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            disc.setTranslationX(sleeve * 0.24f * d);
             setCircle(disc);
             root.addView(disc);
             ImageView cover = new ImageView(parent.getContext());
-            FrameLayout.LayoutParams coverLp = new FrameLayout.LayoutParams((int) (150 * d), (int) (150 * d));
+            FrameLayout.LayoutParams coverLp = new FrameLayout.LayoutParams((int) (sleeve * d), (int) (sleeve * d));
             coverLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
             cover.setLayoutParams(coverLp);
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setElevation(6 * d);
-            setRounded(cover, 12);
+            cover.setElevation(4 * d);
+            setRounded(cover, 2);
             root.addView(cover);
-            return new Holder(root, cover, disc);
+            ImageView fav = new ImageView(parent.getContext());
+            FrameLayout.LayoutParams favLp = new FrameLayout.LayoutParams((int) (40 * d), (int) (40 * d));
+            favLp.gravity = Gravity.TOP | Gravity.END;
+            fav.setLayoutParams(favLp);
+            fav.setPadding((int) (10 * d), (int) (10 * d), (int) (10 * d), (int) (10 * d));
+            fav.setElevation(8 * d);
+            fav.setImageResource(R.drawable.ic_music_heart);
+            fav.setContentDescription(getString(R.string.music_favorite));
+            root.addView(fav);
+            return new Holder(root, cover, disc, fav);
         }
 
         @Override
@@ -1976,10 +2441,36 @@ public class MusicPlayerActivity extends BaseActivity {
                 ImgUtil.load(title, track.cover, h.disc);
             }
             boolean current = position == MusicController.get().index();
-            h.cover.setAlpha(current ? 1f : 0.75f);
+            // S4：非当前项不再 alpha 压暗；改缩小约 0.82×（f2×0.78／封套 ≈ 0.821）＋按相对位置位移，当前项复位。
+            float sleeve = shelfSleeveDp();
+            if (current) {
+                h.itemView.setScaleX(1f);
+                h.itemView.setScaleY(1f);
+                h.itemView.setTranslationX(0f);
+                h.itemView.setAlpha(1f);
+            } else {
+                float s = 0.82f;
+                h.itemView.setScaleX(s);
+                h.itemView.setScaleY(s);
+                int dir = position < MusicController.get().index() ? -1 : 1;
+                h.itemView.setTranslationX(dir * sleeve * 0.24f * s * getResources().getDisplayMetrics().density);
+                h.itemView.setAlpha(1f);
+            }
             h.stopSpin();
             if (current && playing && animationsEnabled()) h.startSpin();
             h.itemView.setOnClickListener(v -> MusicController.get().playAt(position));
+            // S7：架项收藏键只在当前项显示，点按走 revealFavorite（非当前项不露键，避免错指曲目）。
+            if (h.fav != null) {
+                h.fav.setVisibility(current ? View.VISIBLE : View.GONE);
+                if (current) {
+                    h.fav.setImageResource(favorited ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
+                    h.fav.setImageTintList(android.content.res.ColorStateList.valueOf(
+                            favorited ? 0xFFF2433D : 0xFFFFFFFF));
+                    h.fav.setOnClickListener(v -> revealFavorite(h));
+                } else {
+                    h.fav.setOnClickListener(null);
+                }
+            }
         }
 
         @Override
@@ -2000,12 +2491,14 @@ public class MusicPlayerActivity extends BaseActivity {
         class Holder extends RecyclerView.ViewHolder {
             final ImageView cover;
             final ImageView disc;
+            final ImageView fav;
             ObjectAnimator spin;
 
-            Holder(View root, ImageView cover, ImageView disc) {
+            Holder(View root, ImageView cover, ImageView disc, ImageView fav) {
                 super(root);
                 this.cover = cover;
                 this.disc = disc;
+                this.fav = fav;
             }
 
             void startSpin() {
@@ -2244,6 +2737,11 @@ public class MusicPlayerActivity extends BaseActivity {
                 @Override
                 public void onDownload() {
                     downloadCurrent();
+                }
+
+                @Override
+                public void onAppearanceChanged() {
+                    applyFluidBg();
                 }
             };
             if (lyricPanel) MusicToolsSheetDialog.showLyricPanel(this, listener);

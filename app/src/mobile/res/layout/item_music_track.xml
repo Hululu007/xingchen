@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- GZ 歌曲行（搜索／收藏／历史／下载／本地／歌单详情共用）：封面 50dp、名 14sp 行高 20sp、第二行 11sp、纵内边距 10dp -->
+<!-- GZ 歌曲行（搜索／收藏／历史／下载／本地／歌单详情共用）：封面 50dp、名 14sp 行高 20sp、第二行 11sp、纵内边距 10dp、
+     横内边距 14dp（第二波按任务要求 4→14dp；星辰页根左右边距 20dp，改后行内容有效离边 34dp，瓜子页边距未抠全，待真机核） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="4dp"
-    android:paddingEnd="4dp"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
     android:paddingTop="10dp"
     android:paddingBottom="10dp">
 

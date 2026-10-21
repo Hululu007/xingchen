@@ -30,6 +30,9 @@ public class MusicStore {
     private static final String K_QUEUE_SOURCE = "music_last_queue_source";
     private static final String K_QUEUE_ROUTE = "music_last_queue_route";
     private static final String K_QUEUE_ROUTE_PARAMS = "music_last_queue_route_params";
+    /** Q10：断点歌 key（MusicQueue.trackKey 口径，随断点同一批写盘）：恢复时校验序号对应的
+     * 是不是原来那首，撕裂／错位时按 key 找回，不按错序号播另一首 */
+    private static final String K_INDEX_TRACK_KEY = "music_last_index_track_key";
     private static final String K_RECENT = "music_recent";
     private static final int RECENT_MAX = 50;
 
@@ -284,14 +287,34 @@ public class MusicStore {
     public static void saveBreakpoint(List<MusicTrack> queue, int index, long position,
                                      String source, String route, java.util.Map<String, String> routeParams) {
         try {
-            Prefers.put(K_QUEUE, App.gson().toJson(queue == null ? new ArrayList<>() : queue));
-            Prefers.put(K_INDEX, index);
-            Prefers.put(K_POSITION, position);
-            Prefers.put(K_QUEUE_SOURCE, source == null ? "" : source);
-            Prefers.put(K_QUEUE_ROUTE, route == null ? "" : route);
-            Prefers.put(K_QUEUE_ROUTE_PARAMS, routeParams == null ? "" : App.gson().toJson(routeParams));
+            // Q10 原子写：原来 6 次 Prefers.put 各自 apply，崩溃卡在写队列与写序号之间时
+            // 新队列会配上旧序号、恢复播错一首。改成一次 Editor 批量 apply（SharedPreferences
+            // 一次 apply 在内存与落盘都是同一批），并同批写断点歌 key 供恢复校验。
+            List<MusicTrack> q = queue == null ? new ArrayList<>() : queue;
+            int safeIdx = q.isEmpty() ? 0 : Math.max(0, Math.min(index, q.size() - 1));
+            String idxKey = "";
+            if (!q.isEmpty()) {
+                try {
+                    idxKey = MusicQueue.trackKey(q.get(safeIdx));
+                } catch (Throwable ignored) {
+                }
+            }
+            Prefers.getPrefers().edit()
+                    .putString(K_QUEUE, App.gson().toJson(q))
+                    .putInt(K_INDEX, safeIdx)
+                    .putLong(K_POSITION, position)
+                    .putString(K_QUEUE_SOURCE, source == null ? "" : source)
+                    .putString(K_QUEUE_ROUTE, route == null ? "" : route)
+                    .putString(K_QUEUE_ROUTE_PARAMS, routeParams == null ? "" : App.gson().toJson(routeParams))
+                    .putString(K_INDEX_TRACK_KEY, idxKey)
+                    .apply();
         } catch (Throwable ignored) {
         }
+    }
+
+    /** Q10：存盘时断点歌的 key（老版本断点无此键返回空＝不校验，沿用旧钳制口径） */
+    public static String loadIndexTrackKey() {
+        return Prefers.getString(K_INDEX_TRACK_KEY, "");
     }
 
     public static List<MusicTrack> loadQueue() {
@@ -348,9 +371,13 @@ public class MusicStore {
     }
 
     public static void clearBreakpoint() {
-        Prefers.put(K_QUEUE, "");
-        Prefers.put(K_INDEX, 0);
-        Prefers.put(K_POSITION, 0);
+        // 与 saveBreakpoint 同口径：清断点也一批清掉 key，免得空队列配旧 key 被找回错歌
+        Prefers.getPrefers().edit()
+                .putString(K_QUEUE, "")
+                .putInt(K_INDEX, 0)
+                .putLong(K_POSITION, 0)
+                .putString(K_INDEX_TRACK_KEY, "")
+                .apply();
     }
 
     /** 最近播放：切歌成功即记一条，按 id 去重，上限 50 首 */
@@ -490,6 +517,110 @@ public class MusicStore {
         return getBlockedPlatforms(srcUrl).contains(platform);
     }
 
+    // ===== 第二波：播放路由（瓜子 LxPluginScreen 播放路由区；只加新键，不动已有键） =====
+    // 取链策略：瓜子 LxPluginPriority 两档，存法照瓜子 toStorage：fallback（自动切换）／pluginOnly（仅插件），默认 fallback。
+    // 注意：本批只做存取＋UI 行；取链解析侧是否消费该策略不在本批文件内（MusicRepository 禁动），见交卷待办。
+    public static final String LINK_POLICY_FALLBACK = "fallback";
+    public static final String LINK_POLICY_PLUGIN_ONLY = "pluginOnly";
+    private static final String K_LINK_POLICY = "music_link_policy";
+
+    public static String getLinkPolicy() {
+        String v = Prefers.getString(K_LINK_POLICY, LINK_POLICY_FALLBACK);
+        return LINK_POLICY_PLUGIN_ONLY.equals(v) ? LINK_POLICY_PLUGIN_ONLY : LINK_POLICY_FALLBACK;
+    }
+
+    public static void setLinkPolicy(String policy) {
+        Prefers.put(K_LINK_POLICY, LINK_POLICY_PLUGIN_ONLY.equals(policy) ? LINK_POLICY_PLUGIN_ONLY : LINK_POLICY_FALLBACK);
+    }
+
+    // 指定平台插件：平台 key → 插件 srcUrl（空／缺失 = 自动，即瓜子 AssignOptionRow「默认（自动选择）」）。
+    // 存法复用歌单简介同款 loadStringMap／saveStringMap（Map<String, String> JSON）。
+    private static final String K_PLATFORM_PLUGIN = "music_platform_plugin";
+
+    /** 某平台指定的取链插件 srcUrl（null = 自动） */
+    public static String getPlatformPlugin(String platform) {
+        if (platform == null || platform.isEmpty()) return null;
+        String v = loadStringMap(K_PLATFORM_PLUGIN).get(platform);
+        return (v == null || v.isEmpty()) ? null : v;
+    }
+
+    public static void setPlatformPlugin(String platform, String srcUrl) {
+        if (platform == null || platform.isEmpty()) return;
+        java.util.Map<String, String> map = loadStringMap(K_PLATFORM_PLUGIN);
+        if (srcUrl == null || srcUrl.isEmpty()) map.remove(platform);
+        else map.put(platform, srcUrl);
+        saveStringMap(K_PLATFORM_PLUGIN, map);
+    }
+
+    /** 已指定平台个数（指定行副文「已指定 N 个平台」用） */
+    public static int getAssignedPlatformCount() {
+        int n = 0;
+        for (String v : loadStringMap(K_PLATFORM_PLUGIN).values()) {
+            if (v != null && !v.isEmpty()) n++;
+        }
+        return n;
+    }
+
+    /** 已指定平台 key 集合（含已卸载插件残留的平台，屏蔽面板同款“残留可见可恢复”口径） */
+    public static java.util.Set<String> getAssignedPlatforms() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (java.util.Map.Entry<String, String> e : loadStringMap(K_PLATFORM_PLUGIN).entrySet()) {
+            if (e.getKey() != null && !e.getKey().isEmpty() && e.getValue() != null && !e.getValue().isEmpty()) out.add(e.getKey());
+        }
+        return out;
+    }
+
+    /** 本地「移除」恢复入口用：清空全部忽略 id（文件不动，只恢复列表显示） */
+    public static void clearIgnoredDeviceIds() {
+        try {
+            Prefers.put(K_IGNORED_DEVICE, "");
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ===== 第二波：本地扫描偏好（瓜子 LibraryScreen 扫描过滤／文件夹排除；只加新键） =====
+    // 扫描过滤：不过滤 = 0，其余为最小时长毫秒（瓜子档：30 秒／1 分钟／2 分钟）。
+    private static final String K_DEVICE_MIN_DURATION = "music_device_min_duration";
+    private static final String K_DEVICE_EXCLUDED_FOLDERS = "music_device_excluded_folders";
+
+    public static long getDeviceMinDuration() {
+        try {
+            long v = Long.parseLong(Prefers.getString(K_DEVICE_MIN_DURATION, "0"));
+            return (v == 30000L || v == 60000L || v == 120000L) ? v : 0L;
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
+    public static void setDeviceMinDuration(long ms) {
+        Prefers.put(K_DEVICE_MIN_DURATION, String.valueOf(
+                (ms == 30000L || ms == 60000L || ms == 120000L) ? ms : 0L));
+    }
+
+    /** 排除扫描的文件夹（绝对路径集合；命中 = 该目录及其子目录下的歌不进库，不删文件） */
+    public static java.util.Set<String> getDeviceExcludedFolders() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        try {
+            String json = Prefers.getString(K_DEVICE_EXCLUDED_FOLDERS, "");
+            if (json.isEmpty()) return out;
+            Type type = TypeToken.getParameterized(List.class, String.class).getType();
+            List<String> list = App.gson().fromJson(json, type);
+            if (list != null) {
+                for (String s : list) if (s != null && !s.isEmpty()) out.add(s);
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    public static void setDeviceExcludedFolders(java.util.Set<String> folders) {
+        try {
+            Prefers.put(K_DEVICE_EXCLUDED_FOLDERS, App.gson().toJson(
+                    new ArrayList<>(folders == null ? new java.util.HashSet<String>() : folders)));
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ===== 歌单自定义封面/简介/收藏（歌单详情页英雄卡；不改 Room schema，prefs 存） =====
     private static final String K_SHEET_COVER = "music_sheet_cover";
     private static final String K_SHEET_DESC = "music_sheet_desc";
@@ -524,6 +655,34 @@ public class MusicStore {
         if (path == null || path.isEmpty()) map.remove(String.valueOf(playlistId));
         else map.put(String.valueOf(playlistId), path);
         saveStringMap(K_SHEET_COVER, map);
+    }
+
+    // ===== 歌曲自定义封面（播放页大封面＋背景；本地相册选图，只保存在本机，不上传、不登录） =====
+    private static final String K_SONG_COVER = "music_song_custom_cover";
+
+    /** 歌曲自定义封面键：id 有则 platform|id，否则 platform|title|artist；都空返回空 */
+    public static String songCoverKey(MusicTrack track) {
+        if (track == null) return null;
+        String platform = track.platform == null ? "" : track.platform;
+        if (track.id != null && !track.id.isEmpty()) return platform + "|" + track.id;
+        String title = track.title == null ? "" : track.title;
+        String artist = track.artist == null ? "" : track.artist;
+        if (title.isEmpty() && artist.isEmpty()) return null;
+        return platform + "|" + title + "|" + artist;
+    }
+
+    /** 歌曲自定义封面：应用文件目录里图的 file:// 地址（空 = 没自定义） */
+    public static String getSongCover(String key) {
+        if (key == null) return null;
+        return loadStringMap(K_SONG_COVER).get(key);
+    }
+
+    public static void setSongCover(String key, String fileUri) {
+        if (key == null) return;
+        java.util.Map<String, String> map = loadStringMap(K_SONG_COVER);
+        if (fileUri == null || fileUri.isEmpty()) map.remove(key);
+        else map.put(key, fileUri);
+        saveStringMap(K_SONG_COVER, map);
     }
 
     /** 歌单简介（空 = 没写简介，英雄卡不显示简介行） */
@@ -664,9 +823,9 @@ public class MusicStore {
         Prefers.put(K_CD_SURFACE, Math.max(CD_SURFACE_LIGHT, Math.min(CD_SURFACE_AUTO, surface)));
     }
 
-    /** 全屏歌词字号 sp（默认 24，钳 16–40） */
+    /** 全屏歌词字号 sp（默认 22，与工具面板“恢复默认”值一致，钳 16–40） */
     public static float getLyricFontSize() {
-        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE, 24f);
+        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE, 22f);
         return Math.max(16f, Math.min(40f, size));
     }
 
@@ -692,9 +851,9 @@ public class MusicStore {
         Prefers.put(K_LYRIC_ALIGN, Math.max(LYRIC_ALIGN_LEFT, Math.min(LYRIC_ALIGN_RIGHT, align)));
     }
 
-    /** 非当前行模糊：0 关 1 轻 2 中（默认轻） */
+    /** 非当前行模糊：0 关 1 轻 2 中（默认轻，与工具面板“恢复默认”值一致） */
     public static int getLyricBlur() {
-        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_MEDIUM);
+        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_LIGHT);
     }
 
     public static void setLyricBlur(int blur) {
@@ -906,5 +1065,78 @@ public class MusicStore {
 
     public static void setLyricOffsetMs(int ms) {
         Prefers.put(K_LYRIC_OFFSET_MS, Math.max(-LYRIC_OFFSET_MAX_MS, Math.min(LYRIC_OFFSET_MAX_MS, ms)));
+    }
+
+    /** 预加载下一首（瓜子后台播放／预加载下一首；默认开＝切歌交接先取好下一首链） */
+    private static final String K_PRELOAD_NEXT = "music_preload_next";
+
+    public static boolean isPreloadNext() {
+        return Prefers.getBoolean(K_PRELOAD_NEXT, true);
+    }
+
+    public static void setPreloadNext(boolean on) {
+        Prefers.put(K_PRELOAD_NEXT, on);
+    }
+
+    /** 划掉后台停止播放（瓜子同名项；默认关＝现行行为，划掉后服务照常播） */
+    private static final String K_STOP_ON_TASK_REMOVED = "music_stop_on_task_removed";
+
+    public static boolean isStopOnTaskRemoved() {
+        return Prefers.getBoolean(K_STOP_ON_TASK_REMOVED, false);
+    }
+
+    public static void setStopOnTaskRemoved(boolean on) {
+        Prefers.put(K_STOP_ON_TASK_REMOVED, on);
+    }
+
+    /** 过滤词曲信息（瓜子歌词过滤：作词／作曲／编曲等制作信息行不进歌词区；默认关＝现行行为） */
+    private static final String K_FILTER_LYRIC_META = "music_filter_lyric_meta";
+
+    public static boolean isFilterLyricMeta() {
+        return Prefers.getBoolean(K_FILTER_LYRIC_META, false);
+    }
+
+    public static void setFilterLyricMeta(boolean on) {
+        Prefers.put(K_FILTER_LYRIC_META, on);
+    }
+
+    /** 下载命名（瓜子下载命名三档）：0＝歌手 - 歌名，1＝歌名 - 歌手，2＝歌名；
+     * 默认 1＝星辰现行行为（歌名 - 歌手），不改老用户已下文件的文件名口径 */
+    public static final int DL_NAMING_ARTIST_TITLE = 0;
+    public static final int DL_NAMING_TITLE_ARTIST = 1;
+    public static final int DL_NAMING_TITLE = 2;
+    private static final String K_DL_NAMING = "music_dl_naming";
+
+    public static int getDlNaming() {
+        int v = Prefers.getInt(K_DL_NAMING, DL_NAMING_TITLE_ARTIST);
+        return v >= DL_NAMING_ARTIST_TITLE && v <= DL_NAMING_TITLE ? v : DL_NAMING_TITLE_ARTIST;
+    }
+
+    public static void setDlNaming(int naming) {
+        Prefers.put(K_DL_NAMING, naming >= DL_NAMING_ARTIST_TITLE && naming <= DL_NAMING_TITLE
+                ? naming : DL_NAMING_TITLE_ARTIST);
+    }
+
+    /** 仅 Wi-Fi 下载（瓜子仅 Wi-Fi 下载；默认关＝移动网络也可下载） */
+    private static final String K_WIFI_ONLY_DOWNLOAD = "music_wifi_only_download";
+
+    public static boolean isWifiOnlyDownload() {
+        return Prefers.getBoolean(K_WIFI_ONLY_DOWNLOAD, false);
+    }
+
+    public static void setWifiOnlyDownload(boolean on) {
+        Prefers.put(K_WIFI_ONLY_DOWNLOAD, on);
+    }
+
+    /** 移动网络音质：-1＝跟随播放音质（默认），否则 0..3 固定档（与播放音质四档同值） */
+    private static final String K_MOBILE_QUALITY = "music_mobile_quality";
+
+    public static int getMobileQuality() {
+        int v = Prefers.getInt(K_MOBILE_QUALITY, -1);
+        return v >= QUALITY_LOW && v <= QUALITY_SUPER ? v : -1;
+    }
+
+    public static void setMobileQuality(int quality) {
+        Prefers.put(K_MOBILE_QUALITY, quality >= QUALITY_LOW && quality <= QUALITY_SUPER ? quality : -1);
     }
 }

@@ -130,6 +130,8 @@ public class LxMusicSource implements MusicSource {
         }
         String want = lxQuality(MusicQuality.fromInt(quality));
         for (MusicSite plugin : sites()) {
+            // 服务看门狗／停播取消取链时中断本线程：中断后不许继续逐个脚本试下去
+            if (Thread.currentThread().isInterrupted()) return null;
             if (System.currentTimeMillis() >= deadline) {
                 SpiderDebug.log("music", "lx playUrl total timeout");
                 break;
@@ -146,15 +148,25 @@ public class LxMusicSource implements MusicSource {
             long wait = Math.min(PLUGIN_TIMEOUT_MS, Math.max(0, remain));
             if (wait <= 0) break;
             try {
-                // 单脚本 8 秒上限：get 到点就放弃这个脚本换下一个（脚本桥线程自己还有内层上限兜底）
+                // 单脚本 8 秒上限：get 到点就放弃这个脚本换下一个；P3：超时必须 cancel(true)
+                // 取消底层任务，不只放弃等待——否则 supplyAsync 线程继续占共享池，连续坏歌
+                // 即可占满 5 条、后续取链排队等死（本层改走音乐专用池见 Task.submitMusic 注释
+                // 的调用方，桥内层 40 秒上限见 LxBridge.request 的取消）
                 long lxT0 = System.currentTimeMillis();
-                String r = CompletableFuture.supplyAsync(() -> {
+                java.util.concurrent.Future<String> lxFuture = CompletableFuture.supplyAsync(() -> {
                     try {
                         return b.request(p.platform, "musicUrl", musicInfo, q);
                     } catch (Throwable t) {
                         throw new CompletionException(t);
                     }
-                }, Task.executor()).get(wait, TimeUnit.MILLISECONDS);
+                }, Task.musicExecutor());
+                String r;
+                try {
+                    r = lxFuture.get(wait, TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException te) {
+                    lxFuture.cancel(true);
+                    throw te;
+                }
                 String url = extractUrl(r);
                 if (!TextUtils.isEmpty(url)) {
                     // C5 真实取链耗时（最近一次口径）：记到实际出链的那个脚本名下
@@ -166,6 +178,68 @@ public class LxMusicSource implements MusicSource {
                 rethrowKeyIssue(t);
                 SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
             }
+        }
+        return null;
+    }
+
+    /**
+     * 清理轮 R-C7：单插件取链（播放路由指派用）。只试 srcUrl 命中的那一个启用落雪脚本，
+     * 不遍历其它脚本：取不到返回 null，由仓库按策略决定是回落还是停住，不在这里跨脚本。
+     * 单步口径与 playUrl 的单次迭代一致：QQ mediaMid 补齐、档位 pickQuality、单脚本
+     * 8 秒上限（超时 cancel(true)）、出链记 C5 耗时到该脚本名下；脚本未启用／不支持
+     * 该平台 musicUrl 时返回 null（不是抛错）。密钥问题（LxKeyIssue）照旧重抛，不许吞。
+     */
+    public String playUrlWithPlugin(MusicTrack track, int quality, String srcUrl) throws Exception {
+        Parsed p = parse(track);
+        if (p == null || srcUrl == null || srcUrl.isEmpty()) return null;
+        MusicSite target = null;
+        for (MusicSite plugin : sites()) {
+            if (srcUrl.equals(plugin.srcUrl)) {
+                target = plugin;
+                break;
+            }
+        }
+        if (target == null) return null;
+        if (Thread.currentThread().isInterrupted()) return null;
+        JsonObject musicInfo = musicInfo(track, p);
+        if (LxPlatformSearch.QQ.equals(p.platform) && TextUtils.isEmpty(optStr(musicInfo, "strMediaMid"))) {
+            String mediaMid = LxPlatformSearch.qqMediaMid(optStr(musicInfo, "songmid"));
+            if (!TextUtils.isEmpty(mediaMid)) musicInfo.addProperty("strMediaMid", mediaMid);
+        }
+        String want = lxQuality(MusicQuality.fromInt(quality));
+        LxBridge b;
+        try {
+            b = MusicSourceManager.get().lxBridgeOf(target);
+        } catch (Throwable t) {
+            return null;
+        }
+        if (b == null || !b.supports(p.platform, "musicUrl")) return null;
+        String q = pickQuality(b, p.platform, want);
+        try {
+            long lxT0 = System.currentTimeMillis();
+            java.util.concurrent.Future<String> lxFuture = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return b.request(p.platform, "musicUrl", musicInfo, q);
+                } catch (Throwable t) {
+                    throw new CompletionException(t);
+                }
+            }, Task.musicExecutor());
+            String r;
+            try {
+                r = lxFuture.get(PLUGIN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException te) {
+                lxFuture.cancel(true);
+                return null;
+            }
+            String url = extractUrl(r);
+            if (!TextUtils.isEmpty(url)) {
+                com.fongmi.android.tv.music.MusicStore.notePluginLatency(
+                        PLATFORM, target.srcUrl, System.currentTimeMillis() - lxT0, false);
+                return url;
+            }
+        } catch (Throwable t) {
+            rethrowKeyIssue(t);
+            SpiderDebug.log("music", "lx playUrlWithPlugin error plugin=%s %s", target.name, t.getMessage());
         }
         return null;
     }

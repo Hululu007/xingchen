@@ -86,7 +86,12 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private boolean wideWindow;
     private int currentPosition;
 
+    // 首页顶是壁纸/网页深色区，现白图标看得见，保持原样（BaseActivity 默认已改深色图标，这里盖回）。
     @Override
+    protected boolean useDarkSystemIcons() {
+        return false;
+    }
+
     protected ViewBinding getBinding() {
         return mBinding = ActivityHomeBinding.inflate(getLayoutInflater());
     }

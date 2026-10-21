@@ -116,8 +116,18 @@ public abstract class BaseActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * 状态栏/导航栏图标颜色：默认深色图标（浅色栏）。App 绝大多数页是浅色底（插件页/设置页/列表页/音乐各页/海阔浅色页），
+     * 原先 BaseActivity 统一强制白色图标，浅底上完全隐形＝看上去“状态栏没了”（海阔三页此前只能各自再调 light 盖掉）。
+     * 顶是深色的页（首页壁纸、播放页封面、随心听沉浸、Emby 馆、节点列表/管理、线路政策、视频/直播）重写本方法返回 false，用回白色图标。
+     */
+    protected boolean useDarkSystemIcons() {
+        return true;
+    }
+
     private void enableEdgeToEdge() {
-        EdgeToEdge.enable(this, SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT));
+        SystemBarStyle style = useDarkSystemIcons() ? SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT) : SystemBarStyle.dark(Color.TRANSPARENT);
+        EdgeToEdge.enable(this, style, style);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             getWindow().setStatusBarContrastEnforced(false);
             getWindow().setNavigationBarContrastEnforced(false);

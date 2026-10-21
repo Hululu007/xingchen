@@ -130,7 +130,7 @@ public class Backup {
         Map<String, ?> prefers = filter(getPrefers(), options);
         if (options.isMpvConfig()) clearMpvConfigPreferences();
         restorePrefers(prefers, false, false);
-        if (options.isConfig() || options.isSpider() || options.isWebHome() || options.isLoginState()) BaseLoader.get().clear();
+        if (options.isConfig() || options.isSpider() || options.isWebHome() || options.isLoginState()) BaseLoader.get().clear("backup-restore");
         if (options.isConfig() || options.isSpider() || options.isWebHome() || options.isLoginState()) SiteApi.clearHomeCache();
         if (options.isConfig() || options.isSpider() || options.isWebHome() || options.isLoginState()) reloadConfig();
         if (options.isWebHome()) refreshWebHomeExtensions();

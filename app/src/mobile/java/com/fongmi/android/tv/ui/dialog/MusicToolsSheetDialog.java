@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Activity;
 import android.content.Context;
+import android.net.Uri;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.database.ContentObserver;
@@ -28,6 +29,8 @@ import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.SwitchCompat;
@@ -56,6 +59,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -97,6 +105,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private static final int PANEL_SONG_INFO = 4;
     private static final int PANEL_APPEARANCE = 5;
     private static final int PANEL_DEVICE = 6;
+    private static final int PANEL_CUSTOM_COVER = 7;
+
+    /** 自定义封面：从相册选图（GetContent image/*，DialogFragment 字段注册，构造时即注册） */
+    private final ActivityResultLauncher<String> pickCoverLauncher =
+            registerForActivityResult(new ActivityResultContracts.GetContent(), this::onCustomCoverPicked);
 
     // GZ SheetTokensKt 浅色套
     private static final int COLOR_PANEL = 0xFFF3F3F3;
@@ -141,6 +154,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private TextView lyricSizeValue;
     private TextView lyricHint;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    /** crash 项：segment 延迟回调登记表——onDestroyView 时全部取消，否则面板销毁后还调 onPick／动 binding。 */
+    private final List<Runnable> segmentPendings = new ArrayList<>();
+    /** T9：切歌时主面板重建（信息头／设置卡跟当前曲），否则开着面板切歌后下载／加歌单走旧曲。 */
+    private final MusicController.Listener toolsListener = new MusicController.Listener() {
+        @Override
+        public void onTrackChanged(MusicTrack track) {
+            if (isAdded() && currentPanel == PANEL_MAIN) showPanel(PANEL_MAIN);
+        }
+    };
     private Runnable lyricTicker;
     private final List<long[]> lyricTimes = new ArrayList<>();
     private final List<String> lyricTexts = new ArrayList<>();
@@ -186,17 +208,23 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             }
         } catch (Throwable ignored) {
         }
+        // T9：切歌重建主面板（注册在 showPanel 之前，首面板即受监听）。
+        MusicController.get().addListener(toolsListener);
         showPanel(initialPanel);
     }
 
     @Override
     public void onDestroyView() {
+        for (Runnable r : segmentPendings) mainHandler.removeCallbacks(r);
+        segmentPendings.clear();
+        MusicController.get().removeListener(toolsListener);
         stopLyricTicker();
         unregisterVolumeObserver();
         if (deviceRouter != null) {
             deviceRouter.destroy();
             deviceRouter = null;
         }
+        binding = null;
         super.onDestroyView();
     }
 
@@ -229,6 +257,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 break;
             case PANEL_APPEARANCE:
                 buildAppearancePanel();
+                break;
+            case PANEL_CUSTOM_COVER:
+                buildCustomCoverPanel();
                 break;
             case PANEL_DEVICE:
                 buildDevicePanel();
@@ -284,11 +315,13 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         ImageView close = new ImageView(getContext());
         close.setImageResource(R.drawable.ic_music_close);
         close.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-        close.setPadding(dp(10), dp(10), dp(10), dp(10));
+        close.setPadding(dp(9), dp(9), dp(9), dp(9));
         close.setContentDescription(getString(R.string.music_close));
         close.setOnClickListener(v -> dismissAllowingStateLoss());
         attachPress(close, 0.9f);
-        row.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        clp.setMarginStart(dp(12));
+        row.addView(close, clp);
         MusicTrack track = MusicController.get().current();
         if (track == null) {
             title.setText(R.string.music_no_track);
@@ -304,6 +337,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     }
 
     /** ② 快捷格一排 4（GZ 快捷格行 T02–T05）：盒高 56dp、白方格圆角 16dp＋阴影 2dp、图标 26dp、标签 12sp/700、标距 8dp、格间距 8dp。
+     * 瓜子第 5 格是一起听（社交分发风险、按定案排除，不为凑数加回）；文案照瓜子：定时／加到歌单。
      * P17：下载＝回调＋关面板；歌词／定时＝showPanel 切子面板不关（showPanel 内 260ms 淡入）；格子本身不关面板。 */
     private View buildQuickGrid() {
         LinearLayout row = new LinearLayout(getContext());
@@ -319,7 +353,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         row.addView(quickCell(R.drawable.ic_music_timer, R.string.music_sleep, v -> showPanel(PANEL_SLEEP)), quickLp(dp(8)));
         // P17 已核：加歌单＝回调＋关面板，宿主回调（MPA pickPlaylist）随即开加歌单面板，
         // 与瓜子「关工具面板＋开加歌单面板」一致；格子本身不内置关闭。
-        row.addView(quickCell(R.drawable.ic_music_plus, R.string.music_add_to_playlist, v -> {
+        row.addView(quickCell(R.drawable.ic_music_plus, R.string.music_add_to_playlist_cell, v -> {
             if (listener != null) listener.onAddToPlaylist();
             dismissAllowingStateLoss();
         }), quickLp(dp(8)));
@@ -389,6 +423,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     }
 
     /** ③ 播放模式段控（GZ PlayModeSegmented T06／P18 M3Segmented）：一张白卡四段，圆角 14dp、白底、内边距 4dp；
+     * 格高 48dp、卡总高 56dp（GZ 段控总高 56dp，旧 64dp 已改回）；
      * 选中态＝滑动指示器（AccentRed×0.10 ≈ #FEE9EB，250ms 滑标 left/width 动画）＋红图标红字；
      * 点击即时 MusicController.setMode 并就地更新选中态，不整面板重建，滑标动画不被重建打断 */
     private View buildModeSegment() {
@@ -406,7 +441,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         frame.setPadding(dp(4), dp(4), dp(4), dp(4));
         View indicator = new View(getContext());
         indicator.setBackgroundResource(R.drawable.sheet_mode_selected);
-        FrameLayout.LayoutParams indLp = new FrameLayout.LayoutParams(dp(0), dp(56));
+        FrameLayout.LayoutParams indLp = new FrameLayout.LayoutParams(dp(0), dp(48));
         frame.addView(indicator, indLp);
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -446,7 +481,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 animateIndicator(indicator, row, idx);
             });
             attachPress(segCell, 0.96f);
-            row.addView(segCell, new LinearLayout.LayoutParams(0, dp(56), 1f));
+            row.addView(segCell, new LinearLayout.LayoutParams(0, dp(48), 1f));
         }
         final int initialSel = selIdx;
         frame.post(() -> placeIndicator(indicator, row, initialSel));
@@ -689,36 +724,19 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
     }
 
-    /** ⑤ 设置卡（GZ 本体图 112768_26 形态）：信息行（T09）置卡首、有值才显；
-     * 中段 2 列格（均衡器｜播放页主题／倍速｜搜索歌词）；分割线下不熄屏开关行；
-     * 卡尾保留星辰自有行（下一首播放/加入队列）。 */
+    /** ⑤ 设置卡（GZ 工具面板设置卡原样）：2 列格（均衡器｜播放页主题／外观设置｜自定义封面）
+     * ＋分割线＋不熄屏开关行（＋仅横屏：分割线＋左手布局开关行）。
+     * 瓜子对齐后主面板不再放的行：歌曲信息行（用户令：面板不加多的，删了即与瓜子同高 495dp；歌曲信息子面板代码留置无入口，恢复只需加回一行）、
+     * 来源行（瓜子主面板没有；原在歌曲信息子面板里看，现子面板也无入口，来源暂无处看）、
+     * 下一首播放／加入播放队列（瓜子没有；当前曲已在队列中，复拷意义小）。
+     * 歌词版本与搜索歌词已收到歌词子面板，倍速已按用户令拿掉——主面板只留快捷格一个歌词入口。 */
     private View buildSettingsCard() {
         LinearLayout card = cardBox();
         MusicTrack track = MusicController.get().current();
-        // 卡首「歌曲信息」导航行（GZ 设置卡首行，带 chevron，进歌曲信息子面板；来源行是星辰自有展示，排其后）
-        addRow(card, getString(R.string.music_song_info), null, v -> showPanel(PANEL_SONG_INFO), true);
-        // 第 13 项：歌词版本行——仅播放页且多于 1 版时显，点开 GZ 式版本底卡（不进版本筛选条那套）
-        FragmentActivity playerHost = getActivity();
-        if (playerHost instanceof MusicPlayerActivity
-                && ((MusicPlayerActivity) playerHost).getLyricVersionCount() > 1) {
-            addRow(card, getString(R.string.music_lyric_versions),
-                    ((MusicPlayerActivity) playerHost).getLyricVersionCount() + " 个版本", v -> {
-                        dismissAllowingStateLoss();
-                        new Handler(Looper.getMainLooper()).post(
-                                () -> ((MusicPlayerActivity) playerHost).openLyricVersionDialog());
-                    }, false);
-        }
-        boolean first = false;
-        if (track != null) {
-            String source = sourceName(track);
-            if (!source.isEmpty()) {
-                addInfoRow(card, getString(R.string.music_info_source), source, first);
-                first = false;
-            }
-        }
-        // GZ 设置卡形态（本体图 112768_26）：2 列格——首行 均衡器｜播放页主题、次行 倍速｜搜索歌词
-        // （GZ 次行是「外观设置/自定义封面」：外观设置已按 A4 落真格＋子面板（下 grid3），自定义封面是赞助版锁仍不做；
-        // 倍速／搜索歌词是星辰自有真功能，保留，不冒充瓜子格）
+        // GZ 设置卡形态（本体图 112768_26）：2 列格——首行 均衡器｜播放页主题
+        // （GZ 次行是「外观设置/自定义封面」：外观设置已按 A4 落真格＋子面板（下 grid3），
+        // 自定义封面按瓜子位置落次行右格——本地相册选图，不走瓜子服务器、不收费、不登录，故不做赞助锁；
+        // 倍速已按用户令拿掉（瓜子没有），搜索歌词与歌词版本已收到歌词子面板，主面板只留快捷格一个歌词入口）
         LinearLayout grid1 = new LinearLayout(getContext());
         grid1.setOrientation(LinearLayout.HORIZONTAL);
         grid1.addView(settingsCell(R.drawable.ic_music_eq, getString(R.string.music_equalizer), null, v -> {
@@ -730,62 +748,50 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 themeName(MusicStore.getPlayerTheme()), v -> showPanel(PANEL_THEME)),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         card.addView(grid1);
-        LinearLayout grid2 = new LinearLayout(getContext());
-        grid2.setOrientation(LinearLayout.HORIZONTAL);
-        grid2.addView(settingsCell(R.drawable.ic_music_speed, getString(R.string.music_speed), speedName(),
-                v -> showSpeedDialog()), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        grid2.addView(settingsCell(R.drawable.ic_music_search, getString(R.string.music_search_lyric), null, v -> {
-            if (listener != null) listener.onSearchLyric();
-            dismissAllowingStateLoss();
-        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        card.addView(grid2);
-        // A4：设置卡新增“外观设置”格（调色板图标取现有图标；自定义封面是瓜子赞助版锁，排除项，不做假入口）
+        // A4：设置卡次行“外观设置”格（调色板图标取现有图标）＋右格“自定义封面”
+        // （瓜子次行同款位置；无当前曲时右格留空占位，不建假入口）
         LinearLayout grid3 = new LinearLayout(getContext());
         grid3.setOrientation(LinearLayout.HORIZONTAL);
         grid3.addView(settingsCell(R.drawable.ic_music_palette, "外观设置", null,
                 v -> showPanel(PANEL_APPEARANCE)),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        grid3.addView(new View(getContext()),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (track != null) {
+            String customCover = MusicStore.getSongCover(MusicStore.songCoverKey(track));
+            grid3.addView(settingsCell(R.drawable.ic_music_image, getString(R.string.music_custom_cover),
+                    customCover != null ? getString(R.string.music_custom_cover_enabled)
+                            : getString(R.string.music_custom_cover_default),
+                    v -> showPanel(PANEL_CUSTOM_COVER)),
+                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        } else {
+            grid3.addView(new View(getContext()),
+                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
         card.addView(grid3);
         addDivider(card);
-        card.addView(switchRow(getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
+        card.addView(switchRow(R.drawable.ic_setting_sun, getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
                 on -> MusicStore.setPlayerKeepScreenOn(on)));
         // A7 门控照瓜子双非空：仅横屏时传状态值与变更回调，竖屏行不出（对话框横屏才建行）
         if (isLandscape()) {
             addDivider(card);
-            card.addView(switchRow("左手布局（横屏）", MusicStore.isLeftHandLandscape(),
+            card.addView(switchRow(R.drawable.ic_setting_swap, "左手布局（横屏）", MusicStore.isLeftHandLandscape(),
                     on -> {
                         MusicStore.setLeftHandLandscape(on);
                         // 横屏分支在 applyTheme 内重算，开关拨动即刷新主题装配使换位立即生效
                         if (listener != null) listener.onThemeChanged();
                     }));
         }
-        addRow(card, getString(R.string.music_play_next), null, v -> {
-            if (track != null) {
-                MusicController.get().insertNext(track);
-                Notify.show(R.string.music_play_next);
-            }
-            dismissAllowingStateLoss();
-        }, false);
-        addRow(card, getString(R.string.music_add_queue), null, v -> {
-            if (track != null) {
-                MusicController.get().appendTrack(track);
-                Notify.show(R.string.music_added_queue);
-            }
-            dismissAllowingStateLoss();
-        }, false);
         return card;
     }
 
-    /** 设置卡 2 列格单格（GZ ToolsGridEntry：图标左＋文字右横向、整组左对齐占满、高 48dp、横向内边距 16dp、
-     * 图标 20dp、标题 13sp/500、按压 0.98）：副值（主题名/倍速）跟在标签下方 11sp 灰——GZ 格内无副值，
-     * 星辰副值是自有状态显示，保留 */
+    /** 设置卡 2 列格单格（GZ ToolsGridEntry：图标左＋文字右横向、整组左对齐占满、横向内边距 16dp、
+     * 图标 20dp、标题 13sp/500、按压 0.98；定高 48dp）：副值（主题名）跟在标签下方 11sp 灰——GZ 格内无副值，
+     * 星辰副值是自有状态显示，保留；纵向内边距 0＋内容垂直居中（GZ 的 12dp 纵垫配单行标签够，配星辰标签＋副值两行会夹字，故用 0＋居中） */
     private View settingsCell(int icon, String label, String sub, View.OnClickListener click) {
         LinearLayout cell = new LinearLayout(getContext());
         cell.setOrientation(LinearLayout.HORIZONTAL);
         cell.setGravity(Gravity.CENTER_VERTICAL);
-        cell.setPadding(dp(16), dp(12), dp(16), dp(12));
+        cell.setPadding(dp(16), 0, dp(16), 0);
+        cell.setMinimumHeight(dp(48));
         ImageView iv = new ImageView(getContext());
         iv.setImageResource(icon);
         iv.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
@@ -836,36 +842,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return "";
     }
 
-    private void showSpeedDialog() {
-        FragmentActivity host = getActivity();
-        if (host == null) return;
-        float[] speeds = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
-        List<String> opts = new ArrayList<>();
-        int checked = 2;
-        float cur = MusicController.get().getSpeed();
-        for (int i = 0; i < speeds.length; i++) {
-            opts.add(speedLabel(speeds[i]));
-            if (Math.abs(speeds[i] - cur) < 0.01f) checked = i;
-        }
-        dismissAllowingStateLoss();
-        MusicOptionsDialog.show(host, getString(R.string.music_speed), opts, checked,
-                idx -> MusicController.get().setSpeed(speeds[idx]));
-    }
-
-    private String speedName() {
-        return speedLabel(MusicController.get().getSpeed());
-    }
-
-    private static String speedLabel(float s) {
-        return (s == Math.floor(s) ? String.format("%.1f", s) : String.valueOf(s)) + "×";
-    }
-
     // ================= 外观设置子面板（A4） =================
 
     /** A4 子面板：头“外观设置”，分区“背景动效”，两行 switchRow 复用：
      * “动态流体背景”（开时 AnimatedVisibility 式子内容：说明行显隐）＋“音乐律动”。
-     * 音乐律动行不设禁用态（瓜子第 5 布尔参疑似禁用标志、未完全解码，不编造）。
-     * 自定义封面不做（瓜子赞助版锁，排除项）。 */
+     * 音乐律动行不设禁用态（瓜子第 5 布尔参疑似禁用标志、未完全解码，不编造）。 */
     private void buildAppearancePanel() {
         LinearLayout box = binding.container;
         box.addView(subHeader("外观设置"));
@@ -896,6 +877,164 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         clp.topMargin = dp(8);
         box.addView(card, clp);
+    }
+
+    // ================= 自定义封面子面板（瓜子 CustomCoverPanel 同款结构，本地图片版） =================
+
+    /** 自定义封面子面板：头“自定义封面”＋预览＋状态行＋“封面来源”卡（从相册选择图片／恢复默认封面）。
+     * 瓜子本体：本地相册选图／选视频当播放页大封面（视频另作模糊背景动效），图片与视频互斥；
+     * 星辰只做图片（视频动态封面需主题层视频面＋模糊视频背景管线，另批再做，不做假入口）。
+     * 赞助锁不做：瓜子是赞助版功能锁（未赞助格子禁用＋“需要赞助版”），星辰无赞助／付费／登录，本地功能直接可用。 */
+    private void buildCustomCoverPanel() {
+        LinearLayout box = binding.container;
+        box.addView(subHeader(getString(R.string.music_custom_cover)));
+        MusicTrack track = MusicController.get().current();
+        if (track == null) {
+            box.addView(text(getString(R.string.music_no_track), 13, COLOR_LOW, false));
+            return;
+        }
+        String key = MusicStore.songCoverKey(track);
+        String custom = MusicStore.getSongCover(key);
+        boolean hasCustom = custom != null && !custom.isEmpty();
+        // 预览：自定义图 > 原封面；都没图时 ImgUtil 空地址分支上素图
+        ImageView preview = new ImageView(getContext());
+        preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            preview.setClipToOutline(true);
+            preview.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(12));
+                }
+            });
+        }
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(192));
+        plp.topMargin = dp(12);
+        box.addView(preview, plp);
+        String previewUrl = hasCustom ? custom : (track.cover == null ? "" : track.cover);
+        ImgUtil.load(track.displayTitle(), previewUrl, preview);
+        TextView status = text(hasCustom ? getString(R.string.music_custom_cover_current_custom)
+                : getString(R.string.music_custom_cover_current_default),
+                13, hasCustom ? COLOR_RED : COLOR_TEXT, false);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(12);
+        box.addView(status, slp);
+        TextView section = text("封面来源", 13, COLOR_LOW, false);
+        LinearLayout.LayoutParams ssp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ssp.topMargin = dp(12);
+        box.addView(section, ssp);
+        LinearLayout card = cardBox();
+        addRow(card, getString(R.string.music_custom_cover_pick), null,
+                v -> pickCoverLauncher.launch("image/*"), true);
+        if (hasCustom) {
+            addDivider(card);
+            addRow(card, getString(R.string.music_custom_cover_restore), null,
+                    v -> onCustomCoverRestore(), false);
+        }
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(8);
+        box.addView(card, clp);
+        TextView note = text(getString(R.string.music_custom_cover_local_only), 12, COLOR_LOW, false);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.topMargin = dp(8);
+        box.addView(note, nlp);
+    }
+
+    /**
+     * 相册选图回执：拷到应用文件目录 custom_covers/，按歌曲键存 file:// 地址，刷新播放页封面与背景。
+     * 先拷临时文件、成功后再替换旧图和映射：旧写法先删旧图再拷，拷失败（流为空／中途异常）
+     * 旧图就丢了、映射还指已删文件；现在拷失败只清临时文件，旧图和映射一律不动。
+     * 正式文件名永不等于临时文件名：临时名本身带时间戳（每选一次都不一样），改名失败时
+     * 把临时文件内容再拷一份到带时间戳的正式文件——失败分支只删真正的临时文件，
+     * 不碰已生效文件；旧拷图只在新正式文件落盘后才清（拷失败时旧图和映射原样保留）。
+     */
+    private void onCustomCoverPicked(Uri uri) {
+        if (uri == null) return;
+        FragmentActivity host = getActivity();
+        MusicTrack track = MusicController.get().current();
+        if (host == null || track == null) return;
+        String key = MusicStore.songCoverKey(track);
+        if (key == null) return;
+        File tmp = null;
+        try {
+            String type = host.getContentResolver().getType(uri);
+            String ext = "image/png".equals(type) ? "png" : "image/webp".equals(type) ? "webp" : "jpg";
+            File dir = new File(host.getFilesDir(), "custom_covers");
+            if (!dir.exists()) dir.mkdirs();
+            String base = String.valueOf(Math.abs(key.hashCode()));
+            // 1. 先拷临时文件（名带时间戳，每选一次都不一样，永不等于正式文件名；
+            // 旧临时残留由第 3 步的旧文件清理顺带清掉）。拷失败走 catch，只清它。
+            tmp = new File(dir, base + "_tmp_" + System.currentTimeMillis() + "." + ext);
+            try (InputStream in = host.getContentResolver().openInputStream(uri);
+                 OutputStream os = new FileOutputStream(tmp)) {
+                if (in == null) throw new java.io.IOException("null stream");
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+            }
+            if (tmp.length() <= 0) throw new java.io.IOException("empty copy");
+            // 2. 产生正式文件（带时间戳，地址变了 Glide 才不会按旧地址缓存旧图）：
+            // 改名成功直接用；改名失败把临时文件内容再拷一份到正式文件——
+            // 正式文件与临时文件永不相等，失败分支删临时文件不会伤到已生效文件。
+            File out = new File(dir, base + "_" + System.currentTimeMillis() + "." + ext);
+            if (!tmp.renameTo(out)) {
+                try (InputStream in = new FileInputStream(tmp);
+                     OutputStream os = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                }
+                if (out.length() <= 0) throw new java.io.IOException("rename fallback copy failed");
+            }
+            // 3. 新正式文件落盘后才替换：清旧拷图（同歌旧文件名前缀 base_ 或
+            // base.jpg/png/webp 全清，临时文件与新正式文件本身不删），再写映射、
+            // 删临时文件。拷失败在第 1／2 步就抛了，到不了这里，旧图和映射不动。
+            File[] olds = dir.listFiles();
+            if (olds != null) {
+                for (File f : olds) {
+                    String n = f.getName();
+                    if (!f.equals(tmp) && !f.equals(out) && (n.startsWith(base + "_")
+                            || n.equals(base + ".jpg")
+                            || n.equals(base + ".png") || n.equals(base + ".webp"))) f.delete();
+                }
+            }
+            MusicStore.setSongCover(key, Uri.fromFile(out).toString());
+            tmp.delete();
+            tmp = null;
+            refreshPlayerCover();
+            showPanel(PANEL_CUSTOM_COVER);
+        } catch (Throwable ignored) {
+            if (tmp != null) tmp.delete();
+            Notify.show(R.string.music_custom_cover_failed);
+        }
+    }
+
+    /** 恢复默认封面：清映射＋删本地拷图（尽力），刷新播放页 */
+    private void onCustomCoverRestore() {
+        MusicTrack track = MusicController.get().current();
+        if (track == null) return;
+        String key = MusicStore.songCoverKey(track);
+        String old = MusicStore.getSongCover(key);
+        MusicStore.setSongCover(key, null);
+        if (old != null && !old.isEmpty()) {
+            try {
+                File f = new File(Uri.parse(old).getPath());
+                if (f.exists()) f.delete();
+            } catch (Throwable ignored) {
+            }
+        }
+        refreshPlayerCover();
+        showPanel(PANEL_CUSTOM_COVER);
+    }
+
+    private void refreshPlayerCover() {
+        FragmentActivity host = getActivity();
+        if (host instanceof MusicPlayerActivity) ((MusicPlayerActivity) host).refreshCurrentCover();
     }
 
     /** A7 门控：仅横屏时建左手行（瓜子双非空：横屏调用方传状态＋回调，竖屏传空行不出） */
@@ -1188,6 +1327,27 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_lyric_settings)));
+        // 歌词来源卡（主面板只留快捷格一个歌词入口，版本与搜索收到歌词子面板内——
+        // 瓜子同款结构：版本筛选条 LyricVersionFilterBar 与搜索 searchLyricsForSelection 都在歌词页内，不在工具面板；
+        // 多版本功能本身保留，入口挪位不丢功能）
+        LinearLayout lyricSrcCard = cardBox();
+        boolean firstSrc = true;
+        FragmentActivity lyricHost = getActivity();
+        if (lyricHost instanceof MusicPlayerActivity
+                && ((MusicPlayerActivity) lyricHost).getLyricVersionCount() > 1) {
+            addRow(lyricSrcCard, getString(R.string.music_lyric_versions),
+                    ((MusicPlayerActivity) lyricHost).getLyricVersionCount() + " 个版本", v -> {
+                        dismissAllowingStateLoss();
+                        new Handler(Looper.getMainLooper()).post(
+                                () -> ((MusicPlayerActivity) lyricHost).openLyricVersionDialog());
+                    }, true);
+            firstSrc = false;
+        }
+        addRow(lyricSrcCard, getString(R.string.music_search_lyric), null, v -> {
+            if (listener != null) listener.onSearchLyric();
+            dismissAllowingStateLoss();
+        }, firstSrc);
+        box.addView(lyricSrcCard, marginTop(dp(12)));
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(160));
         previewLp.topMargin = dp(12);
@@ -1583,7 +1743,13 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 }
                 animateIndicator(indicator, row, idx);
                 if (pending[0] != null) mainHandler.removeCallbacks(pending[0]);
-                pending[0] = () -> onPick.accept(idx);
+                // crash 项：延迟写入带存活守卫并登记，面板销毁时 onDestroyView 统一取消（旧版只靠 pending[0] 去重，
+                // 销毁后回调仍执行 onPick／动 binding）。
+                pending[0] = () -> {
+                    if (!isAdded() || getContext() == null) return;
+                    onPick.accept(idx);
+                };
+                segmentPendings.add(pending[0]);
                 mainHandler.postDelayed(pending[0], 250);
             });
             attachPress(tv, 0.96f);
@@ -1607,7 +1773,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 设置行：单行横排——标签 weight 1、值右对齐同排、雪佛龙 20dp；整行固定高 56dp＋整行 gravity 居中，
+     * 设置行：单行横排——标签 weight 1、值右对齐同排、雪佛龙 20dp；整行固定高 56dp（GZ SettingsListRow 代码值：
+     * 无副值 56dp、有副值 62dp；星辰值与标签同行，统一 56dp）＋整行 gravity 居中，
      * 标签/值同处一行中线（根绝旧版值掉行/右缘裁切）。
      */
     private void addRow(LinearLayout card, String label, String value, View.OnClickListener click, boolean first) {
@@ -1646,10 +1813,10 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         TextView tv = text(label, 15, COLOR_TEXT, false);
         tv.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(tv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(56)));
         TextView vv = text(value, 14, COLOR_LOW, false);
         vv.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(0, dp(56), 1f);
         vlp.setMarginStart(dp(12));
         row.addView(vv, vlp);
         card.addView(row);
@@ -1657,6 +1824,21 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     private View switchRow(String label, boolean checked, java.util.function.Consumer<Boolean> onChange) {
         return switchRow(label, checked, 56, onChange);
+    }
+
+    /** 带行首图标的开关行（GZ SettingsToggleRow：行首图标 20dp＋标签 15sp＋右侧开关，行高 56dp） */
+    private View switchRow(int iconRes, String label, boolean checked, java.util.function.Consumer<Boolean> onChange) {
+        View row = switchRow(label, checked, 56, onChange);
+        if (row instanceof LinearLayout) {
+            LinearLayout r = (LinearLayout) row;
+            ImageView iv = new ImageView(getContext());
+            iv.setImageResource(iconRes);
+            iv.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(20), dp(20));
+            ilp.setMarginEnd(dp(8));
+            r.addView(iv, 0, ilp);
+        }
+        return row;
     }
 
     private View switchRow(String label, boolean checked, int heightDp, java.util.function.Consumer<Boolean> onChange) {
@@ -1676,6 +1858,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
                 new int[]{COLOR_RED, 0x1A000000}));
         sw.setOnCheckedChangeListener((button, on) -> onChange.accept(on));
+        // 整行可点（跟瓜子一样）：开关本身不直接接手势，行点只翻开关状态、仍走开关监听单次触发，绝不双触发
+        sw.setClickable(false);
+        row.setOnClickListener(v -> sw.setChecked(!sw.isChecked()));
         row.addView(sw);
         return row;
     }

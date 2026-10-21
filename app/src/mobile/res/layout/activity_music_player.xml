@@ -23,8 +23,9 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 主题容器 -->
-    <FrameLayout
+    <!-- 主题容器：整页竖滑切歌拦截层（GZ coverAxisLock 模型），五主题通用；
+         内嵌歌词不再竖滚（KaraokeLyricsView coverMode 门），手动滚只留全屏歌词页 -->
+    <com.fongmi.android.tv.ui.custom.PlayerPageSwipeLayout
         android:id="@+id/themeContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
@@ -226,4 +227,16 @@
         android:id="@+id/heartsOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- GZ 式迷你进度条（activity 层、五主题共用一个）：平时底下只有一根短条，点一下展开完整进度栈，
+         闲置 3s（星辰侧自定，非 GZ 代码值）缩回。视图高 24dp 是点按热区，视觉条 3dp 居中画；
+         底边距 12dp，视觉条约在屏底上 22.5-25.5dp（GZ 实拍条底约 44dp 含系统导航区，星辰侧对齐歌词内页 24dp 底边距一档）。 -->
+    <com.fongmi.android.tv.ui.custom.MusicMiniProgressView
+        android:id="@+id/miniProgress"
+        android:layout_width="52dp"
+        android:layout_height="24dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="12dp"
+        android:clickable="true"
+        android:focusable="true" />
 </FrameLayout>

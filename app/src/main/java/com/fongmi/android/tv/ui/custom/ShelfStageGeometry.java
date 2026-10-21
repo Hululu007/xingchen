@@ -38,6 +38,8 @@ public final class ShelfStageGeometry {
     public final float widthDp;
     /** 舞台基准：clamp(宽×0.66, 180, 300)。 */
     public final float stageDp;
+    /** 舞台高＝stage−23dp（瓜子舞台 Box 高，RecordShelfPlayerKt:1397 `f - 23.0f`；星辰架列高取此值，不再随项高 wrap_content，否则面顶比瓜子高约 49dp）。 */
+    public final float stageHeightDp;
     /** 槽位基尺寸 f2＝min(宽×0.5, stage−36)。 */
     public final float slotBaseDp;
     /** 封套尺寸 f3＝f2×0.95。星辰项根宽、弹簧槽位宽皆取此值。 */
@@ -99,6 +101,7 @@ public final class ShelfStageGeometry {
     private ShelfStageGeometry(float widthDp) {
         this.widthDp = widthDp;
         this.stageDp = Math.max(180f, Math.min(300f, widthDp * 0.66f));
+        this.stageHeightDp = stageDp - 23f;
         this.slotBaseDp = Math.min(widthDp * 0.5f, stageDp - 36f);
         this.sleeveDp = slotBaseDp * 0.95f;
         this.centerRefDp = widthDp * 0.59f;

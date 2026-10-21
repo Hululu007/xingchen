@@ -56,7 +56,39 @@
             android:textColor="#8E8E93"
             android:textSize="11sp" />
 
+        <!-- 第二波：尾行（瓜子 TopListCard：平台胶囊 11sp 半粗＋间隔 7dp＋「N 首」10sp＋更新频率文 10sp；
+             胶囊底／字色由代码 tintChartCapsule 按封面语气色设；源没给数／频率时 meta 隐藏） -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/chartCapsule"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="7dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="3dp"
+                android:textColor="#FA243C"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/chartMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:textColor="#8E8E93"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <TextView
+            android:id="@+id/chartMetaFallback"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"

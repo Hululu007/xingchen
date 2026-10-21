@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 第 3 项：榜单详情行（GZ BoardSongRow：排名 14sp 宽 30dp、封面 42dp 圆角 10dp、歌名 15sp、歌手 12sp、时长 11sp；
-     正在播图标 14dp／已暂停图标 12dp，见代码） -->
+<!-- 第 3 项＋第二波：榜单详情行（GZ TopListDetailScreenKt：排名 14sp 宽 30dp、封面 42dp 圆角 10dp、歌名 15sp、歌手 12sp、时长 11sp；
+     在播标记是图标（不是文字）：播放态 14dp／暂停态 12dp、tint 取封面语气色、无障碍文案「正在播放」／「已暂停」） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -9,26 +9,14 @@
     android:paddingTop="6dp"
     android:paddingBottom="6dp">
 
-    <!-- 排名位 30dp：平时显排名数字，当前行换成状态图标（正在播 14dp／已暂停 12dp） -->
-    <FrameLayout
+    <!-- 排名位 30dp：始终显排名数字，在播行取封面语气色 -->
+    <TextView
+        android:id="@+id/rank"
         android:layout_width="30dp"
-        android:layout_height="wrap_content">
-
-        <TextView
-            android:id="@+id/rank"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:textColor="#8E8E93"
-            android:textSize="14sp" />
-
-        <ImageView
-            android:id="@+id/stateIcon"
-            android:layout_width="14dp"
-            android:layout_height="14dp"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-    </FrameLayout>
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textColor="#8E8E93"
+        android:textSize="14sp" />
 
     <ImageView
         android:id="@+id/cover"
@@ -44,14 +32,30 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/title"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#1C1C1E"
-            android:textSize="15sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#1C1C1E"
+                android:textSize="15sp" />
+
+            <ImageView
+                android:id="@+id/stateMark"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="6dp"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/artist"

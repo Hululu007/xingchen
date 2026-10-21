@@ -89,21 +89,33 @@ public class FreeJsMusicSource implements MusicSource {
      * 供的是全站视频榜，没意义；歌词网/歌词千寻是歌词型插件，不供榜。
      * 只有酷我插件（元力KW）调 getTopLists，其余 FreeJS 插件直接返回空、不碰桥。
      * 搜索/播放/歌词等其它链不受影响，哔哩哔哩照常能搜能播。
+     * 酷我榜详情改壳子直连（2026-10-21 拍板）：这里把酷我榜的 platform 改写为 KwChartSource 的 "kw"、
+     * id 去掉 srcUrl| 前缀只留裸榜 id，详情因此路由到 KwChartSource.chartTracks（kbangserver 直连），
+     * 不再走插件 getTopListDetail；榜名/封面/条目原文原样保留，列表页与首页榜单卡按名匹配不受影响。
      */
     @Override
     public List<MusicChart> charts(MusicSite site) throws Exception {
         if (!isKuwoSite(site)) return Collections.emptyList();
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
         if (b == null) return Collections.emptyList();
-        return b.getTopLists();
+        List<MusicChart> charts = b.getTopLists();
+        for (MusicChart c : charts) {
+            if (c == null || c.id == null) continue;
+            int sep = c.id.indexOf('|');
+            if (sep < 0) continue;
+            c.platform = KwChartSource.PLATFORM;
+            c.id = c.id.substring(sep + 1);
+        }
+        return charts;
     }
 
     /**
      * 酷我插件判据（以 MusicSourceManager.builtinSites 播种值为准）：
      * 插件自报 platform 经 FreeJsBridge 回填进 site.name，预置播种名同为「酷我音乐」；
      * srcUrl 命中预置的元力KW 地址（原文/URL 编码形）也算。两条都是精确匹配，不搞模糊。
+     * 包内可见：KwChartSource 解析 _plugin 戳时复用同一判据，两处不许各写一套。
      */
-    private static boolean isKuwoSite(MusicSite site) {
+    static boolean isKuwoSite(MusicSite site) {
         if (site == null) return false;
         if ("酷我音乐".equals(site.name)) return true;
         String url = site.srcUrl == null ? "" : site.srcUrl;
@@ -161,43 +173,69 @@ public class FreeJsMusicSource implements MusicSource {
         return b.getLyric(track);
     }
 
-    /** lyricFallback 的 rich 版：同一条遍历，命中返回完整 MusicLyric */
+    /**
+     * lyricFallback 的 rich 版：同一条遍历，命中返回完整 MusicLyric。
+     * 第 1 步漏词修：查询序列外层（与步骤 3 同款结构）——本地歌按净歌名逐级降级搜，
+     * 在线歌序列只有一个原样查询，行为不动；对歌用 matchTarget 按查询换净歌名。
+     * 第二遍（own != null 且第一遍无正文命中时）：只搜歌曲自己的插件——步骤 1 跳过
+     * 自己插件、步骤 2 跳过整个本源时，自己插件经搜歌＋对歌的词会永远漏网；第二遍
+     * 是步骤 0 本源直取的搜歌重试，不走被屏蔽插件过滤（步骤 0 本源直取亦不过滤）。
+     */
     public MusicLyric lyricFallbackRich(MusicTrack track) {
         if (track == null) return null;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return null;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return null;
         String own = pluginOf(track);
+        MusicLyric first = lyricFallbackRichPass(track, queries, own, false);
+        if (first != null && first.hasBodyText()) return first;
+        if (own != null) {
+            MusicLyric second = lyricFallbackRichPass(track, queries, own, true);
+            if (second != null && second.hasBodyText()) return second;
+            if (first == null) first = second;
+        }
+        return first;
+    }
+
+    /** lyricFallbackRich 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件。 */
+    private MusicLyric lyricFallbackRichPass(MusicTrack track,
+            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn) {
         MusicLyric romajiOnly = null;
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                if (own != null && own.equals(site.srcUrl)) continue;
-                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                List<MusicTrack> candidates;
-                try {
-                    candidates = b.search(keyword, 1, "music").getTracks();
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                if (hit == null) continue;
-                try {
-                    MusicLyric l = b.getLyric(hit);
-                    // 命中口径：正文或译文才立即返回（译文-only 也算，仓库
-                    // normalizeRich 会把定时译文提为正文）；纯音译只留作候选，
-                    // 不许截断后面的插件——它们可能有正文
-                    if (l != null && l.hasBodyText()) return l;
-                    if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
-                } catch (Throwable ignored) {
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    if (onlyOwn) {
+                        if (!own.equals(site.srcUrl)) continue;
+                    } else {
+                        if (own != null && own.equals(site.srcUrl)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
+                    }
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (b == null) continue;
+                    List<MusicTrack> candidates;
+                    try {
+                        candidates = b.search(q.keyword, 1, "music").getTracks();
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                            com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                    if (hit == null) continue;
+                    try {
+                        MusicLyric l = b.getLyric(hit);
+                        // 命中口径：正文或译文才立即返回（译文-only 也算，仓库
+                        // normalizeRich 会把定时译文提为正文）；纯音译只留作候选，
+                        // 不许截断后面的插件——它们可能有正文
+                        if (l != null && l.hasBodyText()) return l;
+                        if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -205,82 +243,102 @@ public class FreeJsMusicSource implements MusicSource {
         return romajiOnly;
     }
 
-    /** lyricFallbackRich 的全量版（B2）：同一条遍历，收集全部实际命中（含纯音译），不截断 */
+    /**
+     * lyricFallbackRich 的全量版（B2）：同一条遍历，收集全部实际命中（含纯音译），不截断。
+     * 第 1 步漏词修同 lyricFallbackRich：查询序列外层＋自己插件第二遍；两遍都收集，
+     * 跨查询／跨遍的同词去重在上游 addVersion（按 rawLrc），方法内不另去重。
+     */
     public List<MusicLyric> lyricFallbackAllRich(MusicTrack track) {
         List<MusicLyric> out = new ArrayList<>();
         if (track == null) return out;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return out;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return out;
         String own = pluginOf(track);
+        lyricFallbackAllRichPass(track, queries, own, false, out);
+        if (own != null) lyricFallbackAllRichPass(track, queries, own, true, out);
+        return out;
+    }
+
+    /** lyricFallbackAllRich 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件。 */
+    private void lyricFallbackAllRichPass(MusicTrack track,
+            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn,
+            List<MusicLyric> out) {
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                if (own != null && own.equals(site.srcUrl)) continue;
-                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                List<MusicTrack> candidates;
-                try {
-                    candidates = b.search(keyword, 1, "music").getTracks();
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                if (hit == null) continue;
-                try {
-                    MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.hasLyric()) {
-                        if (l.sourceName == null || l.sourceName.isEmpty()) l.sourceName = site.name;
-                        out.add(l);
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    if (onlyOwn) {
+                        if (!own.equals(site.srcUrl)) continue;
+                    } else {
+                        if (own != null && own.equals(site.srcUrl)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
                     }
-                } catch (Throwable ignored) {
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (b == null) continue;
+                    List<MusicTrack> candidates;
+                    try {
+                        candidates = b.search(q.keyword, 1, "music").getTracks();
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                            com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                    if (hit == null) continue;
+                    try {
+                        MusicLyric l = b.getLyric(hit);
+                        if (l != null && l.hasLyric()) {
+                            if (l.sourceName == null || l.sourceName.isEmpty()) l.sourceName = site.name;
+                            out.add(l);
+                        }
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {
         }
-        return out;
     }
 
     /** lyricFromLyricPluginsRich 的全量版（B2）：同一条直查，收集全部实际命中（含纯音译），不截断 */
     public List<MusicLyric> lyricPluginsAllRich(MusicTrack track) {
         List<MusicLyric> out = new ArrayList<>();
         if (track == null) return out;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return out;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return out;
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                try {
-                    if (b.supportsMusicSearch()) continue;
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                try {
-                    List<MusicTrack> candidates = b.search(keyword, 1, "lyric").getTracks();
-                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                    if (hit == null) continue;
-                    MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.hasLyric()) {
-                        if (l.sourceName == null || l.sourceName.isEmpty()) l.sourceName = site.name;
-                        out.add(l);
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
                     }
-                } catch (Throwable ignored) {
+                    if (b == null) continue;
+                    try {
+                        if (b.supportsMusicSearch()) continue;
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    try {
+                        List<MusicTrack> candidates = b.search(q.keyword, 1, "lyric").getTracks();
+                        MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                                com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                        if (hit == null) continue;
+                        MusicLyric l = b.getLyric(hit);
+                        if (l != null && l.hasLyric()) {
+                            if (l.sourceName == null || l.sourceName.isEmpty()) l.sourceName = site.name;
+                            out.add(l);
+                        }
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -291,35 +349,37 @@ public class FreeJsMusicSource implements MusicSource {
     /** lyricFromLyricPlugins 的 rich 版：同一条直查，命中返回完整 MusicLyric */
     public MusicLyric lyricFromLyricPluginsRich(MusicTrack track) {
         if (track == null) return null;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return null;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return null;
         MusicLyric romajiOnly = null;
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                try {
-                    if (b.supportsMusicSearch()) continue;
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                try {
-                    List<MusicTrack> candidates = b.search(keyword, 1, "lyric").getTracks();
-                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                    if (hit == null) continue;
-                    MusicLyric l = b.getLyric(hit);
-                    // 同 lyricFallbackRich：正文/译文立即返回，纯音译只留候选不截断
-                    if (l != null && l.hasBodyText()) return l;
-                    if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
-                } catch (Throwable ignored) {
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (b == null) continue;
+                    try {
+                        if (b.supportsMusicSearch()) continue;
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    try {
+                        List<MusicTrack> candidates = b.search(q.keyword, 1, "lyric").getTracks();
+                        MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                                com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                        if (hit == null) continue;
+                        MusicLyric l = b.getLyric(hit);
+                        // 同 lyricFallbackRich：正文/译文立即返回，纯音译只留候选不截断
+                        if (l != null && l.hasBodyText()) return l;
+                        if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -331,37 +391,57 @@ public class FreeJsMusicSource implements MusicSource {
      * 歌词兜底：按启用顺序遍历其它插件（跳过歌曲自己的插件），
      * 用歌名+歌手搜到同一首歌再取它的歌词；复用桥已有的 search/getLyric 通道。
      */
+    /**
+     * 歌词兜底：按启用顺序遍历其它插件（跳过歌曲自己的插件），
+     * 用歌名+歌手搜到同一首歌再取它的歌词；复用桥已有的 search/getLyric 通道。
+     * 第 1 步漏词修同 lyricFallbackRich：查询序列外层＋自己插件第二遍（第一遍无命中时）。
+     */
     public String lyricFallback(MusicTrack track) {
         if (track == null) return null;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return null;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return null;
         String own = pluginOf(track);
+        String hit = lyricFallbackPass(track, queries, own, false);
+        if (hit != null) return hit;
+        if (own != null) return lyricFallbackPass(track, queries, own, true);
+        return null;
+    }
+
+    /** lyricFallback 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件。 */
+    private String lyricFallbackPass(MusicTrack track,
+            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn) {
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                if (own != null && own.equals(site.srcUrl)) continue;
-                if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                List<MusicTrack> candidates;
-                try {
-                    candidates = b.search(keyword, 1, "music").getTracks();
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                if (hit == null) continue;
-                try {
-                    MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
-                } catch (Throwable ignored) {
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    if (onlyOwn) {
+                        if (!own.equals(site.srcUrl)) continue;
+                    } else {
+                        if (own != null && own.equals(site.srcUrl)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
+                    }
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (b == null) continue;
+                    List<MusicTrack> candidates;
+                    try {
+                        candidates = b.search(q.keyword, 1, "music").getTracks();
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                            com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                    if (hit == null) continue;
+                    try {
+                        MusicLyric l = b.getLyric(hit);
+                        if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -378,32 +458,34 @@ public class FreeJsMusicSource implements MusicSource {
      */
     public String lyricFromLyricPlugins(MusicTrack track) {
         if (track == null) return null;
-        String keyword = (track.title == null ? "" : track.title).trim()
-                + " " + (track.artist == null ? "" : track.artist).trim();
-        keyword = keyword.trim();
-        if (keyword.isEmpty()) return null;
+        List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
+                com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
+        if (queries.isEmpty()) return null;
         try {
-            for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
-                if (site == null || site.srcUrl == null) continue;
-                FreeJsBridge b;
-                try {
-                    b = MusicSourceManager.get().bridgeOf(site);
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                if (b == null) continue;
-                try {
-                    if (b.supportsMusicSearch()) continue; // 能搜歌的不在这条问
-                } catch (Throwable ignored) {
-                    continue;
-                }
-                try {
-                    List<MusicTrack> candidates = b.search(keyword, 1, "lyric").getTracks();
-                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(track, candidates);
-                    if (hit == null) continue;
-                    MusicLyric l = b.getLyric(hit);
-                    if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
-                } catch (Throwable ignored) {
+            for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
+                for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
+                    if (site == null || site.srcUrl == null) continue;
+                    FreeJsBridge b;
+                    try {
+                        b = MusicSourceManager.get().bridgeOf(site);
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    if (b == null) continue;
+                    try {
+                        if (b.supportsMusicSearch()) continue; // 能搜歌的不在这条问
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                    try {
+                        List<MusicTrack> candidates = b.search(q.keyword, 1, "lyric").getTracks();
+                        MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
+                                com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                        if (hit == null) continue;
+                        MusicLyric l = b.getLyric(hit);
+                        if (l != null && l.rawLrc != null && !l.rawLrc.trim().isEmpty()) return l.rawLrc;
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable ignored) {

@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/home_bg_minibar"
+    android:contentDescription="@string/music_wave2_home_minibar_desc"
     android:elevation="10dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"

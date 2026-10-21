@@ -7,6 +7,9 @@
      歌名 23sp 字距 -0.5、副文案 12sp、找歌中态“正在寻找下一首…”11sp、“重新发现”11sp；
      传输控制：上一首／中央播放·暂停圆钮 72dp 图标 34dp／下一首（钮内放不下文字＋图标，文案以图标＋无障碍文案随态切换）；
      反馈区：不合口味＋收藏这首／已收藏这首（星辰无偏好学习引擎，不合口味只切下一首，不假装学习）；
+     第二波页面侧：身份行 tvShuffleMeta（歌手 · 专辑 · 来源，查不到来源不显示，不拿 platform 原始码冒充名）；
+     失败块 failedBlock（失败提示＋重试钮，停在目标曲目不弹回旧歌）；空态块 emptyBlock（明确出口回音乐首页，
+     空态下隐藏“再随机一次”，不再空转同一条空链）；“重新发现”改名“再随机一次”（只重洗同一池子，诚实标签）；
      进度条轨道圆角 3dp、两侧时间 11sp mm:ss，可拖动；
      底色未抠到，星辰侧自定深色 #0A0E16 沉浸底；卡内排布未抠到，星辰侧自定为上下结构） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -101,6 +104,18 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tvShuffleMeta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/tvShuffleSub"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -115,7 +130,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="正在寻找下一首…"
+            android:text="@string/random_finding"
             android:textColor="#B3FFFFFF"
             android:textSize="11sp"
             android:visibility="gone" />
@@ -126,9 +141,75 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:padding="8dp"
-            android:text="重新发现"
+            android:text="@string/random_reshuffle"
             android:textColor="#FFFFFF"
             android:textSize="11sp" />
+
+        <LinearLayout
+            android:id="@+id/failedBlock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvFailedHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/random_failed_hint"
+                android:textColor="#FFFF9A9A"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnRetry"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_pill_dark"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="@string/random_retry"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/emptyBlock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvEmptyHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/random_empty_hint"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnEmptyHome"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_pill_dark"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="@string/random_back_home"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <View

@@ -2,6 +2,7 @@ package com.fongmi.android.tv.api.loader;
 
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Live;
@@ -48,15 +49,28 @@ public class BaseLoader {
     }
 
     public void clear() {
+        clear("unspecified");
+    }
+
+    /** 全清（配蜘蛛失效口径）：原因透传给 PyLoader 记日志，真机重建频率靠它看。\n     * 详情空计数同步清（换配置／恢复备份都走这里，旧一笔不算进“连续”）。 */
+    public void clear(String reason) {
         Task.execute(() -> {
             jarLoader.clear();
-            pyLoader.clear();
+            pyLoader.clear(reason);
             jsLoader.clear();
+            try {
+                SiteApi.clearDetailEmptyStrikes();
+            } catch (Throwable ignored) {
+            }
         });
     }
 
     public void clearPy() {
-        pyLoader.clear();
+        clearPy("unspecified");
+    }
+
+    public void clearPy(String reason) {
+        pyLoader.clear(reason);
     }
 
     public void clearJs() {
@@ -64,7 +78,16 @@ public class BaseLoader {
     }
 
     public void removePySpider(String key) {
-        pyLoader.remove(key);
+        removePySpider(key, "unspecified");
+    }
+
+    public void removePySpider(String key, String reason) {
+        pyLoader.remove(key, reason);
+    }
+
+    /** 按脚本文件单清（目录监听／删插件／导入插件用）：只清该文件对应的蜘蛛＋首页缓存。 */
+    public void invalidatePyScript(String absolutePath) {
+        pyLoader.invalidateScript(absolutePath);
     }
 
     public void removeJsSpider(String key) {

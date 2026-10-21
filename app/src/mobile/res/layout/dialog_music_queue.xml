@@ -5,7 +5,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel_home"
+    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical"
     android:paddingTop="12dp">
 
@@ -105,7 +105,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="0dp"
         android:layout_marginEnd="16dp"
         android:background="@drawable/bg_sheet_source"
         android:gravity="center_vertical"
@@ -153,6 +153,7 @@
         android:layout_marginTop="2dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
+        android:paddingBottom="2dp"
         android:text="@string/sheet_queue_hint"
         android:textColor="#9A9AA0"
         android:textSize="11sp" />

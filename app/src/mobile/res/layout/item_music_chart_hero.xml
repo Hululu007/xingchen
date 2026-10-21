@@ -1,25 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 第 3 项：榜单详情英雄卡（GZ BoardDetailHero：封面 96dp 圆角 16dp、榜名 24sp；标签胶囊无字段来源，不显） -->
+<!-- 第 3 项＋第二波：榜单详情英雄卡（GZ BoardDetailHero：封面 96dp 圆角 16dp、榜名 24sp／800／字距 −0.4sp、
+     平台胶囊 10sp 半粗＋accent 字／0.14 底＋内边距 8/3dp＋圆角 8dp、描述 12sp、更新频率 11sp（两行字段映射未完全解码，
+     有源给值、无源隐藏）、「播放全部」钮高 48dp 圆角 14dp 图标 22dp 文 14sp、刷新钮（瓜子详情顶栏刷新落点：
+     星辰详情页无顶栏，刷新放操作行右端） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:paddingTop="8dp"
     android:paddingBottom="16dp">
 
-    <ImageView
-        android:id="@+id/cover"
-        android:layout_width="96dp"
-        android:layout_height="96dp"
-        android:scaleType="centerCrop" />
-
-    <TextView
-        android:id="@+id/name"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_weight="1"
-        android:textColor="#1C1C1E"
-        android:textSize="24sp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/cover"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#1C1C1E"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/chartHeroCapsule"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:paddingStart="8dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="3dp"
+                android:textColor="#FA243C"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/chartHeroDesc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#8E8E93"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/chartHeroFreq"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#8E8E93"
+                android:textSize="11sp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/btnChartPlayAll"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_pill_chart_play"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_music_play"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="播放全部"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/btnChartRefresh"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:contentDescription="刷新"
+            android:padding="10dp"
+            android:src="@drawable/ic_player_refresh"
+            android:tint="#9AA7B8" />
+    </LinearLayout>
 </LinearLayout>

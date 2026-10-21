@@ -50,6 +50,14 @@ public class MusicController {
         /** 落雪密钥问题（B4）：脚本明确报了 401／403，UI 侧弹密钥提示；其它失败不走这里 */
         default void onKeyIssue(String platform, String detail) {
         }
+
+        /** 服务落位信号（见 MusicPlaybackService.ServiceListener.onTrackReady），默认空实现 */
+        default void onTrackReady(MusicTrack track) {
+        }
+
+        /** 服务失败信号（见 MusicPlaybackService.ServiceListener.onTrackFailed），默认空实现 */
+        default void onTrackFailed(MusicTrack track, int reasonRes) {
+        }
     }
 
     private static volatile MusicController instance;
@@ -108,6 +116,16 @@ public class MusicController {
                 listeners.forEach(l -> l.onPlayingChanged(playing));
                 syncMiniBar();
             });
+        }
+
+        @Override
+        public void onTrackReady(MusicTrack track) {
+            App.post(() -> listeners.forEach(l -> l.onTrackReady(track)));
+        }
+
+        @Override
+        public void onTrackFailed(MusicTrack track, int reasonRes) {
+            App.post(() -> listeners.forEach(l -> l.onTrackFailed(track, reasonRes)));
         }
 
         @Override
@@ -212,6 +230,10 @@ public class MusicController {
             listeners.forEach(Listener::onQueueChanged);
             listeners.forEach(l -> l.onModeChanged(s.getQueue().getMode()));
             listeners.forEach(l -> l.onSleepChanged(s.getSleep()));
+            // W-E：重绑时当前曲若已落位，补发一次落位信号——只发一次 onTrackChanged 的
+            // pushAll 无法让计次页区分“已落位还是取链中”，已落位时以 onTrackReady 补齐；
+            // 取链中（未落位）不补发，页内仍按取链期处理，不许把取链中误报成已落位
+            if (t != null && s.isCurrentLoaded()) listeners.forEach(l -> l.onTrackReady(t));
         });
     }
 
@@ -228,6 +250,16 @@ public class MusicController {
         runOnService(() -> service().playQueue(new ArrayList<>(queue), index, source, route, routeParams));
     }
 
+    /**
+     * R4 服务钩子（控制器侧）：新队列＋模式一次定（随心听／全局随机入口用），
+     * 模式与起队在服务内同一调用完成，不分两步排队串队；模式仍是全局偏好存盘。
+     */
+    public void playWithMode(List<MusicTrack> queue, int index, int mode,
+                             String source, String route, java.util.Map<String, String> routeParams) {
+        if (queue == null || queue.isEmpty()) return;
+        runOnService(() -> service().playQueueWithMode(new ArrayList<>(queue), index, mode, source, route, routeParams));
+    }
+
     /** 播队列并从断点位置起 */
     public void playFrom(List<MusicTrack> queue, int index, long position) {
         playFrom(queue, index, position, null, null, null);
@@ -242,6 +274,22 @@ public class MusicController {
 
     public void playAt(int index) {
         runOnService(() -> service().playAt(index));
+    }
+
+    /**
+     * W-E 配合（R2 暂停态恢复）：只换队不起播——换队并把目标歌加载到断点位置后暂停，
+     * 不出声；不要用 playFrom 假装恢复（它会起播）。空队直接返回。
+     */
+    public void loadQueuePaused(List<MusicTrack> queue, int index, long position,
+                                String source, String route, java.util.Map<String, String> routeParams) {
+        if (queue == null || queue.isEmpty()) return;
+        runOnService(() -> service().loadQueuePaused(new ArrayList<>(queue), index, position, source, route, routeParams));
+    }
+
+    /** 当前曲是否已落位（见 MusicPlaybackService.isCurrentLoaded）；服务未连接时 false */
+    public boolean isCurrentLoaded() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s != null && s.isCurrentLoaded();
     }
 
     public void toggle() {
@@ -271,6 +319,12 @@ public class MusicController {
 
     public void removeAt(int i) {
         runOnService(() -> service().removeAt(i));
+    }
+
+    /** 队列移除契约（另一工调用口径，方法名定死）：按 key 删，key 口径见 MusicQueue.trackKey */
+    public void removeByKey(String key) {
+        if (key == null) return;
+        runOnService(() -> service().removeByKey(key));
     }
 
     public void move(int from, int to) {

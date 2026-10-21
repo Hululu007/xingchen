@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 第二波播放页新增串（wave2）：只放本批新增文案，不改共享 strings.xml。 -->
+<resources>
+    <string name="music_unknown_source">未知来源</string>
+    <string name="music_wave2_mini_progress_desc">迷你进度条，点按展开完整进度</string>
+    <string name="music_wave2_home_minibar_desc">音乐迷你条，点按打开播放页</string>
+    <string name="music_wave2_cd_show_disc">显示唱片</string>
+    <string name="music_wave2_cd_surface_light">切换表面，当前浅色</string>
+    <string name="music_wave2_cd_surface_dark">切换表面，当前深色</string>
+    <string name="music_wave2_cd_surface_auto">切换表面，当前自动</string>
+    <string name="music_wave2_volume_low">音量小</string>
+    <string name="music_wave2_volume_high">音量大</string>
+</resources>

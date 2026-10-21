@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 第 7 项尾巴：下载进行中任务行（名 14sp、状态 11sp、进度条、暂停/继续、取消） -->
+<!-- 第 7 项尾巴＋第二波：下载进行中任务行（名 14sp、状态 11sp、进度条、34dp 圆钮：瓜子 DownloadsScreen 进行中行圆钮 34dp 图标 20dp，
+     暂停态播放图标「继续下载」／等待·下载中暂停图标「暂停下载」／取消关闭图标「取消下载」；按压 0.9 星辰侧无现成 helper，未实现，见交卷） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="4dp"
-    android:paddingEnd="4dp"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
     android:paddingTop="10dp"
     android:paddingBottom="10dp">
 
@@ -45,20 +46,23 @@
             android:progressTint="#FA243C" />
     </LinearLayout>
 
-    <TextView
+    <ImageView
         android:id="@+id/btnPause"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:padding="8dp"
-        android:textColor="#FA243C"
-        android:textSize="12sp" />
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_circle_light"
+        android:padding="7dp"
+        android:scaleType="fitCenter"
+        android:tint="#8E8E93" />
 
-    <TextView
+    <ImageView
         android:id="@+id/btnCancel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:padding="8dp"
-        android:text="取消"
-        android:textColor="#9AA7B8"
-        android:textSize="12sp" />
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_circle_light"
+        android:padding="7dp"
+        android:scaleType="fitCenter"
+        android:tint="#8E8E93" />
 </LinearLayout>

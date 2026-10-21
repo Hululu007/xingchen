@@ -21,6 +21,11 @@ public class AmllMusicLyricSource {
         if (track == null) return null;
         String title = track.title == null ? "" : track.title.trim();
         String artist = track.artist == null ? "" : track.artist.trim();
+        // 本地歌同样清洗：文件名后缀／发行组后缀＋占位歌手不进 AMLL 查询
+        if (com.fongmi.android.tv.utils.LocalTrackMeta.isLocalPlatform(track.platform)) {
+            title = com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(title);
+            artist = com.fongmi.android.tv.utils.LocalTrackMeta.realArtist(artist);
+        }
         if (title.isEmpty()) return null;
         try {
             LyricsResult r = client.find(new LyricsRequest("", "", title, artist, "", track.duration));

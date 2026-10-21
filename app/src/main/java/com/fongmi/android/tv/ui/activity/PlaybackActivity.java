@@ -746,7 +746,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         }
     };
 
+    // 视频/直播内容深色（全屏时栏隐藏，非全屏时白图标），BaseActivity 默认已改深色图标，这里盖回。
     @Override
+    protected boolean useDarkSystemIcons() {
+        return false;
+    }
+
     protected void initView(Bundle savedInstanceState) {
         long start = System.currentTimeMillis();
         super.initView(savedInstanceState);

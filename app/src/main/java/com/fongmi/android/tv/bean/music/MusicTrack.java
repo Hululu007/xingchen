@@ -48,7 +48,7 @@ public class MusicTrack {
     }
 
     public String displayTitle() {
-        return title == null ? "" : title;
+        return com.fongmi.android.tv.utils.LocalTrackMeta.cleanDisplayTitle(title, platform);
     }
 
     @Override

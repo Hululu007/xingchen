@@ -241,13 +241,14 @@
     </style>
 
     <!-- 音乐设置页行：跟首页导航行同一张卡皮，名字左、值/开关右。
-         U4：瓜子设置行无固定高（内边距＋内容撑起），行间 0 间距＋0.5dp 分隔线（分隔线见布局内 divider 行）。
-         本页是深色皮，文字色取 GlassTokens 深色值：名 textHigh #F2F2F7；值沿用红（音质值是强调色）。 -->
+         v1 稿落码：行不再各自成卡，改由分组卡包行（卡皮见布局内分组容器）；
+         行背景透明、行高由 36dp 图标块＋12dp 上下内边距撑到 60dp。
+         分组标题间距留足：上 28dp、下 10dp，标题不许压上一张卡的底边、不许两行挤。 -->
     <style name="MusicSettingSection">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">24dp</item>
-        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:layout_marginTop">28dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
         <item name="android:textColor">#8E8E93</item>
         <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
@@ -256,13 +257,34 @@
     <style name="MusicSettingRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@drawable/card_music</item>
+        <item name="android:minHeight">60dp</item>
+        <item name="android:background">@android:color/transparent</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
         <item name="android:paddingTop">12dp</item>
         <item name="android:paddingBottom">12dp</item>
+    </style>
+
+    <!-- 分组卡内行间细分隔线：卡内左右各缩 16dp，不贴卡边 -->
+    <style name="MusicSettingDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0.5dp</item>
+        <item name="android:layout_marginStart">16dp</item>
+        <item name="android:layout_marginEnd">16dp</item>
+        <item name="android:background">#0F000000</item>
+    </style>
+
+    <!-- v1 稿行首彩色图标块：36dp 圆角方块＋白图标（图标色由各行 backgroundTint 给 pastel 色） -->
+    <style name="MusicSettingIcon">
+        <item name="android:layout_width">36dp</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:background">@drawable/bg_music_setting_icon</item>
+        <item name="android:padding">8dp</item>
+        <item name="android:scaleType">centerInside</item>
+        <item name="android:tint">#FFFFFF</item>
     </style>
 
     <style name="MusicSettingName">
@@ -277,17 +299,20 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">16dp</item>
-        <item name="android:textColor">#FA243C</item>
+        <item name="android:textColor">#8E8E93</item>
         <item name="android:textSize">15sp</item>
     </style>
 
-    <!-- U4：M3 Switch 本体缩放 0.75（瓜子源码只给缩放系数，本征轨宽／轨高是 M3 库值，不冒充瓜子值） -->
+    <!-- U4：M3 Switch 本体缩放 0.75（瓜子源码只给缩放系数，本征轨宽／轨高是 M3 库值，不冒充瓜子值）。
+         v1 稿开关统一强调色：钮恒白、开态轨珊瑚红、关态轨浅灰（白钮在红轨上显眼，上一稿白钮不显的毛病靠钮色写死白根治）。 -->
     <style name="MusicSettingSwitch">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">16dp</item>
         <item name="android:scaleX">0.75</item>
         <item name="android:scaleY">0.75</item>
+        <item name="thumbTint">@color/music_switch_thumb</item>
+        <item name="trackTint">@color/music_switch_track</item>
     </style>
 
 </resources>

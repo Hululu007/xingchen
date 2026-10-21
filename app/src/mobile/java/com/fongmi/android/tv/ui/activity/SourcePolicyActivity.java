@@ -39,7 +39,12 @@ public class SourcePolicyActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, SourcePolicyActivity.class));
     }
 
+    // 线路政策页底 #0B0E14 深色，白色图标（BaseActivity 默认已改深色图标，这里盖回）。
     @Override
+    protected boolean useDarkSystemIcons() {
+        return false;
+    }
+
     protected ViewBinding getBinding() {
         binding = ActivitySourcePolicyBinding.inflate(getLayoutInflater());
         return binding;

@@ -7,10 +7,15 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.chaquo.Loader;
 import com.github.catvod.crawler.Spider;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.crawler.SpiderNull;
+import com.github.catvod.utils.Path;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -18,9 +23,12 @@ public class PyLoader {
 
     private final ConcurrentHashMap<String, Spider> spiders;
     private final ConcurrentHashMap<String, Long> fileStamps;
+    /** 脚本绝对路径 → 用它创建过的源 key（给目录监听单清用：只清该文件对应的蜘蛛）。 */
+    private final ConcurrentHashMap<String, Set<String>> pathKeys;
     private final Loader loader;
     private volatile String recent;
     private FileObserver watcher;
+    private File watchDir;
 
     /** 本进程是否有蜘蛛成功创建过：给首页冷热预算判定用（SiteApi.isColdPyHomeLoad）。 */
     private static final AtomicBoolean anySpider = new AtomicBoolean(false);
@@ -39,50 +47,122 @@ public class PyLoader {
     public PyLoader() {
         spiders = new ConcurrentHashMap<>();
         fileStamps = new ConcurrentHashMap<>();
+        pathKeys = new ConcurrentHashMap<>();
         loader = new Loader();
     }
 
     public void clear() {
+        clear("unspecified");
+    }
+
+    /** 全清（配蜘蛛失效口径）：记原因＋清掉的只数，真机重建频率靠这条日志看。\n     * 依赖缓存同步清（只清 download 记名的依赖文件，主脚本不动）：全清是重置动作，\n     * 下次 init 重下依赖，顺带捡回上游更新与同长换内容这种比对漏网；单删插件不走这里\n     * （依赖按名多源共用，单删时不知道哪些依赖只属于被删插件）。 */
+    public void clear(String reason) {
+        int count = spiders.size();
+        SpiderDebug.log("pyloader", "clear reason=%s spiders=%d keys=%s", reason, count, spiders.keySet());
         spiders.values().forEach(Spider::destroy);
         spiders.clear();
         fileStamps.clear();
+        pathKeys.clear();
         recent = null;
+        try {
+            com.fongmi.chaquo.Spider.clearDepCache();
+        } catch (Throwable ignored) {
+        }
     }
 
     public void remove(String key) {
+        remove(key, "unspecified");
+    }
+
+    /** 单只驱逐：记原因＋key，真机重建频率靠这条日志看。 */
+    public void remove(String key, String reason) {
         Spider spider = spiders.remove(key);
         fileStamps.remove(key);
+        removeKeyFromPaths(key);
         if (spider != null) {
             try {
                 spider.destroy();
             } catch (Throwable ignored) {}
         }
         if (key.equals(recent)) recent = null;
+        SpiderDebug.log("pyloader", "remove key=%s reason=%s hadSpider=%s", key, reason, spider != null);
+    }
+
+    /** 一个源同一时间只对应一个脚本：先把该 key 从旧路径摘掉，再挂到新路径。 */
+    private void recordPath(String key, String absolutePath) {
+        if (key == null || absolutePath == null) return;
+        removeKeyFromPaths(key);
+        pathKeys.computeIfAbsent(absolutePath, k -> ConcurrentHashMap.newKeySet()).add(key);
+    }
+
+    private void removeKeyFromPaths(String key) {
+        if (key == null) return;
+        for (Set<String> keys : pathKeys.values()) keys.remove(key);
+    }
+
+    /** 某脚本文件对应的源 key 快照（监听／删插件单清用；无缓存返回空，不触发全清）。 */
+    public List<String> keysForScript(String absolutePath) {
+        if (absolutePath == null) return new ArrayList<>();
+        Set<String> keys = pathKeys.get(absolutePath);
+        return keys == null ? new ArrayList<>() : new ArrayList<>(keys);
+    }
+
+    /**
+     * 按文件单清：只清该文件对应的蜘蛛＋首页缓存（删插件／覆盖插件后首页瞬间刷新口径），
+     * 其它源的蜘蛛和首页缓存一律不动——目录监听／删插件／导入插件三路共用。
+     */
+    public void invalidateScript(String absolutePath) {
+        if (absolutePath == null) return;
+        for (String key : keysForScript(absolutePath)) {
+            try {
+                SiteApi.clearHomeCache(key);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     public void setRecent(String recent) {
         this.recent = recent;
     }
 
-    /** 监听 py 插件目录：文件被替换/删除时立即清掉内存里的旧 Spider，下次使用即加载新版。 */
+    /**
+     * 监听 py 插件目录：只清事件文件对应的单只蜘蛛＋该源首页缓存（删 py 后首页瞬间刷新口径），
+     * 其它源的蜘蛛和首页缓存一律不动。
+     * 旧写法是任意事件（包括下载中的 .tmp、编辑器临时文件、非 py 文件）都全清全部蜘蛛＋
+     * 全部首页缓存——插件一多，重建总量随源数线性放大，就是“py 加载更慢了”的放大器。
+     * 不加防抖：清操作本身幂等（蜘蛛已清掉再清一次是空操作），真正的重建只在下次使用时
+     * 发生一次，同一文件的多次事件不会导致多次重建。
+     */
     public synchronized void watchPlugins(File dir) {
         if (dir == null || watcher != null) return;
+        watchDir = new File(dir.getAbsolutePath());
         try {
-            watcher = new FileObserver(dir.getAbsolutePath(),
+            watcher = new FileObserver(watchDir.getAbsolutePath(),
                     FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO | FileObserver.MOVED_FROM
                             | FileObserver.DELETE | FileObserver.CREATE) {
                 @Override
                 public void onEvent(int event, String path) {
-                    clear();
-                    // 插件文件增删改：首页结果内存缓存也一起失效（删 py 后首页瞬间刷新口径）。
+                    SpiderDebug.log("pyloader", "watch event=%s path=%s", watchEventName(event), path);
+                    if (path == null || !path.toLowerCase().endsWith(".py")) return;
                     try {
-                        SiteApi.clearHomeCache();
+                        invalidateScript(new File(watchDir, path).getAbsolutePath());
                     } catch (Throwable ignored) {
                     }
                 }
             };
             watcher.startWatching();
         } catch (Throwable ignored) {}
+    }
+
+    private static String watchEventName(int event) {
+        switch (event & FileObserver.ALL_EVENTS) {
+            case FileObserver.CLOSE_WRITE: return "CLOSE_WRITE";
+            case FileObserver.MOVED_TO: return "MOVED_TO";
+            case FileObserver.MOVED_FROM: return "MOVED_FROM";
+            case FileObserver.DELETE: return "DELETE";
+            case FileObserver.CREATE: return "CREATE";
+            default: return "event_" + event;
+        }
     }
 
     private String resolve(String api) {
@@ -125,11 +205,11 @@ public class PyLoader {
         if (localFile) {
             File f = new File(resolvedApi);
             if (!f.exists()) {
-                remove(key);
+                remove(key, "file-missing");
                 return new SpiderNull();
             }
             if (fileStamps.containsKey(key) && stampOf(f) != fileStamps.get(key)) {
-                remove(key);
+                remove(key, "stamp-changed");
             }
         }
         try {
@@ -144,18 +224,42 @@ public class PyLoader {
      * 创建并初始化一只蜘蛛（computeIfAbsent 的映射函数体）。
      * 成功才写入缓存并标记 anySpider；失败抛 SpiderLoadFailed 穿透出去，
      * 外层负责提示并返回未缓存的 SpiderNull——一次失败不再毒化该源整个进程。
+     * 计时分两段记（蜘蛛创建＝脚本取数＋编译加载，init＝依赖下载＋蜘蛛 init），
+     * 真机分清重建成本里哪段是大头；另记设备 __pycache__ 存在性（执行文件一律
+     * 落在 Path.py() 缓存目录，pyc 是否命中看它）。
      */
     private Spider createSpider(String key, String api, String ext, boolean localFile) {
+        long spiderStart = System.currentTimeMillis();
+        Spider spider;
         try {
-            Spider spider = loader.spider(api);
+            spider = loader.spider(api);
+        } catch (Throwable t) {
+            SpiderDebug.log("pyloader", "create failed key=%s cost=%dms error=%s", key, System.currentTimeMillis() - spiderStart, t);
+            t.printStackTrace();
+            throw new SpiderLoadFailed(t);
+        }
+        long spiderCost = System.currentTimeMillis() - spiderStart;
+        long initStart = System.currentTimeMillis();
+        try {
             spider.siteKey = key;
             spider.init(App.get(), normalizeExt(ext));
             File f = new File(api);
-            if (localFile && f.exists()) fileStamps.put(key, stampOf(f));
-            else fileStamps.remove(key);
+            if (localFile && f.exists()) {
+                fileStamps.put(key, stampOf(f));
+                recordPath(key, f.getAbsolutePath());
+            } else {
+                fileStamps.remove(key);
+            }
             anySpider.set(true);
+            boolean pycache = false;
+            try {
+                pycache = new File(Path.py(), "__pycache__").exists();
+            } catch (Throwable ignored) {
+            }
+            SpiderDebug.log("pyloader", "create key=%s spiderCost=%dms initCost=%dms pycache=%s", key, spiderCost, System.currentTimeMillis() - initStart, pycache);
             return spider;
         } catch (Throwable t) {
+            SpiderDebug.log("pyloader", "create failed key=%s spiderCost=%dms initCost=%dms error=%s", key, spiderCost, System.currentTimeMillis() - initStart, t);
             t.printStackTrace();
             throw new SpiderLoadFailed(t);
         }
@@ -170,12 +274,12 @@ public class PyLoader {
                 // 脚本文件已不存在（被删/未导入）：静默给空蜘蛛，不走下面的加载失败弹窗。
                 // 此前只有登记过时间戳的 key 才有这条静默路径；时间戳被目录监听清掉后，
                 // 源还指着已删文件就会每次进首页都弹一遍“PY加载失败”的错误码。
-                remove(key);
+                remove(key, "file-missing");
                 return new SpiderNull();
             }
             if (fileStamps.containsKey(key) && stampOf(f) != fileStamps.get(key)) {
                 // 文件被替换：丢掉旧缓存，重新加载
-                remove(key);
+                remove(key, "stamp-changed");
             }
         }
         try {

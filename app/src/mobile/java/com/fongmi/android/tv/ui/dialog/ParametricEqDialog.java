@@ -73,7 +73,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         LinearLayout swRow = new LinearLayout(inflater.getContext());
         swRow.setOrientation(LinearLayout.HORIZONTAL);
         swRow.setGravity(Gravity.CENTER_VERTICAL);
-        swRow.setPadding(0, dp(12), 0, 0);
+        swRow.setPadding(0, dp(16), 0, 0);
         TextView swLabel = new TextView(inflater.getContext());
         swLabel.setText("启用");
         swLabel.setTextSize(14);
@@ -82,6 +82,10 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         SwitchCompat sw = new SwitchCompat(inflater.getContext());
         sw.setChecked(MusicController.get().isParametricEnabled());
+        // 开关统一强调色（与设置页同款：钮恒白、开态轨珊瑚红、关态轨浅灰）
+        int[][] swStates = new int[][]{{android.R.attr.state_checked}, {}};
+        sw.setThumbTintList(new ColorStateList(swStates, new int[]{0xFFFFFFFF, 0xFFFFFFFF}));
+        sw.setTrackTintList(new ColorStateList(swStates, new int[]{0xFFFA243C, 0xFFE5E5EA}));
         sw.setOnCheckedChangeListener((b, on) -> MusicController.get().setParametricEnabled(on));
         swRow.addView(sw);
         root.addView(swRow);

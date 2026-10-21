@@ -153,6 +153,11 @@ public class SiteApi {
         detailCache.clear();
     }
 
+    /** 详情空计数清表：全清（换配置／恢复备份）时同步清，旧一笔不算进“连续”。\n     * 清表只影响驱逐时机（至多晚一次驱逐），不出脏数据；单只驱逐不调这里。 */
+    public static void clearDetailEmptyStrikes() {
+        detailEmptyStrikes.clear();
+    }
+
     public static void clearDetailCache(String key) {
         if (key != null) detailCache.remove(key);
     }
@@ -225,14 +230,13 @@ public class SiteApi {
     }
 
     public static void clearHomeCache() {
+        // 首页缓存失效 ≠ 蜘蛛失效：以前这里连带 BaseLoader.clear() 全清蜘蛛，
+        // 任何一次首页缓存失效（目录监听任意文件事件、换配置、恢复备份）都导致
+        // 全部蜘蛛重建——就是“py 加载更慢了”的放大器。蜘蛛失效各有专属口径：
+        // 换配置走 VodConfig.clear→BaseLoader.clear，恢复备份走 Backup→BaseLoader.clear，
+        // 删插件／覆盖插件走单清 clearHomeCache(key)，目录监听走单清——这里只清缓存。
         homeCache.clear();
         prewarmCache.clear();
-        // 首页内容走 site.recent().spider()，残留就是 BaseLoader 里缓存的旧 Spider：
-        // 删插件/换配置后不清它，首页就一直挂着已删插件的旧内容。
-        try {
-            BaseLoader.get().clear();
-        } catch (Throwable ignored) {
-        }
     }
 
     public static void clearHomeCache(String key) {
@@ -540,6 +544,13 @@ public class SiteApi {
         return id;
     }
 
+    /**
+     * 详情空结果退避计数：站点抖动一次空详情不立即罚下次全额重建，
+     * 连续空达到阈值才驱逐蜘蛛——单次抖动不再拖慢下一次详情／起播。
+     */
+    private static final int DETAIL_EMPTY_EVICT_STRIKES = 2;
+    private static final ConcurrentHashMap<String, AtomicInteger> detailEmptyStrikes = new ConcurrentHashMap<>();
+
     @NonNull
     public static Result detailContent(@NonNull String key, @NonNull String id) throws Exception {
         return detailContent(key, id, false);
@@ -586,10 +597,22 @@ public class SiteApi {
             SpiderDebug.log("detail", detailContent);
             Result result = Result.fromJson(detailContent);
             Vod vod = result.getVod();
+            // 计次按影片（key|id）：同一源下两部不同影片各空一次不能累计满阈值，
+            // 否则无辜驱逐蜘蛛、下一部详情付全额重建。
+            String strikeKey = key + "|" + id;
             if (vod == null || vod.getPlayFrom().isEmpty() || vod.getPlayUrl().isEmpty()) {
-                if (site.getApi() != null && site.getApi().contains(".js")) BaseLoader.get().removeJsSpider(key);
-                else BaseLoader.get().removePySpider(key);
+                // 一次空详情可能是站点抖动：先记一笔，连续空达到阈值才驱逐蜘蛛。
+                // 旧写法一次空就驱逐，下次详情／起播付全额重建——抖动一次慢两次。
+                int strikes = detailEmptyStrikes.computeIfAbsent(strikeKey, k -> new AtomicInteger()).incrementAndGet();
+                SpiderDebug.log("detail", "empty key=%s id=%s strikes=%d", key, id, strikes);
+                if (strikes >= DETAIL_EMPTY_EVICT_STRIKES) {
+                    detailEmptyStrikes.remove(strikeKey);
+                    if (site.getApi() != null && site.getApi().contains(".js")) BaseLoader.get().removeJsSpider(key);
+                    else BaseLoader.get().removePySpider(key, "detail-empty");
+                    SpiderDebug.log("detail", "evict key=%s id=%s after %d consecutive empties", key, id, strikes);
+                }
             } else {
+                detailEmptyStrikes.remove(strikeKey);
                 detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             }
             result.getVod().setFlags();

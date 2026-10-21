@@ -19,7 +19,8 @@ import com.fongmi.android.tv.databinding.DialogMusicPlaylistImportBinding;
 /**
  * 第 11 项：GZ 导入歌单大面板（底部大白板形态）。
  * 平台格只是支持平台指示（GZ 图标为各平台 logo，星辰无 logo 素材，格内用平台名文字代替，见对照表）；
- * 登录账号导入行只放开这一处（网易云／QQ音乐），点按回调宿主走 WebView 登录页，拉单接口 GZ 未抠到、宿主处明示待接，不冒充已导入。
+ * 登录账号导入行只放开这一处（网易云／QQ音乐），点按回调宿主走 WebView 登录页；
+ * 宿主读到 Cookie 后直接调平台公开接口拉“我的歌单”列表，点某张走 PlaylistImporter 现有导入链。
  */
 public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
 

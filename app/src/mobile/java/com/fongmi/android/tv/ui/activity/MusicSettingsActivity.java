@@ -19,6 +19,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityMusicSettingsBinding;
 import com.fongmi.android.tv.music.MusicCache;
 import com.fongmi.android.tv.music.MusicController;
+import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
@@ -60,11 +61,26 @@ public class MusicSettingsActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         initQualityRows();
+        refreshMobileQualityText();
+        binding.rowMobileQuality.setOnClickListener(v -> showMobileQualityDialog());
+        refreshDlNamingText();
+        binding.rowDlNaming.setOnClickListener(v -> showDlNamingDialog());
+        initSwitch(binding.swWifiOnly, MusicStore.isWifiOnlyDownload(), on -> {
+            MusicStore.setWifiOnlyDownload(on);
+            if (on) MusicDownloadStore.pauseRunningIfCellular();
+        });
+        binding.rowWifiOnly.setOnClickListener(v -> binding.swWifiOnly.toggle());
         // S1：播放失败行由开关改两档单选（停止播放／自动下一首；存值沿用 isAutoSkipOnError，行为不变）
         refreshAutoSkipText();
         binding.rowAutoSkip.setOnClickListener(v -> showAutoSkipDialog());
         initSwitch(binding.swMobilePlay, MusicStore.isMobilePlay(), MusicStore::setMobilePlay);
         binding.rowMobilePlay.setOnClickListener(v -> binding.swMobilePlay.toggle());
+        // 瓜子后台播放／预加载下一首：切歌前先取好下一首链（服务侧读偏好，默认开）
+        initSwitch(binding.swPreload, MusicStore.isPreloadNext(), MusicStore::setPreloadNext);
+        binding.rowPreload.setOnClickListener(v -> binding.swPreload.toggle());
+        // 瓜子划掉后台停止播放：从后台划掉 App 即停播（服务侧 onTaskRemoved 读偏好，默认关＝现行行为）
+        initSwitch(binding.swStopOnSwipe, MusicStore.isStopOnTaskRemoved(), MusicStore::setStopOnTaskRemoved);
+        binding.rowStopOnSwipe.setOnClickListener(v -> binding.swStopOnSwipe.toggle());
         // S1：电池优化白名单行（动作行，跳系统电池优化设置；副文二态按系统实读）
         refreshBatteryText();
         binding.rowBatteryOpt.setOnClickListener(v -> {
@@ -114,6 +130,9 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowShowTranslation.setOnClickListener(v -> binding.swShowTranslation.toggle());
         initSwitch(binding.swShowRomanization, MusicStore.isShowRomanization(), MusicStore::setShowRomanization);
         binding.rowShowRomanization.setOnClickListener(v -> binding.swShowRomanization.toggle());
+        // 瓜子歌词过滤：作词／作曲／编曲等制作信息行不进歌词区（歌词视图 setLines 读偏好，默认关＝现行行为）
+        initSwitch(binding.swFilterMeta, MusicStore.isFilterLyricMeta(), MusicStore::setFilterLyricMeta);
+        binding.rowFilterMeta.setOnClickListener(v -> binding.swFilterMeta.toggle());
         initSwitch(binding.swAdvancedFx, MusicStore.isAdvancedFx(), MusicStore::setAdvancedFx);
         binding.rowAdvancedFx.setOnClickListener(v -> binding.swAdvancedFx.toggle());
     }
@@ -127,6 +146,8 @@ public class MusicSettingsActivity extends BaseActivity {
         refreshSpeedText();
         refreshThemeText();
         refreshCdSurfaceText();
+        refreshMobileQualityText();
+        refreshDlNamingText();
         refreshLyricFontSizeText();
         refreshLyricWeightText();
         refreshLyricAlignText();
@@ -234,21 +255,21 @@ public class MusicSettingsActivity extends BaseActivity {
 
     // ================= 第 4 项尾巴新增行 =================
 
-    /** 播放模式行：顺序／单曲循环／全部循环／随机（MusicQueue 四档；存 MusicStore.K_MODE，播控读它作默认） */
+    /** 播放模式行：顺序／列表循环／单曲循环／随机（瓜子 PlayMode 顺序与叫法；存 MusicStore.K_MODE，播控读它作默认） */
     private void refreshPlayModeText() {
         int m = MusicStore.getMode();
         binding.tvPlayMode.setText(m == MusicQueue.MODE_REPEAT_ONE ? "单曲循环"
-                : m == MusicQueue.MODE_REPEAT_ALL ? "全部循环"
+                : m == MusicQueue.MODE_REPEAT_ALL ? "列表循环"
                 : m == MusicQueue.MODE_SHUFFLE ? "随机播放" : "顺序播放");
     }
 
     private void showPlayModeDialog() {
-        int[] values = {MusicQueue.MODE_SEQUENTIAL, MusicQueue.MODE_REPEAT_ONE,
-                MusicQueue.MODE_REPEAT_ALL, MusicQueue.MODE_SHUFFLE};
+        int[] values = {MusicQueue.MODE_SEQUENTIAL, MusicQueue.MODE_REPEAT_ALL,
+                MusicQueue.MODE_REPEAT_ONE, MusicQueue.MODE_SHUFFLE};
         List<String> opts = new ArrayList<>();
         opts.add("顺序播放");
+        opts.add("列表循环");
         opts.add("单曲循环");
-        opts.add("全部循环");
         opts.add("随机播放");
         int cur = 0;
         for (int i = 0; i < values.length; i++) if (values[i] == MusicStore.getMode()) cur = i;
@@ -526,6 +547,46 @@ public class MusicSettingsActivity extends BaseActivity {
                         refreshDlQualityText();
                     }
                 });
+    }
+
+    /** 移动网络音质行：跟随播放音质（默认）或固定一档；移动网络下 prepare 时读它（服务侧） */
+    private void refreshMobileQualityText() {
+        int q = MusicStore.getMobileQuality();
+        binding.tvMobileQuality.setText(q < 0 ? "跟随播放音质" : MusicStore.qualityName(q));
+    }
+
+    private void showMobileQualityDialog() {
+        int[] values = {-1, MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+                MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
+        List<String> opts = new ArrayList<>();
+        opts.add("跟随播放音质");
+        for (int i = 1; i < values.length; i++) opts.add(MusicStore.qualityName(values[i]));
+        int q = MusicStore.getMobileQuality();
+        int cur = q < 0 ? 0 : q + 1;
+        MusicOptionsDialog.show(this, "移动网络音质", opts, cur, idx -> {
+            MusicStore.setMobileQuality(values[idx]);
+            refreshMobileQualityText();
+        });
+    }
+
+    /** 下载命名行：瓜子三档（歌手 - 歌名／歌名 - 歌手／歌名），默认歌名 - 歌手＝现行行为 */
+    private void refreshDlNamingText() {
+        int n = MusicStore.getDlNaming();
+        binding.tvDlNaming.setText(n == MusicStore.DL_NAMING_ARTIST_TITLE ? "歌手 - 歌名"
+                : n == MusicStore.DL_NAMING_TITLE ? "歌名" : "歌名 - 歌手");
+    }
+
+    private void showDlNamingDialog() {
+        int[] values = {MusicStore.DL_NAMING_ARTIST_TITLE, MusicStore.DL_NAMING_TITLE_ARTIST,
+                MusicStore.DL_NAMING_TITLE};
+        List<String> opts = new ArrayList<>();
+        opts.add("歌手 - 歌名");
+        opts.add("歌名 - 歌手");
+        opts.add("歌名");
+        MusicOptionsDialog.show(this, "下载命名", opts, MusicStore.getDlNaming(), idx -> {
+            MusicStore.setDlNaming(values[idx]);
+            refreshDlNamingText();
+        });
     }
 
     private interface BoolSetter {

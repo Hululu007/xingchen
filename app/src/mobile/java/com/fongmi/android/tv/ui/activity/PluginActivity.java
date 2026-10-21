@@ -118,19 +118,26 @@ public class PluginActivity extends BaseActivity {
 
     private void deleteSelected() {
         List<Plugin> toDelete = adapter.getSelected();
+        List<String> deleted = new ArrayList<>();
         for (Plugin p : toDelete) {
-            new File(p.getPath()).delete();
+            if (new File(p.getPath()).delete()) deleted.add(p.getPath());
         }
-        invalidatePlugins();
+        invalidateFiles(deleted);
         loadPlugins();
     }
 
-    // 插件文件被删/覆盖后：清掉内存里的旧 Spider 并让首页立刻重载，
+    // 插件文件被删/覆盖后：只清这些文件对应的蜘蛛＋首页缓存并让首页立刻重载，
     // 否则首页还挂着已删插件的旧内容、覆盖的新版也不生效。
-    private void invalidatePlugins() {
+    // 旧写法是删／导一个插件就全清全部 py 蜘蛛——源一多，下次首页全量重建。
+    // py 走按文件单清；js 沿用原有全清（js 加载无 Python 初始化成本，不在本次范围）。
+    private void invalidateFiles(List<String> absolutePaths) {
         try {
-            if (isPy) BaseLoader.get().clearPy();
-            else BaseLoader.get().clearJs();
+            boolean js = false;
+            for (String path : absolutePaths) {
+                if (path != null && path.endsWith(".py")) BaseLoader.get().invalidatePyScript(path);
+                else if (path != null && path.endsWith(".js")) js = true;
+            }
+            if (js) BaseLoader.get().clearJs();
         } catch (Throwable ignored) {}
         RefreshEvent.home();
     }
@@ -242,28 +249,31 @@ public class PluginActivity extends BaseActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 1001 && resultCode == RESULT_OK && data != null) {
+            List<String> imported = new ArrayList<>();
             try {
                 if (data.getClipData() != null) {
                     int count = data.getClipData().getItemCount();
                     for (int i = 0; i < count; i++) {
-                        copyPluginFile(data.getClipData().getItemAt(i).getUri());
+                        String dest = copyPluginFile(data.getClipData().getItemAt(i).getUri());
+                        if (dest != null) imported.add(dest);
                     }
                 } else if (data.getData() != null) {
-                    copyPluginFile(data.getData());
+                    String dest = copyPluginFile(data.getData());
+                    if (dest != null) imported.add(dest);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
-            invalidatePlugins();
+            invalidateFiles(imported);
             loadPlugins();
         }
     }
 
-    private void copyPluginFile(android.net.Uri uri) throws Exception {
+    private String copyPluginFile(android.net.Uri uri) throws Exception {
         String fileName = getFileName(uri);
-        if (fileName == null) return;
+        if (fileName == null) return null;
         fileName = fileName.trim();
-        if (!fileName.endsWith(".py") && !fileName.endsWith(".js")) return;
+        if (!fileName.endsWith(".py") && !fileName.endsWith(".js")) return null;
         java.io.File dir = new java.io.File(getFilesDir(), isPy ? "plugins/py" : "plugins/js");
         if (!dir.exists()) dir.mkdirs();
         java.io.File dest = new java.io.File(dir, fileName);
@@ -273,6 +283,7 @@ public class PluginActivity extends BaseActivity {
             int len;
             while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
         }
+        return dest.getAbsolutePath();
     }
 
     private String getFileName(android.net.Uri uri) {

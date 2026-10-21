@@ -121,9 +121,37 @@ def spider(cache, source, file_name=None):
 
 def download(path, api):
     if api.startswith('http'):
-        writeFile(path, redirect(api).content)
+        length = None
+        try:
+            head = requests.head(api, allow_redirects=True, verify=False)
+            ok = head is not None and 200 <= head.status_code < 300
+            raw = head.headers.get('Content-Length') if ok else None
+            length = int(raw) if raw is not None else None
+        except Exception:
+            length = None
+        if length is not None and os.path.exists(path) and os.path.getsize(path) == length:
+            return 'skipped-length'
+        try:
+            data = redirect(api).content
+        except Exception:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                return 'cached-offline'
+            raise
     else:
-        writeFile(path, textwrap.dedent(api).encode('utf-8'))
+        data = textwrap.dedent(api).encode('utf-8')
+    if os.path.exists(path):
+        try:
+            with open(path, 'rb') as f:
+                old = f.read()
+        except Exception:
+            old = None
+        if old == data:
+            return 'skipped-hash'
+    tmp = path + '.tmp'
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return 'updated'
 
 
 def writeFile(path, content):

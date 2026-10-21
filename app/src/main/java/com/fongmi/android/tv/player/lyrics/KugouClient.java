@@ -34,7 +34,7 @@ public class KugouClient {
     private static final String TAG = "lyrics";
     private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36";
     private static final int MIN_SCORE = 58;
-    private static final byte[] KRC_KEY = new byte[]{0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2D, (byte) 0xCE, (byte) 0xD2, 0x6E};
+    private static final byte[] KRC_KEY = new byte[]{0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2D, (byte) 0xCE, (byte) 0xD2, 0x6E, 0x69};
     private static final Pattern KRC_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
     private static final Pattern KRC_WORD = Pattern.compile("<(-?\\d+),(-?\\d+),-?\\d+>([^<]*)");
     private static final OkHttpClient CLIENT = OkHttp.client()

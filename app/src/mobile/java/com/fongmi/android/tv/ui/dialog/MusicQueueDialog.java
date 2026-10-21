@@ -12,11 +12,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.Interpolator;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.ItemTouchHelper;
@@ -36,6 +38,8 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
@@ -62,6 +66,20 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     private final List<MusicTrack> tracks = new ArrayList<>();
     private QueueAdapter adapter;
     private ItemTouchHelper touchHelper;
+    /** Q1：弹窗开着时自动切歌／队列变化要跟随（旧版无任何监听，红行停旧行）。
+     * 拖拽中不刷新（本弹窗自己的 move 也会触发 onQueueChanged，刷新会打断 ItemTouchHelper 拖拽）。 */
+    private boolean dragging;
+    private final MusicController.Listener queueListener = new MusicController.Listener() {
+        @Override
+        public void onTrackChanged(MusicTrack track) {
+            if (isAdded() && !dragging) refresh();
+        }
+
+        @Override
+        public void onQueueChanged() {
+            if (isAdded() && !dragging) refresh();
+        }
+    };
 
     public static void show(FragmentActivity activity) {
         new MusicQueueDialog().show(activity.getSupportFragmentManager(), "music_queue");
@@ -74,6 +92,35 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         return true;
     }
 
+    // 贴底锚定（接上面）：行为层两次都没把 sheet 钉到底部（1.4.4 WRAP_CONTENT 窗口贴顶、1.4.5 全高＋重力 BOTTOM 仍贴顶），
+    // 所以不再靠行为定位：sheet 布局重力改 BOTTOM、行为置空，CoordinatorLayout 默认布局即把 sheet 放在底部；
+    // 面板本就锁定展开（无折叠态、不可拖拽收起），行为除定位外无用户可见功能，拿掉不影响 ✕／点外／系统返回关闭；
+    // 高度策略（0.68 钳）不动，高度变化后重布局仍走重力，始终贴底。基类 setBehavior 不调用——
+    // 它会 BottomSheetBehavior.from(sheet) 取行为并设展开态，与置空冲突；透明底处理照基类原样保留。
+    // GZ 对照：PlayQueueSheet 是标准底部弹窗（从底下上来、底部贴屏底、顶部圆角、上方遮罩），本修后形态与之同款。
+    @Override
+    protected void setBehavior(BottomSheetDialog dialog) {
+        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet == null) return;
+        sheet.setClickable(true);
+        sheet.setFocusable(true);
+        if (transparent()) {
+            int color = ResUtil.getColor(R.color.transparent);
+            sheet.setBackgroundColor(color);
+            if (sheet.getParent() instanceof View) ((View) sheet.getParent()).setBackgroundColor(color);
+            android.view.Window window = dialog.getWindow();
+            if (window != null) window.setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        ViewGroup.LayoutParams lp = sheet.getLayoutParams();
+        if (lp instanceof CoordinatorLayout.LayoutParams) {
+            CoordinatorLayout.LayoutParams clp = (CoordinatorLayout.LayoutParams) lp;
+            clp.setBehavior(null);
+            clp.gravity = Gravity.BOTTOM;
+            sheet.setLayoutParams(clp);
+        }
+        sheet.requestLayout();
+    }
+
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         return binding = DialogMusicQueueBinding.inflate(inflater, container, false);
@@ -81,10 +128,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        // 底部锚定修复：旧代码把窗口压成 WRAP_CONTENT 高，CoordinatorLayout 跟着缩、行为层失去底部锚点，
-        // 面板贴到屏顶（实拍：屏顶约 100px 到 62% 高）。改回窗口全高＋重力 BOTTOM，让行为层把面板钉在底部；
-        // 宽仍 MATCH_PARENT（右缘防裁切原意保留）；面板自身最大高 0.68 屏高见下面（内容短时不撑满）。
-        // 只改队列（基类与其他面板不动，工具面板同款调用未改、真机核其位置时一并看）。
+        MusicController.get().addListener(queueListener);
+        // 窗口全高＋重力 BOTTOM（1.4.5）：注意，此举本身钉不住面板——1.4.5 实拍仍贴顶（屏顶约 100px 到 62% 高），
+        // 行为层在布局时没有把 sheet 偏移到底部，sheet 留在 CoordinatorLayout 默认的顶部位置；
+        // 满高窗口下重力无意义。真正的贴底锚定在下面的 setBehavior 重写里（sheet 重力 BOTTOM＋行为置空），
+        // 这里只保留窗口全高（遮罩覆盖整屏）与宽 MATCH_PARENT（右缘防裁切原意保留）；
+        // 面板自身最大高 0.68 屏高见下面（内容短时不撑满）。只改队列（基类与其他面板不动）。
         try {
             if (getDialog() != null && getDialog().getWindow() != null) {
                 getDialog().getWindow().setLayout(
@@ -155,6 +204,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 super.onSelectedChanged(vh, actionState);
                 // 被拖行：白底圆角 12dp 不动（旧证据 8dp 系误读，8 是阴影高）＋缩放 0.97＋阴影 8dp（仅被拖行）
                 if (vh != null && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    dragging = true;
                     vh.itemView.setBackgroundResource(R.drawable.bg_sheet_row_drag);
                     vh.itemView.setScaleX(0.97f);
                     vh.itemView.setScaleY(0.97f);
@@ -174,6 +224,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 vh.itemView.setScaleY(1f);
                 vh.itemView.setElevation(0f);
                 lastDragTarget = -1;
+                dragging = false;
                 refresh();
             }
         });
@@ -189,6 +240,13 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 ((LinearLayoutManager) lm).scrollToPositionWithOffset(target, 0);
             }
         });
+    }
+
+    @Override
+    public void onDestroyView() {
+        MusicController.get().removeListener(queueListener);
+        binding = null;
+        super.onDestroyView();
     }
 
     /** 整面板钳高（GZ fillMaxHeight 0.68）：根高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
@@ -323,6 +381,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     }
 
     private void refresh() {
+        if (binding == null || adapter == null) return;
         tracks.clear();
         tracks.addAll(MusicController.get().queue());
         // GZ 计数筹＝纯数字（PlayQueueSheetKt:724 String.valueOf(size)），无「首」
@@ -333,7 +392,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         boolean empty = tracks.isEmpty();
         binding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.emptyBox.setVisibility(empty ? View.VISIBLE : View.GONE);
-        binding.tvHint.setVisibility(empty ? View.GONE : View.VISIBLE);
+        binding.tvHint.setVisibility(View.VISIBLE);
         binding.btnClear.setVisibility(empty ? View.GONE : View.VISIBLE);
         adapter.notifyDataSetChanged();
         applyPanelHeight();
@@ -347,34 +406,47 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     private void bindSourceRow() {
         String label = MusicController.get().queueSource();
         String route = MusicController.get().queueRoute();
-        if (label == null || label.isEmpty()) {
+        // T1：源对象存在即显示——队列级来源非空＝存在；否则回落“全队一致”（平台标签一致＝存在），
+        // 标签空不等于无来源：一致但标签空时显示“未知来源”，不再整行隐藏；真正无来源（不一致／空队）才隐藏。
+        boolean sourceKnown = label != null && !label.isEmpty();
+        if (!sourceKnown) {
             boolean uniform = !tracks.isEmpty();
+            String common = null;
             for (MusicTrack t : tracks) {
                 String l = sourceLabel(t);
-                if (l == null || (label != null && !label.equals(l))) {
+                if (l == null) {
                     uniform = false;
                     break;
                 }
-                label = l;
+                if (common == null) common = l;
+                else if (!common.equals(l)) {
+                    uniform = false;
+                    break;
+                }
             }
-            if (!uniform) label = null;
+            if (uniform) {
+                sourceKnown = true;
+                label = common;
+            }
             route = null;
         }
-        if (label == null || label.isEmpty()) {
+        if (!sourceKnown) {
             binding.sourceRow.setVisibility(View.GONE);
             return;
         }
+        if (label == null || label.isEmpty()) label = getString(R.string.music_unknown_source);
         binding.sourceName.setText(label);
         android.content.Intent intent = queueSourceIntent(route, MusicController.get().queueRouteParams());
         android.view.View chevron = binding.sourceRow.findViewWithTag("queueSourceChevron");
         if (chevron == null) {
-            TextView cv = new TextView(getContext());
+            // GZ 来源行尾标是 18dp 矢量 › 图标（PlayQueueSheet: zh.v()，内容描述“查看来源”），不是文字 ›；
+            // 星辰原先用 16sp 文字 ›，改成 18dp 矢量图标＋低色 tint，与 GZ 同形同色。
+            ImageView cv = new ImageView(getContext());
             cv.setTag("queueSourceChevron");
-            cv.setText("›");
-            cv.setTextSize(16);
-            cv.setTextColor(COLOR_LOW);
-            binding.sourceRow.addView(cv, new ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            cv.setImageResource(R.drawable.ic_player_chevron_right);
+            cv.setImageTintList(ColorStateList.valueOf(COLOR_LOW));
+            int s = Math.round(18 * getContext().getResources().getDisplayMetrics().density);
+            binding.sourceRow.addView(cv, new ViewGroup.LayoutParams(s, s));
             chevron = cv;
         }
         if (intent != null) {
@@ -529,8 +601,26 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                         notifyDataSetChanged();
                     })));
             h.btnAdd.setOnClickListener(v -> pickPlaylist(t));
+            // 删错行修：同歌两份时按键删只删第一个命中，点第二份会删掉第一份。
+            // 本行位置就是服务队列序号（点歌 playAt(position) 同口径）：点击时取当前
+            // 绑定位置，先核对服务队列该位置的 key 与本行一致才按序号删；位置已漂移
+            // （bind 后队列变了）或取不到位置时回落按键删，不删错行。共享层
+            // removeByKey 本身不动（另一工调用口径：按 key 删，方法名定死）。
             h.btnRemove.setOnClickListener(v -> {
-                MusicController.get().removeAt(position);
+                int pos = h.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) {
+                    try {
+                        java.util.List<MusicTrack> cur = MusicController.get().queue();
+                        if (cur != null && pos >= 0 && pos < cur.size()
+                                && MusicQueue.trackKey(cur.get(pos)).equals(MusicQueue.trackKey(t))) {
+                            MusicController.get().removeAt(pos);
+                            refresh();
+                            return;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+                MusicController.get().removeByKey(MusicQueue.trackKey(t));
                 refresh();
             });
         }

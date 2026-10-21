@@ -207,14 +207,33 @@ public class Thunder implements Source.Extractor {
         File torrent = new File(uri.getPath());
         File parent = torrent.getParentFile();
         String name = uri.getQueryParameter("name");
-        int index = Integer.parseInt(uri.getQueryParameter("index"));
+        int index;
+        try {
+            index = Integer.parseInt(uri.getQueryParameter("index"));
+        } catch (Exception e) {
+            throw new ExtractException("选集地址不完整，请重新打开详情再播");
+        }
+        // 种子文件是解析时保存的那份：不存在/空文件时建任务必空转——
+        // 原先一路走到 helper 里 mSubFileInfo 为 null 再 NPE，ViewModel 把非
+        // ExtractException 吞成空结果，界面只剩通用错、根因全丢。
+        // 这里先验先说：文件没了就明说重开详情（重开详情会重新解析补回种子文件）。
+        if (parent == null || name == null || !torrent.exists() || torrent.length() == 0) {
+            SpiderDebug.log("thunder", "bt torrent file invalid path=%s parent=%s name=%s", torrent.getAbsolutePath(), parent, name);
+            throw new ExtractException("种子文件已失效，请重新打开详情再播");
+        }
         taskId = XLTaskHelper.get().addTorrentTask(torrent, parent, index);
+        SpiderDebug.log("thunder", "bt task created torrent=%s index=%d", torrent.getAbsolutePath(), index);
         for (int i = 0; i < 100; i++) {
             XLTaskInfo info = XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo;
             if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
             if (info.mTaskStatus != 0) {
                 String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
                 SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                // 本地地址是播放的唯一入口：引擎本地服务没起来时 getLocalUrl 回空，
+                // 原先空地址一路递到播放器、界面只剩通用错。这里明说，不递空地址。
+                if (local == null || local.isEmpty()) {
+                    throw new ExtractException("迅雷本地地址为空，请重试");
+                }
                 startProgressLog(taskId, markUrl, index);
                 return local;
             }

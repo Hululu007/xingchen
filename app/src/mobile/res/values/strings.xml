@@ -140,6 +140,9 @@
     <string name="music_title">音乐</string>
     <string name="music_search">搜索</string>
     <string name="music_playlist">我的歌单</string>
+    <string name="music_no_playlist">还没有歌单</string>
+    <string name="music_no_playlist_hint">新建或导入，把喜欢的歌单收进来</string>
+    <string name="music_no_match_playlist">没找到匹配的歌单</string>
     <string name="music_favorite">收藏</string>
     <string name="music_charts">榜单</string>
     <string name="music_sites">个源</string>
@@ -149,7 +152,7 @@
     <string name="music_plugin_add">添加插件</string>
     <string name="music_plugin_online">在线地址</string>
     <string name="music_plugin_local">本地文件</string>
-    <string name="music_plugin_update">更新</string>
+    <string name="music_plugin_update">检查更新</string>
     <string name="music_plugin_latest">已是最新版本</string>
     <string name="music_plugin_updated">已更新</string>
     <string name="music_plugin_none">还没有插件</string>
@@ -209,7 +212,7 @@
     <string name="music_close">关闭</string>
     <string name="sheet_queue_from">来自</string>
     <string name="music_unknown_artist">未知歌手</string>
-    <string name="music_sleep">定时关闭</string>
+    <string name="music_sleep">定时</string>
     <string name="music_quality">音质</string>
     <string name="music_equalizer">均衡器</string>
     <string name="music_fx">音效</string>
@@ -244,6 +247,8 @@
     <string name="music_import_err_paste_empty">请粘贴歌单链接或分享文案</string>
     <string name="music_import_err_network">平台暂时连不上，稍后再试</string>
     <string name="music_add_to_playlist">加入歌单</string>
+    <!-- 工具面板快捷格专用（瓜子文案「加到歌单」）：其它页的加歌单菜单仍用 music_add_to_playlist，不动 -->
+    <string name="music_add_to_playlist_cell">加到歌单</string>
     <string name="music_added">已加入</string>
     <string name="music_already_in">已经在歌单里了</string>
     <string name="music_favorited">已收藏</string>
@@ -269,10 +274,12 @@
     <string name="music_deleted">已删除</string>
     <string name="music_setting">设置</string>
     <string name="music_menu_setting_sub">播放／下载／外观</string>
+    <string name="music_cloud_drive">网盘</string>
     <string name="music_set_play_quality">播放音质</string>
     <string name="music_set_download_quality">下载音质</string>
     <string name="music_dl_mode_ask">每次询问</string>
     <string name="music_dl_ask_no_activity">下载音质设为每次询问，请从播放页或列表里点下载选档</string>
+    <string name="music_wifi_only_blocked">仅 Wi-Fi 下载已开，当前是移动网络</string>
     <string name="music_set_auto_skip">播放失败自动跳下一首</string>
     <string name="music_set_mobile_play">移动网络播放</string>
     <string name="music_set_lyric_fallback">歌词缺失自动搜索</string>
@@ -294,6 +301,16 @@
     <string name="music_set_clear_cache">清除音乐缓存</string>
     <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
     <string name="music_play_failed_stopped">播放失败，已停止</string>
+    <string name="music_play_stopped_title">音乐已停止</string>
+    <string name="music_play_stopped_channel">播放失败提醒</string>
+    <string name="music_fail_unknown">播放失败</string>
+    <string name="music_fail_url">取链失败</string>
+    <string name="music_fail_next_url">下一首取链失败</string>
+    <string name="music_fail_timeout">取链超时</string>
+    <string name="music_fail_next_timeout">下一首取链超时</string>
+    <string name="music_fail_play_error">播放出错</string>
+    <string name="music_sleep_channel">定时结束提醒</string>
+    <string name="music_sleep_title">定时结束</string>
     <string name="music_play_unavailable">这首播不了</string>
     <string name="music_cache_cleared">音乐缓存已清除</string>
 
@@ -313,7 +330,20 @@
     <string name="music_surface_light">浅色</string>
     <string name="music_surface_dark">深色</string>
     <string name="music_surface_auto">自动</string>
+    <string name="music_cd_surface_switch">切换表面</string>
+    <string name="music_cd_surface_to_light">已切换为浅色模式</string>
+    <string name="music_cd_surface_to_dark">已切换为深色模式</string>
+    <string name="music_cd_surface_to_auto">已切换为自动模式（跟随应用主题）</string>
     <string name="music_keep_screen_on">播放页不熄屏</string>
+    <string name="music_custom_cover">自定义封面</string>
+    <string name="music_custom_cover_pick">从相册选择图片</string>
+    <string name="music_custom_cover_restore">恢复默认封面</string>
+    <string name="music_custom_cover_enabled">图片封面已启用</string>
+    <string name="music_custom_cover_default">默认封面</string>
+    <string name="music_custom_cover_current_custom">当前使用自定义封面</string>
+    <string name="music_custom_cover_current_default">当前使用歌曲原封面</string>
+    <string name="music_custom_cover_local_only">只保存在本机，不上传。</string>
+    <string name="music_custom_cover_failed">保存失败，请重试</string>
     <string name="music_lyric_settings">歌词设置</string>
     <string name="music_lyric_versions">歌词版本</string>
     <string name="music_all">全部</string>

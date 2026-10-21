@@ -1,5 +1,10 @@
 package com.fongmi.android.tv.music;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.MusicDownload;
@@ -130,6 +135,11 @@ public class MusicDownloadStore {
     /** 逐首选档后的下载核心（ASK 弹窗的落点；固定／跟随模式由 download 转调）：取指定档直链 → 交 DownloadManager 下载 */
     public static void downloadWithQuality(MusicTrack track, int quality) {
         if (track == null || isLocal(track)) return;
+        // 仅 Wi-Fi 下载（瓜子同名项）：移动网络下新下载一律不启动（手动“继续”已暂停任务不在此限，用户点了就是明确要下）
+        if (MusicStore.isWifiOnlyDownload() && isCellular()) {
+            post(() -> Notify.show(R.string.music_wifi_only_blocked));
+            return;
+        }
         ensureListener();
         Task.execute(() -> {
             try {
@@ -168,8 +178,7 @@ public class MusicDownloadStore {
                     return;
                 }
             }
-            String name = track.displayTitle();
-            if (track.artist != null && !track.artist.isEmpty()) name += " - " + track.artist;
+            String name = downloadFileName(track);
             MusicTrack snapshot = copyForLocal(track);
             final String taskUrl = url;
             final String taskName = name;
@@ -260,6 +269,37 @@ public class MusicDownloadStore {
                 if (done != null) done.run();
             });
         });
+    }
+
+    /** 下载任务名（瓜子下载命名三档；默认歌名 - 歌手＝现行行为；无歌手时只剩歌名） */
+    private static String downloadFileName(MusicTrack track) {
+        String title = track.displayTitle();
+        String artist = track.artist == null ? "" : track.artist;
+        if (title == null || title.isEmpty()) return artist;
+        int naming = MusicStore.getDlNaming();
+        if (naming == MusicStore.DL_NAMING_TITLE || artist.isEmpty()) return title;
+        if (naming == MusicStore.DL_NAMING_ARTIST_TITLE) return artist + " - " + title;
+        return title + " - " + artist;
+    }
+
+    /** 当前是不是在用移动数据（WiFi/无网都不算；判仅 Wi-Fi 下载拦不拦用，与服务侧同款判法） */
+    public static boolean isCellular() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) App.get().getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network net = cm.getActiveNetwork();
+            if (net == null) return false;
+            NetworkCapabilities cap = cm.getNetworkCapabilities(net);
+            return cap != null && cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 仅 Wi-Fi 下载开后：当前在移动网络下，把进行中任务暂停（只停运行中的，不删不取消） */
+    public static void pauseRunningIfCellular() {
+        if (!MusicStore.isWifiOnlyDownload() || !isCellular()) return;
+        pauseAllLive();
     }
 
     // ================= 第 7 项尾巴：进行中任务（供下载页） =================

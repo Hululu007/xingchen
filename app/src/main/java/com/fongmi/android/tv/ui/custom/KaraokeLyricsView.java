@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 用途：全屏逐字歌词视图——逐字上浮＋长音光晕、非当前行磨砂压暗、弹簧跟随滚动，经典 View＋Canvas 自绘。
@@ -114,9 +115,8 @@ public class KaraokeLyricsView extends View {
     /** 当前行最多折行：封面 2（COVER_CURRENT_MAX_LINES）；全屏 GZ 未给上限常量，View 层取 6 防病态长行（近似）。 */
     private static final int CURRENT_MAX_LINES_COVER = 2;
     private static final int CURRENT_MAX_LINES_FULLSCREEN = 6;
-    /** 浏览回锚：全屏 5000ms（APPLE_BROWSE_REANCHOR_DELAY）；封面沿星辰现行 2500ms（GZ 未给封面值，近似）。 */
+    /** 浏览回锚：全屏 5000ms（APPLE_BROWSE_REANCHOR_DELAY）；内嵌松手即恢复跟唱，不用回锚。 */
     private static final long REANCHOR_FULLSCREEN_MS = 5000L;
-    private static final long REANCHOR_COVER_MS = 2500L;
 
     // —— 渐隐（GZ 2.3） ——
     /** 顶部渐隐高度 40dp（APPLE_TOP_FADE_HEIGHT＝LYRIC_SIZE_MAX），曲线 smoothstep (3−2t)t²。 */
@@ -199,7 +199,7 @@ public class KaraokeLyricsView extends View {
     /** 整行模式无词时一行默认时长（算行进度用，末行兜底）。 */
     private static final long LINE_FALLBACK_MS = 4000L;
     /** 点击判定：位移小于该值视为点击（dp）。 */
-    private static final float TAP_SLOP_DP = 10f;
+    private static final float TAP_SLOP_DP = 16f;
 
     // —— 伴唱（M-03：瓜子伴唱分支字号×0.7、缩放 0.2×bg＋0.8、透明度×clamp(bg,0,1)、
     // 入场位移 (1-bg)×(-0.8)×行高；bg 入场 300ms 走星辰 INTERP_FOSI 映射（见 bgValue），终态 1） ——
@@ -243,10 +243,6 @@ public class KaraokeLyricsView extends View {
             framePosted = false;
             stepFrame();
         }
-    };
-    private final Runnable returnRunnable = () -> {
-        browsing = false;
-        ensureFrameLoop();
     };
 
     private List<LyricsLine> lines = Collections.emptyList();
@@ -299,6 +295,21 @@ public class KaraokeLyricsView extends View {
     // 浏览／拖动状态
     private boolean dragging;
     private boolean browsing;
+    private final Runnable returnRunnable = () -> {
+        browsing = false;
+        // G12：暂停时帧循环不跑、scrollTarget 又等于拖动位置，旧版只置假＋ensureFrameLoop 直接返回，回锚不生效；
+        // 暂停态直接按当前播放位置贴合当前行（不靠帧循环弹簧），播放态仍走帧循环落定。
+        if (!playing) {
+            currentIndex = lines.isEmpty() ? -1 : indexForPosition(displayPositionMs());
+            if (currentIndex >= 0) scrollTarget = targetFor(currentIndex);
+            scrollOffset = scrollTarget;
+            scrollVelocity = 0f;
+            seekSpringActive = false;
+            invalidate();
+        } else {
+            ensureFrameLoop();
+        }
+    };
     private float downY;
     private float downX;
     private float dragStartOffset;
@@ -306,6 +317,9 @@ public class KaraokeLyricsView extends View {
     private OnTrackSwipeListener trackSwipeListener;
     private float lastMoveY;
     private long lastMoveTimeMs;
+    /** 快甩速度末段采样（G9）：上一段 MOVE 的位置／时间，速度按末段算，不用整段平均。 */
+    private float segMoveY;
+    private long segMoveTimeMs;
 
     // 布局缓存
     private List<Block> blocks = Collections.emptyList();
@@ -392,10 +406,78 @@ public class KaraokeLyricsView extends View {
     }
 
     private float blurMultiplier() {
-        return blurLevel == 0 ? 0f : (blurLevel == 1 ? 0.6f : 1f);
+        if (blurLevel == 0) return 0f;
+        if (blurLevel == 1) {
+            // 全屏轻档＝瓜子值 0.45（LyricsViewKt 模糊系数映射 off 0／light 0.45／medium 1.0，
+            // 该映射出自全屏 AppleLyricsList 分支）；封面侧映射未单独抠到，封面轻档暂留星辰现行 0.6，不动。
+            return coverMode ? 0.6f : 0.45f;
+        }
+        return 1f;
     }
 
     // ===== 对外 API =====
+
+    /** 制作信息行前缀（瓜子歌词过滤口径）：作词／作曲／编曲等制作角色＋冒号／空格、OP／SP、
+     * 英文 Lyrics by／Composed by 等、Music:／Lyrics: 这类冒号标注；只认行首前缀，歌词正文不受影响
+     * （如“演唱会”后跟的不是冒号／空格，就不算；“词／曲”只认冒号形，不认空格形）。 */
+    private static final Pattern LYRIC_META_PATTERN = Pattern.compile(
+            "^\\[?((作词|作曲|编曲|制作人|出品人|监制|混音|母带|录音|缩混|吉他|贝斯|鼓|键盘|和声|和音|演唱|OP|SP)[:：︰\\s]"
+                    + "|(词|曲)[:：︰]"
+                    + "|(lyrics? by|composed by|arranged by|produced by|mixed by|mastered by)\\b"
+                    + "|(lyrics?|music|written|arranged|composed|produced)\\s*[:：])",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    private static boolean isLyricMetaLine(String text) {
+        if (text == null) return false;
+        String t = text.trim();
+        return !t.isEmpty() && LYRIC_META_PATTERN.matcher(t).find();
+    }
+
+    /**
+     * 过滤词曲信息（瓜子歌词过滤，设置页开关，默认关＝现行行为）：setLines 入口过滤一次，
+     * 主行与翻译／音译／逐词表同下标一起筛；任一非空辅表长度与主行对不上就整批不过滤
+     * （宁可全留，不错位）。开关关着时本方法不做任何事；开关开着、切歌重设行时重新过滤。
+     */
+    private void filterMetaLines() {
+        boolean on;
+        try {
+            on = MusicStore.isFilterLyricMeta();
+        } catch (Exception e) {
+            on = false;
+        }
+        if (!on || lines == null || lines.isEmpty()) return;
+        int n = lines.size();
+        boolean aligned = (translations == null || translations.isEmpty() || translations.size() == n)
+                && (romanizations == null || romanizations.isEmpty() || romanizations.size() == n)
+                && (translationWordLists == null || translationWordLists.isEmpty() || translationWordLists.size() == n)
+                && (romanizationWordLists == null || romanizationWordLists.isEmpty() || romanizationWordLists.size() == n);
+        if (!aligned) return;
+        boolean[] kept = new boolean[n];
+        int keptCount = 0;
+        for (int i = 0; i < n; i++) {
+            kept[i] = !isLyricMetaLine(lines.get(i).getText());
+            if (kept[i]) keptCount++;
+        }
+        if (keptCount == n) return;
+        List<LyricsLine> fl = new ArrayList<>(keptCount);
+        List<String> ft = translations == null ? null : new ArrayList<>(keptCount);
+        List<String> fr = romanizations == null ? null : new ArrayList<>(keptCount);
+        List<List<LyricsWord>> ftw = translationWordLists == null ? null : new ArrayList<>(keptCount);
+        List<List<LyricsWord>> frw = romanizationWordLists == null ? null : new ArrayList<>(keptCount);
+        for (int i = 0; i < n; i++) {
+            if (!kept[i]) continue;
+            fl.add(lines.get(i));
+            if (ft != null && !translations.isEmpty()) ft.add(translations.get(i));
+            if (fr != null && !romanizations.isEmpty()) fr.add(romanizations.get(i));
+            if (ftw != null && !translationWordLists.isEmpty()) ftw.add(translationWordLists.get(i));
+            if (frw != null && !romanizationWordLists.isEmpty()) frw.add(romanizationWordLists.get(i));
+        }
+        lines = fl;
+        translations = ft;
+        romanizations = fr;
+        translationWordLists = ftw;
+        romanizationWordLists = frw;
+    }
 
     /** 输入歌词：translations／romanizations 与 lines 按下标对齐，可传 null。 */
     public void setLines(List<LyricsLine> lines, List<String> translations, List<String> romanizations) {
@@ -406,11 +488,17 @@ public class KaraokeLyricsView extends View {
     public void setLines(List<LyricsLine> lines, List<String> translations, List<String> romanizations,
                          List<List<LyricsWord>> translationWords, List<List<LyricsWord>> romanizationWords) {
         searchingLyric = false;
+        // G8：换词即清浏览态——旧版 setLines 不清 browsing/dragging、不撤 5 秒回锚定时，
+        // 关页／重开后跟唱冻结在旧行约 5 秒。
+        browsing = false;
+        dragging = false;
+        removeCallbacks(returnRunnable);
         this.lines = lines == null ? Collections.emptyList() : new ArrayList<>(lines);
         this.translations = translations == null ? null : new ArrayList<>(translations);
         this.romanizations = romanizations == null ? null : new ArrayList<>(romanizations);
         this.translationWordLists = translationWords;
         this.romanizationWordLists = romanizationWords;
+        filterMetaLines();
         currentIndex = -1;
         scrollSnapped = false;
         layoutWidth = -1;
@@ -510,9 +598,18 @@ public class KaraokeLyricsView extends View {
         emptyTapListener = listener;
     }
 
-    /** 行高（GZ coverLyricLineHeight，LyricsViewKt:10901-10903）：行高＝字号×4/3。 */
+    /** 行高（GZ coverLyricLineHeight，LyricsViewKt:10901-10903）：行高＝字号×4/3。仅封面模式用此公式。 */
     static float lyricLineHeight(float textSizePx) {
         return textSizePx * 4f / 3f;
+    }
+
+    /** 全屏行高系数（GZ 全屏歌词样式，LyricsViewKt lyricTextStyle 与 LineHeightsKey 均为字号×1.3，
+     * 不是封面的 ×4/3；24sp 时全屏行高 31.2sp、封面 32sp，两档不可混用）。 */
+    private static final float FULLSCREEN_LINE_HEIGHT_RATIO = 1.3f;
+
+    /** 按模式取主行行高：封面走 ×4/3，全屏走 ×1.3。 */
+    private float lineHeightFor(float textSizePx) {
+        return coverMode ? lyricLineHeight(textSizePx) : textSizePx * FULLSCREEN_LINE_HEIGHT_RATIO;
     }
 
     /** 封面歌词槽位高（GZ coverLyricSlotHeight，LyricsViewKt:10909-10911）：＝COVER_LINE_GAP×3＋行高×4。 */
@@ -651,7 +748,8 @@ public class KaraokeLyricsView extends View {
         this.lineClickListener = listener;
     }
 
-    /** 歌词区竖滑切歌回调：快甩（见 onTouchEvent 的切歌门）时由宿主切上一曲／下一曲；慢拖仍是歌词滚动。 */
+    /** 全屏歌词页竖滑切歌回调：快甩（见 onTouchEvent 的切歌门）时由宿主切上一曲／下一曲；慢拖仍是歌词滚动。
+     * 内嵌（coverMode）不再走这条：竖直滑动归整页容器（PlayerPageSwipeLayout），歌词不滚不动锚。 */
     public interface OnTrackSwipeListener {
         void onTrackSwipe(boolean next);
     }
@@ -892,9 +990,9 @@ public class KaraokeLyricsView extends View {
         if (layoutWidth == width && !blocks.isEmpty()) return;
         layoutWidth = width;
         float maxMainWidth = width - dp(H_PADDING_DP) * 2f;
-        // 行高＝字号 ×4/3（GZ coverLyricLineHeight，全屏／封面同公式，LyricsViewKt:10901-10903）。
-        float mainRowHeight = lyricLineHeight(mainTextSizePx());
-        // U-02：副行行高＝副行字号×4/3（与主行同公式，副行字号已按 SUB_RATIO 跟主行）。
+        // 主行行高按模式分流：封面 ×4/3（coverLyricLineHeight），全屏 ×1.3（GZ 全屏样式，见 lineHeightFor）。
+        float mainRowHeight = lineHeightFor(mainTextSizePx());
+        // U-02：副行行高＝副行字号×4/3（GZ 全屏副行行高未单独抠到，暂留封面公式，列待核，不跟主行改 1.3）。
         float subRowHeight = lyricLineHeight(subPaint.getTextSize());
         float gapPx = dp(coverMode ? LINE_GAP_COVER_DP : LINE_GAP_FULLSCREEN_DP);
         List<Block> list = new ArrayList<>(lines.size());
@@ -907,8 +1005,8 @@ public class KaraokeLyricsView extends View {
             block.subTexts = subTextsFor(i);
             block.partLabel = partLabelFor(i);
             block.labelHeight = block.partLabel.isEmpty() ? 0f : sp(PART_TEXT_SP) + dp(PART_BOTTOM_DP);
-            // M-03：伴唱行主行行高按伴唱字号（基值×0.7）计。
-            float blockMainRowHeight = lines.get(i).isBG() ? lyricLineHeight(mainTextSizePx() * BG_FONT_RATIO) : mainRowHeight;
+            // M-03：伴唱行主行行高按伴唱字号（基值×0.7）计，系数同样按模式分流。
+            float blockMainRowHeight = lines.get(i).isBG() ? lineHeightFor(mainTextSizePx() * BG_FONT_RATIO) : mainRowHeight;
             block.height = block.mainRows.size() * blockMainRowHeight
                     + block.subTexts.size() * subRowHeight
                     + block.labelHeight
@@ -1142,8 +1240,11 @@ public class KaraokeLyricsView extends View {
         String original = lines.get(index).getText();
         String translation = at(translations, index);
         String romanization = at(romanizations, index);
-        // 原文被顶替作主行时退为第一副行。
-        if (primaryMode != 0 && !TextUtils.isEmpty(original)) subs.add(original);
+        // 歌词路 2：主行缺数据回落原文时，副行不再把原文重复一遍（主行已是原文才不加原文副行）。
+        boolean mainIsOriginal = (primaryMode == 1 && TextUtils.isEmpty(translation))
+                || (primaryMode == 2 && TextUtils.isEmpty(romanization));
+        // 原文被顶替作主行时退为第一副行（主行已是原文时不重复）。
+        if (primaryMode != 0 && !mainIsOriginal && !TextUtils.isEmpty(original)) subs.add(original);
         if (primaryMode != 1 && showTranslation && !TextUtils.isEmpty(translation)) subs.add(translation);
         if (primaryMode != 2 && showRomanization && !TextUtils.isEmpty(romanization)) subs.add(romanization);
         return subs;
@@ -1471,6 +1572,11 @@ public class KaraokeLyricsView extends View {
     private void drawCurrentMain(Canvas canvas, Block block, LyricsLine line, float baseline, long pos) {
         Paint paint = mainPaint;
         paint.setMaskFilter(null);
+        // 当前行深色面字幕式阴影（只作用于当前行）：白字直接压在亮色糊底上无对比保护，
+        // 亮区会把字吃掉（实拍左段压在月光糊块上最糊）；暗色阴影给字形描边感，背景一层贯穿不动。
+        // 闲行共用 mainPaint，末尾必须清掉，不许带进闲行。
+        boolean shadowOn = !lightScheme;
+        if (shadowOn) paint.setShadowLayer(dp(3), 0f, dp(1), 0xB3000000);
         long relative = pos - line.getTimeMs();
         // M-02：逐字提亮复用原文词渲染路径（布局已按三档词表分段）；词空时 Seg.word 为 null，走整行提亮回落。
         boolean wordMode = wordByWord;
@@ -1494,6 +1600,7 @@ public class KaraokeLyricsView extends View {
         }
         paint.setAlpha(255);
         paint.setColor(lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR);
+        if (shadowOn) paint.clearShadowLayer();
     }
 
     private void drawWord(Canvas canvas, Seg seg, float x, float y, long relative, float em, boolean isLastWord) {
@@ -1685,32 +1792,54 @@ public class KaraokeLyricsView extends View {
                 downY = event.getY();
                 lastMoveY = event.getY();
                 lastMoveTimeMs = SystemClock.elapsedRealtime();
+                segMoveY = event.getY();
+                segMoveTimeMs = lastMoveTimeMs;
                 dragStartOffset = scrollOffset;
                 downTimeMs = SystemClock.elapsedRealtime();
                 scrollVelocity = 0f;
                 seekSpringActive = false;
-                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                // 内嵌不拦父容器拦截：整页竖滑切歌容器（PlayerPageSwipeLayout）要靠 onInterceptTouchEvent
+                // 接管歌词区竖滑；内嵌若 disallow，容器永远拦不到、竖滑又变回滚歌词。全屏页父层不是切歌容器，照旧拦。
+                if (!coverMode && getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 return true;
             case MotionEvent.ACTION_MOVE:
-                if (dragging) {
+                if (dragging && !coverMode) {
                     float maxOffset = Math.max(0f, contentHeight - dp(80));
                     scrollOffset = clamp(dragStartOffset + (downY - event.getY()), -dp(60), maxOffset);
                     scrollTarget = scrollOffset;
+                    invalidate();
+                }
+                if (dragging) {
+                    segMoveY = lastMoveY;
+                    segMoveTimeMs = lastMoveTimeMs;
                     lastMoveY = event.getY();
                     lastMoveTimeMs = SystemClock.elapsedRealtime();
-                    invalidate();
                 }
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                // 歌词区竖滑切歌分流：慢拖＝歌词滚动（上面已滚），快甩＝切歌。门与封面手势同口径——
+                // 全屏页竖滑切歌分流（内嵌不走这条：竖滑归整页容器，歌词不滚不动锚）：
+                // 慢拖＝歌词滚动（上面已滚），快甩＝切歌。门与封面手势同口径——
                 // 位移≥36dp、轴向占优（|dy|＞|dx|×1.5）、速度≥600dp/s 三者全过才算切歌；
-                // 否则走原逻辑（点行 seek／松手回锚）。GZ 歌词滚动与切歌的精确分流未抠到，此处为分流实现、真机核手感。
-                if (trackSwipeListener != null && event.getActionMasked() == MotionEvent.ACTION_UP && dragging) {
+                // 否则走原逻辑（点行 seek／松手回锚）。
+                if (!coverMode && trackSwipeListener != null && event.getActionMasked() == MotionEvent.ACTION_UP && dragging) {
                     float dy = event.getY() - downY;
                     float dx = event.getX() - downX;
-                    float dtMs = Math.max(1f, (float) (lastMoveTimeMs - downTimeMs));
-                    float velocityDpS = Math.abs(lastMoveY - downY) / dtMs * 1000f / getResources().getDisplayMetrics().density;
+                    // G9：快甩速度按末段 MOVE 采样（慢拖稀释整段平均、反向慢拖抵消净位移是旧病）；
+                    // 松手前 200ms 内无移动视为已停，不算甩。
+                    long nowMs = SystemClock.elapsedRealtime();
+                    float velocityDpS;
+                    if (nowMs - lastMoveTimeMs > 200) {
+                        velocityDpS = 0f;
+                    } else if (lastMoveTimeMs > segMoveTimeMs) {
+                        float segDtMs = Math.max(1f, (float) (lastMoveTimeMs - segMoveTimeMs));
+                        velocityDpS = Math.abs(lastMoveY - segMoveY) / segDtMs * 1000f
+                                / getResources().getDisplayMetrics().density;
+                    } else {
+                        float dtMs = Math.max(1f, (float) (lastMoveTimeMs - downTimeMs));
+                        velocityDpS = Math.abs(lastMoveY - downY) / dtMs * 1000f
+                                / getResources().getDisplayMetrics().density;
+                    }
                     if (Math.abs(dy) >= dp(36) && Math.abs(dy) > Math.abs(dx) * 1.5f && velocityDpS >= 600f) {
                         dragging = false;
                         browsing = false;
@@ -1720,10 +1849,12 @@ public class KaraokeLyricsView extends View {
                         return true;
                     }
                 }
+                // G10：点按门放宽（旧漂移＜10dp 且按住＜400ms 太严，按住 500ms／漂移 12dp 就不算点按）：
+                // 瓜子点按阈值未抠到，此为星辰侧合理值——漂移＜16dp 且按住＜600ms。
                 boolean tap = dragging
                         && Math.abs(event.getX() - downX) < dp(TAP_SLOP_DP)
                         && Math.abs(event.getY() - downY) < dp(TAP_SLOP_DP)
-                        && SystemClock.elapsedRealtime() - downTimeMs < 400;
+                        && SystemClock.elapsedRealtime() - downTimeMs < 600;
                 dragging = false;
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
                 if (tap && event.getActionMasked() == MotionEvent.ACTION_UP) {
@@ -1737,10 +1868,14 @@ public class KaraokeLyricsView extends View {
                     browsing = false;
                     seekSpringActive = true;
                     ensureFrameLoop();
-                } else {
-                    // 松手后回锚：全屏 5000ms／封面 2500ms（见常量区口径），到点弹簧自动跟随当前行。
+                } else if (coverMode) {
+                    // 内嵌：竖滑没滚过歌词，不用等回锚，松手即恢复自动跟唱（否则容器切歌后新曲歌词还要冻 2500ms）。
+                    browsing = false;
                     removeCallbacks(returnRunnable);
-                    postDelayed(returnRunnable, coverMode ? REANCHOR_COVER_MS : REANCHOR_FULLSCREEN_MS);
+                } else {
+                    // 松手后回锚：全屏 5000ms（见常量区口径），到点弹簧自动跟随当前行。
+                    removeCallbacks(returnRunnable);
+                    postDelayed(returnRunnable, REANCHOR_FULLSCREEN_MS);
                 }
                 performClick();
                 return true;

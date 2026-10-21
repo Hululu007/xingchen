@@ -67,12 +67,31 @@ public class TtmlClient {
     }
 
     private void search(List<Entry> entries, Set<Long> seen, LyricsRequest request, String keyword) {
-        HttpUrl url = HttpUrl.parse("https://music.163.com/api/search/get/web").newBuilder()
+        int before = entries.size();
+        searchUrl(entries, seen, request, keyword, cloudSearchUrl(keyword));
+        if (entries.size() == before) searchUrl(entries, seen, request, keyword, legacySearchUrl(keyword));
+    }
+
+    private HttpUrl cloudSearchUrl(String keyword) {
+        return HttpUrl.parse("https://music.163.com/api/cloudsearch/pc").newBuilder()
+                .addQueryParameter("s", keyword)
+                .addQueryParameter("type", "1")
+                .addQueryParameter("limit", "8")
+                .addQueryParameter("offset", "0")
+                .addQueryParameter("total", "true")
+                .build();
+    }
+
+    private HttpUrl legacySearchUrl(String keyword) {
+        return HttpUrl.parse("https://music.163.com/api/search/get/web").newBuilder()
                 .addQueryParameter("s", keyword)
                 .addQueryParameter("type", "1")
                 .addQueryParameter("limit", "8")
                 .addQueryParameter("offset", "0")
                 .build();
+    }
+
+    private void searchUrl(List<Entry> entries, Set<Long> seen, LyricsRequest request, String keyword, HttpUrl url) {
         try {
             JSONObject object = new JSONObject(get(url.toString()));
             JSONObject result = object.optJSONObject("result");
@@ -84,10 +103,15 @@ public class TtmlClient {
                 Entry entry = new Entry();
                 entry.id = item.optLong("id");
                 entry.name = clean(item.optString("name"));
-                entry.artist = artists(item.optJSONArray("artists"));
+                JSONArray artistsArray = item.optJSONArray("artists");
+                if (artistsArray == null) artistsArray = item.optJSONArray("ar");
+                entry.artist = artists(artistsArray);
                 JSONObject album = item.optJSONObject("album");
+                if (album == null) album = item.optJSONObject("al");
                 entry.album = album == null ? "" : clean(album.optString("name"));
-                entry.durationSec = Math.round(item.optInt("duration", 0) / 1000f);
+                long durationMs = item.optLong("duration", 0);
+                if (durationMs <= 0) durationMs = item.optLong("dt", 0);
+                entry.durationSec = Math.round(durationMs / 1000f);
                 if (entry.id > 0 && !TextUtils.isEmpty(entry.name) && seen.add(entry.id)) entries.add(entry);
             }
         } catch (Exception e) {

@@ -5,6 +5,14 @@
     android:background="@drawable/home_bg_page"
     android:fitsSystemWindows="true">
 
+    <!-- 歌单页极光背景（仅 sheets 模式可见，见 MusicListActivity）：瓜子 Aurora 浅色底 #FAFAFC＋7 颗径向柔光，
+         不是纯白；其它模式 GONE，共用 home_bg_page 纯白底不动。 -->
+    <com.fongmi.android.tv.ui.custom.AuroraBackgroundView
+        android:id="@+id/auroraBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -75,21 +83,7 @@
                 android:singleLine="true"
                 android:textColor="#1C1C1E"
                 android:textColorHint="#5E6B7E"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/btnDoSearch"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:layout_marginStart="12dp"
-                android:background="@drawable/card_music"
-                android:gravity="center"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:text="@string/music_search"
-                android:textColor="#FA243C"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textSize="13sp" />
         </LinearLayout>
 
         <!-- 搜索页分类横排：5 项固定分类（单曲／歌手／歌单／专辑／歌词），可左右滑；只有搜歌结果时出现 -->
@@ -150,6 +144,17 @@
                 android:layout_marginStart="12dp"
                 android:textColor="#9AA7B8"
                 android:textSize="20sp" />
+
+            <!-- 榜单列表页手动刷新（GZ TopListRefreshButton）：仅 charts 模式可见，点按重新拉取 -->
+            <ImageView
+                android:id="@+id/btnChartsRefresh"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="12dp"
+                android:padding="4dp"
+                android:src="@drawable/ic_action_refresh"
+                android:tint="#9AA7B8"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 第 7 项尾巴：下载概览统计卡（仅 download 模式可见；GZ：OVERVIEW · 下载概览玻璃卡圆角 20dp、
@@ -278,7 +283,7 @@
                     android:gravity="center"
                     android:paddingStart="10dp"
                     android:paddingEnd="10dp"
-                    android:text="取消"
+                    android:text="取消全部下载"
                     android:textColor="#1C1C1E"
                     android:textSize="12sp" />
 
@@ -411,6 +416,42 @@
                 android:paddingEnd="12dp"
                 android:text="来源：全部"
                 android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- 第二波：本地扫描工具条（仅 device 模式可见）：扫描设置（过滤／排除管理）＋已移除恢复 pill（忽略集空时代码隐藏） -->
+        <LinearLayout
+            android:id="@+id/deviceToolsBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvDeviceScanSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_pill_overview"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/wave2_device_scan_settings"
+                android:textColor="#1C1C1E"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvDeviceRemoved"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_pill_overview"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:textColor="#FA243C"
+                android:textSize="13sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 第 8 项：本地音乐组筛选条（仅 device 模式组筛选激活时可见）：点 × 回到全部歌曲 -->
@@ -645,6 +686,18 @@
                     android:textColor="#8E8E93"
                     android:textSize="12sp" />
             </LinearLayout>
+
+            <!-- 第二波：列表区头（瓜子 HistoryScreen／FavoritesScreen SectionHeader：历史「全部记录」／搜时「搜索结果」，
+                 收藏「全部歌曲」／搜时「搜索结果」；放英雄卡块内静态行，不进 adapter，空列表时代码隐藏；字号沿用歌单区头 17sp，瓜子该区头字号未抠到） -->
+            <TextView
+                android:id="@+id/tvFavHistSection"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textColor="#1C1C1E"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 第 1 项：歌单详情页内搜索框（仅 sheet 模式、顶栏 ⋮ 里「搜索歌曲」打开时可见）：按歌名／歌手过滤本单曲目 -->
@@ -706,6 +759,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_pill_overview"
+                android:drawableStart="@drawable/ic_music_check_14"
+                android:drawablePadding="6dp"
                 android:gravity="center"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
@@ -719,6 +774,8 @@
                 android:layout_height="32dp"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/bg_pill_overview"
+                android:drawableStart="@drawable/ic_music_stack_14"
+                android:drawablePadding="6dp"
                 android:gravity="center"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
@@ -740,7 +797,7 @@
                 android:id="@+id/btnSheetsNew"
                 android:layout_width="wrap_content"
                 android:layout_height="44dp"
-                android:background="@drawable/bg_pill_dark"
+                android:background="@drawable/bg_pill_sheets_new"
                 android:gravity="center"
                 android:paddingStart="18dp"
                 android:paddingEnd="18dp"
@@ -769,6 +826,46 @@
                 android:background="@drawable/bg_circle_light"
                 android:padding="12dp"
                 android:src="@drawable/ic_music_search" />
+        </LinearLayout>
+
+        <!-- 歌单页空态（仅 sheets 模式可见，其余模式 GONE）：
+             瓜子 EmptyPlaylistsHint 口径：图标 28dp（textLow 0.7）、图标与标题间距 10dp、
+             主标题 14sp textLow、副标题 12sp textLow 0.85、副标题顶间距 6dp、块顶 24dp。
+             搜索过滤无匹配时同块改纯文本态（无图标、无副标题），不走通用 empty 覆盖层。 -->
+        <LinearLayout
+            android:id="@+id/sheetsEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/sheetsEmptyIcon"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:src="@drawable/ic_music_playlist_empty" />
+
+            <TextView
+                android:id="@+id/sheetsEmptyTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/music_no_playlist"
+                android:textColor="#9A9AA0"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/sheetsEmptySub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/music_no_playlist_hint"
+                android:textColor="#D99A9AA0"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <!-- 对照表 P2/P23 插件头卡（仅 sites 模式可见）：图标 46dp／圆角 15dp 近似（卡皮 card_music）、

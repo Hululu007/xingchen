@@ -63,9 +63,11 @@ public class SiteViewModel extends ViewModel {
         action = new MutableLiveData<>();
         searchEpoch = new AtomicInteger(0);
         searchFuture = new CopyOnWriteArrayList<>();
-        // Player spiders can share a loopback proxy and may ignore interruption.
-        // Keep resolutions serial so a canceled source fully exits before the next starts.
-        playerExecutor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+        // 起播解析曾是单线程：上一次 py 解析卡住 30 秒，下一次起播（连续切集）
+        // 就排队等它——表现就是“播放也慢”。改 2 线程：卡住的那路占一根，
+        // 新起播走另一根立即跑；旧任务照例取消、结果照例按 taskId 丢弃，
+        // 不影响单路语义。磁力展开（PARSE_EXECUTOR）不在本次范围，不动。
+        playerExecutor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(2));
         futures = new EnumMap<>(TaskType.class);
         taskIds = new EnumMap<>(TaskType.class);
         for (TaskType type : TaskType.values()) taskIds.put(type, new AtomicInteger(0));

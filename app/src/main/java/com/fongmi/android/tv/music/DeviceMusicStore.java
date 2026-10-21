@@ -38,12 +38,35 @@ public class DeviceMusicStore {
         return new File(base, "music_library");
     }
 
-    /** 合并扫描：MediaStore 歌曲 ＋ music_library 目录文件 */
+    /** 合并扫描：MediaStore 歌曲 ＋ music_library 目录文件。
+     * 第二波：应用扫描偏好——最小时长过滤（瓜子档）与文件夹排除（命中目录及其子目录的歌不进库，文件不动）。 */
     public static List<MusicTrack> scan(Context ctx) {
+        long minDuration = MusicStore.getDeviceMinDuration();
+        Set<String> excluded = MusicStore.getDeviceExcludedFolders();
         List<MusicTrack> out = new ArrayList<>();
         scanMediaStore(ctx, out);
         scanLibraryDir(ctx, out);
-        return out;
+        if ((minDuration <= 0 && excluded.isEmpty())) return out;
+        List<MusicTrack> kept = new ArrayList<>();
+        for (MusicTrack t : out) {
+            if (t == null) continue;
+            if (minDuration > 0 && t.duration > 0 && t.duration < minDuration) continue;
+            if (!excluded.isEmpty() && isExcluded(t.localPath, excluded)) continue;
+            kept.add(t);
+        }
+        return kept;
+    }
+
+    /** 路径是否落在任一排除目录内（等于该目录或在其子目录下；路径为空不算排除） */
+    static boolean isExcluded(String path, Set<String> excluded) {
+        if (path == null || path.isEmpty() || excluded == null || excluded.isEmpty()) return false;
+        String dir = new File(path).getParent();
+        if (dir == null) return false;
+        for (String ex : excluded) {
+            if (ex == null || ex.isEmpty()) continue;
+            if (dir.equals(ex) || dir.startsWith(ex + File.separator)) return true;
+        }
+        return false;
     }
 
     /**
@@ -105,7 +128,8 @@ public class DeviceMusicStore {
                     long id = c.getLong(iId);
                     MusicTrack t = new MusicTrack();
                     t.id = DeviceMusicSource.PLATFORM + ":" + id;
-                    t.title = c.getString(iTitle);
+                    String rawTitle = c.getString(iTitle);
+                    t.title = rawTitle == null ? null : com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(rawTitle);
                     t.artist = c.getString(iArtist);
                     t.album = c.getString(iAlbum);
                     t.duration = c.getLong(iDur);
@@ -201,7 +225,7 @@ public class DeviceMusicStore {
             try {
                 MusicTrack t = new MusicTrack();
                 t.id = DeviceMusicSource.PLATFORM + ":lib:" + f.getName();
-                t.title = stripExt(f.getName());
+                t.title = com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(f.getName());
                 t.platform = DeviceMusicSource.PLATFORM;
                 t.localPath = f.getAbsolutePath();
                 MediaMetadataRetriever r = new MediaMetadataRetriever();
@@ -211,7 +235,7 @@ public class DeviceMusicStore {
                     String artist = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
                     String album = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
                     String dur = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-                    if (title != null && !title.trim().isEmpty()) t.title = title.trim();
+                    if (title != null && !title.trim().isEmpty()) t.title = com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(title);
                     if (artist != null && !artist.trim().isEmpty()) t.artist = artist.trim();
                     if (album != null && !album.trim().isEmpty()) t.album = album.trim();
                     if (dur != null) {
@@ -271,10 +295,5 @@ public class DeviceMusicStore {
         int p = name == null ? -1 : name.lastIndexOf('.');
         if (p < 0) return false;
         return AUDIO_EXT.contains(name.substring(p + 1).toLowerCase());
-    }
-
-    private static String stripExt(String name) {
-        int p = name.lastIndexOf('.');
-        return p > 0 ? name.substring(0, p) : name;
     }
 }

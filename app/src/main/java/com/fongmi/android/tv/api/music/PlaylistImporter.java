@@ -110,6 +110,25 @@ public class PlaylistImporter {
         }
     }
 
+    /** 按平台歌单 id 导入（登录账号导入复用：先拉“我的歌单”列表，点某张再走本链拉详情；公开链路与分享导入一致）。阻塞，子线程调 */
+    public static Result importFromId(String platformKey, String id) throws ImportException {
+        if (TextUtils.isEmpty(platformKey) || TextUtils.isEmpty(id)) throw new ImportException(Fail.UNRECOGNIZED);
+        try {
+            switch (platformKey) {
+                case LxPlatformSearch.WY:
+                    return fetchWy(id);
+                case LxPlatformSearch.QQ:
+                    return fetchQq(id);
+                default:
+                    throw new ImportException(Fail.UNRECOGNIZED);
+            }
+        } catch (ImportException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ImportException(Fail.NETWORK);
+        }
+    }
+
     /** 是否已装声明支持该平台 musicUrl 的落雪脚本。阻塞（要加载脚本），子线程调 */
     public static boolean hasLxSupport(String platformKey) {
         try {

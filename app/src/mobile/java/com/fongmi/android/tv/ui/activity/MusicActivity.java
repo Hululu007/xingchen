@@ -21,6 +21,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.api.music.KwChartSource;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.databinding.ActivityMusicBinding;
 import com.fongmi.android.tv.databinding.HomeDialogRecentBinding;
@@ -40,7 +41,9 @@ import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 音乐首页（v7 定稿，2026-10-21 用户逐版改定）：
@@ -60,14 +63,14 @@ public class MusicActivity extends BaseActivity {
     private final List<MusicChart> homeChartTabs = new ArrayList<>();
     private List<MusicTrack> homeChartTracks = new ArrayList<>();
     private int homeChartSel = -1;
+    private int homeChartLoadSeq = 0;
     private boolean homeChartLoaded;
+    /** 第二波：首页榜单卡选中签下划线色＝当前榜首首封面语气色（瓜子 HomeRankingCardKt 选中取封面语气色）；取色失败回落红 */
+    private int homeChartTone = 0xFFFA243C;
+    private String homeChartToneCover = "";
 
-    // 随心听队列来源类型（瓜子 HomeScreenKt:2843 的 z5 条件：queueSource.type == "shuffle_listen" 且正在播）。
-    // 只有本页随心听起播的队列才记 "shuffle_listen"；其它来源的队列不记，副题即回落「随机漫游」。
-    // 另存一份打乱后队列的曲目键快照：回首页时若服务队列已不是这份队列（别处起了新队列），
-    // 即使本字段仍为 shuffle_listen 也回落，不做「只在点击时改字、永不回落」的假态。
-    private String homeQueueSourceType;
-    private List<String> shuffleQueueKeys;
+    // 随心听副题不再用本页粘性字段判定：旧 homeQueueSourceType／shuffleQueueKeys 从未被写，
+    // 是副题恒「随机漫游」的根因，已删；改读服务队列来源字段，见 refreshShuffleSubtitle。
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicActivity.class));
@@ -119,6 +122,10 @@ public class MusicActivity extends BaseActivity {
         // ④ 榜单卡：完整榜单进现有榜单页；主封面播放从头播该榜；点行从该曲开播整榜
         binding.homeChartMore.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeChartMoreIcon.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        // 第二波：榜单卡空态「点击重试」→重拉当前签（签行保留，换签也能走 selectHomeChart）
+        binding.homeChartEmptyRetry.setOnClickListener(v -> {
+            if (homeChartSel >= 0 && homeChartSel < homeChartTabs.size()) selectHomeChart(homeChartSel);
+        });
         binding.homeChartPlay.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
@@ -241,8 +248,9 @@ public class MusicActivity extends BaseActivity {
             cell.setGravity(Gravity.CENTER_HORIZONTAL);
             cell.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             TextView label = new TextView(this);
-            label.setText(homeChartTabs.get(i).name);
-            label.setTextSize(14);
+            // 第二波：签只改显示名（瓜子首页榜单卡签为短名）；homeChartTabs 内 name 不动，标题／选榜仍用全名
+            label.setText(homeChartShortName(homeChartTabs.get(i).name));
+            label.setTextSize(11);
             label.setSingleLine(true);
             View bar = new View(this);
             LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(ResUtil.dp2px(18), ResUtil.dp2px(3));
@@ -253,6 +261,16 @@ public class MusicActivity extends BaseActivity {
             cell.setOnClickListener(v -> selectHomeChart(idx));
             box.addView(cell);
         }
+    }
+
+    /** 第二波：首页榜单卡签短名映射（只改显示：名含「飙升／热歌／新歌／原创」→对应「×榜」，其余沿用全名） */
+    private static String homeChartShortName(String name) {
+        if (name == null) return "";
+        if (name.contains("飙升")) return "飙升榜";
+        if (name.contains("热歌")) return "热歌榜";
+        if (name.contains("新歌")) return "新歌榜";
+        if (name.contains("原创")) return "原创榜";
+        return name;
     }
 
     private void restyleHomeChartTabs() {
@@ -273,7 +291,8 @@ public class MusicActivity extends BaseActivity {
             }
             GradientDrawable bg = new GradientDrawable();
             bg.setCornerRadius(ResUtil.dp2px(2));
-            bg.setColor(on ? 0xFFFA243C : Color.TRANSPARENT);
+            // 第二波：选中下划线取封面语气色（瓜子 HomeRankingCardKt），不再固定红
+            bg.setColor(on ? homeChartTone : Color.TRANSPARENT);
             bar.setBackground(bg);
         }
     }
@@ -283,36 +302,70 @@ public class MusicActivity extends BaseActivity {
         homeChartSel = idx;
         restyleHomeChartTabs();
         MusicChart chart = homeChartTabs.get(idx);
+        // 第二波：切签先显加载态（瓜子 HomeRankingCardKt「正在加载榜单」＋16dp 转圈）；结果回来了在回调里切空态／内容；
+        // 渐进路（kw 分片／直连／封面按片补）原样不动，只在外层包加载／空态显隐
+        binding.homeChartTitle.setText(chart.name);
+        if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.GONE);
+        if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.GONE);
+        if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.VISIBLE);
+        binding.homeChartCard.setVisibility(View.VISIBLE);
+        final int loadSeq = ++homeChartLoadSeq;
         Task.execute(() -> {
             List<MusicTrack> tracks = new ArrayList<>();
+            boolean progressive = false;
             try {
-                List<MusicTrack> got = MusicRepository.chartTracks(chart);
-                if (got != null) tracks.addAll(got);
+                // kw 渐进路：先启动分片（与直连并行），直连文字＋时长先出，封面按片后补；非 kw 两调皆空走旧路
+                MusicRepository.startKwChartSlices(chart);
+                List<MusicTrack> direct = MusicRepository.chartTracksDirect(chart);
+                if (direct != null && !direct.isEmpty()) {
+                    tracks.addAll(direct);
+                    progressive = true;
+                } else {
+                    List<MusicTrack> got = MusicRepository.chartTracks(chart);
+                    if (got != null) tracks.addAll(got);
+                }
             } catch (Throwable ignored) {
             }
             final List<MusicTrack> result = tracks;
+            final boolean prog = progressive;
             runOnUiThread(() -> {
-                if (idx != homeChartSel) return;
+                if (idx != homeChartSel || loadSeq != homeChartLoadSeq) return;
                 homeChartTracks = result;
                 if (result.isEmpty()) {
-                    binding.homeChartCard.setVisibility(View.GONE);
+                    // 第二波：榜单拉空时卡体保留，显瓜子空态（「暂未获取到榜单」＋「点击重试」），签行保留可切榜；
+                    // homeChartLoaded 不置位，下次进页仍会重拉（沿用旧路）
+                    if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.GONE);
+                    if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.GONE);
+                    if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.VISIBLE);
+                    binding.homeChartCard.setVisibility(View.VISIBLE);
                     return;
                 }
                 homeChartLoaded = true;
                 fillHomeChart(chart, result);
                 binding.homeChartCard.setVisibility(View.VISIBLE);
                 applyShuffleTone();
+                if (!prog) return;
+                // kw 封面按片陆续补：先回先上，不等另一片；只刷前 3 张卡面封面
+                MusicRepository.fetchKwChartCovers(chart, new KwChartSource.CoverListener() {
+                    @Override
+                    public void onShard(int pn, List<MusicTrack> shard) {
+                        runOnUiThread(() -> {
+                            if (binding == null || isFinishing() || isDestroyed()) return;
+                            if (idx != homeChartSel || loadSeq != homeChartLoadSeq) return;
+                            if (applyHomeChartCovers(shard)) {
+                                fillHomeChartCovers();
+                                applyShuffleTone();
+                            }
+                        });
+                    }
+                });
             });
         });
     }
 
     private void fillHomeChart(MusicChart chart, List<MusicTrack> tracks) {
         binding.homeChartTitle.setText(chart.name);
-        ImageView[] covers = {binding.homeChartCover1, binding.homeChartCover2, binding.homeChartCover3};
-        for (int i = 0; i < covers.length; i++) {
-            if (i < tracks.size()) ImgUtil.loadRounded(tracks.get(i).title, tracks.get(i).cover, covers[i]);
-            else covers[i].setImageDrawable(null);
-        }
+        fillHomeChartCovers();
         TextView[] names = {binding.homeChartName1, binding.homeChartName2, binding.homeChartName3};
         TextView[] artists = {binding.homeChartArtist1, binding.homeChartArtist2, binding.homeChartArtist3};
         View[] rows = {binding.homeChartRow1, binding.homeChartRow2, binding.homeChartRow3};
@@ -323,12 +376,71 @@ public class MusicActivity extends BaseActivity {
                 artists[i].setText(tracks.get(i).artist);
             } else rows[i].setVisibility(View.GONE);
         }
+        // 第二波：内容回来了，内容区显、加载／空态隐；选中签下划线色跟榜首首封面语气色
+        if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.VISIBLE);
+        if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.GONE);
+        if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.GONE);
+        refreshHomeChartTone(tracks);
+    }
+
+    /** 第二波：首页榜单卡选中签下划线色＝榜首首封面语气色（同 applyShuffleTone 取色口径；同一封面不重复取） */
+    private void refreshHomeChartTone(List<MusicTrack> tracks) {
+        if (binding == null || tracks == null || tracks.isEmpty()) return;
+        String cover = tracks.get(0).cover;
+        if (cover == null || cover.isEmpty() || cover.equals(homeChartToneCover)) return;
+        homeChartToneCover = cover;
+        try {
+            ImgUtil.load(cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
+                @Override
+                public void onResourceReady(android.graphics.Bitmap bitmap,
+                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                    if (binding == null || bitmap == null) return;
+                    try {
+                        homeChartTone = CoverColor.dominantColor(bitmap);
+                        restyleHomeChartTabs();
+                    } catch (Throwable ignored) {
+                    }
+                }
+
+                @Override
+                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 首页卡只刷 3 张封面（名／歌手行不动，首屏已出；封面到了再补调取色） */
+    private void fillHomeChartCovers() {
+        ImageView[] covers = {binding.homeChartCover1, binding.homeChartCover2, binding.homeChartCover3};
+        for (int i = 0; i < covers.length; i++) {
+            if (i < homeChartTracks.size()) ImgUtil.loadRounded(homeChartTracks.get(i).title, homeChartTracks.get(i).cover, covers[i]);
+            else covers[i].setImageDrawable(null);
+        }
+    }
+
+    /** 首页卡封面按片补：按 id 把一片 Worker 封面贴到已显示的直连列表上，只动封面字段；返回是否有任一封面变化 */
+    private boolean applyHomeChartCovers(List<MusicTrack> shard) {
+        if (shard == null || shard.isEmpty() || homeChartTracks.isEmpty()) return false;
+        Map<String, MusicTrack> byId = new HashMap<>();
+        for (MusicTrack t : homeChartTracks) {
+            if (t != null && t.id != null && !t.id.isEmpty()) byId.put(t.id, t);
+        }
+        boolean changed = false;
+        for (MusicTrack s : shard) {
+            if (s == null || s.id == null || s.cover == null || s.cover.isEmpty()) continue;
+            MusicTrack cur = byId.get(s.id);
+            if (cur == null || s.cover.equals(cur.cover)) continue;
+            cur.cover = s.cover;
+            changed = true;
+        }
+        return changed;
     }
 
     private void playHomeChartFrom(int index) {
         if (homeChartTracks.isEmpty() || index >= homeChartTracks.size()) return;
-        // 榜单起播不是随心听队列：清来源类型，副题回落「随机漫游」
-        clearShuffleSource();
+        // 榜单起播不是随心听队列：入队时服务队列来源写成榜单名，下次 onResume 副题
+        // 读服务来源即自动回落「随机漫游」，不用再清粘性字段（已删）
         // B7：入队时写队列级来源＝榜单名、route＝home（榜单卡在首页，落点＝首页）
         MusicChart chart = (homeChartSel >= 0 && homeChartSel < homeChartTabs.size())
                 ? homeChartTabs.get(homeChartSel) : null;
@@ -393,7 +505,7 @@ public class MusicActivity extends BaseActivity {
             pluginCount = MusicSourceManager.get().listSites().size();
         } catch (Throwable ignored) {
         }
-        // 插件行：紫色拼图＋实际插件数；设置行：红色齿轮＋「播放／下载／外观」
+        // 插件行：紫色拼图＋实际插件数；网盘行：蓝色云＋两家（单独新页 MusicCloudActivity，只做搜索，115／夸克）；设置行：红色齿轮＋「播放／下载／外观」
         card.addView(menuRow(R.drawable.ic_music_puzzle, 0xFFAF52DE,
                 getString(R.string.music_plugin_manage),
                 pluginCount + " " + getString(R.string.music_plugins),
@@ -404,6 +516,16 @@ public class MusicActivity extends BaseActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         dividerLp.leftMargin = dp(62);
         card.addView(divider, dividerLp);
+        card.addView(menuRow(R.drawable.icon_cloud6, 0xFF007AFF,
+                getString(R.string.music_cloud_drive),
+                "115／夸克",
+                () -> dismissThen.accept(() -> MusicCloudActivity.start(this))));
+        View divider2 = new View(this);
+        divider2.setBackgroundColor(0x14000000);
+        LinearLayout.LayoutParams dividerLp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerLp2.leftMargin = dp(62);
+        card.addView(divider2, dividerLp2);
         card.addView(menuRow(R.drawable.ic_control_setting, 0xFFFF2D55,
                 getString(R.string.music_setting),
                 getString(R.string.music_menu_setting_sub),
@@ -519,6 +641,52 @@ public class MusicActivity extends BaseActivity {
                 if (binding != null) binding.homeCountDevice.setText(String.valueOf(count));
             });
         });
+        // 第二波：聆听报告（与五快捷计数同批刷新，不另起定时任务）
+        refreshReport();
+    }
+
+    /** 第二波：聆听报告卡——只用本地数据算：播放记录数（loadRecent 上限 50 条，口径即「最近 50 条内」）、
+     * 收藏数、最爱歌手（最近播放里出现次数最多的非空歌手；并列取先出现的）。
+     * 最近播放为空则整卡隐藏，不编假数据；瓜子 ListeningReportSection 的具体内容与数值未抠到，星辰侧口径如上 */
+    private void refreshReport() {
+        if (binding == null) return;
+        List<MusicTrack> recent;
+        try {
+            recent = MusicStore.loadRecent();
+        } catch (Throwable ignored) {
+            recent = null;
+        }
+        if (recent == null || recent.isEmpty()) {
+            binding.homeReportCard.setVisibility(View.GONE);
+            return;
+        }
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        for (MusicTrack t : recent) {
+            if (t == null || t.artist == null || t.artist.trim().isEmpty()) continue;
+            String a = t.artist.trim();
+            counts.put(a, counts.containsKey(a) ? counts.get(a) + 1 : 1);
+        }
+        String top = "";
+        int topN = 0;
+        for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+            if (e.getValue() > topN) {
+                topN = e.getValue();
+                top = e.getKey();
+            }
+        }
+        final int recentN = recent.size();
+        final String topArtist = top;
+        MusicLibrary.favoriteCount(n -> {
+            if (binding == null) return;
+            binding.homeReportStats.setText("最近播放 " + recentN + " 首 · 收藏 " + n + " 首");
+            if (topArtist.isEmpty()) {
+                binding.homeReportTop.setVisibility(View.GONE);
+            } else {
+                binding.homeReportTop.setVisibility(View.VISIBLE);
+                binding.homeReportTop.setText("最爱歌手：" + topArtist);
+            }
+            binding.homeReportCard.setVisibility(View.VISIBLE);
+        });
     }
 
     // ================= 播放历史（树内无 recent 列表页，按现行「列表点歌」模式承接） =================
@@ -570,24 +738,19 @@ public class MusicActivity extends BaseActivity {
         MusicListActivity.startHistory(this);
     }
 
-    private void clearShuffleSource() {
-        homeQueueSourceType = null;
-        shuffleQueueKeys = null;
-    }
-
     /**
-     * 随心听副题（瓜子 HomeScreenKt:2848：z5 ? "正在播放" : "随机漫游"，z5 见字段注释）：
-     * 来源类型为 shuffle_listen、服务正在播、且服务现队列与随心听快照同序同曲，三者齐了才显「正在播放」，
-     * 任一不满足即显「随机漫游」。暂停、切到别队列、Activity 重建丢字段时均回落，不留假态。
-     * 残留口径：别处恰好播了与快照同序同曲的队列时无法区分，仍会显「正在播放」——队列来源字段在
-     * MusicQueue 侧缺失（本摊文件范围外），本页字段＋快照是文件范围内的最严判定。
+     * 随心听副题（瓜子 HomeScreenKt:2848：z5 ? "正在播放" : "随机漫游"）：
+     * 改读服务队列来源字段——随心听起播时服务队列来源就是 home_shuffle（「随心听」），
+     * 全树只有随心听页起播传这个来源；现队列来源是它＋服务正在播即显「正在播放」，
+     * 其它一律回落「随机漫游」。旧粘性字段＋快照方案已删：字段从未被写是副题死文案
+     * 的根因，服务来源是现队列的实时值，换队／暂停／重建都自然回落，不留假态；
+     * 别处恰好播了与随心听同来源的队列时仍显「正在播放」——那确实是随心听队列在播，不算假态。
+     * 刷新时机：onResume（回首页时重读现队列来源）。
      */
     private void refreshShuffleSubtitle() {
         if (binding == null) return;
-        boolean playingShuffle = "shuffle_listen".equals(homeQueueSourceType)
-                && shuffleQueueKeys != null
-                && MusicController.get().isPlaying()
-                && trackKeys(MusicController.get().queue()).equals(shuffleQueueKeys);
+        boolean playingShuffle = getString(R.string.home_shuffle).equals(MusicController.get().queueSource())
+                && MusicController.get().isPlaying();
         binding.homeShuffleSub.setText(playingShuffle
                 ? R.string.home_shuffle_playing : R.string.home_shuffle_sub);
         // 光晕脉动与副题同用 playingShuffle（oa3 z5），不分叉：只有随心听卡动，另两卡恒为静态层；
@@ -821,10 +984,10 @@ public class MusicActivity extends BaseActivity {
         // 波形：tone 0.7，播放振幅 1.0＋动画，暂停 0.35 静态
         binding.moodWave.setTone(tone);
         binding.moodWave.setPlaying(playing);
-        // 钮旁状态文案
+        // 钮旁状态文案（瓜子条件：本心情播／停＝暂停／继续收听；非本心情时正在播别的队列＝暂停收听，其余才＝开始收听）
         binding.tvMoodState.setText(moodBuilding ? "正在连接"
                 : isThisMoodQueue() ? (MusicController.get().isPlaying() ? "暂停收听" : "继续收听")
-                : "开始收听");
+                : MusicController.get().isPlaying() ? "暂停收听" : "开始收听");
     }
 
     /** 按心情名走星辰落雪插件搜索拼歌单播（不走 GZ 服务器）；搜不到 toast 同款文案 */

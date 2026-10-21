@@ -95,6 +95,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
+        android:lineHeight="15sp"
         android:textColor="#8E8E93"
         android:textSize="11sp" />
 </LinearLayout>

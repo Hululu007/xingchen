@@ -76,48 +76,61 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <LinearLayout
+            <!-- 第二行：TableLayout + shrinkColumns="0"（歌手列可缩）——LinearLayout 下长歌手会把爱心/专辑顶出右边缘
+                 （歌手先量 AT_MOST 整列宽），短歌手时又不许用 weight（会把专辑顶到右边缘，刚修过的问题）；
+                 shrink 列两头都对：短时紧贴爱心、长时歌手先省略号收缩、爱心/专辑恒在。行高 22dp（GZ 第二行容器高），
+                 爱心盒 27宽×13高（图标 13dp＋左右各 7dp、上下 0dp，竖向 13dp＜22dp 不溢出）。 -->
+            <TableLayout
                 android:layout_width="match_parent"
                 android:layout_height="22dp"
                 android:layout_marginTop="2dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:shrinkColumns="0">
 
-                <TextView
-                    android:id="@+id/tpArtist"
-                    android:layout_width="0dp"
+                <TableRow
+                    android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:gravity="center_vertical"
-                    android:includeFontPadding="false"
-                    android:lineHeight="18dp"
-                    android:maxLines="1"
-                    android:textColor="#57FFFFFF"
-                    android:textSize="14sp" />
+                    android:gravity="center_vertical">
 
-                <ImageView
-                    android:id="@+id/tpFavHeart"
-                    android:layout_width="27dp"
-                    android:layout_height="27dp"
-                    android:contentDescription="@string/music_favorite"
-                    android:padding="7dp"
-                    android:src="@drawable/ic_music_heart"
-                    android:tint="#FFFFFF" />
+                    <TextView
+                        android:id="@+id/tpArtist"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:ellipsize="end"
+                        android:fontWeight="500"
+                        android:gravity="center_vertical"
+                        android:includeFontPadding="false"
+                        android:lineHeight="18dp"
+                        android:maxLines="1"
+                        android:textColor="#57FFFFFF"
+                        android:textSize="14sp" />
 
-                <TextView
-                    android:id="@+id/tpAlbum"
-                    android:layout_width="wrap_content"
-                    android:layout_height="match_parent"
-                    android:ellipsize="end"
-                    android:gravity="center_vertical"
-                    android:includeFontPadding="false"
-                    android:lineHeight="18dp"
-                    android:maxLines="1"
-                    android:textColor="#42FFFFFF"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-            </LinearLayout>
+                    <ImageView
+                        android:id="@+id/tpFavHeart"
+                        android:layout_width="27dp"
+                        android:layout_height="13dp"
+                        android:contentDescription="@string/music_favorite"
+                        android:paddingLeft="7dp"
+                        android:paddingRight="7dp"
+                        android:paddingTop="0dp"
+                        android:paddingBottom="0dp"
+                        android:src="@drawable/ic_music_heart"
+                        android:tint="#FFFFFF" />
+
+                    <TextView
+                        android:id="@+id/tpAlbum"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:ellipsize="end"
+                        android:fontWeight="500"
+                        android:gravity="center_vertical"
+                        android:includeFontPadding="false"
+                        android:lineHeight="18dp"
+                        android:maxLines="1"
+                        android:textColor="#42FFFFFF"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </TableRow>
+            </TableLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -276,34 +289,7 @@
             android:progressDrawable="@drawable/bg_player_seek_progress"
             android:thumb="@drawable/bg_player_seek_thumb" />
 
-        <!-- 下一首（GZ 底部裁图标准）：进度线下两行居中——“下一首”＋下首歌名；点按切下首；
-             无下首整块隐藏（该藏的藏）。GZ 行字号／颜色／间距确数未抠到，先按次级字阶落、表里标未对齐。
-             旧底部时间行（00:38 / -03:15）已删：GZ 该处没有时间字，时间只在拖动顶盒出现。 -->
-        <LinearLayout
-            android:id="@+id/tpNextBlock"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/music_next"
-                android:textColor="#A6FFFFFF"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/tpNextTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#E6FFFFFF"
-                android:textSize="14sp" />
-        </LinearLayout>
+        <!-- 下一首块已按用户令拿掉：进度条直接贴底一档（45dp 间隔），不再显示下首歌名。 -->
     </LinearLayout>
 
     <!-- 底部间隔 45dp（GZ 经典分支末尾 Spacer） -->

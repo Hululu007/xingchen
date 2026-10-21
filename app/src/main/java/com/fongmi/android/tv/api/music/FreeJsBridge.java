@@ -226,9 +226,24 @@ public class FreeJsBridge {
     }
 
     private Object callTimed(String func, long timeoutMs, Object... args) throws Exception {
-        CompletableFuture<Object> stage = submit(() -> Async.run(exports, func, args))
-                .get(timeoutMs, TimeUnit.MILLISECONDS);
-        return stage.get(timeoutMs, TimeUnit.MILLISECONDS);
+        // P3：两段等待到点都必须取消底层任务，不只放弃等待——调用线程（音乐专用池）
+        // 不许被挂死的插件拖住；桥是单线程，取消发中断信号，插件内同步网络等待会响应，
+        // 插件本身死循环则仍占桥线程至其返回（单线程桥的固有限制，见交卷清单）
+        Future<CompletableFuture<Object>> outer = submit(() -> Async.run(exports, func, args));
+        CompletableFuture<Object> stage;
+        try {
+            stage = outer.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException te) {
+            outer.cancel(true);
+            throw te;
+        }
+        try {
+            return stage.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException te) {
+            outer.cancel(true);
+            stage.cancel(true);
+            throw te;
+        }
     }
 
     private String toJson(Object result) throws Exception {
@@ -267,7 +282,14 @@ public class FreeJsBridge {
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
-        Object arg = submit(() -> ctx.parse(item.toString())).get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        Future<Object> argFuture = submit(() -> ctx.parse(item.toString()));
+        Object arg;
+        try {
+            arg = argFuture.get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException te) {
+            argFuture.cancel(true);
+            throw te;
+        }
         Object result = callTimed("getMediaSource", SOURCE_TIMEOUT_MS, arg, quality.getKey());
         String json = toJson(result);
         if (TextUtils.isEmpty(json)) return null;

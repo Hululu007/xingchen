@@ -72,10 +72,10 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             new File(item.getPath()).delete();
             plugins.remove(pos);
             notifyItemRemoved(pos);
-            // 单删也要走失效：清掉该插件缓存的旧 Spider 并让首页立刻重载，
-            // 否则首页还挂着已删插件的旧内容（与 PluginActivity.invalidatePlugins 同口径）。
+            // 单删也要走失效：只清该插件对应的蜘蛛＋首页缓存并让首页立刻重载，
+            // 否则首页还挂着已删插件的旧内容；旧写法是单删一个就全清全部 py 蜘蛛。
             try {
-                if (py) BaseLoader.get().clearPy();
+                if (py) BaseLoader.get().invalidatePyScript(item.getPath());
                 else BaseLoader.get().clearJs();
             } catch (Throwable ignored) {}
             RefreshEvent.home();

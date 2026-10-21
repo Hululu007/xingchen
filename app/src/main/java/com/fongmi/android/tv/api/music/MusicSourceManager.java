@@ -104,12 +104,23 @@ public class MusicSourceManager {
     private static final String RETIRED_BUILTIN_BILIBILI =
             "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/bilibili/index.js";
 
+    /** 自带歌词预置地址（种子身份即歌词型：歌词网／歌词千寻搜不了歌，计数归类不依赖检测结果） */
+    private static final String BUILTIN_LYRIC_GECIWANG =
+            "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js";
+    private static final String BUILTIN_LYRIC_GECIQIANXUN =
+            "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciqianxun/index.js";
+
+    /** 是否应用自带的歌词型预置（按播种地址认，不看名字，用户改名／改地址后按能力判据走） */
+    public static boolean isBuiltinLyricPreset(String srcUrl) {
+        return BUILTIN_LYRIC_GECIWANG.equals(srcUrl) || BUILTIN_LYRIC_GECIQIANXUN.equals(srcUrl);
+    }
+
     public static List<MusicSite> builtinSites() {
         List<MusicSite> list = new ArrayList<>();
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词网", "",
-                "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js"));
+                BUILTIN_LYRIC_GECIWANG));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词千寻", "",
-                "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciqianxun/index.js"));
+                BUILTIN_LYRIC_GECIQIANXUN));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
                 "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"));
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
@@ -761,6 +772,25 @@ public class MusicSourceManager {
             return true;
         }
         return false;
+    }
+
+    // ===== 第二波：播放路由取值（只加新键，不动已有键；存取本体在 MusicStore） =====
+    /** 取链策略（瓜子 LxPluginPriority：fallback 自动切换／pluginOnly 仅插件） */
+    public String getLinkPolicy() {
+        return MusicStore.getLinkPolicy();
+    }
+
+    public void setLinkPolicy(String policy) {
+        MusicStore.setLinkPolicy(policy);
+    }
+
+    /** 某平台指定的取链插件 srcUrl（null = 自动） */
+    public String getPlatformPlugin(String platform) {
+        return MusicStore.getPlatformPlugin(platform);
+    }
+
+    public void setPlatformPlugin(String platform, String srcUrl) {
+        MusicStore.setPlatformPlugin(platform, srcUrl);
     }
 
     /**

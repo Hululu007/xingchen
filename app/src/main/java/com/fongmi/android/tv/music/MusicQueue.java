@@ -26,6 +26,12 @@ public class MusicQueue {
     private final Random random = new Random();
     private int index = -1;
     private int mode = MODE_SEQUENTIAL;
+    /**
+     * 随机历史栈（R6）：按对象引用存已播过的歌，上一首按栈回退、不是再随机。
+     * 换队／清队／切模式时清掉，旧队历史不许串进新队（R4 队列隔离）。
+     * 存引用不用序号：删／移后序号会变，引用按 == 找回当前序号，找不到（已删）就继续往栈下翻。
+     */
+    private final java.util.ArrayDeque<MusicTrack> shuffleHistory = new java.util.ArrayDeque<>();
 
     /**
      * 队列级来源（B7，入队时随队列写入）：展示用来源名，如榜单名、歌单标题、随心听。
@@ -45,8 +51,56 @@ public class MusicQueue {
     }
 
     /** 入队时写来源／route：来源行读这里，不再开面板时反查（B7）。 */
+    /**
+     * 队列移除契约（另一工并行调用口径，方法名定死）：按 key 删，不按序号、不按 id。
+     * key＝platform|id；id 为空时退化为 platform|title|artist（与自定义封面键同一口径）。
+     * 删的是当前歌时沿用 removeAt 的落点口径（非末首顶上下一首、末首停住见 removeAt）。
+     * 返回删掉的序号，找不到返回 -1。
+     */
+    public static String trackKey(MusicTrack t) {
+        if (t == null) return "|";
+        String platform = t.platform == null ? "" : t.platform;
+        if (t.id != null && !t.id.isEmpty()) return platform + "|" + t.id;
+        String title = t.title == null ? "" : t.title;
+        String artist = t.artist == null ? "" : t.artist;
+        return platform + "|" + title + "|" + artist;
+    }
+
+    public synchronized int removeByKey(String key) {
+        if (key == null) return -1;
+        for (int i = 0; i < tracks.size(); i++) {
+            if (key.equals(trackKey(tracks.get(i)))) {
+                removeAt(i);
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 随机历史入栈（服务在起播成功时调：离场的那首才是“上一首”；同首重播不入栈） */
+    public synchronized void pushShuffleHistory(MusicTrack track) {
+        if (track == null) return;
+        if (shuffleHistory.size() >= 100) shuffleHistory.removeFirst();
+        shuffleHistory.addLast(track);
+    }
+
+    /**
+     * 随机上一首：弹栈找回当前序号。栈顶已不在队里（被删）时继续往下翻，
+     * 翻空返回 -1（调用方回落旧随机口径，不许把删掉的歌播回来）。
+     */
+    public synchronized int popShuffleHistoryIndex() {
+        while (!shuffleHistory.isEmpty()) {
+            MusicTrack t = shuffleHistory.removeLast();
+            for (int i = 0; i < tracks.size(); i++) {
+                if (tracks.get(i) == t) return i;
+            }
+        }
+        return -1;
+    }
+
     public synchronized void setTracks(List<MusicTrack> list, int startIndex,
                                        String source, String route, java.util.Map<String, String> routeParams) {
+        shuffleHistory.clear();
         tracks.clear();
         if (list != null) tracks.addAll(list);
         index = tracks.isEmpty() ? -1 : Math.max(0, Math.min(startIndex, tracks.size() - 1));
@@ -96,6 +150,7 @@ public class MusicQueue {
     }
 
     public synchronized void setMode(int mode) {
+        if (this.mode != mode) shuffleHistory.clear();
         this.mode = mode;
     }
 
@@ -128,6 +183,8 @@ public class MusicQueue {
 
     public synchronized int prevIndex() {
         if (tracks.isEmpty() || index < 0) return -1;
+        // Q2：单曲循环下上一首与下一首同口径＝停本首，不许用上一首丢掉循环的那首
+        if (mode == MODE_REPEAT_ONE) return index;
         if (mode == MODE_SHUFFLE && tracks.size() > 1) {
             int r;
             do {
@@ -146,7 +203,11 @@ public class MusicQueue {
         return true;
     }
 
-    /** 删序号：删的是当前播，后面顶上；删的是前面，序号前移 */
+    /**
+     * 删序号：删的是当前播，非末首由后面顶上；删的是前面，序号前移。
+     * Q5：删的是当前播且是队尾时不许倒回去播上一首——序号置 -1（队里无当前歌），
+     * 服务侧见 current()==null 即停播＋清断点，不许把上一首当成当前。
+     */
     public synchronized void removeAt(int i) {
         if (i < 0 || i >= tracks.size()) return;
         tracks.remove(i);
@@ -155,7 +216,7 @@ public class MusicQueue {
         } else if (i < index) {
             index--;
         } else if (i == index) {
-            if (index >= tracks.size()) index = tracks.size() - 1;
+            if (index >= tracks.size()) index = -1;
         }
     }
 
@@ -164,7 +225,17 @@ public class MusicQueue {
         MusicTrack cur = current();
         MusicTrack t = tracks.remove(from);
         tracks.add(to, t);
-        if (cur != null) index = tracks.indexOf(cur);
+        // Q8：不许用 indexOf（MusicTrack.equals 只比 id，同 ID 重复歌会跳到第一个）；
+        // 当前歌按对象引用 == 找回，找不到才钳住序号。
+        if (cur != null) {
+            for (int i = 0; i < tracks.size(); i++) {
+                if (tracks.get(i) == cur) {
+                    index = i;
+                    return;
+                }
+            }
+            if (index >= tracks.size()) index = tracks.size() - 1;
+        }
     }
 
     /** 插到下一首播 */
@@ -185,6 +256,7 @@ public class MusicQueue {
     }
 
     public synchronized void clear() {
+        shuffleHistory.clear();
         tracks.clear();
         index = -1;
         source = null;

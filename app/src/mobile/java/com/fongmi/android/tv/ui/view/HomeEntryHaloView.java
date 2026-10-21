@@ -129,6 +129,12 @@ public class HomeEntryHaloView extends View {
         return (color & 0x00FFFFFF) | (a << 24);
     }
 
+    /**
+     * 注意：不许在这里 override onMeasure 量 0。光晕是 match_parent 子项，ScrollView 不定高量测链下
+     * 首遍自然量 0（不撑卡高），FrameLayout 二次测量再按卡高 EXACTLY 重量、铺满卡面；量 0 会把
+     * 二次测量也归零，光晕直接不画。之前卡拉满屏的根子在根 LinearLayout 的 AT_MOST 剩余高度，
+     * 不是光晕本身，根改 ScrollView 后已断链。
+     */
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);

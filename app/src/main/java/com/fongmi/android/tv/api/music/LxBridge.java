@@ -278,8 +278,9 @@ public class LxBridge {
      * 返回脚本 Promise 的兑现值（字符串原样、对象转 JSON）；失败抛异常。
      */
     public String request(String source, String action, JsonObject musicInfo, String quality) throws Exception {
+        java.util.concurrent.Future<String> bridgeFuture = null;
         try {
-            return submit(() -> {
+            bridgeFuture = submit(() -> {
                 if (requestHandler == null) throw new IllegalStateException("脚本没有注册解析入口");
                 JsonObject info = new JsonObject();
                 info.add("musicInfo", musicInfo);
@@ -292,7 +293,16 @@ public class LxBridge {
                 Object argObj = ctx.parse(arg.toString());
                 Object result = requestHandler.call(argObj);
                 return awaitPromise(result);
-            }).get(40, TimeUnit.SECONDS);
+            });
+            // P3：40 秒内层上限到点必须取消桥任务，不只放弃等待——否则桥单线程一直被
+            // 挂死的脚本占着，后续同插件请求全排队（取消发中断信号，脚本内网络等待会响应中断；
+            // 脚本本身死循环则仍占桥线程至其返回，这是单线程桥的固有限制，见交卷清单）
+            try {
+                return bridgeFuture.get(40, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException te) {
+                bridgeFuture.cancel(true);
+                throw te;
+            }
         } catch (java.util.concurrent.ExecutionException e) {
             // B4：脚本拒绝消息带显式 401／403 标记时包成密钥问题错误向上传递；
             // 其余失败（超时、断网、脚本内部错误）原样抛，不冒充密钥问题

@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.UriUtil;
 import com.github.catvod.utils.Util;
@@ -241,10 +242,34 @@ public class Spider extends com.github.catvod.crawler.Spider {
         return new ByteArrayInputStream(base64 ? Util.decode(content) : content.getBytes());
     }
 
+    /** 依赖缓存失效口：download() 记下的依赖名（主脚本与依赖同在 Path.py() 目录，
+     * 不能整目录删，只清记名文件）。全清（PyLoader.clear）时调，单删插件不调——
+     * 依赖按名多源共用，单删时不知道哪些依赖只属于被删插件，清掉会逼无关蜘蛛重下。 */
+    private static final java.util.Set<String> DEP_NAMES = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public static void clearDepCache() {
+        for (String name : DEP_NAMES) {
+            try {
+                java.io.File f = Path.py(name);
+                if (f.exists()) f.delete();
+                java.io.File tmp = new java.io.File(f.getAbsolutePath() + ".tmp");
+                if (tmp.exists()) tmp.delete();
+            } catch (Throwable ignored) {
+            }
+        }
+        DEP_NAMES.clear();
+    }
+
     private void download(String name) {
-        String path = Path.py(name).getAbsolutePath();
+        java.io.File file = Path.py(name);
+        DEP_NAMES.add(name);
+        String path = file.getAbsolutePath();
         String url = UriUtil.resolve(api, name);
-        // download 返回 None，是全局单例包装，不关（见类头纪律）。
-        app.callAttr("download", path, url);
+        // download 返回状态串（skipped-length／skipped-hash／cached-offline／updated），
+        // 是现造 str，取值后立即关；万一拿到 None 单例（旧 Python）不许关（见类头纪律）。
+        PyObject result = app.callAttr("download", path, url);
+        String status = result == null ? "none" : result.toString();
+        if (!"None".equals(status)) closeQuietly(result);
+        SpiderDebug.log("python-spider", "dep %s name=%s", status, name);
     }
 }

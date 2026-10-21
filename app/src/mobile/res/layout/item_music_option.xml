@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐通用选项行：独立卡片框（白卡＋细描边，与设置页分组卡同款），行间 8dp 间距；
+     选中行字红＋伪粗体（选中信号，不是值显示，红保留）；点选即回、即关，涟漪不另做 -->
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/option"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="4dp"
+    android:background="@drawable/card_music"
     android:gravity="center_vertical"
     android:minHeight="56dp"
-    android:paddingStart="8dp"
-    android:paddingEnd="8dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
     android:textColor="#1C1C1E"
     android:textSize="16sp" />

@@ -1,49 +1,110 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 黑胶唱片架主题：横向队列陈列（每项封面方卡＋右侧滑出黑胶圆盘，当前项盘 30°/s 旋转，项视图由代码建）；
-     下方白色歌词卡内嵌 KaraokeLyricsView（浅色方案）；底部主控行同经典。 -->
+     下方白色信息面内嵌 KaraokeLyricsView（浅色方案）；底部主控行同经典。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#FFF1F0ED"
     android:orientation="vertical"
-    android:paddingTop="14dp"
-    android:paddingBottom="20dp">
+    android:paddingTop="20dp"
+    android:paddingBottom="40dp">
 
-    <!-- 歌名 15sp/行高 21sp、歌手 11sp/行高 15sp（GZ RecordShelfPlayerKt:615-616）；墨色系 #252522／#86857E（redo3 S2） -->
-    <TextView
-        android:id="@+id/tpTitle"
+    <!-- 头行 64dp、横向内边距 16dp：左侧 48dp 透明占位（星辰铁律：页面不放自己的返回箭头，不加可点收起键，
+         用占位平衡标题居中）＋中间标题列 weight=1＋顶右三个点菜单 tpBtnMenu（GZ 唱片架顶右菜单：48dp 盒／24dp 图标／
+         按压 0.9／tint ShelfInk 0.9；通用接线 tpBtnMenu→showToolsSheet 已在 activity 侧）。
+         歌名 15sp/行高 21sp/500、歌手 11sp/行高 15sp、墨色系 #252522／#86857E（GZ RecordShelfPlayerKt:615-616）。 -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:lineHeight="21dp"
-        android:maxLines="1"
-        android:paddingStart="28dp"
-        android:paddingEnd="28dp"
-        android:textColor="#252522"
-        android:textSize="15sp"
-        android:textStyle="bold" />
+        android:layout_height="64dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
-    <TextView
-        android:id="@+id/tpArtist"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:lineHeight="15dp"
-        android:maxLines="1"
-        android:paddingStart="28dp"
-        android:paddingEnd="28dp"
-        android:textColor="#86857E"
-        android:textSize="11sp" />
+        <View
+            android:layout_width="48dp"
+            android:layout_height="48dp" />
 
-    <!-- 唱片架横滑陈列 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tpTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontWeight="500"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:lineHeight="21dp"
+                android:maxLines="1"
+                android:textColor="#252522"
+                android:textSize="15sp" />
+
+            <!-- 歌手行：歌手 ♡ 专辑名居中组，歌手点进歌手搜索、专辑点进专辑搜索；分隔心跟专辑同显同藏 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tpArtist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:lineHeight="15dp"
+                    android:maxLines="1"
+                    android:textColor="#86857E"
+                    android:textSize="11sp" />
+
+                <ImageView
+                    android:id="@+id/tpAlbumSep"
+                    android:layout_width="27dp"
+                    android:layout_height="13dp"
+                    android:paddingLeft="7dp"
+                    android:paddingRight="7dp"
+                    android:paddingTop="0dp"
+                    android:paddingBottom="0dp"
+                    android:src="@drawable/ic_music_heart"
+                    android:tint="#86857E" />
+
+                <TextView
+                    android:id="@+id/tpAlbum"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:lineHeight="15dp"
+                    android:maxLines="1"
+                    android:textColor="#86857E"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tpBtnMenu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/music_more"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_menu"
+            android:tint="#E6252522" />
+    </LinearLayout>
+
+    <!-- 唱片架横滑陈列：XML 高先占位，代码侧按屏宽算瓜子舞台高 f-23 覆盖（见 MusicPlayerActivity 架初始化），
+         项高仍是封套、架项几何不动；不用纯 wrap_content（项高＝封套时面顶比瓜子高约 49dp） -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/tpShelfList"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:clipToPadding="false"
         android:overScrollMode="never"
@@ -51,24 +112,30 @@
         android:paddingEnd="20dp"
         android:scrollbars="none" />
 
-    <!-- 白色歌词卡 -->
+    <!-- 白色信息面（GZ 唱片架歌词面，非独立浮动卡）：整块白色面，圆角上 0dp、下 24dp，无 elevation，
+         占 weight=1 填满架列下方剩余高度；面横向内边距 16dp（GZ 面值）＋歌词层横向 24dp（GZ 内列值），合计 40dp；
+         纵向面内顶垫 82dp：瓜子面顶→当前行约 95dp、星辰原 12dp 垫只有约 24dp，差约 70dp；瓜子锚定机制
+         （AnchoredLyricEngine 方法体 jadx 未解出、CoverCurrentLyric 反编译错乱）抠不到是前行可见还是固定锚点，
+         故选对行为影响最小的面内顶垫补齐，不动歌词视图锚点与滚动逻辑（前行仍在视口顶外被裁，只见当前行起）。
+         注意：KLV 自绘另有固定 28dp 内垫（H_PADDING_DP），本改按项目既有口径计面＋歌词层＝40dp，
+         实际字距以真机量为准，见交卷待真机项。 -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
         android:layout_marginTop="12dp"
         android:layout_weight="1"
         android:background="@drawable/bg_player_lyric_card_light"
-        android:paddingStart="24dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="24dp"
+        android:paddingStart="16dp"
+        android:paddingTop="82dp"
+        android:paddingEnd="16dp"
         android:paddingBottom="12dp">
 
         <com.fongmi.android.tv.ui.custom.KaraokeLyricsView
             android:id="@+id/tpLyricView"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp" />
     </FrameLayout>
 
     <!-- 细进度 -->
@@ -86,7 +153,7 @@
             android:layout_height="28dp"
             android:maxHeight="4dp"
             android:minHeight="4dp"
-            android:progressDrawable="@drawable/bg_player_seek_progress"
+            android:progressDrawable="@drawable/bg_player_seek_progress_dark"
             android:thumb="@drawable/bg_player_seek_thumb" />
 
         <LinearLayout
@@ -102,7 +169,7 @@
                 android:letterSpacing="0.018"
                 android:lineHeight="14dp"
                 android:text="00:00"
-                android:textColor="#99FFFFFF"
+                android:textColor="#FF86857E"
                 android:textSize="10sp" />
 
             <View
@@ -119,20 +186,22 @@
                 android:letterSpacing="0.018"
                 android:lineHeight="14dp"
                 android:text="00:00"
-                android:textColor="#99FFFFFF"
+                android:textColor="#FF86857E"
                 android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部主控行（行高 76dp：RecordShelfPlayerKt:2156 起 ShelfControls；播放盒 68dp／图标 52dp 由代码随态改，见 MPA applyPlayButtonSize） -->
+    <!-- 底部主控行（行高 76dp：RecordShelfPlayerKt:2156 起 ShelfControls；横向内边距 20dp；
+         播放盒 68dp／图标 52dp 由代码随态改，见 MPA applyPlayButtonSize；键序＝模式键／上一首／播放／下一首／播放列表，
+         底行无爱心——收藏靠点当前槽唱片上的爱心键（架项 h.fav）；图标 tint ShelfInk，模式键 tint 由代码按模式刷） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="76dp"
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="28dp"
-        android:paddingEnd="28dp">
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
 
         <ImageView
             android:id="@+id/tpMode"
@@ -148,30 +217,29 @@
 
         <ImageView
             android:id="@+id/tpPrev"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:padding="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="8dp"
             android:src="@drawable/ic_music_prev"
-            android:tint="#FFFFFF" />
+            android:tint="#FF252522" />
 
         <ImageView
             android:id="@+id/tpPlay"
             android:layout_width="68dp"
             android:layout_height="68dp"
-            android:layout_marginStart="24dp"
-            android:layout_marginEnd="24dp"
-            android:background="@drawable/bg_player_play_ring"
+            android:layout_marginStart="18dp"
+            android:layout_marginEnd="18dp"
             android:padding="8dp"
             android:src="@drawable/ic_music_pause"
-            android:tint="#FFFFFF" />
+            android:tint="#FF252522" />
 
         <ImageView
             android:id="@+id/tpNext"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:padding="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="8dp"
             android:src="@drawable/ic_music_next"
-            android:tint="#FFFFFF" />
+            android:tint="#FF252522" />
 
         <View
             android:layout_width="0dp"
@@ -179,11 +247,12 @@
             android:layout_weight="1" />
 
         <ImageView
-            android:id="@+id/tpBtnFav"
+            android:id="@+id/tpQueue"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:contentDescription="@string/music_favorite"
-            android:padding="13dp"
-            android:src="@drawable/ic_music_heart" />
+            android:contentDescription="@string/music_queue"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_queue"
+            android:tint="#FF252522" />
     </LinearLayout>
 </LinearLayout>

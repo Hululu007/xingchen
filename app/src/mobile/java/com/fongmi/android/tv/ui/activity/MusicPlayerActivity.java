@@ -403,6 +403,7 @@ public class MusicPlayerActivity extends BaseActivity {
                 public void onStartTrackingTouch(SeekBar seekBar) {
                     seeking = true;
                     swapSeekDrawable(seekBar, true);
+                    setSeekTrackHeight(seekBar, 5f);
                     setTopTimesAlpha(0.72f);
                 }
 
@@ -410,6 +411,7 @@ public class MusicPlayerActivity extends BaseActivity {
                 public void onStopTrackingTouch(SeekBar seekBar) {
                     seeking = false;
                     swapSeekDrawable(seekBar, false);
+                    setSeekTrackHeight(seekBar, 4f);
                     setTopTimesAlpha(0f);
                     long dur = MusicController.get().duration();
                     MusicController.get().seekTo(dur * seekBar.getProgress() / 1000);
@@ -1982,6 +1984,14 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private AudioManager audioManager() {
         return (AudioManager) getSystemService(AUDIO_SERVICE);
+    }
+
+    /** 经典 Scrubber 轨高（redo3 C9）：静止 4dp、拖动 5dp；Apple 6dp 固定、CD 口径未抠到，均不动（封面卡片展开态 Scrubber 与经典同配置，随经典走）。 */
+    private void setSeekTrackHeight(SeekBar bar, float dp) {
+        if (bar == null || THEME_APPLE.equals(themeId) || THEME_CD.equals(themeId)) return;
+        int px = Math.round(dp * getResources().getDisplayMetrics().density);
+        bar.setMaxHeight(px);
+        bar.setMinHeight(px);
     }
 
     /** 进度拖动态换装：经典系 bg_player_seek_progress ↔ _active（0.42→0.78）；Apple seek6 ↔ _active（0.58→0.9）；CD 深色变体不换 */

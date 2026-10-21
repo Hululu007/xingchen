@@ -394,7 +394,7 @@ public class MusicStore {
 
     /** 非当前行模糊：0 关 1 轻 2 中（默认轻） */
     public static int getLyricBlur() {
-        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_LIGHT);
+        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_MEDIUM);
     }
 
     public static void setLyricBlur(int blur) {

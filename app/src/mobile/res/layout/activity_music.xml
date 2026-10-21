@@ -265,7 +265,7 @@
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="12dp">
+            android:padding="10dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -286,10 +286,11 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="2dp"
                     android:text="@string/home_guess_sub"
                     android:textColor="#8C1C1C1E"
-                    android:textSize="12sp" />
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
             </LinearLayout>
 
             <ImageView
@@ -306,13 +307,13 @@
             android:id="@+id/homeCardCharts"
             android:layout_width="0dp"
             android:layout_height="88dp"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_teal"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="12dp">
+            android:padding="10dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -333,10 +334,11 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="2dp"
                     android:text="@string/home_charts_sub"
                     android:textColor="#8C1C1C1E"
-                    android:textSize="12sp" />
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
             </LinearLayout>
 
             <ImageView
@@ -353,13 +355,13 @@
             android:id="@+id/homeCardShuffle"
             android:layout_width="0dp"
             android:layout_height="88dp"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_lime"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
-            android:padding="12dp">
+            android:padding="10dp">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -380,10 +382,11 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="2dp"
                     android:text="@string/home_shuffle_sub"
                     android:textColor="#8C1C1C1E"
-                    android:textSize="12sp" />
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
             </LinearLayout>
 
             <ImageView

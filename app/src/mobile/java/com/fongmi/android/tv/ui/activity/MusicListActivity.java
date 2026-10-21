@@ -776,7 +776,7 @@ public class MusicListActivity extends BaseActivity {
                 new MaterialAlertDialogBuilder(this)
                         .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
                         .setMessage("该插件只存在于本机，移除后需要重新导入脚本才能恢复。")
-                        .setPositiveButton(getString(R.string.music_delete), (d, w) -> Task.execute(() -> {
+                        .setPositiveButton("移除", (d, w) -> Task.execute(() -> {
                             MusicSourceManager.get().removeSite(site.srcUrl);
                             runOnUiThread(() -> {
                                 Notify.show(R.string.music_deleted);

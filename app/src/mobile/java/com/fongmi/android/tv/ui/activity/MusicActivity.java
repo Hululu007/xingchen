@@ -95,6 +95,9 @@ public class MusicActivity extends BaseActivity {
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow2.setOnClickListener(v -> playHomeChartFrom(1));
         binding.homeChartRow3.setOnClickListener(v -> playHomeChartFrom(2));
+        attachCardPress(binding.homeChartRow1, 0.98f);
+        attachCardPress(binding.homeChartRow2, 0.98f);
+        attachCardPress(binding.homeChartRow3, 0.98f);
         // 卡片按压反馈：三彩卡按瓜子 Motion 0.98 微缩；搜索条／五快捷／榜单卡保持现行 0.96
         attachCardPress(binding.homeSearchBar);
         attachCardPress(binding.homeQuickFavorite);

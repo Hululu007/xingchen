@@ -237,15 +237,24 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView cover = new ImageView(getContext());
-        cover.setBackground(cardBg(0x1F8E8E93, 8));
+        cover.setBackground(cardBg(0x1F8E8E93, 12));
+        cover.setClipToOutline(true);
+        cover.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(12));
+            }
+        });
         row.addView(cover, new LinearLayout.LayoutParams(dp(48), dp(48)));
         LinearLayout texts = new LinearLayout(getContext());
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView title = text("", 16, COLOR_TEXT, true);
         applyWeight(title, 800);
         title.setLetterSpacing(-0.02f);
+        title.setLineHeight(dp(21));
         TextView artist = text("", 12, COLOR_MEDIUM, false);
         artist.setPadding(0, dp(2), 0, 0);
+        artist.setLineHeight(dp(16));
         texts.addView(title);
         texts.addView(artist);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -746,10 +755,10 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setPadding(dp(8), dp(8), dp(8), dp(8));
+        card.setPadding(dp(8), dp(9), dp(8), dp(9));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_CARD);
-        bg.setCornerRadius(dp(12));
+        bg.setCornerRadius(dp(16));
         bg.setStroke(dp(1), COLOR_BORDER);
         if (selected) bg.setStroke(dp(2), COLOR_RED);
         card.setBackground(bg);
@@ -758,13 +767,13 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         grad.setCornerRadius(dp(8));
         block.setBackground(grad);
         card.addView(block, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
-        TextView name = text(getString(nameRes), 13, COLOR_TEXT, selected);
+        TextView name = text(getString(nameRes), 12, COLOR_TEXT, selected);
         name.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nlp.topMargin = dp(8);
         card.addView(name, nlp);
-        TextView check = text("✓", 14, COLOR_RED, true);
+        TextView check = text("✓", 13, COLOR_RED, true);
         check.setGravity(Gravity.CENTER);
         check.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
         card.addView(check, new LinearLayout.LayoutParams(
@@ -830,8 +839,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int c = 0; c < 3; c++) {
                 int pos = r * 3 + c;
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(46), 1f);
-                if (c > 0) lp.setMarginStart(dp(10));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (c > 0) lp.setMarginStart(dp(6));
                 if (pos >= gridValues.length) {
                     row.addView(new View(getContext()), lp);
                     continue;
@@ -857,7 +866,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     showPanel(PANEL_MAIN);
                 });
         LinearLayout.LayoutParams chlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         chlp.topMargin = dp(12);
         box.addView(chip, chlp);
         // 自定义分钟行（GZ 自定义 chip＋分钟输入＋开启钮）：分钟数经 MusicController.setSleep 以编码档传服务，服务侧按任意分钟计时
@@ -907,6 +916,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         applyWeight(closeBtn, 700);
         closeBtn.setGravity(Gravity.CENTER);
         closeBtn.setBackgroundResource(R.drawable.bg_sheet_card);
+        closeBtn.setElevation(dp(2));
         closeBtn.setPadding(dp(12), dp(7), dp(12), dp(7));
         closeBtn.setOnClickListener(v -> {
             MusicController.get().setSleep(MusicPlaybackService.SLEEP_OFF);
@@ -949,7 +959,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     /** 定时格/chip：未选 inset 底深字，选中浅粉底红字（GZ 红系选中口径） */
     private View sleepCell(String label, boolean selected, View.OnClickListener click) {
-        TextView tv = text(label, 14, selected ? COLOR_RED : COLOR_TEXT, selected);
+        TextView tv = text(label, 12, selected ? COLOR_RED : COLOR_TEXT, selected);
+        tv.setPadding(0, dp(7), 0, dp(7));
         tv.setGravity(Gravity.CENTER);
         tv.setBackgroundResource(selected ? R.drawable.sheet_cell_selected : R.drawable.bg_sheet_seg_track);
         tv.setOnClickListener(click);
@@ -1060,7 +1071,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     /** 顶部预览区（GZ T26）：高 132dp、内边 14/8，当前行歌词按当前样式实时渲染（500ms 跟随播放进度） */
     private View buildLyricPreview() {
         FrameLayout frame = new FrameLayout(getContext());
-        frame.setBackgroundResource(R.drawable.bg_sheet_card);
+        frame.setBackgroundResource(R.drawable.bg_sheet_preview);
         frame.setElevation(dp(2));
         frame.setPadding(dp(14), dp(8), dp(14), dp(8));
         lyricPreview = text(getString(R.string.music_lyric_preview_sample), 22, COLOR_TEXT, false);
@@ -1215,7 +1226,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(text(getString(R.string.music_lyric_font_size), 14, COLOR_TEXT, false),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        lyricSizeValue = text(String.valueOf(Math.round(MusicStore.getLyricFontSize())), 13, COLOR_LOW, false);
+        lyricSizeValue = text(String.valueOf(Math.round(MusicStore.getLyricFontSize())), 11, COLOR_LOW, false);
         head.addView(lyricSizeValue);
         row.addView(head);
         LinearLayout sliderRow = new LinearLayout(getContext());

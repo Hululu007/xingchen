@@ -55,7 +55,7 @@
             android:includeFontPadding="false"
             android:lineHeight="18dp"
             android:maxLines="1"
-            android:textColor="#A6FFFFFF"
+            android:textColor="#8CFFFFFF"
             android:textSize="14sp" />
     </LinearLayout>
 

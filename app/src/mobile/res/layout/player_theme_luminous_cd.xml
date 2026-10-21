@@ -147,7 +147,7 @@
             android:id="@+id/tpMode"
             android:layout_width="44dp"
             android:layout_height="44dp"
-            android:padding="11dp"
+            android:padding="10.5dp"
             android:src="@drawable/ic_music_sequential" />
 
         <View
@@ -159,7 +159,7 @@
             android:id="@+id/tpPrev"
             android:layout_width="52dp"
             android:layout_height="52dp"
-            android:padding="12dp"
+            android:padding="10dp"
             android:src="@drawable/ic_music_prev" />
 
         <ImageView
@@ -175,7 +175,7 @@
             android:id="@+id/tpNext"
             android:layout_width="52dp"
             android:layout_height="52dp"
-            android:padding="12dp"
+            android:padding="10dp"
             android:src="@drawable/ic_music_next" />
 
         <View
@@ -188,7 +188,7 @@
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:contentDescription="@string/music_queue"
-            android:padding="11dp"
+            android:padding="10.5dp"
             android:src="@drawable/ic_music_queue" />
     </LinearLayout>
 </LinearLayout>

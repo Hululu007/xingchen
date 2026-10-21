@@ -162,8 +162,10 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:overScrollMode="never"
+        android:paddingStart="10dp"
         android:paddingTop="4dp"
-        android:paddingBottom="10dp" />
+        android:paddingEnd="10dp"
+        android:paddingBottom="4dp" />
 
     <LinearLayout
         android:id="@+id/emptyBox"

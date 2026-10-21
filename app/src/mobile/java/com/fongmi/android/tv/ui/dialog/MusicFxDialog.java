@@ -37,8 +37,8 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         new MusicFxDialog().show(activity.getSupportFragmentManager(), "music_fx");
     }
 
-    // 内容自带深色底（card_music）：弹窗容器/窗口必须透明，
-    // 否则 Material 底部弹窗默认的浅色层会从顶部漏出一条白带。
+    // 内容自带浅色底（card_music 白卡）：
+    // 弹窗容器/窗口必须透明，由内容自带底色铺满。
     @Override
     protected boolean transparent() {
         return true;
@@ -82,7 +82,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         TextView eqRow = new TextView(getContext());
         eqRow.setText(getString(R.string.music_parametric_eq) + " ›");
         eqRow.setTextSize(15);
-        eqRow.setTextColor(0xFFFFFFFF);
+        eqRow.setTextColor(0xFF1C1C1E);
         eqRow.setPadding(0, dp(16), 0, dp(4));
         eqRow.setOnClickListener(v -> {
             FragmentActivity host = getActivity();
@@ -147,7 +147,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
             d.setColor(0xFFFA243C);
             tv.setTextColor(0xFF1A1206);
         } else {
-            d.setColor(0xFF1C2636);
+            d.setColor(0xFFF3F3F3);
             tv.setTextColor(0xFF9AA7B8);
         }
         tv.setBackground(d);

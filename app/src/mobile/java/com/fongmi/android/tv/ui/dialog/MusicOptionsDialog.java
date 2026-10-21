@@ -40,8 +40,8 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
         d.show(activity.getSupportFragmentManager(), "music_options");
     }
 
-    // 内容自带深色底（card_music）：弹窗容器/窗口必须透明，
-    // 否则 Material 底部弹窗默认的浅色层会从顶部漏出一条白带。
+    // 内容自带浅色底（card_music 白卡）：
+    // 弹窗容器/窗口必须透明，由内容自带底色铺满。
     @Override
     protected boolean transparent() {
         return true;
@@ -73,7 +73,7 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
             String text = options.get(position);
             boolean isChecked = position == checked;
             h.option.setText(text);
-            h.option.setTextColor(isChecked ? 0xFFFA243C : 0xFFFFFFFF);
+            h.option.setTextColor(isChecked ? 0xFFFA243C : 0xFF1C1C1E);
             h.option.getPaint().setFakeBoldText(isChecked);
             h.itemView.setOnClickListener(v -> {
                 if (callback != null) callback.onPick(position);

@@ -31,7 +31,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#F2F2F7"
+                android:textColor="#1C1C1E"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
@@ -99,7 +99,7 @@
         android:paddingEnd="10dp"
         android:paddingBottom="5dp"
         android:text="检测"
-        android:textColor="#FFFFFF"
+        android:textColor="#1C1C1E"
         android:textSize="12sp" />
 
     <com.google.android.material.switchmaterial.SwitchMaterial

@@ -22,7 +22,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:text="@string/music_setting"
-                android:textColor="#FFFFFF"
+                android:textColor="#1C1C1E"
                 android:textSize="26sp"
                 android:textStyle="bold" />
         </FrameLayout>
@@ -41,12 +41,12 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- 2. 播放失败（S1：开关改两档单选：停止播放／自动下一首，存值沿用 isAutoSkipOnError） -->
         <LinearLayout
@@ -62,12 +62,12 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- 3. 移动网络播放 -->
         <LinearLayout
@@ -83,12 +83,12 @@
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- S1 电池优化白名单（动作行，跳系统电池优化设置；副文二态按系统实读） -->
         <LinearLayout
@@ -104,12 +104,12 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- 4. 下载音质 -->
         <LinearLayout
@@ -125,12 +125,12 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- 5. 歌词缺失自动搜索 -->
         <LinearLayout
@@ -146,12 +146,12 @@
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- S6 AMLL 歌词（星辰单源合一行；副文见下方小字，开关默认开＝现行行为） -->
         <LinearLayout
@@ -184,12 +184,12 @@
                 style="@style/MusicSettingSwitch" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- U-05 歌词时间偏移（瓜子 LocalLyricOffsetMs，默认 0ms；行样式同 U4 设置行） -->
         <LinearLayout
@@ -205,12 +205,12 @@
                 style="@style/MusicSettingValue" />
         </LinearLayout>
 
-        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（深色页用白 0.06 对应浅色页黑 0.06） -->
+        <!-- U4 行间分隔线：0 间距＋0.5dp 线，左缩进 0、右缩进 16dp（浅色页用黑 0.06） -->
         <View
             android:layout_width="match_parent"
             android:layout_height="0.5dp"
             android:layout_marginEnd="16dp"
-            android:background="#0FFFFFFF" />
+            android:background="#0F000000" />
 
         <!-- 6. 清除音乐缓存 -->
         <LinearLayout

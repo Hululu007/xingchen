@@ -1038,7 +1038,7 @@ public class MusicListActivity extends BaseActivity {
         TextView title = new TextView(this);
         title.setText("运行时状态");
         title.setTextSize(15);
-        title.setTextColor(0xFFFFFFFF);
+        title.setTextColor(0xFF1C1C1E);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         card.addView(title);
         // P24：C10 卡置顶补「已加载插件 N 个」行（N＝listSites 总数）
@@ -1100,7 +1100,7 @@ public class MusicListActivity extends BaseActivity {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(13);
-        tv.setTextColor(0xFFF2F2F7);
+        tv.setTextColor(0xFF1C1C1E);
         return tv;
     }
 
@@ -1119,7 +1119,7 @@ public class MusicListActivity extends BaseActivity {
         TextView title = new TextView(this);
         title.setText(titleText);
         title.setTextSize(15);
-        title.setTextColor(0xFFF2F2F7);
+        title.setTextColor(0xFF1C1C1E);
         texts.addView(title);
         TextView d = new TextView(this);
         d.setText(desc);
@@ -2127,7 +2127,7 @@ public class MusicListActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFFFFFFFF);
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
             h.title.getPaint().setFakeBoldText(isCurrent);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
             if (t.qualityTag != null && !t.qualityTag.isEmpty()) {

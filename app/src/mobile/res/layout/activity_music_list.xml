@@ -23,7 +23,7 @@
                 android:layout_height="wrap_content"
                 android:layout_centerInParent="true"
                 android:text="@string/music_playlist"
-                android:textColor="#FFFFFF"
+                android:textColor="#1C1C1E"
                 android:textSize="26sp"
                 android:textStyle="bold" />
 
@@ -60,7 +60,7 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:singleLine="true"
-                android:textColor="#FFFFFF"
+                android:textColor="#1C1C1E"
                 android:textColorHint="#5E6B7E"
                 android:textSize="16sp" />
 
@@ -100,7 +100,7 @@
                 android:id="@+id/tvBigTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
+                android:textColor="#1C1C1E"
                 android:textSize="30sp"
                 android:textStyle="bold" />
 
@@ -145,7 +145,7 @@
                     android:id="@+id/pluginHeaderTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#F2F2F7"
+                    android:textColor="#1C1C1E"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -216,7 +216,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/music_plugin_local_title"
-                        android:textColor="#F2F2F7"
+                        android:textColor="#1C1C1E"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -261,7 +261,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/music_plugin_online_title"
-                        android:textColor="#F2F2F7"
+                        android:textColor="#1C1C1E"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -292,7 +292,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/music_plugin_installed"
-                android:textColor="#F2F2F7"
+                android:textColor="#1C1C1E"
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
@@ -316,7 +316,7 @@
                 android:paddingBottom="7dp"
                 android:scaleX="0.96"
                 android:scaleY="0.96"
-                android:textColor="#F2F2F7"
+                android:textColor="#1C1C1E"
                 android:textSize="11sp" />
         </LinearLayout>
 
@@ -348,7 +348,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
                 android:text="@string/music_plugin_empty_title"
-                android:textColor="#F2F2F7"
+                android:textColor="#1C1C1E"
                 android:textSize="15sp"
                 android:textStyle="bold" />
 

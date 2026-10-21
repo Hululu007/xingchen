@@ -28,6 +28,10 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.common.audio.AudioProcessor;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
@@ -177,6 +181,18 @@ public class MusicPlaybackService extends MediaSessionService {
         parametricEq = new ParametricEqProcessor();
         parametricEq.setEnabled(MusicStore.isParametricEnabled());
         parametricEq.setBands(MusicStore.getParametricBands());
+        // 本机 Media3 分支的 ExoPlayer.Builder 没有 setAudioProcessors，均衡链改走 AudioSink 注入：
+        // DefaultRenderersFactory.createRenderers 调 buildAudioSink 取 AudioSink，子类覆写它即可把处理链串进音频渲染器（默认实现只设两个开关，本覆写原样照搬再加处理链）。
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
+            @Override
+            protected AudioSink buildAudioSink(Context context, boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
+                return new DefaultAudioSink.Builder(context)
+                        .setAudioProcessors(new AudioProcessor[]{parametricEq})
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+                        .build();
+            }
+        };
         player = new ExoPlayer.Builder(this)
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(C.USAGE_MEDIA)
@@ -184,7 +200,7 @@ public class MusicPlaybackService extends MediaSessionService {
                         .build(), true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
-                .setAudioProcessors(parametricEq)
+                .setRenderersFactory(renderersFactory)
                 .build();
         player.addListener(playerListener);
         // 播放模式只由 MusicQueue 一处决策（onTrackEnded 按 queue.nextIndex 走）：

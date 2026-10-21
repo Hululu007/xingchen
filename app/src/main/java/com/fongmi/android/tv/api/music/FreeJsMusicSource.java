@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.api.music;
 
+import android.text.TextUtils;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicMediaSource;

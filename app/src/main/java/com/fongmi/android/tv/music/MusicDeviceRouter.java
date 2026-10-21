@@ -65,7 +65,7 @@ public class MusicDeviceRouter {
             }
         };
         router.addCallback(MediaRouter.ROUTE_TYPE_LIVE_AUDIO, callback,
-                MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+                MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN);
     }
 
     /** 当前可用的 LIVE_AUDIO 路由（已启用才列；当前选中项标 selected） */

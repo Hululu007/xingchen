@@ -276,7 +276,9 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动） -->
+    <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动）
+         卡内间隔＝权重 Spacer：Spacer 高＝基准参量（非汽车 30dp／汽车 48dp，见 values[-car]/dimens.xml）
+         ＋权重 1 撑满剩余空间；卡 FrameLayout 与内列改 match_parent，使权重有撑满空间、图标底对齐 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -286,7 +288,7 @@
         <FrameLayout
             android:id="@+id/homeCardGuess"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_pink"
             android:clickable="true"
@@ -301,7 +303,7 @@
 
             <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="vertical">
 
                 <TextView
@@ -325,7 +327,8 @@
                     android:lineHeight="13dp" />
             <View
                 android:layout_width="wrap_content"
-                android:layout_height="48dp" />
+                android:layout_height="@dimen/home_entry_icon_spacer"
+                android:layout_weight="1" />
 
             <ImageView
                 android:layout_width="22dp"
@@ -339,7 +342,7 @@
         <FrameLayout
             android:id="@+id/homeCardCharts"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_teal"
@@ -355,7 +358,7 @@
 
             <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="vertical">
 
                 <TextView
@@ -379,7 +382,8 @@
                     android:lineHeight="13dp" />
             <View
                 android:layout_width="wrap_content"
-                android:layout_height="48dp" />
+                android:layout_height="@dimen/home_entry_icon_spacer"
+                android:layout_weight="1" />
 
             <ImageView
                 android:layout_width="22dp"
@@ -393,7 +397,7 @@
         <FrameLayout
             android:id="@+id/homeCardShuffle"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/home_bg_card_lime"
@@ -409,7 +413,7 @@
 
             <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="vertical">
 
                 <TextView
@@ -434,7 +438,8 @@
                     android:lineHeight="13dp" />
             <View
                 android:layout_width="wrap_content"
-                android:layout_height="48dp" />
+                android:layout_height="@dimen/home_entry_icon_spacer"
+                android:layout_weight="1" />
 
             <ImageView
                 android:layout_width="22dp"

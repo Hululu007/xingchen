@@ -9,8 +9,10 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -18,8 +20,8 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
-import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -38,6 +40,7 @@ import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PanAuth;
 import com.fongmi.android.tv.utils.QRCode;
@@ -104,7 +107,13 @@ public class MusicCloudActivity extends BaseActivity {
     private TextView tvSubQuark;
     private TextView tvDriveName;
     private EditText etKeyword;
-    private TextView tvStatus;
+    private ImageView ivCloudClear;
+    private LinearLayout loadingView;
+    private TextView tvLoadingCount;
+    private TextView tvEmptyState;
+    private LinearLayout errorView;
+    private TextView tvError;
+    private TextView tvTail;
     private ListView lvResults;
     private ResultAdapter adapter;
 
@@ -152,40 +161,157 @@ public class MusicCloudActivity extends BaseActivity {
         searchView.addView(tvDriveName, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // 第三波 B⑤：搜索页顶栏文字入口（不放自带返回箭头，铁律）：返回选盘／切换盘／退出登录
+        LinearLayout topActions = new LinearLayout(this);
+        topActions.setOrientation(LinearLayout.HORIZONTAL);
+        topActions.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams topLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        topLp.bottomMargin = ResUtil.dp2px(8);
+        searchView.addView(topActions, topLp);
+        TextView backPicker = new TextView(this);
+        backPicker.setText("返回选盘");
+        backPicker.setTextSize(13);
+        backPicker.setTextColor(0xFFFA243C);
+        backPicker.setPadding(0, ResUtil.dp2px(4), ResUtil.dp2px(16), ResUtil.dp2px(4));
+        backPicker.setOnClickListener(v -> showPicker());
+        topActions.addView(backPicker);
+        TextView switchDrive = new TextView(this);
+        switchDrive.setText("切换盘");
+        switchDrive.setTextSize(13);
+        switchDrive.setTextColor(0xFFFA243C);
+        switchDrive.setPadding(0, ResUtil.dp2px(4), ResUtil.dp2px(16), ResUtil.dp2px(4));
+        switchDrive.setOnClickListener(v -> showPicker());
+        topActions.addView(switchDrive);
+        TextView logout = new TextView(this);
+        logout.setText("退出登录");
+        logout.setTextSize(13);
+        logout.setTextColor(0xFFFA243C);
+        logout.setPadding(0, ResUtil.dp2px(4), 0, ResUtil.dp2px(4));
+        logout.setOnClickListener(v -> {
+            if (currentDrive == null) return;
+            String name = tvDriveName.getText() == null ? "" : tvDriveName.getText().toString();
+            String id = currentDrive;
+            new AlertDialog.Builder(this)
+                    .setTitle(name)
+                    .setMessage("退出当前 " + name + " 登录？")
+                    .setPositiveButton("退出登录", (d, w) -> {
+                        if (Drive115.ID.equals(id)) PanAuth.clear115();
+                        else PanAuth.clearQuark();
+                        refreshSub();
+                        Notify.show("已退出 " + name + " 登录");
+                        showPicker();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        });
+        topActions.addView(logout);
+
+        // 第三波 B①：搜索条按首页胶囊——48dp 圆角 24dp 白卡＋图标＋清除键，系统 Button 已去掉
         LinearLayout searchRow = new LinearLayout(this);
         searchRow.setOrientation(LinearLayout.HORIZONTAL);
         searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        searchRow.setBackgroundResource(R.drawable.home_bg_search);
+        searchRow.setPadding(ResUtil.dp2px(12), 0, ResUtil.dp2px(8), 0);
         searchView.addView(searchRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.dp2px(48)));
+        ImageView ivSearch = new ImageView(this);
+        ivSearch.setImageResource(R.drawable.ic_music_search);
+        ivSearch.setLayoutParams(new LinearLayout.LayoutParams(ResUtil.dp2px(20), ResUtil.dp2px(20)));
+        ivSearch.setOnClickListener(v -> runSearch());
+        searchRow.addView(ivSearch);
         etKeyword = new EditText(this);
         etKeyword.setHint("输入歌名搜索，不填列出全部音频");
         etKeyword.setSingleLine(true);
         etKeyword.setInputType(InputType.TYPE_CLASS_TEXT);
         etKeyword.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         etKeyword.setTextSize(15);
-        searchRow.addView(etKeyword, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        Button btnSearch = new Button(this);
-        btnSearch.setText("搜索");
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        btnLp.leftMargin = ResUtil.dp2px(8);
-        searchRow.addView(btnSearch, btnLp);
+        etKeyword.setBackground(null);
+        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1);
+        etLp.leftMargin = ResUtil.dp2px(8);
+        searchRow.addView(etKeyword, etLp);
+        ivCloudClear = new ImageView(this);
+        ivCloudClear.setImageResource(R.drawable.ic_music_close);
+        ivCloudClear.setLayoutParams(new LinearLayout.LayoutParams(ResUtil.dp2px(20), ResUtil.dp2px(20)));
+        ivCloudClear.setVisibility(View.GONE);
+        ivCloudClear.setOnClickListener(v -> etKeyword.setText(""));
+        searchRow.addView(ivCloudClear);
+        etKeyword.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
 
-        tvStatus = new TextView(this);
-        tvStatus.setTextSize(13);
-        tvStatus.setTextColor(0xFF8E8E93);
-        tvStatus.setPadding(0, ResUtil.dp2px(10), 0, ResUtil.dp2px(6));
-        searchView.addView(tvStatus, new LinearLayout.LayoutParams(
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                ivCloudClear.setVisibility(s == null || s.length() == 0 ? View.GONE : View.VISIBLE);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        // 第三波 B③：三态拆独立视图——加载（转圈＋已扫项数）／空态／失败（＋重试）
+        loadingView = new LinearLayout(this);
+        loadingView.setOrientation(LinearLayout.HORIZONTAL);
+        loadingView.setGravity(Gravity.CENTER_VERTICAL);
+        loadingView.setPadding(0, ResUtil.dp2px(10), 0, ResUtil.dp2px(6));
+        loadingView.setVisibility(View.GONE);
+        ProgressBar pb = new ProgressBar(this);
+        loadingView.addView(pb, new LinearLayout.LayoutParams(ResUtil.dp2px(20), ResUtil.dp2px(20)));
+        tvLoadingCount = new TextView(this);
+        tvLoadingCount.setTextSize(13);
+        tvLoadingCount.setTextColor(0xFF8E8E93);
+        LinearLayout.LayoutParams lcLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lcLp.leftMargin = ResUtil.dp2px(8);
+        loadingView.addView(tvLoadingCount, lcLp);
+        searchView.addView(loadingView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        tvEmptyState = new TextView(this);
+        tvEmptyState.setTextSize(14);
+        tvEmptyState.setTextColor(0xFF8E8E93);
+        tvEmptyState.setGravity(Gravity.CENTER);
+        tvEmptyState.setPadding(0, ResUtil.dp2px(24), 0, 0);
+        tvEmptyState.setVisibility(View.GONE);
+        searchView.addView(tvEmptyState, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        errorView = new LinearLayout(this);
+        errorView.setOrientation(LinearLayout.VERTICAL);
+        errorView.setGravity(Gravity.CENTER_HORIZONTAL);
+        errorView.setPadding(0, ResUtil.dp2px(24), 0, 0);
+        errorView.setVisibility(View.GONE);
+        tvError = new TextView(this);
+        tvError.setTextSize(14);
+        tvError.setTextColor(0xFFFF3B30);
+        tvError.setGravity(Gravity.CENTER);
+        errorView.addView(tvError);
+        TextView btnRetry = new TextView(this);
+        btnRetry.setText("重试");
+        btnRetry.setTextSize(14);
+        btnRetry.setTextColor(0xFFFA243C);
+        btnRetry.setPadding(ResUtil.dp2px(16), ResUtil.dp2px(8), ResUtil.dp2px(16), ResUtil.dp2px(8));
+        btnRetry.setOnClickListener(v -> runSearch());
+        LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        retryLp.topMargin = ResUtil.dp2px(12);
+        errorView.addView(btnRetry, retryLp);
+        searchView.addView(errorView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         lvResults = new ListView(this);
+        lvResults.setDivider(null);
         adapter = new ResultAdapter();
+        tvTail = new TextView(this);
+        tvTail.setTextSize(12);
+        tvTail.setTextColor(0xFF8E8E93);
+        tvTail.setPadding(ResUtil.dp2px(12), ResUtil.dp2px(8), ResUtil.dp2px(12), ResUtil.dp2px(8));
+        lvResults.addFooterView(tvTail);
         lvResults.setAdapter(adapter);
         searchView.addView(lvResults, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        btnSearch.setOnClickListener(v -> runSearch());
         etKeyword.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 hideKeyboard();
@@ -234,7 +360,8 @@ public class MusicCloudActivity extends BaseActivity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setBackgroundResource(R.drawable.xc_setcard_v2);
+        // 第三波 B④：选盘卡改实色白卡＋盘图标
+        card.setBackgroundResource(R.drawable.card_music);
         card.setClickable(true);
         card.setFocusable(true);
         try {
@@ -251,6 +378,14 @@ public class MusicCloudActivity extends BaseActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardLp.bottomMargin = ResUtil.dp2px(12);
         card.setLayoutParams(cardLp);
+
+        ImageView driveIcon = new ImageView(this);
+        driveIcon.setImageResource(R.drawable.ic_music_note);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
+                ResUtil.dp2px(40), ResUtil.dp2px(40));
+        iconLp.rightMargin = ResUtil.dp2px(12);
+        driveIcon.setLayoutParams(iconLp);
+        card.addView(driveIcon);
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -528,9 +663,16 @@ public class MusicCloudActivity extends BaseActivity {
         results.clear();
         adapter.notifyDataSetChanged();
         tvDriveName.setText(driveName);
-        tvStatus.setText("输入歌名搜索，不填列出全部音频");
+        hideCloudStates();
+        if (tvTail != null) tvTail.setVisibility(View.GONE);
         pickerView.setVisibility(View.GONE);
         searchView.setVisibility(View.VISIBLE);
+    }
+
+    private void hideCloudStates() {
+        if (loadingView != null) loadingView.setVisibility(View.GONE);
+        if (tvEmptyState != null) tvEmptyState.setVisibility(View.GONE);
+        if (errorView != null) errorView.setVisibility(View.GONE);
     }
 
     private void showPicker() {
@@ -548,7 +690,10 @@ public class MusicCloudActivity extends BaseActivity {
         final String kw = etKeyword.getText().toString().trim().toLowerCase();
         results.clear();
         adapter.notifyDataSetChanged();
-        tvStatus.setText("正在搜索…");
+        hideCloudStates();
+        if (tvTail != null) tvTail.setVisibility(View.GONE);
+        loadingView.setVisibility(View.VISIBLE);
+        tvLoadingCount.setText("已扫 0 项");
         new Thread(() -> {
             CloudDrive drive = Drive115.ID.equals(driveId) ? new Drive115() : new DriveQuark();
             ArrayDeque<String> queue = new ArrayDeque<>();
@@ -622,13 +767,27 @@ public class MusicCloudActivity extends BaseActivity {
                         : "（仅搜了" + trunc + "，结果可能不全）";
                 runOnUiThread(() -> {
                     if (gen != searchGen) return;
-                    tvStatus.setText(results.isEmpty() ? "没找到" + truncSuffix
-                            : "找到 " + results.size() + " 首" + truncSuffix);
+                    hideCloudStates();
+                    if (results.isEmpty()) {
+                        tvEmptyState.setVisibility(View.VISIBLE);
+                        tvEmptyState.setText("没找到" + truncSuffix + "\n换个歌名试试");
+                        if (tvTail != null) tvTail.setVisibility(View.GONE);
+                    } else {
+                        // 截断后缀保留在结果尾（ListView 尾行），不在状态行里挤
+                        if (tvTail != null && !truncSuffix.isEmpty()) {
+                            tvTail.setText(truncSuffix);
+                            tvTail.setVisibility(View.VISIBLE);
+                        } else if (tvTail != null) {
+                            tvTail.setVisibility(View.GONE);
+                        }
+                    }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (gen != searchGen) return;
-                    tvStatus.setText("搜索失败：" + e.getMessage());
+                    hideCloudStates();
+                    tvError.setText("搜索失败：" + e.getMessage());
+                    errorView.setVisibility(View.VISIBLE);
                 });
             }
         }).start();
@@ -640,7 +799,9 @@ public class MusicCloudActivity extends BaseActivity {
             if (gen != searchGen) return;
             results.addAll(copy);
             adapter.notifyDataSetChanged();
-            tvStatus.setText("找到 " + results.size() + " 首");
+            if (loadingView != null && loadingView.getVisibility() == View.VISIBLE) {
+                tvLoadingCount.setText("已扫 " + results.size() + " 首");
+            }
         });
     }
 
@@ -719,33 +880,119 @@ public class MusicCloudActivity extends BaseActivity {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
+            // 第三波 B②：结果行按 item_music_track.xml——封面 50dp、名 14sp／行高 20sp、
+            // 第二行 11sp、按压反馈＋分隔线、格式角标；在播行红 #FA243C（可选口径已做）。
+            // CloudFile.thumbUrl 有数据时画出来（115／夸克回包无此字段时走素图占位，见 ImgUtil）。
+            ImageView coverView;
             TextView nameView;
             TextView subView;
+            TextView badgeView;
             if (convertView == null) {
                 LinearLayout row = new LinearLayout(MusicCloudActivity.this);
                 row.setOrientation(LinearLayout.VERTICAL);
-                int pad = ResUtil.dp2px(12);
-                row.setPadding(pad, pad, pad, pad);
+                try {
+                    android.util.TypedValue tv = new android.util.TypedValue();
+                    getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+                    if (tv.resourceId != 0 && androidx.core.content.ContextCompat.getDrawable(
+                            MusicCloudActivity.this, tv.resourceId) != null) {
+                        row.setForeground(androidx.core.content.ContextCompat.getDrawable(
+                                MusicCloudActivity.this, tv.resourceId));
+                    }
+                } catch (Throwable ignored) {
+                }
+                LinearLayout content = new LinearLayout(MusicCloudActivity.this);
+                content.setOrientation(LinearLayout.HORIZONTAL);
+                content.setGravity(Gravity.CENTER_VERTICAL);
+                int pad = ResUtil.dp2px(14);
+                content.setPadding(pad, ResUtil.dp2px(10), pad, ResUtil.dp2px(10));
+                coverView = new ImageView(MusicCloudActivity.this);
+                coverView.setLayoutParams(new LinearLayout.LayoutParams(
+                        ResUtil.dp2px(50), ResUtil.dp2px(50)));
+                coverView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                content.addView(coverView);
+                LinearLayout texts = new LinearLayout(MusicCloudActivity.this);
+                texts.setOrientation(LinearLayout.VERTICAL);
+                LinearLayout.LayoutParams textsLp = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+                textsLp.leftMargin = ResUtil.dp2px(14);
+                content.addView(texts, textsLp);
                 nameView = new TextView(MusicCloudActivity.this);
-                nameView.setTextSize(15);
+                nameView.setTextSize(14);
                 nameView.setTextColor(0xFF0C0E12);
+                nameView.setSingleLine(true);
+                nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                if (android.os.Build.VERSION.SDK_INT >= 28) nameView.setLineHeight(ResUtil.sp2px(20));
+                else nameView.setLineSpacing(0, 20f / 14f);
+                texts.addView(nameView);
+                LinearLayout second = new LinearLayout(MusicCloudActivity.this);
+                second.setOrientation(LinearLayout.HORIZONTAL);
+                second.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams secondLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                secondLp.topMargin = ResUtil.dp2px(4);
+                texts.addView(second, secondLp);
                 subView = new TextView(MusicCloudActivity.this);
-                subView.setTextSize(12);
-                subView.setTextColor(0xFF8E8E93);
-                row.addView(nameView);
-                row.addView(subView);
-                row.setTag(new TextView[]{nameView, subView});
+                subView.setTextSize(11);
+                subView.setTextColor(0xFF9AA7B8);
+                subView.setSingleLine(true);
+                subView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                second.addView(subView);
+                badgeView = new TextView(MusicCloudActivity.this);
+                badgeView.setTextSize(11);
+                badgeView.setTextColor(0xFFFA243C);
+                badgeView.setBackgroundResource(R.drawable.badge_music);
+                badgeView.setPadding(ResUtil.dp2px(6), ResUtil.dp2px(2),
+                        ResUtil.dp2px(6), ResUtil.dp2px(2));
+                LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                badgeLp.leftMargin = ResUtil.dp2px(8);
+                second.addView(badgeView, badgeLp);
+                row.addView(content);
+                View divider = new View(MusicCloudActivity.this);
+                divider.setBackgroundColor(0xFFE5E5EA);
+                LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                divLp.leftMargin = ResUtil.dp2px(78);
+                divLp.rightMargin = ResUtil.dp2px(14);
+                row.addView(divider, divLp);
+                row.setTag(new Object[]{coverView, nameView, subView, badgeView});
                 convertView = row;
             } else {
-                TextView[] holder = (TextView[]) convertView.getTag();
-                nameView = holder[0];
-                subView = holder[1];
+                Object[] holder = (Object[]) convertView.getTag();
+                coverView = (ImageView) holder[0];
+                nameView = (TextView) holder[1];
+                subView = (TextView) holder[2];
+                badgeView = (TextView) holder[3];
             }
             Hit hit = getItem(position);
-            nameView.setText(hit.file.getName());
+            String name = hit.file.getName();
+            nameView.setText(name);
             String sub = (hit.parent == null || hit.parent.isEmpty() ? "" : hit.parent + " · ")
                     + hit.file.getFormatSize();
             subView.setText(sub);
+            String ext = "";
+            if (name != null) {
+                int dot = name.lastIndexOf('.');
+                if (dot >= 0 && dot + 1 < name.length()) ext = name.substring(dot + 1).toUpperCase();
+            }
+            if (ext.isEmpty()) {
+                badgeView.setVisibility(View.GONE);
+            } else {
+                badgeView.setVisibility(View.VISIBLE);
+                badgeView.setText(ext);
+            }
+            String thumb = hit.file.getThumbUrl();
+            ImgUtil.loadRounded(name == null ? "" : name, thumb == null ? "" : thumb, coverView);
+            // 在播行红：与播放器当前曲 id 比对（pan115:/panquark: + fid，与点播入队口径一致）
+            boolean playing = false;
+            try {
+                com.fongmi.android.tv.bean.music.MusicTrack cur = MusicController.get().current();
+                String want = (Drive115.ID.equals(currentDrive) ? "pan115:" : "panquark:")
+                        + hit.file.getId();
+                playing = cur != null && want.equals(cur.id);
+            } catch (Throwable ignored) {
+            }
+            nameView.setTextColor(playing ? 0xFFFA243C : 0xFF0C0E12);
             return convertView;
         }
     }

@@ -33,7 +33,9 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
     }
 
     private static final String[] PLATFORMS_ROW1 = {"网易云", "QQ音乐", "酷狗", "酷我"};
-    private static final String[] PLATFORMS_ROW2 = {"汽水", "Spotify", "Apple Music"};
+    // 第三波 G-B1：第二行四家歌单导入暂不支持（汽水／Spotify／Apple Music 无解析；
+    // 咪咕有搜歌／播放但歌单拉取未实现），格子置灰＋“暂不支持”，不留点了必败的格子
+    private static final String[] PLATFORMS_ROW2 = {"汽水", "Spotify", "Apple Music", "咪咕"};
 
     private DialogMusicPlaylistImportBinding binding;
     private Listener listener;
@@ -58,8 +60,8 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        buildPlatformRow(binding.platformRow1, PLATFORMS_ROW1);
-        buildPlatformRow(binding.platformRow2, PLATFORMS_ROW2);
+        buildPlatformRow(binding.platformRow1, PLATFORMS_ROW1, true);
+        buildPlatformRow(binding.platformRow2, PLATFORMS_ROW2, false);
         binding.loginRow.setOnClickListener(v -> {
             if (listener == null) return;
             FragmentActivity host = getActivity();
@@ -96,13 +98,15 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
         refreshImportEnabled();
     }
 
-    private void buildPlatformRow(LinearLayout row, String[] names) {
+    private void buildPlatformRow(LinearLayout row, String[] names, boolean supported) {
         row.removeAllViews();
         for (int i = 0; i < names.length; i++) {
             TextView cell = new TextView(getContext());
-            cell.setText(names[i]);
+            cell.setText(supported ? names[i] : names[i] + " · 暂不支持");
             cell.setTextSize(11);
-            cell.setTextColor(0xFF1C1C1E);
+            cell.setTextColor(supported ? 0xFF1C1C1E : 0xFF9AA7B8);
+            cell.setAlpha(supported ? 1f : 0.6f);
+            if (!supported) cell.setEnabled(false);
             cell.setGravity(android.view.Gravity.CENTER);
             cell.setBackgroundResource(R.drawable.bg_platform_cell);
             cell.setMaxLines(1);

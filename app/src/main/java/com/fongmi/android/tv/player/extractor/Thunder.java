@@ -14,6 +14,7 @@ import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.xunlei.downloadlib.XLTaskHelper;
+import com.xunlei.downloadlib.parameter.BtSubTaskDetail;
 import com.xunlei.downloadlib.parameter.GetTaskId;
 import com.xunlei.downloadlib.parameter.TorrentFileInfo;
 import com.xunlei.downloadlib.parameter.XLTaskInfo;
@@ -45,6 +46,12 @@ public class Thunder implements Source.Extractor {
     private String lastKey;
     private String lastLocal;
 
+    // 交地址时实际落盘的文件：addTorrentTask 里传给 getLocalUrl 的 new File(parent, name)，
+    // addThunderTask 里 taskId.getSaveFile()。lastLocal 本身是 127.0.0.1 本地地址串，
+    // 不能从它反推落盘路径，所以另记一份；复用判断只认这份记录，不凭空拼路径。
+    // 只在 fetchInternal 把地址写进 lastKey/lastLocal 时才配对有效，否则清掉。
+    private File lastDownloadFile;
+
     // 进行中的 fetch 合流：推送每次播放都会触发两路并发解析（18:02 日志实证两路相隔 20ms，
     // 共用 Source 单例里的同一个 Thunder 实例）。后到的一路如果另建 native 任务，会写同一
     // 目录互抢、覆盖 taskId 字段、随后 stop() 删掉的也是后建的任务，先建的反而泄漏。
@@ -63,7 +70,10 @@ public class Thunder implements Source.Extractor {
         // 同种子走正规 magnet:// 播放地址那条路当场出速度）。
         url = normalizeScheme(url);
         synchronized (this) {
-            if (sameContent(url, lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists()) {
+            // 字节门禁：只复用已有字节的活任务；0 字节不复用，落到 fetchInternal
+            // 清洗重建，再由 addTorrentTask 的字节门禁裁决。有字节的口径与交地址
+            // 门禁对齐：父计数 >0 或落盘文件长度 >0 任一成立即算有字节。
+            if (sameContent(url, lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists() && hasDownloadedBytes()) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
                 return lastLocal;
             }
@@ -117,11 +127,18 @@ public class Thunder implements Source.Extractor {
         // FongMi 原版无此清理层、从不杀同链接任务，故一直能播。
         int ns = nativeStatus();
         // 状态单次读数偶发误报 3（出错）：任务已下出字节且没被零字节监控记账时，以字节为准
-        if (ns == 3 && downloadedSize() > 0 && (url == null || !zeroMark(url).exists())) ns = 1;
+        // （字节口径与复用条件一致：父计数或落盘长度任一 >0）。
+        if (ns == 3 && hasDownloadedBytes() && (url == null || !zeroMark(url).exists())) ns = 1;
         if (url != null && sameContent(url, lastKey) && lastLocal != null && taskId != null && ns != 3) {
-            SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
-            lastKey = url;
-            return lastLocal;
+            if (hasDownloadedBytes()) {
+                SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
+                lastKey = url;
+                return lastLocal;
+            }
+            // 同链接任务 0 字节：不复用死地址，先停删再由下面流程重建，
+            // 重建后仍 0 字节由 addTorrentTask 的字节门禁裁决。
+            SpiderDebug.log("thunder", "reuse blocked: same-url task zero bytes status=%d, cleanup and rebuild", ns);
+            cleanupStaleTask();
         }
         // 串行重试卫生：仅当原生状态明确为 3（出错）才停删旧任务再建新任务。
         if (taskId != null && ns == 3) cleanupStaleTask();
@@ -130,11 +147,15 @@ public class Thunder implements Source.Extractor {
         // 换不换只认内容身份（磁力认 btih 指纹）：同磁力不同字符串写法不算换链接，
         // 否则正在下载的任务会被第二路 fetch 当「旧链接」停删（1.3.12 真机日志实证）。
         if (taskId != null && url != null && !sameContent(url, lastKey)) cleanupStaleTask();
+        // 已解析磁力路不走 Parser，不占解析预算，传 0。
         String local = isRawMagnet(url) ? fetchParsedMagnet(url)
-                : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url), url) : addThunderTask(url);
+                : url.startsWith("magnet") ? addTorrentTask(Uri.parse(url), url, 0) : addThunderTask(url);
         if (local != null && local.contains("127.0.0.1")) {
             lastKey = url;
             lastLocal = local;
+        } else {
+            // 未进缓存的地址不配对落盘文件，避免旧 lastLocal 配新文件误复用。
+            lastDownloadFile = null;
         }
         return local;
     }
@@ -170,6 +191,7 @@ public class Thunder implements Source.Extractor {
         taskId = null;
         lastKey = null;
         lastLocal = null;
+        lastDownloadFile = null;
         SpiderDebug.log("thunder", "cleaned stale task before rebuild status=%d", status);
     }
 
@@ -196,14 +218,18 @@ public class Thunder implements Source.Extractor {
     }
 
     private String fetchParsedMagnet(String url) throws Exception {
+        // 裸磁力预算计时：从 Parser 同步解析开始记，含 waitDone（最长约 10 秒），
+        // 解析耗时传给 addTorrentTask 扣减等字节预算，不由等字节循环全额重算。
+        long startMs = SystemClock.elapsedRealtime();
         List<Episode> episodes = Parser.get(url).call();
         if (episodes.isEmpty()) throw new ExtractException("磁力解析失败，请重试");
         String parsed = episodes.get(0).getUrl();
-        return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed), url) : parsed;
+        return parsed.startsWith("magnet") ? addTorrentTask(Uri.parse(parsed), url, SystemClock.elapsedRealtime() - startMs) : parsed;
     }
 
     // 照上游：状态 3 抛真错；状态非 0 即交本地地址，播放器自己拉流边下边播，不等字节
-    private String addTorrentTask(Uri uri, String markUrl) throws Exception {
+    // elapsedMs：调用方在 Parser 侧已耗的毫秒数（已解析路传 0），用于扣减等字节预算。
+    private String addTorrentTask(Uri uri, String markUrl, long elapsedMs) throws Exception {
         File torrent = new File(uri.getPath());
         File parent = torrent.getParentFile();
         String name = uri.getQueryParameter("name");
@@ -223,31 +249,65 @@ public class Thunder implements Source.Extractor {
         }
         taskId = XLTaskHelper.get().addTorrentTask(torrent, parent, index);
         SpiderDebug.log("thunder", "bt task created torrent=%s index=%d", torrent.getAbsolutePath(), index);
-        for (int i = 0; i < 100; i++) {
-            XLTaskInfo info = XLTaskHelper.get().getBtSubTaskInfo(taskId, index).mTaskInfo;
-            if (info.mTaskStatus == 3) throw new ExtractException(info.getErrorMsg());
+        // 字节门禁：状态非 0 只说明任务已建/在下，不代表已有字节可播。
+        // 状态 1 + 速度 0 + 已下 0 字节时旧逻辑照样交地址，播放器进 BUFFERING 后
+        // 30 秒启动超时被取消，界面永远 00:00 且无报错。改为：只有引擎计数
+        // mDownloadSize > 0 或子任务落盘文件已有字节才交地址，否则继续等；
+        // maxRounds 次跑完仍 0 字节，抛带 status/speed/size 的真错，不再递死地址。
+        // 总预算：ViewModel 30 秒超时内留余量，取 25000ms；已解析路 elapsedMs=0
+        // 时上限仍封顶 200 次（约 20 秒，与旧行为一致），裸磁力路解析已耗约
+        // 10 秒时剩余约 15000ms，自动缩到约 150 次以下（解析耗时更长则更少；
+        // 已耗超 25000ms 时 0 次，建任务后立即抛错，不静默等满一轮）。
+        long remainingMs = 25000L - Math.max(0L, elapsedMs);
+        int maxRounds = (int) Math.max(0L, Math.min(200L, remainingMs / 100L));
+        int lastStatus = 0;
+        long lastSpeed = 0;
+        long lastSize = 0;
+        for (int i = 0; i < maxRounds; i++) {
+            if (Thread.currentThread().isInterrupted()) throw new ExtractException("迅雷任务被中断，请重试");
+            BtSubTaskDetail detail = XLTaskHelper.get().getBtSubTaskInfo(taskId, index);
+            if (detail == null || detail.mTaskInfo == null) throw new ExtractException("迅雷子任务信息为空，请重试");
+            XLTaskInfo info = detail.mTaskInfo;
+            lastStatus = info.mTaskStatus;
+            lastSpeed = info.mDownloadSpeed;
+            lastSize = info.mDownloadSize;
+            if (info.mTaskStatus == 3) {
+                String err = info.getErrorMsg();
+                if (err == null || err.isEmpty()) err = "迅雷任务出错，请重试";
+                throw new ExtractException(err);
+            }
             if (info.mTaskStatus != 0) {
-                String local = XLTaskHelper.get().getLocalUrl(new File(parent, name));
-                SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
-                // 本地地址是播放的唯一入口：引擎本地服务没起来时 getLocalUrl 回空，
-                // 原先空地址一路递到播放器、界面只剩通用错。这里明说，不递空地址。
-                if (local == null || local.isEmpty()) {
-                    throw new ExtractException("迅雷本地地址为空，请重试");
+                File downloadFile = new File(parent, name);
+                long onDisk = downloadFile.length();
+                if (info.mDownloadSize > 0 || onDisk > 0) {
+                    lastDownloadFile = downloadFile;
+                    String local = XLTaskHelper.get().getLocalUrl(downloadFile);
+                    SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                    // 本地地址是播放的唯一入口：引擎本地服务没起来时 getLocalUrl 回空，
+                    // 原先空地址一路递到播放器、界面只剩通用错。这里明说，不递空地址。
+                    if (local == null || local.isEmpty()) {
+                        throw new ExtractException("迅雷本地地址为空，请重试");
+                    }
+                    startProgressLog(taskId, markUrl, index);
+                    return local;
                 }
-                startProgressLog(taskId, markUrl, index);
-                return local;
+                // 0 字节：不交地址，继续循环等首字节。
             }
             if (i % 50 == 49) SpiderDebug.log("thunder", "bt waiting status=%d speed=%d size=%d", info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
             SystemClock.sleep(100);
         }
-        throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));
+        throw new ExtractException(String.format(Locale.ROOT, "磁力任务%d毫秒仍未下载到字节，无法起播（status=%d speed=%d size=%d），请换源或重试", maxRounds * 100L, lastStatus, lastSpeed, lastSize));
     }
 
     // 照上游：ed2k/thunder 零等待，直接交本地地址
+    // 本批说明：ed2k 不在磁力 BT 字节门禁/预算文案的保障内，仍走零等待交地址
+    // 与通用超时；本批原定只动磁力 BT 路，ed2k 逻辑不动。
     private String addThunderTask(String url) {
         File folder = Path.thunder(Util.md5(url));
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
-        String local = XLTaskHelper.get().getLocalUrl(taskId.getSaveFile());
+        File saveFile = taskId.getSaveFile();
+        String local = XLTaskHelper.get().getLocalUrl(saveFile);
+        lastDownloadFile = saveFile;
         try {
             XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(taskId);
             SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info == null ? -1 : info.mTaskStatus, info == null ? 0 : info.mDownloadSpeed, info == null ? 0 : info.mDownloadSize);
@@ -315,6 +375,21 @@ public class Thunder implements Source.Extractor {
         }
     }
 
+    /** 当前任务对应落盘文件的已有长度；无记录或文件不存在时按 0（File.length() 本身即如此）。 */
+    private long onDiskSize() {
+        return lastDownloadFile == null ? 0 : lastDownloadFile.length();
+    }
+
+    /**
+     * 复用/纠错共用的“已有字节”口径：父计数或落盘长度任一 >0 即算有字节。
+     * 父子计数语义离线证实不了：父任务 getNativeTaskInfo().mDownloadSize 是否聚合
+     * BT 子任务，需真机日志核实（交地址处已打 status/speed/size）；在证实前双口径
+     * 并联，不谎称父计数已闭环。
+     */
+    private boolean hasDownloadedBytes() {
+        return downloadedSize() > 0 || onDiskSize() > 0;
+    }
+
     private void wipeZeroMarked(String url) {
         try {
             zeroMark(url).delete();
@@ -333,6 +408,7 @@ public class Thunder implements Source.Extractor {
                 taskId = null;
                 lastKey = null;
                 lastLocal = null;
+                lastDownloadFile = null;
             }
             deleteRecursive(Path.thunder(Util.md5(url)));
             SpiderDebug.log("thunder", "zero-byte history wiped, rebuilding clean");
@@ -407,6 +483,7 @@ public class Thunder implements Source.Extractor {
         }
         lastKey = null;
         lastLocal = null;
+        lastDownloadFile = null;
         if (taskId == null) return;
         XLTaskHelper.get().deleteTask(taskId);
         XLTaskHelper.get().release();
@@ -422,6 +499,7 @@ public class Thunder implements Source.Extractor {
             }
             taskId = null;
         }
+        lastDownloadFile = null;
         XLTaskHelper.get().release();
     }
 

@@ -7,6 +7,7 @@ import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicSource;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.utils.Task;
@@ -112,6 +113,52 @@ public class LxMusicSource implements MusicSource {
         return Collections.emptyList();
     }
 
+    /**
+     * P-3d 源内死插件黑名单：同曲一次取链链内（多档回落／仓库回落多次进 playUrl）已死过的插件不再重进；
+     * 只记当前一曲（单缓存：换歌即清），绝不跨歌拉黑好插件；第一波仓库层指派拦截保留，两层不重复拦同一通道
+     * （仓库层拦指派单试，本层拦源内遍历与 playUrlWithPlugin 单步）。
+     * 第二波堵-4：死键＝插件＋档位（请求档的落雪串，如 flac／320k，与仓库层插件＋档位同口径，
+     * FreeJS 侧插件＋MusicQuality key 不动）——某档死掉不许连坐其它档；死集用并发集，
+     * 换键清集＋查／记包在同一 DEAD_LOCK 同步块里（调用方含服务取链、预加载、面板探链三线程，
+     * 旧静态 HashSet 无同步会丢标记／串歌）；探链（probe）只读不记死。
+     */
+    private static final Object DEAD_LOCK = new Object();
+    private static String deadTrackKey = "";
+    private static final Set<String> deadPlayUrlPlugins = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private static boolean isDeadPlugin(String trackKey, String srcUrl, String qualityKey) {
+        synchronized (DEAD_LOCK) {
+            if (trackKey == null || !trackKey.equals(deadTrackKey)) {
+                deadTrackKey = trackKey == null ? "" : trackKey;
+                deadPlayUrlPlugins.clear();
+                return false;
+            }
+            return srcUrl != null && deadPlayUrlPlugins.contains(deadKey(srcUrl, qualityKey));
+        }
+    }
+
+    private static void markDeadPlugin(String trackKey, String srcUrl, String qualityKey) {
+        synchronized (DEAD_LOCK) {
+            if (trackKey == null || !trackKey.equals(deadTrackKey)) {
+                deadTrackKey = trackKey == null ? "" : trackKey;
+                deadPlayUrlPlugins.clear();
+            }
+            if (srcUrl != null) deadPlayUrlPlugins.add(deadKey(srcUrl, qualityKey));
+        }
+    }
+
+    private static String deadKey(String srcUrl, String qualityKey) {
+        return srcUrl + "|" + (qualityKey == null ? "" : qualityKey);
+    }
+
+    /** 第二波堵-4：新一次取链开始时清源内死集（服务 prepareTrack 入口与仓库层一起调，不只清仓库层）。 */
+    public static void clearDeadPlayUrlAttempt() {
+        synchronized (DEAD_LOCK) {
+            deadTrackKey = "";
+            deadPlayUrlPlugins.clear();
+        }
+    }
+
     /** 单个落雪脚本取链上限：一个脚本卡住不许拖垮整条取链（对差清单 D2） */
     private static final long PLUGIN_TIMEOUT_MS = 8000;
     /** 取链总预算（与播放服务 20 秒看门狗同口径）：到点还没出链就按失败返回 */
@@ -119,6 +166,12 @@ public class LxMusicSource implements MusicSource {
 
     @Override
     public String playUrl(MusicTrack track, int quality) throws Exception {
+        return playUrl(track, quality, false);
+    }
+
+    /** 探链口径：probe＝true 时只读地址、不记死（面板探链用）；死键按请求档记，见字段注释。 */
+    @Override
+    public String playUrl(MusicTrack track, int quality, boolean probe) throws Exception {
         Parsed p = parse(track);
         if (p == null) return null;
         long deadline = System.currentTimeMillis() + TOTAL_TIMEOUT_MS;
@@ -129,6 +182,7 @@ public class LxMusicSource implements MusicSource {
             if (!TextUtils.isEmpty(mediaMid)) musicInfo.addProperty("strMediaMid", mediaMid);
         }
         String want = lxQuality(MusicQuality.fromInt(quality));
+        String deadKey = MusicQueue.trackKey(track);
         for (MusicSite plugin : sites()) {
             // 服务看门狗／停播取消取链时中断本线程：中断后不许继续逐个脚本试下去
             if (Thread.currentThread().isInterrupted()) return null;
@@ -136,6 +190,9 @@ public class LxMusicSource implements MusicSource {
                 SpiderDebug.log("music", "lx playUrl total timeout");
                 break;
             }
+            // P-3d：本曲已死过的插件不再重进（多档回落会多次进本循环）；探链只读不记死，
+                // 但仍尊重已死标记（不替真实取链翻案），见字段注释。
+            if (isDeadPlugin(deadKey, plugin.srcUrl, want)) continue;
             LxBridge b;
             try {
                 b = MusicSourceManager.get().lxBridgeOf(plugin);
@@ -174,7 +231,10 @@ public class LxMusicSource implements MusicSource {
                             PLATFORM, plugin.srcUrl, System.currentTimeMillis() - lxT0, false);
                     return url;
                 }
+                // P-3d：出空链也算死一次，本曲后续回落不再重进该插件；探链不记死。
+                if (!probe) markDeadPlugin(deadKey, plugin.srcUrl, want);
             } catch (Throwable t) {
+                if (!probe) markDeadPlugin(deadKey, plugin.srcUrl, want);
                 rethrowKeyIssue(t);
                 SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
             }
@@ -190,6 +250,11 @@ public class LxMusicSource implements MusicSource {
      * 该平台 musicUrl 时返回 null（不是抛错）。密钥问题（LxKeyIssue）照旧重抛，不许吞。
      */
     public String playUrlWithPlugin(MusicTrack track, int quality, String srcUrl) throws Exception {
+        return playUrlWithPlugin(track, quality, srcUrl, false);
+    }
+
+    /** 探链口径：probe＝true 时只读地址、不记死（仓库指派单试的探链用）。 */
+    public String playUrlWithPlugin(MusicTrack track, int quality, String srcUrl, boolean probe) throws Exception {
         Parsed p = parse(track);
         if (p == null || srcUrl == null || srcUrl.isEmpty()) return null;
         MusicSite target = null;
@@ -200,13 +265,16 @@ public class LxMusicSource implements MusicSource {
             }
         }
         if (target == null) return null;
+        // P-3d：仓库指派单试失败后回落到源内遍历时，本步不再重进同一死插件。
+        String deadKey = MusicQueue.trackKey(track);
+        String want = lxQuality(MusicQuality.fromInt(quality));
+        if (isDeadPlugin(deadKey, srcUrl, want)) return null;
         if (Thread.currentThread().isInterrupted()) return null;
         JsonObject musicInfo = musicInfo(track, p);
         if (LxPlatformSearch.QQ.equals(p.platform) && TextUtils.isEmpty(optStr(musicInfo, "strMediaMid"))) {
             String mediaMid = LxPlatformSearch.qqMediaMid(optStr(musicInfo, "songmid"));
             if (!TextUtils.isEmpty(mediaMid)) musicInfo.addProperty("strMediaMid", mediaMid);
         }
-        String want = lxQuality(MusicQuality.fromInt(quality));
         LxBridge b;
         try {
             b = MusicSourceManager.get().lxBridgeOf(target);
@@ -229,6 +297,7 @@ public class LxMusicSource implements MusicSource {
                 r = lxFuture.get(PLUGIN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             } catch (java.util.concurrent.TimeoutException te) {
                 lxFuture.cancel(true);
+                if (!probe) markDeadPlugin(deadKey, srcUrl, want);
                 return null;
             }
             String url = extractUrl(r);
@@ -237,7 +306,9 @@ public class LxMusicSource implements MusicSource {
                         PLATFORM, target.srcUrl, System.currentTimeMillis() - lxT0, false);
                 return url;
             }
+            if (!probe) markDeadPlugin(deadKey, srcUrl, want);
         } catch (Throwable t) {
+            if (!probe) markDeadPlugin(deadKey, srcUrl, want);
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "lx playUrlWithPlugin error plugin=%s %s", target.name, t.getMessage());
         }

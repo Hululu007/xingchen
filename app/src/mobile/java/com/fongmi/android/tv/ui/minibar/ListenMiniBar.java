@@ -215,6 +215,17 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         refreshBar();
     }
 
+    /** 第三波 M2：把音乐播放态变化喂给策略层，让暂停 10 秒自动收真生效
+     * （策略 playingChanged 只在会话已注册时起作用；未注册时为空操作）。
+     * 音乐会话的 pageForeground 从未被置 true（音乐条只在首页露、页引用为空），
+     * 所以暂停计时不受“在播放页”门控影响；onCloseSession 对音乐仅藏条，见下。 */
+    public void musicPlayingChanged(boolean playing) {
+        try {
+            policy.playingChanged("music", playing);
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 刷新音乐条文案与图标 */
     public void refreshMusic() {
         if (!"music".equals(policy.visibleId())) return;
@@ -614,12 +625,16 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         if (barMusicMode) updateHomeSpin(playing);
     }
 
-    /** 音乐封面旋转：播放时匀速转，暂停保留角度停住；条重建/切到听书条时停转复位。 */
+    /** 第三波 M3：摘条时记下的封面转角（重建后恢复，不从头转）。 */
+    private float savedHomeRotation;
+
+    /** 音乐封面旋转：播放时匀速转，暂停保留角度停住；条重建时从记下的转角续转，不复位。 */
     private void updateHomeSpin(boolean playing) {
         if (ivVinyl == null) return;
         if (playing) {
             if (homeSpin == null) {
-                homeSpin = ObjectAnimator.ofFloat(ivVinyl, View.ROTATION, 0f, 360f);
+                float start = ivVinyl.getRotation();
+                homeSpin = ObjectAnimator.ofFloat(ivVinyl, View.ROTATION, start, start + 360f);
                 homeSpin.setDuration(12000);
                 homeSpin.setRepeatCount(ObjectAnimator.INFINITE);
                 homeSpin.setInterpolator(new LinearInterpolator());
@@ -632,18 +647,20 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private void stopHomeSpin() {
+        // 第三波 M3：摘条／重建时只记下当前转角、不复位到 0；重建后 buildMusicBar
+        // 把记下的转角写回新封面视图，updateHomeSpin 再从该角度续转。
+        if (ivVinyl != null) {
+            try {
+                savedHomeRotation = ivVinyl.getRotation();
+            } catch (Throwable ignored) {
+            }
+        }
         if (homeSpin != null) {
             try {
                 homeSpin.cancel();
             } catch (Throwable ignored) {
             }
             homeSpin = null;
-        }
-        if (ivVinyl != null) {
-            try {
-                ivVinyl.setRotation(0f);
-            } catch (Throwable ignored) {
-            }
         }
         if (homeHandler != null) homeHandler.removeCallbacks(homeProgressTick);
     }
@@ -671,7 +688,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
      * 音乐条外观（定案形态，2026-10-21）：底部悬浮浅色圆角胶囊——
      * 左侧圆形封面（播放旋转、进度围封面外圈走）＋歌名＋下一首小图标＋右侧大圆浅色软凸起播放键。
      * 布局在 home_minibar_music.xml；点条身进播放页（现行行为保留）；
-     * 条上无关闭口（暂停超 10 秒按迷你条规矩自动收，策略层不动）。
+     * 条上无关闭口；暂停超 10 秒自动收现已真生效（控制器播放态变化时调
+     * musicPlayingChanged 喂策略层，见 MusicController；音乐真关闭仅藏条不误停）。
      * 本方法只被 attachBar 的音乐分支调用，听书条走 buildBar()，互不影响。
      */
     private void buildMusicBar() {
@@ -679,14 +697,17 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
         ivVinyl = bar.findViewById(R.id.homeCover);
+        // 第三波 M3：新封面视图先恢复摘条时记下的转角，不从头转。
+        if (ivVinyl != null) ivVinyl.setRotation(savedHomeRotation);
         homeRing = bar.findViewById(R.id.homeRing);
         tvTitle = bar.findViewById(R.id.homeTitle);
         homeNextBtn = bar.findViewById(R.id.homeNext);
         if (homeNextBtn != null) {
             homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
+            // 第三波 M1：队尾下一首设防——无下一首时不发 next（bindMusicSession 同步置灰／不可点）。
             homeNextBtn.setOnClickListener(v -> {
                 try {
-                    musicCtl().next();
+                    if (musicCtl().canNext()) musicCtl().next();
                 } catch (Throwable ignored) {
                 }
             });
@@ -734,6 +755,16 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                         t == null ? "" : t.displayTitle(), true, -1));
             }
         } catch (Throwable ignored) {
+        }
+        // 第三波 M1：队尾下一首置灰／不可点（循环模式下 hasNext 恒 true，队尾仍可点，见 canNext 注释）。
+        if (homeNextBtn != null) {
+            boolean canNext = false;
+            try {
+                canNext = musicCtl().canNext();
+            } catch (Throwable ignored) {
+            }
+            homeNextBtn.setEnabled(canNext);
+            homeNextBtn.setAlpha(canNext ? 1f : 0.35f);
         }
         updateHomeProgress();
         refreshPlayIcon();

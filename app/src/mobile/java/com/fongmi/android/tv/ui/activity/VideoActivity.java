@@ -2056,6 +2056,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 命中返回 Result，未命中返回 null（走正常解析链）。
      */
     private Result consumePreparsed(String playFlag, String episodeUrl) {
+        // 与 pollInflightPreparse 对齐：雷磁类不消费预解析结果——历史预解析
+        // 不复核任务活否/有无字节，命中即 setPlayer 会把死地址递给播放器。
+        // 直接返回 null 走正常解析链（Thunder.fetch 的字节门禁在那里裁决）。
+        // 下一集预加载侧本就禁雷磁类（预加载守卫），此处早返不另损行为。
+        if (isThunderUrl(episodeUrl)) {
+            SpiderDebug.log("video-flow", "thunder preparse skipped, use normal parse chain");
+            return null;
+        }
         String spec = getKey() + "|" + playFlag + "|" + episodeUrl;
         if (spec.equals(mPreparsedHistorySpec) && mPreparsedHistoryResult != null) {
             Result r = mPreparsedHistoryResult;

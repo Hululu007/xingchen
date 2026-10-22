@@ -133,6 +133,8 @@
                 android:id="@+id/tvBigTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:textColor="#1C1C1E"
                 android:textSize="30sp"
                 android:textStyle="bold" />
@@ -417,6 +419,24 @@
                 android:text="来源：全部"
                 android:textSize="13sp" />
         </LinearLayout>
+
+        <!-- 第三波 R6：本地页内搜索框（仅 device 模式可见；只滤本地库，不跳全局搜索、不混在线结果） -->
+        <EditText
+            android:id="@+id/etDeviceSearch"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/home_bg_search"
+            android:hint="搜索本地音乐"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:textColor="#1C1C1E"
+            android:textColorHint="#8E8E93"
+            android:textSize="14sp"
+            android:visibility="gone" />
 
         <!-- 第二波：本地扫描工具条（仅 device 模式可见）：扫描设置（过滤／排除管理）＋已移除恢复 pill（忽略集空时代码隐藏） -->
         <LinearLayout
@@ -875,7 +895,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:background="@drawable/card_music"
+            android:background="@drawable/card_music_glass_24"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:padding="16dp"
@@ -1153,10 +1173,50 @@
                     android:textSize="16sp" />
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/btnPlaySeq"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <ImageView
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@drawable/card_music"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_play"
+                    android:tint="#FA243C" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/music_play_all_order"
+                    android:textColor="#9AA7B8"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
             <View
                 android:layout_width="0dp"
                 android:layout_height="1dp"
                 android:layout_weight="1" />
+
+            <!-- 第三波 A2：搜索源选择器（搜索模式工具条内，仅搜索模式可见；歌单／歌词签下隐藏） -->
+            <TextView
+                android:id="@+id/btnSourceFilter"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_pill_overview"
+                android:gravity="center"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:text="全部来源 ▾"
+                android:textColor="#1C1C1E"
+                android:textSize="12sp"
+                android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/btnSort"
@@ -1165,6 +1225,15 @@
                 android:contentDescription="@string/music_sort_default"
                 android:padding="12dp"
                 android:src="@drawable/ic_music_sort" />
+
+            <!-- 第三波 R4：通用排序当前档常显（device／收藏／历史有各自对话框时隐藏，见 refreshSortLabel） -->
+            <TextView
+                android:id="@+id/tvSortCurrent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#9AA7B8"
+                android:textSize="12sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 第 5 项：搜索落地页（仅 search 模式无结果时可见，与列表互斥；内容超高可滑） -->

@@ -79,6 +79,15 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
             }
         });
         // B6：参数均衡器入口（与系统 audiofx 并存的另一套，点开独立面板；本面板不改称）
+        // 第三波 Q4/Q5（只列清单，不硬写）：本面板的预设／频段／上下限全部取自设备
+        // audiofx Equalizer（随设备变），不是瓜子固定表（10 段固定频点 31／62／125／
+        // 250／500／1k／2k／4k／8k／16k＋9 预设＋自定义，±6dB 内、拉杆 ±12dB）；
+        // 瓜子反编译里未找到 android.media.audiofx 引用，其均衡是自有模型——不要把
+        // 设备 Equalizer 冒充瓜子固定表。瓜子 10 段＋9 预设自有 DSP 链本波未做：
+        // 所需后端是把 ParametricEq 的 Media3 处理链复用为固定表 DSP（频点／预设值表
+        // 落链内、与设备 Equalizer 解耦），后端实证（处理链落点、预设值表来源）未齐，
+        // 不在本波硬写一套空壳。参数均衡器收进本面板内切换也未做：ParametricEqDialog
+        // 是独立 Dialog＋独立状态，收进同一屏要改面板结构与状态归属，改动大，只列清单。
         TextView eqRow = new TextView(getContext());
         eqRow.setText(getString(R.string.music_parametric_eq) + " ›");
         eqRow.setTextSize(15);

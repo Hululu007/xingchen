@@ -269,7 +269,17 @@ public class MusicStore {
         Prefers.put(K_SORT_HOME, sort);
     }
 
-    /** 列表排序：0 默认 1 标题 2 歌手 3 时长 */
+    /** 列表排序：0 默认 1 标题 2 歌手 3 时长；第三波 R4：升降方向（默认升序） */
+    private static final String K_LIST_SORT_DIR = "music_list_sort_dir";
+
+    public static boolean isListSortDesc() {
+        return Prefers.getBoolean(K_LIST_SORT_DIR, false);
+    }
+
+    public static void setListSortDesc(boolean desc) {
+        Prefers.put(K_LIST_SORT_DIR, desc);
+    }
+
     public static int getListSort() {
         return Prefers.getInt(K_SORT_LIST, 0);
     }
@@ -803,15 +813,31 @@ public class MusicStore {
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
 
-    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的用户值一律不动） */
+    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的用户值一律不动）。
+     * 必-4 一处收口：未存值仍走全新默认 cover_immersive；已存非法值（旧版／外写残留，
+     * 存入校验拦不住的历史值）读侧回落 classic，与 setPlayerTheme 非法写 classic、
+     * 设置页 else 分支 classic 同口径；存入校验与选择器预选不动。 */
     public static String getPlayerTheme() {
         String theme = Prefers.getString(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
-        return theme == null || theme.isEmpty() ? THEME_COVER_IMMERSIVE : theme;
+        if (theme == null || theme.isEmpty()) return THEME_COVER_IMMERSIVE;
+        if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
+                || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
+                || THEME_RECORD_SHELF.equals(theme)) {
+            return theme;
+        }
+        return THEME_CLASSIC;
     }
 
     public static void setPlayerTheme(String theme) {
-        // 空值回退与全新默认同落点（cover_immersive）；正常写入的用户值原样保存
-        Prefers.put(K_PLAYER_THEME, theme == null || theme.isEmpty() ? THEME_COVER_IMMERSIVE : theme);
+        // T1：只存 5 个合法 id，非法（含空）写 classic，与瓜子 PlayerTheme.fromId 未知 id → Classic 一致；
+        // getPlayerTheme 的全新默认（cover_immersive）不动，两者分属不同落点：存入校验≠读取默认。
+        if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
+                || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
+                || THEME_RECORD_SHELF.equals(theme)) {
+            Prefers.put(K_PLAYER_THEME, theme);
+        } else {
+            Prefers.put(K_PLAYER_THEME, THEME_CLASSIC);
+        }
     }
 
     /** 流光 CD 表面：0 浅 1 深 2 自动（默认自动） */
@@ -823,14 +849,46 @@ public class MusicStore {
         Prefers.put(K_CD_SURFACE, Math.max(CD_SURFACE_LIGHT, Math.min(CD_SURFACE_AUTO, surface)));
     }
 
-    /** 全屏歌词字号 sp（默认 22，与工具面板“恢复默认”值一致，钳 16–40） */
+    /** L5：歌词字号拆双键。旧键 music_lyric_font_size 即全屏键（已有键不动、只改默认与口径）：
+     * 全屏默认 24（瓜子 PlayerViewModel:1026）、钳 16–40；封面键新增，默认 22（:1030）、钳 14–32。
+     * 设置页旧字号行仍走全屏键，不改该页。 */
+    private static final String K_LYRIC_FONT_SIZE_COVER = "music_lyric_font_size_cover";
+    /** 必-6 字号迁移标志：封面键首次读取后即置 true，迁移只做一次。 */
+    private static final String K_LYRIC_FONT_SIZE_COVER_MIGRATED = "music_lyric_font_size_cover_migrated";
+
+    /** 全屏歌词字号 sp（默认 24，钳 16–40） */
     public static float getLyricFontSize() {
-        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE, 22f);
+        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE, 24f);
         return Math.max(16f, Math.min(40f, size));
     }
 
     public static void setLyricFontSize(float size) {
         Prefers.put(K_LYRIC_FONT_SIZE, Math.max(16f, Math.min(40f, size)));
+    }
+
+    /** 封面（播放页内嵌）歌词字号 sp（默认 22，钳 14–32）。
+     * 必-6 迁移：封面键全新，老用户以前为封面设的字号只存在旧键（即全屏键）里；
+     * 封面键首次读取且未迁移时，若旧键确已存值，以旧键值钳 14–32 写入一次并置标志，
+     * 之后封面键独立演进，再改旧键（全屏字号行）不再反写封面；旧键从未存值的新用户
+     * 只置标志、不写值，否则新用户封面默认会被旧键默认值 24 带偏（应为 22）。 */
+    public static float getCoverLyricFontSize() {
+        if (!Prefers.getBoolean(K_LYRIC_FONT_SIZE_COVER_MIGRATED, false)) {
+            boolean hasOld = false;
+            try {
+                hasOld = Prefers.getPrefers().contains(K_LYRIC_FONT_SIZE);
+            } catch (Throwable ignored) {
+            }
+            if (hasOld) {
+                Prefers.put(K_LYRIC_FONT_SIZE_COVER, Math.max(14f, Math.min(32f, getLyricFontSize())));
+            }
+            Prefers.put(K_LYRIC_FONT_SIZE_COVER_MIGRATED, true);
+        }
+        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE_COVER, 22f);
+        return Math.max(14f, Math.min(32f, size));
+    }
+
+    public static void setCoverLyricFontSize(float size) {
+        Prefers.put(K_LYRIC_FONT_SIZE_COVER, Math.max(14f, Math.min(32f, size)));
     }
 
     /** 歌词粗细：0 标准 1 加粗 2 特粗（默认标准） */
@@ -923,6 +981,8 @@ public class MusicStore {
     private static final String K_AUTO_BLOCK = "music_plugin_auto_block";
     /** 歌词时间偏移（U-05；毫秒整数，默认 0；范围钳制 ±5000ms 为星辰侧自定，非瓜子值） */
     private static final String K_LYRIC_OFFSET_MS = "music_lyric_offset_ms";
+    /** 第三波 L1：老值符号翻转迁移标志（旧口径播放位置 − offset，新口径 ＋ offset；只翻一次）。 */
+    private static final String K_LYRIC_OFFSET_MIGRATED = "music_lyric_offset_migrated";
     /** 歌词时间偏移钳制（星辰侧自定，非瓜子值） */
     public static final int LYRIC_OFFSET_MAX_MS = 5000;
 
@@ -1057,14 +1117,49 @@ public class MusicStore {
         Prefers.put(K_AMLL_ENABLED, on);
     }
 
-    /** 歌词时间偏移 ms（默认 0；读写都钳制 ±5000ms，钳制为星辰侧自定，非瓜子值） */
+    // ===== 在线歌词优先级（瓜子同名设置；存法照 K_LINK_POLICY 字符串先例） =====
+    // 四值：followSource 跟随来源（保收集序，不分区）／wordByWord 逐字优先／
+    // lineByLine 逐行优先／amllFirst AMLL 优先。默认 wordByWord＝星辰老行为（快路径逐字
+    // 优先、版本列表逐字在前）；瓜子默认值未追踪到，此处不写成瓜子事实。非法值回落默认。
+    public static final String LYRIC_PRIORITY_FOLLOW_SOURCE = "followSource";
+    public static final String LYRIC_PRIORITY_WORD_BY_WORD = "wordByWord";
+    public static final String LYRIC_PRIORITY_LINE_BY_LINE = "lineByLine";
+    public static final String LYRIC_PRIORITY_AMLL_FIRST = "amllFirst";
+    private static final String K_LYRIC_PRIORITY = "music_lyric_priority";
+
+    public static String getLyricPriority() {
+        String v = Prefers.getString(K_LYRIC_PRIORITY, LYRIC_PRIORITY_WORD_BY_WORD);
+        return isLyricPriorityValue(v) ? v : LYRIC_PRIORITY_WORD_BY_WORD;
+    }
+
+    public static void setLyricPriority(String priority) {
+        Prefers.put(K_LYRIC_PRIORITY, isLyricPriorityValue(priority) ? priority : LYRIC_PRIORITY_WORD_BY_WORD);
+    }
+
+    private static boolean isLyricPriorityValue(String v) {
+        return LYRIC_PRIORITY_FOLLOW_SOURCE.equals(v) || LYRIC_PRIORITY_WORD_BY_WORD.equals(v)
+                || LYRIC_PRIORITY_LINE_BY_LINE.equals(v) || LYRIC_PRIORITY_AMLL_FIRST.equals(v);
+    }
+
+    /** 歌词时间偏移 ms（默认 0；读写都钳制 ±5000ms，钳制为星辰侧自定，非瓜子值）。
+     * 第三波 L1：符号与瓜子一致（＋＝提前）；已存老值首次读取时翻转符号迁移一次（选了迁移，不弹提示）。 */
     public static int getLyricOffsetMs() {
+        if (!Prefers.getBoolean(K_LYRIC_OFFSET_MIGRATED, false)) {
+            int old = Prefers.getInt(K_LYRIC_OFFSET_MS, 0);
+            Prefers.put(K_LYRIC_OFFSET_MIGRATED, true);
+            if (old != 0) Prefers.put(K_LYRIC_OFFSET_MS, -old);
+        }
         int v = Prefers.getInt(K_LYRIC_OFFSET_MS, 0);
         return Math.max(-LYRIC_OFFSET_MAX_MS, Math.min(LYRIC_OFFSET_MAX_MS, v));
     }
 
     public static void setLyricOffsetMs(int ms) {
         Prefers.put(K_LYRIC_OFFSET_MS, Math.max(-LYRIC_OFFSET_MAX_MS, Math.min(LYRIC_OFFSET_MAX_MS, ms)));
+        // 封口：新口径值写入后即视为已迁移，任何未来面板“先 set 后 get”都不会
+        // 在首次 get 时把新口径值再翻一次符号。Prefers 为外部库、树内无批量
+        // Editor 接口，迁移两段写（先标志后值）的进程被杀窗口无法单事务消除，
+        // 属既有极小窗口，见交回说明，不在此硬凑单事务。
+        Prefers.put(K_LYRIC_OFFSET_MIGRATED, true);
     }
 
     /** 预加载下一首（瓜子后台播放／预加载下一首；默认开＝切歌交接先取好下一首链） */
@@ -1128,6 +1223,40 @@ public class MusicStore {
         Prefers.put(K_WIFI_ONLY_DOWNLOAD, on);
     }
 
+    /** 第三波 S-A3：封面与歌词写盘方式（新任务生效，已下载文件不动）：
+     * 0 旁路同名文件（默认＝现行可落地口径）、1 内嵌到音频文件、2 两者。
+     * 内嵌档目前无写码位置：树内无音频标签写入库（无 jaudiotagger 之类），
+     * 内嵌／两者档的内嵌部分本波未接线（见 MusicDownloadStore.downloadSidecars），
+     * 旁路部分照常写；不要把内嵌档报成已实现。 */
+    public static final int DL_EMBED_SIDECAR = 0;
+    public static final int DL_EMBED_EMBEDDED = 1;
+    public static final int DL_EMBED_BOTH = 2;
+    private static final String K_DL_EMBED = "music_dl_embed";
+
+    public static int getDlEmbed() {
+        int v = Prefers.getInt(K_DL_EMBED, DL_EMBED_SIDECAR);
+        return v >= DL_EMBED_SIDECAR && v <= DL_EMBED_BOTH ? v : DL_EMBED_SIDECAR;
+    }
+
+    public static void setDlEmbed(int mode) {
+        Prefers.put(K_DL_EMBED, mode >= DL_EMBED_SIDECAR && mode <= DL_EMBED_BOTH ? mode : DL_EMBED_SIDECAR);
+    }
+
+    /** 第三波 S-A3：写入失败策略（新任务生效）：0 跳过不写（默认）、1 写入 URL 字段
+     * （封面 URL 已存在下载记录 cover 字段里，即该字段本身；歌词无 URL 字段可写，失败即跳过）。 */
+    public static final int DL_EMBED_FAIL_SKIP = 0;
+    public static final int DL_EMBED_FAIL_URL = 1;
+    private static final String K_DL_EMBED_FAIL = "music_dl_embed_fail";
+
+    public static int getDlEmbedFail() {
+        int v = Prefers.getInt(K_DL_EMBED_FAIL, DL_EMBED_FAIL_SKIP);
+        return v == DL_EMBED_FAIL_URL ? DL_EMBED_FAIL_URL : DL_EMBED_FAIL_SKIP;
+    }
+
+    public static void setDlEmbedFail(int policy) {
+        Prefers.put(K_DL_EMBED_FAIL, policy == DL_EMBED_FAIL_URL ? DL_EMBED_FAIL_URL : DL_EMBED_FAIL_SKIP);
+    }
+
     /** 移动网络音质：-1＝跟随播放音质（默认），否则 0..3 固定档（与播放音质四档同值） */
     private static final String K_MOBILE_QUALITY = "music_mobile_quality";
 
@@ -1138,5 +1267,89 @@ public class MusicStore {
 
     public static void setMobileQuality(int quality) {
         Prefers.put(K_MOBILE_QUALITY, quality >= QUALITY_LOW && quality <= QUALITY_SUPER ? quality : -1);
+    }
+
+    /** 第三波 S-A1：开关关掉时记住的上次固定档（开关再开时恢复；从未固定过则回落当前播放音质）。 */
+    private static final String K_MOBILE_QUALITY_LAST_FIXED = "music_mobile_quality_last_fixed";
+
+    public static int getMobileQualityLastFixed() {
+        int v = Prefers.getInt(K_MOBILE_QUALITY_LAST_FIXED, -1);
+        return v >= QUALITY_LOW && v <= QUALITY_SUPER ? v : getQuality();
+    }
+
+    public static void setMobileQualityLastFixed(int quality) {
+        if (quality >= QUALITY_LOW && quality <= QUALITY_SUPER) {
+            Prefers.put(K_MOBILE_QUALITY_LAST_FIXED, quality);
+        }
+    }
+
+    // ===== L10 手动选版持久化（新键，不复用播放页内存 currentLyricKey） =====
+    /** 手动选版表：歌曲 key（MusicQueue.trackKey）→ 版本 key＋来源（见 MusicRepository.lyricVersionKey 存法，
+     * 值内以制表符分隔版本 key 与来源，来源可空）。JSON 字符串单键存整表，歌数不大时不另建表。 */
+    private static final String K_MANUAL_LYRIC_CHOICE = "music_manual_lyric_choice";
+
+    private static java.util.Map<String, String> manualLyricChoices() {
+        try {
+            String json = Prefers.getString(K_MANUAL_LYRIC_CHOICE, "");
+            if (json == null || json.isEmpty()) return new java.util.HashMap<>();
+            java.lang.reflect.Type type = com.google.gson.reflect.TypeToken.getParameterized(
+                    java.util.Map.class, String.class, String.class).getType();
+            java.util.Map<String, String> m = App.gson().fromJson(json, type);
+            return m == null ? new java.util.HashMap<>() : m;
+        } catch (Throwable ignored) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    /** 歌曲的手动选版存值（空＝未手动选过）；格式＝版本 key＋制表符＋来源（来源可空）。 */
+    public static String getManualLyricChoice(String songKey) {
+        if (songKey == null || songKey.isEmpty()) return "";
+        String v = manualLyricChoices().get(songKey);
+        return v == null ? "" : v;
+    }
+
+    /** 只拆版本 key（不含来源）：恢复匹配用版本 key，来源仅作展示／排障。 */
+    public static String manualLyricChoiceKey(String stored) {
+        if (stored == null || stored.isEmpty()) return "";
+        int tab = stored.indexOf('\t');
+        return tab < 0 ? stored : stored.substring(0, tab);
+    }
+
+    /** 只拆来源（可空）。 */
+    public static String manualLyricChoiceSource(String stored) {
+        if (stored == null || stored.isEmpty()) return "";
+        int tab = stored.indexOf('\t');
+        return tab < 0 ? "" : stored.substring(tab + 1);
+    }
+
+    public static void setManualLyricChoice(String songKey, String versionKey, String source) {
+        if (songKey == null || songKey.isEmpty() || versionKey == null || versionKey.isEmpty()) return;
+        try {
+            java.util.Map<String, String> m = manualLyricChoices();
+            m.put(songKey, versionKey + "\t" + (source == null ? "" : source));
+            Prefers.put(K_MANUAL_LYRIC_CHOICE, App.gson().toJson(m));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static void clearManualLyricChoice(String songKey) {
+        if (songKey == null || songKey.isEmpty()) return;
+        try {
+            java.util.Map<String, String> m = manualLyricChoices();
+            if (m.remove(songKey) != null) Prefers.put(K_MANUAL_LYRIC_CHOICE, App.gson().toJson(m));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ===== D3 睡眠分钟档“播完再停”开关（新键，与 SLEEP_AFTER_CURRENT 独立模式互斥，见面板与服务） =====
+    /** 分钟档／自定义档到点后是否等当前曲播完再停（默认关＝现行到点即停）。 */
+    private static final String K_SLEEP_FINISH_CURRENT = "music_sleep_finish_current";
+
+    public static boolean isSleepFinishCurrent() {
+        return Prefers.getBoolean(K_SLEEP_FINISH_CURRENT, false);
+    }
+
+    public static void setSleepFinishCurrent(boolean on) {
+        Prefers.put(K_SLEEP_FINISH_CURRENT, on);
     }
 }

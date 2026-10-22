@@ -38,17 +38,15 @@ import java.util.Set;
 /**
  * 播放音质面板（GZ 播放音质面板形态）：标题“播放音质”＋X、歌行（封面＋歌名歌手＋“N 档可选 · 当前 X”）、
  * 档行自上而下（高→低），每行带图标，选中行粉底红字。
- * 星辰四档对进 GZ 四行：母带→Hi-Res、FLAC→无损、320k→极高、128k→标准。
- * 面板规格文案照 GZ 抄（含位深／赫兹：24bit／96kHz、16bit／44.1kHz · FLAC），与播放页音质格
- * 旧口径“采样率不许显示、无损只显编码名”表面冲突——面板按最新令“跟他一样做”照抄，格子按最新令
- * 改短码，冲突行见对照表（music-quality-note.md），不擅自改。
+ * Q2：行名与已定四档名统一（母带／FLAC／320k／128k），不再与面板旧名（Hi-Res／无损／极高／标准）两套并存；
+ * SUPER 行规格按本批指令为“24bit / 192kHz · FLAC”（不要贴 HIRES 的 96kHz）；FLAC 行规格只写编码名“FLAC”，
+ * 采样率（赫兹）按已定口径不另列一行；播放页音质格口径不动（本面板只改面板内行名与规格）。
  * 按歌列档（不许写死 4 行）：只列当前歌／源实际提供的档——落雪取各启用插件声明的 qualitys 并集
  * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
  * 本地／已下载／未知来源无源档信息，保持 4 档（选档仍走请求上限回落，不冒充源档）。
  * 当前档一定在列（源档里没有当前档时把它补进原位，保证选中态可见；属星辰侧规则，已在对照表标明）。
- * 文件大小：星辰源不给分档文件大小，此处按 时长×档位标称码率 估算（标准 128／极高 320／无损 1000／
- * Hi-Res 2500 kbps），不是服务器实测大小；时长取不到时该行保持“读取中”。估算路径走后台线程，
- * 面板先显“读取中”再填数，读取中态是真实异步槽位，不是摆设。
+ * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——后台逐档取链得真实地址后 HEAD
+ * 取 Content-Length 回填；取不到真实地址／无长度时该行写“未知”，不写估算数、不显示估算列。
  * 点行即回选档值并关面板（与 MusicOptionsDialog 同款行为，调用方判是否变化再切档）。
  */
 public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
@@ -66,22 +64,20 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         final int iconRes;
         final String name;
         final String spec;
-        final int kbps;
 
-        Row(int quality, int iconRes, String name, String spec, int kbps) {
+        Row(int quality, int iconRes, String name, String spec) {
             this.quality = quality;
             this.iconRes = iconRes;
             this.name = name;
             this.spec = spec;
-            this.kbps = kbps;
         }
     }
 
     private static final Row[] ROWS = {
-            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, "Hi-Res", "24bit / 96kHz", 2500),
-            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, "无损", "16bit / 44.1kHz · FLAC", 1000),
-            new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, "极高", "320 kbps", 320),
-            new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, "标准", "128 kbps", 128),
+            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, "母带", "24bit / 192kHz · FLAC"),
+            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, "FLAC", "FLAC"),
+            new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, "320k", "320 kbps"),
+            new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, "128k", "128 kbps"),
     };
 
     private static class Binding implements ViewBinding {
@@ -314,7 +310,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         if (spec != null) spec.setText(r.spec);
         TextView size = row.findViewById(R.id.qr_size);
         if (size != null) {
-            size.setText("读取中");
+            // Q3：无实测前写“未知”，不写估算数；后台 HEAD 到长度后再回填。
+            size.setText("未知");
             size.setTextColor(selected ? RED : GRAY);
             sizeViews.add(size);
         }
@@ -325,44 +322,71 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         });
     }
 
-    /** 星辰档位 → 面板行名（仅面板内显示用，不改选档值与存档）。 */
+    /** Q2：面板行名＝已定四档名（MusicStore.qualityName），与选档／存档同名，不再两套并存。 */
     private static String gzName(int quality) {
-        switch (quality) {
-            case MusicStore.QUALITY_SUPER:
-                return "Hi-Res";
-            case MusicStore.QUALITY_HIGH:
-                return "无损";
-            case MusicStore.QUALITY_LOW:
-                return "标准";
-            default:
-                return "极高";
-        }
+        return MusicStore.qualityName(quality);
     }
 
+    /** 必-7：HEAD 复用单例客户端（连接池复用，不许每档新建；落雪单档总超时 20 秒＋HEAD 5 秒，串行已够久）。 */
+    private static final okhttp3.OkHttpClient HEAD_CLIENT = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build();
+
     /**
-     * 文件大小估算（后台算、主线程填）：时长×档位标称码率。时长取不到（<=0）时不填数，
-     * 该行保持“读取中”，不编一个数出来。
+     * Q3 文件大小实测（后台逐档算、到一行填一行）：每档经仓库取链得真实地址，
+     * 有地址时 HEAD 取 Content-Length 回填；取不到地址／无长度／HEAD 失败时保持“未知”。
+     * 注意：取链走探链口径（probe＝true，只读地址、不记死），面板探链偶发失败不许污染
+     * 同曲真实点播；仅读地址、不改播放状态。串行不并行（避免与探链通道冲突）；
+     * 循环内每档前查存续条件：面板已关／档已刷新就提前退出，不再继续探链（旧口径只靠
+     * isAdded 拦写 UI，关闭后 Task 照跑、4 档串行最坏远超可接受等待）。
+     * 面板关闭或档刷新后旧任务结果不许写进新行。
      */
     private void loadSizesAsync() {
-        if (track == null || track.duration <= 0) return;
-        final long durationMs = track.duration;
+        if (track == null) return;
         final List<Row> rows = shownRows;
         final List<TextView> views = sizeViews;
+        final MusicTrack t = track;
         Task.execute(() -> {
-            final String[] sizes = new String[rows.size()];
             for (int i = 0; i < rows.size(); i++) {
-                double bytes = durationMs / 1000.0 * rows.get(i).kbps * 1000.0 / 8.0;
-                sizes[i] = formatSize(bytes);
-            }
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                // 档刷新后旧任务的结果不许写进新行（占位 4 档→实际档时行数／顺序会变）
+                // 必-7：关闭／刷新后提前退出，不再继续探链（不只拦写 UI）。
                 if (!isAdded() || sizeViews != views) return;
-                for (int i = 0; i < views.size() && i < sizes.length; i++) {
-                    if (views.get(i) != null) views.get(i).setText(sizes[i]);
+                final int idx = i;
+                String label = null;
+                try {
+                    String url = com.fongmi.android.tv.music.MusicRepository.playUrl(
+                            t, rows.get(i).quality, false, true);
+                    if (!isAdded() || sizeViews != views) return;
+                    if (url != null && !url.isEmpty()) {
+                        long len = headContentLength(url);
+                        if (len > 0) label = formatSize(len);
+                    }
+                } catch (Throwable ignored) {
                 }
-            });
+                final String text = label;
+                if (text == null || getActivity() == null) continue;
+                getActivity().runOnUiThread(() -> {
+                    // 档刷新后旧任务的结果不许写进新行（占位 4 档→实际档时行数／顺序会变）
+                    if (!isAdded() || sizeViews != views) return;
+                    if (idx < views.size() && views.get(idx) != null) views.get(idx).setText(text);
+                });
+            }
         });
+    }
+
+    /** HEAD 取 Content-Length（跟随跳转，5 秒超时，复用单例客户端）；无长度／失败返回 -1。 */
+    private static long headContentLength(String url) {
+        okhttp3.OkHttpClient client = HEAD_CLIENT;
+        okhttp3.Request req = new okhttp3.Request.Builder().url(url).head().build();
+        try (okhttp3.Response resp = client.newCall(req).execute()) {
+            if (resp == null || !resp.isSuccessful()) return -1;
+            String len = resp.header("Content-Length");
+            if (len == null) return -1;
+            return Long.parseLong(len.trim());
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
     private static String formatSize(double bytes) {

@@ -5,13 +5,21 @@
     android:layout_marginBottom="12dp"
     android:layout_marginStart="16dp"
     android:layout_marginEnd="16dp"
-    android:background="@drawable/card_music"
+    android:background="@drawable/card_music_glass_24"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="14dp"
     android:paddingTop="14dp"
     android:paddingBottom="14dp"
     android:paddingEnd="14dp">
+
+    <!-- 第三波 B②：插件身份图标位（拼图图标，24dp） -->
+    <ImageView
+        android:id="@+id/pluginIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="12dp"
+        android:src="@drawable/ic_music_puzzle" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -48,7 +56,7 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- GZ 副文案串（单行 11sp）：版本（去 v/V 前缀补 v）· 作者 ·，无独立作者行；两项都空则不显 -->
+        <!-- GZ 副文案串（单行 11sp）：官方／加密／版本／作者／耗时（有数据的段才拼，无数据不编） -->
         <TextView
             android:id="@+id/version"
             android:layout_width="wrap_content"
@@ -58,14 +66,28 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
-        <!-- C4 检测状态文案（GZ 10sp＋圆点，四态色见 MusicPluginTest.labelColor） -->
-        <TextView
-            android:id="@+id/testStatus"
+        <!-- C4 检测状态：6dp 圆点＋10sp 文案（四态色见 MusicPluginTest.labelColor） -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:textColor="#FF8E8E93"
-            android:textSize="10sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/statusDot"
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+                android:background="@drawable/dot_music_status" />
+
+            <TextView
+                android:id="@+id/testStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:textColor="#FF8E8E93"
+                android:textSize="10sp" />
+        </LinearLayout>
 
         <!-- 对照表 P12 失败 message 行内展开（检测失败且 message 非空时显，11sp，色与状态色一致） -->
         <TextView

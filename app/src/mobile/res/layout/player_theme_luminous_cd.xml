@@ -382,11 +382,13 @@
     </LinearLayout>
 
     <!-- 裸图标主控行（行高 80dp：LuminousCdPlayerKt:3055；播放盒 68dp／图标播放态 54／暂停态 58dp 由代码随态改，见 MPA applyPlayButtonSize；
-         行左右内边距 4dp，叠加页 16dp 后合计 20dp；上一首／下一首盒 44dp／图标 32dp，模式／队列盒 44dp／图标 23dp） -->
+         行左右内边距 4dp，叠加页 16dp 后合计 20dp；上一首／下一首盒 44dp／图标 32dp，模式／队列盒 44dp／图标 23dp；
+         建议项：marginTop 由 -10dp 改 -6dp——行高 80dp 与播放盒 68dp 余量仅 6dp，-10dp 侵入时间行约 4dp，-6dp 贴边不侵入；
+         唱片架 -12dp 不动，留待真机核） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="80dp"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="-6dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="4dp"

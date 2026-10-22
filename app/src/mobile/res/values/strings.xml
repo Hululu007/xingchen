@@ -199,6 +199,7 @@
     <string name="music_delete">删除</string>
     <string name="music_tracks">首</string>
     <string name="music_play_all">全部播放</string>
+    <string name="music_play_all_order">播放全部</string>
     <string name="music_shuffle_play">随机播放</string>
     <string name="music_connected">已连接</string>
     <string name="music_unconnected">未连接</string>
@@ -298,7 +299,7 @@
     <string name="music_lyric_not_found">没找到歌词</string>
     <string name="music_no_lyric">暂无歌词</string>
     <string name="music_word_by_word">逐字</string>
-    <string name="music_set_clear_cache">清除音乐缓存</string>
+    <string name="music_set_clear_cache">清除图片缓存</string>
     <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
     <string name="music_play_failed_stopped">播放失败，已停止</string>
     <string name="music_play_stopped_title">音乐已停止</string>
@@ -312,7 +313,7 @@
     <string name="music_sleep_channel">定时结束提醒</string>
     <string name="music_sleep_title">定时结束</string>
     <string name="music_play_unavailable">这首播不了</string>
-    <string name="music_cache_cleared">音乐缓存已清除</string>
+    <string name="music_cache_cleared">图片缓存已清除</string>
 
     <!-- 音乐工具面板 / 全屏歌词页（2026-10-21，只追加） -->
     <string name="music_back">返回</string>

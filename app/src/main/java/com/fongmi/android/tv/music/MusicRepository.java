@@ -20,6 +20,7 @@ import com.fongmi.android.tv.api.music.QqChartSource;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.utils.LocalTrackMeta;
+import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
@@ -37,6 +38,55 @@ public class MusicRepository {
 
     private static final List<MusicSource> SOURCES = new CopyOnWriteArrayList<>();
     private static boolean debugTried;
+    /**
+     * P-3d：同曲一次取链内的死指派插件／死通道缓存（单条当前取链，不按歌建表、不跨歌保留）。
+     * 只拦得住 Repository 层指派单试这一条通道：指派插件失败后，本次取链的降档循环不再重进它，
+     * 直接走源内取链；源内死标记由源自己管（Lx／FreeJs 各有同口径死集）。
+     * 第二波堵-4：死键＝插件＋档位（srcUrl＋MusicStore.QUALITY_* 档值，与源内插件＋档位同口径，
+     * 降档顺序与黑名单阈值不动）——某档死掉不许连坐其它档；换歌／新一次取链开始时清掉
+     * （服务 prepareTrack 入口调 clearDeadPlayUrlAttempt，本方法同时清仓库层与两源内死集，
+     * 不许只清仓库层）；并发取链下单缓存以后到者为准，不建多歌表防串歌。
+     */
+    private static final Object DEAD_PLAY_URL_LOCK = new Object();
+    private static String deadPlayUrlTrackKey = "";
+    private static final Set<String> deadAssignedPlayUrlPlugins = new HashSet<>();
+
+    /** P-3d＋第二波堵-4：新一次取链开始时清掉上次取链的死插件记录（仓库层＋Lx＋FreeJs 三处一起清）。 */
+    public static void clearDeadPlayUrlAttempt() {
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            deadPlayUrlTrackKey = "";
+            deadAssignedPlayUrlPlugins.clear();
+        }
+        LxMusicSource.clearDeadPlayUrlAttempt();
+        FreeJsBridge.clearDeadPlayUrlAttempt();
+    }
+
+    private static String deadAssignedKey(String srcUrl, int quality) {
+        return srcUrl + "|" + quality;
+    }
+
+    private static boolean isDeadAssigned(String trackKey, String srcUrl, int quality) {
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            if (trackKey == null || srcUrl == null) return false;
+            if (!trackKey.equals(deadPlayUrlTrackKey)) {
+                deadPlayUrlTrackKey = trackKey;
+                deadAssignedPlayUrlPlugins.clear();
+                return false;
+            }
+            return deadAssignedPlayUrlPlugins.contains(deadAssignedKey(srcUrl, quality));
+        }
+    }
+
+    private static void markDeadAssigned(String trackKey, String srcUrl, int quality) {
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            if (trackKey == null || srcUrl == null) return;
+            if (!trackKey.equals(deadPlayUrlTrackKey)) {
+                deadPlayUrlTrackKey = trackKey;
+                deadAssignedPlayUrlPlugins.clear();
+            }
+            deadAssignedPlayUrlPlugins.add(deadAssignedKey(srcUrl, quality));
+        }
+    }
 
     static {
         // 本地音乐源常驻：已下载歌曲（platform="local"）走文件直链，播放链不动
@@ -244,6 +294,20 @@ public class MusicRepository {
      * 二次对歌校验，现有取链亦不做）。其余取链行为一字不动：歌词链路不在此方法内。
      */
     public static String playUrl(MusicTrack track, int quality) {
+        return playUrl(track, quality, false);
+    }
+
+    /** 第三波 A4：manualOriginFallback＝true 时，仅插件策略（pluginOnly）下指派失败不再直接停住，
+     * 对手动点的歌回落一次原插件（自动推进／预加载／下载走 2 参口径，策略原样）。 */
+    public static String playUrl(MusicTrack track, int quality, boolean manualOriginFallback) {
+        return playUrl(track, quality, manualOriginFallback, false);
+    }
+
+    /**
+     * 第二波堵-4 探链口径：probe＝true 时只读地址、不记死（音质面板逐档算大小走这条）。
+     * 探链仍尊重已死标记（不替真实取链翻案），只不产生新标记；降档顺序、黑名单阈值不动。
+     */
+    public static String playUrl(MusicTrack track, int quality, boolean manualOriginFallback, boolean probe) {
         if (track == null) return null;
         MusicSource s = find(track.platform);
         if (s == null) return null;
@@ -260,6 +324,17 @@ public class MusicRepository {
             if (!available) {
                 SpiderDebug.log("music", "playUrl assigned unavailable platform=%s srcUrl=%s fallback",
                         track.platform, assigned);
+            } else if (isDeadAssigned(MusicQueue.trackKey(track), site.srcUrl, quality)) {
+                // P-3d：本次取链内已死过的指派插件不再重进单试；仅插件策略下直接判空（原口径），
+                // 否则跳过单试、直接走源内取链（源内遍历不在本层拦，见字段注释）。
+                boolean pluginOnly = false;
+                try {
+                    pluginOnly = MusicStore.LINK_POLICY_PLUGIN_ONLY.equals(MusicStore.getLinkPolicy());
+                } catch (Throwable ignored) {
+                }
+                if (pluginOnly && !manualOriginFallback) return null;
+                SpiderDebug.log("music", "playUrl assigned dead skipped platform=%s srcUrl=%s",
+                        track.platform, assigned);
             } else if (!isSameOriginPlugin(track, site)) {
                 boolean pluginOnly = false;
                 try {
@@ -267,20 +342,24 @@ public class MusicRepository {
                 } catch (Throwable ignored) {
                 }
                 try {
-                    String url = assignedPlayUrl(track, quality, site);
+                    String url = assignedPlayUrl(track, quality, site, probe);
                     if (url != null && !url.isEmpty()) return url;
-                    if (pluginOnly) return null;
+                    if (!probe) markDeadAssigned(MusicQueue.trackKey(track), site.srcUrl, quality);
+                    if (pluginOnly && !manualOriginFallback) return null;
+                    if (pluginOnly) SpiderDebug.log("music",
+                            "playUrl assigned failed, manual fallback to origin platform=%s", track.platform);
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
+                    if (!probe) markDeadAssigned(MusicQueue.trackKey(track), site.srcUrl, quality);
                     SpiderDebug.log("music", "playUrl assigned error platform=%s srcUrl=%s %s",
                             track.platform, assigned, t.getMessage());
-                    if (pluginOnly) return null;
+                    if (pluginOnly && !manualOriginFallback) return null;
                 }
             }
             // 同源跳过：现有路径本来就是该桥，不进单试／不触发 pluginOnly 停住，直接走现有路径
         }
         try {
-            return s.playUrl(track, quality);
+            return s.playUrl(track, quality, probe);
         } catch (Throwable t) {
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "playUrl error platform=%s %s", track.platform, t.getMessage());
@@ -305,16 +384,16 @@ public class MusicRepository {
                 && site.srcUrl != null && site.srcUrl.equals(originPluginOf(track));
     }
 
-    /** 单插件取链：freejs 走指派桥 getMediaSource；lx 走单脚本 playUrlWithPlugin */
-    private static String assignedPlayUrl(MusicTrack track, int quality, MusicSite site) throws Exception {
+    /** 单插件取链：freejs 走指派桥 getMediaSource；lx 走单脚本 playUrlWithPlugin；probe 透传两处死检查 */
+    private static String assignedPlayUrl(MusicTrack track, int quality, MusicSite site, boolean probe) throws Exception {
         if (FreeJsMusicSource.PLATFORM.equals(track.platform)) {
             FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
             if (b == null) return null;
-            MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality));
+            MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality), probe);
             return ms == null ? null : ms.url;
         }
         if (LxMusicSource.PLATFORM.equals(track.platform)) {
-            return new LxMusicSource().playUrlWithPlugin(track, quality, site.srcUrl);
+            return new LxMusicSource().playUrlWithPlugin(track, quality, site.srcUrl, probe);
         }
         return null;
     }
@@ -399,17 +478,76 @@ public class MusicRepository {
     }
 
     /**
-     * lyric() 的 rich 版：词级优先——本源带词级时间直接返回；本源只有行级时不
-     * 立即返回，继续往后找词级（同源其它插件→跨源→歌词型插件→Worker 聚合
-     * （主来源，已接线：cfLyricWord）→平台直连回落→AMLL 兜底），
-     * 全程没词级才回落到首个行级命中；原来有词的歌绝不因此变无词。
-     * 「歌词缺失自动搜索」开关（force 例外）同样生效；FreeJS/落雪源走各自的
+     * lyric() 的 rich 版：按在线歌词优先级（MusicStore.getLyricPriority）选版。
+     * 默认 wordByWord＝旧行为：本源带词级时间直接返回；本源只有行级时不立即返回，
+     * 继续往后找词级（同源其它插件→跨源→歌词型插件→Worker 聚合（主来源，已接线：
+     * cfLyricWord）→平台直连回落→AMLL 兜底），全程没词级才回落到首个行级命中。
+     * 逐行／AMLL／跟随来源模式下，旧“见词即返”不再截断链：各步命中只进 LyricPick 桶，
+     * 首选命中才立即返回，其余走完链后按优先级次序取；始终保留回落链，原来有词的歌
+     * 绝不因此变无词。Worker／平台直连两步仍只出词级版（回包口径不动），逐行／AMLL
+     * 模式下它们只记词级回落桶，不单独成首选。
+     * 「歌词缺失自动搜索」开关（force 例外）与 AMLL 门控口径不变；FreeJS/落雪源走各自的
      * rich 通道保住译/音译/逐字正文，其它源只有纯文本，包成只有正文的 MusicLyric。
      */
+    /**
+     * L10 版本 key（持久化／恢复共用同一算法）：档位＋正文内容哈希；正文空时用译文＋音译拼接哈希
+     * （与 addVersion 去重口径同源）。来源不进 key：同一正文换源聚合去重后只留首个版本，
+     * 按来源硬匹配会把同文版本判成恢复失败；来源单独存 MusicStore，仅作展示／排障。
+     * 后波播放页 applyLyricVersion 点选时调 saveManualLyricChoice 存，点选即生效、下次同曲恢复。
+     */
+    public static String lyricVersionKey(LyricVersion version) {
+        if (version == null || version.getLyric() == null) return "";
+        MusicLyric lyric = version.getLyric();
+        String raw = lyric.rawLrc == null ? "" : lyric.rawLrc.trim();
+        if (raw.isEmpty()) {
+            raw = (lyric.translation == null ? "" : lyric.translation.trim())
+                    + "|" + (lyric.romanization == null ? "" : lyric.romanization.trim());
+        }
+        if (raw.isEmpty()) return "";
+        return version.kindLabel() + "#" + raw.hashCode();
+    }
+
+    /** L10：播放页点选版本时存（歌曲 key→版本 key／来源），不要复用播放页内存 currentLyricKey。 */
+    public static void saveManualLyricChoice(MusicTrack track, LyricVersion version) {
+        if (track == null || version == null) return;
+        String key = lyricVersionKey(version);
+        if (key.isEmpty()) return;
+        MusicStore.setManualLyricChoice(MusicQueue.trackKey(track), key, version.getSource());
+    }
+
     public static MusicLyric lyricRich(MusicTrack track, boolean force) {
         if (track == null) return null;
+        // L10：非手动重搜时先试恢复上次手动选的版本（瓜子 restoreManualLyricChoice 口径）。
+        // 恢复用全量聚合（lyricRichAllDetailed）匹配版本 key，命中即直接返回该版，不走快路径优先级；
+        // 完整聚合里找不到才清除存值并通知一次“已失效”再走快路径——不许静默回落首版。
+        // 不完整聚合里找不到时不弹“已失效”、不清除存值，只走快路径（见 B8 注释）。
+        // 手动重搜（force）是用户要找新版，不恢复旧选；聚合本身抛错（网络等）时不弹“已失效”，
+        // 只记日志走快路径，免得把网络失败说成版本失效；密钥问题照旧重抛给播放页弹密钥提示。
+        if (!force) {
+            String stored = MusicStore.getManualLyricChoice(MusicQueue.trackKey(track));
+            String wantKey = MusicStore.manualLyricChoiceKey(stored);
+            if (!wantKey.isEmpty()) {
+                try {
+                    // B8：恢复只认完整聚合——不完整（某步 transient 失败／歌词缺失开关关导致提前截断）
+                    // 时不弹“已失效”，只走快路径，且不清除存值（下次播同一首歌可再试恢复）；
+                    // 完整聚合确认缺失后才清除存值并提示一次（清除后下次播不再重复提示）。
+                    LyricRichAllResult agg = lyricRichAllDetailed(track, false);
+                    for (LyricVersion v : agg.versions) {
+                        if (wantKey.equals(lyricVersionKey(v))) return v.getLyric();
+                    }
+                    if (agg.complete) {
+                        MusicStore.clearManualLyricChoice(MusicQueue.trackKey(track));
+                        Notify.show("手动选择的歌词版本已失效，已按默认重新取词");
+                    }
+                } catch (Throwable t) {
+                    rethrowKeyIssue(t);
+                    SpiderDebug.log("music", "manual lyric restore error %s", t.getMessage());
+                }
+            }
+        }
         MusicSource s = find(track.platform);
         if (s == null) return null;
+        LyricPick pick = new LyricPick(MusicStore.getLyricPriority());
         MusicLyric own = null;
         try {
             own = normalizeRich(richOf(s, track));
@@ -417,8 +555,8 @@ public class MusicRepository {
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
-        if (hasWordLyric(own)) return own;
-        MusicLyric lineFallback = hasRaw(own) ? own : null;
+        MusicLyric hit = pick.note(own);
+        if (hit != null) return hit;
 
         if (!force && !MusicStore.isLyricFallback()) return own != null && own.hasLyric() ? own : null;
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
@@ -428,8 +566,8 @@ public class MusicRepository {
         if (s instanceof FreeJsMusicSource) {
             try {
                 MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRich(track));
-                if (hasWordLyric(fb)) return fb;
-                if (lineFallback == null && hasRaw(fb)) lineFallback = fb;
+                hit = pick.note(fb);
+                if (hit != null) return hit;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich fallback error %s", t.getMessage());
             }
@@ -439,11 +577,11 @@ public class MusicRepository {
             for (MusicSource other : SOURCES) {
                 if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
                 try {
-                    MusicTrack hit = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
-                    if (hit == null) continue;
-                    MusicLyric lrc = normalizeRich(richOf(other, hit));
-                    if (hasWordLyric(lrc)) return lrc;
-                    if (lineFallback == null && hasRaw(lrc)) lineFallback = lrc;
+                    MusicTrack hitTrack = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
+                    if (hitTrack == null) continue;
+                    MusicLyric lrc = normalizeRich(richOf(other, hitTrack));
+                    hit = pick.note(lrc);
+                    if (hit != null) return hit;
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
                     SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
@@ -455,8 +593,8 @@ public class MusicRepository {
             if (!(other instanceof FreeJsMusicSource)) continue;
             try {
                 MusicLyric lrc = normalizeRich(((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track));
-                if (hasWordLyric(lrc)) return lrc;
-                if (lineFallback == null && hasRaw(lrc)) lineFallback = lrc;
+                hit = pick.note(lrc);
+                if (hit != null) return hit;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
             }
@@ -465,11 +603,13 @@ public class MusicRepository {
         // 4. Worker 聚合（主来源，已接线）：cfLyricWord 只认本地解析逐字，
         // 弱网／超时回空，不阻塞回落；回包口径不动。
         MusicLyric cf = cfLyricWord(track);
-        if (hasWordLyric(cf)) return cf;
+        hit = pick.note(cf);
+        if (hit != null) return hit;
         // 5. 平台直连回落（Worker 不可用时才走：酷狗 KRC → QQ QRC → 网易云 YRC）：只认词级，行级不截断
         try {
             MusicLyric platform = new PlatformWordLyricSource().lyricRich(track);
-            if (hasWordLyric(platform)) return platform;
+            hit = pick.note(platform);
+            if (hit != null) return hit;
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
         }
@@ -478,13 +618,13 @@ public class MusicRepository {
         if (MusicStore.isAmllEnabled()) {
             try {
                 MusicLyric amll = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
-                if (hasWordLyric(amll)) return amll;
-                if (lineFallback == null && hasRaw(amll)) lineFallback = amll;
+                hit = pick.note(amll);
+                if (hit != null) return hit;
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
             }
         }
-        return lineFallback != null ? lineFallback : (own != null && own.hasLyric() ? own : null);
+        return pick.pick(own);
     }
 
     /**
@@ -517,17 +657,18 @@ public class MusicRepository {
      * 因此 Worker 行级版（如现阶段 QQ 行级）在这里只签逐行，不冒充逐字；
      * QQ 逐字（QRC）目前拿不到，不写成已通。
      */
+    /**
+     * B8：Worker 失败不许在本层吞掉——异常直接抛给 lyricRichAll 第 4 步的 catch，
+     * 由它记不完整（旧口径这里 catch 后返回部分列表，恢复判失效会误报）；空回包
+     * （response＝null）不是失败，返回空列表、聚合仍完整。
+     */
     private static List<MusicLyric> cfLyricWordAll(MusicTrack track) {
         List<MusicLyric> out = new ArrayList<>();
-        try {
-            CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
-            if (response == null) return out;
-            for (CfLyricClient.CfVersion version : response.versions) {
-                MusicLyric lyric = toMusicLyric(version);
-                if (lyric != null && hasRaw(lyric)) out.add(lyric);
-            }
-        } catch (Throwable t) {
-            SpiderDebug.log("music", "lyricRichAll cf word error %s", t.getMessage());
+        CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
+        if (response == null) return out;
+        for (CfLyricClient.CfVersion version : response.versions) {
+            MusicLyric lyric = toMusicLyric(version);
+            if (lyric != null && hasRaw(lyric)) out.add(lyric);
         }
         return out;
     }
@@ -555,19 +696,124 @@ public class MusicRepository {
         return false;
     }
 
+    /** 逐行判定：有行时间且无词时间（逐字版行时间同样真，必须先排词）；与 LyricVersion 档位同一口径 */
+    private static boolean hasLineOnlyLyric(MusicLyric lyric) {
+        if (!hasRaw(lyric)) return false;
+        boolean line = false;
+        try {
+            for (LyricsLine l : LyricsParser.parseWordLyric(lyric.rawLrc)) {
+                if (l == null) continue;
+                if (l.hasWords()) return false;
+                if (l.getTimeMs() > 0) line = true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return line;
+    }
+
+    /**
+     * AMLL 判定：只认来源名 sourceName＝"AMLL"。Worker 版 format 是 TTML（见 CfLyricClient，
+     * 其 format 进 toMusicLyric 后是 TTML），只判 format 会漏 Worker 的 AMLL 版；且 LyricVersion
+     * 侧可靠标识同样只有 getSource()＝"AMLL"，此处与版本列表同一口径，不另判 format／platform。
+     */
+    private static boolean isAmllLyric(MusicLyric lyric) {
+        return lyric != null && "AMLL".equals(lyric.sourceName);
+    }
+
+    /** LyricVersion 侧 AMLL 判定：只认 getSource()＝"AMLL"，不判 format（同 isAmllLyric 口径） */
+    private static boolean isAmllVersion(LyricVersion v) {
+        return v != null && "AMLL".equals(v.getSource());
+    }
+
+    /**
+     * 快路径选词桶（在线歌词优先级用）：沿回退链逐个记，不过滤、不丢回落。
+     * note() 在命中本模式首选时直接回传该版（调用方立即返回，与旧逐字立即返回同形）；
+     * 否则只记桶、回 null 让链继续走。pick() 在链走完后按优先级次序取，兜底链顺序首个
+     * 有正文版，再兜底本源有词版——原来有词的歌绝不因此变无词。
+     * 各模式首选：wordByWord 逐字（默认＝旧行为）／lineByLine 逐行／amllFirst AMLL／
+     * followSource 链序首个有正文版（保来源顺序）。
+     */
+    private static class LyricPick {
+        private final String priority;
+        private MusicLyric firstRaw;
+        private MusicLyric firstWord;
+        private MusicLyric firstLineOnly;
+        private MusicLyric firstAmll;
+
+        LyricPick(String priority) {
+            this.priority = priority;
+        }
+
+        MusicLyric note(MusicLyric lyric) {
+            if (!hasRaw(lyric)) return null;
+            if (firstRaw == null) firstRaw = lyric;
+            boolean word = hasWordLyric(lyric);
+            if (word && firstWord == null) firstWord = lyric;
+            boolean lineOnly = !word && hasLineOnlyLyric(lyric);
+            if (lineOnly && firstLineOnly == null) firstLineOnly = lyric;
+            if (isAmllLyric(lyric) && firstAmll == null) firstAmll = lyric;
+            if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(priority)) return lyric;
+            if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(priority) && lineOnly) return lyric;
+            if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(priority) && isAmllLyric(lyric)) return lyric;
+            // 逐字立即返回只属于默认 wordByWord：逐行／AMLL 模式下词版只记桶、不截断链，
+            // 否则后到的逐行／AMLL 版永远等不到，设置成假设置（getLyricPriority 已保证四值之一）。
+            if (MusicStore.LYRIC_PRIORITY_WORD_BY_WORD.equals(priority) && word) return lyric;
+            return null;
+        }
+
+        MusicLyric pick(MusicLyric own) {
+            if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(priority)) {
+                if (firstLineOnly != null) return firstLineOnly;
+                if (firstWord != null) return firstWord;
+            } else if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(priority)) {
+                if (firstAmll != null) return firstAmll;
+                if (firstWord != null) return firstWord;
+                if (firstLineOnly != null) return firstLineOnly;
+            }
+            if (firstRaw != null) return firstRaw;
+            if (own != null && own.hasLyric()) return own;
+            return null;
+        }
+    }
+
     /**
      * lyricRich 的全量版（B2）：同一条回退链，但收集全部实际命中，不截断；去重口径 rawLrc.trim()。
      * 返回按链顺序排列的版本列表；force／歌词缺失开关口径与 lyricRich 一致。
      * 注意：本方法会多发网络请求（同源插件＋跨源＋歌词插件＋Worker 聚合＋平台直连回落＋AMLL），只供版本筛选条用，不替代快路径 lyricRich。
-     * 返回前做稳定分区：词级版本在前（链顺序不变）、其余在后，与快路径口径一致；
+     * 返回前按在线歌词优先级做稳定分区（桶内保链顺序）：wordByWord 逐字／逐行／纯文本；
+     * lineByLine 逐行／逐字／纯文本；amllFirst source＝"AMLL" 在前、其后逐字／逐行／纯文本；
+     * followSource 不分区、保收集序。默认 wordByWord 的逐字在前与快路径口径一致；
      * 逐字标签仍由 addVersion 本地解析各版本正文判定，不认任何回包自带的档位宣称——Worker 只是多格式聚合来源，不是标签依据。
      */
+    /**
+     * B8 全量聚合结果：versions＝实际拿到的版本；complete＝聚合是否跑完整条链。
+     * 不完整＝提前截断（歌词缺失开关关时只返回本源版、查询序列为空时后续步没跑、
+     * 歌／源为空时根本没聚合）或任一步 transient 失败（各步 catch 后继续时记不完整，
+     * 不许拿部分列表当全量判版本失效）。AMLL 门控关时跳过是既定配置，不记不完整。
+     */
+    public static class LyricRichAllResult {
+        public final List<LyricVersion> versions;
+        public final boolean complete;
+
+        LyricRichAllResult(List<LyricVersion> versions, boolean complete) {
+            this.versions = versions;
+            this.complete = complete;
+        }
+    }
+
+    /** 旧口径（版本筛选条用）：只取版本列表，不看完整标志；恢复判失效走 lyricRichAllDetailed。 */
     public static List<LyricVersion> lyricRichAll(MusicTrack track, boolean force) {
+        return lyricRichAllDetailed(track, force).versions;
+    }
+
+    /** B8：与 lyricRichAll 同一条链，但带回是否完整（恢复判失效只认完整聚合）。 */
+    public static LyricRichAllResult lyricRichAllDetailed(MusicTrack track, boolean force) {
         List<LyricVersion> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        if (track == null) return out;
+        boolean complete = true;
+        if (track == null) return new LyricRichAllResult(out, false);
         MusicSource s = find(track.platform);
-        if (s == null) return out;
+        if (s == null) return new LyricRichAllResult(out, false);
         try {
             MusicLyric ownRich = normalizeRich(richOf(s, track));
             if (ownRich != null && (ownRich.sourceName == null || ownRich.sourceName.isEmpty())) {
@@ -576,11 +822,12 @@ public class MusicRepository {
             addVersion(out, seen, ownRich);
         } catch (Throwable t) {
             rethrowKeyIssue(t);
+            complete = false;
             SpiderDebug.log("music", "lyricRichAll error platform=%s %s", track.platform, t.getMessage());
         }
-        if (!force && !MusicStore.isLyricFallback()) return out;
+        if (!force && !MusicStore.isLyricFallback()) return new LyricRichAllResult(out, false);
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
-        if (queries.isEmpty()) return out;
+        if (queries.isEmpty()) return new LyricRichAllResult(out, false);
 
         // 1. 本源内部的其它插件（FreeJS 多插件／落雪插件循环，全量，不截断）
         try {
@@ -595,6 +842,7 @@ public class MusicRepository {
             }
         } catch (Throwable t) {
             rethrowKeyIssue(t);
+            complete = false;
             SpiderDebug.log("music", "lyricRichAll fallback error %s", t.getMessage());
         }
         // 2. 其它源（本地源跳过）：每源各收一命中；本地歌按查询序列逐级收（去重在 addVersion）
@@ -611,6 +859,7 @@ public class MusicRepository {
                     addVersion(out, seen, alt);
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
+                    complete = false;
                     SpiderDebug.log("music", "lyricRichAll alt search error platform=%s %s", other.platform(), t.getMessage());
                 }
             }
@@ -623,6 +872,7 @@ public class MusicRepository {
                     addVersion(out, seen, normalizeRich(l));
                 }
             } catch (Throwable t) {
+                complete = false;
                 SpiderDebug.log("music", "lyricRichAll plugin search error %s", t.getMessage());
             }
             break;
@@ -634,6 +884,7 @@ public class MusicRepository {
                 addVersion(out, seen, normalizeRich(l));
             }
         } catch (Throwable t) {
+            complete = false;
             SpiderDebug.log("music", "lyricRichAll cf word error %s", t.getMessage());
         }
         // 5. 平台直连回落（Worker 不可用时才走：酷狗／QQ／网易云各收一词级版；行级不收，版本条只显真实版本）
@@ -642,6 +893,7 @@ public class MusicRepository {
                 addVersion(out, seen, normalizeRich(l));
             }
         } catch (Throwable t) {
+            complete = false;
             SpiderDebug.log("music", "lyricRichAll platform word error %s", t.getMessage());
         }
         // 6. AMLL（B8）；S6 门控：关时跳过，默认开行为不变
@@ -649,19 +901,35 @@ public class MusicRepository {
             try {
                 addVersion(out, seen, normalizeRich(new AmllMusicLyricSource().lyricRich(track)));
             } catch (Throwable t) {
+                complete = false;
                 SpiderDebug.log("music", "lyricRichAll amll error %s", t.getMessage());
             }
         }
-        // 词级优先：词级版本在前（链顺序不变），与快路径口径一致；无词级时顺序不变
+        // 在线歌词优先级分区（稳定：桶内保链顺序；逐行＝行时间且无词时间，纯文本＝无词无行时间）。
+        // followSource 不分区：原样返回收集序。AMLL 只认 getSource()＝"AMLL"，不判 format。
+        String priority = MusicStore.getLyricPriority();
+        if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(priority)) return new LyricRichAllResult(out, complete);
+        List<LyricVersion> amll = new ArrayList<>();
         List<LyricVersion> word = new ArrayList<>();
-        List<LyricVersion> rest = new ArrayList<>();
+        List<LyricVersion> line = new ArrayList<>();
+        List<LyricVersion> plain = new ArrayList<>();
         for (LyricVersion v : out) {
-            if (v.isWordTimed()) word.add(v); else rest.add(v);
+            if (isAmllVersion(v)) amll.add(v);
+            else if (v.isWordTimed()) word.add(v);
+            else if (v.isLineTimed()) line.add(v);
+            else plain.add(v);
         }
         out.clear();
-        out.addAll(word);
-        out.addAll(rest);
-        return out;
+        if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(priority)) out.addAll(amll);
+        if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(priority)) {
+            out.addAll(line);
+            out.addAll(word);
+        } else {
+            out.addAll(word);
+            out.addAll(line);
+        }
+        out.addAll(plain);
+        return new LyricRichAllResult(out, complete);
     }
 
     /** B4：密钥问题错误不许被回退链吞掉——解包重抛；其余照旧记日志 */
@@ -787,11 +1055,11 @@ public class MusicRepository {
     }
 
     /**
-     * 本地歌在线封面兜底：按净歌名逐级搜在线源（跳过本地／设备源），命中即返回封面地址；
-     * 在线歌不走这里。播放页本地歌无封面时后台调一次，命中后补上封面。
+     * 在线封面兜底：按净歌名逐级搜在线源（跳过本地／设备源），命中即返回封面地址；
+     * 播放页当前曲无封面时后台调一次，命中后补上封面。第三波 A3：去掉仅本地歌门，在线歌也可用。
      */
     public static String onlineCover(MusicTrack track) {
-        if (track == null || !LocalTrackMeta.isLocalPlatform(track.platform)) return null;
+        if (track == null) return null;
         for (LocalTrackMeta.Query q : LocalTrackMeta.queries(track.title, track.artist, track.platform)) {
             if (q.keyword == null || q.keyword.isEmpty()) continue;
             MusicTrack target = matchTarget(track, q.matchTitle);

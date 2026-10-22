@@ -39,6 +39,7 @@ import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -92,11 +93,15 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         return true;
     }
 
-    // 贴底锚定（接上面）：行为层两次都没把 sheet 钉到底部（1.4.4 WRAP_CONTENT 窗口贴顶、1.4.5 全高＋重力 BOTTOM 仍贴顶），
-    // 所以不再靠行为定位：sheet 布局重力改 BOTTOM、行为置空，CoordinatorLayout 默认布局即把 sheet 放在底部；
-    // 面板本就锁定展开（无折叠态、不可拖拽收起），行为除定位外无用户可见功能，拿掉不影响 ✕／点外／系统返回关闭；
-    // 高度策略（0.68 钳）不动，高度变化后重布局仍走重力，始终贴底。基类 setBehavior 不调用——
-    // 它会 BottomSheetBehavior.from(sheet) 取行为并设展开态，与置空冲突；透明底处理照基类原样保留。
+    // 贴底锚定（2026-10-22 04:41／04:44 崩溃根因修，1.4.6 回归）：
+    // 上一版把行为置空（clp.setBehavior(null)）想靠重力贴底，结果 Material 1.14 的
+    // BottomSheetDialog 在分发窗口 insets 时内部必调 BottomSheetBehavior.from(sheet)，
+    // 行为一空就抛「The view is not associated with BottomSheetBehavior」，开队列面板即崩，
+    // 栈顶 onApplyWindowInsets → BottomSheetBehavior.from 与此完全对上，且树里只有这一处
+    // 置空行为、也只在 1.4.6 才进。行为一律不许置空。
+    // 贴底改走工具面板同款已验证口径：行为保留、fitToContents 关、不可拖拽、跳过折叠、
+    // 展开态，并按实测高度显式定 expandedOffset＝屏高－面板高；高度变化时布局监听重定，
+    // 0.68 钳不动。✕／点外／系统返回关闭不受影响。
     // GZ 对照：PlayQueueSheet 是标准底部弹窗（从底下上来、底部贴屏底、顶部圆角、上方遮罩），本修后形态与之同款。
     @Override
     protected void setBehavior(BottomSheetDialog dialog) {
@@ -114,11 +119,29 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         ViewGroup.LayoutParams lp = sheet.getLayoutParams();
         if (lp instanceof CoordinatorLayout.LayoutParams) {
             CoordinatorLayout.LayoutParams clp = (CoordinatorLayout.LayoutParams) lp;
-            clp.setBehavior(null);
             clp.gravity = Gravity.BOTTOM;
             sheet.setLayoutParams(clp);
         }
-        sheet.requestLayout();
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        behavior.setFitToContents(false);
+        behavior.setDraggable(false);
+        behavior.setSkipCollapsed(true);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        sheet.addOnLayoutChangeListener((v, left, top, right, bottom,
+                                         oldLeft, oldTop, oldRight, oldBottom) -> {
+            int h = bottom - top;
+            int oldH = oldBottom - oldTop;
+            if (h > 0 && h != oldH) anchorSheet(sheet, behavior, h);
+        });
+        sheet.post(() -> anchorSheet(sheet, behavior, sheet.getHeight()));
+    }
+
+    private void anchorSheet(FrameLayout sheet, BottomSheetBehavior<FrameLayout> behavior, int height) {
+        if (sheet == null || behavior == null || height <= 0 || getContext() == null) return;
+        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
+        behavior.setPeekHeight(height);
+        behavior.setExpandedOffset(Math.max(0, screenH - height));
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
     }
 
     @Override
@@ -131,7 +154,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         MusicController.get().addListener(queueListener);
         // 窗口全高＋重力 BOTTOM（1.4.5）：注意，此举本身钉不住面板——1.4.5 实拍仍贴顶（屏顶约 100px 到 62% 高），
         // 行为层在布局时没有把 sheet 偏移到底部，sheet 留在 CoordinatorLayout 默认的顶部位置；
-        // 满高窗口下重力无意义。真正的贴底锚定在下面的 setBehavior 重写里（sheet 重力 BOTTOM＋行为置空），
+        // 满高窗口下重力无意义。真正的贴底锚定在下面的 setBehavior 重写里（sheet 重力 BOTTOM＋行为保留、expandedOffset 锚定），
         // 这里只保留窗口全高（遮罩覆盖整屏）与宽 MATCH_PARENT（右缘防裁切原意保留）；
         // 面板自身最大高 0.68 屏高见下面（内容短时不撑满）。只改队列（基类与其他面板不动）。
         try {
@@ -178,9 +201,18 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 int from = vh.getBindingAdapterPosition();
                 int to = target.getBindingAdapterPosition();
                 if (from < 0 || to < 0 || from >= tracks.size() || to >= tracks.size()) return false;
+                // 复核 B5：随机模式下 MusicQueue.move 只动 shuffleOrder、from／to 是原队列序号，
+                // 面板 tracks 仍是原队列顺序；本地再 Collections.swap 就会让面板顺序脱离原队列，
+                // 同一次拖动的下一步／之后的删除再按面板位置传序号就动错歌。随机模式下本地面板
+                // 一律不动（也不 notifyItemMoved，否则 RecyclerView 的适配器位置同样漂移，
+                // 下一步 from／to 就不再是原队列序号）；只保留队列 move 的 shuffleOrder 换算，
+                // 拖完 clearView 的 refresh() 会按原队列重载面板。非随机模式照旧本地换位＋动画。
+                boolean shuffle = MusicController.get().getMode() == MusicQueue.MODE_SHUFFLE;
                 MusicController.get().move(from, to);
-                Collections.swap(tracks, from, to);
-                adapter.notifyItemMoved(from, to);
+                if (!shuffle) {
+                    Collections.swap(tracks, from, to);
+                    adapter.notifyItemMoved(from, to);
+                }
                 // 拖动触觉（GZ：目标下标变更时 a(9)＝TEXT_HANDLE_MOVE）
                 if (to != lastDragTarget) {
                     vh.itemView.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE);
@@ -401,32 +433,40 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     /**
      * 来源行（GZ Q02）：优先读入队时写的队列级来源／route（B7：MusicQueue.source／route，
      * 榜单／随心听／列表页起播时写入，断点恢复时同存同取）；老断点队列无此信息时回落旧反查口径。
-     * 有可解析 route 才给 › 且可点跳来源页；无 route／route 无落点时只展示、不可点、无 ›（与 GZ 无 route 形态一致）。
+     * D14：route 非空时一律可点回来源页——可解析的跳落点，认不出的 route 不静默隐藏 › 且不可点，
+     * 点了给提示；无 route 时只展示、不可点、无 ›（与 GZ 无 route 形态一致）。标签空时兜底“未知来源”。
      */
     private void bindSourceRow() {
         String label = MusicController.get().queueSource();
         String route = MusicController.get().queueRoute();
         // T1：源对象存在即显示——队列级来源非空＝存在；否则回落“全队一致”（平台标签一致＝存在），
         // 标签空不等于无来源：一致但标签空时显示“未知来源”，不再整行隐藏；真正无来源（不一致／空队）才隐藏。
+        // D14 兜底补全：标签查不到（平台未知）时也按“全队同平台”算一致，标签空走未知来源，不整行隐藏。
         boolean sourceKnown = label != null && !label.isEmpty();
         if (!sourceKnown) {
-            boolean uniform = !tracks.isEmpty();
+            boolean labelUniform = !tracks.isEmpty();
+            boolean platformUniform = !tracks.isEmpty();
             String common = null;
+            String commonPlatform = null;
+            String firstLabel = null;
             for (MusicTrack t : tracks) {
                 String l = sourceLabel(t);
-                if (l == null) {
-                    uniform = false;
-                    break;
-                }
-                if (common == null) common = l;
-                else if (!common.equals(l)) {
-                    uniform = false;
-                    break;
+                String plat = t == null || t.platform == null ? "" : t.platform;
+                if (common == null && l != null) common = l;
+                else if (l == null || !l.equals(common)) labelUniform = false;
+                if (commonPlatform == null) {
+                    commonPlatform = plat;
+                    firstLabel = l;
+                } else if (!plat.equals(commonPlatform)) {
+                    platformUniform = false;
                 }
             }
-            if (uniform) {
+            if (labelUniform && common != null) {
                 sourceKnown = true;
                 label = common;
+            } else if (platformUniform) {
+                sourceKnown = true;
+                label = firstLabel;
             }
             route = null;
         }
@@ -449,12 +489,19 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             binding.sourceRow.addView(cv, new ViewGroup.LayoutParams(s, s));
             chevron = cv;
         }
-        if (intent != null) {
+        // D14：route 非空时一律可点——落点可解析就跳，认不出／参数不全时点了给提示，不静默隐藏 › 且不可点。
+        // 无 route 时才是 GZ 无 route 形态：无 ›、不可点（intent 恒为空，走本分支的 else）。
+        if ((route != null && !route.isEmpty()) || intent != null) {
             chevron.setVisibility(View.VISIBLE);
+            binding.sourceRow.setClickable(true);
             binding.sourceRow.setOnClickListener(v -> {
-                FragmentActivity host = getActivity();
-                dismissAllowingStateLoss();
-                if (host != null) host.startActivity(intent);
+                if (intent != null) {
+                    FragmentActivity host = getActivity();
+                    dismissAllowingStateLoss();
+                    if (host != null) host.startActivity(intent);
+                } else {
+                    Notify.show("该来源暂无法直接打开");
+                }
             });
         } else {
             chevron.setVisibility(View.GONE);
@@ -465,9 +512,11 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * B7：route → 来源页落点。只认入队时写入的两条真实路由，其余一律返回空（只展示不可点）：
-     * home＝首页（榜单卡／随心听卡都在首页）；list＝列表页（参数与 MusicListActivity onCreate 读的
-     * intent extras 同名同值，可重建本页；无标题／关键词／歌单 id 三者时无落点，不跳空页）。
+     * B7／D14：route → 来源页落点。树内入队来源的落点表（只改本对话框，不动入队侧）：
+     * home＝首页（榜单卡／随心听／心情电台都在首页）；list＝列表页（参数与 MusicListActivity onCreate 读的
+     * intent extras 同名同值，可重建本页；无标题／关键词／歌单 id 三者时无落点，不跳空页，调用方给提示）；
+     * 其余非空 route（树内目前没有第三条入队 route，未来入队侧新增 route 时先在这里补落点再发）
+     * 返回空，调用方按 D14 给提示，不静默隐藏；route 空＝无跳转落点（云盘／无来源入队等），只展示。
      */
     private android.content.Intent queueSourceIntent(String route, java.util.Map<String, String> params) {
         FragmentActivity host = getActivity();

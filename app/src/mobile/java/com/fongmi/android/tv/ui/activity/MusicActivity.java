@@ -62,12 +62,147 @@ public class MusicActivity extends BaseActivity {
     // 榜单卡（06:20 令）：榜签只映射酷我＋QQ 真榜，按关键词对齐参照图四类
     private final List<MusicChart> homeChartTabs = new ArrayList<>();
     private List<MusicTrack> homeChartTracks = new ArrayList<>();
+    /** homeChartTracks 归属签（平台+id）：切签后旧签曲目不算新签「已有内容」，防同名不同榜错把旧签内容当新签早退 */
+    private String homeChartTracksKey;
     private int homeChartSel = -1;
     private int homeChartLoadSeq = 0;
     private boolean homeChartLoaded;
+    /** 当前签拉空已显空态：onResume 不再重试转圈，只点重试／切签重拉（空态与「有内容」拆标志） */
+    private boolean homeChartEmpty;
     /** 第二波：首页榜单卡选中签下划线色＝当前榜首首封面语气色（瓜子 HomeRankingCardKt 选中取封面语气色）；取色失败回落红 */
     private int homeChartTone = 0xFFFA243C;
     private String homeChartToneCover = "";
+
+    // 新歌榜每次进都会动（2026-10-22）：根因是每次进页都是新实例全量重拉，状态全是实例字段。
+    // 静态缓存签表／选中签／曲目／tone＋cover：新实例先显缓存；10 分钟内不再联网，过期则静默刷新、内容不变不重刷。
+    private static final long HOME_CHART_CACHE_TTL_MS = 10 * 60 * 1000L;
+    private static List<MusicChart> sHomeChartTabs;
+    private static String sHomeChartSelName;
+    private static String sHomeChartSelKey;
+    /** 插件增删／启停／更新／导入后置位：回首页时同实例也要重拉，不只新实例不走缓存 */
+    private static boolean sHomeChartInvalidated;
+    private static List<MusicTrack> sHomeChartTracks;
+    private static int sHomeChartTone = 0xFFFA243C;
+    private static String sHomeChartToneCover = "";
+    private static boolean sHomeChartToneSet;
+    private static long sHomeChartCacheAt;
+
+    /** 曲目深拷贝：分片会改实例曲目的 cover，静态缓存必须与实例曲目脱钩，内容比对才有效 */
+    private static List<MusicTrack> copyHomeChartTracks(List<MusicTrack> src) {
+        List<MusicTrack> out = new ArrayList<>();
+        if (src == null) return out;
+        for (MusicTrack t : src) {
+            if (t == null) continue;
+            MusicTrack c = new MusicTrack(t.id, t.title, t.artist, t.album, t.duration, t.cover);
+            c.platform = t.platform;
+            c.localPath = t.localPath;
+            c.qualityTag = t.qualityTag;
+            c.rawJson = t.rawJson;
+            c.playlistAddedTime = t.playlistAddedTime;
+            c.favoriteAddedTime = t.favoriteAddedTime;
+            out.add(c);
+        }
+        return out;
+    }
+
+    /** 签表一致性：名＋平台＋id 全对才算一致，一致只 restyle、不 removeAllViews 重建 */
+    private static boolean sameHomeChartTabs(List<MusicChart> a, List<MusicChart> b) {
+        if (a == null || b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            MusicChart x = a.get(i), y = b.get(i);
+            if (x == null || y == null) return false;
+            if (!eq(x.name, y.name) || !eq(x.platform, y.platform) || !eq(x.id, y.id)) return false;
+        }
+        return true;
+    }
+
+    /** 曲目一致性：行文案＋封面全对才算不变，不变不重刷（封面 Glide 不重发，逐张弹出不再发生） */
+    private static boolean sameHomeChartTracks(List<MusicTrack> a, List<MusicTrack> b) {
+        if (a == null || b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            MusicTrack x = a.get(i), y = b.get(i);
+            if (x == null || y == null) return false;
+            if (!eq(x.id, y.id) || !eq(x.title, y.title) || !eq(x.artist, y.artist) || !eq(x.cover, y.cover)) return false;
+        }
+        return true;
+    }
+
+    /** 榜单归属键：平台+id（不只比名字；同名不同榜是两张榜）。 */
+    private static String homeChartKey(MusicChart c) {
+        if (c == null) return "";
+        return (c.platform == null ? "" : c.platform) + "|" + (c.id == null ? "" : c.id);
+    }
+
+    /** M8：清榜单静态缓存（插件增删／启停／更新／导入处调；回首页路径见 onResume 的失效位消费）。 */
+    public static void clearHomeChartCache() {
+        sHomeChartTabs = null;
+        sHomeChartSelName = null;
+        sHomeChartSelKey = null;
+        sHomeChartTracks = null;
+        sHomeChartTone = 0xFFFA243C;
+        sHomeChartToneCover = "";
+        sHomeChartToneSet = false;
+        sHomeChartCacheAt = 0;
+        sHomeChartInvalidated = true;
+    }
+
+    private static boolean eq(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    /** 成功拿到内容／分片补封面后写静态缓存；空结果不写（空态不进缓存，下次进页仍正常拉） */
+    private void cacheHomeChartState() {
+        if (homeChartTabs.isEmpty() || homeChartTracks.isEmpty()
+                || homeChartSel < 0 || homeChartSel >= homeChartTabs.size()) return;
+        sHomeChartTabs = new ArrayList<>(homeChartTabs);
+        sHomeChartSelName = homeChartTabs.get(homeChartSel).name;
+        sHomeChartSelKey = homeChartKey(homeChartTabs.get(homeChartSel));
+        sHomeChartTracks = copyHomeChartTracks(homeChartTracks);
+        sHomeChartTone = homeChartTone;
+        sHomeChartToneCover = homeChartToneCover;
+        sHomeChartToneSet = true;
+        sHomeChartCacheAt = System.currentTimeMillis();
+    }
+
+    /** 新实例先用缓存还原：签行首建（新实例视图本来就是空的，不是重建）、tone 先取缓存值画下划线、内容直接填，
+     * 全程不走加载圈；返回 false 表示无可用缓存，走原联网路。 */
+    private boolean restoreHomeChartCache() {
+        if (sHomeChartTabs == null || sHomeChartTabs.isEmpty()
+                || sHomeChartTracks == null || sHomeChartTracks.isEmpty()) return false;
+        homeChartTabs.clear();
+        homeChartTabs.addAll(sHomeChartTabs);
+        int sel = -1;
+        for (int i = 0; i < homeChartTabs.size(); i++) {
+            if (sHomeChartSelKey != null && homeChartKey(homeChartTabs.get(i)).equals(sHomeChartSelKey)) {
+                sel = i;
+                break;
+            }
+        }
+        if (sel < 0) {
+            for (int i = 0; i < homeChartTabs.size(); i++) {
+                if (eq(homeChartTabs.get(i).name, sHomeChartSelName)) {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+        if (sel < 0) sel = 0;
+        homeChartSel = sel;
+        if (sHomeChartToneSet) {
+            homeChartTone = sHomeChartTone;
+            homeChartToneCover = sHomeChartToneCover;
+        }
+        homeChartTracks = copyHomeChartTracks(sHomeChartTracks);
+        homeChartTracksKey = homeChartKey(homeChartTabs.get(sel));
+        homeChartEmpty = false;
+        homeChartLoaded = true;
+        buildHomeChartTabs();
+        restyleHomeChartTabs();
+        fillHomeChart(homeChartTabs.get(sel), homeChartTracks);
+        binding.homeChartCard.setVisibility(View.VISIBLE);
+        applyShuffleTone();
+        return true;
+    }
 
     // 随心听副题不再用本页粘性字段判定：旧 homeQueueSourceType／shuffleQueueKeys 从未被写，
     // 是副题恒「随机漫游」的根因，已删；改读服务队列来源字段，见 refreshShuffleSubtitle。
@@ -124,7 +259,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeChartMoreIcon.setOnClickListener(v -> MusicListActivity.startCharts(this));
         // 第二波：榜单卡空态「点击重试」→重拉当前签（签行保留，换签也能走 selectHomeChart）
         binding.homeChartEmptyRetry.setOnClickListener(v -> {
-            if (homeChartSel >= 0 && homeChartSel < homeChartTabs.size()) selectHomeChart(homeChartSel);
+            if (homeChartSel >= 0 && homeChartSel < homeChartTabs.size()) selectHomeChart(homeChartSel, true);
         });
         binding.homeChartPlay.setOnClickListener(v -> playHomeChartFrom(0));
         binding.homeChartRow1.setOnClickListener(v -> playHomeChartFrom(0));
@@ -149,6 +284,9 @@ public class MusicActivity extends BaseActivity {
         binding.homeHaloCharts.setHaloColor(0xFF9DF3EE);
         binding.homeHaloShuffle.setHaloColor(0xFFEAF989);
         attachCardPress(binding.homeChartCard);
+        // 第三波 H4：聆听报告卡可点进完整明细（播放历史页，见 openFullReport）。
+        attachCardPress(binding.homeReportCard);
+        binding.homeReportCard.setOnClickListener(v -> openFullReport());
         // 榜单封面圆角 12dp：ImgUtil.loadRounded 固定 8dp 且该文件不在本摊可改范围，
         // 这里用视图轮廓裁切补到 12dp（12dp 形含于 8dp 形内，交集即 12dp 圆角）
         applyChartCoverCorners();
@@ -160,7 +298,13 @@ public class MusicActivity extends BaseActivity {
         super.onResume();
         // 首页浅底：状态栏图标改深色（06:17 令「背景把状态栏盖住了」）；离开本页在 onPause 恢复浅色图标
         ReadingSkin.setSystemBarIconAppearance(this, false);
-        if (!homeChartLoaded) loadHomeChart();
+        // M8 回首页路径：插件侧清过缓存时，同实例不许守着旧内容，必须重拉。
+        if (sHomeChartInvalidated) {
+            sHomeChartInvalidated = false;
+            homeChartLoaded = false;
+            homeChartEmpty = false;
+        }
+        if (!homeChartLoaded && !homeChartEmpty) loadHomeChart();
         refreshCounts();
         refreshShuffleSubtitle();
         refreshMoodState();
@@ -193,40 +337,92 @@ public class MusicActivity extends BaseActivity {
      * 解析序固定先 QQ 后酷我；某签两边都匹配不到就不出该签；全签落空或榜内无曲 → 整卡隐藏。
      */
     private void loadHomeChart() {
+        // 缓存快路：新实例先显缓存；新鲜（10 分钟内）直接停，过期则静默刷新（先验签表、再刷当前签曲目）。
+        if (restoreHomeChartCache()) {
+            if (System.currentTimeMillis() - sHomeChartCacheAt < HOME_CHART_CACHE_TTL_MS) return;
+            refreshHomeChartSilently();
+            return;
+        }
         Task.execute(() -> {
-            List<MusicChart> tabs = new ArrayList<>();
-            try {
-                List<MusicSite> sites = new ArrayList<>(MusicRepository.sites());
-                sites.sort((a, b) -> Integer.compare(chartSiteRank(a), chartSiteRank(b)));
-                String[] keys = {"飙升", "新歌", "原创", "热歌"};
-                for (String key : keys) {
-                    MusicChart hit = null;
-                    for (MusicSite site : sites) {
-                        for (MusicChart chart : MusicRepository.charts(site)) {
-                            if (chart != null && chart.name != null && chart.name.contains(key)) {
-                                hit = chart;
-                                break;
-                            }
-                        }
-                        if (hit != null) break;
-                    }
-                    if (hit != null) tabs.add(hit);
-                }
-            } catch (Throwable ignored) {
-            }
+            List<MusicChart> tabs = collectHomeChartTabs();
             int def = -1;
             for (int i = 0; i < tabs.size(); i++) if (tabs.get(i).name.contains("新歌")) def = i;
             if (def < 0 && !tabs.isEmpty()) def = 0;
             final int sel = def;
             runOnUiThread(() -> {
+                // 有缓存 tone 先用它画下划线，不先写死红再跳变（无缓存时仍是旧红兜底）。
+                if (sHomeChartToneSet) {
+                    homeChartTone = sHomeChartTone;
+                    homeChartToneCover = sHomeChartToneCover;
+                }
+                boolean same = sameHomeChartTabs(homeChartTabs, tabs);
                 homeChartTabs.clear();
                 homeChartTabs.addAll(tabs);
                 if (tabs.isEmpty()) {
+                    // 签表拉空整卡隐藏、无重试钮：同实例 onResume 仍可重试（无转圈可见），不置空态标志。
                     binding.homeChartCard.setVisibility(View.GONE);
                     return;
                 }
-                buildHomeChartTabs();
-                selectHomeChart(sel);
+                // 签表一致只 restyle，不 removeAllViews 重建（同实例重进不再闪签行）。
+                if (same && binding.homeChartTabs.getChildCount() == tabs.size()) restyleHomeChartTabs();
+                else buildHomeChartTabs();
+                int target = (same && homeChartSel >= 0 && homeChartSel < tabs.size()) ? homeChartSel : sel;
+                selectHomeChart(target);
+            });
+        });
+    }
+
+    /** 签表采集（原 loadHomeChart 内联逻辑抽出，静默刷新与正常加载共用；解析序先 QQ 后酷我，不动） */
+    private static List<MusicChart> collectHomeChartTabs() {
+        List<MusicChart> tabs = new ArrayList<>();
+        try {
+            List<MusicSite> sites = new ArrayList<>(MusicRepository.sites());
+            sites.sort((a, b) -> Integer.compare(chartSiteRank(a), chartSiteRank(b)));
+            String[] keys = {"飙升", "新歌", "原创", "热歌"};
+            for (String key : keys) {
+                MusicChart hit = null;
+                for (MusicSite site : sites) {
+                    for (MusicChart chart : MusicRepository.charts(site)) {
+                        if (chart != null && chart.name != null && chart.name.contains(key)) {
+                            hit = chart;
+                            break;
+                        }
+                    }
+                    if (hit != null) break;
+                }
+                if (hit != null) tabs.add(hit);
+            }
+        } catch (Throwable ignored) {
+        }
+        return tabs;
+    }
+
+    /** 过期缓存的静默刷新：后台先验签表——一致只 restyle 再静默刷当前签曲目（内容不变不重刷）；
+     * 不一致（装／删插件改了签表）才重建签行并走默认签；签表拉空则保住缓存内容不动。 */
+    private void refreshHomeChartSilently() {
+        final int seq = ++homeChartLoadSeq;
+        Task.execute(() -> {
+            List<MusicChart> tabs = collectHomeChartTabs();
+            runOnUiThread(() -> {
+                if (binding == null || seq != homeChartLoadSeq) return;
+                // M8：签表拉空＝静默刷新失败，缓存时间戳清零标记过期，下次新实例不再直接用旧缓存返回，
+                // 而是先显旧内容再走静默刷新重试；旧内容本身仍保住，不翻空态。
+                if (tabs.isEmpty()) {
+                    sHomeChartCacheAt = 0;
+                    return;
+                }
+                if (!sameHomeChartTabs(homeChartTabs, tabs)) {
+                    homeChartTabs.clear();
+                    homeChartTabs.addAll(tabs);
+                    buildHomeChartTabs();
+                    int def = -1;
+                    for (int i = 0; i < tabs.size(); i++) if (tabs.get(i).name.contains("新歌")) def = i;
+                    if (def < 0) def = 0;
+                    selectHomeChart(def, true);
+                    return;
+                }
+                restyleHomeChartTabs();
+                selectHomeChart(homeChartSel, true);
             });
         });
     }
@@ -298,16 +494,31 @@ public class MusicActivity extends BaseActivity {
     }
 
     private void selectHomeChart(int idx) {
+        selectHomeChart(idx, false);
+    }
+
+    /** force＝重试／过期静默刷新：绕过同签早退，但已有内容时仍不藏内容不显圈、内容不变不重刷 */
+    private void selectHomeChart(int idx, boolean force) {
         if (idx < 0 || idx >= homeChartTabs.size()) return;
-        homeChartSel = idx;
-        restyleHomeChartTabs();
         MusicChart chart = homeChartTabs.get(idx);
+        // 同签且该签已有曲目：早退，只 restyle，不藏内容、不显加载圈、不重拉。
+        boolean keepContent = !homeChartTracks.isEmpty() && homeChartKey(chart).equals(homeChartTracksKey);
+        if (!force && idx == homeChartSel && keepContent) {
+            restyleHomeChartTabs();
+            return;
+        }
+        homeChartSel = idx;
+        homeChartEmpty = false;
+        restyleHomeChartTabs();
         // 第二波：切签先显加载态（瓜子 HomeRankingCardKt「正在加载榜单」＋16dp 转圈）；结果回来了在回调里切空态／内容；
-        // 渐进路（kw 分片／直连／封面按片补）原样不动，只在外层包加载／空态显隐
+        // 渐进路（kw 分片／直连／封面按片补）原样不动，只在外层包加载／空态显隐。
+        // 已有内容（强制刷新／静默刷新）时不藏内容、不显加载圈：旧内容一直留在屏上，结果不变则全程不动。
         binding.homeChartTitle.setText(chart.name);
-        if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.GONE);
-        if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.GONE);
-        if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.VISIBLE);
+        if (!keepContent) {
+            if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.GONE);
+            if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.GONE);
+            if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.VISIBLE);
+        }
         binding.homeChartCard.setVisibility(View.VISIBLE);
         final int loadSeq = ++homeChartLoadSeq;
         Task.execute(() -> {
@@ -330,32 +541,50 @@ public class MusicActivity extends BaseActivity {
             final boolean prog = progressive;
             runOnUiThread(() -> {
                 if (idx != homeChartSel || loadSeq != homeChartLoadSeq) return;
-                homeChartTracks = result;
                 if (result.isEmpty()) {
+                    // 已有内容时刷新拉空：保住旧内容，不翻空态、不清曲目（断网一次不把卡刷没）。
+                    if (keepContent) return;
                     // 第二波：榜单拉空时卡体保留，显瓜子空态（「暂未获取到榜单」＋「点击重试」），签行保留可切榜；
-                    // homeChartLoaded 不置位，下次进页仍会重拉（沿用旧路）
+                    // 空态与「有内容」拆标志：homeChartEmpty 置位后 onResume 不再重试转圈，只点重试／切签重拉。
+                    homeChartTracks = result;
+                    homeChartTracksKey = null;
+                    homeChartLoaded = false;
+                    homeChartEmpty = true;
                     if (binding.homeChartContent != null) binding.homeChartContent.setVisibility(View.GONE);
                     if (binding.homeChartLoading != null) binding.homeChartLoading.setVisibility(View.GONE);
                     if (binding.homeChartEmpty != null) binding.homeChartEmpty.setVisibility(View.VISIBLE);
                     binding.homeChartCard.setVisibility(View.VISIBLE);
                     return;
                 }
+                // 已有内容且内容不变：不重刷（不行文案、不重刷封面、不重取 tone），只续缓存有效期
+                //（本次实拉验证过内容，静默刷新路也已验过签表一致，续期不会把旧签表冻住）。
+                if (keepContent && sameHomeChartTracks(homeChartTracks, result)) {
+                    sHomeChartCacheAt = System.currentTimeMillis();
+                    return;
+                }
+                homeChartTracks = result;
+                homeChartTracksKey = homeChartKey(chart);
                 homeChartLoaded = true;
+                homeChartEmpty = false;
                 fillHomeChart(chart, result);
+                cacheHomeChartState();
                 binding.homeChartCard.setVisibility(View.VISIBLE);
                 applyShuffleTone();
                 if (!prog) return;
-                // kw 封面按片陆续补：先回先上，不等另一片；只刷前 3 张卡面封面
+                // kw 封面按片陆续补：先回先上，不等另一片；只刷变了的封面
                 MusicRepository.fetchKwChartCovers(chart, new KwChartSource.CoverListener() {
                     @Override
                     public void onShard(int pn, List<MusicTrack> shard) {
                         runOnUiThread(() -> {
                             if (binding == null || isFinishing() || isDestroyed()) return;
                             if (idx != homeChartSel || loadSeq != homeChartLoadSeq) return;
-                            if (applyHomeChartCovers(shard)) {
-                                fillHomeChartCovers();
-                                applyShuffleTone();
-                            }
+                            List<Integer> changed = applyHomeChartCovers(shard);
+                            if (changed.isEmpty()) return;
+                            fillHomeChartCoversAt(changed);
+                            // 分片补上榜首封面后补一次 tone：下划线跟新榜首封面语气色走
+                            if (changed.contains(0)) refreshHomeChartTone(homeChartTracks);
+                            applyShuffleTone();
+                            cacheHomeChartState();
                         });
                     }
                 });
@@ -397,6 +626,13 @@ public class MusicActivity extends BaseActivity {
                     if (binding == null || bitmap == null) return;
                     try {
                         homeChartTone = CoverColor.dominantColor(bitmap);
+                        // tone 落袋即写静态缓存：下次新实例先用此 tone 画下划线，不先红再跳变；
+                        // 只认当前榜首封面算出的 tone，过期回调不污染缓存。
+                        if (!homeChartTracks.isEmpty() && cover.equals(homeChartTracks.get(0).cover)) {
+                            sHomeChartTone = homeChartTone;
+                            sHomeChartToneCover = homeChartToneCover;
+                            sHomeChartToneSet = true;
+                        }
                         restyleHomeChartTabs();
                     } catch (Throwable ignored) {
                     }
@@ -419,22 +655,35 @@ public class MusicActivity extends BaseActivity {
         }
     }
 
-    /** 首页卡封面按片补：按 id 把一片 Worker 封面贴到已显示的直连列表上，只动封面字段；返回是否有任一封面变化 */
-    private boolean applyHomeChartCovers(List<MusicTrack> shard) {
-        if (shard == null || shard.isEmpty() || homeChartTracks.isEmpty()) return false;
-        Map<String, MusicTrack> byId = new HashMap<>();
-        for (MusicTrack t : homeChartTracks) {
-            if (t != null && t.id != null && !t.id.isEmpty()) byId.put(t.id, t);
-        }
-        boolean changed = false;
+    /** 首页卡封面按片补：按 id 把一片 Worker 封面贴到已显示的直连列表上，只动封面字段；
+     * 返回卡面（前 3 张）里变了的位置，调用方只刷这些位置，不全量重刷 3 张。 */
+    private List<Integer> applyHomeChartCovers(List<MusicTrack> shard) {
+        List<Integer> changed = new ArrayList<>();
+        if (shard == null || shard.isEmpty() || homeChartTracks.isEmpty()) return changed;
+        Map<String, String> shardCover = new HashMap<>();
         for (MusicTrack s : shard) {
             if (s == null || s.id == null || s.cover == null || s.cover.isEmpty()) continue;
-            MusicTrack cur = byId.get(s.id);
-            if (cur == null || s.cover.equals(cur.cover)) continue;
-            cur.cover = s.cover;
-            changed = true;
+            shardCover.put(s.id, s.cover);
+        }
+        for (int i = 0; i < homeChartTracks.size(); i++) {
+            MusicTrack cur = homeChartTracks.get(i);
+            if (cur == null || cur.id == null) continue;
+            String nc = shardCover.get(cur.id);
+            if (nc == null || nc.equals(cur.cover)) continue;
+            cur.cover = nc;
+            if (i < 3) changed.add(i);
         }
         return changed;
+    }
+
+    /** 只刷指定位置的卡面封面（分片补封面用；不变的位置不重发 Glide，不逐张弹出） */
+    private void fillHomeChartCoversAt(List<Integer> positions) {
+        ImageView[] covers = {binding.homeChartCover1, binding.homeChartCover2, binding.homeChartCover3};
+        for (int pos : positions) {
+            if (pos < covers.length && pos < homeChartTracks.size()) {
+                ImgUtil.loadRounded(homeChartTracks.get(pos).title, homeChartTracks.get(pos).cover, covers[pos]);
+            }
+        }
     }
 
     private void playHomeChartFrom(int index) {
@@ -520,6 +769,20 @@ public class MusicActivity extends BaseActivity {
                 getString(R.string.music_cloud_drive),
                 "115／夸克",
                 () -> dismissThen.accept(() -> MusicCloudActivity.start(this))));
+        // 第三波 H4：听歌统计行——树内无独立统计／报告页，落点与聆听报告卡同款：
+        // 完整明细＝播放历史页（报告数据的全部明细），摘要仍在报告卡上；周聚合未做
+        // （播放记录 MusicStore.loadRecent() 存的只是 MusicTrack，无播放时间戳，算不出
+        // 本周／峰值时段／活跃天，见 refreshReport 注释），不编周口径数据。
+        View dividerStats = new View(this);
+        dividerStats.setBackgroundColor(0x14000000);
+        LinearLayout.LayoutParams dividerStatsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerStatsLp.leftMargin = dp(62);
+        card.addView(dividerStats, dividerStatsLp);
+        card.addView(menuRow(R.drawable.ic_bar_chart, 0xFF34C759,
+                "听歌统计",
+                "最近播放 · 收藏",
+                () -> dismissThen.accept(this::openFullReport)));
         View divider2 = new View(this);
         divider2.setBackgroundColor(0x14000000);
         LinearLayout.LayoutParams dividerLp2 = new LinearLayout.LayoutParams(
@@ -612,22 +875,27 @@ public class MusicActivity extends BaseActivity {
 
     // ================= 五快捷数量（真数据，异步回填） =================
 
+    // 第三波 H1/H2：五快捷数字口径统一标注（选定口径，卡下数字自带单位，不再裸数混排）：
+    // 收藏＝首数、歌单＝个歌单（选了“个歌单”，不是单内总歌数）、本地＝首数、
+    // 历史＝近 50 条内（loadRecent 上限 50 条，满 50 时只标“近50条”，不冒充总数；
+    // 未满 50 时就是现有记录条数）、下载＝首数（下载登记条数）。
     private void refreshCounts() {
         if (binding == null) return;
         MusicLibrary.favoriteCount(n -> {
-            if (binding != null) binding.homeCountFavorite.setText(String.valueOf(n));
+            if (binding != null) binding.homeCountFavorite.setText(n + "首");
         });
         MusicLibrary.playlists(list -> {
-            if (binding != null) binding.homeCountSheets.setText(String.valueOf(list == null ? 0 : list.size()));
+            if (binding != null) binding.homeCountSheets.setText((list == null ? 0 : list.size()) + "个歌单");
         });
         MusicDownloadStore.count(n -> {
-            if (binding != null) binding.homeCountDownload.setText(String.valueOf(n));
+            if (binding != null) binding.homeCountDownload.setText(n + "首");
         });
-        // 历史数：loadRecent 同步读（上限 50 条的小 JSON），直接取条数
+        // 历史数：loadRecent 同步读（上限 50 条的小 JSON）；满 50 只标“近50条”，不冒充总数
         try {
-            binding.homeCountRecent.setText(String.valueOf(MusicStore.loadRecent().size()));
+            int recentN = MusicStore.loadRecent().size();
+            binding.homeCountRecent.setText(recentN >= 50 ? "近50条" : recentN + "条");
         } catch (Throwable ignored) {
-            binding.homeCountRecent.setText("0");
+            binding.homeCountRecent.setText("0条");
         }
         // 本地数：DeviceMusicStore.scan 是阻塞扫描（MediaStore＋目录），走后台线程回填
         Task.execute(() -> {
@@ -638,16 +906,29 @@ public class MusicActivity extends BaseActivity {
             }
             int count = n;
             runOnUiThread(() -> {
-                if (binding != null) binding.homeCountDevice.setText(String.valueOf(count));
+                if (binding != null) binding.homeCountDevice.setText(count + "首");
             });
         });
         // 第二波：聆听报告（与五快捷计数同批刷新，不另起定时任务）
         refreshReport();
     }
 
+    /** 第三波 H4：完整报告落点——树内无独立统计／报告页，卡与 ⋮菜单“听歌统计”行
+     * 都落到播放历史页（报告数据的完整明细：最近 50 条内全部记录）；卡上摘要不变。
+     * 搜索条“听歌识曲”未做：树内无识曲能力（只有 AiChatDialog 的语音转文字，不是
+     * 听歌识曲／音频指纹），不硬做空壳按钮，见交回清单。
+     * 首页歌单分类推荐区未做、心情 pill 点按跳页未改：分类区无现成推荐源可接，
+     * 心情 pill 回调语义瓜子侧未抠实（只切选态还是建台跳页未证实），不默认改动。 */
+    private void openFullReport() {
+        MusicListActivity.startHistory(this);
+    }
+
     /** 第二波：聆听报告卡——只用本地数据算：播放记录数（loadRecent 上限 50 条，口径即「最近 50 条内」）、
      * 收藏数、最爱歌手（最近播放里出现次数最多的非空歌手；并列取先出现的）。
-     * 最近播放为空则整卡隐藏，不编假数据；瓜子 ListeningReportSection 的具体内容与数值未抠到，星辰侧口径如上 */
+     * 最近播放为空则整卡隐藏，不编假数据；瓜子 ListeningReportSection 的具体内容与数值未抠到，星辰侧口径如上。
+     * 第三波：周聚合未做——loadRecent 存的 MusicTrack 没有播放时间戳（pushRecent 只按 id 去重、
+     * 截断到 50 条，不写时间），算不出本周播放／总时长／峰值时段／活跃天；卡名与内容保持
+     * 现有口径（最近 50 条内），不顶着报告名编周数据；卡本身可点进完整明细（见 openFullReport）。 */
     private void refreshReport() {
         if (binding == null) return;
         List<MusicTrack> recent;
@@ -662,7 +943,9 @@ public class MusicActivity extends BaseActivity {
         }
         java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
         for (MusicTrack t : recent) {
-            if (t == null || t.artist == null || t.artist.trim().isEmpty()) continue;
+            // 复核必-14：占位歌手（未知／未知歌手等）不计入最爱统计，空歌手本就跳过；
+            // isPlaceholderArtist 对空串也返回 true，两者合一。
+            if (t == null || com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(t.artist)) continue;
             String a = t.artist.trim();
             counts.put(a, counts.containsKey(a) ? counts.get(a) + 1 : 1);
         }
@@ -678,7 +961,9 @@ public class MusicActivity extends BaseActivity {
         final String topArtist = top;
         MusicLibrary.favoriteCount(n -> {
             if (binding == null) return;
-            binding.homeReportStats.setText("最近播放 " + recentN + " 首 · 收藏 " + n + " 首");
+            // 建议项：照快捷口径，满 50 才加“近50条”限定；未满 50 时 recentN 就是实数，不加限定。
+            binding.homeReportStats.setText("最近播放 " + recentN + " 首"
+                    + (recentN >= 50 ? "（近50条内）" : "") + " · 收藏 " + n + " 首");
             if (topArtist.isEmpty()) {
                 binding.homeReportTop.setVisibility(View.GONE);
             } else {

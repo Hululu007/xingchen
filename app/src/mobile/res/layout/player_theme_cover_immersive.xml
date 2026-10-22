@@ -56,7 +56,7 @@
             android:includeFontPadding="false"
             android:lineHeight="18dp"
             android:maxLines="1"
-            android:textColor="#8CFFFFFF"
+            android:textColor="#A6FFFFFF"
             android:textSize="14sp" />
 
         <ImageView
@@ -78,7 +78,7 @@
             android:includeFontPadding="false"
             android:lineHeight="18dp"
             android:maxLines="1"
-            android:textColor="#8CFFFFFF"
+            android:textColor="#A6FFFFFF"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -101,7 +101,9 @@
             android:layout_height="match_parent"
             android:layout_gravity="center">
 
-            <View
+            <!-- C1：后叠卡改真封面（前一首／后一首，缺邻曲时复用当前曲封面），按瓜子边卡 0.93 缩放 -->
+            <ImageView
+                android:id="@+id/tpCoverBackPrev"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_marginStart="14dp"
@@ -109,9 +111,13 @@
                 android:layout_marginEnd="2dp"
                 android:layout_marginBottom="2dp"
                 android:background="@drawable/bg_cover_card_back"
-                android:rotation="2.5" />
+                android:rotation="2.5"
+                android:scaleX="0.93"
+                android:scaleY="0.93"
+                android:scaleType="centerCrop" />
 
-            <View
+            <ImageView
+                android:id="@+id/tpCoverBackNext"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_marginStart="2dp"
@@ -119,7 +125,10 @@
                 android:layout_marginEnd="14dp"
                 android:layout_marginBottom="10dp"
                 android:background="@drawable/bg_cover_card_back"
-                android:rotation="-2.5" />
+                android:rotation="-2.5"
+                android:scaleX="0.93"
+                android:scaleY="0.93"
+                android:scaleType="centerCrop" />
 
             <ImageView
                 android:id="@+id/tpCover"

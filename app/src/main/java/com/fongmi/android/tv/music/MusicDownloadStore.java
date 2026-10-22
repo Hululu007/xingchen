@@ -52,7 +52,108 @@ public class MusicDownloadStore {
         t.cover = d.getCover();
         t.platform = LocalMusicSource.PLATFORM;
         t.localPath = d.getFilePath();
+        // 第三波 P-8c：已下载歌首次加载（列表／队列取数即到这里）时，记录封面为空才
+        // 对下载文件跑兜底：同名旁路图优先，其次文件内嵌图落缓存文件当 cover；
+        // 缓存文件已存在时不重复提内嵌（只判文件存在，不跑 Retriever）。
+        if ((t.cover == null || t.cover.isEmpty()) && t.localPath != null && !t.localPath.isEmpty()) {
+            try {
+                String resolved = resolveDownloadCover(t);
+                if (resolved != null && !resolved.isEmpty()) t.cover = resolved;
+            } catch (Throwable ignored) {
+            }
+        }
         return t;
+    }
+
+    /** 第三波 P-8c：已下载歌封面兜底序（下载文件路径口径）：同名旁路图 → 内嵌图落缓存。
+     * 旁路后缀与 DeviceMusicStore.sidecarCover 同款（.jpg／.png／.jpeg）；内嵌缓存文件
+     * 以 trackId 哈希命名，存 App 缓存 music_embedded 下，旧任务文件不动。 */
+    public static String resolveDownloadCover(MusicTrack track) {
+        if (track == null || track.localPath == null || track.localPath.isEmpty()) return null;
+        File audio = new File(track.localPath);
+        if (!audio.isFile()) return null;
+        String name = audio.getName();
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        File parent = audio.getParentFile();
+        if (parent != null) {
+            for (String suf : new String[]{".jpg", ".png", ".jpeg"}) {
+                File cand = new File(parent, base + suf);
+                if (cand.isFile() && cand.canRead() && cand.length() > 0) {
+                    return android.net.Uri.fromFile(cand).toString();
+                }
+            }
+        }
+        File dir = new File(App.get().getCacheDir(), "music_embedded");
+        String fileName = Math.abs((track.id == null ? track.localPath : track.id).hashCode()) + ".jpg";
+        File cached = new File(dir, fileName);
+        if (cached.isFile() && cached.length() > 0) return android.net.Uri.fromFile(cached).toString();
+        android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+        try {
+            r.setDataSource(track.localPath);
+            byte[] pic = r.getEmbeddedPicture();
+            if (pic == null || pic.length == 0) return null;
+            if (!dir.isDirectory() && !dir.mkdirs()) return null;
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(cached);
+            try {
+                fos.write(pic);
+            } finally {
+                fos.close();
+            }
+            return cached.isFile() ? android.net.Uri.fromFile(cached).toString() : null;
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 第三波 G-C1：已下载歌同名旁路歌词文本（离线优先读旁路，见播放页 loadLyric）；
+     * 文件不存在／空时返回 null，走原在线链。 */
+    public static String readSidecarLyric(MusicTrack track) {
+        if (track == null || track.localPath == null || track.localPath.isEmpty()) return null;
+        try {
+            File audio = new File(track.localPath);
+            if (!audio.isFile()) return null;
+            String name = audio.getName();
+            int dot = name.lastIndexOf('.');
+            String base = dot > 0 ? name.substring(0, dot) : name;
+            File parent = audio.getParentFile();
+            if (parent == null) return null;
+            File lrc = new File(parent, base + ".lrc");
+            if (!lrc.isFile() || lrc.length() == 0) return null;
+            byte[] bytes = new byte[(int) Math.min(lrc.length(), 2L * 1024 * 1024)];
+            java.io.FileInputStream fis = new java.io.FileInputStream(lrc);
+            try {
+                int read = fis.read(bytes);
+                if (read <= 0) return null;
+                return new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8);
+            } finally {
+                fis.close();
+            }
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 第三波 P-8d：在线补图命中后写回下载记录（播放页 maybeFetchOnlineCover 调用）；
+     * 只在记录存在时更新 cover 字段，不动文件与其它字段；本机缓存即记录本身。 */
+    public static void updateDownloadCover(String trackId, String coverUrl) {
+        if (trackId == null || trackId.isEmpty() || coverUrl == null || coverUrl.isEmpty()) return;
+        Task.execute(() -> {
+            try {
+                MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
+                MusicDownload d = dao.findByTrackId(trackId);
+                if (d != null) {
+                    d.setCover(coverUrl);
+                    dao.update(d);
+                }
+            } catch (Throwable ignored) {
+            }
+        });
     }
 
     private static MusicTrack copyForLocal(MusicTrack track) {
@@ -115,6 +216,49 @@ public class MusicDownloadStore {
                 // 第 7 项尾巴：失败任务留待下载页“清除失败”，不静默丢掉（失败行＋清除失败就靠它）
                 // （重试时 downloadWithQuality 会先清掉同曲的失败旧任务，不会一曲两行）
             }
+        });
+    }
+
+    /** 第三波 S-A2：每次询问选档的文件大小（实测口径，与音质面板 Q3 一致）：
+     * 逐档取链后发 HEAD 读 Content-Length；取不到链／HEAD 无长度／异常时该档大小为 -1，
+     * 调用方不显示该档大小、不估算（不拿时长×标称码率垫数）。后台线程跑，主线程回 sizes
+     * （顺序与传入 values 一致）。 */
+    public interface SizeCallback {
+        void onResult(long[] sizes);
+    }
+
+    public static void probeQualitySizes(MusicTrack track, int[] values, SizeCallback cb) {
+        Task.execute(() -> {
+            long[] sizes = new long[values == null ? 0 : values.length];
+            for (int i = 0; i < sizes.length; i++) sizes[i] = -1;
+            if (track != null && values != null) {
+                for (int i = 0; i < values.length; i++) {
+                    String url = null;
+                    try {
+                        url = MusicRepository.playUrl(track, values[i]);
+                    } catch (Throwable ignored) {
+                    }
+                    if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) continue;
+                    java.net.HttpURLConnection conn = null;
+                    try {
+                        conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                        conn.setRequestMethod("HEAD");
+                        conn.setConnectTimeout(5000);
+                        conn.setReadTimeout(5000);
+                        conn.setInstanceFollowRedirects(true);
+                        int code = conn.getResponseCode();
+                        if (code >= 200 && code < 400) {
+                            long len = conn.getContentLengthLong();
+                            if (len > 0) sizes[i] = len;
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        if (conn != null) conn.disconnect();
+                    }
+                }
+            }
+            long[] result = sizes;
+            post(() -> cb.onResult(result));
         });
     }
 
@@ -214,7 +358,108 @@ public class MusicDownloadStore {
                 else dao.update(d);
             } catch (Throwable ignored) {
             }
+            // 第三波 S-A3／G-C1：下载完成时同下封面＋歌词旁路（只针对本次新任务，旧任务不动）。
+            downloadSidecars(track, filePath);
         });
+    }
+
+    /** 第三波 S-A3／G-C1：下载完成时同下封面＋歌词旁路。
+     * 写盘方式：旁路档与两者档写同名旁路文件（封面 stem.jpg、歌词 stem.lrc，与
+     * deleteLocal 的同删后缀一致）；内嵌档不写旁路、内嵌写入本身未接线（树内无音频
+     * 标签写入库），该档下完成时只留音频文件，设置行已标注“未接线”。
+     * 歌词来源：快照曲目走 MusicRepository.lyric 跨源回退（快照已是本地平台副本，
+     * 本源 lyric 为空时按歌名＋歌手跨源找）。失败时按写入失败策略分流（必-12 已接线）：
+     * 封面失败——跳过档不留占位，URL 档把封面 URL 写入下载记录 cover 字段（save() 已有记录时
+     * 只更新 filePath 不刷新 cover，此处补写才对老记录生效）；歌词失败——两档都跳过不留占位，
+     * 因歌词无 URL 字段可写（下载记录无歌词 URL 列），URL 档亦无法把歌词失败转成字段写入。 */
+    private static void downloadSidecars(MusicTrack track, String filePath) {
+        int mode = MusicStore.getDlEmbed();
+        if (mode == MusicStore.DL_EMBED_EMBEDDED) return;
+        if (track == null || filePath == null || filePath.isEmpty()) return;
+        File audio = new File(filePath);
+        if (!audio.isFile()) return;
+        String name = audio.getName();
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        File parent = audio.getParentFile();
+        if (parent == null) return;
+        // 必-12：封面旁路失败分流。downloadUrlToFile 在非 2xx 时静默返回、空文件会自删，
+        // 故失败判定以“旁路文件最终是否存在且非空”为准，不以是否抛异常为准。
+        boolean coverOk = true;
+        try {
+            if (track.cover != null && (track.cover.startsWith("http://") || track.cover.startsWith("https://"))) {
+                File coverFile = new File(parent, base + ".jpg");
+                if (coverFile.isFile()) {
+                    coverOk = true;
+                } else {
+                    downloadUrlToFile(track.cover, coverFile);
+                    coverOk = coverFile.isFile() && coverFile.length() > 0;
+                }
+            }
+        } catch (Throwable ignored) {
+            coverOk = false;
+        }
+        if (!coverOk) {
+            if (MusicStore.getDlEmbedFail() == MusicStore.DL_EMBED_FAIL_URL
+                    && track.cover != null && (track.cover.startsWith("http://") || track.cover.startsWith("https://"))) {
+                // URL 档：把封面 URL 写入下载记录 cover 字段（本方法跑在 save() 的后台任务里，
+                // 与 save() 同线程模型；save() 已有记录只更新 filePath，此处补写才对老记录生效）。
+                try {
+                    MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
+                    MusicDownload d = dao.findByTrackId(track.id);
+                    if (d != null && !track.cover.equals(d.getCover())) {
+                        d.setCover(track.cover);
+                        dao.update(d);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            // 跳过档：不留占位、不写字段。
+        }
+        // 歌词旁路失败：两档都跳过不留占位——歌词无 URL 字段可写（下载记录无歌词 URL 列），
+        // URL 档亦无法把歌词失败转成字段写入，与封面分流不同，此处不读策略、不写库。
+        try {
+            File lrcFile = new File(parent, base + ".lrc");
+            if (!lrcFile.isFile()) {
+                String lrc = null;
+                try {
+                    lrc = MusicRepository.lyric(track);
+                } catch (Throwable ignored) {
+                }
+                if (lrc != null && !lrc.trim().isEmpty()) {
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(lrcFile);
+                    try {
+                        fos.write(lrc.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    } finally {
+                        fos.close();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void downloadUrlToFile(String url, File out) throws Exception {
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(15000);
+        conn.setInstanceFollowRedirects(true);
+        try {
+            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 400) return;
+            java.io.InputStream in = conn.getInputStream();
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            try {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) >= 0) fos.write(buf, 0, n);
+            } finally {
+                fos.close();
+                in.close();
+            }
+            if (out.length() == 0) out.delete();
+        } finally {
+            conn.disconnect();
+        }
     }
 
     /** 删除本地歌曲：删登记＋删文件（GZ「删除本地文件」口径：音频、封面、歌词一并删除，同名旁路文件同删） */

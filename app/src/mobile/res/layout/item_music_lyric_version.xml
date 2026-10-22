@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 歌词版本行（GZ 行卡形态）：左波形方块、来源＋行数、歌名·歌手、类型签、右匹配度。选中态底与百分比变红，见代码。 -->
+<!-- 歌词版本行（L9：圆角 10dp，选中与否只用透明度区分，不再粉底红字；必-5：行高改
+     wrap_content＋minHeight 68dp——内容列默认字号下实测约 67dp，固定 68dp 仅余约 1dp，
+     系统字号一放大即裁签行底部） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:minHeight="68dp"
     android:layout_marginBottom="12dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="14dp"
+    android:paddingTop="6dp"
     android:paddingEnd="16dp"
-    android:paddingBottom="14dp">
+    android:paddingBottom="6dp">
 
     <ImageView
         android:id="@+id/ivIcon"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:padding="10dp"
         android:src="@drawable/ic_lyric_wave" />
 
@@ -53,7 +56,6 @@
             android:id="@+id/tvSong"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#9A9AA0"
@@ -63,7 +65,7 @@
             android:id="@+id/chipRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="2dp"
             android:orientation="horizontal" />
     </LinearLayout>
 

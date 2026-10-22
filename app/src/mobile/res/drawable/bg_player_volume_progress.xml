@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A2：Apple 音量条专属（不与进度条共用 seek6，避免改动进度轨色）：
+     底白 0.14（#24FFFFFF，实测旧 seek6 底为 #47＝0.28，与瓜子 0.14 不符，故另建）；
+     填充白渐变 0.42→0.6（#6B→#99），轨 6dp。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <solid android:color="#24FFFFFF" />
+            <corners android:radius="3dp" />
+            <size android:height="6dp" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape android:shape="rectangle">
+                <gradient
+                    android:angle="0"
+                    android:endColor="#99FFFFFF"
+                    android:startColor="#6BFFFFFF"
+                    android:type="linear" />
+                <corners android:radius="3dp" />
+                <size android:height="6dp" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>

@@ -46,8 +46,19 @@ public class KaraokeLyricsView extends View {
     /** 歌词字号钳制（GZ LYRIC_SIZE_MIN／LYRIC_SIZE_MAX）。 */
     private static final float LYRIC_SIZE_MIN = 16f;
     private static final float LYRIC_SIZE_MAX = 40f;
+    /** B7：封面歌词字号钳制（MusicStore 封面键口径 14–32），与全屏 16–40 分开。 */
+    private static final float LYRIC_SIZE_MIN_COVER = 14f;
+    private static final float LYRIC_SIZE_MAX_COVER = 32f;
     /** 副行字号比（U-02：副行＝主行×0.62，行高＝副行字号×4/3，见 rebuildLayout）。 */
     private static final float SUB_RATIO = 0.62f;
+    /**
+     * L2 副行翻译三色 alpha（瓜子 LyricsViewKt:5887-5933）：已唱 1.0、当前行未唱 0.6、
+     * 非当前行 0.42（两档未唱 clamp 原值 0.6／0.42，钳制区间 0.32-0.62／0.2-0.48 的落点即这两值）。
+     * 三色同色相（翻译色），只以 alpha 区分已唱／未唱／闲行，不另起色。
+     */
+    private static final int SUB_SUNG_ALPHA = 255;
+    private static final int SUB_UNSUNG_ALPHA = 153;
+    private static final int SUB_IDLE_ALPHA = 107;
     /** 独立音译行默认（U-02：瓜子 AutoScrollRomaLine 默认 15sp／19sp；星辰音译无独立视图，
      * 音译只作副行或主行，故 15sp 仅作构造时副行画笔初值，19sp 仅作默认主行 24sp 时的自洽参照
      *（副行 24×0.62＝14.88≈15，行高 14.88×4/3≈19.84，与 19sp 量级自洽，不另立行高常量）；
@@ -225,6 +236,8 @@ public class KaraokeLyricsView extends View {
     private final Paint mainPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint subPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** 副行光晕画笔（L2：副行复用主行 drawWord 路径时光晕字号必须跟副行 0.62，不能拿主行 glowPaint）。 */
+    private final Paint subGlowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint emptyPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     /** 段落标签画笔（M-05：10sp，颜色见 applySchemeColors）。 */
     private final Paint partLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -236,6 +249,8 @@ public class KaraokeLyricsView extends View {
     private long blurRetryAfterMs;
     /** 空态三态（默认 STATE_LOADING：取词未定前什么都不画）。 */
     private int emptyState = STATE_LOADING;
+    /** 第三波 A4：无词空态自定义文案（空＝默认“暂无歌词”）；区分“本源无词／兜底也无词”。 */
+    private String noLyricText = null;
     private final Choreographer choreographer = Choreographer.getInstance();
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
@@ -377,6 +392,9 @@ public class KaraokeLyricsView extends View {
     /** 副行字号跟主行（U-02：副行＝主行×0.62，不再固定 15sp；主行改字号／切封面模式时经 applyMainStyle 跟着变）。 */
     private void applySubStyle() {
         subPaint.setTextSize(sp(mainTextSizeSp * SUB_RATIO));
+        subGlowPaint.setTextSize(sp(mainTextSizeSp * SUB_RATIO));
+        subGlowPaint.setTextSkewX(SKEW);
+        subGlowPaint.setTypeface(Typeface.DEFAULT);
     }
 
     /**
@@ -525,9 +543,9 @@ public class KaraokeLyricsView extends View {
         }
     }
 
-    /** 查找用歌词位置＝播放位置 − offset（U-05：正偏移＝歌词延后显示，负偏移＝歌词提前显示；0 时与原来一致）。 */
+    /** 查找用歌词位置＝播放位置 ＋ offset（第三波 L1：与瓜子一致，正偏移＝歌词提前显示）。 */
     private long lyricPosition(long playbackPositionMs) {
-        return playbackPositionMs - lyricOffsetMs();
+        return playbackPositionMs + lyricOffsetMs();
     }
 
     /** 当前行匹配入口（U-05＋M-04）：先按偏移换算歌词位置，再判间奏——首行前间奏内不推进当前行（返回 -1，onDraw 以圆点占位），其余走 findLine。 */
@@ -576,8 +594,14 @@ public class KaraokeLyricsView extends View {
 
     /** 已确认无词：显示低调空态（图标 40dp／alpha 0.5、「暂无歌词」12sp，GZ 参数表第 3 节）。 */
     public void showNoLyric() {
+        showNoLyric(null);
+    }
+
+    /** 已确认无词＋自定义文案：文案空时回默认“暂无歌词”。 */
+    public void showNoLyric(String text) {
         searchingLyric = false;
         emptyState = STATE_NO_LYRIC;
+        noLyricText = text;
         invalidate();
     }
 
@@ -684,9 +708,12 @@ public class KaraokeLyricsView extends View {
         invalidate();
     }
 
-    /** 主行字号（sp）：钳制 16–40（GZ LYRIC_SIZE_MIN／MAX），覆盖 setCoverMode 定下的基线。 */
+    /** 主行字号（sp）：按 coverMode 分钳制——封面 14–32、全屏 16–40（B7：此前无条件 16–40，
+     * 封面滑杆存 14/15sp 时渲染被抬到 16，滑杆与字号不一致）；覆盖 setCoverMode 定下的基线。 */
     public void setMainTextSizeSp(float sizeSp) {
-        float clamped = Math.max(LYRIC_SIZE_MIN, Math.min(LYRIC_SIZE_MAX, sizeSp));
+        float min = coverMode ? LYRIC_SIZE_MIN_COVER : LYRIC_SIZE_MIN;
+        float max = coverMode ? LYRIC_SIZE_MAX_COVER : LYRIC_SIZE_MAX;
+        float clamped = Math.max(min, Math.min(max, sizeSp));
         if (clamped == mainTextSizeSp) return;
         mainTextSizeSp = clamped;
         applyMainStyle();
@@ -1002,13 +1029,13 @@ public class KaraokeLyricsView extends View {
             block.index = i;
             block.top = top;
             block.mainRows = layoutMainRows(i, maxMainWidth);
-            block.subTexts = subTextsFor(i);
+            block.subRows = subRowsFor(i);
             block.partLabel = partLabelFor(i);
             block.labelHeight = block.partLabel.isEmpty() ? 0f : sp(PART_TEXT_SP) + dp(PART_BOTTOM_DP);
             // M-03：伴唱行主行行高按伴唱字号（基值×0.7）计，系数同样按模式分流。
             float blockMainRowHeight = lines.get(i).isBG() ? lineHeightFor(mainTextSizePx() * BG_FONT_RATIO) : mainRowHeight;
             block.height = block.mainRows.size() * blockMainRowHeight
-                    + block.subTexts.size() * subRowHeight
+                    + block.subRows.size() * subRowHeight
                     + block.labelHeight
                     + gapPx;
             block.mainRowHeight = blockMainRowHeight;
@@ -1038,9 +1065,33 @@ public class KaraokeLyricsView extends View {
         if (wordMode) {
             for (LyricsWord word : mainWords) {
                 if (TextUtils.isEmpty(word.getText())) continue;
-                float width = mainPaint.measureText(word.getText());
-                if (line.isBG()) width *= BG_FONT_RATIO;
-                segs.add(new Seg(word.getText(), word, width));
+                // L3：布局层按字符拆 Seg（按码点拆，emoji 等代理对不拆半个字符）。
+                // 字符切片时长按字符序号均分原词时长（末字符吃整数余数），上浮／变色按切片算，
+                // 光晕／缩放量仍按原词时长算（见 Seg 注释）。中文词表本身已是单字时拆后与整词一致，差距被掩盖属正常。
+                String wtext = word.getText();
+                int count = wtext.codePointCount(0, wtext.length());
+                if (count <= 1) {
+                    float width = mainPaint.measureText(wtext);
+                    if (line.isBG()) width *= BG_FONT_RATIO;
+                    segs.add(new Seg(wtext, word, width));
+                    continue;
+                }
+                long wordStart = word.getStartOffsetMs();
+                long wordDur = word.getDurationMs();
+                int offset = 0;
+                for (int ci = 0; ci < count; ci++) {
+                    int cp = wtext.codePointAt(offset);
+                    int charLen = Character.charCount(cp);
+                    String ch = wtext.substring(offset, offset + charLen);
+                    offset += charLen;
+                    float width = mainPaint.measureText(ch);
+                    if (line.isBG()) width *= BG_FONT_RATIO;
+                    long charStart = wordStart + wordDur * ci / count;
+                    long charDur = ci == count - 1
+                            ? Math.max(0, wordDur - (charStart - wordStart))
+                            : wordDur / count;
+                    segs.add(new Seg(ch, word, width, charStart, charDur, ci, count));
+                }
             }
             if (segs.isEmpty()) wordMode = false;
         }
@@ -1235,18 +1286,24 @@ public class KaraokeLyricsView extends View {
         return max;
     }
 
-    private List<String> subTextsFor(int index) {
-        List<String> subs = new ArrayList<>(2);
+    private List<SubRow> subRowsFor(int index) {
+        List<SubRow> subs = new ArrayList<>(2);
         String original = lines.get(index).getText();
         String translation = at(translations, index);
         String romanization = at(romanizations, index);
         // 歌词路 2：主行缺数据回落原文时，副行不再把原文重复一遍（主行已是原文才不加原文副行）。
         boolean mainIsOriginal = (primaryMode == 1 && TextUtils.isEmpty(translation))
                 || (primaryMode == 2 && TextUtils.isEmpty(romanization));
-        // 原文被顶替作主行时退为第一副行（主行已是原文时不重复）。
-        if (primaryMode != 0 && !mainIsOriginal && !TextUtils.isEmpty(original)) subs.add(original);
-        if (primaryMode != 1 && showTranslation && !TextUtils.isEmpty(translation)) subs.add(translation);
-        if (primaryMode != 2 && showRomanization && !TextUtils.isEmpty(romanization)) subs.add(romanization);
+        // 原文被顶替作主行时退为第一副行（主行已是原文时不重复），词表取主行原文词。
+        if (primaryMode != 0 && !mainIsOriginal && !TextUtils.isEmpty(original)) {
+            subs.add(new SubRow(original, lines.get(index).getWords()));
+        }
+        if (primaryMode != 1 && showTranslation && !TextUtils.isEmpty(translation)) {
+            subs.add(new SubRow(translation, atWords(translationWordLists, index)));
+        }
+        if (primaryMode != 2 && showRomanization && !TextUtils.isEmpty(romanization)) {
+            subs.add(new SubRow(romanization, atWords(romanizationWordLists, index)));
+        }
         return subs;
     }
 
@@ -1331,6 +1388,7 @@ public class KaraokeLyricsView extends View {
         }
         if (emptyState == STATE_LOADING) return;
         boolean waiting = emptyState == STATE_WAITING;
+        String noLyricLabel = noLyricText == null || noLyricText.isEmpty() ? "暂无歌词" : noLyricText;
         int base = lightScheme ? IDLE_COLOR_LIGHT : IDLE_COLOR;
         float cx = getWidth() / 2f;
         float cy = getHeight() / 2f;
@@ -1343,7 +1401,7 @@ public class KaraokeLyricsView extends View {
             Paint.FontMetrics fm = emptyPaint.getFontMetrics();
             float lineBox = emptyLineHeightSp > 0 ? sp(emptyLineHeightSp) : (fm.descent - fm.ascent);
             float textBaseline = cy - lineBox / 2f - fm.ascent;
-            canvas.drawText(waiting ? "等待播放" : "暂无歌词", cx, textBaseline, emptyPaint);
+            canvas.drawText(waiting ? "等待播放" : noLyricLabel, cx, textBaseline, emptyPaint);
             emptyPaint.setAlpha(255);
             return;
         }
@@ -1355,7 +1413,7 @@ public class KaraokeLyricsView extends View {
         canvas.drawText("♪", cx, iconBaseline, emptyPaint);
         emptyPaint.setTextSize(sp(EMPTY_TEXT_SP));
         emptyPaint.setAlpha(waiting ? Math.round(255f * EMPTY_WAITING_TEXT_ALPHA) : 255);
-        canvas.drawText(waiting ? "等待播放" : "暂无歌词", cx, cy + dp(20), emptyPaint);
+        canvas.drawText(waiting ? "等待播放" : noLyricLabel, cx, cy + dp(20), emptyPaint);
         emptyPaint.setAlpha(255);
     }
 
@@ -1416,12 +1474,96 @@ public class KaraokeLyricsView extends View {
         float subBaseline = baseline + fm.descent + block.subRowHeight * 0.92f;
         subPaint.setAlpha(255);
         subPaint.setMaskFilter(null);
-        for (String sub : block.subTexts) {
-            String text = ellipsize(sub, subPaint, maxWidth);
-            float x = rowStartX(subPaint.measureText(text));
-            canvas.drawText(text, x, subBaseline, subPaint);
+        for (SubRow subRow : block.subRows) {
+            if (isCurrent) {
+                drawSubRowCurrent(canvas, block, line, subRow, maxWidth, subBaseline, pos);
+            } else {
+                // L4：非当前行副行跟主行同套压暗＋渐隐——基色 alpha 乘同距 idleAlphaRatio，
+                // 再乘 0.42 基底（SUB_IDLE_ALPHA），使闲行翻译有效 alpha 恒 ≤ 闲行主行，
+                // 不再出现远处闲行翻译比闲行主行还亮；模糊门：与主行同半径量级时副行不另挂
+                // MaskFilter（直绘文本挂 BlurMaskFilter 会糊字，副行只做 alpha 压暗＋渐隐，
+                // 模糊门以主行同系数判读、副行不单独挂模糊，见交回）。
+                String text = ellipsize(subRow.text, subPaint, maxWidth);
+                float x = rowStartX(subPaint.measureText(text));
+                subPaint.setColor(lightScheme ? SUB_COLOR_LIGHT : SUB_COLOR);
+                float subRatio = idleAlphaRatio(distance, blockTopY, anchorY);
+                subPaint.setAlpha(Math.round(SUB_IDLE_ALPHA * clampF(subRatio, 0f, 1f)));
+                canvas.drawText(text, x, subBaseline, subPaint);
+                subPaint.setAlpha(255);
+            }
             subBaseline += block.subRowHeight;
         }
+        subPaint.setAlpha(255);
+        subPaint.setMaskFilter(null);
+    }
+
+    /**
+     * L2 当前行副行：有逐词表且逐字开关开时逐词画（复用 drawWordStyled 副行分流，字号 0.62、翻译三色）；
+     * 无词表、逐字开关关、词表与文案对不上、或逐词总宽超行宽时回落整行——整行按行进度裁剪已唱／未唱
+     * （已唱 1.0／未唱 0.6），不是静止淡色，仍算“随主行进度跟进”。
+     */
+    private void drawSubRowCurrent(Canvas canvas, Block block, LyricsLine line, SubRow subRow,
+                                   float maxWidth, float subBaseline, long pos) {
+        int subColor = lightScheme ? SUB_COLOR_LIGHT : SUB_COLOR;
+        long relative = pos - line.getTimeMs();
+        List<LyricsWord> words = new ArrayList<>();
+        for (LyricsWord w : subRow.words) {
+            if (w != null && !TextUtils.isEmpty(w.getText())) words.add(w);
+        }
+        boolean wordPath = wordByWord && !words.isEmpty() && subWordsMatch(subRow.text, words);
+        float totalWidth = 0f;
+        if (wordPath) {
+            for (LyricsWord w : words) totalWidth += subPaint.measureText(w.getText());
+            if (totalWidth > maxWidth) wordPath = false;
+        }
+        if (wordPath) {
+            float em = subPaint.getTextSize();
+            float x = rowStartX(totalWidth);
+            for (int i = 0; i < words.size(); i++) {
+                LyricsWord w = words.get(i);
+                float width = subPaint.measureText(w.getText());
+                Seg seg = new Seg(w.getText(), w, width);
+                drawWordStyled(canvas, seg, x, subBaseline, relative, em, i == words.size() - 1,
+                        subPaint, subGlowPaint, true);
+                x += width;
+            }
+            subPaint.setAlpha(255);
+            subPaint.setMaskFilter(null);
+            return;
+        }
+        // 整行回落：行进度裁剪（行时长口径与主行整行路径同一 lineDuration）。
+        String text = ellipsize(subRow.text, subPaint, maxWidth);
+        float width = subPaint.measureText(text);
+        float x = rowStartX(width);
+        long lineDur = lineDuration(block.index, line);
+        float progress = lineDur <= 0 ? 1f : clampF(relative / (float) lineDur, 0f, 1f);
+        subPaint.setColor(subColor);
+        subPaint.setAlpha(SUB_UNSUNG_ALPHA);
+        canvas.drawText(text, x, subBaseline, subPaint);
+        if (progress > 0f) {
+            subPaint.setAlpha(SUB_SUNG_ALPHA);
+            if (progress >= 1f) {
+                canvas.drawText(text, x, subBaseline, subPaint);
+            } else {
+                Paint.FontMetrics fm = subPaint.getFontMetrics();
+                int saveClip = canvas.save();
+                canvas.clipRect(x, subBaseline + fm.top - subPaint.getTextSize() * 0.1f,
+                        x + width * progress, subBaseline + fm.bottom + subPaint.getTextSize() * 0.1f);
+                canvas.drawText(text, x, subBaseline, subPaint);
+                canvas.restoreToCount(saveClip);
+            }
+        }
+        subPaint.setAlpha(255);
+    }
+
+    /** 副行逐词表与文案是否同一文本（忽略空格）：对不上时不许按词表画，避免画出缺字／错字行。 */
+    private static boolean subWordsMatch(String text, List<LyricsWord> words) {
+        if (text == null) return false;
+        StringBuilder sb = new StringBuilder();
+        for (LyricsWord w : words) sb.append(w.getText());
+        String a = text.replace(" ", "").replace("\u00A0", "");
+        String b = sb.toString().replace(" ", "").replace("\u00A0", "");
+        return !b.isEmpty() && a.equals(b);
     }
 
     /** 行起始 x：按对齐段控（0 左＝横向 padding、1 中、2 右）。 */
@@ -1438,9 +1580,9 @@ public class KaraokeLyricsView extends View {
         return width;
     }
 
-    private void drawIdleMain(Canvas canvas, Block block, float baseline, int distance, float blockTopY, float anchorY) {
-        // 非当前行：压暗系数（应用侧等价式，源头公式 GZ 未抠到）先算，模糊门槛按此系数判（GZ 应用侧口径）；
-        // 最终 alpha 再乘顶部／底部渐隐。
+    /** L4：非当前行压暗比（距离衰减＋顶部／底部渐隐），主行与副行同套；主行压暗／模糊数在抠到瓜子源头公式前
+     * 保持“等价式”标注，不标已对齐；深色面闲行色白×0.30 保留不动（待裁定，不改回 0xFF9A9AA0）。 */
+    private float idleAlphaRatio(int distance, float blockTopY, float anchorY) {
         float lineAlpha = Math.max(IDLE_ALPHA_NEAR_FLOOR, IDLE_ALPHA_FAR - distance * IDLE_ALPHA_STEP);
         float alphaRatio = lineAlpha;
         // 底部渐隐：锚点以下按归一化位置走 bottomFadeKeep 五点曲线；锚点以上不衰减（走顶部渐隐）。
@@ -1453,6 +1595,14 @@ public class KaraokeLyricsView extends View {
         if (blockTopY < topFadePx) {
             alphaRatio *= smoothstep(blockTopY / topFadePx);
         }
+        return alphaRatio;
+    }
+
+    private void drawIdleMain(Canvas canvas, Block block, float baseline, int distance, float blockTopY, float anchorY) {
+        // 非当前行：压暗系数（应用侧等价式，源头公式 GZ 未抠到）先算，模糊门槛按此系数判（GZ 应用侧口径）；
+        // 最终 alpha 再乘顶部／底部渐隐。
+        float lineAlpha = Math.max(IDLE_ALPHA_NEAR_FLOOR, IDLE_ALPHA_FAR - distance * IDLE_ALPHA_STEP);
+        float alphaRatio = idleAlphaRatio(distance, blockTopY, anchorY);
         int color = lightScheme ? IDLE_COLOR_LIGHT : 0x4DFFFFFF; // 深色面非当前行基色＝瓜子白×0.30（redo3 N-02；衰减模型瓜子源头未抠到，仍用现行按距离 alpha＋渐隐）
         int alpha = Math.round(255 * clampF(alphaRatio, 0f, 1f));
         // 模糊应用侧（GZ LyricsViewKt:478-511 转写）：半径先量化 E＝round(blur×2)、半径＝E/2；
@@ -1604,50 +1754,77 @@ public class KaraokeLyricsView extends View {
     }
 
     private void drawWord(Canvas canvas, Seg seg, float x, float y, long relative, float em, boolean isLastWord) {
+        drawWordStyled(canvas, seg, x, y, relative, em, isLastWord, mainPaint, glowPaint, false);
+    }
+
+    /**
+     * L2／L3 共用逐词绘制：主行与副行同一路径，画笔与颜色分流。
+     * 主行：原口径（未唱色＋提亮 alpha 斜坡＋已唱裁剪）；副行：翻译色＋三色 alpha
+     * （已唱 1.0／未唱 0.6，见 SUB_*_ALPHA），光晕色同样走翻译色、字号走副行 0.62（调用方传 em）。
+     * L3：变色／上浮按字符切片（seg.charStartMs／charDurationMs）算，光晕／缩放量按原词时长算；
+     * 横向漂移 0.03em 只作用于拆字 Seg（charCount＞1），按上浮进度算；长音正弦浮动按字符序号／字符数
+     * 算 sin(2π×charIndex／charCount)（瓜子确切相位未抠到，本式只保证“按序号／字符数算正弦”，见交回）。
+     * CJK 门：Seg 已是单字时 isCjkWord(seg.text) 即逐字判，不再整词判。
+     */
+    private void drawWordStyled(Canvas canvas, Seg seg, float x, float y, long relative, float em,
+                                boolean isLastWord, Paint textPaint, Paint glowPaintParam, boolean isSub) {
         LyricsWord word = seg.word;
-        long start = word.getStartOffsetMs();
-        long duration = Math.max(1, word.getDurationMs());
-        // 变色进度：按词时长归一（与上浮分母分开，GZ 同口径）。
+        long start = seg.charStartMs;
+        long duration = Math.max(1, seg.charDurationMs);
+        long originalDuration = word.getDurationMs();
+        // 变色进度：按字符切片时长归一（与上浮分母分开，GZ 同口径）。
         float colorProgress = clampF((relative - start) / (float) duration, 0f, 1f);
         float colorEased = 1f - (1f - colorProgress) * (1f - colorProgress); // easeOutQuad（星辰现行提亮曲线）
         int alpha = Math.round(255 * (WORD_ALPHA_FROM + (1f - WORD_ALPHA_FROM) * colorEased));
 
         float drawY = y;
+        float drawX = x;
         float scale = 1f;
         // 长音量预先算好，光晕绘制与缩放共用。
-        boolean isLong = advancedFx && word.getDurationMs() >= LONG_WORD_MS;
+        boolean isLong = advancedFx && originalDuration >= LONG_WORD_MS;
         float glowProgress = 0f;
         float glowIntensity = 0f;
         float glowRadius = 0f;
         float scaleAmount = 0f;
+        float liftProgress = 0f;
         if (advancedFx) {
-            // 逐字上浮（GZ wordLiftProgressTime）：easeOut(clamp((t−字开始)/max(1100, 字时长))) × (−0.09em)。
-            float liftProgress = easeOut(clampF((relative - start) / (float) Math.max(WORD_LIFT_MIN_DURATION_MS, duration), 0f, 1f));
+            // 逐字上浮（GZ wordLiftProgressTime）：easeOut(clamp((t−字开始)/max(1100, 字时长))) × (−0.09em)；
+            // 拆字后“字”即字符切片，分母按切片时长算，上浮逐字符依次起落。
+            liftProgress = easeOut(clampF((relative - start) / (float) Math.max(WORD_LIFT_MIN_DURATION_MS, duration), 0f, 1f));
             drawY += WORD_LIFT_EM * em * liftProgress;
+            // L3 逐字横向漂移 0.03（LyricsViewKt:7124-7147／10377）：只对拆字 Seg，按上浮进度算，
+            // 整词 Seg（charCount＝0）不漂移，避免整词平移。
+            if (seg.charCount > 1) drawX = x + 0.03f * em * liftProgress;
         }
         if (isLong) {
             // 光晕进度（GZ emphasizeProgressTime）：empEasing(clamp((t−开始)/分母))，
-            // 分母＝max(1000, 时长)，行末字释放段再＋400ms（EMPH_RELEASE_TAIL_MS）。
-            long denom = Math.max(LONG_WORD_MS, duration) + (isLastWord ? EMPH_RELEASE_TAIL_MS : 0L);
-            glowProgress = empEasing(clampF((relative - start) / (float) denom, 0f, 1f));
+            // 分母＝max(1000, 原词时长)，行末字释放段再＋400ms（EMPH_RELEASE_TAIL_MS）；
+            // 注意：光晕起点按原词起算（不是字符切片起），整词光晕包络不因拆字碎掉。
+            long origStart = word.getStartOffsetMs();
+            long denom = Math.max(LONG_WORD_MS, originalDuration) + (isLastWord ? EMPH_RELEASE_TAIL_MS : 0L);
+            glowProgress = empEasing(clampF((relative - origStart) / (float) denom, 0f, 1f));
             // 强度／半径／边距走 GZ emphasizeGlow／emphasizeGlowMargin 静态方法（见本文件末段）。
-            glowIntensity = emphasizeGlowIntensity(word.getDurationMs(), isLastWord);
-            glowRadius = emphasizeGlowRadius(word.getDurationMs(), isLastWord, em);
-            // 长音字母另浮 −0.05em（按光晕包络；GZ 逐字母正弦浮动路径见 emphasizeUnitFloatTime，整词近似用包络）＋
-            // GZ 缩放变换的纵向漂移 −0.025×缩放量×进度×字号（LyricsViewKt:10376，CJK 与否同式）。
-            scaleAmount = emphasizeScaleAmount(word.getDurationMs(), isLastWord);
-            drawY += EMPHASIZE_LETTER_FLOAT_EM * em * glowProgress;
+            glowIntensity = emphasizeGlowIntensity(originalDuration, isLastWord);
+            glowRadius = emphasizeGlowRadius(originalDuration, isLastWord, em);
+            // 长音字母浮动：拆字 Seg 按字符序号／字符数算正弦（GZ emphasizeUnitFloatTime 口径基础），
+            // 未拆字 Seg 保留原均匀包络；另有 GZ 缩放变换的纵向漂移 −0.025×缩放量×进度×字号（:10376，CJK 与否同式）。
+            scaleAmount = emphasizeScaleAmount(originalDuration, isLastWord);
+            if (seg.charCount > 1) {
+                float sinPhase = (float) Math.sin(2.0 * Math.PI * seg.charIndex / (float) Math.max(1, seg.charCount));
+                drawY += EMPHASIZE_LETTER_FLOAT_EM * em * glowProgress * sinPhase;
+            } else {
+                drawY += EMPHASIZE_LETTER_FLOAT_EM * em * glowProgress;
+            }
             drawY += -0.025f * scaleAmount * glowProgress * em;
             // 长音缩放（GZ 应用式 LyricsViewKt:10369）：scale＝1＋0.1×光晕进度×缩放量，且只对非 CJK 字；
-            // CJK 字缩放恒 1（GZ isCJK 分支）；整词按全词是否全 CJK 取门（逐字门需逐字布局，见残留注记）。
-            // GZ 逐字横向漂移 0.03 项（:10377）为逐字偏移，整词粒度无确证均值，不落。
+            // CJK 字缩放恒 1（GZ isCJK 分支）；Seg 已拆字时 seg.text 即单字，逐字判。
             if (!isCjkWord(seg.text)) scale = 1f + 0.1f * glowProgress * scaleAmount;
         }
 
         int save = -1;
         if (scale != 1f) {
             save = canvas.save();
-            float cx = x + seg.width / 2f;
+            float cx = drawX + seg.width / 2f;
             canvas.translate(cx, drawY);
             canvas.scale(scale, scale);
             canvas.translate(-cx, -drawY);
@@ -1657,31 +1834,53 @@ public class KaraokeLyricsView extends View {
             // Canvas 文字模糊不裁剪、无需扩图，此处按公式算出留档，绘制直接用 BlurMaskFilter 等价呈边缘辉光（应用侧等价）。
             float glowMargin = emphasizeGlowMargin(glowRadius, em);
             if (glowMargin > 0f) {
-                glowPaint.setColor(activeColor());
-                glowPaint.setAlpha(Math.round(255f * glowIntensity * glowProgress));
-                glowPaint.setMaskFilter(blurFilter(glowRadius));
-                canvas.drawText(seg.text, x, drawY, glowPaint);
-                glowPaint.setMaskFilter(null);
-                glowPaint.setAlpha(255);
+                glowPaintParam.setColor(isSub ? (lightScheme ? SUB_COLOR_LIGHT : SUB_COLOR) : activeColor());
+                glowPaintParam.setAlpha(Math.round(255f * glowIntensity * glowProgress));
+                glowPaintParam.setMaskFilter(blurFilter(glowRadius));
+                canvas.drawText(seg.text, drawX, drawY, glowPaintParam);
+                glowPaintParam.setMaskFilter(null);
+                glowPaintParam.setAlpha(255);
             }
         }
         // 逐字变色（redo3 N-06，瓜子 sungEdgeXFor 口径）：先整词画未唱色，再按词内进度
         // （词宽×colorProgress）竖直裁剪画已唱色；斜体下裁剪边为竖直字符边界级。
-        int unsung = lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR;
-        mainPaint.setColor(unsung);
-        mainPaint.setAlpha(alpha);
-        canvas.drawText(seg.text, x, drawY, mainPaint);
-        if (colorProgress > 0f) {
-            mainPaint.setColor(activeColor());
-            if (colorProgress >= 1f) {
-                canvas.drawText(seg.text, x, drawY, mainPaint);
-            } else {
-                Paint.FontMetrics fm = mainPaint.getFontMetrics();
-                int saveClip = canvas.save();
-                canvas.clipRect(x, drawY + fm.top - em * 0.1f,
-                        x + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
-                canvas.drawText(seg.text, x, drawY, mainPaint);
-                canvas.restoreToCount(saveClip);
+        if (isSub) {
+            int subColor = lightScheme ? SUB_COLOR_LIGHT : SUB_COLOR;
+            textPaint.setColor(subColor);
+            textPaint.setAlpha(SUB_UNSUNG_ALPHA);
+            canvas.drawText(seg.text, drawX, drawY, textPaint);
+            if (colorProgress > 0f) {
+                textPaint.setColor(subColor);
+                textPaint.setAlpha(SUB_SUNG_ALPHA);
+                if (colorProgress >= 1f) {
+                    canvas.drawText(seg.text, drawX, drawY, textPaint);
+                } else {
+                    Paint.FontMetrics fm = textPaint.getFontMetrics();
+                    int saveClip = canvas.save();
+                    canvas.clipRect(drawX, drawY + fm.top - em * 0.1f,
+                            drawX + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
+                    canvas.drawText(seg.text, drawX, drawY, textPaint);
+                    canvas.restoreToCount(saveClip);
+                }
+            }
+            textPaint.setAlpha(255);
+        } else {
+            int unsung = lightScheme ? MAIN_COLOR_LIGHT : MAIN_COLOR;
+            textPaint.setColor(unsung);
+            textPaint.setAlpha(alpha);
+            canvas.drawText(seg.text, drawX, drawY, textPaint);
+            if (colorProgress > 0f) {
+                textPaint.setColor(activeColor());
+                if (colorProgress >= 1f) {
+                    canvas.drawText(seg.text, drawX, drawY, textPaint);
+                } else {
+                    Paint.FontMetrics fm = textPaint.getFontMetrics();
+                    int saveClip = canvas.save();
+                    canvas.clipRect(drawX, drawY + fm.top - em * 0.1f,
+                            drawX + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
+                    canvas.drawText(seg.text, drawX, drawY, textPaint);
+                    canvas.restoreToCount(saveClip);
+                }
             }
         }
         if (save >= 0) canvas.restoreToCount(save);
@@ -1936,11 +2135,42 @@ public class KaraokeLyricsView extends View {
         @Nullable
         final LyricsWord word;
         final float width;
+        /**
+         * L3 字符起止：逐字 Seg 时 charStartMs／charDurationMs 是该字符在行内的切片
+         * （按字符序号均分原词时长，末字符吃余数）；word 仍是原词（光晕／缩放量按原词时长算，
+         * 不按切片时长算，否则长词拆字后切片＜1000ms 会丢光晕）。整词 Seg 时 charStart＝词起、
+         * charDuration＝词长、charCount＝0（表示未拆字，漂移／正弦浮动不作用）。
+         */
+        final long charStartMs;
+        final long charDurationMs;
+        final int charIndex;
+        final int charCount;
 
         Seg(String text, @Nullable LyricsWord word, float width) {
+            this(text, word, width, word == null ? 0 : word.getStartOffsetMs(),
+                    word == null ? 0 : word.getDurationMs(), 0, 0);
+        }
+
+        Seg(String text, @Nullable LyricsWord word, float width,
+            long charStartMs, long charDurationMs, int charIndex, int charCount) {
             this.text = text;
             this.word = word;
             this.width = width;
+            this.charStartMs = charStartMs;
+            this.charDurationMs = charDurationMs;
+            this.charIndex = charIndex;
+            this.charCount = charCount;
+        }
+    }
+
+    /** L2 副行：文案＋逐词表（词表可空＝无词表，回落整行）。 */
+    private static final class SubRow {
+        final String text;
+        final List<LyricsWord> words;
+
+        SubRow(String text, List<LyricsWord> words) {
+            this.text = text == null ? "" : text;
+            this.words = words == null ? Collections.emptyList() : words;
         }
     }
 
@@ -1954,6 +2184,6 @@ public class KaraokeLyricsView extends View {
         String partLabel = "";
         float labelHeight;
         List<List<Seg>> mainRows = Collections.emptyList();
-        List<String> subTexts = Collections.emptyList();
+        List<SubRow> subRows = Collections.emptyList();
     }
 }

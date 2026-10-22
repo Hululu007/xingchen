@@ -115,6 +115,17 @@ public class MusicController {
             App.post(() -> {
                 listeners.forEach(l -> l.onPlayingChanged(playing));
                 syncMiniBar();
+                // 第三波 M2（选口径 a）：播放态变化时调策略 playingChanged，让暂停 10 秒
+                // 自动收真生效。顺序在 syncMiniBar（register 会把策略 playing 置 true、
+                // 取消计时）之后，否则暂停事件会被注册复位盖掉。onCloseSession 对音乐
+                // 只是 pause（已暂停时为空操作）＋注销条（仅藏条、队列保留），不停止
+                // 服务、不清队列，见 ListenMiniBar.onCloseSession，不会误停。
+                try {
+                    com.fongmi.android.tv.ui.minibar.ListenMiniBar bar =
+                            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(app == null ? App.get() : app);
+                    bar.musicPlayingChanged(playing);
+                } catch (Throwable ignored) {
+                }
             });
         }
 
@@ -143,7 +154,12 @@ public class MusicController {
 
         @Override
         public void onModeChanged(int mode) {
-            App.post(() -> listeners.forEach(l -> l.onModeChanged(mode)));
+            // 复核必-15：模式变化也要同步迷你条（其它 onTrackChanged／onPlayingChanged／
+            // onQueueChanged 三处都调 syncMiniBar，只这一处漏了），先同步再转发。
+            App.post(() -> {
+                syncMiniBar();
+                listeners.forEach(l -> l.onModeChanged(mode));
+            });
         }
 
         @Override
@@ -308,6 +324,22 @@ public class MusicController {
         runOnService(() -> service().next());
     }
 
+    /** 复核 B6：迷你条下一首设防口径——不再直接复用 hasNext()（MusicQueue.hasNext 本体不动）：
+     * P-5b 顺序单首队手动下一首＝重头播，当前歌非空即为 true；否则按 nextIndex() >= 0 判定。
+     * 后者同时修顺序模式游标 -1 但队非空时 hasNext() 为 true 的死钮（nextIndex() 在 index < 0 时返回 -1）。
+     * 服务为空时按无下一首处理（不亮可点态）。 */
+    public boolean canNext() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        if (s == null) return false;
+        try {
+            MusicQueue q = s.getQueue();
+            if (q.getMode() == MusicQueue.MODE_SEQUENTIAL && q.size() == 1 && q.current() != null) return true;
+            return q.nextIndex() >= 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     public void prev() {
         runOnService(() -> service().prev());
     }
@@ -383,6 +415,17 @@ public class MusicController {
 
     public void setSleep(int sleep) {
         runOnService(() -> service().setSleep(sleep));
+    }
+
+    /** 第二波 B4 接线：面板关“播完本首再停”开关时调服务侧清等待态（定时彻底失效）。 */
+    public void clearSleepWaitingForSongEnd() {
+        runOnService(() -> service().clearSleepWaitingForSongEnd());
+    }
+
+    /** 第二波 B4 显示层用：服务侧是否正处分钟档到点后的等待态（面板不再只凭“档位＋剩余 -1”推断）。 */
+    public boolean isSleepWaitingForSongEnd() {
+        MusicPlaybackService s = service();
+        return s != null && s.isSleepWaitingForSongEnd();
     }
 
     public int getSleep() {
@@ -509,6 +552,27 @@ public class MusicController {
     public int index() {
         MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? -1 : s.getQueue().getIndex();
+    }
+
+    /** 封面卡片后叠卡直调口径：直接取服务侧 MusicQueue.nextIndex()/prevIndex()（含随机洗牌顺序），不由活动侧近似推算。 */
+    public int queueNextIndex() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        if (s == null) return -1;
+        try {
+            return s.getQueue().nextIndex();
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    public int queuePrevIndex() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        if (s == null) return -1;
+        try {
+            return s.getQueue().prevIndex();
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
     public long position() {

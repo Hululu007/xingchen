@@ -141,10 +141,16 @@ public class FreeJsMusicSource implements MusicSource {
 
     @Override
     public String playUrl(MusicTrack track, int quality) throws Exception {
+        return playUrl(track, quality, false);
+    }
+
+    /** 探链口径：probe＝true 时只读地址、不记死（面板探链用），透传进桥的死检查处。 */
+    @Override
+    public String playUrl(MusicTrack track, int quality, boolean probe) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeForTrack(track);
         if (b == null) return null;
         long t0 = System.currentTimeMillis();
-        MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality));
+        MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality), probe);
         // C5 真实取链耗时（最近一次口径，覆盖检测初始值）：归属取自 track.rawJson 的 _plugin
         if (ms != null && !TextUtils.isEmpty(ms.url)) {
             try {

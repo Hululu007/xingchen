@@ -222,6 +222,29 @@
 
                     <View style="@style/MusicSettingDivider" />
 
+                    <!-- 第三波 S-A1：单独设置移动网络音质开关（关＝跟随播放音质、子行隐藏；
+                         开＝移动网络下固定用指定档、子行可见；服务侧 effectivePlayQuality 逻辑不动） -->
+                    <LinearLayout
+                        android:id="@+id/rowMobileQualitySwitch"
+                        style="@style/MusicSettingRow">
+
+                        <ImageView
+                            style="@style/MusicSettingIcon"
+                            android:backgroundTint="#CE93D8"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_music_note" />
+
+                        <TextView
+                            style="@style/MusicSettingName"
+                            android:text="单独设置移动网络音质" />
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/swMobileQualitySeparate"
+                            style="@style/MusicSettingSwitch" />
+                    </LinearLayout>
+
+                    <View style="@style/MusicSettingDivider" />
+
                     <!-- 移动网络音质（瓜子移动网络固定档位：关＝跟随播放音质，开＝移动网络下固定用指定档） -->
                     <LinearLayout
                         android:id="@+id/rowMobileQuality"
@@ -777,6 +800,50 @@
                             android:id="@+id/swWifiOnly"
                             style="@style/MusicSettingSwitch" />
                     </LinearLayout>
+
+                    <View style="@style/MusicSettingDivider" />
+
+                    <!-- 第三波 S-A3：封面与歌词（内嵌到音频文件／旁路同名文件／两者；新任务生效） -->
+                    <LinearLayout
+                        android:id="@+id/rowDlEmbed"
+                        style="@style/MusicSettingRow">
+
+                        <ImageView
+                            style="@style/MusicSettingIcon"
+                            android:backgroundTint="#B39DDB"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_music_note" />
+
+                        <TextView
+                            style="@style/MusicSettingName"
+                            android:text="封面与歌词" />
+
+                        <TextView
+                            android:id="@+id/tvDlEmbed"
+                            style="@style/MusicSettingValue" />
+                    </LinearLayout>
+
+                    <View style="@style/MusicSettingDivider" />
+
+                    <!-- 第三波 S-A3：写入失败策略（跳过不写／写入 URL 字段；新任务生效） -->
+                    <LinearLayout
+                        android:id="@+id/rowDlEmbedFail"
+                        style="@style/MusicSettingRow">
+
+                        <ImageView
+                            style="@style/MusicSettingIcon"
+                            android:backgroundTint="#BCAAA4"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_music_delete" />
+
+                        <TextView
+                            style="@style/MusicSettingName"
+                            android:text="写入失败策略" />
+
+                        <TextView
+                            android:id="@+id/tvDlEmbedFail"
+                            style="@style/MusicSettingValue" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 系统媒体与设备（播放设备入口只在播放页工具面板，不在这里重复造入口） -->
@@ -822,7 +889,8 @@
                     android:background="@drawable/card_music"
                     android:orientation="vertical">
 
-                    <!-- 清除音乐缓存 -->
+                    <!-- 清除图片缓存（S-A4：行名已是“清除图片缓存”；Glide 缓存全 App 共用，
+                         副文写明与视频封面共用，点一次也会清视频封面） -->
                     <LinearLayout
                         android:id="@+id/rowClearCache"
                         style="@style/MusicSettingRow">
@@ -833,9 +901,26 @@
                             android:contentDescription="@null"
                             android:src="@drawable/ic_music_delete" />
 
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="@string/music_set_clear_cache" />
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                style="@style/MusicSettingName"
+                                android:layout_width="wrap_content"
+                                android:layout_weight="0"
+                                android:text="@string/music_set_clear_cache" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="图片缓存与视频封面共用"
+                                android:textColor="#8E8E93"
+                                android:textSize="12sp" />
+                        </LinearLayout>
 
                         <TextView
                             android:id="@+id/tvCacheSize"

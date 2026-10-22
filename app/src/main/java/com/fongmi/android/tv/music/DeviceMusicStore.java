@@ -131,6 +131,10 @@ public class DeviceMusicStore {
                     String rawTitle = c.getString(iTitle);
                     t.title = rawTitle == null ? null : com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(rawTitle);
                     t.artist = c.getString(iArtist);
+                    if (iData >= 0 && com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(t.artist)) {
+                        String tagArtist = tagArtist(c.getString(iData));
+                        if (!com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(tagArtist)) t.artist = tagArtist;
+                    }
                     t.album = c.getString(iAlbum);
                     t.duration = c.getLong(iDur);
                     t.platform = DeviceMusicSource.PLATFORM;
@@ -194,6 +198,24 @@ public class DeviceMusicStore {
         }
     }
 
+    private static String tagArtist(String data) {
+        if (data == null || data.isEmpty()) return null;
+        java.io.File audio = new java.io.File(data);
+        if (!audio.isFile()) return null;
+        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        try {
+            r.setDataSource(data);
+            return r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     /**
      * 第 12 项：GZ 同目录旁路封面（LocalMusicScanner.findSidecarCover）——同目录下依次找
      * &lt;歌名&gt;.jpg／.png／.jpeg／.jpg.png／.jpg.jpeg，存在、可读、长度大于 0 才算。
@@ -244,7 +266,8 @@ public class DeviceMusicStore {
                         } catch (Throwable ignored) {
                         }
                     }
-                    // 内嵌封面：提取出来落缓存文件当封面地址；没有内嵌图就留空（走素图）
+                    // 内嵌封面：提取出来落缓存文件当封面地址；
+                    // 第三波 P-8b：内嵌取不到时复用同目录旁路图 sidecarCover(文件路径)，再留空（走素图）。
                     try {
                         byte[] pic = r.getEmbeddedPicture();
                         if (pic != null && pic.length > 0) {
@@ -266,6 +289,13 @@ public class DeviceMusicStore {
                 } finally {
                     try {
                         r.release();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (t.cover == null || t.cover.isEmpty()) {
+                    try {
+                        String sidecar = sidecarCover(f.getAbsolutePath());
+                        if (sidecar != null && !sidecar.isEmpty()) t.cover = sidecar;
                     } catch (Throwable ignored) {
                     }
                 }

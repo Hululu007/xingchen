@@ -278,6 +278,10 @@ public class LxPlatformSearch {
         List<MusicTrack> out = new ArrayList<>();
         JsonArray info = digArray(root, "data", "info");
         if (info == null) return out;
+        // 第三波 A3：专辑图按 album_id 查专辑信息补（同次搜索内按 album_id 缓存去重；
+        // 专辑接口字段／地址未逐条本机验通，取不到字段时封面留空，不编图、不阻塞搜索失败）。
+        java.util.Map<String, String> albumCovers = new java.util.HashMap<>();
+        int albumCoverFetched = 0;
         for (JsonElement el : info) {
             if (!el.isJsonObject()) continue;
             JsonObject o = el.getAsJsonObject();
@@ -288,14 +292,53 @@ public class LxPlatformSearch {
             t.artist = optStr(o, "singername");
             t.album = optStr(o, "album_name");
             t.duration = optLong(o, "duration") * 1000;
+            String albumId = optStr(o, "album_id");
+            if (!albumId.isEmpty()) {
+                String cover = albumCovers.get(albumId);
+                if (cover == null) {
+                    // M13：去重 album_id 补图只补前 3 张（每张同步 http 约 20 秒超时，全补会拖垮搜索）；
+                    // 超出部分先出结果、封面留空，不异步补图（不再引入竞态）。
+                    if (albumCoverFetched < 3) {
+                        cover = kgAlbumCover(albumId);
+                        albumCoverFetched++;
+                    } else {
+                        cover = "";
+                    }
+                    albumCovers.put(albumId, cover);
+                }
+                if (!cover.isEmpty()) t.cover = cover;
+            }
             JsonObject item = new JsonObject();
             item.addProperty("hash", hash);
-            item.addProperty("albumId", optStr(o, "album_id"));
+            item.addProperty("albumId", albumId);
             item.addProperty("songmid", hash);
             finish(t, item);
             out.add(t);
         }
         return out;
+    }
+
+    /** 酷狗专辑信息取图：只读返回里实际存在的图字段，任一环节失败返回空（不抛、不阻塞搜索）。 */
+    private static String kgAlbumCover(String albumId) {
+        try {
+            String text = httpGet("http://mobilecdn.kugou.com/api/v3/album/info?albumid=" + enc(albumId), null);
+            JsonObject root = JsonParser.parseString(text).getAsJsonObject();
+            JsonObject data = root.has("data") && root.get("data").isJsonObject()
+                    ? root.getAsJsonObject("data") : root;
+            String cover = firstNonEmpty(data, "imgurl", "img", "pic", "cover", "image", "album_img");
+            if (!cover.isEmpty()) return cover;
+            return firstNonEmpty(root, "imgurl", "img", "pic", "cover", "image");
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String firstNonEmpty(JsonObject obj, String... keys) {
+        for (String k : keys) {
+            String v = optStr(obj, k);
+            if (!v.isEmpty()) return v;
+        }
+        return "";
     }
 
     /* ---------------- 咪咕 mg ---------------- */
@@ -328,7 +371,18 @@ public class LxPlatformSearch {
             t.artist = singer.toString();
             if (o.has("albums") && o.get("albums").isJsonArray() && o.get("albums").getAsJsonArray().size() > 0) {
                 JsonElement first = o.get("albums").getAsJsonArray().get(0);
-                if (first.isJsonObject()) t.album = optStr(first.getAsJsonObject(), "name");
+                if (first.isJsonObject()) {
+                    t.album = optStr(first.getAsJsonObject(), "name");
+                    // 第三波 A3：咪咕专辑图只读搜索返回里实际存在的字段（专辑对象优先、歌曲对象次之）；
+                    // 字段名未从真实回包逐条核对，读不到就留空，不硬编地址、不猜字段拼图。
+                    String albumCover = firstNonEmpty(first.getAsJsonObject(),
+                            "pic", "img", "cover", "image", "picUrl", "albumPic");
+                    if (!albumCover.isEmpty()) t.cover = albumCover;
+                }
+            }
+            if (t.cover == null || t.cover.isEmpty()) {
+                String songCover = firstNonEmpty(o, "pic", "img", "cover", "image", "picUrl", "albumPic");
+                if (!songCover.isEmpty()) t.cover = songCover;
             }
             JsonObject item = new JsonObject();
             item.addProperty("songmid", contentId);
@@ -354,6 +408,8 @@ public class LxPlatformSearch {
                     return lyricWy(item);
                 case KG:
                     return lyricKg(item);
+                case MG:
+                    return lyricMg(item);
                 default:
                     return null;
             }
@@ -431,6 +487,25 @@ public class LxPlatformSearch {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 咪咕歌词：走树内已实证的 resourceinfo.do（MiguClient 同款口径）——
+     * copyrightId 查 resource[0] 的 lrcUrl，再拉歌词文本；mrc 加密格式不解，只取 lrc。
+     * 任一环节取不到字段返回 null，调用方再走落雪脚本 lyric 动作／兜底，不抛错。 */
+    private static String lyricMg(JsonObject item) throws Exception {
+        String copyrightId = optStr(item, "copyrightId");
+        if (copyrightId.isEmpty()) return null;
+        String text = httpGet("https://app.c.nf.migu.cn/MIGUM3.0/v1.0/content/resourceinfo.do?copyrightId="
+                + enc(copyrightId) + "&resourceType=2", "https://music.migu.cn/");
+        JsonObject root = JsonParser.parseString(text).getAsJsonObject();
+        JsonArray resource = root.has("resource") && root.get("resource").isJsonArray()
+                ? root.getAsJsonArray("resource") : null;
+        if (resource == null || resource.size() == 0 || !resource.get(0).isJsonObject()) return null;
+        JsonObject data = resource.get(0).getAsJsonObject();
+        String lrcUrl = firstNonEmpty(data, "lrcUrl", "lyricUrl");
+        if (lrcUrl.isEmpty()) return null;
+        String lyric = httpGet(lrcUrl, "https://music.migu.cn/");
+        return lyric == null || lyric.trim().isEmpty() ? null : lyric;
     }
 
     /* ---------------- 内部 ---------------- */

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -10,6 +11,7 @@ import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -47,6 +49,8 @@ import java.util.List;
 public class MusicSettingsActivity extends BaseActivity {
 
     private ActivityMusicSettingsBinding binding;
+    /** 在线歌词优先级行右侧值（动态插行生成，布局文件未动时由 insertLyricPriorityRow 赋值） */
+    private TextView tvLyricPriority;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicSettingsActivity.class));
@@ -61,6 +65,21 @@ public class MusicSettingsActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         initQualityRows();
+        // 第三波 S-A1：单独设置移动网络音质开关＋子行两段式（服务侧 effectivePlayQuality 逻辑不动：
+        // 开关状态就是存值本身——开＝存固定档、关＝存 -1 跟随；关时先记下固定档以便再开恢复）。
+        initSwitch(binding.swMobileQualitySeparate, MusicStore.getMobileQuality() >= 0, on -> {
+            boolean separate = MusicStore.getMobileQuality() >= 0;
+            if (on == separate) return;
+            if (on) {
+                MusicStore.setMobileQuality(MusicStore.getMobileQualityLastFixed());
+            } else {
+                int cur = MusicStore.getMobileQuality();
+                if (cur >= 0) MusicStore.setMobileQualityLastFixed(cur);
+                MusicStore.setMobileQuality(-1);
+            }
+            refreshMobileQualityText();
+        });
+        binding.rowMobileQualitySwitch.setOnClickListener(v -> binding.swMobileQualitySeparate.toggle());
         refreshMobileQualityText();
         binding.rowMobileQuality.setOnClickListener(v -> showMobileQualityDialog());
         refreshDlNamingText();
@@ -70,6 +89,12 @@ public class MusicSettingsActivity extends BaseActivity {
             if (on) MusicDownloadStore.pauseRunningIfCellular();
         });
         binding.rowWifiOnly.setOnClickListener(v -> binding.swWifiOnly.toggle());
+        // 第三波 S-A3：封面与歌词／写入失败策略行（新任务生效，已下载文件不动；内嵌档的
+        // 内嵌部分未接线，见 MusicStore 注释与 MusicDownloadStore.downloadSidecars）。
+        refreshDlEmbedText();
+        binding.rowDlEmbed.setOnClickListener(v -> showDlEmbedDialog());
+        refreshDlEmbedFailText();
+        binding.rowDlEmbedFail.setOnClickListener(v -> showDlEmbedFailDialog());
         // S1：播放失败行由开关改两档单选（停止播放／自动下一首；存值沿用 isAutoSkipOnError，行为不变）
         refreshAutoSkipText();
         binding.rowAutoSkip.setOnClickListener(v -> showAutoSkipDialog());
@@ -94,6 +119,11 @@ public class MusicSettingsActivity extends BaseActivity {
         // S6：AMLL 歌词开关一行（默认开＝现行行为；门控见 MusicRepository.lyricRich／lyricRichAll）
         initSwitch(binding.swAmll, MusicStore.isAmllEnabled(), MusicStore::setAmllEnabled);
         binding.rowAmll.setOnClickListener(v -> binding.swAmll.toggle());
+        // 在线歌词优先级行：插在 AMLL 行之后（歌词区内），一行＋当前值＋选项弹窗，模式同主歌词行。
+        // 本批只许改四个 Java 文件、布局文件不动，故用代码插行（样式值照 MusicSettingRow／
+        // MusicSettingName／MusicSettingValue 手写对齐）；布局里补正式行时须删掉本动态插行，免得重行。
+        insertLyricPriorityRow();
+        refreshLyricPriorityText();
         binding.rowClearCache.setOnClickListener(v -> clearCache());
         refreshCacheSize();
         // U-05：歌词时间偏移行（位置：歌词缺失自动搜索行之后、清除缓存行之前）
@@ -147,12 +177,15 @@ public class MusicSettingsActivity extends BaseActivity {
         refreshThemeText();
         refreshCdSurfaceText();
         refreshMobileQualityText();
+        refreshDlEmbedText();
+        refreshDlEmbedFailText();
         refreshDlNamingText();
         refreshLyricFontSizeText();
         refreshLyricWeightText();
         refreshLyricAlignText();
         refreshLyricBlurText();
         refreshLyricPrimaryText();
+        refreshLyricPriorityText();
     }
 
     /** S1 播放失败行右侧值：关＝停止播放，开＝自动下一首 */
@@ -211,6 +244,15 @@ public class MusicSettingsActivity extends BaseActivity {
         value.setText(offsetText(MusicStore.getLyricOffsetMs()));
         box.addView(value, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView hint = new TextView(this);
+        hint.setText("正值＝歌词提前，负值＝歌词延后");
+        hint.setTextSize(13);
+        hint.setTextColor(0xFF8E8E93);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintLp.topMargin = pad / 2;
+        box.addView(hint, hintLp);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
@@ -313,25 +355,30 @@ public class MusicSettingsActivity extends BaseActivity {
 
     /** 播放页主题行：五主题（默认封面卡片不改）；主题名用现有 music_theme_* 文案 */
     private void refreshThemeText() {
+        // T1：else 分支与 MusicStore.setPlayerTheme 统一——未知 id 兜底 classic（瓜子 fromId 口径），
+        // 不再兜底封面卡片文案；封面卡片走显式分支。
         String t = MusicStore.getPlayerTheme();
         binding.tvPlayerTheme.setText(MusicStore.THEME_CLASSIC.equals(t) ? R.string.music_theme_classic
+                : MusicStore.THEME_COVER_IMMERSIVE.equals(t) ? R.string.music_theme_cover
                 : MusicStore.THEME_APPLE_MUSIC.equals(t) ? R.string.music_theme_apple
                 : MusicStore.THEME_LUMINOUS_CD.equals(t) ? R.string.music_theme_cd
                 : MusicStore.THEME_RECORD_SHELF.equals(t) ? R.string.music_theme_vinyl
-                : R.string.music_theme_cover);
+                : R.string.music_theme_classic);
     }
 
     private void showThemeDialog() {
-        String[] ids = {MusicStore.THEME_CLASSIC, MusicStore.THEME_APPLE_MUSIC,
-                MusicStore.THEME_COVER_IMMERSIVE, MusicStore.THEME_LUMINOUS_CD,
+        // T3：选择器顺序改瓜子序 Classic／CoverImmersive／AppleMusic／LuminousCd／RecordShelf；
+        // 无现成预览图资源，先只改顺序、色块保留。
+        String[] ids = {MusicStore.THEME_CLASSIC, MusicStore.THEME_COVER_IMMERSIVE,
+                MusicStore.THEME_APPLE_MUSIC, MusicStore.THEME_LUMINOUS_CD,
                 MusicStore.THEME_RECORD_SHELF};
         List<String> opts = new ArrayList<>();
         opts.add(getString(R.string.music_theme_classic));
-        opts.add(getString(R.string.music_theme_apple));
         opts.add(getString(R.string.music_theme_cover));
+        opts.add(getString(R.string.music_theme_apple));
         opts.add(getString(R.string.music_theme_cd));
         opts.add(getString(R.string.music_theme_vinyl));
-        int cur = 2;
+        int cur = 1;
         for (int i = 0; i < ids.length; i++) if (ids[i].equals(MusicStore.getPlayerTheme())) cur = i;
         MusicOptionsDialog.show(this, "播放页主题", opts, cur, idx -> {
             MusicStore.setPlayerTheme(ids[idx]);
@@ -491,6 +538,95 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
+    /** 在线歌词优先级行右侧值：跟随来源／逐字优先（默认＝老行为）／逐行优先／AMLL 优先 */
+    private void refreshLyricPriorityText() {
+        if (tvLyricPriority == null) return;
+        String p = MusicStore.getLyricPriority();
+        if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(p)) tvLyricPriority.setText("跟随来源");
+        else if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(p)) tvLyricPriority.setText("逐行优先");
+        else if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(p)) tvLyricPriority.setText("AMLL 优先");
+        else tvLyricPriority.setText("逐字优先");
+    }
+
+    private void showLyricPriorityDialog() {
+        String[] values = {MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE, MusicStore.LYRIC_PRIORITY_WORD_BY_WORD,
+                MusicStore.LYRIC_PRIORITY_LINE_BY_LINE, MusicStore.LYRIC_PRIORITY_AMLL_FIRST};
+        List<String> opts = new ArrayList<>();
+        opts.add("跟随来源");
+        opts.add("逐字优先");
+        opts.add("逐行优先");
+        opts.add("AMLL 优先");
+        int checked = 1;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(MusicStore.getLyricPriority())) checked = i;
+        }
+        MusicOptionsDialog.show(this, "在线歌词优先级", opts, checked, idx -> {
+            MusicStore.setLyricPriority(values[idx]);
+            refreshLyricPriorityText();
+        });
+    }
+
+    /** 动态插“在线歌词优先级”行：插在 AMLL 行与其后分隔线之间（行＋分隔线各一）。 */
+    private void insertLyricPriorityRow() {
+        if (tvLyricPriority != null) return;
+        try {
+            if (binding.rowAmll.getParent() == null || !(binding.rowAmll.getParent() instanceof ViewGroup)) return;
+            ViewGroup parent = (ViewGroup) binding.rowAmll.getParent();
+            int index = parent.indexOfChild(binding.rowAmll);
+            if (index < 0) return;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setMinimumHeight(dp(60));
+            row.setPadding(dp(16), dp(12), dp(16), dp(12));
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            ImageView icon = new ImageView(this);
+            icon.setBackgroundResource(R.drawable.bg_music_setting_icon);
+            icon.setBackgroundTintList(ColorStateList.valueOf(0xFFCE93D8));
+            icon.setImageResource(R.drawable.ic_music_note);
+            icon.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
+            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+            LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(36), dp(36));
+            iconLp.setMarginEnd(dp(12));
+            icon.setLayoutParams(iconLp);
+            row.addView(icon);
+            TextView name = new TextView(this);
+            name.setText("在线歌词优先级");
+            name.setTextColor(0xFF1C1C1E);
+            name.setTextSize(16);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            name.setLayoutParams(nameLp);
+            row.addView(name);
+            tvLyricPriority = new TextView(this);
+            tvLyricPriority.setTextColor(0xFF8E8E93);
+            tvLyricPriority.setTextSize(15);
+            LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            valueLp.setMarginStart(dp(16));
+            tvLyricPriority.setLayoutParams(valueLp);
+            row.addView(tvLyricPriority);
+            row.setOnClickListener(v -> showLyricPriorityDialog());
+            android.view.View divider = new android.view.View(this);
+            divider.setBackgroundColor(0x0F000000);
+            LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.5f)));
+            dividerLp.setMarginStart(dp(16));
+            dividerLp.setMarginEnd(dp(16));
+            divider.setLayoutParams(dividerLp);
+            // 先插分隔线、再插行：最终顺序＝AMLL 行／新分隔线／新行／原分隔线／歌词时间偏移行
+            parent.addView(divider, index + 1);
+            parent.addView(row, index + 2);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
     private void initQualityRows() {
         binding.tvPlayQuality.setText(MusicStore.qualityName(MusicStore.getQuality()));
         binding.rowPlayQuality.setOnClickListener(v -> showQualityDialog(true));
@@ -549,23 +685,62 @@ public class MusicSettingsActivity extends BaseActivity {
                 });
     }
 
-    /** 移动网络音质行：跟随播放音质（默认）或固定一档；移动网络下 prepare 时读它（服务侧） */
+    /** 移动网络音质行：开关关时子行隐藏（开关本身即“跟随”态）；开时子行显固定档名。
+     * 开关勾选与存值一致时 setChecked 不产生副作用（监听里先比对现态，早退）。 */
     private void refreshMobileQualityText() {
         int q = MusicStore.getMobileQuality();
-        binding.tvMobileQuality.setText(q < 0 ? "跟随播放音质" : MusicStore.qualityName(q));
+        boolean separate = q >= 0;
+        binding.rowMobileQuality.setVisibility(separate ? android.view.View.VISIBLE : android.view.View.GONE);
+        binding.tvMobileQuality.setText(separate ? MusicStore.qualityName(q) : "跟随播放音质");
+        if (binding.swMobileQualitySeparate.isChecked() != separate) {
+            binding.swMobileQualitySeparate.setChecked(separate);
+        }
     }
 
+    /** 子行对话框：只列四档固定档（跟随由开关管，不再在对话框里二合一）。 */
     private void showMobileQualityDialog() {
-        int[] values = {-1, MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
+        int[] values = {MusicStore.QUALITY_LOW, MusicStore.QUALITY_STANDARD,
                 MusicStore.QUALITY_HIGH, MusicStore.QUALITY_SUPER};
         List<String> opts = new ArrayList<>();
-        opts.add("跟随播放音质");
-        for (int i = 1; i < values.length; i++) opts.add(MusicStore.qualityName(values[i]));
+        for (int v : values) opts.add(MusicStore.qualityName(v));
         int q = MusicStore.getMobileQuality();
-        int cur = q < 0 ? 0 : q + 1;
+        int cur = q >= 0 && q < values.length ? q : 0;
         MusicOptionsDialog.show(this, "移动网络音质", opts, cur, idx -> {
             MusicStore.setMobileQuality(values[idx]);
             refreshMobileQualityText();
+        });
+    }
+
+    /** 第三波 S-A3：封面与歌词行值（内嵌档后附“未接线”不冒充已实现，见 MusicStore 注释）。 */
+    private void refreshDlEmbedText() {
+        int m = MusicStore.getDlEmbed();
+        binding.tvDlEmbed.setText(m == MusicStore.DL_EMBED_EMBEDDED ? "内嵌到音频文件（未接线）"
+                : m == MusicStore.DL_EMBED_BOTH ? "两者（内嵌未接线）" : "旁路同名文件");
+    }
+
+    private void showDlEmbedDialog() {
+        List<String> opts = new ArrayList<>();
+        opts.add("旁路同名文件");
+        opts.add("内嵌到音频文件");
+        opts.add("两者");
+        MusicOptionsDialog.show(this, "封面与歌词", opts, MusicStore.getDlEmbed(), idx -> {
+            MusicStore.setDlEmbed(idx);
+            refreshDlEmbedText();
+        });
+    }
+
+    private void refreshDlEmbedFailText() {
+        binding.tvDlEmbedFail.setText(MusicStore.getDlEmbedFail() == MusicStore.DL_EMBED_FAIL_URL
+                ? "写入 URL 字段" : "跳过不写");
+    }
+
+    private void showDlEmbedFailDialog() {
+        List<String> opts = new ArrayList<>();
+        opts.add("跳过不写");
+        opts.add("写入 URL 字段");
+        MusicOptionsDialog.show(this, "写入失败策略", opts, MusicStore.getDlEmbedFail(), idx -> {
+            MusicStore.setDlEmbedFail(idx);
+            refreshDlEmbedFailText();
         });
     }
 
@@ -605,6 +780,10 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
+    /** 第三波 S-A4 先行：行已改名“清除图片缓存”（只清 Glide 图片磁盘缓存，见 MusicCache 头注），
+     * 行已加副文“图片缓存与视频封面共用”。独立音乐图片目录未做：Glide 磁盘缓存目录全 App 共用，
+     * 音乐单独分目录需改 Glide 全局配置（影响视频封面缓存路径），改动面大，分目录列入交回清单，
+     * 不再让用户以为清的是歌曲缓存、也不再误清视频封面而不自知。 */
     private void clearCache() {
         MusicCache.clear(() -> {
             Notify.show(R.string.music_cache_cleared);

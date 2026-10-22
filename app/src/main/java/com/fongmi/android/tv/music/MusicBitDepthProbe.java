@@ -10,7 +10,28 @@ import java.io.FileInputStream;
  */
 public class MusicBitDepthProbe {
 
-    /** @return 位深 8/16/24/32；未知/不支持返回 -1 */
+    /**
+     * 按字节探头：只认文件头能实锤的——FLAC 看 STREAMINFO 里的 bps 字段，
+     * WAV 看 fmt 块的 bitsPerSample。其它格式/读不到一律返回 -1（未知）。
+     * 与 probe(File) 同一套解析（在线 Range 探头复用，不改本地逻辑）。
+     *
+     * @return 位深 8/16/24/32；未知/不支持返回 -1
+     */
+    public static int probeHeader(byte[] head, int n) {
+        if (head == null || n < 4) return -1;
+        try {
+            if (head[0] == 'f' && head[1] == 'L' && head[2] == 'a' && head[3] == 'C') {
+                return flacBitsPerSample(head, n);
+            }
+            if (n >= 12 && head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F'
+                    && head[8] == 'W' && head[9] == 'A' && head[10] == 'V' && head[11] == 'E') {
+                return wavBitsPerSample(head, n);
+            }
+            return -1;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
     public static int probe(File file) {
         if (file == null || !file.isFile()) return -1;
         try (FileInputStream in = new FileInputStream(file)) {

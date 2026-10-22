@@ -13,6 +13,7 @@ import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.utils.Async;
 import com.fongmi.quickjs.utils.Connect;
+import com.fongmi.android.tv.music.MusicQueue;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Asset;
 import com.google.gson.JsonArray;
@@ -30,6 +31,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -278,8 +280,73 @@ public class FreeJsBridge {
         return r;
     }
 
+    /**
+     * P-3d 源内死通道黑名单：同曲一次取链链内（多档回落／面板逐档取链多次进桥）已死过的
+     * （插件，档位）通道不再重进 JS；只记当前一曲（单缓存：换歌即清），绝不跨歌拉黑好通道；
+     * 第一波仓库层指派拦截保留，两层不重复拦同一通道（仓库层拦指派单试，本层拦桥内取链）。
+     * 第二波堵-4：死键插件＋档位口径不动；死集用并发集，换键清集＋查／记包在同一
+     * DEAD_LOCK 同步块里（调用方含服务取链、预加载、面板探链三线程，旧静态 HashSet 无同步）；
+     * 探链（probe）只读不记死。
+     */
+    private static final Object DEAD_LOCK = new Object();
+    private static String deadTrackKey = "";
+    private static final Set<String> deadChannels = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private static boolean isDeadChannel(String trackKey, String channel) {
+        synchronized (DEAD_LOCK) {
+            if (trackKey == null || !trackKey.equals(deadTrackKey)) {
+                deadTrackKey = trackKey == null ? "" : trackKey;
+                deadChannels.clear();
+                return false;
+            }
+            return channel != null && deadChannels.contains(channel);
+        }
+    }
+
+    private static void markDeadChannel(String trackKey, String channel) {
+        synchronized (DEAD_LOCK) {
+            if (trackKey == null || !trackKey.equals(deadTrackKey)) {
+                deadTrackKey = trackKey == null ? "" : trackKey;
+                deadChannels.clear();
+            }
+            if (channel != null) deadChannels.add(channel);
+        }
+    }
+
+    /** 第二波堵-4：新一次取链开始时清源内死通道（服务 prepareTrack 入口与仓库层一起调，不只清仓库层）。 */
+    public static void clearDeadPlayUrlAttempt() {
+        synchronized (DEAD_LOCK) {
+            deadTrackKey = "";
+            deadChannels.clear();
+        }
+    }
+
     /** getMediaSource(musicItem, quality)：quality = low/standard/high/super */
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality) throws Exception {
+        return getMediaSource(track, quality, false);
+    }
+
+    /** 探链口径：probe＝true 时只读地址、不记死（面板探链用）；死键检查仍尊重已死标记。 */
+    public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality, boolean probe) throws Exception {
+        String trackKey = MusicQueue.trackKey(track);
+        String channel = key() + "|" + (quality == null ? "" : quality.getKey());
+        if (isDeadChannel(trackKey, channel)) return null;
+        MusicMediaSource ms;
+        try {
+            ms = getMediaSourceInner(track, quality);
+        } catch (Throwable t) {
+            if (!probe) markDeadChannel(trackKey, channel);
+            if (t instanceof Exception) throw (Exception) t;
+            throw new Exception(t);
+        }
+        if (ms == null || TextUtils.isEmpty(ms.url)) {
+            if (!probe) markDeadChannel(trackKey, channel);
+            return null;
+        }
+        return ms;
+    }
+
+    private MusicMediaSource getMediaSourceInner(MusicTrack track, MusicQuality quality) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
         Future<Object> argFuture = submit(() -> ctx.parse(item.toString()));
@@ -459,7 +526,9 @@ public class FreeJsBridge {
         t.title = optStr(item, "title");
         t.artist = optStr(item, "artist");
         t.album = optStr(item, "album");
-        t.cover = firstNonEmpty(optStr(item, "artwork"), optStr(item, "cover"), optStr(item, "pic"));
+        t.cover = firstNonEmpty(optStr(item, "artwork"), optStr(item, "cover"), optStr(item, "pic"),
+                optStr(item, "picUrl"), optStr(item, "artworkUrl"), optStr(item, "coverUrl"),
+                optStr(item, "albumPic"), optStr(item, "pic_url"));
         t.duration = toMillis(item);
         t.qualityTag = qualityTagOf(item);
         t.platform = FreeJsMusicSource.PLATFORM;

@@ -46,6 +46,17 @@ public final class ShelfStageGeometry {
     public final float sleeveDp;
     /** 槽位中心参考 c＝宽×0.59（舞台摊位项，列表不取，见类注释）。 */
     public final float centerRefDp;
+    /**
+     * S2：列表槽距＝中心参考 c（390dp 屏：c＝230.1dp，封套 185.25dp，项间间距＝槽距−封套≈45dp）。
+     * RecyclerView 项宽仍为封套，项间用 ItemDecoration 补（槽距−封套）；ShelfSlotAnimator 槽宽同步取此值，
+     * 否则弹簧落位按旧封套宽算、与实际项距错位。注意：按槽距居中时居中的是槽位盒，
+     * 封套视觉中心与槽位盒中心差半个间距（约 22dp／390dp 屏），属本改编的已知偏移，见交回。
+     * 必-9：槽距加钳制 min(c, 封套＋间距上限 45dp)——封套受舞台 300dp 封顶，800dp 横屏／平板
+     * 原槽距 472dp、间距约 221dp，一屏不足 2 项；钳后 800dp 屏槽距 295.8dp、间距仍 45dp，
+     * 390dp 屏 230.1dp＜230.25dp 不受影响；中心参考 c 本身仍保留瓜子原值，不改。
+     * 弹簧槽宽取同一 slotPitchDp（MusicPlayerActivity:3643），故弹簧行程同步收敛，不另改该文件。
+     */
+    public final float slotPitchDp;
     /** 非当前项缩放 f4＝(f2×0.78)/f3。 */
     public final float nonCurrentScale;
     /** 圆盘尺寸＝0.97×封套。 */
@@ -98,6 +109,9 @@ public final class ShelfStageGeometry {
      */
     public static final boolean BOARD_NOT_RENDERED = true;
 
+    /** 必-9 项间间距上限 dp：按 390dp 屏实测间距约 45dp 定（非 800dp 特判）。 */
+    public static final float SLOT_GAP_MAX_DP = 45f;
+
     private ShelfStageGeometry(float widthDp) {
         this.widthDp = widthDp;
         this.stageDp = Math.max(180f, Math.min(300f, widthDp * 0.66f));
@@ -105,6 +119,7 @@ public final class ShelfStageGeometry {
         this.slotBaseDp = Math.min(widthDp * 0.5f, stageDp - 36f);
         this.sleeveDp = slotBaseDp * 0.95f;
         this.centerRefDp = widthDp * 0.59f;
+        this.slotPitchDp = Math.min(centerRefDp, sleeveDp + SLOT_GAP_MAX_DP);
         this.nonCurrentScale = (slotBaseDp * 0.78f) / sleeveDp;
         this.discDp = sleeveDp * 0.97f;
         this.outerWidthDp = sleeveDp * 1.48f;

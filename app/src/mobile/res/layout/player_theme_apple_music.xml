@@ -204,9 +204,11 @@
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 系统音量行（STREAM_MUSIC，样式同进度条；横向 24dp，行自垫；控制行后间隔 6dp，GZ 底部栈口径）；
-         GZ AppleMusicVolumeSlider 两端各一个 32dp 高图标行夹滑杆（图标本体尺寸未抠到，图标盒暂用 32dp、内边距 6dp，待抠到再核）；
-         接线不变：中间 tpVolume 仍走 wireVolume 系统音量，两端图标仅示意、不可点。 -->
+    <!-- A2：系统音量行（STREAM_MUSIC；横向 24dp，行自垫；控制行后间隔 6dp）：
+         瓜子 AppleMusicVolumeSlider 本体只有滑杆一行、无两端图标盒——旧两端 32dp 图标盒已删；
+         音量条走专属轨色（底白 0.14、填充渐变 0.42→0.6，见 bg_player_volume_progress），
+         不与进度条共用 seek6（旧 seek6 底 #47＝0.28、填充纯色 0.58，与瓜子音量轨色不符）；
+         接线不变：tpVolume 仍走 wireVolume 系统音量。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="32dp"
@@ -216,14 +218,6 @@
         android:paddingStart="24dp"
         android:paddingEnd="24dp">
 
-        <ImageView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:contentDescription="@string/music_wave2_volume_low"
-            android:padding="6dp"
-            android:src="@drawable/ic_widget_volume_low"
-            android:tint="#FFFFFF" />
-
         <SeekBar
             android:id="@+id/tpVolume"
             android:layout_width="0dp"
@@ -231,16 +225,8 @@
             android:layout_weight="1"
             android:maxHeight="6dp"
             android:minHeight="6dp"
-            android:progressDrawable="@drawable/bg_player_seek6_progress"
+            android:progressDrawable="@drawable/bg_player_volume_progress"
             android:thumb="@drawable/bg_player_seek_thumb" />
-
-        <ImageView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:contentDescription="@string/music_wave2_volume_high"
-            android:padding="6dp"
-            android:src="@drawable/ic_widget_volume_high"
-            android:tint="#FFFFFF" />
     </LinearLayout>
 
     <!-- 功能筹行：高 52dp，音量条后间隔 2dp（redo3 A1），图标 歌词24/音质24/播放列表28，间距 48dp -->

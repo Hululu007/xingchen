@@ -53,6 +53,15 @@ public interface MusicSource {
      */
     String playUrl(MusicTrack track, int quality) throws Exception;
 
+    /**
+     * 探链口径（第二波堵-4）：probe＝true 时只读地址、不记死——音质面板逐档算大小走这条，
+     * 面板探链偶发失败不许污染同曲真实点播。默认退化为真实取链（无死标记的源不受影响）；
+     * 落雪／FreeJS 两源各自覆写，把 probe 透传到死标记检查处。
+     */
+    default String playUrl(MusicTrack track, int quality, boolean probe) throws Exception {
+        return playUrl(track, quality);
+    }
+
     /** 取歌词 LRC 文本，可空（阻塞调用，请在子线程调） */
     String lyric(MusicTrack track) throws Exception;
 }

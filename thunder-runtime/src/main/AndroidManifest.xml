@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 外置迅雷运行时包清单：无界面、无启动入口，只装代码与 .so 供宿主 DexClassLoader 载入。
-     库的存放口径（留在 APK 内供 RuntimeModule 以 "…!/lib/<abi>/*.so" 直载、并解到
-     插件包的 nativeLibraryDir）改在 build.gradle 以 packaging.jniLibs.useLegacyPackaging
-     声明：清单里显式写 extractNativeLibs 会被打包任务直接拒绝（AGP 明示）。
+     库的存放口径（以 STORED 留在 APK 内供 RuntimeModule 以 "…!/lib/<abi>/*.so" 直载）
+     在 build.gradle 以 packaging.jniLibs.useLegacyPackaging = false 声明（上游 runtime
+     模块同口径）：清单里显式写 extractNativeLibs 会被打包任务直接拒绝（AGP 明示）。
      FLAG_HAS_CODE 校验（verifyJavaRuntime）要求包内有 dex，application 默认 hasCode 为真。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 

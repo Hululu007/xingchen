@@ -385,7 +385,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (item.isFolder()) FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
         else {
             String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
-            if (ShortDramaHelper.isPluginShortDramaBySite(item.getSiteKey()) || CoverRatioCache.isShortDramaCover(pic)) VideoActivity.startShortDrama(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic);
+            if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), item.getSiteKey(), mSearchAdapter.getItems(), item)) {}
+            else if (ShortDramaHelper.isPluginShortDramaBySite(item.getSiteKey()) || CoverRatioCache.isShortDramaCover(pic)) VideoActivity.startShortDrama(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic);
             else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic());
         }
     }

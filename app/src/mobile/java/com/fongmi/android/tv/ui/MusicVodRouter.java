@@ -4,6 +4,7 @@ import android.app.Activity;
 
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.HkMusicSource;
 import com.fongmi.android.tv.music.MusicController;
@@ -33,6 +34,39 @@ public class MusicVodRouter {
             if (site == null || site.isEmpty()) return false;
             if (!PyMusicSource.looksMusic(site)) return false;
             return play(activity, PyMusicSource.trackForVod(siteKey, vodId, name, pic));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 列表整拉：分类／搜索列表里点开一首音乐，整列表的歌都进音乐播放器队列，
+     * 从点开的那首开始播（跟音乐侧列表点播同一口径，上一首／下一首／播完自动切都有了）。
+     * 多源混排的列表只拉与点开那首同源的歌；没填源键的条目默认算同源（分类列表就是这样）。
+     */
+    public static boolean routeVodList(Activity activity, String siteKey, java.util.List<Vod> vods, Vod clicked) {
+        try {
+            if (activity == null || siteKey == null || siteKey.isEmpty() || vods == null || vods.isEmpty() || clicked == null) return false;
+            Site site = VodConfig.get().getSite(siteKey);
+            if (site == null || site.isEmpty()) return false;
+            if (!PyMusicSource.looksMusic(site)) return false;
+            List<MusicTrack> queue = new ArrayList<>();
+            int index = 0;
+            boolean found = false;
+            for (Vod v : vods) {
+                if (v == null || v.getId() == null || v.getId().isEmpty()) continue;
+                String vs = v.getSiteKey();
+                if (vs != null && !vs.isEmpty() && !vs.equals(siteKey)) continue;
+                if (!found && v.getId().equals(clicked.getId())) {
+                    index = queue.size();
+                    found = true;
+                }
+                queue.add(PyMusicSource.trackForVod(siteKey, v.getId(), v.getName(), v.getPic()));
+            }
+            if (queue.isEmpty()) return false;
+            MusicController.get().play(queue, index, site.getName(), "list", null);
+            MusicPlayerActivity.start(activity);
+            return true;
         } catch (Throwable t) {
             return false;
         }

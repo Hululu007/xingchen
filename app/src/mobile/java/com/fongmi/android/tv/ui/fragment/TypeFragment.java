@@ -252,6 +252,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             getParent().openFolder(item.getId(), mExtends);
         } else {
             if (getSite().isIndex()) SearchActivity.start(requireActivity(), item.getName());
+            else if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), getKey(), mAdapter.getItems(), item)) {}
             else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);
         }

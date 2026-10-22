@@ -101,6 +101,10 @@ public class VodConfig extends BaseConfig {
         BaseLoader.get().clear("vod-config-clear");
         SiteApi.clearHomeCache();
         SiteApi.clearDetailCache();
+        // 解析缓存与上面两缓存是三张独立表：清解析缓存不重复清首页/详情缓存，
+        // 只解决换配置、删源后同 key|flag|id 命中旧解析 URL 的问题。
+        // 接口在 SiteApi 里（clearPlayerCache()，另一路已落树，本路只加调用）。
+        SiteApi.clearPlayerCache();
         RuleConfig.get().invalidate();
         return this;
     }

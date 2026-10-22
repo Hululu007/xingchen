@@ -382,12 +382,13 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     @Override
-    public void onItemClick(Vod item) {
+    public void onItemClick(Vod item, android.view.View coverView) {
         if (item.isFolder()) FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
         else {
             String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
             if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), item.getSiteKey(), mSearchAdapter.getItems(), item)) {}
             else if (ShortDramaHelper.isPluginShortDramaBySite(item.getSiteKey()) || CoverRatioCache.isShortDramaCover(pic)) VideoActivity.startShortDrama(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic);
+            else if (ShortDramaHelper.isLiveShortDramaCover(coverView, pic)) VideoActivity.startShortDrama(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic);
             else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic());
         }
     }

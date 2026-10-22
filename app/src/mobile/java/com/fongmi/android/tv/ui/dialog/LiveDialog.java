@@ -172,11 +172,13 @@ public class LiveDialog extends BaseBottomSheetDialog implements LiveAdapter.OnC
         params.width = drawer ? ViewGroup.LayoutParams.MATCH_PARENT : params.width;
         params.height = height;
         sheet.setLayoutParams(params);
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        behavior.setPeekHeight(drawer ? ResUtil.getScreenHeight(requireContext()) : height);
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        behavior.setSkipCollapsed(true);
-        behavior.setDraggable(false);
+        BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
+        if (behavior != null) {
+            behavior.setPeekHeight(drawer ? ResUtil.getScreenHeight(requireContext()) : height);
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+            behavior.setDraggable(false);
+        }
     }
 
     private void fillDrawer() {

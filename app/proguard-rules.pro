@@ -1,3 +1,7 @@
+# Gson TypeToken 泛型签名保留（1.3.52／1.4.8 LinkedTreeMap 崩同源）：匿名 TypeToken 子类的
+# 泛型参数只存在于 Signature 属性里，R8 剥掉它则 TypeToken 退化为裸类型读回；
+# 显式 TypeToken 定型（榜单／歌单）只有签保留才生效，故两混淆文件都要补齐。
+-keepattributes Signature
 # TV
 -keep class androidx.leanback.widget.** { *; }
 -keep class com.fongmi.quickjs.method.** { *; }

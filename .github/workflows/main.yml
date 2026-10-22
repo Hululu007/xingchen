@@ -14,6 +14,32 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: Generate ThirdPartyKeys from secrets
+        env:
+          PASTEBIN_DEV_KEY: ${{ secrets.THIRDPARTY_PASTEBIN_DEV_KEY }}
+          NETEASE_EAPI_KEY: ${{ secrets.THIRDPARTY_NETEASE_EAPI_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          def java_escape(s):
+              return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+          paste = os.environ.get('PASTEBIN_DEV_KEY')
+          netease = os.environ.get('NETEASE_EAPI_KEY')
+          if not paste or not netease:
+              sys.exit('missing third-party secret')
+          path = 'app/src/main/java/com/fongmi/android/tv/api/ThirdPartyKeys.java'
+          content = (
+              'package com.fongmi.android.tv.api;\n\n'
+              'public final class ThirdPartyKeys {\n\n'
+              '    private ThirdPartyKeys() {\n'
+              '    }\n\n'
+              f'    public static final String PASTEBIN_DEV_KEY = "{java_escape(paste)}";\n\n'
+              f'    public static final String NETEASE_EAPI_KEY = "{java_escape(netease)}";\n'
+              '}\n'
+          )
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(content)
+          PYEOF
       - name: Download mihomo kernel (bundled jniLib)
         run: |
           mkdir -p third_party/mihomo/prebuilt/arm64-v8a
@@ -51,15 +77,36 @@ jobs:
           chmod +x gradlew
           if [ "${{ inputs.variant }}" = "noupdate" ]; then bash .github/scripts/strip-updater.sh && bash .github/scripts/strip-friend-seed.sh; fi
           ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon
+          # 外置迅雷运行时包：与宿主同钥签名，两个 ABI 各一包；
+          # 产物在 thunder-runtime/build/outputs/apk/<flavor>/release/，
+          # 目录发布（runtime-catalog.py）时改名 runtime-thunder-<abi>.apk 再入目录。
+          ./gradlew :thunder-runtime:assembleArm64_v8aRelease :thunder-runtime:assembleArmeabi_v7aRelease --no-daemon
       - name: Find APK
         run: |
           find app/build/outputs -name "*.apk" 2>/dev/null | head -20
           ls -lh app/build/outputs/apk/ 2>/dev/null || echo "No apk folder"
+      - name: Rename friend APK to XingChen version name
+        if: ${{ inputs.variant == 'noupdate' }}
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          test -n "$APK"
+          VNAME=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -1)
+          test -n "$VNAME"
+          DIR=$(dirname "$APK")
+          cp "$APK" "$DIR/星辰$VNAME.apk"
+          rm "$APK"
+          ls -lh "$DIR/"
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: XingChen-APK
           path: app/build/outputs/apk/**/*.apk
+      - name: Upload runtime APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: XingChen-Runtime
+          path: thunder-runtime/build/outputs/apk/**/*.apk
       - name: Collect dist for OCI
         if: ${{ inputs.variant != 'noupdate' }}
         run: |

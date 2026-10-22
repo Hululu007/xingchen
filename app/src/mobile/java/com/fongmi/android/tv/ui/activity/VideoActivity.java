@@ -179,6 +179,7 @@ import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
+import com.fongmi.android.tv.ui.dialog.SubtitleSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
@@ -224,7 +225,12 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.fongmi.android.tv.exception.ExtractException;
+import com.google.common.util.concurrent.FluentFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener {
 
@@ -268,7 +274,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private ViewGroup.LayoutParams mFrameParams;
     private int mFrameHeight;
     private Observer<Result> mObserveDetail;
-    private Observer<Result> mObservePlayer;
     private Observer<Result> mObserveSearch;
     private EpisodeAdapter mEpisodeAdapter;
     private EpisodeGroupAdapter mEpisodeGroupAdapter;
@@ -328,7 +333,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean markEpisodeRender;
     private Vod mAiVod; // P3：当前影片详情，供 AI 剧情问答取元数据
     private boolean mDetailCacheShown;
-    private Result mPendingPlayerResult;
+    private Result mLastPlayerResult;
+    // 服务未就绪窗口的待点火请求（不是结果槽）：服务连上后由 onServiceConnected
+    // 点火重跑解析，结果到时服务已在，不进槽。上游无槽结构，请求级暂存是
+    // 绕不过 PlaybackActivity.player() 直取 mService.player() 的最小等效处理。
+    private String mPendingPlayKey;
+    private String mPendingPlayFlag;
+    private String mPendingPlayUrl;
     private Result mPreparsedHistoryResult;
     private String mPreparsedHistorySpec;
     private Future<Result> mPreparsedHistoryFuture; // 在途预解析：getPlayer 可等待复用，消灭双跑
@@ -691,7 +702,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (flag != null) {
             List<Episode> items = flag.getEpisodes();
             for (Episode item : items) if (item.isSelected()) return item;
-            if (!items.isEmpty()) return items.get(0);
+            // 无选中接住 EpisodeAdapter 的 -1／null 口径：不再回落第 1 集，与网格无金底一致。
+            // 起播缺省第 1 集是播放入口的显式决定，只在 onRefresh 一处做，不藏进“当前集”里。
+            return null;
         }
         return mEpisodeAdapter == null || mEpisodeAdapter.isEmpty() ? null : mEpisodeAdapter.getActivated();
     }
@@ -713,7 +726,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String getOsdTitle() {
         String name = getName();
         if (mEpisodeAdapter == null || mEpisodeAdapter.isEmpty()) return name;
-        String episode = Objects.toString(getEpisode().getDisplayName(), "");
+        Episode current = getEpisode();
+        String episode = Objects.toString(current == null ? null : current.getDisplayName(), "");
         if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
         return TextUtils.isEmpty(name) ? episode : name + " " + episode;
     }
@@ -770,13 +784,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /** 顶部细进度条显隐：控制栏藏着＋全屏＋点播（有时长）才显示。 */
     private void updateTopProgress() {
         if (mBinding == null) return;
+        // 平板布局无 topProgress id：只判 mBinding 不够，字段本身也要判空（与 getTopProgressView 同口径）
+        TopProgressView topProgress = getTopProgressView();
+        if (topProgress == null) return;
         boolean controlsVisible = mBinding.control.getRoot().getVisibility() == View.VISIBLE;
         boolean hasDuration = service() != null && !player().isEmpty() && player().isVod();
-        mBinding.topProgress.setVisibility(TopProgressRule.shouldShow(isFullscreen(), controlsVisible, hasDuration) ? View.VISIBLE : View.GONE);
+        topProgress.setVisibility(TopProgressRule.shouldShow(isFullscreen(), controlsVisible, hasDuration) ? View.VISIBLE : View.GONE);
     }
 
     @Override
     protected void onServiceConnected() {
+        // 上游形：onServiceConnected 只做播放服务就绪通知。本树无 Vod 控制器，
+        // 下列皆为与送达无关的 fork 增量（播放器 UI 接线／状态文案同步／方向），保留并注明：
         player().setDanmakuController(mBinding.exo.getDanmakuController());
         syncDesktopLyricsAudioContent();
         setPlayerKernel();
@@ -784,7 +803,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setLut();
         applyDeferredFullscreenOrientation();
         checkLand();
-        if (consumePendingPlaybackResult()) return;
+        // 服务就绪通知的等效点：补调服务未就绪时攒下的工作（详情阶段二＋待点火解析请求），
+        // 再无播放结果暂存槽；点火后跳过 checkId，避免直接播放会话重复点火。
+        if (consumePendingOnServiceReady()) return;
         checkId();
     }
 
@@ -836,7 +857,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setupAudioStageOverlay();
         configureAudioLandscapeActions();
         mObserveDetail = this::setDetail;
-        mObservePlayer = this::setPlayer;
         // 标题跑马灯：选中后超长标题自动横向滚动，短标题保持不动
         mBinding.name.setSelected(true);
         mObserveSearch = this::setSearch;
@@ -993,8 +1013,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.downloadBtn.setOnClickListener(view -> onDownload());
         mBinding.castBtn.setOnClickListener(view -> onCast());
         mBinding.settingBtn.setOnClickListener(view -> onSetting());
-        mBinding.embyFavBtn.setOnClickListener(view -> onEmbyFavToggle());
-        mBinding.embyPlayedBtn.setOnClickListener(view -> onEmbyPlayedToggle());
+        // 横屏／平板布局无此二 id（同文件 8048、8170 行的判空写法），无判空则横屏启动即 NPE
+        if (mBinding.embyFavBtn != null) mBinding.embyFavBtn.setOnClickListener(view -> onEmbyFavToggle());
+        if (mBinding.embyPlayedBtn != null) mBinding.embyPlayedBtn.setOnClickListener(view -> onEmbyPlayedToggle());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
         mBinding.name.setOnLongClickListener(view -> onChange());
@@ -1454,7 +1475,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
         mViewModel.getResult().observeForever(mObserveDetail);
-        mViewModel.getPlayer().observeForever(mObservePlayer);
         mViewModel.getSearch().observeForever(mObserveSearch);
     }
 
@@ -1535,7 +1555,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // P0 红果类预热：后台预解析当前集懒地址，命中本地代理则预下加密文件
         // （等价文章页 hgWarm 的下载部分；只对 127.0.0.1 代理形态生效，其它规则 no-op）
         HkProxyPrewarm.prewarm(getKey(), getId());
-        mViewModel.playerContent(getKey(), flag, getId());
+        playDirect(getKey(), flag, getId());
     }
 
     /**
@@ -1545,7 +1565,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void playTxtDirect() {
         showProgress();
         setupDirectEpisodes("txt_episodes", "txt_episode_idx");
-        mViewModel.playerContent(getKey(), "", getId());
+        playDirect(getKey(), "", getId());
     }
 
     /**
@@ -1744,7 +1764,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             } else {
                 mFlagAdapter.addAll(vod.getFlags());
                 // 只渲染不点火：自动播点火是 bindDetailService（缓存路）/
-                // consumePendingPlaybackResult（无缓存或服务后连路）的职责。走 checkFlag 会因
+                // consumePendingOnServiceReady（无缓存或服务后连路）的职责。走 checkFlag 会因
                 // addAll 换了新 Flags 丢了选中态，seamless 再 onItemClick 一遍，onRefresh
                 // stop+clear 重起——用户体感「暂停一下再播」（双 input.open）。
                 renderFlagSelection(vod);
@@ -1835,12 +1855,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (!deferLists) maybeDivertDetailToReading(item.getTypeName());
     }
 
-    /** 阶段二：需要播放器服务的部分。服务连上后由 consumePendingPlaybackResult 补调。 */
+    /** 阶段二：需要播放器服务的部分。服务连上后由 consumePendingOnServiceReady 补调。 */
     private void bindDetailService(Vod item, boolean deferLists) {
-        // 不漏认两层改道中：不点火，探针确认后阅读器接管
-        if (mReadingDetailDiverting) return;
         checkHistoryPlayer(item);
         if (deferLists) return;
+        // 上游自动播点火形核对：旗只抑制点火本身，不抑制历史／播放器设置；
+        // 点火被拦住的那次由探针否定后 resumeAutoPlayAfterProbe() 补上，不吞点火。
+        if (mReadingDetailDiverting) return;
         boolean preservePlayback = mRestoringConfigurationPlayback && !player().isEmpty();
         if (item.getFlags().isEmpty()) {
             if (!preservePlayback) startFlow();
@@ -1982,7 +2003,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Result preparsed = consumePreparsed(playFlag, episode.getUrl());
         if (preparsed != null) {
             beginParseUi(episode);
-            setPlayer(preparsed);
+            if (service() == null) {
+                SpiderDebug.log("video-flow", "preparse deferred until service ready key=%s", getKey());
+                deferPlayRequest(getKey(), playFlag, episode.getUrl());
+            } else setPlayer(preparsed);
             return;
         }
         // 在途预解析复用：同一集的预解析还在跑就等它，不另开一轮解析（消灭双跑）
@@ -1995,8 +2019,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     Result r = inflight.get(PREPARSE_WAIT_MS, TimeUnit.MILLISECONDS);
                     runOnUiThread(() -> {
                         if (isFinishing() || isDestroyed()) return;
-                        if (isUsableParseResult(r)) setPlayer(r);
-                        else startNormalParse(flag, episode, playFlag);
+                        if (isUsableParseResult(r)) {
+                            if (service() == null) {
+                                SpiderDebug.log("video-flow", "inflight preparse deferred until service ready key=%s", getKey());
+                                deferPlayRequest(getKey(), playFlag, episode.getUrl());
+                            } else setPlayer(r);
+                        } else startNormalParse(flag, episode, playFlag);
                     });
                 } catch (Throwable t) {
                     SpiderDebug.log("video-flow", "history preparse wait fail key=%s err=%s", getKey(), t.getClass().getSimpleName());
@@ -2014,9 +2042,66 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /** 在途预解析等待上限：与解析超时同量级，超了回退走正常解析链，不更慢。 */
     private static final long PREPARSE_WAIT_MS = 25000;
 
-    /** 正常解析链：ViewModel 串行跑 playerContent，结果经 observe 回到 setPlayer。 */
+    /**
+     * 直接起播路（上游 startPlayback 直调 startPlayer 形）：播放结果不再经
+     * ViewModel 排队——后台跑 SiteApi.playerContent，主线程直交 setPlayer，
+     * 错误同样直交 setPlayer（Result.error → startPlayer 的 onError 可见错）。
+     * 超时口径沿用 ViewModel 旧值 Constant.TIMEOUT_VOD，不发明新量级。
+     * 绕不过服务绑定的一步：PlaybackActivity.player() 直取 mService.player()，
+     * 服务为空时 setPlayer／startPlayer／onError 全会 NPE，故服务未就绪时只
+     * 暂存请求三元组（key／flag／url），服务就绪后重跑解析——结果从不进槽。
+     */
+    /**
+     * 服务未就绪窗口的请求暂存统一入口：只存请求三元组（key／flag／url），结果从不进槽；
+     * 可见提示＋留转圈，服务就绪后由 consumePendingOnServiceReady 经 playDirect 重跑解析。
+     * 直通路派发前、解析结果到达时、预解析／重播竞态一律走这里，不留“提示＋用户再点”尾巴。
+     */
+    private void deferPlayRequest(String key, String flag, String url) {
+        mPendingPlayKey = key;
+        mPendingPlayFlag = flag;
+        mPendingPlayUrl = url;
+        Notify.show("播放器服务未就绪，服务就绪后自动播放");
+        showProgress();
+    }
+
+    private void playDirect(String key, String flag, String url) {
+        if (service() == null) {
+            SpiderDebug.log("video-flow", "play deferred until service ready key=%s", key);
+            deferPlayRequest(key, flag, url);
+            return;
+        }
+        FluentFuture<Result> future = FluentFuture.from(Task.executor().submit(() -> SiteApi.playerContent(key, flag, url))).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+        future.addCallback(Task.callback(
+                result -> App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (service() == null) {
+                        SpiderDebug.log("video-flow", "play result arrived without service, request re-deferred key=%s", key);
+                        deferPlayRequest(key, flag, url);
+                        return;
+                    }
+                    setPlayer(result);
+                }),
+                error -> App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (service() == null) {
+                        SpiderDebug.log("video-flow", "play error arrived without service, request re-deferred key=%s", key);
+                        deferPlayRequest(key, flag, url);
+                        return;
+                    }
+                    setPlayer(toErrorResult(error));
+                })
+        ), MoreExecutors.directExecutor());
+    }
+
+    private static Result toErrorResult(Throwable error) {
+        if (error instanceof ExtractException) return Result.error(error.getMessage());
+        if (error instanceof TimeoutException) return Result.error(ResUtil.getString(R.string.error_play_timeout));
+        return Result.error(error.getMessage() != null ? error.getMessage() : "播放失败，请重试");
+    }
+
+    /** 正常解析链：直接起播路跑 playerContent，结果直交 setPlayer。 */
     private void startNormalParse(Flag flag, Episode episode, String playFlag) {
-        mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        playDirect(getKey(), playFlag, episode.getUrl());
         beginParseUi(episode);
     }
 
@@ -2240,6 +2325,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         final String playFlag = getEpisodePlayFlag(flag, target);
         final String siteName = siteNameOf();
         final String ruleTitle = HkDetailBridge.isHkKey(key) ? key.substring(HkDetailBridge.KEY_PREFIX.length()) : "";
+        final long probeSeq = mDetailParseSeq;
         new Thread(() -> {
             try {
                 final ReadingSession rs = ReadingManual.probeSession(key, playFlag, siteName, ruleTitle, episodeName, chapterId);
@@ -2251,6 +2337,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     if (rs == null) {
                         SpiderDebug.log("reading-nomiss", "detail probe no session key=%s why=%s", key, why);
                         mReadingDetailDiverting = false;
+                        resumeAutoPlayAfterProbe(key, probeSeq);
                         return;
                     }
                     SpiderDebug.log("reading-nomiss", "detail divert key=%s why=%s kind=%s", key, why, rs.kind);
@@ -2262,9 +2349,38 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 });
             } catch (Throwable t) {
                 SpiderDebug.log("reading-nomiss", "detail probe failed key=%s err=%s", key, String.valueOf(t.getMessage()));
-                App.post(() -> mReadingDetailDiverting = false);
+                App.post(() -> {
+                    mReadingDetailDiverting = false;
+                    resumeAutoPlayAfterProbe(key, probeSeq);
+                });
             }
         }).start();
+        // 只修卡住：探针线程永久挂起时旗在超时后复位，改道功能本身不动。
+        // 超时值出处：本文件 PREPARSE_WAIT_MS（25000，注释“与解析超时同量级”），
+        // 不发明新量级。只复位旗（探针否定路径同款静默回落，不补点火、不提示，
+        // 用户可手动点集；迟到的探针成功仍按原路开阅读器）。
+        // 世代守卫：换书时 getDetail() 递增 mDetailParseSeq 并自清旗，旧定时不动作。
+        App.post(() -> {
+            if (probeSeq != mDetailParseSeq) return;
+            if (!mReadingDetailDiverting) return;
+            SpiderDebug.log("reading-nomiss", "detail probe timeout reset key=%s", key);
+            mReadingDetailDiverting = false;
+        }, PREPARSE_WAIT_MS);
+    }
+
+    /**
+     * 探针否定后自动播补点火：旗拦住的那次 bindDetailService 点火不能就此吞掉
+     * （上游形：自动播点火无条件发生，旗只拦不吞）。守卫：仍是同一详情
+     * （世代未变）、服务已就绪、当前无播放——用户已手动播或已切走时不重播。
+     */
+    private void resumeAutoPlayAfterProbe(String probeKey, long probeSeq) {
+        if (probeSeq != mDetailParseSeq) return;
+        if (!TextUtils.equals(probeKey, getKey())) return;
+        if (isFinishing() || isDestroyed()) return;
+        if (service() == null || !player().isEmpty()) return;
+        Vod item = mAiVod;
+        if (item == null) return;
+        bindDetailService(item, false);
     }
 
     /** 按章节地址找回 Episode（取其线路 flag 用；找不到回 null）。 */
@@ -2303,12 +2419,27 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      */
     private void setPlayer(Result result, boolean replay) {
         if (isFinishing() || isDestroyed()) return;
+        // 重播记录（原 ViewModel player LiveData 值的等效存放）：onReclaim 只读它，
+        // 服务就绪点火从不读它——它不是暂存槽。
+        mLastPlayerResult = result;
         // 阅读分流：判别层命中的漫画/小说改道阅读器，不进播放器。
         // replay（进程重建回放）不改道：Result 序列化会丢 transient 会话。
         if (!replay && divertToReader(result)) return;
         mUserExitedFullscreenForThisVideo = false;
         if (service() == null) {
-            mPendingPlayerResult = result;
+            // 统一口径：派发时服务不可用一律存请求、就绪后重跑，不留“提示＋用户再点”尾巴。
+            // 已知调用点（直通路／预解析／在途预解析）均已在派发前显式暂存三元组；走到这里
+            // 只剩未传三元组的兜底（重播）：按当前选集／历史集推导请求。推导不出（无选集
+            // 且历史集无地址）时无可重跑的请求，才保留可见提示。
+            Episode current = getEpisode();
+            if (current == null && mHistory != null) current = mHistory.getEpisode();
+            if (current != null && !TextUtils.isEmpty(current.getUrl())) {
+                SpiderDebug.log("video-flow", "player result without service, request deferred from selection key=%s id=%s", getKey(), getId());
+                deferPlayRequest(getKey(), getEpisodePlayFlag(getFlag(), current), current.getUrl());
+                return;
+            }
+            SpiderDebug.log("video-flow", "player result without service, no selectable episode key=%s id=%s", getKey(), getId());
+            Notify.show("播放器服务未就绪，请稍后再试");
             return;
         }
         if (replay) {
@@ -2365,10 +2496,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean isThunderUrl(String url) {
         if (url == null) return false;
         String lower = url.toLowerCase(Locale.ROOT);
-        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:");
+        // ftp 并入迅雷线：上游 Thunder SCHEMES 含 ftp，ftp 集同样禁后台预加载／
+        // 预解析复用（预加载解析经 Source.stop() 会删掉在播任务），与磁力同款守卫。
+        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:") || lower.startsWith("ftp://");
     }
 
-    private boolean consumePendingPlaybackResult() {
+    private boolean consumePendingOnServiceReady() {
         boolean consumed = false;
         Vod detail = mPendingDetailVod;
         if (detail != null) {
@@ -2377,10 +2510,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             bindDetailService(detail, mPendingDetailDeferLists);
             consumed = true;
         }
-        Result result = mPendingPlayerResult;
-        if (result != null) {
-            mPendingPlayerResult = null;
-            if (player().isEmpty()) setPlayer(result);
+        // 上游 onPlaybackServiceReady 语义在本树的对应关系：
+        // ①先渲染已缓冲 metadata：本树无服务前 metadata 缓冲（metadata 在 setPlayer／
+        // startPlayer 时由当前历史＋选集现算），待点火集的标题／封面已在 getPlayer 起播
+        // 时画过，无需重渲染；②取 playing request：即下面这组待点火三元组；
+        // ③有会话走预加载、否则恢复选集重请求：会话已在播该三元组时只做下一集预加载，
+        // 不重解析；否则选集本就当前（点击时已切选），直接 playDirect 重跑解析。
+        // 本方法由 onServiceConnected 在每次服务就绪时调用，不是只跑一次。
+        if (mPendingPlayKey != null) {
+            String key = mPendingPlayKey;
+            String flag = mPendingPlayFlag;
+            String url = mPendingPlayUrl;
+            mPendingPlayKey = null;
+            mPendingPlayFlag = null;
+            mPendingPlayUrl = null;
+            if (service() != null && !player().isEmpty() && TextUtils.equals(url, player().getUrl())) {
+                SpiderDebug.log("video-flow", "pending play already served by session, preload only key=%s", key);
+                preloadNextEpisode();
+            } else {
+                playDirect(key, flag, url);
+            }
             consumed = true;
         }
         if (consumed && !player().isEmpty()) {
@@ -2424,8 +2573,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onItemClick(Episode item) {
-        // 不漏认两层改道中：探针确认前吞掉选集点击，确认后阅读器已接管
-        if (mReadingDetailDiverting) return;
+        // B3：不漏认两层改道中，探针确认前仍不点火（阅读改道功能本身不动），
+        // 但不许静默吞点击：用本文件既有 Notify 机制给可见提示，用户可再点。
+        if (mReadingDetailDiverting) {
+            SpiderDebug.log("reading-nomiss", "episode click held by divert probe key=%s", getKey());
+            Notify.show("正在确认内容类型，请稍后再点");
+            return;
+        }
         if (item != null && item.getUrl() != null && item.getUrl().startsWith("emby:")) {
             resetEmby410(EmbyNavigator.serverIdOf(item.getUrl()), EmbyNavigator.itemIdOf(item.getUrl()));
         }
@@ -2525,7 +2679,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         showProgress();
         getIntent().putExtra("id", opt.url);
         // 固定走 PUSH 直链口径：版本地址已解析好，不进 spider
-        mViewModel.playerContent(SiteApi.PUSH, "", opt.url);
+        playDirect(SiteApi.PUSH, "", opt.url);
     }
 
     /**
@@ -2827,6 +2981,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void selectEpisodeGroupByPosition(int position) {
+        // 无选中（getPosition() == -1）时不选任何分组，不再按第 1 集定位
+        if (position < 0) return;
         if (mEpisodeGroupAdapter == null || mEpisodeGroupAdapter.isEmpty()) return;
         int current = mEpisodeGroupAdapter.getPosition();
         List<EpisodeGroupAdapter.Group> groups = mEpisodeGroupAdapter.getItems();
@@ -2842,6 +2998,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void scrollEpisodeToPosition(int position) {
+        // 无选中（getPosition() == -1）时不滚动，不再滚到第 1 集，也避免把 -1 传给 LayoutManager
+        if (position < 0) return;
         RecyclerView.LayoutManager manager = mBinding.episode.getLayoutManager();
         if (manager instanceof GridLayoutManager) {
             int rowStart = getEpisodeRowStart((GridLayoutManager) manager, position);
@@ -3254,8 +3412,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             com.fongmi.android.tv.utils.Notify.show("磁力/ed2k 请用播放器直接播放");
             return;
         }
-        com.fongmi.android.tv.utils.download.DownloadManager.get().add(url, name, player().getHeaders());
-        DownloadActivity.start(getActivity());
+        try {
+            com.fongmi.android.tv.utils.download.DownloadManager.get().add(url, name, player().getHeaders());
+            DownloadActivity.start(getActivity());
+        } catch (IllegalArgumentException e) {
+            // Emby 总闸：同 HomeActivity 的同款写法，add() 撞 Emby 特征 URL 抛错时只提示、不闪退
+            com.fongmi.android.tv.utils.Notify.show(e.getMessage());
+        }
     }
 
     private void checkPlay() {
@@ -5279,7 +5442,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mFlagAdapter.isEmpty()) return;
         if (mEpisodeAdapter.isEmpty()) return;
         Flag flag = getFlag();
-        if (flag != null) getPlayer(flag, getEpisode());
+        if (flag != null) {
+            // 播放入口的显式缺省：无选中时播第 1 集（旧 getEpisode 回落的唯一合法用途，挪到这里明写）
+            Episode episode = getEpisode();
+            if (episode == null && !flag.getEpisodes().isEmpty()) episode = flag.getEpisodes().get(0);
+            if (episode != null) getPlayer(flag, episode);
+        }
     }
 
     private boolean onResetToggle() {
@@ -5478,8 +5646,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private boolean onTextLong() {
-        if (!player().haveTrack(C.TRACK_TYPE_TEXT)) return false;
-        onSubtitleClick();
+        // 字幕长按＝在线搜索：有轨时直达轨列表搜索按钮那条路（SubtitleSearchDialog），不再开样式面板
+        if (!player().haveTrack(C.TRACK_TYPE_TEXT)) {
+            Notify.show("当前没有字幕轨");
+            return true;
+        }
+        SubtitleSearchDialog.create().player(player()).restoreParent(true).show(this);
         return true;
     }
 
@@ -6984,7 +7156,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheet == null) return;
             sheet.setBackgroundColor(Color.TRANSPARENT);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            // 基类 behaviorOf() 为 protected、Activity 调不到：这里包 try/catch 同款兜底，未关联即降级、不强制展开
+            BottomSheetBehavior<FrameLayout> behavior;
+            try {
+                behavior = BottomSheetBehavior.from(sheet);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+                return;
+            }
             behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             behavior.setSkipCollapsed(true);
             behavior.setDraggable(draggable);
@@ -7028,7 +7207,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 params.setMargins(atStart ? ResUtil.dp2px(16) : 0, mStatusBarInset + ResUtil.dp2px(16), atStart ? 0 : ResUtil.dp2px(16), bottomMargin);
             }
             sheet.setLayoutParams(raw);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            // 同上：from() 未关联抛 IllegalArgumentException 时降级，对话框照常可用
+            BottomSheetBehavior<FrameLayout> behavior;
+            try {
+                behavior = BottomSheetBehavior.from(sheet);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+                return;
+            }
             behavior.setFitToContents(false);
             behavior.setExpandedOffset(Math.max(0, ResUtil.getScreenHeight(this) - height - bottomMargin));
             behavior.setPeekHeight(height);
@@ -7121,7 +7307,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (mLyricsResultDialog == null || !mLyricsResultDialog.isShowing()) return;
             FrameLayout current = mLyricsResultDialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (current == null) return;
-            BottomSheetBehavior.from(current).setState(BottomSheetBehavior.STATE_EXPANDED);
+            // 同上：裸 from() 包 try/catch，未关联时只跳过强制展开、不崩
+            try {
+                BottomSheetBehavior.from(current).setState(BottomSheetBehavior.STATE_EXPANDED);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+            }
         });
     }
 
@@ -7251,7 +7442,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (TextUtils.isEmpty(mInlineLyrics) || !LyricsController.hasTimedLyrics(mInlineLyrics)) return false;
         String title = getAudioStageTitle();
         String artist = getAudioStageArtist(title);
-        String signature = getHistoryKey() + "|" + getEpisode().getName();
+        Episode current = getEpisode();
+        String signature = getHistoryKey() + "|" + (current == null ? "" : current.getName());
         return mLyrics.setInlineLyrics(signature, title, artist, mInlineLyrics, player().getDuration(), player().getPosition());
     }
 
@@ -7264,7 +7456,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private String getLyricsArtist(String title) {
-        return getArtistFromEpisode(title, getEpisode().getName());
+        Episode current = getEpisode();
+        return getArtistFromEpisode(title, current == null ? "" : current.getName());
     }
 
     private String getArtistFromEpisode(String title, String episode) {
@@ -7314,7 +7507,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onReclaim() {
-        Result result = mViewModel.getPlayer().getValue();
+        Result result = mLastPlayerResult;
         if (result != null) setPlayer(result, true);
     }
 
@@ -7846,7 +8039,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         showProgress();
         // 固定走 PUSH 直链口径：Emby spider 的 playerContent 只认 emby: id，
         // 用详情链的 key（csp_Emby）传裸 URL 会解析崩，这里换源的都是已解析好的直链。
-        mViewModel.playerContent(SiteApi.PUSH, "", url);
+        playDirect(SiteApi.PUSH, "", url);
     }
 
     private long currentEmbyPosition() {
@@ -9189,7 +9382,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         App.removeCallbacks(mR1, mR2, mR3, mR4);
         if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
-        mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
         SiteHealthStore.flush();
         super.onDestroy();

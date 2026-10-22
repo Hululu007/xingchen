@@ -73,10 +73,53 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
         if (shortDrama) {
             initShortDramaView();
         } else {
+            // 非短剧模式口径 min(内容高, 半屏)：集数少时弹窗只随内容高，不留半屏空区；
+            // 集数多时仍封顶半屏，不盖整屏。短剧分支不动（其列表靠 weight 撑满定高，
+            // 根布局先放 wrap 会量出 0 高，min 口径不适用，仍用定高半屏）。
+            setCappedContentHeight();
             setSpanCount();
             setTitles();
             setPager();
         }
+    }
+
+    /** 半屏高度：仅短剧分支用，与竖屏 EpisodeListDialog 的底部半屏同一口径。 */
+    private void setHalfScreenHeight() {
+        ViewGroup.LayoutParams params = binding.getRoot().getLayoutParams();
+        if (params != null) {
+            params.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.5);
+            binding.getRoot().setLayoutParams(params);
+        }
+    }
+
+    /**
+     * 非短剧 min(内容高, 半屏)：根布局先放 wrap_content 随内容长，布局变化时
+     * 一旦量出高度超过半屏就一次性收成半屏（之后高度参数不再是 wrap，不再反复触发）。
+     * 监听留在根 view 上、随弹窗销毁而丢，不另记引用；分页面板是异步贴上的，
+     * 贴上后布局变化同样走这道封顶，不会在集数多时先胀满屏。
+     * 集数少时高度参数始终是 wrap，弹窗只占内容高，不留空区。
+     */
+    private void setCappedContentHeight() {
+        View root = binding.getRoot();
+        ViewGroup.LayoutParams params = root.getLayoutParams();
+        if (params == null) return;
+        int half = (int) (getResources().getDisplayMetrics().heightPixels * 0.5);
+        params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        root.setLayoutParams(params);
+        root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                       int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                if (binding == null || v != binding.getRoot()) return;
+                ViewGroup.LayoutParams p = v.getLayoutParams();
+                if (p == null || p.height != ViewGroup.LayoutParams.WRAP_CONTENT) return;
+                int height = bottom - top;
+                if (height > half) {
+                    p.height = half;
+                    v.setLayoutParams(p);
+                }
+            }
+        });
     }
 
     private void initShortDramaView() {
@@ -86,11 +129,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
         binding.rvShortDrama.setVisibility(View.VISIBLE);
         binding.column.setVisibility(View.GONE);
         // 设置半屏高度
-        ViewGroup.LayoutParams params = binding.getRoot().getLayoutParams();
-        if (params != null) {
-            params.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.5);
-            binding.getRoot().setLayoutParams(params);
-        }
+        setHalfScreenHeight();
         // 设置 RecyclerView
         binding.rvShortDrama.setLayoutManager(new androidx.recyclerview.widget.GridLayoutManager(getContext(), 4));
         java.util.ArrayList<Episode> items = new java.util.ArrayList<>();

@@ -971,6 +971,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy configuration change preserved service key=%s", getPlaybackKey());
             return;
         }
+        // 非 owner 销毁且服务因外部客户端存活时，旧视图曾被 player 监听拖着：
+        // 这里显式摘掉 PlayerView（方向变化走上面 return 分支，不摘，复用时重挂）。
+        try {
+            getExoView().setPlayer(null);
+        } catch (Throwable ignored) {
+        }
         releasePlaybackService();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy afterRelease activity=%s key=%s", getClass().getSimpleName(), getPlaybackKey());
     }

@@ -20,7 +20,15 @@ public final class AudioPlaylistStore {
     private static final String KEY_METADATA = "audio_playlist_metadata";
     private static final String DEFAULT_NAME = "默认歌单";
     private static final int MAX_METADATA = 500;
-    private static final Type LIST_TYPE = new TypeToken<List<Playlist>>() {
+    /**
+     * 内层显式定型：外层 List&lt;Playlist&gt; 的 TypeToken 管不到 Playlist.items 的元素类型，
+     * items 元素类型只靠字段泛型签名；R8 若剥掉签名，items 元素读回成 LinkedTreeMap，
+     * normalize 里 for (Entry entry : item.items) 当场 ClassCastException，list() 的 catch
+     * 吞掉后返回默认歌单、后续一次 upsert 还可能把默认歌单写回去覆盖原数据（1.4.8 榜单
+     * 同款口子在歌单嵌套层的残留）。故 items 不走字段泛型读回，改按 JsonArray 逐个
+     * 用显式 TypeToken&lt;List&lt;Entry&gt;&gt; 定型；外层 Playlist 本体只读标量字段。
+     */
+    private static final Type ENTRY_LIST_TYPE = new TypeToken<List<Entry>>() {
     }.getType();
     private static final Type METADATA_TYPE = new TypeToken<LinkedHashMap<String, Metadata>>() {
     }.getType();
@@ -30,10 +38,42 @@ public final class AudioPlaylistStore {
 
     public static synchronized List<Playlist> list() {
         try {
-            List<Playlist> items = App.gson().fromJson(Prefers.getString(KEY_PLAYLISTS), LIST_TYPE);
-            return normalize(items);
+            return normalize(parsePlaylists(Prefers.getString(KEY_PLAYLISTS)));
         } catch (Exception e) {
             return normalize((List<Playlist>) null);
+        }
+    }
+
+    /** 逐字段解析歌单 JSON：Playlist 只读 id／name 标量，items 数组用 ENTRY_LIST_TYPE 显式定型。 */
+    private static List<Playlist> parsePlaylists(String json) {
+        if (json == null || json.trim().isEmpty()) return null;
+        com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(json);
+        if (root == null || !root.isJsonArray()) return null;
+        List<Playlist> result = new ArrayList<>();
+        for (com.google.gson.JsonElement el : root.getAsJsonArray()) {
+            if (el == null || !el.isJsonObject()) continue;
+            com.google.gson.JsonObject obj = el.getAsJsonObject();
+            Playlist item = new Playlist();
+            item.id = optString(obj, "id");
+            item.name = optString(obj, "name");
+            com.google.gson.JsonElement itemsEl = obj.get("items");
+            if (itemsEl != null && itemsEl.isJsonArray()) {
+                List<Entry> entries = App.gson().fromJson(itemsEl, ENTRY_LIST_TYPE);
+                item.items = entries == null ? new ArrayList<>() : entries;
+            } else {
+                item.items = new ArrayList<>();
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    private static String optString(com.google.gson.JsonObject obj, String name) {
+        if (obj == null || !obj.has(name) || obj.get(name).isJsonNull()) return "";
+        try {
+            return obj.get(name).getAsString();
+        } catch (Exception e) {
+            return "";
         }
     }
 

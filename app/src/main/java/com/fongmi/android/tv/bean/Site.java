@@ -110,6 +110,10 @@ public class Site implements Parcelable {
     private Integer changeable;
 
     @Ignore
+    @SerializedName("danmaku")
+    private Integer danmaku;
+
+    @Ignore
     @SerializedName("quickSearch")
     private Integer quickSearch;
 
@@ -317,6 +321,10 @@ public class Site implements Parcelable {
 
     public void setQuickSearch(Integer quickSearch) {
         this.quickSearch = quickSearch;
+    }
+
+    public Integer getDanmaku() {
+        return danmaku == null ? 1 : danmaku;
     }
 
     public List<String> getCategories() {

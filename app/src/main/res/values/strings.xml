@@ -1547,4 +1547,37 @@
 
     <string name="player_audio_badge_queue">Queue</string>
     <string name="player_audio_repeat">Repeat</string>
+
+    <!-- Runtime modules: ModuleViewModel / RuntimeInstaller / ModuleDialog / ModuleFragment 用；此前树里缺这批键 -->
+    <string name="module_title">运行模块</string>
+    <string name="setting_module">运行模块</string>
+    <string name="module_check">检测</string>
+    <string name="module_thunder">迅雷</string>
+    <string name="module_untested">未检测</string>
+    <string name="module_testing">检测中</string>
+    <string name="module_test_passed">检测通过</string>
+    <string name="module_environment_ready">环境就绪</string>
+    <string name="module_test_failed">检测失败</string>
+    <string name="module_checking">检查中</string>
+    <string name="module_waiting">等待中</string>
+    <string name="module_downloading">下载中</string>
+    <string name="module_installing">安装中</string>
+    <string name="module_removing">卸载中</string>
+    <string name="module_cancelling">取消中</string>
+    <string name="module_confirm_install">确认安装</string>
+    <string name="module_confirm_remove">确认卸载</string>
+    <string name="module_cancelled">已取消</string>
+    <string name="module_failed_title">模块失败</string>
+    <string name="module_unsupported">设备不支持</string>
+    <string name="module_restart">需要重启</string>
+    <string name="module_unavailable">暂不可用</string>
+    <string name="module_not_installed">未安装</string>
+    <string name="module_available">有更新</string>
+    <string name="module_current">已是最新</string>
+    <string name="module_install">安装</string>
+    <string name="module_remove">卸载</string>
+    <string name="module_test">检测</string>
+    <string name="module_cancel">取消</string>
+    <string name="module_test_changed">模块已变化，请重新检测</string>
+    <string name="module_update_notice">模块有更新：%1$s</string>
 </resources>

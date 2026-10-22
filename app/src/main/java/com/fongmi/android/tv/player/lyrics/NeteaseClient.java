@@ -5,6 +5,7 @@ import android.text.TextUtils;
 
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
+import com.fongmi.android.tv.api.ThirdPartyKeys;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,7 +38,6 @@ public class NeteaseClient {
     private static final String EAPI_BASE = "https://interface3.music.163.com/eapi";
     private static final String EAPI_LYRIC_PATH = "/api/song/lyric/v1";
     private static final String EAPI_MATCH_PATH = "/api/search/match/new";
-    private static final String EAPI_KEY = "e82ckenh8dichen8";
     private static final int MIN_SCORE = 58;
     private static final Pattern YRC_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
     private static final Pattern YRC_WORD = Pattern.compile("\\((\\d+),(\\d+),\\d+\\)([^()]*)");
@@ -408,7 +408,7 @@ public class NeteaseClient {
 
     private String aesEcbHex(String text) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(EAPI_KEY.getBytes(StandardCharsets.UTF_8), "AES"));
+        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(ThirdPartyKeys.NETEASE_EAPI_KEY.getBytes(StandardCharsets.UTF_8), "AES"));
         return hex(cipher.doFinal(text.getBytes(StandardCharsets.UTF_8))).toUpperCase(Locale.ROOT);
     }
 

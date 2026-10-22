@@ -95,4 +95,20 @@ public class ShortDramaHelper {
         if (isShortDramaCategoryName(typeName)) return true;
         return false;
     }
+
+    /**
+     * X-17 现算直进：缓存未命中、但 holder 封面图已就绪时，用 drawable 真实尺寸现算高宽比。
+     * 占位图是透明 ColorDrawable（无内在尺寸）不会误判；未加载／加载失败直接返回 false 走原路，
+     * 不做主线程同步拉图、不按分类名／域名猜。命中同时写回 CoverRatioCache，下次点击直接走缓存。
+     */
+    public static boolean isLiveShortDramaCover(android.view.View coverView, String pic) {
+        if (!(coverView instanceof android.widget.ImageView imageView)) return false;
+        android.graphics.drawable.Drawable drawable = imageView.getDrawable();
+        if (drawable == null) return false;
+        int width = drawable.getIntrinsicWidth();
+        int height = drawable.getIntrinsicHeight();
+        if (width <= 0 || height <= 0) return false;
+        if (pic != null && !pic.isEmpty()) CoverRatioCache.put(pic, width, height);
+        return (float) height / (float) width >= CoverRatioCache.SHORT_DRAMA_THRESHOLD;
+    }
 }

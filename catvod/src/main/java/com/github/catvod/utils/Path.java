@@ -1,6 +1,8 @@
 package com.github.catvod.utils;
 
 import android.os.Environment;
+import android.system.ErrnoException;
+import android.system.Os;
 
 import com.github.catvod.Init;
 import com.orhanobut.logger.Logger;
@@ -146,6 +148,34 @@ public class Path {
         } catch (IOException e) {
             return "";
         }
+    }
+
+    // 上游原文（RuntimeModule.readAsset 与 catvod Download 用）：抛错版读流。
+    public static String readOrThrow(InputStream is) throws IOException {
+        return new String(readToByte(is), StandardCharsets.UTF_8);
+    }
+
+    // 上游原文（catvod Download.requireSpace 用）。
+    public static long available(File file) {
+        File directory = file == null ? null : file.getAbsoluteFile();
+        while (directory != null && !directory.isDirectory()) directory = directory.getParentFile();
+        return directory == null ? 0 : directory.getUsableSpace();
+    }
+
+    // 上游原文（catvod Download.requireSpace 用）。
+    public static void requireSpace(File file, long bytes) throws IOException {
+        if (bytes > 0 && available(file) < bytes) throw new IOException("Insufficient storage space");
+    }
+
+    // 上游原文（catvod Download.publish 用）。本树 create() 自有 777 逻辑不动，
+    // 此处只补 Download 调用的独立 chmod 口径。
+    public static File chmod(File file) {
+        try {
+            Os.chmod(file.getAbsolutePath(), 0777);
+        } catch (ErrnoException e) {
+            e.printStackTrace();
+        }
+        return file;
     }
 
     public static byte[] readToByte(File file) {

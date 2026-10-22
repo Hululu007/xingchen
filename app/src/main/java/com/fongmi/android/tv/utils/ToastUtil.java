@@ -55,8 +55,8 @@ public class ToastUtil {
                     pill.setColor(Color.parseColor("#FF262626"));
                     pill.setCornerRadius(24 * density);
                     sbView.setBackground(pill);
-                    int padH = Math.round(24 * density);
-                    int padV = Math.round(12 * density);
+                    int padH = Math.round(10 * density);
+                    int padV = Math.round(5 * density);
                     sbView.setPadding(padH, padV, padH, padV);
                     TextView tv = sbView.findViewById(com.google.android.material.R.id.snackbar_text);
                     if (tv != null) {

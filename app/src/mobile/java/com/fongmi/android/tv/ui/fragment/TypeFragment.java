@@ -245,7 +245,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     }
 
     @Override
-    public void onItemClick(Vod item) {
+    public void onItemClick(Vod item, android.view.View coverView) {
         if (item.isAction()) {
             mViewModel.action(getKey(), item.getAction());
         } else if (item.isFolder()) {
@@ -254,6 +254,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             if (getSite().isIndex()) SearchActivity.start(requireActivity(), item.getName());
             else if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), getKey(), mAdapter.getItems(), item)) {}
             else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
+            else if (ShortDramaHelper.isLiveShortDramaCover(coverView, item.getPic())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);
         }
     }

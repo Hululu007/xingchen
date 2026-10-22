@@ -22,6 +22,9 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.databinding.DialogConfigHistoryBinding;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.ai.AiFloatManager;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.emby.EmbyMode;
 import com.fongmi.android.tv.emby.EmbyStore.EmbyServer;
 import com.fongmi.android.tv.emby.EmbyStore;
@@ -110,12 +113,15 @@ public class ConfigHistoryDialog extends DialogFragment {
             public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
                 int pos = vh.getAdapterPosition();
                 Config config = adapter.getItem(pos);
+                boolean wasCurrent = isCurrentVodConfig(config);
                 AppDatabase.get().getConfigDao().delete(config.getUrl(), type);
                 adapter.remove(pos);
                 if (adapter.getItemCount() == 0) {
                     binding.empty.setVisibility(View.VISIBLE);
                     binding.recycler.setVisibility(View.GONE);
                 }
+                // 左滑删行与确认删行同款处理：删的是当前线路也要切到剩余线路
+                if (wasCurrent) switchAfterActiveDelete();
             }
         });
         helper.attachToRecyclerView(binding.recycler);
@@ -160,6 +166,12 @@ public class ConfigHistoryDialog extends DialogFragment {
         } catch (Throwable t) {
             Notify.show("切换失败");
         }
+        // D-02：进 Emby 专属首页后悬浮球必须立即摘掉（EmbyMode.enter 本身是异步挂载，
+        // 但 setActive 已同步生效，立即刷一次就能按新状态摘球，不用等下次 onResume）。
+        try {
+            AiFloatManager.get().refresh(requireActivity());
+        } catch (Exception ignored) {
+        }
     }
 
     private void initEvent() {
@@ -200,7 +212,10 @@ public class ConfigHistoryDialog extends DialogFragment {
     }
 
     /**
-     * 删除指定线路（二次确认）。
+     * 删除指定线路（二次确认）。删的是当前线路时切到剩余第一条（走 switchVodConfig，
+     * 成功后 ConfigEvent → 首页刷新）；无剩余时保留原提示，让用户重新选择。
+     * 注意：当前性按 VodConfig 的实际 url 判，不按 adapter.isActive（Emby 专属首页展示中
+     * 点播行一律不标“使用中”，但底下点播配置仍是这条，删了照样要切）。
      */
     private void onDelete(Config config) {
         boolean active = adapter != null && adapter.isActive(config);
@@ -210,11 +225,46 @@ public class ConfigHistoryDialog extends DialogFragment {
             .setPositiveButton("删除", (d, w) -> {
                 AppDatabase.get().getConfigDao().delete(config.getUrl(), type);
                 refreshList();
-                Notify.show(active ? "已删除当前线路，请重新选择" : "已删除");
+                if (isCurrentVodConfig(config)) switchAfterActiveDelete();
+                else Notify.show("已删除");
             })
             .setNegativeButton("取消", null)
             .create()
             .show();
+    }
+
+    private boolean isCurrentVodConfig(Config config) {
+        try {
+            String url = VodConfig.get().getConfig().getUrl();
+            return config.getUrl() != null && config.getUrl().equals(url);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void switchAfterActiveDelete() {
+        if (type != 0) {
+            Notify.show("已删除当前线路，请重新选择");
+            return;
+        }
+        List<Config> rest;
+        try {
+            rest = AppDatabase.get().getConfigDao().findByType(type);
+        } catch (Exception e) {
+            Notify.show("已删除当前线路，请重新选择");
+            return;
+        }
+        if (rest == null || rest.isEmpty()) {
+            Notify.show("已删除当前线路，请重新选择");
+            return;
+        }
+        Config next = rest.get(0);
+        if (switchListener != null) {
+            dismiss();
+            switchListener.onSwitch(next);
+            return;
+        }
+        switchVodConfig(next);
     }
 
     private void onUse(Config config) {
@@ -223,6 +273,18 @@ public class ConfigHistoryDialog extends DialogFragment {
         try {
             EmbyMode.exit();
         } catch (Throwable ignored) {
+        }
+        // D-02：Emby 退出是异步的，排队刷一次悬浮球（退出先排队、刷新后排队，
+        // 刷新跑时退出已完成，球按“回到点播首页”恢复显示）。
+        try {
+            App.post(() -> {
+                try {
+                    android.app.Activity top = App.activity();
+                    if (top != null) AiFloatManager.get().refresh(top);
+                } catch (Exception ignored) {
+                }
+            });
+        } catch (Exception ignored) {
         }
         if (switchListener != null) {
             switchListener.onSwitch(config);

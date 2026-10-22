@@ -46,7 +46,7 @@ public class UrlUtil {
     public static String convert(String url) {
         String scheme = scheme(url);
         String path = null;
-        if ("assets".equals(scheme)) path = "/";
+        if ("assets".equals(scheme) || "asset".equals(scheme)) path = "/";
         else if ("file".equals(scheme)) path = "/file/";
         else if ("proxy".equals(scheme)) path = "/proxy?";
         return path != null ? url.replace(scheme + "://", Server.get().getAddress(path)) : url;

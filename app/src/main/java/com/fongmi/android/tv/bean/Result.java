@@ -12,6 +12,7 @@ import com.fongmi.android.tv.gson.DanmakuAdapter;
 import com.fongmi.android.tv.gson.FilterAdapter;
 import com.fongmi.android.tv.gson.HeaderAdapter;
 import com.fongmi.android.tv.gson.MsgAdapter;
+import com.fongmi.android.tv.gson.SkipAdapter;
 import com.fongmi.android.tv.gson.UrlAdapter;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.utils.AdBlock;
@@ -69,6 +70,9 @@ public class Result implements Parcelable {
 
     @SerializedName("subs")
     private List<Sub> subs;
+    @SerializedName("skips")
+    @JsonAdapter(SkipAdapter.class)
+    private List<SkipSegment> skipSegments;
     @SerializedName("playUrl")
     private String playUrl;
     @SerializedName("artwork")
@@ -228,6 +232,10 @@ public class Result implements Parcelable {
         return subs == null ? new ArrayList<>() : new ArrayList<>(subs);
     }
 
+    public List<SkipSegment> getSkipSegments() {
+        return skipSegments == null ? Collections.emptyList() : skipSegments;
+    }
+
     public void setSubs(List<Sub> subs) {
         if (getSubs().isEmpty()) this.subs = subs;
     }
@@ -269,7 +277,9 @@ public class Result implements Parcelable {
     }
 
     public List<Danmaku> getDanmaku() {
-        return !DanmakuSetting.isLoad() || danmaku == null ? new ArrayList<>() : danmaku;
+        // 上游 Result.java:295-298 原文：未加载时返回空表；否则空字段时建表并回填字段。
+        if (!DanmakuSetting.isLoad()) return new ArrayList<>();
+        return danmaku = danmaku == null ? new ArrayList<>() : danmaku;
     }
 
     public String getFormat() {
@@ -345,6 +355,13 @@ public class Result implements Parcelable {
     }
 
     public boolean shouldUseParse() {
+        if (!VodConfig.hasParse()) return false;
+        return (getPlayUrl().isEmpty() && VodConfig.get().getFlags().contains(getFlag())) || getJx() == 1;
+    }
+
+    // 上游 Result.java:379-382 原文名 isUseParse（VodPlaybackController:172、
+    // VodPreloader:118 调此名；本树旧名 shouldUseParse 保留，不删，避免别处引用断链）。
+    public boolean isUseParse() {
         if (!VodConfig.hasParse()) return false;
         return (getPlayUrl().isEmpty() && VodConfig.get().getFlags().contains(getFlag())) || getJx() == 1;
     }

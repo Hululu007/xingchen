@@ -10,6 +10,7 @@ import com.xunlei.downloadlib.parameter.BtIndexSet;
 import com.xunlei.downloadlib.parameter.BtSubTaskDetail;
 import com.xunlei.downloadlib.parameter.BtTaskParam;
 import com.xunlei.downloadlib.parameter.EmuleTaskParam;
+import com.xunlei.downloadlib.parameter.ErrorCode;
 import com.xunlei.downloadlib.parameter.GetDownloadLibVersion;
 import com.xunlei.downloadlib.parameter.GetFileName;
 import com.xunlei.downloadlib.parameter.GetTaskId;
@@ -18,6 +19,7 @@ import com.xunlei.downloadlib.parameter.MagnetTaskParam;
 import com.xunlei.downloadlib.parameter.P2spTaskParam;
 import com.xunlei.downloadlib.parameter.ThunderUrlInfo;
 import com.xunlei.downloadlib.parameter.TorrentInfo;
+import com.xunlei.downloadlib.parameter.XLConstant;
 import com.xunlei.downloadlib.parameter.XLTaskInfo;
 import com.xunlei.downloadlib.parameter.XLTaskLocalUrl;
 
@@ -30,6 +32,11 @@ public class XLDownloadManager {
         this.context = Init.context();
         this.loader = new XLLoader();
         this.init();
+    }
+
+    // 上游原文（XLTaskFactory 与上游 XLDownloadManager 各调用点共用）：错码转可见错。
+    static void checkErrorCode(int code) {
+        if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException(ErrorCode.get(code));
     }
 
     public void init() {

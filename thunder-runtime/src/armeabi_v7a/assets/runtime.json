@@ -1,0 +1,25 @@
+{
+  "module": "thunder",
+  "packageName": "com.fongmi.runtime.thunder",
+  "versionCode": 1,
+  "versionName": "1.0",
+  "compatibilityId": "catvod-thunder-plugin-v1",
+  "abi": "armeabi-v7a",
+  "sha256": "2c202ae36003c2ceaba85bba6560d98f6a56c1559c50cc72d6e3499f9495294a",
+  "size": 3680664,
+  "entryClass": "com.xunlei.downloadlib.RuntimeEntry",
+  "javaApi": 1,
+  "library": "lib/armeabi-v7a/libxl_thunder_sdk.so",
+  "files": [
+    {
+      "path": "lib/armeabi-v7a/libxl_stat.so",
+      "size": 501528,
+      "sha256": "52093068e0ed5651d8565fb2f560de35d72cf73071319cf0d411be55b6983eba"
+    },
+    {
+      "path": "lib/armeabi-v7a/libxl_thunder_sdk.so",
+      "size": 3680664,
+      "sha256": "2c202ae36003c2ceaba85bba6560d98f6a56c1559c50cc72d6e3499f9495294a"
+    }
+  ]
+}

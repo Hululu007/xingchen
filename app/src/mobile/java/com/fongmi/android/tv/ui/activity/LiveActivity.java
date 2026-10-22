@@ -1094,8 +1094,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         if (mBinding.liveTitle == null || mChannel == null) return;
         mBinding.liveTitle.setText(mChannel.getShow());
         mBinding.liveTitle.setSelected(true);
-        mBinding.liveLogoFallback.setVisibility(mChannel.getLogo().isEmpty() ? View.VISIBLE : View.GONE);
-        mChannel.loadLogo(mBinding.liveLogo);
+        // 保险性判空：横屏布局无 liveTitle 时上面已早返，logo 两处与标题同进退、
+        // 目前走不到空分支；仍逐个判空（照同文件 initEvent 对 liveSource/liveSetting 的口径），
+        // 防止日后布局增减 id 时这里先崩。getLogo() 本身已对空串兜底。
+        if (mBinding.liveLogoFallback != null) mBinding.liveLogoFallback.setVisibility(mChannel.getLogo().isEmpty() ? View.VISIBLE : View.GONE);
+        if (mBinding.liveLogo != null) mChannel.loadLogo(mBinding.liveLogo);
         setLiveProgram(null);
     }
 

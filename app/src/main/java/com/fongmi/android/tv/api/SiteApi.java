@@ -22,6 +22,7 @@ import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingSession;
@@ -157,13 +158,18 @@ public class SiteApi {
         detailEmptyStrikes.clear();
     }
 
+    // 详情缓存键是 key_id，精确删 key 永远命中不了；按 key_ 前缀清（保留精确删兼容）。
     public static void clearDetailCache(String key) {
-        if (key != null) detailCache.remove(key);
+        if (key == null) return;
+        for (String k : detailCache.keySet()) {
+            if (k.equals(key) || k.startsWith(key + "_")) detailCache.remove(k);
+        }
     }
 
     /**
-     * py 首页结果短时内存缓存：key = 源 key + 脚本文件戳（路径#mtime/size）。
-     * 命中直接返回，不跑 Python；TTL 3 分钟。只做内存、不落盘。
+     * py 首页结果短时内存缓存：key = 源 key + 脚本文件戳（路径#mtime/size）+ ext 哈希段。
+     * ext 段是登录态标记：登录改 ext（cookie/token 进 ext）时旧缓存键自然失效；ext 本身
+     * 不进键（只进 md5，避免敏感串进缓存键/日志）。命中直接返回，不跑 Python；TTL 3 分钟。只做内存、不落盘。
      * 失效：删插件（PyLoader 文件监听回调）/换配置（VodConfig.clear）清全部；
      * 下拉刷新走 forceRefresh 强制重跑并刷新缓存；换脚本文件戳变化 key 自动失效。
      */
@@ -185,8 +191,8 @@ public class SiteApi {
     }
 
     /**
-     * 预热缓存：与普通首页缓存同口径（key=源 key|脚本戳），但走独立通道写入、
-     * TTL 更长（HomePrewarm.PREWARM_CACHE_TTL）。命中即晋升为普通首页缓存。
+     * 预热缓存：与普通首页缓存同口径（py：key|脚本戳|ext 哈希；js：key|js|ext 哈希），
+     * 但走独立通道写入、TTL 更长（HomePrewarm.PREWARM_CACHE_TTL）。命中即晋升为普通首页缓存。
      * 失效红线与普通缓存一致：删插件/换配置清全部，下拉刷新按源清。
      */
     private static final ConcurrentHashMap<String, HomeCacheEntry> prewarmCache = new ConcurrentHashMap<>();
@@ -252,6 +258,10 @@ public class SiteApi {
             BaseLoader.get().removeJsSpider(key);
         } catch (Throwable ignored) {
         }
+        // 删源单清口径：py 路经 PyLoader.remove、JS 路经 JsLoader.remove 各已按 key
+        // 清解析缓存；此处再显式按 key 清一次，不依赖 loader 内部顺序，幂等前缀清，
+        // 删源后同 key|flag|id 旧解析 URL 在 TTL 内不再命中。
+        clearPlayerCache(key);
     }
 
     /** py 蜘蛛判别：与 proxyKindOf 的口径一致。 */
@@ -379,7 +389,7 @@ public class SiteApi {
             boolean useHomeCache = isPySpiderSite(site);
             String homeCacheKey = null;
             if (useHomeCache) {
-                homeCacheKey = site.getKey() + "|" + PyLoader.scriptStamp(site.getApi());
+                homeCacheKey = site.getKey() + "|" + PyLoader.scriptStamp(site.getApi()) + "|" + Util.md5(site.getExt());
                 if (!forceRefresh) {
                     HomeCacheEntry cached = homeCache.get(homeCacheKey);
                     if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
@@ -609,8 +619,12 @@ public class SiteApi {
                 SpiderDebug.log("detail", "empty key=%s id=%s strikes=%d", key, id, strikes);
                 if (strikes >= DETAIL_EMPTY_EVICT_STRIKES) {
                     detailEmptyStrikes.remove(strikeKey);
-                    if (site.getApi() != null && site.getApi().contains(".js")) BaseLoader.get().removeJsSpider(key);
-                    else BaseLoader.get().removePySpider(key, "detail-empty");
+                    if (site.getApi() != null && site.getApi().contains(".js")) {
+                        BaseLoader.get().removeJsSpider(key);
+                        // JS 路：JsLoader.remove 已按 key 清解析缓存，此处显式再清一次，
+                        // 与 py 路（PyLoader.remove 内清）对齐；驱逐后旧解析 URL 不再命中。
+                        clearPlayerCache(key);
+                    } else BaseLoader.get().removePySpider(key, "detail-empty");
                     SpiderDebug.log("detail", "evict key=%s id=%s after %d consecutive empties", key, id, strikes);
                 }
             } else {
@@ -689,7 +703,9 @@ public class SiteApi {
     private static boolean isThunderId(String id) {
         if (id == null) return false;
         String lower = id.toLowerCase(java.util.Locale.ROOT);
-        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:");
+        // ftp 并入：迅雷本地地址是临时的，ftp 解析结果同样不进播放缓存，
+        // 否则二次播放会拿到已删任务的旧 127.0.0.1 地址。
+        return lower.startsWith("magnet:") || lower.startsWith("ed2k:") || lower.startsWith("thunder:") || lower.startsWith("ftp://");
     }
 
     private static boolean isEmbySite(Site site) {
@@ -716,6 +732,31 @@ public class SiteApi {
         } catch (Throwable ignored) {
         }
         return PLAYER_CACHE_TTL;
+    }
+
+    // 解析缓存清口：全清供 VodConfig.clear()（换配置）调用；按源清供删插件/单只驱逐调用。
+    // 解析缓存键是 key|flag|id，按 key| 前缀清；VodConfig.clear() 里那一调归另一路，本文件只备好接口。
+    public static void clearPlayerCache() {
+        playerCache.clear();
+    }
+
+    public static void clearPlayerCache(String key) {
+        if (key == null) {
+            clearPlayerCache();
+            return;
+        }
+        for (String k : playerCache.keySet()) {
+            if (k.startsWith(key + "|")) playerCache.remove(k);
+        }
+    }
+
+    // py 登录后刷新统一入口（Java 侧）：清该源首页缓存（含预热）＋发首页刷新事件。
+    // 登录态本身已进首页缓存键（ext 哈希段），登录改 ext 时旧缓存自然失效；本方法供
+    // 登录完成时明确知道“已登录”的调用方显式失效，不依赖 ext 是否变化。
+    public static void refreshHomeAfterLogin(String key) {
+        if (key == null) clearHomeCache();
+        else clearHomeCache(key);
+        RefreshEvent.home();
     }
 
     private static Result cachePlayerResult(String cacheKey, Result result, long ttl) {
@@ -1007,10 +1048,13 @@ public class SiteApi {
             result.setSubs(java.util.List.of(com.fongmi.android.tv.bean.Sub.from(play.getSubtitle())));
         }
         result.setKey(key);
-        // 磁力/电驴轻修：播放器不认这两种协议，直塞就是黑屏 0 KB/s。
-        // 只拦这两类（HkRouter.isP2pPlayLink），走壳子已有的迅雷引擎边下边播；
+        // 磁力/电驴/thunder/ftp：播放器不认这些协议，直塞就是黑屏 0 KB/s。
+        // 只拦这四类（HkRouter.isP2pPlayLink），走壳子已有的迅雷引擎边下边播；
         // 其余地址（http/m3u8 等）原样不动。失败时迅雷抛中文真错，不再黑屏无下文。
-        if (HkRouter.isP2pPlayLink(play.getUrl())) {
+        // 门按实际要播的线路地址判定（play.getUrl(line)，即上面 setUrl 的同一串），
+        // 不按默认线路地址判定：多线路时默认线与选中线 scheme 可能不同，旧写法会
+        // 把选中线是 ftp 的漏过去（直塞黑屏），或把选中线是 http 的误送进 fetch。
+        if (HkRouter.isP2pPlayLink(play.getUrl(line))) {
             result.setUrl(Source.get().fetch(result, playerType));
         }
         SpiderDebug.log("player", "hk play resolved: %s", result.getUrl());

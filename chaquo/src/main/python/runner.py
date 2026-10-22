@@ -104,3 +104,11 @@ class Runner():
         fn = getattr(self.spider, "destroy", None)
         if callable(fn):
             fn()
+
+    def refresh_home_after_login(self):
+        gen = getattr(self, "_login_generation", 0) + 1
+        self._login_generation = gen
+        fn = getattr(self.spider, "refresh_after_login", None)
+        if callable(fn):
+            fn()
+        return gen

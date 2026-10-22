@@ -10,6 +10,7 @@ android {
     defaultConfig {
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
+        consumerProguardFiles 'consumer-rules.pro'
     }
 
     compileOptions {
@@ -17,9 +18,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
+
+    packaging.jniLibs.keepDebugSymbols.add('**/*.so')
 }
 
 dependencies {
+    // 上游原文为 compileOnly project(':catvod')（外置插件包形态，宿主另含 catvod）；
+    // 本树 thunder 以 implementation 进宿主 APK（内置形态），catvod 须在运行时可见，
+    // 故保留 implementation，不改回 compileOnly。
     implementation project(':catvod')
     coreLibraryDesugaring libs.desugar
 }

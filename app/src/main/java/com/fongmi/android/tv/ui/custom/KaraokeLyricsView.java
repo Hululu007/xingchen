@@ -1084,7 +1084,9 @@ public class KaraokeLyricsView extends View {
         float maxMainWidth = width - dp(H_PADDING_DP) * 2f;
         // 主行行高按模式分流：封面 ×4/3（coverLyricLineHeight），全屏 ×1.3（GZ 全屏样式，见 lineHeightFor）。
         float mainRowHeight = lineHeightFor(mainTextSizePx());
-        // U-02：副行行高＝副行字号×4/3（GZ 全屏副行行高未单独抠到，暂留封面公式，列待核，不跟主行改 1.3）。
+        // redo-1022：副行行高＝副行字号×4/3（GZ LyricsViewKt:11840 副行样式：
+        // 副行字号＝(主行字号或默认 15)×0.62，行高＝副行字号×4/3，字重 500；
+        // 全屏与封面同式，不跟全屏主行 1.3——此前“未抠到暂留”注释作废）。
         float subRowHeight = lyricLineHeight(subPaint.getTextSize());
         float gapPx = dp(coverMode ? LINE_GAP_COVER_DP : LINE_GAP_FULLSCREEN_DP);
         List<Block> list = new ArrayList<>(lines.size());
@@ -1116,6 +1118,57 @@ public class KaraokeLyricsView extends View {
     /** 主行分段：有逐字词时按词分段折行；否则整行按宽度折行（仅量宽，绘制时整段处理）。
      * M-02：按词分段条件从 primaryMode==0 放宽为三档通用（各档取对应词表，作主行的那路为空时回落原文词）。
      * M-03：伴唱行量宽按伴唱字号（基值×0.7）缩放。 */
+    /**
+     * redo-1022：按词拆字符 Seg（共用路径：主行布局＋副行当前行绘制）。
+     * 按码点拆，emoji 等代理对不拆半个字符；字符切片时长按字宽加权分原词时长
+     * （GZ measureLine charTimings 口径：字内时长∝该字字形宽，总宽 0 时退回均分；
+     * 末字符吃整数余数），变色按切片算，光晕／缩放量仍按原词时长算（见 Seg 注释）。
+     * 均分是旧错：宽字与窄字同分一份时长，扫边速度随字宽忽快忽慢，正是逐字跟唱“生硬”的根；
+     * 按宽加权后扫边速度（px／ms）在词内恒定，与瓜子 sungCharsForTime 字内线性插值同效
+     * （LyricsViewKt:12517-12545：字内 (t-起)/(止-起) 线性，不做缓动）。
+     * widthScale 只缩放 Seg 宽度（伴唱主行 0.7、副行 1.0），不参与时长加权（缩放约分抵消）。
+     * 单字词返回整词 Seg（charCount＝0，漂移／正弦浮动不作用），与旧行为一致。
+     */
+    private List<Seg> splitWordSegs(LyricsWord word, Paint measurePaint, float widthScale) {
+        List<Seg> out = new ArrayList<>();
+        String wtext = word.getText();
+        if (TextUtils.isEmpty(wtext)) return out;
+        int count = wtext.codePointCount(0, wtext.length());
+        if (count <= 1) {
+            out.add(new Seg(wtext, word, measurePaint.measureText(wtext) * widthScale));
+            return out;
+        }
+        long wordStart = word.getStartOffsetMs();
+        long wordDur = word.getDurationMs();
+        String[] chars = new String[count];
+        float[] charWidths = new float[count];
+        float totalWidth = 0f;
+        int offset = 0;
+        for (int ci = 0; ci < count; ci++) {
+            int cp = wtext.codePointAt(offset);
+            int charLen = Character.charCount(cp);
+            chars[ci] = wtext.substring(offset, offset + charLen);
+            offset += charLen;
+            charWidths[ci] = measurePaint.measureText(chars[ci]);
+            totalWidth += charWidths[ci];
+        }
+        long elapsed = 0L;
+        for (int ci = 0; ci < count; ci++) {
+            long charStart = wordStart + elapsed;
+            long charDur;
+            if (ci == count - 1) {
+                charDur = Math.max(0, wordDur - elapsed);
+            } else if (totalWidth > 0f) {
+                charDur = Math.round(wordDur * charWidths[ci] / totalWidth);
+            } else {
+                charDur = wordDur / count;
+            }
+            elapsed += charDur;
+            out.add(new Seg(chars[ci], word, charWidths[ci] * widthScale, charStart, charDur, ci, count));
+        }
+        return out;
+    }
+
     private List<List<Seg>> layoutMainRows(int index, float maxWidth) {
         List<List<Seg>> rows = new ArrayList<>();
         String mainText = mainTextFor(index);
@@ -1130,51 +1183,9 @@ public class KaraokeLyricsView extends View {
         if (wordMode) {
             for (LyricsWord word : mainWords) {
                 if (TextUtils.isEmpty(word.getText())) continue;
-                // L3：布局层按字符拆 Seg（按码点拆，emoji 等代理对不拆半个字符）。
-                // 字符切片时长按字宽加权分原词时长（GZ measureLine charTimings 口径：字内时长
-                // ∝该字字形宽，总宽 0 时退回均分；末字符吃整数余数），变色按切片算，
-                // 光晕／缩放量仍按原词时长算（见 Seg 注释）。均分是旧错：宽字与窄字同分
-                // 一份时长，扫边速度随字宽忽快忽慢，正是逐字跟唱“生硬”的根；按宽加权后
-                // 扫边速度（px／ms）在词内恒定，与瓜子 sungCharsForTime 字内线性插值同效。
-                // 中文词表本身已是单字时拆后与整词一致，差距被掩盖属正常。
-                String wtext = word.getText();
-                int count = wtext.codePointCount(0, wtext.length());
-                if (count <= 1) {
-                    float width = mainPaint.measureText(wtext);
-                    if (line.isBG()) width *= BG_FONT_RATIO;
-                    segs.add(new Seg(wtext, word, width));
-                    continue;
-                }
-                long wordStart = word.getStartOffsetMs();
-                long wordDur = word.getDurationMs();
-                String[] chars = new String[count];
-                float[] charWidths = new float[count];
-                float totalWidth = 0f;
-                int offset = 0;
-                for (int ci = 0; ci < count; ci++) {
-                    int cp = wtext.codePointAt(offset);
-                    int charLen = Character.charCount(cp);
-                    chars[ci] = wtext.substring(offset, offset + charLen);
-                    offset += charLen;
-                    charWidths[ci] = mainPaint.measureText(chars[ci]);
-                    totalWidth += charWidths[ci];
-                }
-                long elapsed = 0L;
-                for (int ci = 0; ci < count; ci++) {
-                    float width = charWidths[ci];
-                    if (line.isBG()) width *= BG_FONT_RATIO;
-                    long charStart = wordStart + elapsed;
-                    long charDur;
-                    if (ci == count - 1) {
-                        charDur = Math.max(0, wordDur - elapsed);
-                    } else if (totalWidth > 0f) {
-                        charDur = Math.round(wordDur * charWidths[ci] / totalWidth);
-                    } else {
-                        charDur = wordDur / count;
-                    }
-                    elapsed += charDur;
-                    segs.add(new Seg(chars[ci], word, width, charStart, charDur, ci, count));
-                }
+                // redo-1022：拆字走共用 splitWordSegs（主行与副行当前行同一路径），
+                // 副行此前整词一个 Seg、逐字跳变，与瓜子字符级跟唱不符，本批改走字符切片。
+                segs.addAll(splitWordSegs(word, mainPaint, line.isBG() ? BG_FONT_RATIO : 1f));
             }
             if (segs.isEmpty()) wordMode = false;
         }
@@ -1187,10 +1198,26 @@ public class KaraokeLyricsView extends View {
         List<Seg> row = new ArrayList<>();
         float rowWidth = 0f;
         for (Seg seg : segs) {
-            if (!row.isEmpty() && rowWidth + seg.width > maxWidth && rows.size() < maxRows) {
-                rows.add(row);
-                row = new ArrayList<>();
-                rowWidth = 0f;
+            if (!row.isEmpty() && rowWidth + seg.width > maxWidth) {
+                if (rows.size() < maxRows - 1) {
+                    rows.add(row);
+                    row = new ArrayList<>();
+                    rowWidth = 0f;
+                } else {
+                    // 最后一行：此前满行后剩余 Seg 继续往最后一行硬堆、超宽后被视图裁掉
+                    // 且无省略；改按 maxWidth 截断：腾出省略号宽度后加 "…" 并停止，不再堆后续 Seg。
+                    // 省略号借当前 Seg 的词（绘制侧按词计时着色，word 不可空）；伴唱行按同系数缩放。
+                    float ellipsisWidth = mainPaint.measureText("…") * (line.isBG() ? BG_FONT_RATIO : 1f);
+                    while (!row.isEmpty() && rowWidth + ellipsisWidth > maxWidth) {
+                        Seg dropped = row.remove(row.size() - 1);
+                        rowWidth -= dropped.width;
+                    }
+                    if (!row.isEmpty()) {
+                        row.add(new Seg("…", seg.word, ellipsisWidth,
+                                seg.charStartMs, seg.charDurationMs, seg.charIndex, seg.charCount));
+                    }
+                    break;
+                }
             }
             row.add(seg);
             rowWidth += seg.width;
@@ -1600,15 +1627,22 @@ public class KaraokeLyricsView extends View {
             if (totalWidth > maxWidth) wordPath = false;
         }
         if (wordPath) {
+            // redo-1022：副行当前行此前整词一个 Seg，唱到词才整词变色、扫边按词宽跳；
+            // 瓜子跟唱是字符级（charTimings＋sungCharsForTime 字内线性），此处改走与主行
+            // 同一条 splitWordSegs 字符切片（按字宽加权分词时长），扫边带 max(9dp, 副行字号)
+            // 与上浮／长音 CJK 错峰均与主行同口径；行末字判定取末词末字符。
             float em = subPaint.getTextSize();
             float x = rowStartX(totalWidth);
             for (int i = 0; i < words.size(); i++) {
                 LyricsWord w = words.get(i);
-                float width = subPaint.measureText(w.getText());
-                Seg seg = new Seg(w.getText(), w, width);
-                drawWordStyled(canvas, seg, x, subBaseline, relative, em, i == words.size() - 1,
-                        subPaint, subGlowPaint, true);
-                x += width;
+                List<Seg> segs = splitWordSegs(w, subPaint, 1f);
+                for (int j = 0; j < segs.size(); j++) {
+                    Seg seg = segs.get(j);
+                    drawWordStyled(canvas, seg, x, subBaseline, relative, em,
+                            i == words.size() - 1 && j == segs.size() - 1,
+                            subPaint, subGlowPaint, true);
+                    x += seg.width;
+                }
             }
             subPaint.setAlpha(255);
             subPaint.setMaskFilter(null);

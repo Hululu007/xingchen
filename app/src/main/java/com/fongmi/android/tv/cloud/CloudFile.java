@@ -39,6 +39,16 @@ public class CloudFile {
     public String getThumbUrl() { return thumbUrl; }
     public void setThumbUrl(String thumbUrl) { this.thumbUrl = thumbUrl; }
 
+    /** 音频后缀口径与网盘音乐页 MusicCloudActivity.AUDIO_EXT 同表（mp3/flac/wav/aac/ogg/oga/m4a/opus/ape/wma/aif/aiff）。 */
+    public boolean isAudio() {
+        if (name == null) return false;
+        String n = name.toLowerCase();
+        return n.endsWith(".mp3") || n.endsWith(".flac") || n.endsWith(".wav")
+                || n.endsWith(".aac") || n.endsWith(".ogg") || n.endsWith(".oga")
+                || n.endsWith(".m4a") || n.endsWith(".opus") || n.endsWith(".ape")
+                || n.endsWith(".wma") || n.endsWith(".aif") || n.endsWith(".aiff");
+    }
+
     public boolean isVideo() {
         if (name == null) return false;
         String n = name.toLowerCase();

@@ -7,7 +7,8 @@ import java.util.Map;
 public class CoverRatioCache {
 
     private static final int MAX_SIZE = 200;
-    private static final float SHORT_DRAMA_THRESHOLD = 1.6f;
+    /** 短剧封面高宽比阈值（高／宽，竖图才算短剧；X-17 现算直进复用同一阈值）。 */
+    public static final float SHORT_DRAMA_THRESHOLD = 1.6f;
 
     private static final Map<String, Float> CACHE = Collections.synchronizedMap(new LinkedHashMap<String, Float>(MAX_SIZE, 0.75f, true) {
         @Override

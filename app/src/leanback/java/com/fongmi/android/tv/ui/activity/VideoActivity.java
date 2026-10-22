@@ -168,6 +168,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import com.fongmi.android.tv.exception.ExtractException;
+import com.google.common.util.concurrent.FluentFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 
 public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.Listener, TrackDialog.Listener, ControlDialog.Listener, ArrayAdapter.OnClickListener, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, Clock.Callback {
 
@@ -200,7 +206,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private ActivityVideoBinding mBinding;
     private ViewGroup.LayoutParams mFrameParams;
     private Observer<Result> mObserveDetail;
-    private Observer<Result> mObservePlayer;
     private Observer<Result> mObserveSearch;
     private Observer<SearchProgress> mObserveSearchProgress;
     private EpisodeAdapter mEpisodeAdapter;
@@ -288,6 +293,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private View mDialogReturnFocus;
     private Result mPendingDetail;
     private Result mPendingPlayer;
+    private Result mLastPlayerResult;
     private String mContextWallUrl;
     private String mContextWallLockedUrl;
     private String playHealthKey;
@@ -544,6 +550,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onServiceConnected() {
+        // 上游形核对：上游 onServiceConnected 只做播放服务就绪通知；本树无 Vod 控制器，
+        // 弹幕接线／setPlayerKernel／setDecode／setLut 皆为与送达无关的 fork 增量，保留。
+        // 暂存递交已是上游无条件递交形：不判播放器空否、不丢弃，取槽即交 setPlayer。
         SpiderDebug.log("video-flow", "service ready sinceLaunch=%dms key=%s id=%s", getLaunchCost(System.currentTimeMillis()), getKey(), getId());
         player().setDanmakuController(mBinding.exo.getDanmakuController());
         setPlayerKernel();
@@ -592,7 +601,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (PlayerSetting.isImmersiveAudioMode()) ensureImmersiveAudioControllers();
         mKeyDown = CustomKeyDownVod.create(this);
         mObserveDetail = this::setDetail;
-        mObservePlayer = this::setPlayer;
         mObserveSearch = this::setSearch;
         mObserveSearchProgress = this::setSearchProgress;
         mBroken = new ArrayList<>();
@@ -1056,7 +1064,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
         mViewModel.getResult().observeForever(mObserveDetail);
-        mViewModel.getPlayer().observeForever(mObservePlayer);
         mViewModel.getSearch().observeForever(mObserveSearch);
         mViewModel.getSearchProgress().observeForever(mObserveSearchProgress);
     }
@@ -1199,19 +1206,49 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
         SpiderDebug.log("video-flow", "player audio stage cost=%dms visible=%s", System.currentTimeMillis() - step, isMusicLike());
         step = System.currentTimeMillis();
-        mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        playDirect(getKey(), playFlag, episode.getUrl());
         SpiderDebug.log("video-flow", "player content request dispatch cost=%dms", System.currentTimeMillis() - step);
         mBinding.widget.title.setSelected(true);
         updateHistory(episode);
         showProgress();
     }
 
+    /**
+     * 直接起播路（上游 startPlayback 直调 startPlayer 形）：播放结果不再经
+     * ViewModel 排队——后台跑 SiteApi.playerContent，主线程直交 setPlayer；
+     * 服务未就绪时结果仍由 setPlayer 的 mPendingPlayer 暂存（与 mobile 口径
+     * 一致的可见提示＋留转圈），onServiceConnected 无条件递交、不丢弃。
+     * 超时口径沿用 Constant.TIMEOUT_VOD，不发明新量级。
+     */
+    private void playDirect(String key, String flag, String url) {
+        FluentFuture<Result> future = FluentFuture.from(Task.executor().submit(() -> SiteApi.playerContent(key, flag, url))).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+        future.addCallback(Task.callback(
+                result -> App.post(() -> {
+                    if (!isFinishing() && !isDestroyed()) setPlayer(result);
+                }),
+                error -> App.post(() -> {
+                    if (!isFinishing() && !isDestroyed()) setPlayer(toErrorResult(error));
+                })
+        ), MoreExecutors.directExecutor());
+    }
+
+    private static Result toErrorResult(Throwable error) {
+        if (error instanceof ExtractException) return Result.error(error.getMessage());
+        if (error instanceof TimeoutException) return Result.error(ResUtil.getString(R.string.error_play_timeout));
+        return Result.error(error.getMessage() != null ? error.getMessage() : "播放失败，请重试");
+    }
+
     private void setPlayer(Result result) {
         if (isFinishing() || isDestroyed()) return;
+        // 重播记录（原 ViewModel player LiveData 值的等效存放）：onReclaim 只读它，
+        // 服务就绪递交从不依赖它——它不是第二暂存槽。
+        mLastPlayerResult = result;
         SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
         if (service() == null) {
             mPendingPlayer = result;
             SpiderDebug.log("video-flow", "player pending service key=%s id=%s", getKey(), getId());
+            Notify.show("播放器服务未就绪，播放结果已暂存，服务就绪后自动播放");
+            showProgress();
             return;
         }
         mQualityAdapter.addAll(result);
@@ -2671,7 +2708,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         ViewGroup.LayoutParams params = sheet.getLayoutParams();
         params.height = height;
         sheet.setLayoutParams(params);
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        BottomSheetBehavior<FrameLayout> behavior;
+        try {
+            behavior = BottomSheetBehavior.from(sheet);
+        } catch (IllegalArgumentException e) {
+            SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+            return;
+        }
         behavior.setPeekHeight(height);
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
     }
@@ -5124,7 +5167,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheet == null) return;
             sheet.setBackgroundColor(Color.TRANSPARENT);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            BottomSheetBehavior<FrameLayout> behavior;
+            try {
+                behavior = BottomSheetBehavior.from(sheet);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+                return;
+            }
             behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             behavior.setSkipCollapsed(true);
             behavior.setDraggable(draggable);
@@ -5167,7 +5216,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             ViewGroup.LayoutParams params = sheet.getLayoutParams();
             params.height = height;
             sheet.setLayoutParams(params);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            BottomSheetBehavior<FrameLayout> behavior;
+            try {
+                behavior = BottomSheetBehavior.from(sheet);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+                return;
+            }
             behavior.setFitToContents(false);
             behavior.setExpandedOffset(Math.max(0, ResUtil.getScreenHeight(this) - height));
             behavior.setPeekHeight(height);
@@ -5205,7 +5260,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 params.setMargins(atStart ? ResUtil.dp2px(16) : 0, mStatusBarInset + ResUtil.dp2px(16), atStart ? 0 : ResUtil.dp2px(16), bottomMargin);
             }
             sheet.setLayoutParams(raw);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            BottomSheetBehavior<FrameLayout> behavior;
+            try {
+                behavior = BottomSheetBehavior.from(sheet);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+                return;
+            }
             behavior.setFitToContents(false);
             behavior.setExpandedOffset(Math.max(0, ResUtil.getScreenHeight(this) - height - bottomMargin));
             behavior.setPeekHeight(height);
@@ -5377,7 +5438,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             if (mLyricsResultDialog == null || !mLyricsResultDialog.isShowing()) return;
             FrameLayout current = mLyricsResultDialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (current == null) return;
-            BottomSheetBehavior.from(current).setState(BottomSheetBehavior.STATE_EXPANDED);
+            try {
+                BottomSheetBehavior.from(current).setState(BottomSheetBehavior.STATE_EXPANDED);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "behavior unavailable, degraded: %s", e.getMessage());
+            }
         });
     }
 
@@ -5484,7 +5549,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onReclaim() {
-        Result result = mViewModel.getPlayer().getValue();
+        Result result = mLastPlayerResult;
         if (result != null) setPlayer(result);
     }
 
@@ -6386,7 +6451,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         stopAudioCoverRotation();
         if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
-        mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
         mViewModel.getSearchProgress().removeObserver(mObserveSearchProgress);
         SiteHealthStore.flush();

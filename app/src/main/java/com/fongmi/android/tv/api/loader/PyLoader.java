@@ -6,6 +6,7 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.chaquo.Loader;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
@@ -82,18 +83,24 @@ public class PyLoader {
         remove(key, "unspecified");
     }
 
-    /** 单只驱逐：记原因＋key，真机重建频率靠这条日志看。 */
+    /** 单只驱逐：记原因＋key，真机重建频率靠这条日志看。
+     * 顺序：先从表里摘掉并先清 recent（代理 recent 路不再路由到将死的蜘蛛），
+     * 再 destroy；同时清该源解析缓存，删源后旧解析结果不许再命中。 */
     public void remove(String key, String reason) {
         Spider spider = spiders.remove(key);
         createdKeys.remove(key);
         fileStamps.remove(key);
         removeKeyFromPaths(key);
+        if (key != null && key.equals(recent)) recent = null;
+        try {
+            SiteApi.clearPlayerCache(key);
+        } catch (Throwable ignored) {
+        }
         if (spider != null) {
             try {
                 spider.destroy();
             } catch (Throwable ignored) {}
         }
-        if (key.equals(recent)) recent = null;
         SpiderDebug.log("pyloader", "remove key=%s reason=%s hadSpider=%s", key, reason, spider != null);
     }
 
@@ -127,6 +134,10 @@ public class PyLoader {
                 SiteApi.clearHomeCache(key);
             } catch (Throwable ignored) {
             }
+            try {
+                SiteApi.clearPlayerCache(key);
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -155,6 +166,7 @@ public class PyLoader {
                     if (path == null || !path.toLowerCase().endsWith(".py")) return;
                     try {
                         invalidateScript(new File(watchDir, path).getAbsolutePath());
+                        RefreshEvent.home();
                     } catch (Throwable ignored) {
                     }
                 }

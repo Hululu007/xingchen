@@ -19,6 +19,7 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.fragment.app.Fragment;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
@@ -45,6 +46,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.FragmentStateManager;
 import com.fongmi.android.tv.ui.fragment.SettingDanmakuFragment;
 import com.fongmi.android.tv.ui.fragment.SettingFragment;
+import com.fongmi.android.tv.ui.fragment.ModuleFragment;
 import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 import com.fongmi.android.tv.ui.fragment.VodFragment;
 import com.fongmi.android.tv.ui.lab.LabHomeActivity;
@@ -56,7 +58,8 @@ import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.TxtParser;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.utils.Util;
-import com.fongmi.android.tv.web.WebHomeChromeStartup;
+import com.fongmi.android.tv.ai.AiFloatManager;
+import com.fongmi.android.tv.web.WebHomeChrome;
 import com.fongmi.android.tv.web.WebHomeViewport;
 import com.github.catvod.net.OkHttp;
 import com.google.android.material.navigation.NavigationBarView;
@@ -74,7 +77,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host, com.fongmi.android.tv.ui.minibar.MiniBarHost {
+public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host, com.fongmi.android.tv.ui.minibar.MiniBarHost, AiFloatManager.AiFloatHost {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_CURRENT_POSITION = "currentPosition";
@@ -179,7 +182,8 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private void checkType(Intent intent) {
         String path = UrlUtil.path(intent.getData());
         if ("text/plain".equals(intent.getType()) || path.endsWith(".m3u") || path.endsWith(".txt")) {
-            // txt 混合链接导入播放：含 magnet:/ed2k:// 即解析成选集列表播放；
+            // txt 混合链接导入播放：含 magnet:/ed2k:/thunder:/ftp: 即解析成选集列表播放
+            // （ed2k 只认 scheme 前缀、不要求 //；纯 thunder／纯 ftp txt 同样进迅雷线）；
             // 纯 http 的 txt 仍走直播列表（兼容旧行为）。需求（2026-10-10）。
             String text = readText(intent.getData());
             if (text != null && TxtParser.isMixedLinks(text)) {
@@ -289,25 +293,35 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         syncNavigationSelection();
     }
 
+    /** 底部导航菜单总数上限：Material 库写死，加第 7 个直接崩，1.3.53 就是这么死的。 */
+    private static final int MAX_BOTTOM_TABS = 6;
+
     private void syncOptionalTabs() {
-        // BottomNavigationView 在 Material 库里写死最多 6 个菜单项（加第 7 个直接崩，1.3.53 就是这么死的），
-        // 所以 XML 里只放 6 个，实验室格按开关动态加。小程序和实验室都是可选格，同时开也只能二选一：实验室优先。
+        // 可选格（实验室／小程序）与 6 格上限的关系，先把结论写死：
+        // XML 本身已占 6 项（含不可见的小程序格），基础格（点播／直播／音乐／阅读）＋设置格
+        // 已占 5 项，所以可选格永远只能二选一——实验室＋小程序同时上底栏就是 7 项，必崩，
+        // 共存做不了，不是没做。实验室优先是旧口径，保持不变。
+        // 限制做扎实：每次加格前都对总数守门，绝不加出第 7 项；小程序丢格时不丢数据：
+        // 开关状态仍存着（FeaturesActivity），实验室关掉后底栏自动回来；且功能页小程序卡
+        // 点开就能进小程序首页（见 FeaturesActivity），不靠底栏也能到。
         Menu menu = mBinding.navigation.getMenu();
         boolean wantLab = LabSettingActivity.isTabEnabled(this);
         menu.removeItem(R.id.lab);
         menu.removeItem(R.id.miniapp);
         menu.removeItem(R.id.setting);
-        if (wantLab) {
+        if (wantLab && menu.size() < MAX_BOTTOM_TABS) {
             menu.add(Menu.NONE, R.id.lab, Menu.NONE, getString(R.string.nav_lab)).setIcon(R.drawable.ic_nav_lab);
-        } else if (FeaturesActivity.isMiniAppEnabled(this)) {
+        } else if (FeaturesActivity.isMiniAppEnabled(this) && menu.size() < MAX_BOTTOM_TABS) {
             menu.add(Menu.NONE, R.id.miniapp, Menu.NONE, getString(R.string.nav_miniapp)).setIcon(R.drawable.ic_nav_miniapp);
         }
-        menu.add(Menu.NONE, R.id.setting, Menu.NONE, getString(R.string.nav_setting)).setIcon(R.drawable.ic_nav_setting);
+        if (menu.size() < MAX_BOTTOM_TABS) {
+            menu.add(Menu.NONE, R.id.setting, Menu.NONE, getString(R.string.nav_setting)).setIcon(R.drawable.ic_nav_setting);
+        }
     }
 
     private boolean openLive() {
         LiveActivity.start(this);
-        return false;
+        return true;
     }
 
     private boolean addShortcut(View view) {
@@ -401,11 +415,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (item.getItemId() == R.id.live) return openLive();
         if (item.getItemId() == R.id.music) {
             MusicActivity.start(this);
-            return false;
+            return true;
         }
         if (item.getItemId() == R.id.reading) {
             ReadingShelfActivity.start(this);
-            return false;
+            return true;
         }
         if (item.getItemId() == R.id.miniapp) {
             HkPageActivity.start(this);
@@ -433,10 +447,79 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     }
 
     private boolean changeFragment(int position) {
+        closeModuleFragment();
         boolean changed = mManager.change(position);
         if (changed) currentPosition = position;
         refreshWebHomeChromeLayout();
+        refreshAiFloat();
         return changed;
+    }
+
+    // 手机端模块页入口：ModuleFragment 只能宿在 HomeActivity（它把 activity 强转
+    // HomeActivity），所以不另起 Activity，直接以覆盖方式加在首页容器上。
+    // 不走 FragmentStateManager 的页签位：模块页不是第五个页签，不动首页导航；
+    // 切页签／返回时先把模块页收掉，底下页签原样恢复。
+    public void showModuleFragment() {
+        Fragment module = getSupportFragmentManager().findFragmentByTag("module");
+        if (module != null && module.isVisible()) return;
+        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+        Fragment primary = getSupportFragmentManager().getPrimaryNavigationFragment();
+        if (primary != null && primary != module) ft.hide(primary);
+        if (module == null) {
+            module = ModuleFragment.newInstance();
+            ft.add(mBinding.container.getId(), module, "module");
+        } else {
+            ft.show(module);
+        }
+        ft.setPrimaryNavigationFragment(module).setReorderingAllowed(true).commit();
+    }
+
+    public boolean isModuleFragmentShown() {
+        Fragment module = getSupportFragmentManager().findFragmentByTag("module");
+        return module != null && module.isVisible();
+    }
+
+    private void closeModuleFragment() {
+        Fragment module = getSupportFragmentManager().findFragmentByTag("module");
+        if (module == null || !module.isVisible()) return;
+        Fragment primary = getSupportFragmentManager().getPrimaryNavigationFragment();
+        if (primary == module) {
+            // 模块页就是主导航页：交给页签管理器切回当前页签，它会顺手藏起模块页。
+            mManager.change(currentPosition);
+            return;
+        }
+        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+        ft.hide(module);
+        if (primary != null) ft.show(primary).setPrimaryNavigationFragment(primary);
+        ft.setReorderingAllowed(true).commit();
+        if (primary == null) mManager.change(currentPosition);
+    }
+
+    /** D-02 页签信号：只在点播页签可见、非 Emby 专属首页、非网页沉浸态时挂球。
+     * 挂载口径：BaseActivity.onResume 调 AiFloatManager.onResume（壳内页签切换不走 onResume，
+     * 所以 changeFragment/onWebHomeChromeChanged 里另调 refreshAiFloat 补一次）。 */
+    @Override
+    public boolean isAiFloatHomePage() {
+        if (mManager == null || !mManager.isVisible(0)) return false;
+        if (EmbyMode.isActive()) return false;
+        return !isWebHomeChromeActive() || !WebHomeChrome.IMMERSIVE.equals(getWebHomeChromeMode());
+    }
+
+    private void refreshAiFloat() {
+        refreshAiFloatNow();
+        // Emby 退出是 App.post 异步的：立即刷一次管页签切换，再排队刷一次管退出完成后的恢复
+        //（退出先排队，刷新后排队，顺序上刷新一定在退出完成后跑）。
+        try {
+            App.post(this::refreshAiFloatNow);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void refreshAiFloatNow() {
+        try {
+            AiFloatManager.get().refresh(this);
+        } catch (Exception ignored) {
+        }
     }
 
     private void refreshWebHomeChromeLayout() {
@@ -524,6 +607,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (mManager == null) return;
         VodFragment fragment = (VodFragment) mManager.getFragment(0);
         if (fragment != null) fragment.applyWebHomeChrome(mode);
+        refreshAiFloatNow();
     }
 
     @Override
@@ -561,10 +645,12 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
 
     @Override
     protected void onBackInvoked() {
+        if (isModuleFragmentShown()) {
+            closeModuleFragment();
+            return;
+        }
         if (mChrome != null && mChrome.consumeBack()) {
             return;
-        } else if (!mBinding.navigation.getMenu().findItem(R.id.vod).isVisible()) {
-            setNavigation();
         } else if (mManager.isVisible(2) || mManager.isVisible(3)) {
             change(1);
         } else if (mManager.isVisible(1)) {
@@ -578,12 +664,15 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     @Override
     protected void onDestroy() {
         if (mChrome != null) mChrome.destroy();
-        LiveConfig.get().clear();
-        VodConfig.get().clear();
+        // 主题切换 recreate 也走 onDestroy：此时不是真 finish，配置与服务留给新实例接手，
+        // 不清 Vod/Live 配置、不停本地服务，否则重建后首页要重拉配置、后台播放也被掐断。
+        // 真 finish 时仍按原顺序全清；其它行（备份、OkHttp 清理）与原行为一致。
+        if (isFinishing()) LiveConfig.get().clear();
+        if (isFinishing()) VodConfig.get().clear();
         AppDatabase.backup();
         OkHttp.get().clear();
-        Source.get().exit();
-        Server.get().stop();
+        if (isFinishing()) Source.get().exit();
+        if (isFinishing()) Server.get().stop();
         super.onDestroy();
     }
 }

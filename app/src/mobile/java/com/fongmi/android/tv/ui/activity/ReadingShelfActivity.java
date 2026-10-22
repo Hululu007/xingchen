@@ -19,6 +19,7 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.fongmi.android.tv.legado.LegadoAudio;
@@ -55,7 +56,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         context.startActivity(new Intent(context, ReadingShelfActivity.class));
     }
 
-    /** 当前栏："NOVEL"/"COMIC"/"AUDIO"，小说漫画听书分开归栏。 */
+    /** 当前栏：小说/漫画/听书分开归栏，取值 NOVEL/COMIC/AUDIO。 */
+    private static final String STATE_CURRENT_TAB = "currentTab";
     private String currentTab = "NOVEL";
     private TextView tabNovel;
     private TextView tabComic;
@@ -88,6 +90,11 @@ public class ReadingShelfActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 旋转重建：恢复旋转前的栏（buildUi/refresh 都按 currentTab 建页，须在建页前恢复）
+        if (savedInstanceState != null) {
+            String tab = savedInstanceState.getString(STATE_CURRENT_TAB);
+            if ("NOVEL".equals(tab) || "COMIC".equals(tab) || "AUDIO".equals(tab)) currentTab = tab;
+        }
         ReadingSkin.enableEdgeToEdge(this, true);
         // AI 口令"继续读"中转：直接进最近一本，不在书架停留
         if (getIntent().getBooleanExtra("auto_continue", false)) {
@@ -101,6 +108,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
         // 页面进出统一渐入渐出（与 BaseActivity 一致）
         overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
 }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putString(STATE_CURRENT_TAB, currentTab);
+        super.onSaveInstanceState(outState);
+    }
 
     @Override
     public void finish() {

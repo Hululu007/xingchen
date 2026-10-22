@@ -124,6 +124,9 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         showProgress();
         setTitle();
         updateToolbarMenu();
+        // 首屏自拉兜底：配置已就绪（例如旋转重建、切回首页时 fragment 重建）直接拉首页，
+        // 不用等配置事件；冷启动配置尚未就绪时不拉，等成功事件经 HomeActivity 转发而来。
+        if (!VodConfig.get().getSites().isEmpty()) loadHome();
     }
 
     @Override
@@ -513,6 +516,11 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onConfigEvent(ConfigEvent event) {
+        // 不再留空方法，但这里只刷新标题、不拉数据：拉数据的唯一驱动是 HomeActivity
+        // 把 VOD 事件转成的 RefreshEvent.home()（见 onRefreshEvent 的 HOME 分支），
+        // 这里再调 loadHome 就会和转发各拉一次（双拉）。X-02 起事件只在成功时发，
+        // 所以标题刷新与转发加载都是成功态，不会把失败重拉带进来。
+        if (event.type() == ConfigEvent.Type.VOD || event.type() == ConfigEvent.Type.COMMON) setTitle();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

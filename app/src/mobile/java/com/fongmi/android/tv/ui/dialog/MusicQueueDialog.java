@@ -122,8 +122,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             clp.gravity = Gravity.BOTTOM;
             sheet.setLayoutParams(clp);
         }
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
         sheetBehavior = behavior;
+        if (behavior == null) return;
         behavior.setFitToContents(false);
         behavior.setDraggable(false);
         behavior.setSkipCollapsed(true);

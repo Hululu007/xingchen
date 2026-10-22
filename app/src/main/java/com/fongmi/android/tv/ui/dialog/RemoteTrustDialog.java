@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.os.Build;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -3085,7 +3086,10 @@ public final class RemoteTrustDialog {
         input.setSingleLine(singleLine);
         input.setTextSize(14);
         input.setMinHeight(dp(context, 46));
-        input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        // 自动填充框架是 API 26 才进的，API 24／25 上该方法不存在、无守卫会抛 NoSuchMethodError。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        }
         input.setSelectAllOnFocus(false);
         input.setTextColor(Color.BLACK);
         input.setHintTextColor(Color.parseColor("#666666"));

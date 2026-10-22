@@ -1,11 +1,13 @@
 package com.fongmi.android.tv.music;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
+import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 
 import org.json.JSONObject;
@@ -19,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 搜索本身由 MusicCloudActivity 直接调 Drive 列表筛音频做，不走这里的 search()。
  * 115 走本机代理（Drive115.getPlayUrl 自带 Proxy115），播放器不直连 115；
  * 夸克取下载直链直接播（与 CloudDriveActivity 视频路子一致）。
+ * PikPak 用 fid 取链（DrivePikPak.getPlayUrl 只认 file id，不依赖 pickCode；
+ * pickCode 在 PikPak 列表里复用存 mime_type，透传无害）。
  * 歌词不在网盘侧出（lyric 返回空，走播放器现有取词回落）。
  */
 public class CloudMusicSource implements MusicSource {
@@ -87,6 +91,8 @@ public class CloudMusicSource implements MusicSource {
             drive = new Drive115();
         } else if (DriveQuark.ID.equals(driveId)) {
             drive = new DriveQuark();
+        } else if (DrivePikPak.ID.equals(driveId)) {
+            drive = new DrivePikPak(App.get());
         } else {
             throw new Exception("未知网盘来源");
         }

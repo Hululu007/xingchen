@@ -57,7 +57,8 @@ public class EpisodeFragment extends BaseFragment implements EpisodeAdapter.OnCl
         mBinding.recycler.setLayoutManager(new GridLayoutManager(getContext(), getSpanCount()));
         mBinding.recycler.addItemDecoration(new SpaceItemDecoration(getSpanCount(), 8));
         mBinding.recycler.setAdapter(adapter = new EpisodeAdapter(this, ViewType.GRID, getItems()));
-        mBinding.recycler.scrollToPosition(adapter.getPosition());
+        int position = adapter.getPosition();
+        if (position >= 0) mBinding.recycler.scrollToPosition(position);
     }
 
     @Override

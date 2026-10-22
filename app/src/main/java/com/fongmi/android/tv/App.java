@@ -25,6 +25,8 @@ import com.fongmi.android.tv.utils.DanmakuSearchListFocusFixer;
 import com.fongmi.android.tv.utils.NsdDeviceDiscovery;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PreviousProcessExitLogger;
+import com.fongmi.android.tv.receiver.RuntimeReceiver;
+import com.fongmi.android.tv.utils.RuntimeInstaller;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.hook.Hook;
 import com.github.catvod.crawler.DebugLogStore;
@@ -114,6 +116,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
         AdBlock.refresh(this);
         DanmakuSearchListFocusFixer.start();
         registerActivityLifecycleCallbacks(this);
+        // 上游 App 同位置：启动即登记运行时包安装／卸载广播，RuntimeModule.refresh()
+        // 靠它感知外置包变化；ModuleViewModel 各自的接收器只跟自己那块模块。
+        RuntimeReceiver.register(this);
         try {
             com.fongmi.android.tv.api.loader.BaseLoader.get()
                     .watchPyPlugins(new java.io.File(getFilesDir(), "plugins/py"));
@@ -165,6 +170,10 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onActivityResumed(@NonNull Activity activity) {
         if (activity != activity()) this.activity = activity;
+        // 上游 App.onActivityResumed 同段：活动恢复时续跑外置运行时安装确认／卸载，
+        // 并把模块更新提示（Updater.checkModules 攒下的）投出来
+        RuntimeInstaller.resumeUpdate(activity);
+        Updater.create().notifyModules();
         // 听书迷你条：跟人走（贴各页底部、全局底栏上方）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)

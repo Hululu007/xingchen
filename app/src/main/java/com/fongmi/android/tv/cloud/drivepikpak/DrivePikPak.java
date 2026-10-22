@@ -548,15 +548,39 @@ public class DrivePikPak implements CloudDrive {
     }
 
     /**
+     * 按目录缓存的 page_token 链：offset/limit 兑页号（page = offset / limit），
+     * 每页响应里的 next_page_token 记下来供下一页用；offset==0 时重建该目录的链。
+     * 只能顺序翻页（UI 滚动续取与音乐页遍历都是顺序取页）；跳号取页（链上无对应 token）
+     * 返回空表，不回第一页冒充，避免重复文件混进列表。
+     */
+    private final java.util.Map<String, List<String>> pageTokensByCid = new java.util.HashMap<>();
+
+    /**
      * 文件列表（来源：pikpak-sdk/files.go List）
      * GET /drive/v1/files?parent_id=&limit=&page_token=&filters=
      */
     @Override
     public List<CloudFile> listDir(String cid, int offset, int limit) throws Exception {
-        // PikPak 用 page_token 分页，不支持 offset；offset>0 时按页累进（简化：只取第一页）
+        int pageSize = limit > 0 ? limit : 100;
+        String key = cid == null ? "" : cid;
+        String pageToken;
+        int pageIndex = Math.max(0, offset) / pageSize;
+        synchronized (pageTokensByCid) {
+            if (pageIndex == 0) {
+                List<String> chain = new ArrayList<>();
+                chain.add("");
+                pageTokensByCid.put(key, chain);
+                pageToken = "";
+            } else {
+                List<String> chain = pageTokensByCid.get(key);
+                if (chain == null || pageIndex >= chain.size()) return new ArrayList<>();
+                pageToken = chain.get(pageIndex);
+            }
+        }
         JSONObject query = new JSONObject()
                 .put("parent_id", cid == null ? "" : cid)
-                .put("limit", String.valueOf(limit > 0 ? limit : 100))
+                .put("limit", String.valueOf(pageSize))
+                .put("page_token", pageToken)
                 .put("thumbnail_size", "SIZE_LARGE")
                 .put("with_audit", "true")
                 .put("filters", new JSONObject()
@@ -564,6 +588,13 @@ public class DrivePikPak implements CloudDrive {
                         .put("trashed", new JSONObject().put("eq", false))
                         .toString());
         JSONObject d = api("GET", "/drive/v1/files", query, null, true);
+        String nextToken = d.optString("next_page_token", "");
+        if (!TextUtils.isEmpty(nextToken)) {
+            synchronized (pageTokensByCid) {
+                List<String> chain = pageTokensByCid.get(key);
+                if (chain != null && chain.size() == pageIndex + 1) chain.add(nextToken);
+            }
+        }
         List<CloudFile> files = new ArrayList<>();
         JSONArray arr = d.optJSONArray("files");
         if (arr == null) return files;

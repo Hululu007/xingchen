@@ -36,7 +36,24 @@ import okhttp3.Response;
  */
 public class DanDanPlayApi {
 
-    private static final String PROXY = "https://api.danmaku.weeblify.app/ddp/v1?path=";
+    /**
+     * 弹幕代理域名列表（按顺序回退）：首个挂掉、换路径或被墙时，依次试下一个域名，
+     * 而不是全走单一域名、一挂全灭。当前只有一个经核实的域名——第二域名需另行提供，
+     * 本处不凭空编一个（编个不存在的域名只会让回退循环白白多耗一次超时）。
+     * 拿到新域名后往本数组追加即可，调用方不用改。
+     * X-33 找第二域名实测记录（2026-10-22，未找到可用的，不往数组加）：
+     * 对照组 weeblify 本域名同格式取数实测可用（search/anime 返 animes＋success:true）。
+     * 候选 1：danmuku.ikaros.run 直连 /api/v2/search/anime——与本数组的
+     * ?path= 编码路径格式不同（它是另一套弹幕服务、响应体非弹弹 animes/bangumi/
+     * comments 口径），且浏览器取数被上游 403 拒绝，未证实可用，不加。
+     * 候选 2：api.dandanplay.net 官方直连——现行强制 AppId/AppSecret 签名认证，
+     * 无凭证的裸 GET 同样被上游 403 拒绝，不能作免凭证回退，不加。
+     * 网上另未找到公开的同 ?path= 格式第三方代理部署，故数组仍只留一条；
+     * 回退循环本身已就绪，第二域名一经核实即可追加。
+     */
+    private static final String[] PROXY_BASES = {
+            "https://api.danmaku.weeblify.app/ddp/v1?path=",
+    };
     private static final long TIMEOUT_MS = 15000;
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
     private static volatile OkHttpClient plainClient;
@@ -74,10 +91,21 @@ public class DanDanPlayApi {
     }
 
     /**
-     * GET with fallback transport. Returns null only when both attempts fail,
-     * so callers can tell a network failure apart from an empty API response.
+     * GET with fallback transport AND fallback proxy domains. Callers pass only the
+     * encoded API path; each proxy base is tried in order, and within one base the
+     * shared client is tried first, then a plain stock client. Returns null only
+     * when every base and both transports fail, so callers can tell a network
+     * failure apart from an empty API response.
      */
-    private static String doGet(String url) {
+    private static String doGet(String encodedPath) {
+        for (String base : PROXY_BASES) {
+            String body = doGetFrom(base + encodedPath);
+            if (!TextUtils.isEmpty(body)) return body;
+        }
+        return null;
+    }
+
+    private static String doGetFrom(String url) {
         String body = OkHttp.string(url, TIMEOUT_MS);
         if (!TextUtils.isEmpty(body)) return body;
         try {
@@ -105,8 +133,7 @@ public class DanDanPlayApi {
         EXECUTOR.execute(() -> {
             List<Anime> out = new ArrayList<>();
             boolean networkError = false;
-            String url = PROXY + Uri.encode("/v2/search/anime?keyword=" + keyword);
-            String body = doGet(url);
+            String body = doGet(Uri.encode("/v2/search/anime?keyword=" + keyword));
             if (body == null) {
                 networkError = true;
             } else {
@@ -135,8 +162,7 @@ public class DanDanPlayApi {
         EXECUTOR.execute(() -> {
             List<Episode> out = new ArrayList<>();
             boolean networkError = false;
-            String url = PROXY + Uri.encode("/v2/bangumi/" + animeId);
-            String body = doGet(url);
+            String body = doGet(Uri.encode("/v2/bangumi/" + animeId));
             if (body == null) {
                 networkError = true;
             } else {
@@ -165,8 +191,7 @@ public class DanDanPlayApi {
     public static void downloadDanmaku(long episodeId, String name, FileCallback callback) {
         EXECUTOR.execute(() -> {
             File file = null;
-            String url = PROXY + Uri.encode("/v2/comment/" + episodeId + "?from=0&withRelated=true&chConvert=0");
-            String body = doGet(url);
+            String body = doGet(Uri.encode("/v2/comment/" + episodeId + "?from=0&withRelated=true&chConvert=0"));
             if (body != null) {
                 try {
                     JsonObject root = JsonParser.parseString(body).getAsJsonObject();

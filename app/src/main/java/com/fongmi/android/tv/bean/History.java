@@ -56,6 +56,8 @@ public class History implements Diffable<History> {
     private long createTime;
     @SerializedName("opening")
     private long opening;
+
+    public static final long AUTO_SKIP = -1L;
     @SerializedName("ending")
     private long ending;
     @SerializedName("position")
@@ -243,6 +245,10 @@ public class History implements Diffable<History> {
 
     public long getOpening() {
         return opening;
+    }
+
+    public static boolean isAutoSkip(long value) {
+        return value == C.TIME_UNSET || value == AUTO_SKIP;
     }
 
     public void setOpening(long opening) {

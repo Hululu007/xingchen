@@ -15,24 +15,19 @@ import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.extractor.Thunder;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.FluentFuture;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
-import java.util.EnumMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -42,43 +37,26 @@ import java.util.function.Consumer;
 public class SiteViewModel extends ViewModel {
 
     private final MutableLiveData<Result> result;
-    private final MutableLiveData<Result> player;
     private final MutableLiveData<Result> search;
     private final MutableLiveData<SearchProgress> searchProgress;
     private final MutableLiveData<Result> action;
 
-    private final Map<TaskType, ListenableFuture<?>> futures;
-    private final Map<TaskType, AtomicInteger> taskIds;
     private final List<Future<?>> searchFuture;
-    private final ListeningExecutorService playerExecutor;
     private final AtomicInteger searchEpoch;
     private KaraokeResult karaokeResult;
     private int karaokeResultAction;
 
     public SiteViewModel() {
         result = new MutableLiveData<>();
-        player = new MutableLiveData<>();
         search = new MutableLiveData<>();
         searchProgress = new MutableLiveData<>();
         action = new MutableLiveData<>();
         searchEpoch = new AtomicInteger(0);
         searchFuture = new CopyOnWriteArrayList<>();
-        // 起播解析曾是单线程：上一次 py 解析卡住 30 秒，下一次起播（连续切集）
-        // 就排队等它——表现就是“播放也慢”。改 2 线程：卡住的那路占一根，
-        // 新起播走另一根立即跑；旧任务照例取消、结果照例按 taskId 丢弃，
-        // 不影响单路语义。磁力展开（PARSE_EXECUTOR）不在本次范围，不动。
-        playerExecutor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(2));
-        futures = new EnumMap<>(TaskType.class);
-        taskIds = new EnumMap<>(TaskType.class);
-        for (TaskType type : TaskType.values()) taskIds.put(type, new AtomicInteger(0));
     }
 
     public LiveData<Result> getResult() {
         return result;
-    }
-
-    public LiveData<Result> getPlayer() {
-        return player;
     }
 
     public LiveData<Result> getSearch() {
@@ -115,7 +93,6 @@ public class SiteViewModel extends ViewModel {
         search.setValue(null);
         searchProgress.setValue(null);
         result.setValue(null);
-        player.setValue(null);
         action.setValue(null);
         return this;
     }
@@ -175,10 +152,6 @@ public class SiteViewModel extends ViewModel {
         boolean p2p = SiteApi.PUSH.equals(key) || (id != null && Thunder.Parser.match(id));
         execute(TaskType.RESULT, result, () -> SiteApi.detailContent(key, id, forceRefresh), null, null,
                 p2p ? Constant.TIMEOUT_PUSH_DETAIL : Constant.TIMEOUT_VOD, key);
-    }
-
-    public void playerContent(String key, String flag, String id) {
-        execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id), null, null, Constant.TIMEOUT_VOD, key);
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {
@@ -245,44 +218,33 @@ public class SiteViewModel extends ViewModel {
     }
 
     private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs, String siteKey) {
-        AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
-        int currentId = taskId.incrementAndGet();
-        ListenableFuture<?> old = futures.get(type);
-        if (old != null) old.cancel(true);
-        // 空 key 执行前拦截（全调用方共用，homeContent／分类／动作／详情／起播／单源搜索
-        // 都走这里，不漏一路）：key 为空＝没有可用的源，绝不把 lambda 交给线程池——
-        // 否则 SiteApi 里空 Site 一路走到 OkHttp.newCall("") 才抛 no-scheme，界面只剩
-        // 空结果。先递增 taskId＋作废旧任务再发错：旧任务的回调按 taskId 丢弃，不会
-        // 反过来盖掉这条可见错；onError 不触发（这不是一次失败的请求，是根本没发）。
+        // 上游形（e5ec0c60f 对照）：没有 PLAYER 类型、没有 taskId／futures 取消环、
+        // 没有按 taskId 丢弃旧结果——任务只跑、结果只投递，错误只投 Result.error。
+        // 播放结果不再走这里：VideoActivity 直接起播路（playDirect）跑 SiteApi.playerContent。
+        // 空 key 执行前拦截是 fork 保留项（冷启动空源不进线程池）：key 为空＝没有可用的源，
+        // 绝不把 lambda 交给线程池，否则 SiteApi 里空 Site 一路走到 OkHttp.newCall("") 才抛 no-scheme。
         if (siteKey == null || siteKey.isEmpty()) {
             SpiderDebug.log("viewmodel", "execute rejected type=%s site empty: no home source configured", type);
             liveData.postValue(Result.error("未配置首页源"));
             return;
         }
-        ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
-        FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
-        futures.put(type, future);
+        FluentFuture<Result> future = FluentFuture.from(Task.executor().submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
         future.addCallback(Task.callback(
                 result -> {
-                    if (taskId.get() != currentId) return;
                     if (onSuccess != null) onSuccess.accept(result);
                     liveData.postValue(result);
                 },
                 error -> {
-                    if (taskId.get() != currentId) return;
-                    if (error instanceof CancellationException) return;
                     if (onError != null) onError.accept(error);
-                    // 失败原因必须留痕：以前非 ExtractException 一律吞成空结果，界面只剩通用
-                    // 提示、调试日志里也没有原文，推送磁力/ed2k 的超时就是这样一直查不到
                     SpiderDebug.log("viewmodel", "execute failed type=%s site=%s error=%s", type, siteKey, error);
-                    if (error instanceof ExtractException) liveData.postValue(Result.error(error.getMessage()));
-                    else if (type == TaskType.PLAYER && error instanceof TimeoutException) liveData.postValue(Result.error(ResUtil.getString(R.string.error_play_timeout)));
-                    // 冷启动首次 py 首页加载超时：给明确错误，不许再吞成空结果。
-                    else if (error instanceof SiteApi.ColdHomeTimeoutException) liveData.postValue(Result.error(error.getMessage()));
-                    // 播放失败一律给真错：以前非 ExtractException 直接 post 空结果，界面只剩 00:00、无任何报错，
-                    // 磁力就是这样静默死的。非播放类型保持原样（空结果），不动搜索／详情流。
-                    else if (type == TaskType.PLAYER) liveData.postValue(Result.error(error.getMessage() != null ? error.getMessage() : "播放失败，请重试"));
-                    else liveData.postValue(Result.empty());
+                    // 上游形：所有错误都投 Result.error，不吞成空结果；RESULT 再补一条 Notify。
+                    String msg;
+                    if (error instanceof ExtractException) msg = error.getMessage();
+                    else if (error instanceof TimeoutException) msg = ResUtil.getString(R.string.error_play_timeout);
+                    else if (error instanceof SiteApi.ColdHomeTimeoutException) msg = error.getMessage();
+                    else msg = error.getMessage() != null ? error.getMessage() : "播放失败，请重试";
+                    if (type == TaskType.RESULT) Notify.show(msg);
+                    liveData.postValue(Result.error(msg));
                     error.printStackTrace();
                 }
         ), MoreExecutors.directExecutor());
@@ -300,9 +262,7 @@ public class SiteViewModel extends ViewModel {
         super.onCleared();
         stopSearch();
         SiteApi.cancelHomeLoads();
-        futures.values().forEach(future -> future.cancel(true));
-        playerExecutor.shutdownNow();
     }
 
-    private enum TaskType {RESULT, PLAYER, ACTION}
+    private enum TaskType {RESULT, ACTION}
 }

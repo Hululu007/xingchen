@@ -177,6 +177,11 @@ public class HkRouter {
                         return detail;
                     }
                     u = vt;
+                } else {
+                    // 纯 js: 求值空：与 ① @lazyRule= 分支一致，标记解析失败，
+                    // 不带 js: 串落入详情规则流程（否则空详情/误播）。
+                    detail.setLazyParseFailed(true);
+                    return detail;
                 }
             }
 
@@ -190,7 +195,13 @@ public class HkRouter {
                 if (entryRule.startsWith("js:")) {
                     if (item != null) engine.getJsRuntime().setDetailParams(item.getExtra());
                     // 8.83 原版：详情条目直接进通用列表渲染，不做线路/选集分类
-                    detail.setRawItems(fromJsDetail(entryRule, rawPageUrl));
+                    List<HkDetailItem> jsItems = fromJsDetail(entryRule, rawPageUrl);
+                    if (jsItems == null || jsItems.isEmpty()) {
+                        // @rule=js: 求值出空详情：与 ① 分支一致，标记解析失败，不推空 V4
+                        detail.setLazyParseFailed(true);
+                        return detail;
+                    }
+                    detail.setRawItems(jsItems);
                     return detail;
                 }
                 u = pageUrl;
@@ -202,6 +213,13 @@ public class HkRouter {
                 // 无详情规则：若条目 URL 本身形如媒体直链 → 直接播放，避免 V4"加载失败"
                 String cu = u.trim();
                 if (looksLikeMediaUrl(cu)) detail.setDirectPlayUrl(cu);
+                // 同 @lazyRule= 分支的 dealWithUrl 口径：裸磁力／ed2k／thunder／ftp 不进 V4，
+                // 以 dealKind=magnet 交调用方走星辰播放器（isP2pPlayLink 门），
+                // 否则这里回空详情、调用方只能报"加载失败"。
+                else if (isP2pPlayLink(cu)) {
+                    detail.setDealKind("magnet");
+                    detail.setDealUrl(cu);
+                }
                 return detail;
             }
             // 8.83 原版：JS 分支拿完整 URL（含 #），clean 只给选择器分支用
@@ -290,7 +308,11 @@ public class HkRouter {
         // -1. webRule:// 网页嗅探（8.83 WebkitParser）：必须在 @lazyRule/普通分流之前判定，
         // 否则伪协议串会被后续分流原样塞给播放器
         if (u.regionMatches(true, 0, "webRule://", 0, 10)) {
-            resolveWebRule(u, out);
+            // 与步骤 4 @lazyRule= 同口径：嗅探没出地址就是失败、停住抛可见错，
+            // 不回空 HkPlay（调用方会把空地址组装成空 Result 静默死 00:00、无报错）
+            if (!resolveWebRule(u, out) || out.isEmpty()) {
+                throw new IllegalStateException("海阔网页嗅探未返回播放地址，请换一条试试");
+            }
             return out;
         }
         // 0. @lazyRule= 优先提取（必须在 splitEnhancement 之前：JS 代码里含 {}/; 等字符）
@@ -333,11 +355,13 @@ public class HkRouter {
             }
             return out;
         }
-        // 1.6 P1：特殊协议识别（ed2k/magnet/thunder/ftp），原样透传给播放器
+        // 1.6 P1：特殊协议识别（ed2k/magnet/thunder/ftp），原样透传给播放器。
+        // 口径与 isP2pPlayLink / Thunder.match 的 scheme 判定看齐：只认 scheme 前缀，
+        // 不要求 "//"（ed2k:/thunder: 无双斜杠形态同样进迅雷线，不走系统选应用）。
         String low = u.toLowerCase();
-        if (low.startsWith("ed2k://")) out.setPlayType("ed2k");
+        if (low.startsWith("ed2k:")) out.setPlayType("ed2k");
         else if (low.startsWith("magnet:")) out.setPlayType("magnet");
-        else if (low.startsWith("thunder://")) out.setPlayType("thunder");
+        else if (low.startsWith("thunder:")) out.setPlayType("thunder");
         else if (low.startsWith("ftp://")) out.setPlayType("ftp");
         // 2. ; URL 增强（必须在 # 截断之前：8.83 是先从完整串解析 ;{...} 请求头块、
         // 再剥标记；旧顺序先按 # 一刀切，url#标记;{Referer@x} 的请求头块会被连带丢掉）
@@ -352,6 +376,14 @@ public class HkRouter {
             resolveLazyRule(lazyPageUrl, lazyRuleText, out, 0);
             // 照 8.83：懒解析没出地址就是失败、停住报错；
             // 旧代码继续拿剧集页地址走兜底，最终把网页塞给播放器（白屏/解析失败）。
+            // 空结果不再回空 HkPlay：调用方（SiteApi.hkPlayerContent）会把空地址
+            // 组装成空 Result 静默死（00:00、无报错），故这里直接抛可见错；
+            // 播放链 SiteViewModel PLAYER 出错分支会把消息投成 Result.error，
+            // 与迅雷解析失败抛中文真错同一口径。预热/漫画/列表等调用方均已
+            // catch Throwable（或声明 throws），签名不用改。
+            if (out.isEmpty()) {
+                throw new IllegalStateException("海阔懒解析未返回播放地址，请换一条试试");
+            }
             return out;
         }
         // 5. @rule=js:
@@ -361,34 +393,50 @@ public class HkRouter {
             String ruleText = u.substring(ar + 6).trim();
             if (ruleText.startsWith("js:")) {
                 String real = evalJsPlay(ruleText.substring(3), pageUrl);
-                if (!real.isEmpty()) {
-                    real = real.trim();
-                    if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
-                    // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
-                    if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
-                        resolveWebRule(real, out);
-                        return out;
+                // 与步骤 4 @lazyRule= 同口径：js: 求值空就是失败、停住抛可见错，
+                // 不落 pageUrl 兜底（否则网页被塞给播放器白屏/解析失败）
+                if (real == null || real.isEmpty()) {
+                    throw new IllegalStateException("海阔 @rule=js: 求值未返回播放地址，请换一条试试");
+                }
+                real = real.trim();
+                if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
+                // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+                if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
+                    if (!resolveWebRule(real, out) || out.isEmpty()) {
+                        throw new IllegalStateException("海阔网页嗅探未返回播放地址，请换一条试试");
                     }
-                    applyLazyResult(real, out, 0);
                     return out;
                 }
+                applyLazyResult(real, out, 0);
+                if (out.isEmpty()) {
+                    throw new IllegalStateException("海阔 @rule=js: 懒解析未返回播放地址，请换一条试试");
+                }
+                return out;
             }
             u = pageUrl;
         }
         // 6. js: 整段
         if (u.startsWith("js:")) {
             String real = evalJsPlay(u.substring(3), u);
-            if (!real.isEmpty()) {
-                real = real.trim();
-                if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
-                // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
-                if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
-                    resolveWebRule(real, out);
-                    return out;
+            // 与步骤 4 @lazyRule= 同口径：js: 求值空就是失败、停住抛可见错，
+            // 不落步骤 8 兜底（否则 js: 原串会被原样塞给播放器）
+            if (real == null || real.isEmpty()) {
+                throw new IllegalStateException("海阔 js: 求值未返回播放地址，请换一条试试");
+            }
+            real = real.trim();
+            if (real.startsWith("{") && real.contains("\"urls\"") && parsePlayJson(real, out)) return out;
+            // js: 结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
+            if (real.regionMatches(true, 0, "webRule://", 0, 10)) {
+                if (!resolveWebRule(real, out) || out.isEmpty()) {
+                    throw new IllegalStateException("海阔网页嗅探未返回播放地址，请换一条试试");
                 }
-                applyLazyResult(real, out, 0);
                 return out;
             }
+            applyLazyResult(real, out, 0);
+            if (out.isEmpty()) {
+                throw new IllegalStateException("海阔 js: 懒解析未返回播放地址，请换一条试试");
+            }
+            return out;
         }
         // 7. {urls:[]} JSON
         if (u.startsWith("{") && u.contains("\"urls\"")) {
@@ -758,21 +806,25 @@ public class HkRouter {
         if (low.startsWith("pics://")) return "pics";
         if (low.startsWith("x5://")) return "x5";
         if (isVideoOrMusicUrl(u)) return "video";
-        if (low.startsWith("magnet:") || low.startsWith("thunder://")
-                || low.startsWith("ftp://") || low.startsWith("ed2k://")) return "magnet";
+        if (low.startsWith("magnet:") || low.startsWith("thunder:")
+                || low.startsWith("ftp://") || low.startsWith("ed2k:")) return "magnet";
         if (isImageUrl(u)) return "image";
         if (low.startsWith("http://") || low.startsWith("https://") || low.startsWith("file://")) return "web";
         return "";
     }
 
     /**
-     * 用户拍板（相对原版的有意分叉）：列表点击 magnet:?/ed2k:// 不再走系统选应用，
-     * 改进自家播放器走迅雷引擎。thunder://、ftp:// 维持原版行为（选应用），不在此列。
+     * 用户拍板（相对原版的有意分叉）：海阔磁力／ed2k／thunder／ftp 链接一律走星辰播放器
+     * （经 SiteApi.hkPlayerContent 的 Source.fetch → Thunder.fetch 迅雷转换），
+     * 不维持原版、不走系统选应用。口径只认 scheme 前缀（magnet:/ed2k:/thunder:/ftp://），
+     * 不要求 "//"，与 Thunder.match 的 scheme 判定、SiteApi.isThunderId、
+     * VideoActivity.isThunderUrl 看齐。上游 Thunder SCHEMES 本就含 ftp，XLTaskFactory
+     * 的 ftp 走 P2sp 任务（createDownload 内 ftp:// 分支），故 ftp 不再留给系统选应用。
      */
     public static boolean isP2pPlayLink(String url) {
         if (url == null) return false;
         String low = url.trim().toLowerCase();
-        return low.startsWith("magnet:") || low.startsWith("ed2k://");
+        return low.startsWith("magnet:") || low.startsWith("ed2k:") || low.startsWith("thunder:") || low.startsWith("ftp://");
     }
 
     private String cleanDetailUrl(String url) {

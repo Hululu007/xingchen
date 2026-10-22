@@ -51,7 +51,8 @@ public final class ShelfStageGeometry {
      * 宽屏下槽距不再被压到封套＋45dp。项间用 ItemDecoration 补（槽距−封套）；
      * 当前槽项根宽 1.48×封套时，次槽布局左缘多出 0.48×封套，由次槽位移补偿（见 MusicPlayerActivity），
      * 不改本值。按槽距居中时居中的是槽位盒，封套视觉中心与槽位盒中心差半个间距
-     * （约 22dp／390dp 屏），属本改编的已知偏移，见交回。
+     * （约 22dp／390dp 屏）；该偏移已由 MusicPlayerActivity.applyShelfSlotTransform
+     * 以 (槽距 − 封套) / 2 全槽右移补偿，几何量本身不动（真机须以屏中线复核方向）。
      */
     public final float slotPitchDp;
     /** 非当前项缩放 f4＝(f2×0.78)/f3。 */

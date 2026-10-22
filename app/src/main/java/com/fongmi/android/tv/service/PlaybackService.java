@@ -222,6 +222,13 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     private void stopAndClear() {
         PlaybackEventCollector.get().onStop(player);
         player.stop();
+        // 视频会话退出（suspend/shutdown）：被视频暂停的音乐显式续播。
+        // stop() 本身不续（刷新/换源/报错路也会调 stop，视频页还开着）。
+        player.resumeMusicPausedByVideo();
+        // 上游 PlaybackService.java:339-346 退出路径同款：player.stop() 之后调
+        // Source.get().stop()，退出时停掉提取器任务（含迅雷任务）。本树 Source 已
+        // import（player.Source），其 stop() 只转发给各 Extractor.stop()，不 release。
+        Source.get().stop();
         player.clearMediaItems();
     }
 

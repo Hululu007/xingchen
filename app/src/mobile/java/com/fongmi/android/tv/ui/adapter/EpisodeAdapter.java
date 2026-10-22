@@ -55,28 +55,38 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
         notifyDataSetChanged();
     }
 
+    /**
+     * 无选中不再回落第 1 集：与网格“无一集变金”（EpisodeGridHolder 以 isSelected 定金底）同一口径。
+     * 无选中返回 -1，调用方（VideoActivity.getEpisode／分组定位／滚动定位）各自接住，见各处注释。
+     */
     public int getPosition() {
         for (int i = 0; i < mItems.size(); i++) if (mItems.get(i).isSelected()) return i;
-        return 0;
+        return -1;
     }
 
     public int getPosition(Episode item) {
         return mItems.indexOf(item);
     }
 
+    /** 无选中或空表返回 null，不再返回第 1 集。 */
     public Episode getActivated() {
-        return mItems.get(getPosition());
+        int position = getPosition();
+        return position < 0 ? null : mItems.get(position);
     }
 
+    /** 无选中或空表返回 null；有选中时末集仍钳位回自身（旧口径不变）。 */
     public Episode getNext() {
         int current = getPosition();
+        if (current < 0 || getItemCount() == 0) return null;
         int max = getItemCount() - 1;
         current = ++current > max ? max : current;
         return mItems.get(current);
     }
 
+    /** 无选中或空表返回 null；有选中时首集仍钳位回自身（旧口径不变）。 */
     public Episode getPrev() {
         int current = getPosition();
+        if (current < 0 || getItemCount() == 0) return null;
         current = --current < 0 ? 0 : current;
         return mItems.get(current);
     }

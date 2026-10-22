@@ -170,7 +170,12 @@ public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServ
         private void readBodyInto(InputStream is, StreamRequestMessage msg, Map<String, List<String>> headers) throws IOException {
             List<String> length = headers.getOrDefault("content-length", List.of());
             if (length == null || length.isEmpty()) return;
-            int len = Integer.parseInt(length.get(0).trim());
+            int len;
+            try {
+                len = Integer.parseInt(length.get(0).trim());
+            } catch (NumberFormatException e) {
+                return;
+            }
             if (len <= 0) return;
             byte[] body = new byte[len];
             int offset = 0, read;

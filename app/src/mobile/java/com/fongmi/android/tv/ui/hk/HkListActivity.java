@@ -426,8 +426,13 @@ public class HkListActivity extends AppCompatActivity
                         .setTitle("下载资源")
                         .setMessage(name + "\n" + url)
                         .setPositiveButton("下载", (d, w) -> {
-                            DownloadManager.get().add(url, name, headers);
-                            HkRouteBlocker.toastShortBottom(activity, "已加入下载：" + name);
+                            // A11：照 C-01 移动端 VideoActivity onDownload 的 IAE 口径，撞 Emby 特征 URL 时只提示、不闪退。
+                            try {
+                                DownloadManager.get().add(url, name, headers);
+                                HkRouteBlocker.toastShortBottom(activity, "已加入下载：" + name);
+                            } catch (IllegalArgumentException e) {
+                                HkRouteBlocker.toastShortBottom(activity, e.getMessage());
+                            }
                         })
                         .setNegativeButton("取消", null)
                         .show();
@@ -437,7 +442,13 @@ public class HkListActivity extends AppCompatActivity
             public void startFastDownload(Context context, String title, String url, String film) {
                 if (TextUtils.isEmpty(url)) return;
                 String name = !TextUtils.isEmpty(title) ? title : url;
-                DownloadManager.get().add(url, name);
+                // A11：同上，照 C-01 口径包 IAE，撞 Emby 特征 URL 时只提示、不闪退、不报“已加入下载”。
+                try {
+                    DownloadManager.get().add(url, name);
+                } catch (IllegalArgumentException e) {
+                    HkRouteBlocker.toastShortBottom(context, e.getMessage());
+                    return;
+                }
                 if (context != null) {
                     HkRouteBlocker.toastShortBottom(context, "已加入下载：" + name);
                 }

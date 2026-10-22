@@ -5,6 +5,7 @@ import android.net.Uri;
 import androidx.media3.common.MimeTypes;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Result;
@@ -63,6 +64,52 @@ public class Source {
 
     private Extractor getExtractor(Uri uri) {
         return extractors.stream().filter(extractor -> extractor.match(uri)).findFirst().orElse(null);
+    }
+
+    // 上游 Source.java（e5ec0c60f）:38-65 原文口径，落到本树 player.Source（本树
+    // Source 不在 player.extractor 包，Vod 文件现仍 import 旧包名，见交回卡点）。
+    // isPush 全文照抄，无外部依赖。canPreload 全文照抄，只认本树 getExtractor。
+    // isBuiltin 两处分支非原文照抄、已标出（取件目录缺定义文件，不许凭空当原文）：
+    // ① webview 分支：上游 UrlUtil.isWebView 定义所在 app/utils/UrlUtil.java 未取件，
+    // 本处只按 scheme==webview＋webview:// 前缀判定，取件后须再对齐；
+    // ② http/https 的 YouTube 分支：上游 extractor/YouTube.isYouTube 未取件，本处
+    // 照树内 Youtube.match 的同一谓词（host 含 youtube.com／youtu.be）判定，不实例
+    // 化 Youtube（其构造调 NewPipe.init，不宜在判定里反复跑）。其余分支照抄：
+    // video 前缀、magnet／thunder／ed2k／ftp 直认、file 走 Thunder.Parser.match。
+    public static boolean isPush(String url) {
+        return url != null && url.regionMatches(true, 0, "push://", 0, 7);
+    }
+
+    public static boolean isBuiltin(String url) {
+        if (url == null) return false;
+        url = url.trim();
+        for (int i = 0; i < url.length(); i++) if (Character.isWhitespace(url.charAt(i))) return false;
+        Uri uri = Uri.parse(url);
+        String scheme = com.fongmi.android.tv.utils.UrlUtil.scheme(uri);
+        switch (scheme) {
+            case "video":
+                return url.regionMatches(true, 0, "video://", 0, 8);
+            case "webview":
+                return url.regionMatches(true, 0, "webview://", 0, 10);
+            case "magnet":
+            case "thunder":
+            case "ed2k":
+            case "ftp":
+                return true;
+            case "http":
+            case "https": {
+                String host = com.fongmi.android.tv.utils.UrlUtil.host(uri);
+                return host.contains("youtube.com") || host.contains("youtu.be") || Thunder.Parser.match(url);
+            }
+            case "file":
+                return Thunder.Parser.match(url);
+            default:
+                return false;
+        }
+    }
+
+    public boolean canPreload(Uri uri) {
+        return getExtractor(uri) == null;
     }
 
     private static final ExecutorService PARSE_EXECUTOR = Executors.newSingleThreadExecutor();
@@ -191,10 +238,12 @@ public class Source {
         } catch (Exception e) {
             if (!(extractor instanceof Youtube) || originalParse != 1) throw e;
             result.setParse(1);
+            BaseLoader.get().requireProxy(url);
             return url;
         }
         if (extractor instanceof Youtube && fetched.isEmpty() && originalParse == 1) {
             result.setParse(1);
+            BaseLoader.get().requireProxy(url);
             return url;
         }
         String sanitized = MpdSanitizer.sanitize(fetched);
@@ -231,6 +280,13 @@ public class Source {
         } else if (dash) {
             sanitized = avoidStaleLocalManifest(sanitized);
         }
+        // 上游 fetch 末尾口径（上游 Source.fetch :120）：取到地址后调一次
+        // BaseLoader.get().requireProxy(url)，是 proxy:// 或本地 /proxy? 地址时拉起
+        // 对应运行时。本批已在 BaseLoader 补齐 requireProxy（内置运行时适配见该文件
+        // 注）。此处传的是实际交播放器的 sanitized（上游传的是 extractor 刚取到的
+        // 地址；本树 sanitizer 只改 MPD/YouTube 形态，不改 proxy 前缀，故等价）；
+        // 非代理地址（迅雷 127.0.0.1 直出地址亦属此类）requireProxy 直接返回。
+        BaseLoader.get().requireProxy(sanitized);
         return sanitized;
     }
 
@@ -259,7 +315,12 @@ public class Source {
         return "";
     }
 
-    public void stop() {
+    // 上游同款：stop() 只转发给各 Extractor.stop()，本文件不删任务、不 release。
+    // 磁力语义由 Thunder.stop() 决定：有 taskId 就删任务——等待中未交地址的任务
+    // 照样删（见 Thunder.stop()，只删任务、不 release、不按地址判断）；被顶掉的
+    // 旧路在 wait／直建分支里因 taskId != task 抛可见错。本方法不另加任何拦截
+    // 或跳过，否则就偏离上游原文。synchronized 照上游原文补上。
+    public synchronized void stop() {
         if (extractors == null) return;
         extractors.forEach(Extractor::stop);
     }

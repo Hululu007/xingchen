@@ -3766,7 +3766,8 @@ public class HkPageActivity extends BaseActivity {
                         playP2pInApp(item, url);
                         return;
                     }
-                    // thunder://、ftp:// 保持原版：系统选应用
+                    // 走到这里说明该 magnet 类地址未进 isP2pPlayLink 门（现门已含
+                    // magnet:/ed2k:/thunder:/ftp://，此分支只作兜底）：仍走系统选应用。
                     android.content.Intent it2 = new android.content.Intent(android.content.Intent.ACTION_VIEW,
                             android.net.Uri.parse(url));
                     try {
@@ -4813,12 +4814,12 @@ public class HkPageActivity extends BaseActivity {
             if (url.startsWith("download://")) {
                 try {
                     String realUrl = url.substring(11).trim();
-                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                    android.app.DownloadManager.Request req = new android.app.DownloadManager.Request(android.net.Uri.parse(realUrl));
-                    req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    req.setTitle(it != null && !TextUtils.isEmpty(it.getTitle()) ? stripHtml(it.getTitle()) : "下载");
-                    dm.enqueue(req);
-                    ToastUtil.show(this, "开始下载", android.widget.Toast.LENGTH_SHORT);
+                    String title = it != null && !TextUtils.isEmpty(it.getTitle()) ? stripHtml(it.getTitle()) : "下载";
+                    java.util.Map<String, String> headers = new java.util.HashMap<>();
+                    headers.put("User-Agent", com.fongmi.android.tv.player.PlayerHelper.getUa());
+                    com.fongmi.android.tv.utils.download.DownloadTask task =
+                            com.fongmi.android.tv.utils.download.DownloadManager.get().add(realUrl, title, headers);
+                    if (task != null) ToastUtil.show(this, "开始下载", android.widget.Toast.LENGTH_SHORT);
                 } catch (Throwable t) {
                     ToastUtil.show(this, "下载失败", android.widget.Toast.LENGTH_SHORT);
                 }

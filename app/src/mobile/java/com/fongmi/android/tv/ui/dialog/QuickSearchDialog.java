@@ -155,11 +155,13 @@ public class QuickSearchDialog extends BaseBottomSheetDialog implements QuickAda
         ViewGroup.LayoutParams params = sheet.getLayoutParams();
         params.height = height;
         sheet.setLayoutParams(params);
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        behavior.setPeekHeight(height);
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        behavior.setSkipCollapsed(true);
-        behavior.setDraggable(false);
+        BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
+        if (behavior != null) {
+            behavior.setPeekHeight(height);
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+            behavior.setDraggable(false);
+        }
     }
 
     private void configureWindow(Dialog dialog) {

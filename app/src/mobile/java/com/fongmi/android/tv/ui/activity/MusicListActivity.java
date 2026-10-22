@@ -263,6 +263,11 @@ public class MusicListActivity extends BaseActivity {
         public void onTrackChanged(MusicTrack track) {
             refreshCurrentRow();
         }
+
+        @Override
+        public void onPlayingChanged(boolean playing) {
+            refreshCurrentRow();
+        }
     };
 
     @Override
@@ -799,19 +804,37 @@ public class MusicListActivity extends BaseActivity {
         return bucket == null ? new ArrayList<>() : new ArrayList<>(bucket);
     }
 
-    /** 搜索页重做：platform→源名。先查本次搜索快照（与分桶同源），快照没有回落全量站点表；都查不到返回空，调用方不补字。 */
-    private String searchSiteName(String platform) {
-        if (platform == null || platform.isEmpty()) return "";
+    /**
+     * 搜索行来源名：按桶身份绑定，不按 platform 取第一个（FreeJS 各插件共用 "freejs"、
+     * 落雪各平台共用 "lx"，按 platform 取首个会把同格式各源的行全标成第一个源名）。
+     * 搜索执行时同一曲目对象同时进 allResults 与所属源桶（searchBySite），故按对象身份
+     * 在桶里定位该行，再由桶键反查快照站点名；定位不到返回空（调用方不补字），
+     * 不回落 platform 首个——错名比无名更误导。
+     */
+    private String searchSiteNameForTrack(MusicTrack track) {
+        if (track == null) return "";
+        String bucketKey = null;
         synchronized (searchBySite) {
-            for (MusicSite s : searchSitesSnap) {
-                if (s != null && platform.equals(s.platform) && s.name != null && !s.name.isEmpty()) return s.name;
+            for (java.util.Map.Entry<String, java.util.List<MusicTrack>> e : searchBySite.entrySet()) {
+                java.util.List<MusicTrack> bucket = e.getValue();
+                if (bucket == null) continue;
+                synchronized (bucket) {
+                    for (MusicTrack t : bucket) {
+                        if (t == track) {
+                            bucketKey = e.getKey();
+                            break;
+                        }
+                    }
+                }
+                if (bucketKey != null) break;
             }
         }
-        try {
-            for (MusicSite s : MusicRepository.sites()) {
-                if (s != null && platform.equals(s.platform) && s.name != null && !s.name.isEmpty()) return s.name;
+        if (bucketKey == null) return "";
+        synchronized (searchBySite) {
+            for (int i = 0; i < searchSitesSnap.size(); i++) {
+                MusicSite s = searchSitesSnap.get(i);
+                if (s != null && bucketKey.equals(searchBucketKey(s, i)) && s.name != null && !s.name.isEmpty()) return s.name;
             }
-        } catch (Throwable ignored) {
         }
         return "";
     }
@@ -4210,11 +4233,36 @@ public class MusicListActivity extends BaseActivity {
         if (adapter == null) return;
         MusicTrack cur = MusicController.get().current();
         String nowId = cur == null ? null : cur.id;
-        int oldPos = indexOfTrackId(lastCurrentId);
-        int newPos = indexOfTrackId(nowId);
+        int oldPos = adapterPositionForTrack(indexOfTrackId(lastCurrentId));
+        int newPos = adapterPositionForTrack(indexOfTrackId(nowId));
         if (oldPos >= 0) adapter.notifyItemChanged(oldPos);
         if (newPos >= 0 && newPos != oldPos) adapter.notifyItemChanged(newPos);
         lastCurrentId = nowId;
+    }
+
+    /**
+     * tracks 下标 → adapter 位置（trackIndex 的逆映射，见 ListAdapter.trackIndex）：
+     * 歌单详情＋3、榜单详情＋1、猜你喜欢＋3、下载＝任务数＋已完成区头 1＋下标、
+     * 本地歌曲分组视图＝按 adapter 位置逐个跳过区块头数到第 trackIdx 个歌曲行、
+     * 其余模式＝下标＋设备头（本地页 1、其它 0）。卡片视图（本地分组卡／歌单／榜单列表）
+     * 下没有歌曲行，返回 -1 不刷行。
+     */
+    private int adapterPositionForTrack(int trackIdx) {
+        if (adapter == null || trackIdx < 0 || trackIdx >= tracks.size()) return -1;
+        if (mode.equals("sheet")) return trackIdx + 3;
+        if (mode.equals("chartDetail")) return trackIdx + 1;
+        if (mode.equals("guess")) return trackIdx + 3;
+        if (mode.equals("download")) return dlTasks.size() + 1 + trackIdx;
+        if (mode.equals("device")) {
+            if (deviceView != DEVICE_VIEW_SONGS) return -1;
+            int seen = -1;
+            for (int p = 1; p < adapter.getItemCount(); p++) {
+                if (deviceSectionPos.contains(p)) continue;
+                if (++seen == trackIdx) return p;
+            }
+            return -1;
+        }
+        return trackIdx;
     }
 
     private int indexOfTrackId(String id) {
@@ -5825,7 +5873,7 @@ public class MusicListActivity extends BaseActivity {
                 // 同名同歌手的不同源混成一堆分不清。搜索模式第二行末尾补来源名（星辰自有信息，
                 // 瓜子单后端无此物）；行高由封面定、第二行单行省略，补字不改行高、不跳字。
                 if (mode.equals("search")) {
-                    String src = searchSiteName(t.platform);
+                    String src = searchSiteNameForTrack(t);
                     if (!src.isEmpty()) second.append(" · ").append(src);
                 }
                 h.artist.setText(second.toString());

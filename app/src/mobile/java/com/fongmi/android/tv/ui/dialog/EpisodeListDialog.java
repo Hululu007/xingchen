@@ -174,19 +174,22 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         List<Episode> episodes = flag.getEpisodes();
         if (groupAdapter == null) {
             setEpisodes(episodes);
-            binding.episode.scrollToPosition(episodeAdapter.getPosition());
+            int position = episodeAdapter.getPosition();
+            if (position >= 0) binding.episode.scrollToPosition(position);
             return;
         }
         groupAdapter.addAll(EpisodeGroupAdapter.build(episodes.size(), getSelectedEpisodePosition(episodes), reverse));
         setEpisodes(episodes);
         binding.group.scrollToPosition(groupAdapter.getPosition());
-        binding.episode.scrollToPosition(episodeAdapter.getPosition());
+        int position = episodeAdapter.getPosition();
+        if (position >= 0) binding.episode.scrollToPosition(position);
     }
 
     private void setEpisodes(List<Episode> episodes) {
         updateEpisodeSpan(episodes);
         episodeAdapter.addAll(episodes);
-        selectEpisodeGroupByPosition(episodeAdapter.getPosition());
+        int position = episodeAdapter.getPosition();
+        if (position >= 0) selectEpisodeGroupByPosition(position);
     }
 
     private void updateEpisodeSpan(List<Episode> episodes) {

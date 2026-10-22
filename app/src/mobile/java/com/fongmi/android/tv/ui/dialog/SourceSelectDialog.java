@@ -4,6 +4,7 @@ import com.fongmi.android.tv.utils.ToastUtil;
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -18,9 +19,15 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogSourceSelectBinding;
+import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.utils.VodExtConfig;
+
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 
 import org.json.JSONObject;
 
@@ -227,6 +234,63 @@ public class SourceSelectDialog extends Dialog {
     private void updateLayoutManager() {
         int span = isSingleColumn ? 1 : 2;
         binding.recycler.setLayoutManager(new GridLayoutManager(getContext(), span));
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // 弹窗开着时配置重载也能刷新列表：VodConfig 成功时发 ConfigEvent.vod（X-02 起只在成功时发），
+        // 事件管线是干净的（VodConfig.postEvent → EventBus），弹窗此前只是没订阅。
+        try {
+            EventBus.getDefault().register(this);
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        try {
+            EventBus.getDefault().unregister(this);
+        } catch (Exception ignored) {
+        }
+        super.onStop();
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onConfigEvent(ConfigEvent event) {
+        if (event != null && event.isVod()) refreshSites();
+    }
+
+    private void refreshSites() {
+        try {
+            // A7：刷新前存 LayoutManager 滚动状态，刷新后恢复；adapter 重建本身不动（currentKey 仍需重建时带入）。
+            Parcelable scrollState = null;
+            if (binding != null && binding.recycler.getLayoutManager() != null) {
+                scrollState = binding.recycler.getLayoutManager().onSaveInstanceState();
+            }
+            allSites = new ArrayList<>(VodConfig.get().getSites());
+            applyVodExtOverrides(getContext());
+            try {
+                com.fongmi.android.tv.bean.Site home = VodConfig.get().getHome();
+                if (home != null && home.getKey() != null) currentKey = home.getKey();
+            } catch (Exception ignored) {
+            }
+            adapter = new SourceSelectAdapter(filteredSites, currentKey, site -> {
+                dismiss();
+                if (listener != null) listener.onSelect(site);
+            });
+            adapter.setOnItemLongClickListener(this::showExtConfigDialog);
+            if (binding != null) {
+                binding.recycler.setAdapter(adapter);
+                // 保留用户已输入的搜索关键字再过滤，不把列表打回未过滤态
+                filter(binding.search.getText() == null ? "" : binding.search.getText().toString());
+                if (scrollState != null && binding.recycler.getLayoutManager() != null) {
+                    binding.recycler.getLayoutManager().onRestoreInstanceState(scrollState);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void filter(String keyword) {

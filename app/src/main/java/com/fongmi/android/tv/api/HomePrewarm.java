@@ -6,6 +6,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.clash.MihomoManager;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.github.catvod.utils.Prefers;
+import com.github.catvod.utils.Util;
 
 import java.util.ArrayList;
 import java.util.Deque;
@@ -129,10 +130,20 @@ public final class HomePrewarm {
      */
     private static final Deque<Site> deferredProxy = new ConcurrentLinkedDeque<>();
 
-    /** 预热缓存 key：py 用 脚本戳（与普通首页缓存同口径，可直接晋升）；js 用固定后缀。 */
+    /** 预热缓存 key：末段均为 ext 哈希（与 SiteApi 首页缓存键同口径，可直接晋升）。
+     * py：key|脚本戳|md5(ext)，与 SiteApi 首页缓存键逐字同式——登录改 ext 时旧预热
+     * 键自然失效，晋升路不再把旧预热 JSON 写进新首页缓存键、绕过自动失效。
+     * js：key|js|md5(ext)——js 无脚本戳、无普通首页缓存键，沿固定后缀补同一 ext 段，
+     * 防预热直返（SiteApi 首页预热命中分支）绕过失效。 */
     static String cacheKey(Site site) {
         String key = site.getKey();
         String api = site.getApi();
+        String extHash;
+        try {
+            extHash = Util.md5(site.getExt());
+        } catch (Throwable t) {
+            extHash = "";
+        }
         boolean py = (key != null && key.startsWith("py_")) || (api != null && api.contains(".py"));
         if (py) {
             String stamp;
@@ -141,9 +152,9 @@ public final class HomePrewarm {
             } catch (Throwable t) {
                 stamp = "nostamp";
             }
-            return key + "|" + stamp;
+            return key + "|" + stamp + "|" + extHash;
         }
-        return key + "|js";
+        return key + "|js|" + extHash;
     }
 
     /** 只预热点播 py/js 蜘蛛源：海阔规则、Emby、type4、push、直播一律不进。 */

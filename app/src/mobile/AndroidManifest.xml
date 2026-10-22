@@ -18,12 +18,6 @@
     <application>
 
         <activity
-            android:name=".ui.activity.SplashActivity"
-            android:exported="true"
-            android:theme="@style/Theme.XingChen.Splash">
-            
-        </activity>
-        <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:exported="true"

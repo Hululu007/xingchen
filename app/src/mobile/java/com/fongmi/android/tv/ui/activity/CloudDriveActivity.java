@@ -22,15 +22,21 @@ import androidx.viewbinding.ViewBinding;
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
+import com.fongmi.android.tv.cloud.CloudTask;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.databinding.ActivityCloudDriveBinding;
 import com.fongmi.android.tv.databinding.ItemCloudFileBinding;
+import com.fongmi.android.tv.music.CloudMusicSource;
+import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.Notify;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -58,6 +64,10 @@ public class CloudDriveActivity extends BaseActivity {
     private final List<CloudFile> files = new ArrayList<>();
     private FileAdapter adapter;
     private String rootCid = "";
+    /** 分页状态：hasMore 按“本页是否取满 PAGE_LIMIT”判定（115／PikPak 的 getTotal 返回 -1，不可用）。 */
+    private boolean loadingMore;
+    private boolean hasMore = true;
+    private int fetchGen;
 
     @Override
     protected ViewBinding getBinding() {
@@ -82,13 +92,26 @@ public class CloudDriveActivity extends BaseActivity {
         }
         rootCid = Drive115.ID.equals(drive.getId()) ? "0" : "";
         binding.toolbar.setTitle(drive.getName());
-        binding.toolbar.setNavigationOnClickListener(v -> onBackInvoked());
+        // 顶栏只留标题，不放自带返回箭头（布局里 navigationIcon 已删）。
+        // 子目录回退走系统返回：BaseActivity 把 OnBackPressedDispatcher 接到 onBackInvoked()，
+        // 本页 onBackInvoked() 有子目录时退目录、否则 finish，不再依赖顶栏图标点击。
         updateDriveInfo();
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         adapter = new FileAdapter();
         binding.recycler.setAdapter(adapter);
+        binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (dy <= 0 || loadingMore || !hasMore) return;
+                RecyclerView.LayoutManager lm = recyclerView.getLayoutManager();
+                if (!(lm instanceof LinearLayoutManager)) return;
+                int last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
+                if (last >= files.size() - 3) loadMore();
+            }
+        });
         binding.refresh.setOnRefreshListener(this::fetchFiles);
         binding.fab.setOnClickListener(v -> showFabMenu());
+        if (fabActions().isEmpty()) binding.fab.setVisibility(View.GONE);
         crumbs.add(new Crumb(rootCid, "根目录"));
         fetchFiles();
     }
@@ -137,22 +160,44 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void fetchFiles() {
-        setLoading(true);
+        fetchGen++;
+        hasMore = true;
+        loadingMore = false;
+        fetchPage(0, false, fetchGen);
+    }
+
+    private void loadMore() {
+        if (loadingMore || !hasMore) return;
+        loadingMore = true;
+        fetchPage(files.size(), true, fetchGen);
+    }
+
+    /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。 */
+    private void fetchPage(int offset, boolean append, int gen) {
+        if (!append) setLoading(true);
         String cid = currentCid();
         new Thread(() -> {
             try {
-                List<CloudFile> result = drive.listDir(cid, 0, PAGE_LIMIT);
+                List<CloudFile> result = drive.listDir(cid, offset, PAGE_LIMIT);
                 runOnUiThread(() -> {
-                    setLoading(false);
-                    files.clear();
+                    if (gen != fetchGen || !cid.equals(currentCid())) return;
+                    if (!append) setLoading(false);
+                    loadingMore = false;
+                    if (!append) files.clear();
                     if (result != null) files.addAll(result);
+                    // 取满一页＝可能还有下一页；不满一页＝已到头。恰好整 100 倍数时多取一页空页收尾，不丢文件。
+                    hasMore = result != null && result.size() >= PAGE_LIMIT;
                     adapter.notifyDataSetChanged();
-                    renderBreadcrumb();
+                    if (!append) renderBreadcrumb();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    setLoading(false);
-                    Notify.show("加载失败：" + msg(e));
+                    // A5：失败分支补与成功路同款 gen／cid 丢弃校验，过期请求失败不误弹“加载失败”。
+                    if (gen != fetchGen || !cid.equals(currentCid())) return;
+                    if (!append) setLoading(false);
+                    loadingMore = false;
+                    if (!append) Notify.show("加载失败：" + msg(e));
+                    else Notify.show("加载更多失败：" + msg(e));
                 });
             }
         }).start();
@@ -256,15 +301,136 @@ public class CloudDriveActivity extends BaseActivity {
         }).start();
     }
 
+    /**
+     * FAB 菜单按各家 drive 的真实能力建，不支持的入口直接不显示，不再先给入口、点了才弹失败：
+     * 离线下载：115／PikPak 实现，夸克恒抛（DriveQuark:338）→ 夸克不显示；
+     * 转存分享链接：115（未全验证但已实现）／PikPak 实现，夸克恒抛（DriveQuark:400）→ 夸克不显示；
+     * 新建文件夹：只有 PikPak 覆盖 createFolder（DrivePikPak:731），115／夸克走 CloudDrive 默认实现恒抛 → 只 PikPak 显示；
+     * 离线任务：115／PikPak 的 taskList 已实现，夸克 taskList 返回空表、taskDelete 恒抛 → 夸克不显示。
+     */
+    private List<String> fabActions() {
+        List<String> actions = new ArrayList<>();
+        String id = drive == null ? "" : drive.getId();
+        boolean isQuark = DriveQuark.ID.equals(id);
+        boolean isPikPak = DrivePikPak.ID.equals(id);
+        if (!isQuark) actions.add("离线下载");
+        if (!isQuark) actions.add("转存分享链接");
+        if (isPikPak) actions.add("新建文件夹");
+        if (!isQuark) actions.add("离线任务");
+        return actions;
+    }
+
     private void showFabMenu() {
-        String[] items = {"离线下载", "转存分享链接", "新建文件夹"};
+        List<String> actions = fabActions();
+        if (actions.isEmpty()) return;
+        String[] items = actions.toArray(new String[0]);
         new AlertDialog.Builder(this)
                 .setItems(items, (d, which) -> {
-                    if (which == 0) showOfflineDialog();
-                    else if (which == 1) showSaveShareDialog();
-                    else showCreateFolderDialog();
+                    String action = actions.get(which);
+                    if ("离线下载".equals(action)) showOfflineDialog();
+                    else if ("转存分享链接".equals(action)) showSaveShareDialog();
+                    else if ("新建文件夹".equals(action)) showCreateFolderDialog();
+                    else if ("离线任务".equals(action)) showTaskListDialog();
                 })
                 .show();
+    }
+
+    /** 最小离线任务列表：看进度（名＋百分比＋状态文案）、点一项确认后删任务。只取第 1 页，不自动轮询。 */
+    private void showTaskListDialog() {
+        Notify.show("正在加载离线任务…");
+        new Thread(() -> {
+            try {
+                List<CloudTask> tasks = drive.taskList(1);
+                runOnUiThread(() -> {
+                    if (tasks == null || tasks.isEmpty()) {
+                        Notify.show("暂无离线任务");
+                        return;
+                    }
+                    String[] items = new String[tasks.size()];
+                    for (int i = 0; i < tasks.size(); i++) {
+                        CloudTask t = tasks.get(i);
+                        String st = t.getStatusText();
+                        items[i] = t.getName() + "  " + t.getPercent() + "%"
+                                + (TextUtils.isEmpty(st) ? "" : "  " + st);
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle("离线任务")
+                            .setItems(items, (d, which) -> confirmDeleteTask(tasks.get(which)))
+                            .setNegativeButton("关闭", null)
+                            .show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show("加载离线任务失败：" + msg(e)));
+            }
+        }).start();
+    }
+
+    private void confirmDeleteTask(CloudTask task) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除离线任务")
+                .setMessage("确定删除「" + task.getName() + "」吗？")
+                .setPositiveButton("删除", (d, w) -> {
+                    new Thread(() -> {
+                        try {
+                            boolean ok = drive.taskDelete(Collections.singletonList(task.getHash()));
+                            // A8：删成功当场重拉第 1 页刷新对话框列表，不要求关闭重进；删失败不刷新。
+                            runOnUiThread(() -> {
+                                Notify.show(ok ? "已删除离线任务" : "删除离线任务失败");
+                                if (ok) showTaskListDialog();
+                            });
+                        } catch (Exception e) {
+                            runOnUiThread(() -> Notify.show("删除离线任务失败：" + msg(e)));
+                        }
+                    }).start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /**
+     * 网盘音频进音乐播放器：复用音乐侧已有的起播路径与文件直链口径——
+     * 队列＝当前目录全部音频文件（点中那首起播，前后可切），曲目 id 戳与 MusicCloudActivity 一致
+     * （pan115:/panquark:/panpikpak: + fid），rawJson 递 drive/fid/name/pickCode，
+     * 取链由 CloudMusicSource.playUrl 按 drive 调 drive.getPlayUrl（115 走本机代理，夸克取下载直链）。
+     * PikPak 段需 CloudMusicSource 加 PikPak 分支后才通（跨路依赖，见交回），115／夸克本路已通。
+     */
+    private void playAudio(CloudFile clicked) {
+        List<CloudFile> audios = new ArrayList<>();
+        int position = 0;
+        for (CloudFile f : files) {
+            if (!f.isAudio()) continue;
+            if (f == clicked) position = audios.size();
+            audios.add(f);
+        }
+        if (audios.isEmpty()) {
+            Notify.show("暂不支持打开该文件类型");
+            return;
+        }
+        String prefix;
+        if (Drive115.ID.equals(drive.getId())) prefix = "pan115:";
+        else if (DriveQuark.ID.equals(drive.getId())) prefix = "panquark:";
+        else prefix = "panpikpak:";
+        List<MusicTrack> queue = new ArrayList<>();
+        for (CloudFile f : audios) {
+            String name = f.getName() == null ? "" : f.getName();
+            int dot = name.lastIndexOf('.');
+            String title = dot > 0 ? name.substring(0, dot) : name;
+            MusicTrack t = new MusicTrack(prefix + f.getId(), title, "", "", 0, null);
+            t.platform = CloudMusicSource.PLATFORM;
+            try {
+                JSONObject o = new JSONObject();
+                o.put("drive", drive.getId());
+                o.put("fid", f.getId());
+                o.put("name", name);
+                o.put("pickCode", f.getPickCode() == null ? "" : f.getPickCode());
+                t.rawJson = o.toString();
+            } catch (Exception ignored) {
+            }
+            queue.add(t);
+        }
+        CloudMusicSource.ensureRegistered();
+        MusicController.get().play(queue, position);
+        MusicPlayerActivity.start(this);
     }
 
     private EditText makeInput(String hint) {
@@ -416,6 +582,7 @@ public class CloudDriveActivity extends BaseActivity {
             h.itemView.setOnClickListener(v -> {
                 if (file.isDir()) openDir(file);
                 else if (file.isVideo()) playFile(file);
+                else if (file.isAudio()) playAudio(file);
                 else Notify.show("暂不支持打开该文件类型");
             });
             h.itemView.setOnLongClickListener(v -> {

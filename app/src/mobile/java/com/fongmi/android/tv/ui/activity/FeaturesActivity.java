@@ -57,6 +57,11 @@ public class FeaturesActivity extends BaseActivity {
         binding.cardPanlogin.setOnClickListener(v -> PanLoginActivity.start(this));
         binding.cardEmby.setOnClickListener(v -> EmbyServerActivity.start(this));
         binding.cardAi.setOnClickListener(v -> AiSettingsActivity.start(this));
+        // X-04 兜底入口：小程序丢了底栏格时（实验室优先占格），功能页这张卡点开也能进小程序首页，
+        // 不靠底栏也能到；未启用时点卡无动作，开关才是启用控制。
+        binding.cardMiniapp.setOnClickListener(v -> {
+            if (isMiniAppEnabled(this)) HkPageActivity.start(this);
+        });
     }
 
     @Override
@@ -111,7 +116,7 @@ public class FeaturesActivity extends BaseActivity {
     private void refreshMiniApp() {
         boolean enabled = isMiniAppEnabled(this);
         binding.swMiniapp.setChecked(enabled);
-        binding.tvMiniappSub.setText(enabled ? "已启用" : "未启用");
+        binding.tvMiniappSub.setText(enabled ? "已启用，点击打开" : "未启用");
     }
 
     private void refreshAi() {

@@ -52,6 +52,16 @@ public class XLTaskHelper {
         if (file.isFile() && !file.getAbsolutePath().endsWith(".torrent")) Path.clear(file);
     }
 
+    // 上游原文（RuntimeEntry.check 用）：thunder:// 解码自检，只解码不建任务。
+    // 本树 parse() 不走 RuntimeModule.require()（内置形态，见 Thunder.java 头注），
+    // 其余三条断言与上游逐字相同。
+    public synchronized void check() {
+        GetTaskId taskId = parse("thunder://QUFmdHA6Ly8xMjcuMC4wLjEvbW9kdWxlLWNoZWNrLm1wNFpa", Path.files());
+        if (!"ftp://127.0.0.1/module-check.mp4".equals(taskId.getRealUrl())) throw new IllegalStateException("Thunder URL decoding returned an unexpected result");
+        if (!"module-check.mp4".equals(taskId.getFileName())) throw new IllegalStateException("Thunder filename parsing returned an unexpected result");
+        if (taskId.getTaskId() != 0) throw new IllegalStateException("Thunder check unexpectedly created a task");
+    }
+
     // 只归一 scheme 段（trim ＋ scheme 小写），冒号后内容不动（哈希大小写敏感）。
     // 下面的 "magnet:?"/"thunder://" 门限是精确前缀，粘贴变体不归一会被静默跳过。
     private static String normalizeScheme(String raw) {
@@ -73,7 +83,7 @@ public class XLTaskHelper {
         param.setFileName(fileName);
         param.setUrl(url);
         int code = getManager().createBtMagnetTask(param, taskId);
-        if (code != XLConstant.XLErrorCode.NO_ERROR) return taskId;
+        if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException("迅雷磁力建任务失败，错码=" + code);
         return startTask(taskId, 0);
     }
 
@@ -92,7 +102,7 @@ public class XLTaskHelper {
             param.setUser("");
             param.setPass("");
             int code = getManager().createP2spTask(param, taskId);
-            if (code != XLConstant.XLErrorCode.NO_ERROR) return taskId;
+            if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException("迅雷建任务失败，错码=" + code);
         } else if (url.startsWith("ed2k://")) {
             EmuleTaskParam param = new EmuleTaskParam();
             param.setFilePath(savePath.getAbsolutePath());
@@ -101,7 +111,7 @@ public class XLTaskHelper {
             param.setCreateMode(1);
             param.setUrl(url);
             int code = getManager().createEmuleTask(param, taskId);
-            if (code != XLConstant.XLErrorCode.NO_ERROR) return taskId;
+            if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException("迅雷建任务失败，错码=" + code);
         }
         getManager().setDownloadTaskOrigin(taskId.getTaskId(), "out_app/out_app_paste");
         getManager().setOriginUserAgent(taskId.getTaskId(), "AndroidDownloadManager/4.4.4 (Linux; U; Android 4.4.4; Build/KTU84Q)");
@@ -110,6 +120,7 @@ public class XLTaskHelper {
 
     public synchronized GetTaskId addTorrentTask(File torrent, File savePath, int index) {
         TorrentInfo torrentInfo = getTorrentInfo(torrent);
+        if (torrentInfo == null || torrentInfo.mSubFileInfo == null) throw new IllegalStateException("种子损坏：种子文件信息为空");
         TorrentFileInfo[] fileInfos = torrentInfo.mSubFileInfo;
         BtTaskParam taskParam = new BtTaskParam();
         taskParam.setCreateMode(1);
@@ -119,7 +130,7 @@ public class XLTaskHelper {
         taskParam.setTorrentPath(torrent.getAbsolutePath());
         GetTaskId taskId = new GetTaskId(savePath);
         int code = getManager().createBtTask(taskParam, taskId);
-        if (code != XLConstant.XLErrorCode.NO_ERROR) return taskId;
+        if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException("迅雷 BT 建任务失败，错码=" + code);
         if (fileInfos.length > 1) {
             List<Integer> list = new CopyOnWriteArrayList<>();
             for (TorrentFileInfo fileInfo : fileInfos) {

@@ -49,9 +49,10 @@ public class HkDetailBridge {
             // 黄色仓库详情页的相关推荐卡全漏进选集（他真机截图实证）。
             boolean playable = low.startsWith("http") || url.contains("@lazyRule=")
                     || url.startsWith("js:")
-                    // 磁力/电驴轻修配套：裸 magnet:/ed2k:// 条目此前被过滤掉、连点都没得点；
-                    // 放进来，点后走迅雷引擎（thunder://、ftp:// 维持原版行为，不放行）。
-                    || low.startsWith("magnet:") || low.startsWith("ed2k://");
+                    // 磁力/电驴/迅雷配套：裸 magnet:/ed2k:/thunder: 条目此前被过滤掉、连点都没得点；
+                    // 放进来，点后走星辰播放器迅雷引擎（用户拍板：海阔磁力走星辰，不维持原版）；
+                    // ftp:// 的放行口径见 HkRouter.isP2pPlayLink（走星辰播放器 P2sp），不在本处选集过滤里放行。
+                    || low.startsWith("magnet:") || low.startsWith("ed2k:") || low.startsWith("thunder:");
             if (!playable) continue;
             String lineName = di.getLine() == null || di.getLine().isEmpty() ? "默认" : di.getLine();
             Flag flag = flagMap.get(lineName);

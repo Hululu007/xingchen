@@ -150,5 +150,9 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
 
+        <meta-data
+            android:name="com.fongmi.runtime.catalog"
+            android:value="https://gitee.com/Xingchen1996/xingchen-runtime/raw/master/catalog.json" />
+
     </application>
 </manifest>

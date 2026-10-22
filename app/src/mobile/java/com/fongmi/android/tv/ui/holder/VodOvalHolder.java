@@ -30,7 +30,7 @@ public class VodOvalHolder extends BaseVodHolder {
     public void initView(Vod item) {
         binding.name.setText(item.getName());
         binding.name.setVisibility(item.getNameVisible());
-        binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+        binding.getRoot().setOnClickListener(v -> listener.onItemClick(item, binding.image));
         binding.getRoot().setOnLongClickListener(v -> listener.onLongClick(item));
         ImgUtil.loadCircle(item.getName(), item.getPic(), binding.image);
     }

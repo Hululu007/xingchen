@@ -81,8 +81,16 @@ public class AiFloatManager {
         }
     }
 
-    /** 铁律：只在星辰首页显示（类名判定，与本类既有 VideoActivity 判定同款字符串口径） */
+    /** 首页壳向悬浮球提供的页签信号：只在视频首页（点播页签可见、非 Emby 专属首页、非网页沉浸态）时挂球。
+     * 由 HomeActivity 实现；未实现本接口的 Activity 沿用旧的类名判定（leanback 等其它壳不受影响）。 */
+    public interface AiFloatHost {
+        boolean isAiFloatHomePage();
+    }
+
+    /** 铁律：只在星辰首页显示。页签感知：首页壳自己报当前是不是视频首页，
+     * 壳内设置页签、Emby 专属首页、网页沉浸态一律不挂球；Emby 激活态再加一道兜底。 */
     private static boolean isHomePage(Activity activity) {
+        if (activity instanceof AiFloatHost host) return host.isAiFloatHomePage() && !com.fongmi.android.tv.emby.EmbyMode.isActive();
         return "com.fongmi.android.tv.ui.activity.HomeActivity".equals(activity.getClass().getName());
     }
 

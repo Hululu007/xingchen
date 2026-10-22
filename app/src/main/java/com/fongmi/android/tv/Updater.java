@@ -4,6 +4,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.os.Build;
+import android.os.CancellationSignal;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.View;
@@ -21,7 +22,9 @@ import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.Github;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.RuntimeInstaller;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.utils.RuntimeModule;
 import com.fongmi.android.tv.update.GithubProxy;
 import com.fongmi.android.tv.update.HttpUpdateTransfer;
 import com.fongmi.android.tv.update.OciArtifact;
@@ -38,8 +41,10 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -76,6 +81,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private boolean force;
     private boolean downloading;
     private boolean canceled;
+    private boolean modulesChecked;
+    private String moduleNotice;
     private int lastProgress = -1;
     private long lastBytes;
     private long lastTotal;
@@ -124,6 +131,11 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     public void start(FragmentActivity activity) {
         bind(activity);
+        // 上游 Updater.start 同款：首启时异步查一次外置运行时目录更新（只查已装模块）
+        if (!modulesChecked) {
+            modulesChecked = true;
+            Task.execute(this::checkModules);
+        }
         boolean forceCheck = force;
         force = false;
         if (downloading) {
@@ -137,6 +149,50 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     public void resume(FragmentActivity activity) {
         bind(activity);
         restoreDialog(activity);
+    }
+
+    /** 外置运行时更新检查（上游 Updater.checkModules 一路照搬）：
+     * 已装模块 → RuntimeInstaller.getCatalog 取目录 → getExternalAsset 按
+     * id／包名／兼容 id／ABI 选包 → 目录版号高于已装版号即记一条待提示。 */
+    private void checkModules() {
+        try {
+            List<RuntimeModule> installed = getInstalledModules();
+            if (installed.isEmpty()) return;
+            JSONObject catalog = RuntimeInstaller.getCatalog(new CancellationSignal());
+            if (catalog == null) return;
+            List<String> updates = getModuleUpdates(installed, catalog);
+            if (updates.isEmpty()) return;
+            App.post(() -> onModulesChecked(updates));
+        } catch (IOException | RuntimeException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private List<RuntimeModule> getInstalledModules() {
+        RuntimeModule.refresh();
+        return Arrays.stream(RuntimeModule.values()).filter(RuntimeModule::isInstalled).toList();
+    }
+
+    private List<String> getModuleUpdates(List<RuntimeModule> installed, JSONObject catalog) throws IOException {
+        List<String> updates = new ArrayList<>();
+        for (RuntimeModule module : installed) {
+            JSONObject asset = RuntimeInstaller.getExternalAsset(module, catalog);
+            if (asset == null) continue;
+            long code = module.getVersionCode();
+            if (code > 0 && asset.optLong("versionCode") > code) updates.add(module == RuntimeModule.THUNDER ? ResUtil.getString(R.string.module_thunder) : module.title);
+        }
+        return updates;
+    }
+
+    private void onModulesChecked(List<String> updates) {
+        moduleNotice = ResUtil.getString(R.string.module_update_notice, String.join(", ", updates));
+        notifyModules();
+    }
+
+    public void notifyModules() {
+        if (moduleNotice == null || App.activity() == null) return;
+        Notify.show(moduleNotice);
+        moduleNotice = null;
     }
 
     private void doInBackground(FragmentActivity activity, boolean forceCheck) {

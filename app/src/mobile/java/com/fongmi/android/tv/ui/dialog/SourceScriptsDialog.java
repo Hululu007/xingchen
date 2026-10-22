@@ -270,7 +270,23 @@ public class SourceScriptsDialog extends Dialog {
                         } catch (Exception e) { e.printStackTrace(); }
                     }
                 }
+                // D-04 接线（定稿：登录完成处直接调 Java 入口，不走 runner.py 路）：
+                // runner.py 的 Runner 从未被 Java 实例化（app.py 的 spider() 直接返回裸蜘蛛，
+                // Java 活路是 app.py＋chaquo Spider），其 refresh_home_after_login 悬空、
+                // 接过去等于新造一条 Python→Java 回调桥，风险大于收益，故不接。
+                // 这里是壳子侧唯一确定的登录完成信号：用户刚在插件配置里存了账号／
+                // 密码／Cookie（ext）。只改首页缓存键（ext 哈希段）不够——缓存蜘蛛
+                // 创建时 init 用的还是旧 ext，换键不换蜘蛛，新登录态进不了蜘蛛；
+                // 显式调 refreshHomeAfterLogin 才会摘掉旧蜘蛛（下次按新 ext 重建）
+                // 并立即重拉首页。ext 没变时不触发，避免无意义地杀蜘蛛重建。
+                String before = PyExtConfig.load(ctx, key);
                 PyExtConfig.save(ctx, key, json);
+                if (!before.equals(json)) {
+                    try {
+                        com.fongmi.android.tv.api.SiteApi.refreshHomeAfterLogin(key);
+                    } catch (Throwable ignored) {
+                    }
+                }
                 ToastUtil.show(ctx, "已保存", Toast.LENGTH_SHORT);
                 dialog.dismiss();
             });

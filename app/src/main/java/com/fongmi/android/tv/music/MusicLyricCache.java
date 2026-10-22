@@ -30,12 +30,23 @@ public class MusicLyricCache {
         }
     };
 
-    /** 缓存键：在线歌 platform:id 精确；本地文件 localPath 唯一；最后才退标题＋歌手。 */
+    /**
+     * 缓存键：在线歌 platform:id 精确；本地文件 localPath 唯一；最后才退标题＋歌手＋专辑＋时长。
+     * 两处旧口子已堵：①平台为空时不再拼成 ":id"（不同源同 id 会撞进同一键），
+     * 平台为空的 id 视为不可靠身份、落到回退键；②回退键此前只有标题＋歌手，
+     * 同名同歌手不同版本（现场／翻唱／重录／不同专辑）会贴错词，现加专辑与时长区分。
+     * 注意：回退键格式变了，旧回退键的磁盘文件命中不上（只会重取一次、按新键重写，
+     * 旧文件由 500 条上限自然淘汰），在线 platform:id 键不变。
+     */
     public static String key(MusicTrack track) {
         if (track == null) return null;
-        if (track.id != null && !track.id.isEmpty()) return safe(track.platform) + ":" + track.id;
+        if (track.id != null && !track.id.isEmpty()
+                && track.platform != null && !track.platform.isEmpty()) {
+            return safe(track.platform) + ":" + track.id;
+        }
         if (track.localPath != null && !track.localPath.isEmpty()) return "file:" + track.localPath;
-        return "local:" + safe(track.title) + "|" + safe(track.artist);
+        return "local:" + safe(track.title) + "|" + safe(track.artist)
+                + "|" + safe(track.album) + "|" + track.duration;
     }
 
     public static MusicLyric get(MusicTrack track) {

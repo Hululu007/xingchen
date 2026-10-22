@@ -34,6 +34,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
+import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.music.CloudMusicSource;
@@ -105,6 +106,7 @@ public class MusicCloudActivity extends BaseActivity {
     private LinearLayout searchView;
     private TextView tvSub115;
     private TextView tvSubQuark;
+    private TextView tvSubPikPak;
     private TextView tvDriveName;
     private EditText etKeyword;
     private ImageView ivCloudClear;
@@ -146,6 +148,7 @@ public class MusicCloudActivity extends BaseActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         pickerView.addView(buildDriveCard(Drive115.ID, "115"));
         pickerView.addView(buildDriveCard(DriveQuark.ID, "夸克"));
+        pickerView.addView(buildDriveCard(DrivePikPak.ID, "PikPak"));
 
         searchView = new LinearLayout(this);
         searchView.setOrientation(LinearLayout.VERTICAL);
@@ -413,8 +416,10 @@ public class MusicCloudActivity extends BaseActivity {
 
         if (Drive115.ID.equals(driveId)) {
             tvSub115 = sub;
-        } else {
+        } else if (DriveQuark.ID.equals(driveId)) {
             tvSubQuark = sub;
+        } else {
+            tvSubPikPak = sub;
         }
         card.setOnClickListener(v -> onDriveClick(driveId, driveName));
         card.setOnLongClickListener(v -> onDriveLongClick(driveId, driveName));
@@ -438,13 +443,39 @@ public class MusicCloudActivity extends BaseActivity {
                 tvSubQuark.setText("未登录");
             }
         }
+        if (tvSubPikPak != null) {
+            if (PanAuth.isPikPakLoggedIn()) {
+                String vip = PanAuth.getPikPakVip();
+                tvSubPikPak.setText(vip.isEmpty() ? "已登录，点击进入搜索" : "已登录 · " + vip);
+            } else {
+                tvSubPikPak.setText("未登录");
+            }
+        }
+    }
+
+    /** 网盘音乐队列平台戳：与 CloudDriveActivity 音频起播口径一致（pan + 家 + : + fid）。 */
+    private static String drivePrefix(String driveId) {
+        if (Drive115.ID.equals(driveId)) return "pan115:";
+        if (DriveQuark.ID.equals(driveId)) return "panquark:";
+        return "panpikpak:";
+    }
+
+    private static boolean isDriveLoggedIn(String driveId) {
+        if (Drive115.ID.equals(driveId)) return PanAuth.is115LoggedIn();
+        if (DriveQuark.ID.equals(driveId)) return PanAuth.isQuarkLoggedIn();
+        return PanAuth.isPikPakLoggedIn();
     }
 
     private void onDriveClick(String driveId, String driveName) {
-        boolean loggedIn = Drive115.ID.equals(driveId)
-                ? PanAuth.is115LoggedIn() : PanAuth.isQuarkLoggedIn();
+        boolean loggedIn = isDriveLoggedIn(driveId);
         if (loggedIn) {
             enterSearch(driveId, driveName);
+            return;
+        }
+        // PikPak 没有 115／夸克那套扫码／网页／Cookie 登录法（它的登录在网盘登录页走网页／账号密码），
+        // 未登录时直接进现有网盘登录页，回来时 onResume 会刷新副文案，不在这里另造一套登录 UI。
+        if (DrivePikPak.ID.equals(driveId)) {
+            PanLoginActivity.start(this);
             return;
         }
         showLoginMethods(driveName, new String[]{"扫码登录", "网页登录（支持账号密码）", "导入 Cookie"}, which -> {
@@ -461,15 +492,15 @@ public class MusicCloudActivity extends BaseActivity {
     }
 
     private boolean onDriveLongClick(String driveId, String driveName) {
-        boolean loggedIn = Drive115.ID.equals(driveId)
-                ? PanAuth.is115LoggedIn() : PanAuth.isQuarkLoggedIn();
+        boolean loggedIn = isDriveLoggedIn(driveId);
         if (!loggedIn) return false;
         new AlertDialog.Builder(this)
                 .setTitle(driveName)
                 .setMessage("退出当前 " + driveName + " 登录？")
                 .setPositiveButton("退出登录", (d, w) -> {
                     if (Drive115.ID.equals(driveId)) PanAuth.clear115();
-                    else PanAuth.clearQuark();
+                    else if (DriveQuark.ID.equals(driveId)) PanAuth.clearQuark();
+                    else PanAuth.clearPikPak();
                     refreshSub();
                     Notify.show("已退出 " + driveName + " 登录");
                 })
@@ -493,6 +524,12 @@ public class MusicCloudActivity extends BaseActivity {
     }
 
     private void showCookieImport(String driveId, String driveName) {
+        // PikPak 不走 Cookie 导入（误走到这里会把它的串存成夸克 Cookie），直接拦回网盘登录页。
+        if (DrivePikPak.ID.equals(driveId)) {
+            Notify.show("PikPak 请在网盘登录页登录");
+            PanLoginActivity.start(this);
+            return;
+        }
         EditText et = new EditText(this);
         et.setHint("粘贴 Cookie 字符串");
         et.setMinLines(4);
@@ -695,7 +732,10 @@ public class MusicCloudActivity extends BaseActivity {
         loadingView.setVisibility(View.VISIBLE);
         tvLoadingCount.setText("已扫 0 项");
         new Thread(() -> {
-            CloudDrive drive = Drive115.ID.equals(driveId) ? new Drive115() : new DriveQuark();
+            CloudDrive drive;
+            if (Drive115.ID.equals(driveId)) drive = new Drive115();
+            else if (DriveQuark.ID.equals(driveId)) drive = new DriveQuark();
+            else drive = new DrivePikPak(MusicCloudActivity.this);
             ArrayDeque<String> queue = new ArrayDeque<>();
             Map<String, String> dirNames = new HashMap<>();
             String root = Drive115.ID.equals(driveId) ? "0" : "";
@@ -828,7 +868,7 @@ public class MusicCloudActivity extends BaseActivity {
         List<MusicTrack> queue = new ArrayList<>();
         for (Hit h : results) {
             String name = h.file.getName();
-            String id = (Drive115.ID.equals(currentDrive) ? "pan115:" : "panquark:") + h.file.getId();
+            String id = drivePrefix(currentDrive) + h.file.getId();
             MusicTrack t = new MusicTrack(id, stripExt(name), "", "", 0, null);
             t.platform = CloudMusicSource.PLATFORM;
             try {
@@ -983,12 +1023,11 @@ public class MusicCloudActivity extends BaseActivity {
             }
             String thumb = hit.file.getThumbUrl();
             ImgUtil.loadRounded(name == null ? "" : name, thumb == null ? "" : thumb, coverView);
-            // 在播行红：与播放器当前曲 id 比对（pan115:/panquark: + fid，与点播入队口径一致）
+            // 在播行红：与播放器当前曲 id 比对（drivePrefix + fid，与点播入队口径一致）
             boolean playing = false;
             try {
                 com.fongmi.android.tv.bean.music.MusicTrack cur = MusicController.get().current();
-                String want = (Drive115.ID.equals(currentDrive) ? "pan115:" : "panquark:")
-                        + hit.file.getId();
+                String want = drivePrefix(currentDrive) + hit.file.getId();
                 playing = cur != null && want.equals(cur.id);
             } catch (Throwable ignored) {
             }

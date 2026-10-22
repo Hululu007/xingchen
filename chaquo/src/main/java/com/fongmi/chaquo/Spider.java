@@ -21,6 +21,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private final PyObject obj;
     private final String api;
     private final Gson gson;
+    private volatile boolean destroyed;
 
     public Spider(PyObject app, PyObject obj, String api) {
         this.gson = new Gson();
@@ -54,6 +55,14 @@ public class Spider extends com.github.catvod.crawler.Spider {
         }
     }
 
+    private static boolean isClosed(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.toLowerCase(java.util.Locale.ROOT).contains("is closed")) return true;
+        }
+        return false;
+    }
+
     @Override
     public void init(Context context, String extend) {
         PyObject dependence = app.callAttr("getDependence", obj);
@@ -84,8 +93,12 @@ public class Spider extends com.github.catvod.crawler.Spider {
      * 过期直接返回空 JSON，不再进脚本。gen 传 -1 表示不校验（兼容老路径）。
      */
     public String homeContent(boolean filter, int homeGen) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("homeContent", obj, filter, homeGen)) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
@@ -95,8 +108,12 @@ public class Spider extends com.github.catvod.crawler.Spider {
     }
 
     public String homeVideoContent(int homeGen) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("homeVideoContent", obj, homeGen)) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
@@ -116,60 +133,107 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("categoryContent", obj, tid, pg, filter, gson.toJson(extend))) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
     @Override
     public String detailContent(List<String> ids) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("detailContent", obj, gson.toJson(ids))) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
     @Override
     public String searchContent(String key, boolean quick) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("searchContent", obj, key, quick)) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
     @Override
     public String searchContent(String key, boolean quick, String pg) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("searchContent", obj, key, quick, pg)) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("playerContent", obj, flag, id, gson.toJson(vipFlags))) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
     @Override
     public String liveContent(String url) {
-        // 返回值由蜘蛛自备，可能是模块级常量字符串（共享包装），不关（见类头纪律）。
-        return app.callAttr("liveContent", obj, url).toString();
+        if (destroyed) return "";
+        try {
+            // 返回值由蜘蛛自备，可能是模块级常量字符串（共享包装），不关（见类头纪律）。
+            PyObject r = app.callAttr("liveContent", obj, url);
+            return r == null ? "" : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return "";
+            throw e;
+        }
     }
 
     @Override
     public boolean manualVideoCheck() {
-        // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
-        return app.callAttr("manualVideoCheck", obj).toBoolean();
+        if (destroyed) return false;
+        try {
+            // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
+            return app.callAttr("manualVideoCheck", obj).toBoolean();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return false;
+            throw e;
+        }
     }
 
     @Override
     public boolean isVideoFormat(String url) {
-        // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
-        return app.callAttr("isVideoFormat", obj, url).toBoolean();
+        if (destroyed) return false;
+        try {
+            // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
+            return app.callAttr("isVideoFormat", obj, url).toBoolean();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return false;
+            throw e;
+        }
     }
 
     @Override
     public Object[] proxy(Map<String, String> params) throws Exception {
-        PyObject result = app.callAttr("localProxy", obj, gson.toJson(params));
+        if (destroyed) return null;
+        PyObject result;
+        try {
+            result = app.callAttr("localProxy", obj, gson.toJson(params));
+        } catch (Exception e) {
+            if (String.valueOf(e.getMessage()).contains("is closed")) return null;
+            throw e;
+        }
+        if (result == null) return null;
         try {
             List<PyObject> list = result.asList();
             try {
@@ -191,8 +255,12 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String action(String action) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("action", obj, action)) {
-            return r.toString();
+            return r == null ? null : r.toString();
+        } catch (RuntimeException e) {
+            if (isClosed(e)) return null;
+            throw e;
         }
     }
 
@@ -204,7 +272,10 @@ public class Spider extends com.github.catvod.crawler.Spider {
         } catch (Exception ignored) {
         } finally {
             // 蜘蛛被淘汰（文件变更/清缓存/删源）时确定性释放实例对象，
-            // 不再把引用计数释放留给 GC finalize。
+            // 不再把引用计数释放留给 GC finalize。先立已销毁标志，
+            // 再关 obj：在途与后续的 proxy 调用先看到标志直接返回，
+            // 不再拿已关的 obj 去调。
+            destroyed = true;
             closeQuietly(obj);
         }
     }

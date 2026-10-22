@@ -34,7 +34,8 @@ public class VodAdapter extends BaseDiffAdapter<Vod, BaseVodHolder> {
 
     public interface OnClickListener {
 
-        void onItemClick(Vod item);
+        /** coverView：点击行 holder 的封面 ImageView（X-17 现算直进用；未就绪时传 null 也可）。 */
+        void onItemClick(Vod item, android.view.View coverView);
 
         boolean onLongClick(Vod item);
     }

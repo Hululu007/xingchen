@@ -67,6 +67,15 @@ public class Keep implements Diffable<Keep> {
         AppDatabase.get().getKeepDao().delete(key);
     }
 
+    public static void replace(String oldKey, String newKey) {
+        if (oldKey.equals(newKey)) return;
+        Keep keep = find(oldKey);
+        if (keep == null) return;
+        keep.delete();
+        keep.setKey(newKey);
+        keep.save();
+    }
+
     public static List<Keep> getVod() {
         return AppDatabase.get().getKeepDao().getVod();
     }

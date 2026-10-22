@@ -93,9 +93,14 @@ public class MpvPlayerEngine implements PlayerEngine {
         return player;
     }
 
+    private boolean released;
+
     @Override
     public void release() {
+        if (released) return;
+        released = true;
         player.release();
+        player = null;
     }
 
     public void prepareTerminalRelease() {
@@ -104,9 +109,13 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     @Override
     public Player rebuild(Player.Listener listener) {
-        player.release();
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "rebuild mpv decode=%d", decode);
-        return player = buildPlayer(listener);
+        // 先建后释：新实例建好后才释放旧实例，构建失败时旧实例原样保留。
+        MpvPlayer newPlayer = buildPlayer(listener);
+        MpvPlayer oldPlayer = player;
+        player = newPlayer;
+        oldPlayer.release();
+        return player;
     }
 
     public void prepareSubtitleForNewItem(@Nullable Track track) {
@@ -879,8 +888,22 @@ public class MpvPlayerEngine implements PlayerEngine {
     @Override
     public ErrorAction handleError(PlaybackException e) {
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "handleError mpv code=%d message=%s format=%s retried=%s urlLen=%d", e.errorCode, e.getMessage(), spec == null ? null : spec.getFormat(), retriedFormat, spec == null || spec.getUrl() == null ? 0 : spec.getUrl().length());
+        // MPV 解码失败走 DECODE，由 PM 切软解（旧路永不返回 DECODE，硬解
+        // 失败直接可见错；isTerminalMpvError 里 DECODE_FAILED 本是格式重试
+        // 的终态排除，解码判断必须在格式重试之前）。
+        if (isMpvDecodeFailure(e)) return ErrorAction.DECODE;
         if (shouldRetryFormat(e)) return retryFormat();
         return ErrorAction.FATAL;
+    }
+
+    private boolean isMpvDecodeFailure(PlaybackException e) {
+        if (e.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+                || e.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED
+                || e.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+                || e.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+                || e.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES) return true;
+        String message = e.getMessage();
+        return message != null && message.startsWith(MpvPlayer.ERROR_DECODE_FAILED);
     }
 
     private boolean shouldRetryFormat(PlaybackException e) {

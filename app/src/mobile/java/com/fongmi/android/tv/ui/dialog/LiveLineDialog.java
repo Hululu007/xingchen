@@ -87,9 +87,11 @@ public class LiveLineDialog extends BaseBottomSheetDialog implements LiveLineAda
         FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
         sheet.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        behavior.setSkipCollapsed(true);
+        BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
+        if (behavior != null) {
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+        }
     }
 
     @Override

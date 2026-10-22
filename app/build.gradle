@@ -51,8 +51,8 @@ android {
         applicationId "com.XingChen.tv"
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
-        versionCode 93
-        versionName "1.4.10"
+        versionCode 94
+        versionName "1.4.11"
         buildConfigField "String", "BUILD_TIME", "\"${buildTime}\""
         buildConfigField "String", "BUILD_TAG", "\"${releaseTag}\""
         buildConfigField "String", "GIT_REVISION", "\"${gitRevision}\""
@@ -184,7 +184,11 @@ dependencies {
     implementation project(':catvod')
     implementation project(':chaquo')
     implementation project(':quickjs')
-    implementation project(':thunder')
+    // 迅雷代码不编进宿主：见 thunder-runtime 外置包（包名 com.fongmi.runtime.thunder，
+    // 与宿主同钥签名，走 RuntimeInstaller 目录分发＋RuntimeModule 签名校验）。
+    // 宿主侧只经 ThunderGateway 取 ThunderRuntime；直连回落是反射调用，
+    // 只在过渡编包（仍含 :thunder 时）成立，切后编包里未装外置包的磁力
+    // 报模块未安装可见错，不再静默 00:00。
     implementation libs.rhino
     implementation libs.appcompat
     implementation libs.lifecycle.service

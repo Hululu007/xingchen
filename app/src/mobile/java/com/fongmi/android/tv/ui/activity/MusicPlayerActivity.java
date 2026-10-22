@@ -218,6 +218,10 @@ public class MusicPlayerActivity extends BaseActivity {
     /** 唱片架歌词面（GZ shelfInnerPage）：切歌时 300＋150／150／0.98 切换动画落在这块面上，不落槽根。 */
     private View shelfInnerPageView;
     private android.animation.AnimatorSet shelfSwitchAnim;
+    /** 唱片架歌词面待入场：相邻切歌时歌词尚在途，先不跑淡入淡出，等歌词到达事件再入场。 */
+    private boolean shelfLyricSwitchPending;
+    /** 待入场兜底：取词超时（1500ms，星辰自定兜底、非瓜子值）仍按现有动画走，不把界面挂死。 */
+    private Runnable shelfLyricTimeoutRunnable;
     private android.animation.AnimatorSet coverExpandAnim;
     private RecyclerView shelfList;
     private ShelfAdapter shelfAdapter;
@@ -554,6 +558,9 @@ public class MusicPlayerActivity extends BaseActivity {
                     themeRoot.getPaddingRight(), themeRoot.getPaddingBottom());
         }
         grabThemeViews();
+        // 换主题即清经典 RenderEffect：经典糊底只属于经典主题，切离时不等新合成回调，
+        // 否则新主题软底先贴图的那段窗口会带着 24dp 模糊（无封面分支同理，见 updateBackground）。
+        clearClassicRenderEffect();
         wireThemeViews();
         applyLyricStyle();
         feedLyricView();
@@ -684,6 +691,10 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     private void grabThemeViews() {
+        // 换主题重建即重置 CD 首绑防扫：cdBoundOnce 只防本主题内首绑，切到别的主题再切回
+        // CD 时旧值恒真会误扫一次切歌扫光；重建时回到“未绑过”态，首绑跳过、真切歌才扫。
+        cdBoundOnce = false;
+        cancelShelfLyricSwitchPending();
         coverView = find(R.id.tpCover);
         coverExitView = find(R.id.tpCoverExit);
         cdLyricsExpanded = false;
@@ -1176,6 +1187,9 @@ public class MusicPlayerActivity extends BaseActivity {
                     return true;
                 }
                 // 取消收藏也有爱心（瓜子行为）：其余主题与经典一致，收藏态 8 颗、取消态 5 颗。
+                // 非经典分支此前无 track 守门：无曲目时爆发＋缩放＋震动全跑、toggleFavorite
+                // 却静默返回，反馈与实际脱节；照经典分支补同一守门（无曲目直接返回）。
+                if (track == null) return true;
                 float[] p = toOverlayPoint(wrap, e.getX(), e.getY());
                 binding.heartsOverlay.burstCover(p[0], p[1], adding);
                 wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
@@ -1530,6 +1544,11 @@ public class MusicPlayerActivity extends BaseActivity {
             }
             // 合并行分隔心：跟专辑同显同藏，无专辑时不留 trailing ♡
             if (albumSepView != null) albumSepView.setVisibility(albumView.getVisibility());
+            // Apple 专辑独立行：tpAlbum 的父行固定 18dp，只藏文字会留一条空白；
+            // 仅 Apple 主题下父行跟专辑同显同藏（其它主题专辑在合并行内，父行不是独立行，不动）。
+            if (THEME_APPLE.equals(themeId) && albumView.getParent() instanceof View) {
+                ((View) albumView.getParent()).setVisibility(albumView.getVisibility());
+            }
         }
         bindCovers(track);
         // wave2：CD 五图标行禁用门控随曲目刷新（无当前曲时整行不可用，见 refreshCdUtilRowEnabled）。
@@ -1745,6 +1764,12 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
+    /** 经典背景 RenderEffect 清除点（API31+ 才有 RenderEffect；低版本无此效果，无需清）。 */
+    private void clearClassicRenderEffect() {
+        if (binding == null || binding.ivBgBlur == null) return;
+        if (android.os.Build.VERSION.SDK_INT >= 31) binding.ivBgBlur.setRenderEffect(null);
+    }
+
     /**
      * 背景层：封面按 64×64 小图请求（GZ BlurredCoverAmbient 口径），放大即糊；
      * 拿到图后取色刷氛围层与 CD 色板。无封面用 CoverColor 兜底色。
@@ -1760,6 +1785,9 @@ public class MusicPlayerActivity extends BaseActivity {
             bgCompositeMode = -1;
             bgCompositeUrl = null;
             binding.ivBgBlur.setImageDrawable(null);
+            // 无封面分支此前不清 RenderEffect：上一首有封面时挂上的 24dp 模糊会残留在空背景上，
+            // 直到下一次合成成功回调才清；无封面即清，不等异步回调。
+            clearClassicRenderEffect();
             animateAmbient(CoverColor.ambientBackground(null));
             dominantColor = CoverColor.FALLBACK_COLOR;
             if (THEME_CD.equals(themeId)) applyCdPalette();
@@ -2337,6 +2365,9 @@ public class MusicPlayerActivity extends BaseActivity {
                 applyLyricData(resultMains, resultTrans, resultRomas, resultTransWords, resultRomaWords);
                 lyricEmpty = resultMains.isEmpty();
                 lyricLoading = false;
+                // 歌词到达事件（唱片架歌词面入场时钟）：无词也是到达（空态已定），挂起的入场即跑，
+                // 不等版本聚合（版本条是第二阶段，不阻塞歌词面）。
+                onShelfLyricArrived();
                 // 取词确认为空才露空态；第三波 A4：区分本源无词（未走兜底：开关关且非手动重搜）与兜底也无词
                 String noLyricLabel = (force || MusicStore.isLyricFallback()) ? "兜底也无词" : "本源无词";
                 if (resultMains.isEmpty() && lyricView != null) lyricView.showNoLyric(noLyricLabel);
@@ -4455,7 +4486,7 @@ public class MusicPlayerActivity extends BaseActivity {
         // 落在歌词面视图上，不与槽位变换写同一属性，无冲突。
         int prev = shelfPrevIndex;
         shelfPrevIndex = idx;
-        if (prev >= 0 && prev != idx) animateShelfInnerPageSwitch();
+        if (prev >= 0 && prev != idx) requestShelfInnerPageSwitch();
         if (prev < 0 || prev == idx || Math.abs(idx - prev) != 1) {
             // 首绑／同曲重绑／跳号切歌（随机播放跳到非相邻曲目）：无滑动，直接重绑。
             // 跳号时滑一槽是假动作——落位重绑会把中心封面换成跳号后的曲，等于闪一下，不如直接换。
@@ -4552,8 +4583,50 @@ public class MusicPlayerActivity extends BaseActivity {
         h.itemView.setScaleX(scale);
         h.itemView.setScaleY(scale);
         float txDp = shelfSlotShift * g.slotPitchDp + g.listItemTranslationXDp(effSlot);
+        // 视觉中心补偿：封面在槽位盒内左对齐，封面视觉中心在槽位盒中心左侧半个项间间距；
+        // 补偿算式＝(槽距 − 封套) / 2＝项间间距 / 2，390dp 屏 (230.1 − 185.25) / 2 ≈ 22.4dp，
+        // 全槽同量右移（相对间距不变、弹簧插值不变），当前槽封面中心落到舞台中心。
+        // 方向按几何注释推导（左对齐→向右补），真机须以屏中线复核，量反了只改本行符号。
+        txDp += (g.slotPitchDp - g.sleeveDp) * 0.5f;
         if (slotPos == 2) txDp -= (g.outerWidthDp - g.sleeveDp); // 次槽布局补偿：当前槽根宽 1.48×封套多出的 0.48×封套
         h.itemView.setTranslationX(txDp * d);
+    }
+
+    /**
+     * 唱片架歌词面切换：动画时钟认歌词到达事件。切歌时 loadLyric 先清旧词、歌词后台异步
+     * 到达；若取词尚在途（lyricLoading），先挂起入场、歌词到达时再跑淡入淡出，淡入跑完
+     * 时新词已在面内，不再“淡入空面、词到后直弹”；取词超时（1500ms 兜底）或无取词在途
+     * 时直接跑现有动画，不把界面挂死。连续切歌会取消上一首的挂起、为新曲重挂。
+     */
+    private void requestShelfInnerPageSwitch() {
+        if (!lyricLoading || shelfInnerPageView == null) {
+            animateShelfInnerPageSwitch();
+            return;
+        }
+        cancelShelfLyricSwitchPending();
+        shelfLyricSwitchPending = true;
+        shelfLyricTimeoutRunnable = () -> {
+            if (!shelfLyricSwitchPending) return;
+            shelfLyricSwitchPending = false;
+            animateShelfInnerPageSwitch();
+        };
+        shelfInnerPageView.postDelayed(shelfLyricTimeoutRunnable, 1500);
+    }
+
+    /** 歌词到达事件：取词回调里 lyricLoading 落位后调，挂起的歌词面入场即跑。 */
+    private void onShelfLyricArrived() {
+        if (!shelfLyricSwitchPending) return;
+        cancelShelfLyricSwitchPending();
+        animateShelfInnerPageSwitch();
+    }
+
+    /** 取消挂起的歌词面入场（换主题重建／新切歌重挂时用；已跑起的动画本身不动）。 */
+    private void cancelShelfLyricSwitchPending() {
+        shelfLyricSwitchPending = false;
+        if (shelfInnerPageView != null && shelfLyricTimeoutRunnable != null) {
+            shelfInnerPageView.removeCallbacks(shelfLyricTimeoutRunnable);
+        }
+        shelfLyricTimeoutRunnable = null;
     }
 
     /** 唱片架歌词面切换动画（GZ shelfInnerPage AnimatedContent，RecordShelfPlayerKt:732-737）：

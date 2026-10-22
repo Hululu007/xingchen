@@ -83,12 +83,16 @@ public class HkCommonParser {
         }
         String[] commaSplit = rule.split(",");
         if (commaSplit.length > 1) {
-            int index = Integer.parseInt(commaSplit[1]);
-            Elements selected = element.select(HkParserKit.decodeConflictStr(commaSplit[0]));
-            if (index < 0) {
-                return selected.get(selected.size() + index);
+            int index;
+            try {
+                index = Integer.parseInt(commaSplit[1].trim());
+            } catch (NumberFormatException e) {
+                return null;
             }
-            return element.select(HkParserKit.decodeConflictStr(commaSplit[0])).get(index);
+            Elements selected = element.select(HkParserKit.decodeConflictStr(commaSplit[0]));
+            int resolved = index < 0 ? selected.size() + index : index;
+            if (resolved < 0 || resolved >= selected.size()) return null;
+            return selected.get(resolved);
         }
         return element.select(HkParserKit.decodeConflictStr(rule)).first();
     }
@@ -224,6 +228,7 @@ public class HkCommonParser {
     }
 
     private static String getTextWithoutOr(Element element, String rule) {
+        if (element == null) return "";
         String js;
         String[] jsSplit = rule.split("\\.js:");
         if (jsSplit.length > 1) {

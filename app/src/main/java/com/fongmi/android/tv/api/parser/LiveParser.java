@@ -41,8 +41,16 @@ public class LiveParser {
     }
 
     private static String extract(String line, String... keywords) {
-        String[] splits = line.split(" ");
-        for (String split : splits) for (String keyword : keywords) if (split.contains(keyword)) return split.split("=")[1].replace("\"", "");
+        try {
+            String[] splits = line.split(" ");
+            for (String split : splits) for (String keyword : keywords) if (split.contains(keyword)) {
+                String[] parts = split.split("=");
+                if (parts.length < 2) continue;
+                return parts[1].replace("\"", "");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return "";
     }
 

@@ -28,7 +28,8 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
 
     public interface OnClickListener {
 
-        void onItemClick(Vod item);
+        /** coverView：点击行 holder 的封面 ImageView（X-17 现算直进用；未就绪时传 null 也可）。 */
+        void onItemClick(Vod item, android.view.View coverView);
     }
 
     public void setGrid(boolean grid, int[] size) {
@@ -90,7 +91,7 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
             binding.remark.setText(item.getRemarks());
             binding.site.setVisibility(item.getSiteVisible());
             binding.remark.setVisibility(item.getRemarkVisible());
-            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item, binding.image));
             ImgUtil.load(item.getName(), item.getPic(), binding.image);
         }
 
@@ -128,7 +129,7 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
             binding.site.setVisibility(item.getSiteVisible());
             binding.name.setVisibility(item.getNameVisible());
             binding.remark.setVisibility(item.getRemarkVisible());
-            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item, binding.image));
             ImgUtil.load(item.getName(), item.getPic(), binding.image);
         }
 

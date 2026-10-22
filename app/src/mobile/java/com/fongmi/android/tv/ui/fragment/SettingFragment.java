@@ -91,6 +91,8 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         // 实验室入口：原「源健康检测」卡的位置与样式保留，文案换实验室（2026-10-18 定）
         mBinding.cardHealth.setOnClickListener(v -> com.fongmi.android.tv.ui.lab.LabHomeActivity.start(getActivity()));
         mBinding.cardXingchen.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.XingChenSettingsActivity.start(getActivity()));
+        // 运行模块入口：外置运行时（迅雷等）安装／卸载／检测页。
+        mBinding.cardModule.setOnClickListener(v -> getRoot().showModuleFragment());
         updateSubtitles();
     }
 
@@ -383,10 +385,28 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
                 mBinding.textXingchenSub.setText(AppVersion.fullName());
             }
         } catch (Exception e) { e.printStackTrace(); }
-        // Download subtitle - isolated (placeholder)
+        // Download subtitle - isolated：接 DownloadManager 现成任务表（DownloadActivity 同源），
+        // onResume 时 updateSubtitles 重跑，进出下载页后数字会刷新。任务表只在进程内（重启后清空），与下载页口径一致。
         try {
             if (mBinding.textDownloadSub != null) {
-                mBinding.textDownloadSub.setText("暂无下载任务");
+                java.util.List<com.fongmi.android.tv.utils.download.DownloadTask> tasks =
+                        com.fongmi.android.tv.utils.download.DownloadManager.get().getTasks();
+                int active = 0;
+                int completed = 0;
+                int failed = 0;
+                for (com.fongmi.android.tv.utils.download.DownloadTask t : tasks) {
+                    int st = t.getStatus();
+                    if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_COMPLETED) completed++;
+                    else if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_ERROR) failed++;
+                    else active++;
+                }
+                // A4：ERROR 不计入完成，全是 ERROR 时不许显示“已完成 N 个”，失败数另计展示。
+                // A 类残留：有进行中任务时旧文案的“共 N 个”是全部任务数（含失败数），
+                // 失败任务既不算进行中也不算完成，混进总数会误导；改成完成数口径。
+                if (tasks.isEmpty()) mBinding.textDownloadSub.setText("暂无下载任务");
+                else if (active > 0) mBinding.textDownloadSub.setText("进行中 " + active + " 个，已完成 " + completed + " 个" + (failed > 0 ? "，失败 " + failed + " 个" : ""));
+                else if (completed > 0) mBinding.textDownloadSub.setText("已完成 " + completed + " 个" + (failed > 0 ? "，失败 " + failed + " 个" : ""));
+                else mBinding.textDownloadSub.setText("下载失败 " + failed + " 个");
             }
         } catch (Exception e) { e.printStackTrace(); }
         // Features subtitle - Emby login state

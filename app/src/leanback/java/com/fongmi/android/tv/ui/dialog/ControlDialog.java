@@ -406,7 +406,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
         sheet.setBackgroundColor(ResUtil.getColor(R.color.transparent));
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
+        if (behavior == null) return;
         behavior.setFitToContents(false);
         behavior.setDraggable(false);
         setSheetHeight(sheet, behavior);

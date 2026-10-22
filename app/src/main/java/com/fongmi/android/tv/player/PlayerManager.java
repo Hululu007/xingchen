@@ -40,6 +40,7 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.impl.ParseCallback;
+import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.player.codec.CodecCapabilityInspector;
 import com.fongmi.android.tv.player.engine.ExoPlayerEngine;
 import com.fongmi.android.tv.player.exo.ass.ExoAssSession;
@@ -101,7 +102,9 @@ import com.fongmi.android.tv.setting.SubtitleSetting;
 import com.fongmi.android.tv.utils.LocalProxyDebug;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
@@ -235,6 +238,10 @@ public class PlayerManager implements ParseCallback {
     private boolean mpvAutoVulkanDisabledForItem;
     private boolean mpvSurfaceFallbackTried;
     private boolean mpvVulkanFallbackTried;
+    private volatile boolean musicPausedByVideo;
+    private volatile long musicPausedByVideoAtMs;
+    private volatile boolean musicPausedByVideoListenerRegistered;
+    private com.fongmi.android.tv.bean.Track lastSecondarySubtitleTrack;
     private boolean mpvHlsManagedReload;
     private boolean playbackForeground;
     private boolean exoDecoderResourceRecoveryInProgress;
@@ -244,6 +251,8 @@ public class PlayerManager implements ParseCallback {
     private int prepareSeq;
     private int lutApplySeq;
     private int lutWarmupRecoveredErrors;
+    private int lutWarmupRefreshAttempts;
+    private boolean autoKernelSwitchTried;
     private int mpvOutputEvaluationSeq;
     private int mpvAutoOutputProbeAttempts;
     private float userPlaybackSpeed = 1f;
@@ -310,6 +319,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void release() {
+        if (player == null) return;
         com.fongmi.android.tv.api.HomePrewarm.playbackActive = false; // 首页预热恢复推进
         logStopAction("release");
         prepareSeq++;
@@ -325,6 +335,12 @@ public class PlayerManager implements ParseCallback {
         mpvResourceSystemRegistration.close();
         playbackExperimentRegistration.close();
         stopNativeAudioSession();
+        resumeMusicPausedByVideo();
+        try {
+            if (musicPausedByVideoListenerRegistered) MusicController.get().removeListener(musicPausedByVideoListener);
+        } catch (Throwable ignored) {
+        }
+        musicPausedByVideoListenerRegistered = false;
         clearDanmaku("release");
         releaseLiveDanmakuSession();
         liveDanmakuBatcher.release();
@@ -721,7 +737,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public String getSpeedText() {
-        return SPEED_FORMAT.format(getSpeed());
+        return SPEED_FORMAT.format(getEffectiveSpeed());
     }
 
     public String getDecodeText() {
@@ -843,7 +859,9 @@ public class PlayerManager implements ParseCallback {
 
     public void setSub(Sub sub) {
         if (spec != null) spec.setSub(sub);
+        long position = Math.max(0, getPosition());
         setMediaItem();
+        if (position > 0) seekTo(position);
     }
 
     public void setFormat(String format) {
@@ -1191,6 +1209,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void setSecondarySubtitleTrack(Track track) {
+        lastSecondarySubtitleTrack = track;
         if (track != null && !track.isDisabled()
                 && engine instanceof MpvPlayerEngine mpv) {
             mpv.retainSubtitleSurfaceForCurrentItem();
@@ -1198,7 +1217,57 @@ public class PlayerManager implements ParseCallback {
         if (engine != null) engine.setSecondarySubtitleTrack(track);
     }
 
+    /**
+     * X-28 续播标记：只有音乐当时正在播、且是被视频起播暂停的，才记 flag。
+     * 音乐本来就已手动暂停时 pause() 是空转，不记 flag，视频退出时不续播。
+     * 视频播放中用户手动暂停音乐时，音乐侧 onPlayingChanged(false) 会在
+     * 本次暂停 1500ms 后才到（本方法已记时间戳），届时清 flag，避免退出时
+     * 把用户手动停掉的音乐又续起来。音乐文件本段不动，故只做 PM 侧时间戳
+     * 区分，属近似区分，真机仍需核手动暂停时序。
+     */
+    private void pauseMusicForVideo() {
+        try {
+            if (!MusicController.get().isPlaying()) return;
+            MusicController.get().pause();
+            musicPausedByVideo = true;
+            musicPausedByVideoAtMs = android.os.SystemClock.elapsedRealtime();
+            registerMusicPausedByVideoListener();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void registerMusicPausedByVideoListener() {
+        if (musicPausedByVideoListenerRegistered) return;
+        try {
+            MusicController.get().addListener(musicPausedByVideoListener);
+            musicPausedByVideoListenerRegistered = true;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private final MusicController.Listener musicPausedByVideoListener = new MusicController.Listener() {
+        @Override
+        public void onPlayingChanged(boolean playing) {
+            if (playing) return;
+            if (!musicPausedByVideo) return;
+            if (android.os.SystemClock.elapsedRealtime() - musicPausedByVideoAtMs > 1500) {
+                musicPausedByVideo = false;
+            }
+        }
+    };
+
+    /** 视频会话真正退出（release / 服务 suspend / shutdown）时才续播。 */
+    public void resumeMusicPausedByVideo() {
+        if (!musicPausedByVideo) return;
+        musicPausedByVideo = false;
+        try {
+            MusicController.get().play();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void play() {
+        pauseMusicForVideo();
         startNativeAudioSession(true);
         player.play();
     }
@@ -1207,12 +1276,18 @@ public class PlayerManager implements ParseCallback {
         invalidatePlaybackProfileAssessments(
                 PlaybackProfileAbCoordinator.InvalidationReason.PAUSED);
         player.pause();
-        stopNativeAudioSession();
+        // E4：只暂停不放弃焦点。旧路放弃焦点会让被焦点暂停的音乐在视频页
+        // 还开着、只是暂停时就自动续播，与 X-28 暂停路行为分裂。焦点在真正
+        // 退出（stop/release）时才放弃；切到别的音频应用时焦点丢失回调仍会
+        // 正常放弃。Exo 路 Media3 自身在 playWhenReady=false 时也会放弃焦点，
+        // 该路本批未改 Media3 焦点配置，仍属残留，见交回。
+        unregisterNoisyReceiver();
     }
 
     public void stop() {
         com.fongmi.android.tv.api.HomePrewarm.playbackActive = false; // 首页预热恢复推进
         logStopAction("stop");
+        prepareSeq++;
         stopNativeAudioSession();
         clearDanmaku("stop");
         engine.stop();
@@ -1336,6 +1411,9 @@ public class PlayerManager implements ParseCallback {
     public void toggleDecode() {
         int next = engine.isHard() ? PlayerEngine.SOFT : PlayerEngine.HARD;
         boolean resetVideoSurface = playerType == PlayerSetting.EXO && next == PlayerEngine.HARD;
+        long position = Math.max(0, getPosition());
+        float speed = getSpeed();
+        boolean repeat = isRepeatOne();
         hardDecodeSwitchRetryArmed = next == PlayerEngine.HARD;
         beginPlaybackTrace("switch-decode");
         engine.setDecode(next);
@@ -1344,6 +1422,9 @@ public class PlayerManager implements ParseCallback {
         }
         rebuildPlayer(resetVideoSurface);
         setMediaItem();
+        if (position > 0) seekTo(position);
+        if (speed != 1f) setSpeed(speed);
+        setRepeatOne(repeat);
     }
 
     public void switchDecode(PlaySpec freshSpec, long position, float speed, boolean repeat) {
@@ -1352,15 +1433,18 @@ public class PlayerManager implements ParseCallback {
         int next = engine.isHard() ? PlayerEngine.SOFT : PlayerEngine.HARD;
         boolean resetVideoSurface = playerType == PlayerSetting.EXO && next == PlayerEngine.HARD;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        PlayerEngine newEngine = buildEngineOrNull(playerType, next);
+        if (newEngine == null) return;
         prepareSeq++;
         resetLutRuntimeState("switch_decode_fresh", true);
         stopNativeAudioSession();
         engine.release();
+        engine = newEngine;
+        player = engine.getPlayer();
+        resetMpvOutputRuntime();
         spec = freshSpec;
         bindPlaybackTrace();
         hardDecodeSwitchRetryArmed = next == PlayerEngine.HARD;
-        engine = buildEngine(playerType, next);
-        player = engine.getPlayer();
         playWhenReady = wasPlayWhenReady;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch decode fresh decode=%d position=%d spec=%s", next, position, debugSpec());
         callback.onPlayerRebuild(player, resetVideoSurface);
@@ -1376,14 +1460,17 @@ public class PlayerManager implements ParseCallback {
         int next = engine.isHard() ? PlayerEngine.SOFT : PlayerEngine.HARD;
         boolean resetVideoSurface = playerType == PlayerSetting.EXO && next == PlayerEngine.HARD;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        PlayerEngine newEngine = buildEngineOrNull(playerType, next);
+        if (newEngine == null) return;
         prepareSeq++;
         resetLutRuntimeState("switch_decode_result", true);
         stopNativeAudioSession();
         stopParse();
         engine.release();
-        hardDecodeSwitchRetryArmed = next == PlayerEngine.HARD;
-        engine = buildEngine(playerType, next);
+        engine = newEngine;
         player = engine.getPlayer();
+        resetMpvOutputRuntime();
+        hardDecodeSwitchRetryArmed = next == PlayerEngine.HARD;
         playWhenReady = wasPlayWhenReady;
         callback.onPlayerRebuild(player, resetVideoSurface);
         if (result.needParse() || useParse) {
@@ -1418,21 +1505,28 @@ public class PlayerManager implements ParseCallback {
         if (engine == null || player == null || freshSpec == null) return;
         beginPlaybackTrace("switch-player-fresh");
         type = PlayerSetting.sanitizePlayer(type);
+        if (type == PlayerSetting.MPV && freshSpec.getDrm() != null) {
+            callback.onError(ResUtil.getString(R.string.error_play_mpv_drm_unsupported));
+            return;
+        }
         boolean resetVideoSurface = type != playerType;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         int decode = engine.getDecode();
+        PlayerEngine newEngine = buildEngineOrNull(type, decode);
+        if (newEngine == null) return;
         prepareSeq++;
         resetLutRuntimeState("switch_player_fresh", true);
         stopNativeAudioSession();
         engine.release();
+        engine = newEngine;
+        player = engine.getPlayer();
+        resetMpvOutputRuntime();
         playerType = type;
         PlayerSetting.putPlayer(type);
         spec = freshSpec;
         bindPlaybackTrace();
         playWhenReady = wasPlayWhenReady;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player fresh type=%d position=%d spec=%s", type, position, debugSpec());
-        engine = buildEngine(playerType, decode);
-        player = engine.getPlayer();
         callback.onPlayerRebuild(player, resetVideoSurface);
         setMediaItem(Constant.TIMEOUT_PLAY);
         if (position > 0) seekTo(position);
@@ -1444,18 +1538,25 @@ public class PlayerManager implements ParseCallback {
         if (engine == null || player == null || result == null || result.hasMsg() || result.getRealUrl().isEmpty()) return;
         beginPlaybackTrace("switch-player-result");
         type = PlayerSetting.sanitizePlayer(type);
+        if (type == PlayerSetting.MPV && result.getDrm() != null) {
+            callback.onError(ResUtil.getString(R.string.error_play_mpv_drm_unsupported));
+            return;
+        }
         boolean resetVideoSurface = type != playerType;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         int decode = engine.getDecode();
+        PlayerEngine newEngine = buildEngineOrNull(type, decode);
+        if (newEngine == null) return;
         prepareSeq++;
         resetLutRuntimeState("switch_player_result", true);
         stopNativeAudioSession();
         stopParse();
         engine.release();
+        engine = newEngine;
+        player = engine.getPlayer();
+        resetMpvOutputRuntime();
         playerType = type;
         PlayerSetting.putPlayer(type);
-        engine = buildEngine(playerType, decode);
-        player = engine.getPlayer();
         playWhenReady = wasPlayWhenReady;
         callback.onPlayerRebuild(player, resetVideoSurface);
         if (result.needParse() || useParse) {
@@ -1483,22 +1584,32 @@ public class PlayerManager implements ParseCallback {
         type = PlayerSetting.sanitizePlayer(type);
         if (type == playerType) return;
         beginPlaybackTrace("switch-player");
+        // DRM 前置门：旧路先翻偏好并持久化、再释放旧引擎、最后经 setMediaItem
+        // 撞门，误点一次就丢了当次播放且下次仍是 MPV。本路在切换前拦住，
+        // 旧引擎与旧偏好原样保留，只给可见错。
+        if (type == PlayerSetting.MPV && spec != null && spec.getDrm() != null) {
+            callback.onError(ResUtil.getString(R.string.error_play_mpv_drm_unsupported));
+            return;
+        }
         long position = getPosition();
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         int decode = engine.getDecode();
+        PlayerEngine newEngine = buildEngineOrNull(type, decode);
+        if (newEngine == null) return;
         prepareSeq++;
         resetLutRuntimeState("switch_player", true);
         stopNativeAudioSession();
         engine.release();
+        engine = newEngine;
+        player = engine.getPlayer();
+        resetMpvOutputRuntime();
         playerType = type;
         if (persist) {
             PlayerSetting.putPlayer(type);
         }
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player type=%d persist=%s position=%d spec=%s", type, persist, position, debugSpec());
-        engine = buildEngine(playerType, decode);
-        player = engine.getPlayer();
         // A Surface used by a CPU renderer stays connected after decoder release.
         // A different player needs a new Surface before its GPU/codec can connect.
         callback.onPlayerRebuild(player, true);
@@ -1517,7 +1628,13 @@ public class PlayerManager implements ParseCallback {
 
     private void rebuildPlayer(boolean resetVideoSurface) {
         stopNativeAudioSession();
-        player = engine.rebuild(listener);
+        try {
+            player = engine.rebuild(listener);
+        } catch (Throwable e) {
+            // 引擎先建后释：构建失败时旧实例未释放，player 仍指向旧实例，
+            // 调用方随后 engine.start 走旧实例恢复，不悬空在已释放实例上。
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "rebuild failed, keep old player error=%s", causeChain(e));
+        }
         videoEffectsActive = false;
         videoEffectsDirty = false;
         lutAppliedForItem = false;
@@ -1527,6 +1644,12 @@ public class PlayerManager implements ParseCallback {
         pendingLutPreview = false;
         waitingLutBeforePlay = false;
         callback.onPlayerRebuild(player, resetVideoSurface);
+        // 重建后手动选的副字幕无恢复点（MPV buildPlayer 只带回初始字幕面）：
+        // 这里显式重放上次副字幕选择，失败不影响主流程。
+        try {
+            if (lastSecondarySubtitleTrack != null) engine.setSecondarySubtitleTrack(lastSecondarySubtitleTrack);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void applyMpvHlsInitialControl(
@@ -2893,13 +3016,15 @@ public class PlayerManager implements ParseCallback {
         if (!isExo() || spec == null || TextUtils.isEmpty(spec.getUrl())) {
             return false;
         }
-        // 与 setMediaItemNow 同款拦截：重建直接调 engine.start，不经过 setMediaItemNow，
-        // 非 http(s) 地址不能从这里漏进 Exo（正常流程重建时 spec 已通过首检，这里是防御层）。
-        if (rejectNonHttpSpec()) return false;
+        // 与 setMediaItemNow 同款分类：重建直接调 engine.start，不经过 setMediaItemNow，
+        // 这里再走一次分类归一（正常流程重建时 spec 已通过首检，这里是防御层）。
+        if (classifyAndNormalizeSpec()) return false;
         long position = Math.max(0, player.getCurrentPosition());
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         prepareSeq++;
         App.removeCallbacks(runnable);
         videoSize = null;
@@ -2910,19 +3035,35 @@ public class PlayerManager implements ParseCallback {
         playbackTrace.mark(PlaybackTrace.Stage.PREPARE,
                 "player=" + playerType + " decode=" + engine.getDecode()
                         + " exo=" + reason);
+        // X-28 双服务互斥：Exo 重建恢复起播前先暂停音乐，照 setMediaItemNow 的写法
+        // （仅 playWhenReady 时、try/catch 包住）。
+        if (wasPlayWhenReady) {
+            try {
+                pauseMusicForVideo();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (spec != null) setDanmakus(spec.getDanmakus());
         engine.start(spec.checkUa(), position, wasPlayWhenReady);
         startNativeAudioSession(wasPlayWhenReady);
         if (speed != 1f) setSpeed(speed);
         setRepeatOne(repeat);
+        setTextOffsetMs(textOffsetMs);
+        setAudioOffsetMs(audioOffsetMs);
         App.post(runnable, Constant.TIMEOUT_PLAY);
         return true;
     }
 
     private boolean rebuildAndRestartMpv(Boolean surfaceDirectOverride, String reason) {
         if (!isMpv() || spec == null || TextUtils.isEmpty(spec.getUrl()) || !(engine instanceof MpvPlayerEngine mpv)) return false;
+        // 与 rebuildAndRestartExo 同款分类：重建直接调 engine.start，不经过 setMediaItemNow，
+        // 这里再走一次分类归一；未转换协议由分类内报错并返回 true，届时不重建。
+        if (classifyAndNormalizeSpec()) return false;
         long position = Math.max(0, player.getCurrentPosition());
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         prepareSeq++;
         resetMpvOutputEvaluationState();
@@ -2942,17 +3083,29 @@ public class PlayerManager implements ParseCallback {
         applyMpvAutoInitialControl();
         playbackTrace.mark(PlaybackTrace.Stage.PREPARE, "player=" + playerType + " decode=" + engine.getDecode() + " mpv-output=" + reason);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "rebuild reason=%s directOverride=%s position=%d play=%s speed=%s repeat=%s spec=%s", reason, effectiveSurfaceDirectOverride, position, wasPlayWhenReady, speed, repeat, debugSpec());
+        // X-28 双服务互斥：与 Exo 重建同款，恢复起播前先暂停音乐（仅 playWhenReady 时、
+        // try/catch 包住；pauseMusicForVideo 自身亦有 try/catch，本处包住只为与 Exo 路写法一致）。
+        if (wasPlayWhenReady) {
+            try {
+                pauseMusicForVideo();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (spec != null) setDanmakus(spec.getDanmakus());
         engine.start(spec.checkUa(), position, wasPlayWhenReady);
         scheduleMpvAutoOutputEvaluation();
         startNativeAudioSession(wasPlayWhenReady);
         if (speed != 1f) setSpeed(speed);
         setRepeatOne(repeat);
+        setTextOffsetMs(textOffsetMs);
+        setAudioOffsetMs(audioOffsetMs);
         App.post(runnable, Constant.TIMEOUT_PLAY);
         return true;
     }
 
     private void prepareMpvOutputForNewItem() {
         resetMpvOutputEvaluationState();
+        mpvVulkanFallbackTried = false;
         mpvSurfaceFallbackTried = false;
         List<Track> persistedTracks = Track.find(getKey());
         Track persistedSubtitle = findRequestedSubtitle(persistedTracks);
@@ -2992,6 +3145,8 @@ public class PlayerManager implements ParseCallback {
 
     private void resetMpvOutputRuntime() {
         resetMpvOutputEvaluationState();
+        localProxyRetry = 0;
+        mpvVulkanFallbackTried = false;
         mpvSurfaceFallbackTried = false;
         mpvAutoGpuPinnedForSession = false;
         mpvAutoVulkanPinnedForItem = false;
@@ -3008,7 +3163,9 @@ public class PlayerManager implements ParseCallback {
         mpvAutoOutputFrameReady = false;
         mpvAutoOutputEvaluationScheduled = false;
         mpvAutoOutputProbeAttempts = 0;
-        mpvVulkanFallbackTried = false;
+        // 注意：Vulkan 一次性旗不在此清。旧路每次 rebuildAndRestartMpv 都调
+        // 本方法，清掉刚置的 tried 旗，旗语义已破；Vulkan 旗只在整集重置
+        // （resetMpvOutputRuntime / 新集 prepare）时清。
         mpvOutputEvaluationSeq++;
     }
 
@@ -3299,7 +3456,6 @@ public class PlayerManager implements ParseCallback {
                 || message != null && (message.startsWith(MpvPlayer.ERROR_VIDEO_OUTPUT_FAILED) || message.startsWith(MpvPlayer.ERROR_DECODE_FAILED));
         if (!outputFailure) return false;
         mpvSurfaceFallbackTried = true;
-        mpvAutoOutputEvaluated = true;
         mpvOutputEvaluationSeq++;
         PlaybackTrace.log("mpv-output", playbackTrace.current(), "surface direct failed; fallback gpu once code=%d message=%s", error.errorCode, message);
         return rebuildAndRestartMpv(false, "surface-direct-failure");
@@ -3372,6 +3528,16 @@ public class PlayerManager implements ParseCallback {
         return details != null && details.dolbyVisionProfile() == 7;
     }
 
+    /** 先建后释：构建失败返回 null，调用方保留旧引擎/旧播放，不悬空。 */
+    private PlayerEngine buildEngineOrNull(int type, int decode) {
+        try {
+            return buildEngine(type, decode);
+        } catch (Throwable e) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "build engine failed type=%d decode=%d error=%s", type, decode, causeChain(e));
+            return null;
+        }
+    }
+
     private PlayerEngine buildEngine(int type, int decode) {
         return switch (type) {
             case PlayerSetting.MPV -> new MpvPlayerEngine(decode, listener, this::onMpvVideoSizeProbed);
@@ -3395,6 +3561,9 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void start(PlaySpec spec, long timeout, boolean playWhenReady, long positionMs) {
+        lutWarmupRefreshAttempts = 0;
+        autoKernelSwitchTried = false;
+        if (engine instanceof ExoPlayerEngine exo) exo.resetTunnelingFallbackForNewItem();
         endPlaybackTelemetrySession("replace-start");
         clearPendingSwitchRestore();
         clearDanmaku("start");
@@ -3430,6 +3599,9 @@ public class PlayerManager implements ParseCallback {
         this.playWhenReady = playWhenReady;
         retry = 0;
         localProxyRetry = 0;
+        lutWarmupRefreshAttempts = 0;
+        autoKernelSwitchTried = false;
+        if (engine instanceof ExoPlayerEngine exo) exo.resetTunnelingFallbackForNewItem();
         hardDecodeSwitchRetryArmed = false;
         parseJob = ParseJob.create(this).start(result, useParse);
     }
@@ -3519,7 +3691,10 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void setMediaItem(long timeout) {
-        if (spec == null || spec.getUrl() == null) return;
+        if (spec == null || spec.getUrl() == null || spec.getUrl().isEmpty()) {
+            callback.onError(ResUtil.getString(R.string.error_play_url));
+            return;
+        }
         int seq = ++prepareSeq;
         if (rejectMpvDrmMedia()) return;
         if (LocalProxyDebug.shouldAwaitReady(spec.getUrl())) {
@@ -3541,45 +3716,93 @@ public class PlayerManager implements ParseCallback {
                     return;
                 }
                 if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "local proxy await done seq=%d ready=%s spec=%s", seq, ready, debugSpec());
+                if (!ready) {
+                    callback.onError(ResUtil.getString(R.string.error_play_timeout));
+                    return;
+                }
                 setMediaItemNow(timeout, true);
             });
         });
     }
 
     /**
-     * 非 http(s) 地址拦截（日志里 Exo ERROR_CODE_FAILED_RUNTIME_CHECK 1004 的那路）：
-     * 解析／嗅探漏网的未转换地址绝不交给 engine.start→setMediaItem→prepare，否则
-     * Exo 在 1004 报错、界面只剩 00:00 无可见错。拦截口径（全量核过进播放器的地址入口）：
-     * - 未转换地址（magnet/ed2k/thunder/video/p2p）：两个引擎都播不了，全拦；
-     * - 其余协议：只拦 Exo 引擎——MPV 原生吃 rtsp/rtmp/file 等；Exo 的合法输入除
-     *   http(s) 外还有直播 rtsp（recoverRtspLiveEdge）与本地 file/content/asset，
-     *   一并放行，严按“只拦 http(s)”会把直播 rtsp 与本地文件一起拦掉；
-     * - 空地址沿用原有静默返回（取链／解析失败另有可见错），这里只拦“有地址但协议不对”。
-     * 拦截走 callback.onError，与 onPlayerError 终态同一出口，可见、不静默。
+     * 地址分类＋路由（跟默影视一样走分类）：只拦上游转换漏网地址的可见错门——
+     * 未经上游转换就走到播放器门口的地址才在此给可见错，其余一律放行或转成本地
+     * 地址后放行。除本可见错门外，播放器门口另有一道旧有可见
+     * 错门：MPV＋DRM（rejectMpvDrmMedia，MPV 不吃 DRM 媒体），同样是旧有门，不是
+     * 本分类新增的拦。
+     * - http/https/rtsp/rtmp/file/content：直接放行。rtmp 在 Exo 下无原生支持时
+     *   由引擎报错走可见错，不在门口预判拦掉；MPV 本就吃 rtmp。
+     * - proxy/assets/asset：走 UrlUtil.convert 转成本地地址再放行（壳子自有转换口径；
+     *   asset 单数与 assets 复数同款处理，不再放行原串）。
+     * - data:（内联 DASH MPD）：放行。Exo 侧 MediaSourceFactory 用 DefaultDataSource
+     *   链（含 data scheme），MPV 侧取链层 MpdEdlResolver 本就读 data: 清单；引擎真吃
+     *   不了时走引擎可见错，不在门口预判。
+     * - 无 scheme 相对地址：先试 UrlUtil.resolve（基地址依次取解析结果的 playUrl、
+     *   当前配置地址），解得出绝对地址就替换，解不出也不拦，兜底交给引擎试播、
+     *   引擎报错时可见。
+     * - magnet/ed2k/thunder/video/p2p：转换点在上游（Source.fetch 的各 Extractor、
+     *   SiteApi.hkPlayerContent 的迅雷转换），本方法在主线程不能同步跑迅雷/DHT
+     *   转换；走到这里说明上游转换被旁路，引擎本身播不了，只能给可见错（只拦上游
+     *   转换漏网地址的可见错门；修旁路要去上游，不是在这里再拦一类）。
+     * - 其余认不出的 scheme：一律兜底放行，交给当前引擎试播，引擎报错时可见。
+     * 返回 true 表示已给可见错、调用方不要继续起播；返回 false 表示已分类/归一完成。
      * 其它进播放器的路：start()/parse 成功／换集／重建全部汇到 setMediaItemNow；
-     * Exo 重建路（rebuildAndRestartExo）另有一道同款检查；重试路（retryExo*）复用
-     * 同一个 spec 对象、URL 只能经 onParseSuccess→setMediaItem 改写（改写必过本检查），
-     * 故重试路不再重复拦；MPV 重建路不拦（MPV 原生协议面）；音乐走
-     * MusicPlaybackService.prepareTrack 的同款检查；PlaybackService 的外部
-     * setMediaItem 全部经 playViaManager→PlayerManager.start 汇到这里。
+     * Exo 重建路（rebuildAndRestartExo）另有一道同款分类，并补 X-28 暂停；重试路
+     * （retryExo*、解码切换重试、Exo 恢复、首帧回落）复用同一个 spec 对象、URL 只
+     * 能经 onParseSuccess→setMediaItem 改写（改写必过本分类），故重试路不重复分类，
+     * 但真恢复起播前仍按 X-28 先暂停音乐（仅 playWhenReady 时），见各重试路注释；
+     * MPV 重建路不分类（MPV 原生协议面，已声明口径，本批不动）。
      */
-    private boolean rejectNonHttpSpec() {
+    private boolean classifyAndNormalizeSpec() {
         if (spec == null) return false;
         String url = spec.getUrl();
         if (url == null || url.isEmpty()) return false;
-        String scheme = Uri.parse(url).getScheme();
-        scheme = scheme == null ? "" : scheme.toLowerCase(java.util.Locale.ROOT);
+        url = url.trim();
+        if (!url.equals(spec.getUrl())) spec.setUrl(url);
+        String scheme = UrlUtil.scheme(url);
+        if (scheme.equals("proxy") || scheme.equals("assets") || scheme.equals("asset")) {
+            try {
+                String converted = UrlUtil.convert(url);
+                if (converted != null && !converted.isEmpty() && !converted.equals(url)) spec.setUrl(converted);
+            } catch (Throwable ignored) {
+            }
+            return false;
+        }
+        if (scheme.isEmpty()) {
+            String base = "";
+            if (spec.getParseResult() != null) base = spec.getParseResult().getPlayUrl();
+            if (base == null || UrlUtil.scheme(base).isEmpty()) {
+                try {
+                    base = VodConfig.getUrl();
+                } catch (Throwable ignored) {
+                    base = "";
+                }
+            }
+            if (base != null && !UrlUtil.scheme(base).isEmpty()) {
+                try {
+                    String resolved = UrlUtil.resolve(base, url);
+                    if (resolved != null && !resolved.isEmpty() && !UrlUtil.scheme(resolved).isEmpty()) spec.setUrl(resolved);
+                } catch (Throwable ignored) {
+                }
+            }
+            return false;
+        }
         boolean unconverted = scheme.equals("magnet") || scheme.equals("ed2k") || scheme.equals("thunder") || scheme.equals("video") || scheme.equals("p2p");
-        boolean exoAllowed = scheme.equals("http") || scheme.equals("https") || scheme.equals("rtsp") || scheme.equals("file") || scheme.equals("content") || scheme.equals("asset");
-        if (!unconverted && (isMpv() || exoAllowed)) return false;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "reject non-http url scheme=%s mpv=%s spec=%s", scheme, isMpv(), debugSpec());
-        callback.onError(ResUtil.getString(R.string.error_play_url));
-        return true;
+        if (unconverted) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "unconverted p2p url reached player, upstream conversion bypassed scheme=%s spec=%s", scheme, debugSpec());
+            callback.onError(ResUtil.getString(R.string.error_play_url));
+            return true;
+        }
+        return false;
     }
 
     private void setMediaItemNow(long timeout, boolean notifyPrepare) {
-        if (spec == null || spec.getUrl() == null || engine == null) return;
-        if (rejectNonHttpSpec()) return;
+        if (spec == null || spec.getUrl() == null || spec.getUrl().isEmpty() || engine == null) {
+            callback.onError(ResUtil.getString(R.string.error_play_url));
+            return;
+        }
+        if (classifyAndNormalizeSpec()) return;
         prepareExoFrameSchedulingForNewPlayback();
         spec.setPlaybackTraceId(playbackTrace.ensure());
         spec.refreshPlaybackRoute();
@@ -3596,6 +3819,14 @@ public class PlayerManager implements ParseCallback {
         waitingLutBeforePlay = false;
         applySubtitleStyle();
         playbackTrace.mark(PlaybackTrace.Stage.PREPARE, "player=" + playerType + " decode=" + engine.getDecode());
+        // X-28 双服务互斥：视频真起播前，在应用层先暂停音乐，不只靠系统焦点仲裁
+        // （音乐未起播时 MusicController.pause() 空转；起播暂停时不碰音乐，避免无声打断）。
+        if (playWhenReady) {
+            try {
+                pauseMusicForVideo();
+            } catch (Throwable ignored) {
+            }
+        }
         long initialPositionMs = pendingInitialStartPositionMs;
         pendingInitialStartPositionMs = C.TIME_UNSET;
         engine.start(spec.checkUa(), initialPositionMs, playWhenReady);
@@ -4053,6 +4284,10 @@ public class PlayerManager implements ParseCallback {
 
     private boolean prepareLutPipelineForCurrentItem(String reason) {
         if (spec == null || engine == null || player == null) return true;
+        // 引擎内重启同款口径（照 Exo 重建路）：直接调 engine.restart，不经过 setMediaItemNow，
+        // 故这里再走一次分类归一；未转换协议由分类内报错并返回 true，届时返回 false 中止
+        // 本轮 LUT 应用（不继续往已报错的 spec 上贴效果），不按旧路直接 restart。
+        if (classifyAndNormalizeSpec()) return false;
         lutPipelinePrepareInProgress = true;
         lutAppliedForItem = false;
         lutApplyInProgress = false;
@@ -4060,6 +4295,9 @@ public class PlayerManager implements ParseCallback {
         long position = Math.max(0, getPosition());
         boolean playWhenReady = player.getPlayWhenReady();
         float speed = getSpeed();
+        boolean repeat = isRepeatOne();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         if (!safeSetVideoEffects(dynamicLutEffect.effects(), reason + "_prepare_dynamic_passthrough")) {
             lutPipelinePrepareInProgress = false;
             return true;
@@ -4067,8 +4305,20 @@ public class PlayerManager implements ParseCallback {
         lutPipelineReadyForItem = true;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "prepare current item with effects reason=%s position=%d play=%s spec=%s", reason, position, playWhenReady, debugSpec());
         startLutWarmupRecovery();
+        initTrack = false;
+        if (spec != null) setDanmakus(spec.getDanmakus());
+        // X-28 双服务互斥同款：LUT 准备重启引擎前先暂停音乐（仅播着时、try/catch 包住）。
+        if (playWhenReady) {
+            try {
+                pauseMusicForVideo();
+            } catch (Throwable ignored) {
+            }
+        }
         engine.restart(spec.checkUa(), position, playWhenReady);
         if (speed != 1f) setSpeed(speed);
+        setRepeatOne(repeat);
+        setTextOffsetMs(textOffsetMs);
+        setAudioOffsetMs(audioOffsetMs);
         lutPipelinePrepareInProgress = false;
         return false;
     }
@@ -4087,11 +4337,30 @@ public class PlayerManager implements ParseCallback {
 
     private boolean retryLutWarmupByRefresh(String reason) {
         if (!lutWarmupRecoveryActive || lutWarmupRefreshRequested || !LutSetting.isEnabled()) return false;
+        // 持续性预热失败必须有出口：旧路单次旗在 onRefresh/prepare 后被清零
+        // 重武装，超时路无计数时会无限“刷新->重解析->预热->失败”。同集最多
+        // 2 次，耗尽后返回 false 走正常可见错，不再刷新。
+        if (lutWarmupRefreshAttempts >= 2) return false;
+        lutWarmupRefreshAttempts++;
         lutWarmupRefreshRequested = true;
         lutWarmupRecoveryActive = false;
         lutWarmupReloadPreviewPending = true;
         App.removeCallbacks(runnable);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "request playback refresh after warmup failure reason=%s errors=%d spec=%s", reason, lutWarmupRecoveredErrors, debugSpec());
+        // 调色预热失败不再走 onReload 全量刷新：旧路经 VideoActivity.onRefresh 重跑
+        // playerContent 全量重解析，解析开头 Source.stop() 会删掉在播的迅雷任务
+        // （磁力在播时调色预热失败即断链）。改走 rebuildAndRestartExo：只重建播放器、
+        // 复用当前 spec 地址与进度，不重解析、不碰迅雷任务。stop() 本方法不动。
+        // 重建不可用（非 Exo 或空 spec，rebuildAndRestartExo 返回 false）时才回落
+        // 旧刷新，避免预热失败后无恢复路；Exo 路不再进旧刷新。
+        if (rebuildAndRestartExo("lut-warmup-refresh")) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "warmup failure rebuilt exo, no reparse reason=%s", reason);
+            return true;
+        }
+        if (rebuildAndRestartMpv(null, "lut-warmup-refresh")) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "warmup failure rebuilt mpv, no reparse reason=%s", reason);
+            return true;
+        }
         callback.onReload(RELOAD_LUT_WARMUP);
         return true;
     }
@@ -4469,6 +4738,10 @@ public class PlayerManager implements ParseCallback {
         PlaybackTrace.log("player", playbackTrace.current(), "parseSuccess from=%s url=%s headers=%s", from, summarizeUrl(url), headers == null ? 0 : headers.size());
         if (headers != null) headers.remove(HttpHeaders.RANGE);
         if (spec != null) spec.setHeaders(headers);
+        if (TextUtils.isEmpty(url)) {
+            callback.onError(ResUtil.getString(R.string.error_play_url));
+            return;
+        }
         if (spec != null) spec.setUrl(url);
         setMediaItem(Constant.TIMEOUT_PLAY);
         restoreAfterSwitchReparse();
@@ -4935,11 +5208,20 @@ public class PlayerManager implements ParseCallback {
                 || TextUtils.isEmpty(spec.getUrl())
                 || engine == null
                 || player == null) return false;
+        // 引擎内重启同款口径（照 Exo 重建路）：直接调 engine.restart，不经过 setMediaItemNow，
+        // 故这里再走一次分类归一；未转换协议由分类内报错并返回 true，届时返回 false，
+        // 调用方会把变体档位恢复成旧档，不静默停播。
+        if (classifyAndNormalizeSpec()) return false;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         long position = decision.preservesVodPosition()
-                ? decision.resumePositionMs() : C.TIME_UNSET;
+                ? decision.resumePositionMs()
+                : decision.resumePositionMs() > 0 && getDuration() > 0
+                        ? decision.resumePositionMs() : C.TIME_UNSET;
+        long fallbackPosition = Math.max(0, getPosition());
         try {
             prepareSeq++;
             App.removeCallbacks(runnable);
@@ -4952,9 +5234,20 @@ public class PlayerManager implements ParseCallback {
                     decision.targetBitsPerSecond(),
                     position == C.TIME_UNSET ? 0 : position,
                     wasPlayWhenReady);
+            if (spec != null) setDanmakus(spec.getDanmakus());
+            // X-28 双服务互斥同款：变体重启引擎前先暂停音乐（仅播着时、try/catch 包住；
+            // restart 抛错走下方旧档回落起播时，音乐已是暂停态，不必再补一次）。
+            if (wasPlayWhenReady) {
+                try {
+                    pauseMusicForVideo();
+                } catch (Throwable ignored) {
+                }
+            }
             engine.restart(spec.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
+            setTextOffsetMs(textOffsetMs);
+            setAudioOffsetMs(audioOffsetMs);
             App.post(runnable, Constant.TIMEOUT_PLAY);
             return true;
         } catch (Throwable error) {
@@ -4963,7 +5256,21 @@ public class PlayerManager implements ParseCallback {
                     "action=%s result=failed errorType=%s",
                     decision.action().label(),
                     error.getClass().getSimpleName());
-            return false;
+            // 周期性变体评估失败旧路只记遥测、播放器停在已停态无可见错：
+            // restart 已 stop 过，再用变体前的位置起一次旧档，起不来才
+            // 返回 false 走可见错，不静默停播。
+            try {
+                if (spec != null) setDanmakus(spec.getDanmakus());
+                engine.start(spec.checkUa(), fallbackPosition, wasPlayWhenReady);
+                if (speed != 1f) setSpeed(speed);
+                setRepeatOne(repeat);
+                setTextOffsetMs(textOffsetMs);
+                setAudioOffsetMs(audioOffsetMs);
+                App.post(runnable, Constant.TIMEOUT_PLAY);
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            }
         }
     }
 
@@ -5246,6 +5553,10 @@ public class PlayerManager implements ParseCallback {
                 || TextUtils.isEmpty(spec.getUrl())) {
             return false;
         }
+        // 引擎内重启同款口径（照 Exo 重建路）：直接调 engine.restart，不经过 setMediaItemNow，
+        // 故这里再走一次分类归一；未转换协议由分类内报错并返回 true，届时返回 false，
+        // 调用方按失败处理，不继续重建会话。
+        if (classifyAndNormalizeSpec()) return false;
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
@@ -5261,6 +5572,13 @@ public class PlayerManager implements ParseCallback {
         PlaybackTrace.log("exo-rtsp-live", playbackTrace.current(),
                 "action=rebuild-session play=%s speed=%.3f repeat=%s",
                 wasPlayWhenReady, speed, repeat);
+        // X-28 双服务互斥同款：RTSP 会话重建重启引擎前先暂停音乐（仅播着时、try/catch 包住）。
+        if (wasPlayWhenReady) {
+            try {
+                pauseMusicForVideo();
+            } catch (Throwable ignored) {
+            }
+        }
         engine.restart(spec.checkUa(), C.TIME_UNSET, wasPlayWhenReady);
         if (speed != 1f) setSpeed(speed);
         setRepeatOne(repeat);
@@ -5745,7 +6063,9 @@ public class PlayerManager implements ParseCallback {
 
         @Override
         public void onPlaybackStateChanged(int state) {
-            if (state != Player.STATE_IDLE) App.removeCallbacks(runnable);
+            // 起播钟只在 READY/ENDED 摘：IDLE->BUFFERING 是常规第一步，旧路任一
+            // 非 IDLE 即摘等于钟刚挂就被摘，流连上不出首帧时只剩转圈无报错。
+            if (state == Player.STATE_READY || state == Player.STATE_ENDED) App.removeCallbacks(runnable);
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
@@ -5840,7 +6160,7 @@ public class PlayerManager implements ParseCallback {
             // working even if a slow audio track keeps Exo in BUFFERING briefly.
             // Do not let the generic startup timer turn that valid playback into
             // a false connection-timeout error.
-            if (isExo()) App.removeCallbacks(runnable);
+            App.removeCallbacks(runnable);
             playbackTrace.mark(PlaybackTrace.Stage.FIRST_FRAME,
                     "source=" + (isMpv() ? "mpv-vo-submitted" : "media3") + " player=" + playerType);
             if (isMpv()) {
@@ -5897,8 +6217,14 @@ public class PlayerManager implements ParseCallback {
             }
             if (action == PlayerEngine.ErrorAction.RECOVERED) {
                 if (spec != null) setDanmakus(spec.getDanmakus());
+                // 引擎内自救（格式重试/PCM 重启/默认位置）后补挂起播钟，否则
+                // 再卡住即永久静默转圈。
+                App.post(runnable, Constant.TIMEOUT_PLAY);
                 return;
             }
+            // 自救分支已返回，切核判断放自救之后：自救成功的错不再被抢去换核，
+            // 一次性切核旗不被耗掉。
+            if (retryAutoKernelSwitch(failure)) return;
             finishPlaybackProfileAbSession(
                     "player-error", SystemClock.elapsedRealtime());
             callback.onError(getPlaybackErrorMessage(failure));
@@ -6087,6 +6413,14 @@ public class PlayerManager implements ParseCallback {
                 setDanmakus(recovery.target().getDanmakus());
                 waitingLutBeforePlay = false;
                 applySubtitleStyle();
+                // 复用已分类 spec，故不重复分类；X-28 双服务互斥：真恢复起播前先暂停音乐，
+                // 照 setMediaItemNow 的写法（仅 playWhenReady 时、try/catch 包住）。
+                if (recovery.playWhenReady()) {
+                    try {
+                        pauseMusicForVideo();
+                    } catch (Throwable ignored) {
+                    }
+                }
                 engine.start(
                         recovery.target().checkUa(),
                         recovery.positionMs(),
@@ -6116,8 +6450,12 @@ public class PlayerManager implements ParseCallback {
     }
 
     private boolean retryHardDecodeSwitch(PlaybackException e) {
-        if (!hardDecodeSwitchRetryArmed || engine == null || player == null || spec == null || !engine.isHard()) return false;
-        if (e.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED) return false;
+        // armed 只在“切到 HARD 后”置位，首播 HARD 失败 armed=false 时旧路
+        // 永远走不到软解。本批放开 armed 门：软解切换本身只发生一次（切后
+        // 引擎即 SOFT，门限 isHard() 挡住二次），不会循环。
+        if (engine == null || player == null || spec == null || !engine.isHard()) return false;
+        if (e.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED
+                && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES) return false;
         hardDecodeSwitchRetryArmed = false;
         int seq = ++prepareSeq;
         PlaySpec target = spec;
@@ -6127,20 +6465,34 @@ public class PlayerManager implements ParseCallback {
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         App.removeCallbacks(runnable);
         resetLutRuntimeState("hard_decode_switch_retry", true);
+        // R-D4：旧路名叫 switch 实际仍建 HARD，且新引擎构造会把隧道回落
+        // 标记归零。改建 SOFT 才是真切换；隧道标记由引擎侧按集保留（见
+        // ExoPlayerEngine.tunnelingFallbackAttempted 传入 rebuild）。
+        PlayerEngine newEngine = buildEngineOrNull(playerType, PlayerEngine.SOFT);
+        if (newEngine == null) return false;
         engine.release();
-        engine = buildEngine(playerType, PlayerEngine.HARD);
+        engine = newEngine;
         player = engine.getPlayer();
+        resetMpvOutputRuntime();
         callback.onPlayerRebuild(player, true);
         this.playWhenReady = wasPlayWhenReady;
         initTrack = false;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "hard decode switch retry delay=%d position=%d errorType=%s", HARD_DECODE_SWITCH_RETRY_DELAY_MS, position, e.getClass().getSimpleName());
         App.post(() -> {
-            if (seq != prepareSeq || spec != target || engine == null || player == null || !engine.isHard()) return;
+            if (seq != prepareSeq || spec != target || engine == null || player == null || engine.isHard()) return;
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "hard decode switch retry start position=%d", position);
             setDanmakus(target.getDanmakus());
             initTrack = false;
             waitingLutBeforePlay = false;
             applySubtitleStyle();
+            // 复用已分类 spec，故不重复分类；X-28 双服务互斥：真恢复起播前先暂停音乐，
+            // 照 setMediaItemNow 的写法（仅 playWhenReady 时、try/catch 包住）。
+            if (wasPlayWhenReady) {
+                try {
+                    pauseMusicForVideo();
+                } catch (Throwable ignored) {
+                }
+            }
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             scheduleMpvAutoOutputEvaluation();
             if (speed != 1f) setSpeed(speed);
@@ -6153,7 +6505,8 @@ public class PlayerManager implements ParseCallback {
 
     private boolean retryExoTunnelingFailure(PlaybackException e) {
         if (!(engine instanceof ExoPlayerEngine exo) || player == null || spec == null) return false;
-        if (e.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED) return false;
+        if (e.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED
+                && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES) return false;
         if (!exo.disableTunnelingForSession()) return false;
         int seq = ++prepareSeq;
         PlaySpec target = spec;
@@ -6172,6 +6525,14 @@ public class PlayerManager implements ParseCallback {
             setDanmakus(target.getDanmakus());
             waitingLutBeforePlay = false;
             applySubtitleStyle();
+            // 复用已分类 spec，故不重复分类；X-28 双服务互斥：真恢复起播前先暂停音乐，
+            // 照 setMediaItemNow 的写法（仅 playWhenReady 时、try/catch 包住）。
+            if (wasPlayWhenReady) {
+                try {
+                    pauseMusicForVideo();
+                } catch (Throwable ignored) {
+                }
+            }
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
@@ -6227,6 +6588,14 @@ public class PlayerManager implements ParseCallback {
             setDanmakus(target.getDanmakus());
             waitingLutBeforePlay = false;
             applySubtitleStyle();
+            // 复用已分类 spec，故不重复分类；X-28 双服务互斥：真恢复起播前先暂停音乐，
+            // 照 setMediaItemNow 的写法（仅 playWhenReady 时、try/catch 包住）。
+            if (wasPlayWhenReady) {
+                try {
+                    pauseMusicForVideo();
+                } catch (Throwable ignored) {
+                }
+            }
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
@@ -6265,6 +6634,14 @@ public class PlayerManager implements ParseCallback {
             setDanmakus(target.getDanmakus());
             waitingLutBeforePlay = false;
             applySubtitleStyle();
+            // 复用已分类 spec，故不重复分类；X-28 双服务互斥：真恢复起播前先暂停音乐，
+            // 照 setMediaItemNow 的写法（仅 playWhenReady 时、try/catch 包住）。
+            if (wasPlayWhenReady) {
+                try {
+                    pauseMusicForVideo();
+                } catch (Throwable ignored) {
+                }
+            }
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
@@ -6311,20 +6688,57 @@ public class PlayerManager implements ParseCallback {
         int depth = 0;
         while (t != null && depth++ < 10) {
             if (t instanceof HttpDataSource.InvalidResponseCodeException irce && irce.responseCode == 410) return true;
+            String message = t.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(java.util.Locale.US);
+                // MPV 原生层无 HttpDataSource 异常，只有日志文本（如 "HTTP error 410"）：
+                // 只认带 http/status/gone 语境的 410，不认裸数字，避免把含 410 的
+                // 地址/ID 误判。非 Emby 宿主侧 onHttpGoneRetry 本就返回 false。
+                if (lower.matches(".*(http[^0-9]{0,20}410|410[^a-z0-9]{0,20}gone|status[^0-9]{0,20}410).*")) return true;
+            }
             t = t.getCause();
         }
         return false;
     }
 
+    /**
+     * 报错后自动切核（双向）：Exo 报错切 MPV、MPV 报错切 Exo，同集只试一次，
+     * 不持久化用户偏好（private switchPlayer persist=false），切后仍失败则
+     * 落可见错。DRM 与网络/本地端点错误不切核：DRM 改道是另一批活，网络错
+     * 换核也救不了，只会多一次无效尝试。
+     */
+    private boolean retryAutoKernelSwitch(PlaybackErrorClassifier.Failure failure) {
+        if (autoKernelSwitchTried || spec == null || spec.getUrl() == null || engine == null || player == null) return false;
+        switch (failure.stage()) {
+            case DECODER, OUTPUT, MEDIA_PARSING -> {
+            }
+            default -> {
+                return false;
+            }
+        }
+        autoKernelSwitchTried = true;
+        int other = playerType == PlayerSetting.MPV ? PlayerSetting.EXO : PlayerSetting.MPV;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "auto kernel switch from=%d to=%d stage=%s spec=%s", playerType, other, failure.stage(), debugSpec());
+        switchPlayer(other, false);
+        return true;
+    }
+
     private boolean retryLocalProxy(PlaybackException e) {
         if (spec == null || !LocalProxyDebug.isLocalProxyUrl(spec.getUrl())) return false;
-        if (!LocalProxyDebug.isConnectionRefused(e)) return false;
+        // 旧路只认拒连：超时（代理刚起、未就绪）直接可见错。404 等明确失败
+        // 不重试，仍走可见错。
+        boolean timeout = e.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
+                || (e.getMessage() != null && e.getMessage().toLowerCase(java.util.Locale.US).contains("timed out"));
+        if (!timeout && !LocalProxyDebug.isConnectionRefused(e)) return false;
         if (++localProxyRetry > LOCAL_PROXY_MAX_RETRY) return false;
         int attempt = localProxyRetry;
+        int seq = prepareSeq;
+        PlaySpec target = spec;
+        PlayerEngine targetEngine = engine;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "local proxy retry schedule attempt=%d delay=%d spec=%s", attempt, LOCAL_PROXY_RETRY_DELAY_MS, debugSpec());
         App.removeCallbacks(runnable);
         App.post(() -> {
-            if (spec == null || attempt != localProxyRetry) return;
+            if (spec == null || spec != target || engine != targetEngine || seq != prepareSeq || attempt != localProxyRetry) return;
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "local proxy retry start attempt=%d spec=%s", attempt, debugSpec());
             setMediaItem();
         }, LOCAL_PROXY_RETRY_DELAY_MS);

@@ -96,6 +96,7 @@ abstract class BaseConfig {
     }
 
     protected void loadConfig(int id, Config config, Callback callback) {
+        boolean success = false;
         try {
             Server.get().start();
             OkHttp.cancel(getTag());
@@ -105,6 +106,7 @@ abstract class BaseConfig {
             onLoadSuccess();
             App.post(() -> Notify.show(config.getNotice()));
             App.post(callback::success);
+            success = true;
         } catch (Throwable e) {
             e.printStackTrace();
             if (isCanceled(e)) return;
@@ -112,7 +114,13 @@ abstract class BaseConfig {
             if (TextUtils.isEmpty(config.getUrl())) App.post(() -> callback.error(""));
             else App.post(() -> callback.error(Notify.getError(R.string.error_config_get, e)));
         } finally {
-            if (taskId.get() == id) postEvent();
+            // 只在成功时发事件：失败路径已有 callback.error 弹错＋StateEvent.empty，
+            // 再发事件会让首页（HomeActivity VOD 分支 → RefreshEvent.home）无条件重拉一次。
+            // 失败时无人依赖该事件：消费方核查——HomeActivity（VOD 转首页刷新／LIVE、COMMON 只调
+            // setNavigation）、leanback Home（VOD 转首页刷新）、VideoActivity 两版（只刷新解析器列表，
+            // 失败时解析器本就为空／旧数据）、PlaybackService（VOD/LIVE 清浏览树，失败不清、留旧树，
+            // 且 session 为空时直接返回）、SettingFragment/leanback Setting（只刷新壁纸文案）。
+            if (success && taskId.get() == id) postEvent();
         }
     }
 

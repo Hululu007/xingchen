@@ -9,9 +9,12 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.Updater;
 import com.fongmi.android.tv.databinding.ActivityXingchenSettingsBinding;
 import com.fongmi.android.tv.impl.Callback;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.AboutDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
+import com.fongmi.android.tv.ui.dialog.UpdateSettingsDialog;
+import com.fongmi.android.tv.update.UpdateSource;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -56,16 +59,29 @@ public class XingChenSettingsActivity extends BaseActivity {
         }));
         binding.cardBackup.setOnClickListener(v -> doBackup());
         binding.tvRestore.setOnClickListener(v -> doRestore());
+        updateUpdateSourceSub();
+        binding.cardUpdateSource.setOnClickListener(v -> UpdateSettingsDialog.show(this));
     }
 
     private void updateDohSub() {
         binding.tvDohSub.setText(XingChenDoh.getName(this));
     }
 
+    private void updateUpdateSourceSub() {
+        binding.tvUpdateSourceSub.setText(UpdateSource.GITHUB.equals(Setting.getUpdateSource()) ? "GitHub 直链" : "OCI 备用站");
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         updateDohSub();
+        updateUpdateSourceSub();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) updateUpdateSourceSub();
     }
 
     private void refreshCacheSize() {

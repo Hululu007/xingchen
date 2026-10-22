@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.api.loader;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.api.SiteApi;
@@ -8,6 +9,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.Proxy;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.crawler.SpiderNull;
@@ -199,6 +201,42 @@ public class BaseLoader {
         out[2] = rs[2];
         out[3] = rs.length > 3 && rs[3] instanceof Map ? rs[3] : null;
         return out;
+    }
+
+    // 上游原文口径（上游 BaseLoader.requireProxy :157、getProxyUri :166）：起播前
+    // 对取到的地址做一次代理归属拉起——是 proxy:// 或本地 /proxy? 地址时，按
+    // siteKey/do 找到对应运行时；非代理地址直接返回，不做任何事。
+    // fork 适配两处：① 上游 requireRuntime 调 RuntimeModule.{PYTHON,QUICKJS,NODEJS}
+    // .require()（外置包形态），本树 py/js 运行时已内置（本类构造时即建 pyLoader/
+    // jsLoader）、node 模块本树没有（settings 未 include :nodejs），故 requireRuntime
+    // 在本树是查表确认、不实例化蜘蛛、不抛外置包缺失错；② 上游无空串保护，本树
+    // fetch 路可递 null（sanitizer 对 null 原样返回），故 null 直接返回。
+    // 本方法只做归属确认，不实例化蜘蛛，避免在播放线程上拉起蜘蛛。
+    public void requireProxy(String url) {
+        if (url == null) return;
+        Uri uri = getProxyUri(url);
+        if (uri == null) return;
+        String key = uri.getQueryParameter("siteKey");
+        if (key != null) requireSite(key);
+        // do=py/do=js：上游此处调 RuntimeModule.PYTHON/QUICKJS.require()，本树
+        // 运行时已内置（本类构造时即建 pyLoader/jsLoader），无需 require，故不调。
+    }
+
+    private Uri getProxyUri(String url) {
+        String prefix = Proxy.getUrl(true) + "?";
+        if (url.startsWith("proxy://")) url = prefix + url.substring(8);
+        return url.startsWith(prefix) ? Uri.parse(url) : null;
+    }
+
+    private void requireSite(String key) {
+        Site site = VodConfig.get().getSite(key);
+        Live live = LiveConfig.get().getLive(key);
+        requireRuntime(!site.isEmpty() ? site.getApi() : live.getApi());
+    }
+
+    private void requireRuntime(String api) {
+        if (api == null) return;
+        if (isPy(api) || isJs(api)) return;
     }
 
     public void parseJar(String jar, boolean recent) {

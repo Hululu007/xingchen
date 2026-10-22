@@ -204,8 +204,12 @@ public class ExoPlayerEngine implements PlayerEngine {
         return subtitleSession;
     }
 
+    private boolean released;
+
     @Override
     public void release() {
+        if (released) return;
+        released = true;
         compressedAudioDirectPolicy.resetOutputProgress();
         Runnable cacheRelease = null;
         if (cacheSessionActive) {
@@ -225,6 +229,7 @@ public class ExoPlayerEngine implements PlayerEngine {
         if (assSession != null) assSession.release();
         subtitleSession.release();
         player.release();
+        player = null;
     }
 
     @Override
@@ -239,29 +244,44 @@ public class ExoPlayerEngine implements PlayerEngine {
         finishDecoderRuntimeAttempt();
         PlaybackAnalyticsListener.finishSession(player.getCurrentPosition());
         dolbyVisionPlaybackState.resetAttempt();
-        if (assSession != null) assSession.release();
-        subtitleSession.release();
-        player.release();
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "rebuild decode=%d", decode);
-        tunnelingEnabledForSession = ExoUtil.isTunnelingEnabled(decode, tunnelingFallbackAttempted);
+        boolean newTunnelingEnabled = ExoUtil.isTunnelingEnabled(decode, tunnelingFallbackAttempted);
+        ExoAssSession newAssSession = ExoAssSession.createIfEnabled(App.get(), newTunnelingEnabled);
+        ExoSubtitleSession newSubtitleSession = new ExoSubtitleSession();
+        Player newPlayer;
+        try {
+            newPlayer = ExoUtil.buildPlayer(
+                    decode,
+                    listener,
+                    tunnelingFallbackAttempted,
+                    decoderRuntimeSession,
+                    schedulingSettings,
+                dolbyVisionPlaybackState,
+                compressedAudioDirectPolicy,
+                newAssSession,
+                newSubtitleSession);
+        } catch (RuntimeException | Error e) {
+            if (newAssSession != null) newAssSession.release();
+            newSubtitleSession.release();
+            throw e;
+        }
+        // 新实例建好后才释放旧实例：构建失败时旧 player/ASS/字幕会话原样保留。
+        Player oldPlayer = player;
+        ExoAssSession oldAssSession = assSession;
+        ExoSubtitleSession oldSubtitleSession = subtitleSession;
+        tunnelingEnabledForSession = newTunnelingEnabled;
         decoderRuntimeEnabledForPlayer =
                 PlaybackPerformanceSetting.isAuto(PlayerSetting.EXO);
         dv7Hdr10FallbackEnabledForPlayer =
                 PlaybackPerformanceSetting.isDv7Hdr10FallbackEnabled();
         frameSchedulingOutput = ExoDecoderRuntimeProfiles.currentOutput(
                 tunnelingEnabledForSession);
-        assSession = ExoAssSession.createIfEnabled(App.get(), tunnelingEnabledForSession);
-        subtitleSession = new ExoSubtitleSession();
-        player = ExoUtil.buildPlayer(
-                decode,
-                listener,
-                tunnelingFallbackAttempted,
-                decoderRuntimeSession,
-                schedulingSettings,
-                dolbyVisionPlaybackState,
-                compressedAudioDirectPolicy,
-                assSession,
-                subtitleSession);
+        assSession = newAssSession;
+        subtitleSession = newSubtitleSession;
+        player = newPlayer;
+        if (oldAssSession != null) oldAssSession.release();
+        oldSubtitleSession.release();
+        oldPlayer.release();
         frameSchedulingSettings = schedulingSettings;
         frameSchedulingSessionLock.onRendererRebuilt(
                 schedulingSettings.decision());
@@ -330,6 +350,15 @@ public class ExoPlayerEngine implements PlayerEngine {
                     frameSchedulingSessionLock.sessionDecision());
         }
         return ExoFrameSchedulingPlayerSettings.capture(decode);
+    }
+
+    /**
+     * 按集重置隧道回落：下一集重建时可重新评估隧道。注意同实例不起播
+     * 即换集时渲染器已在建 player 时 baked，重置只影响下一次 rebuild，
+     * 不立刻改变当前实例的隧道状态。
+     */
+    public void resetTunnelingFallbackForNewItem() {
+        tunnelingFallbackAttempted = false;
     }
 
     public boolean disableTunnelingForSession() {
@@ -860,7 +889,7 @@ public class ExoPlayerEngine implements PlayerEngine {
         }
         ErrorAction action = switch (e.errorCode) {
             case PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> seekToDefaultPosition();
-            case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED, PlaybackException.ERROR_CODE_DECODING_FAILED -> ErrorAction.DECODE;
+            case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED, PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> ErrorAction.DECODE;
             case PlaybackException.ERROR_CODE_IO_UNSPECIFIED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> retryFormat(e.errorCode);
             default -> ErrorAction.FATAL;
         };

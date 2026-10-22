@@ -1,8 +1,12 @@
 package com.github.catvod.utils;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
+
+import java.io.File;
+import java.util.Locale;
 
 public final class UriUtil {
 
@@ -11,6 +15,55 @@ public final class UriUtil {
     private static final int PATH = 1;
     private static final int QUERY = 2;
     private static final int FRAGMENT = 3;
+
+    // 以下 7 个方法为上游原文（上游 Thunder.Parser.isTorrent 与 BaseLoader 旧口径用）：
+    // 本树 UriUtil 原先只有 resolve 一系，缺 scheme/path 解析，照搬补齐；原有方法不动。
+    public static Uri uri(String url) {
+        url = url.trim().replace("\\", "");
+        return url.startsWith("/") ? Uri.fromFile(new File(url)) : Uri.parse(url);
+    }
+
+    public static String scheme(String url) {
+        return url == null ? "" : scheme(uri(url));
+    }
+
+    public static String scheme(Uri uri) {
+        String scheme = uri.getScheme();
+        return scheme == null ? "" : scheme.toLowerCase(Locale.ROOT).trim();
+    }
+
+    public static String host(String url) {
+        return url == null ? "" : host(uri(url));
+    }
+
+    public static String host(Uri uri) {
+        String host = uri.getHost();
+        return host == null ? "" : host.toLowerCase(Locale.ROOT).trim();
+    }
+
+    public static String path(String url) {
+        return url == null ? "" : path(uri(url));
+    }
+
+    public static String path(Uri uri) {
+        String path = uri.getLastPathSegment();
+        return path == null ? "" : path.trim();
+    }
+
+    public static String stripQueryAndFragment(String url) {
+        int query = url.indexOf('?');
+        int fragment = url.indexOf('#');
+        int end = query < 0 ? url.length() : query;
+        if (fragment >= 0) end = Math.min(end, fragment);
+        return url.substring(0, end);
+    }
+
+    public static String getName(String url) {
+        Uri uri = uri(url);
+        String path = path(uri);
+        String host = host(uri);
+        return !path.isEmpty() ? path : !host.isEmpty() ? host : url;
+    }
 
     public static String resolve(@Nullable String baseUri, @Nullable String referenceUri) {
         StringBuilder uri = new StringBuilder();

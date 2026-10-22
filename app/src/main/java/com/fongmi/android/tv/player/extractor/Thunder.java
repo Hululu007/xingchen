@@ -308,7 +308,7 @@ public class Thunder implements Source.Extractor {
     // 改与磁力 BT 路同款门禁：只在引擎计数或落盘文件已有字节时交地址；
     // 200 轮（20 秒）仍 0 字节抛带状态的真错，不递死地址。
     // 健康任务首字节通常 1 秒内到，门禁不拖慢正常起播；预算卡在 ViewModel 30 秒超时内。
-    private String addThunderTask(String url) {
+    private String addThunderTask(String url) throws ExtractException {
         File folder = Path.thunder(Util.md5(url));
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
         File saveFile = taskId.getSaveFile();
@@ -596,8 +596,6 @@ public class Thunder implements Source.Extractor {
             if (!torrent) waitDone(taskId);
             try {
                 return XLTaskHelper.get().getTorrentInfo(taskId.getSaveFile()).getMedias().stream().map(this::create).toList();
-            } catch (ExtractException e) {
-                throw e;
             } catch (Exception e) {
                 // 种子信息取不到（元数据没到、SDK 回空）时原先 NPE 被上游吞成空结果、
                 // 界面静默 00:00；转成可见错，不递空结果。

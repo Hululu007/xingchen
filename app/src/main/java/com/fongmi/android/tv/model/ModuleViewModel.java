@@ -1,5 +1,9 @@
 package com.fongmi.android.tv.model;
 
+// 树适配说明（与上游定稿的差异，均因本树缺件）：本树 media3 叉版没有 BdjRuntime，
+// catvod 没有 PythonRuntime/QuickJsRuntime，本树没有 NodeRuntime 与 player.mpv.MpvUtil，
+// 故删去这五个导入；PYTHON/QUICKJS/NODEJS 检测改走 RuntimePlugin 通用入口，
+// BDJ 检测如实抛未接入，MPV 改内联上游 loadRuntime() 本体，BDJ 重启标记走通用口径。
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -17,19 +21,16 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.lifecycle.ViewModelStoreOwner;
-import androidx.media3.exoplayer.iso.BdjRuntime;
 import androidx.media3.exoplayer.offline.Downloader;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.api.node.NodeRuntime;
-import com.fongmi.android.tv.player.mpv.MpvUtil;
 import com.fongmi.android.tv.utils.ApkCache;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.RuntimeInstaller;
 import com.github.catvod.net.Download;
-import com.github.catvod.runtime.PythonRuntime;
-import com.github.catvod.runtime.QuickJsRuntime;
+import com.github.catvod.runtime.RuntimePlugin;
 import com.github.catvod.runtime.ThunderRuntime;
 import com.github.catvod.utils.RuntimeModule;
 import com.github.catvod.utils.Task;
@@ -217,25 +218,31 @@ public final class ModuleViewModel extends AndroidViewModel {
         signal.throwIfCanceled();
         long version = module.getVersionCode();
         switch (module) {
-            case BDJ -> BdjRuntime.prepare(getApplication(), signal);
-            case PYTHON -> module.entry(PythonRuntime.class).check();
-            case NODEJS -> checkNodeRuntime(signal);
-            case QUICKJS -> module.entry(QuickJsRuntime.class).check();
+            // 树适配：本树没有 BD-J 支持（无 BdjRuntime），检测如实抛未接入，不假装能测；
+            // 抛出点只在 BDJ 自己弹窗的检测动作里，失败原因可见，不连累其它模块。
+            case BDJ -> throw new IllegalStateException("本版未接入 BD-J 检测");
+            // 树适配：PYTHON/QUICKJS/NODEJS 统一走 RuntimePlugin 通用入口（本树无专用类）。
+            case PYTHON -> module.entry(RuntimePlugin.class).check();
+            case NODEJS -> module.entry(RuntimePlugin.class).check();
+            case QUICKJS -> module.entry(RuntimePlugin.class).check();
             case THUNDER -> module.entry(ThunderRuntime.class).check();
-            case MPV -> MpvUtil.loadRuntime();
+            // 树适配：本树没有 player.mpv.MpvUtil，改调下方内联的上游 loadRuntime() 本体。
+            case MPV -> loadMpvRuntime();
         }
         signal.throwIfCanceled();
         return version;
     }
 
-    private void checkNodeRuntime(CancellationSignal signal) throws Exception {
-        Thread worker = Thread.currentThread();
-        signal.setOnCancelListener(worker::interrupt);
-        try {
-            signal.throwIfCanceled();
-            NodeRuntime.get().client().check();
-        } finally {
-            signal.setOnCancelListener(null);
+    // 树适配：上游 MpvUtil.loadRuntime() 本体原文内联（本树无该类）。
+    private boolean loadMpvRuntime() {
+        synchronized (RuntimeModule.MPV) {
+            try {
+                if (RuntimeModule.MPV.isRestartRequired()) throw new IllegalStateException(ResUtil.getString(R.string.module_restart));
+                RuntimeModule.MPV.load();
+                return true;
+            } catch (IOException e) {
+                throw new IllegalStateException("Unable to prepare MPV module", e);
+            }
         }
     }
 
@@ -292,7 +299,8 @@ public final class ModuleViewModel extends AndroidViewModel {
     private Status getInstalledStatus() throws IOException {
         RuntimeModule.refresh();
         String installed = module.getVersionName();
-        boolean restart = module == RuntimeModule.BDJ ? BdjRuntime.getStatus(getApplication()).restartRequired : module.isRestartRequired();
+        // 树适配：本树没有 BdjRuntime，BDJ 的重启标记也走 RuntimeModule 通用口径。
+        boolean restart = module.isRestartRequired();
         boolean removable = installed != null;
         return new Status(RuntimeInstaller.getAbi(), installed, installed, false, restart, removable);
     }

@@ -24,6 +24,10 @@ public class ClearKey {
         return item;
     }
 
+    public boolean hasKeys() {
+        return keys != null && !keys.isEmpty();
+    }
+
     public static ClearKey get(String line) {
         ClearKey item = new ClearKey();
         item.keys = new ArrayList<>();

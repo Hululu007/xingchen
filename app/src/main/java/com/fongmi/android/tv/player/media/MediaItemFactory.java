@@ -8,11 +8,11 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
-import androidx.media3.common.util.LocalClearKeyLicense;
 import androidx.media3.common.util.Util;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
+import com.fongmi.android.tv.bean.ClearKey;
 import com.fongmi.android.tv.bean.Drm;
 import com.fongmi.android.tv.bean.EpgData;
 import com.fongmi.android.tv.bean.Sub;
@@ -110,9 +110,21 @@ public final class MediaItemFactory {
         return bestIndex;
     }
 
+    // 树适配：定稿用 media3 叉版的 LocalClearKeyLicense 嗅探 key 内容，本树 media3
+    // 没有这个类；改用树自有 ClearKey 解析（objectFrom 解析成功且 keys 非空＝
+    // clearkey 许可），嗅探不过再落 Drm.getUUID() 的类型口径，决策结构与定稿一致。
+    private static boolean isClearKeyLicense(String key) {
+        if (TextUtils.isEmpty(key)) return false;
+        try {
+            return ClearKey.objectFrom(key).hasKeys();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private static MediaItem.DrmConfiguration buildDrmConfig(Drm drm) {
         if (drm == null) return null;
-        UUID scheme = LocalClearKeyLicense.parse(drm.getKey()).isEmpty() ? drm.getUUID() : C.CLEARKEY_UUID;
+        UUID scheme = isClearKeyLicense(drm.getKey()) ? C.CLEARKEY_UUID : drm.getUUID();
         return new MediaItem.DrmConfiguration.Builder(scheme).setMultiSession(!C.CLEARKEY_UUID.equals(scheme)).setForceDefaultLicenseUri(drm.isForceKey()).setLicenseRequestHeaders(drm.getHeader()).setLicenseUri(drm.getKey()).build();
     }
 

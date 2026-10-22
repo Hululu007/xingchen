@@ -4172,6 +4172,7 @@ public class MusicPlayerActivity extends BaseActivity {
             // 第三波 S-A2：与列表页同款——选档前实测文件大小，实测不到不显示、不估算。
             // 堵-1：探查期间先给提示（toast，不新造弹窗）；回调首行存活守卫，页已走不建弹窗。
             Notify.show("正在查询大小…");
+            final int checkedFinal = checked;
             MusicDownloadStore.probeQualitySizes(track, values, sizes -> {
                 if (isFinishing() || isDestroyed()) return;
                 List<String> opts = new ArrayList<>();
@@ -4179,7 +4180,7 @@ public class MusicPlayerActivity extends BaseActivity {
                     String name = MusicStore.qualityName(values[i]);
                     opts.add(sizes[i] > 0 ? name + " · " + com.fongmi.android.tv.music.MusicCache.formatSize(sizes[i]) : name);
                 }
-                MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), opts, checked,
+                MusicOptionsDialog.show(this, getString(R.string.music_set_download_quality), opts, checkedFinal,
                         idx -> MusicDownloadStore.downloadWithQuality(track, values[idx]));
             });
             return;

@@ -131,11 +131,17 @@ public class DeviceMusicStore {
                     String rawTitle = c.getString(iTitle);
                     t.title = rawTitle == null ? null : com.fongmi.android.tv.utils.LocalTrackMeta.cleanTitle(rawTitle);
                     t.artist = c.getString(iArtist);
-                    if (iData >= 0 && com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(t.artist)) {
-                        String tagArtist = tagArtist(c.getString(iData));
+                    if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(t.artist)) {
+                        String tagArtist = iData >= 0 ? tagArtist(c.getString(iData)) : null;
+                        if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(tagArtist)) tagArtist = tagArtistByUri(ctx, id);
                         if (!com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(tagArtist)) t.artist = tagArtist;
                     }
                     t.album = c.getString(iAlbum);
+                    if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(t.album)) {
+                        String tagAlbum = iData >= 0 ? tagAlbum(c.getString(iData)) : null;
+                        if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(tagAlbum)) tagAlbum = tagAlbumByUri(ctx, id);
+                        if (!com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(tagAlbum)) t.album = tagAlbum;
+                    }
                     t.duration = c.getLong(iDur);
                     t.platform = DeviceMusicSource.PLATFORM;
                     long albumId = c.getLong(iAlbumId);
@@ -206,6 +212,56 @@ public class DeviceMusicStore {
         try {
             r.setDataSource(data);
             return r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 专辑文件标签兜底（跟 tagArtist 同口径：MediaStore 专辑占位时才读文件标签） */
+    private static String tagAlbum(String data) {
+        if (data == null || data.isEmpty()) return null;
+        java.io.File audio = new java.io.File(data);
+        if (!audio.isFile()) return null;
+        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        try {
+            r.setDataSource(data);
+            return r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 分区存储兜底：文件路径拿不到（DATA 列为空／无权直读）时走内容 URI 读标签，安卓 10＋ 上这路才通。 */
+    private static String tagArtistByUri(Context ctx, long mediaId) {
+        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        try {
+            r.setDataSource(ctx, ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId));
+            return r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                r.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static String tagAlbumByUri(Context ctx, long mediaId) {
+        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        try {
+            r.setDataSource(ctx, ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId));
+            return r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
         } catch (Throwable ignored) {
             return null;
         } finally {

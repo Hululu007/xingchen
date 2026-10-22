@@ -49,6 +49,16 @@ public class LocalTrackMeta {
                 || low.equals("未知艺术家") || low.equals("未知歌手");
     }
 
+    /** 专辑占位：空、unknown、未知专辑都算没专辑（跟歌手占位同口径，2026-10-22 专辑认不出修） */
+    public static boolean isPlaceholderAlbum(String album) {
+        if (album == null) return true;
+        String a = album.trim();
+        if (a.isEmpty()) return true;
+        if (a.startsWith("<") && a.endsWith(">") && a.length() > 2) a = a.substring(1, a.length() - 1).trim();
+        String low = a.toLowerCase();
+        return low.equals("unknown") || low.equals("unknown album") || low.equals("未知") || low.equals("未知专辑");
+    }
+
     /** 搜词／对歌用真歌手：占位返回空串 */
     public static String realArtist(String artist) {
         if (isPlaceholderArtist(artist)) return "";

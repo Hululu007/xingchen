@@ -152,8 +152,6 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowLyricWeight.setOnClickListener(v -> showLyricWeightDialog());
         refreshLyricAlignText();
         binding.rowLyricAlign.setOnClickListener(v -> showLyricAlignDialog());
-        refreshLyricBlurText();
-        binding.rowLyricBlur.setOnClickListener(v -> showLyricBlurDialog());
         refreshLyricPrimaryText();
         binding.rowLyricPrimary.setOnClickListener(v -> showLyricPrimaryDialog());
         initSwitch(binding.swShowTranslation, MusicStore.isShowTranslation(), MusicStore::setShowTranslation);
@@ -183,7 +181,6 @@ public class MusicSettingsActivity extends BaseActivity {
         refreshLyricFontSizeText();
         refreshLyricWeightText();
         refreshLyricAlignText();
-        refreshLyricBlurText();
         refreshLyricPrimaryText();
         refreshLyricPriorityText();
     }
@@ -503,23 +500,6 @@ public class MusicSettingsActivity extends BaseActivity {
     }
 
     /** 非当前行模糊行：0 关闭 1 轻度 2 中度 */
-    private void refreshLyricBlurText() {
-        int b = MusicStore.getLyricBlur();
-        binding.tvLyricBlur.setText(b == 0 ? "关闭" : b == 2 ? "中度" : "轻度");
-    }
-
-    private void showLyricBlurDialog() {
-        int[] values = {0, 1, 2};
-        List<String> opts = new ArrayList<>();
-        opts.add("关闭");
-        opts.add("轻度");
-        opts.add("中度");
-        MusicOptionsDialog.show(this, "非当前行模糊", opts, MusicStore.getLyricBlur(), idx -> {
-            MusicStore.setLyricBlur(values[idx]);
-            refreshLyricBlurText();
-        });
-    }
-
     /** 主歌词行：0 原文 1 翻译 2 音译（默认原文） */
     private void refreshLyricPrimaryText() {
         int p = MusicStore.getLyricPrimary();

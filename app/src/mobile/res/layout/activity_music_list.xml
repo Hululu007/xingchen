@@ -838,12 +838,13 @@
                 android:textColor="#1C1C1E"
                 android:textSize="14sp" />
 
+            <!-- 2026-10-22 歌单页对照：GZ 的搜索钮是 plain 放大镜、没有圆圈描边底 -->
             <ImageView
                 android:id="@+id/btnSheetsSearch"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:layout_marginStart="10dp"
-                android:background="@drawable/bg_circle_light"
+                android:background="@null"
                 android:padding="12dp"
                 android:src="@drawable/ic_music_search" />
         </LinearLayout>
@@ -1298,6 +1299,7 @@
                     android:visibility="gone" />
 
                 <LinearLayout
+                    android:id="@+id/hotHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="20dp"

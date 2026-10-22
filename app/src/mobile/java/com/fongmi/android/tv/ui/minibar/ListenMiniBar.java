@@ -372,10 +372,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.BOTTOM;
-        int side = ReadingSkin.dp(host, 16);
+        // 2026-10-22 迷你条位置跟瓜子不一样：瓜子是底部栏一体贴边停靠、无悬浮。
+        // 音乐条改贴底（左右边距 0、底浮空 0，只留导航条 inset＋宿主 extra）；听书条不动。
+        int side = music ? 0 : ReadingSkin.dp(host, 16);
         lp.leftMargin = side;
         lp.rightMargin = side;
-        lp.bottomMargin = bottomMargin(host);
+        lp.bottomMargin = bottomMargin(host, music);
         decor.addView(barView, lp);
         hostRef = new WeakReference<>(host);
         // 条自身淡入（200ms；页面级过渡这批不做，等海阔试水后统一上）
@@ -387,7 +389,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
     }
 
-    private int bottomMargin(Activity host) {
+    private int bottomMargin(Activity host, boolean music) {
         int nav = 0;
         try {
             androidx.core.graphics.Insets in = ViewCompat.getRootWindowInsets(
@@ -403,7 +405,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             } catch (Throwable ignored) {
             }
         }
-        return nav + extra + ReadingSkin.dp(host, 12);
+        return nav + extra + (music ? 0 : ReadingSkin.dp(host, 12));
     }
 
     private void detachBar() {

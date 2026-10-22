@@ -160,9 +160,18 @@ public class PyMusicSource implements MusicSource {
         if (siteKey.isEmpty() || vodId.isEmpty()) throw new Exception("歌曲缺少来源信息");
         Result detail = SiteApi.detailContent(siteKey, vodId, false, false);
         Vod vod = detail.getVod();
+        List<Flag> flags = vod == null ? null : vod.getFlags();
+        if (vod == null || flags == null || flags.isEmpty()) {
+            detail = SiteApi.detailContent(siteKey, vodId, true, false);
+            vod = detail.getVod();
+            flags = vod == null ? null : vod.getFlags();
+        }
         if (vod == null) throw new Exception("详情为空");
-        List<Flag> flags = vod.getFlags();
         if (flags == null || flags.isEmpty()) throw new Exception("没有播放列表");
+        if (track != null) {
+            if ((track.artist == null || track.artist.isEmpty()) && !vod.getActor().isEmpty()) track.artist = vod.getActor();
+            if ((track.album == null || track.album.isEmpty()) && !vod.getAlbum().isEmpty()) track.album = vod.getAlbum();
+        }
         Flag flag = pickFlag(flags, str(raw, "flag"));
         List<Episode> episodes = flag.getEpisodes();
         if (episodes == null || episodes.isEmpty()) throw new Exception("没有可播的集");
@@ -229,11 +238,30 @@ public class PyMusicSource implements MusicSource {
         return t;
     }
 
+    /** 列表整拉用：Vod 自带 vod_actor／vod_remarks，歌手按 artistOf 口径带过去（2026-10-22 酷我 py 歌手丢失根因：整拉一直走上面那个只有名和图的版本，歌手写死空）。专辑：Vod 模型没有专辑字段，py 列表转 VOD 时 album 就丢了，这里补不了，批量里另定。 */
+    public static MusicTrack trackForVod(String siteKey, com.fongmi.android.tv.bean.Vod vod) {
+        MusicTrack t = new MusicTrack();
+        t.id = PLATFORM + ":" + siteKey + ":" + vod.getId();
+        t.title = vod.getName();
+        t.artist = artistOf(vod);
+        t.album = vod.getAlbum();
+        t.cover = vod.getPic();
+        t.platform = PLATFORM;
+        JsonObject raw = new JsonObject();
+        raw.addProperty("siteKey", siteKey);
+        raw.addProperty("vodId", vod.getId());
+        raw.addProperty("ep", 0);
+        raw.addProperty("flag", "");
+        t.rawJson = raw.toString();
+        return t;
+    }
+
     private MusicTrack toTrack(Site site, Vod vod) {
         MusicTrack t = new MusicTrack();
         t.id = PLATFORM + ":" + site.getKey() + ":" + vod.getId();
         t.title = vod.getName();
         t.artist = artistOf(vod);
+        t.album = vod.getAlbum();
         t.cover = vod.getPic();
         t.platform = PLATFORM;
         JsonObject raw = new JsonObject();

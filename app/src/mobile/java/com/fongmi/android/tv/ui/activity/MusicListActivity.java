@@ -309,7 +309,10 @@ public class MusicListActivity extends BaseActivity {
             content.setLayoutParams(new android.widget.ScrollView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             scroll.addView(content);
-            root.addView(scroll, 0);
+            // 2026-10-22 插件管理打开是空的根因：极光背景是不透明底色（BASE 0xFFFAFAFC＋drawColor），
+            // 原来插 0 号位把滚动层垫到极光背景底下，整页被盖住。改插到极光背景后面一位，恢复原来层级（内容在极光上、空态覆盖层仍在最上）。
+            int auroraIndex = binding.auroraBg == null ? -1 : root.indexOfChild(binding.auroraBg);
+            root.addView(scroll, auroraIndex >= 0 ? auroraIndex + 1 : 0);
             binding.recycler.setNestedScrollingEnabled(false);
             ViewGroup.LayoutParams rlp = binding.recycler.getLayoutParams();
             rlp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -582,7 +585,8 @@ public class MusicListActivity extends BaseActivity {
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
         // 第 3 项：榜单详情页同样用英雄卡当页头，大标题行与工具条隐藏（排名不参与列表排序）
         // 第 9 项：猜你喜欢页同样用自己的标题＋英雄卡当页头，大标题行与工具条隐藏（播放／随机播／保存在英雄卡操作行）
-        binding.bigTitleRow.setVisibility((sheets || favHist || sheet || chartDetail || guess) ? View.GONE : View.VISIBLE);
+        // 2026-10-22 搜索页重做：搜索模式大标题行隐藏——顶栏居中标题已是“搜索”，再留左侧大“搜索”就是截图里的双标题。
+        binding.bigTitleRow.setVisibility((sheets || favHist || sheet || chartDetail || guess || mode.equals("search")) ? View.GONE : View.VISIBLE);
         binding.toolbar.setVisibility((mode.equals("sites") || sheets || chartDetail || guess) ? View.GONE : View.VISIBLE);
         if (favHist) {
             binding.btnPlayAll.setVisibility(View.GONE);
@@ -844,6 +848,8 @@ public class MusicListActivity extends BaseActivity {
         binding.searchLanding.setVisibility(View.GONE);
         binding.recycler.setVisibility(View.VISIBLE);
         binding.tabRow.setVisibility(View.VISIBLE);
+        // 结果出来工具条才回来（落地页已隐藏，见 showSearchLanding）。
+        binding.toolbar.setVisibility(View.VISIBLE);
         tabAdapter.notifyDataSetChanged();
         binding.tvBigTitle.setText(bigTitle);
         refreshSourceFilter();
@@ -1005,10 +1011,12 @@ public class MusicListActivity extends BaseActivity {
         binding.searchLanding.setVisibility(View.VISIBLE);
         binding.recycler.setVisibility(View.GONE);
         binding.tabRow.setVisibility(View.GONE);
-        binding.searchCountBar.setVisibility(View.VISIBLE);
-        binding.searchCountBar.setText("");
-        binding.searchGroupBar.setVisibility(View.VISIBLE);
-        binding.searchGroupBar.setText("");
+        // 2026-10-22 搜索页重做：落地页不许再出现空的组筛选条（空卡片背景就是截图里那个 stray 圆圈）、
+        // 空的计数条、结果工具条（随机播放／播放全部／来源／排序是结果才有的东西，落地页没有结果）。
+        binding.searchCountBar.setVisibility(View.GONE);
+        binding.searchGroupBar.setVisibility(View.GONE);
+        binding.toolbar.setVisibility(View.GONE);
+        if (binding.hotHeader != null) binding.hotHeader.setVisibility(View.GONE);
         refreshSourceFilter();
         tracks.clear();
         cards.clear();
@@ -1025,7 +1033,12 @@ public class MusicListActivity extends BaseActivity {
 
     /** 最近搜索胶囊：词 12sp、内边距 10/6dp、圆角 8dp；默认收起取前 10 条，点「更多」展开 */
     private void buildRecentChips() {
-        List<String> all = MusicStore.loadRecentSearches();
+        List<String> loaded = MusicStore.loadRecentSearches();
+        // 2026-10-22 搜索页重做：占位词（<unknown>／未知歌手等）不许进最近搜索胶囊。
+        List<String> all = new ArrayList<>();
+        for (String w : loaded) {
+            if (w != null && !com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(w)) all.add(w);
+        }
         binding.recentFlow.removeAllViews();
         int show = searchRecentExpanded ? all.size() : Math.min(all.size(), 10);
         for (int i = 0; i < show; i++) {
@@ -1094,14 +1107,11 @@ public class MusicListActivity extends BaseActivity {
     /** 热搜行：排名 15sp 宽 28dp＋词 15sp＋副内容（歌手）12sp；热度栏无数据来源，不显 */
     private void buildHotRows() {
         binding.hotRows.removeAllViews();
-        if (searchHotTerms == null || searchHotTerms.isEmpty()) {
-            TextView none = new TextView(this);
-            none.setText("暂无热搜");
-            none.setTextSize(12);
-            none.setTextColor(0xFF9AA7B8);
-            binding.hotRows.addView(none);
-            return;
-        }
+        // 2026-10-22 搜索页重做：热搜没数据时整段隐藏（不留空标题、不贴“暂无热搜”占位）。
+        boolean hotEmpty = searchHotTerms == null || searchHotTerms.isEmpty();
+        if (binding.hotHeader != null) binding.hotHeader.setVisibility(hotEmpty ? View.GONE : View.VISIBLE);
+        binding.hotRows.setVisibility(hotEmpty ? View.GONE : View.VISIBLE);
+        if (hotEmpty) return;
         for (int i = 0; i < searchHotTerms.size(); i++) {
             MusicTrack t = searchHotTerms.get(i);
             LinearLayout row = new LinearLayout(this);
@@ -1164,6 +1174,8 @@ public class MusicListActivity extends BaseActivity {
 
     private void addGuessArtist(List<String> out, String artist) {
         if (artist == null || artist.isEmpty() || out.contains(artist)) return;
+        // 2026-10-22 搜索页重做：占位歌手（<unknown>／未知歌手等）不许进猜词。
+        if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(artist)) return;
         if (out.size() >= 8) return;
         out.add(artist);
     }
@@ -1171,17 +1183,36 @@ public class MusicListActivity extends BaseActivity {
     private void renderGuessRows(List<String> terms) {
         binding.guessRows.removeAllViews();
         binding.guessHeader.setVisibility(terms.isEmpty() ? View.GONE : View.VISIBLE);
+        // 2026-10-22 搜索页重做：猜词不再是裸文字行，改成带放大镜图标＋底分隔线的正经行。
         for (String w : terms) {
-            TextView row = new TextView(this);
-            row.setText(w);
-            row.setTextSize(15);
-            row.setTextColor(0xFF1C1C1E);
-            row.setPadding(0, dp(6), 0, dp(6));
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(10), 0, dp(10));
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(R.drawable.ic_music_search);
+            icon.setColorFilter(0xFF9AA7B8);
+            LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+            iconLp.rightMargin = dp(10);
+            row.addView(icon, iconLp);
+            TextView tv = new TextView(this);
+            tv.setText(w);
+            tv.setTextSize(15);
+            tv.setTextColor(0xFF1C1C1E);
+            tv.setSingleLine(true);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             row.setOnClickListener(v -> {
                 binding.etKeyword.setText(w);
                 doSearch();
             });
             binding.guessRows.addView(row);
+            View div = new View(this);
+            div.setBackgroundColor(0x14000000);
+            LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+            divLp.leftMargin = dp(30);
+            binding.guessRows.addView(div);
         }
     }
 
@@ -4283,19 +4314,101 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private void inputPlaylistName(NameInput cb) {
+        // 2026-10-22 歌单页对照 GZ CreatePlaylistDialog 重做：旧 dialog 是下划线裸输入框＋黄字取消／确定，
+        // 且输入字是白色、在浅底上打出来看不见；新版照 GZ 结构（红图标＋标题＋副标题＋圆角输入框＋大创建钮）。
+        // 封面选择与开通赞助不做——星辰歌单无封面字段、不要账号与付费项，不硬做空壳。
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        root.setPadding(0, dp(8), 0, dp(8));
+        TextView icon = new TextView(this);
+        icon.setText("≡+");
+        icon.setTextSize(22);
+        icon.setTextColor(0xFFFFFFFF);
+        icon.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable iconBg = new android.graphics.drawable.GradientDrawable();
+        iconBg.setColor(0xFFFA243C);
+        iconBg.setCornerRadius(dp(16));
+        icon.setBackground(iconBg);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(56), dp(56));
+        iconLp.bottomMargin = dp(12);
+        root.addView(icon, iconLp);
+        TextView title = new TextView(this);
+        title.setText(R.string.music_new_playlist);
+        title.setTextSize(20);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(0xFF1C1C1E);
+        title.setGravity(android.view.Gravity.CENTER);
+        root.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("给自建歌单起个名字");
+        sub.setTextSize(12);
+        sub.setTextColor(0xFF8E8E93);
+        sub.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(6);
+        subLp.bottomMargin = dp(16);
+        root.addView(sub, subLp);
         EditText et = new EditText(this);
-        et.setHint(R.string.music_playlist_name_hint);
-        et.setTextColor(0xFFFFFFFF);
-        et.setHintTextColor(0xFF5E6B7E);
+        et.setHint("请输入歌单名称");
+        et.setTextColor(0xFF1C1C1E);
+        et.setHintTextColor(0xFF8E8E93);
         et.setSingleLine(true);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        et.setPadding(pad, pad, pad, pad);
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.music_new_playlist)
-                .setView(et)
-                .setPositiveButton(android.R.string.ok, (d, w) -> cb.onResult(et.getText().toString()))
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        et.setTextSize(15);
+        et.setBackgroundResource(R.drawable.home_bg_search);
+        et.setPadding(dp(16), dp(12), dp(16), dp(12));
+        root.addView(et, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        TextView create = new TextView(this);
+        create.setText("创建");
+        create.setTextSize(16);
+        create.setTextColor(0xFFFFFFFF);
+        create.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable createBg = new android.graphics.drawable.GradientDrawable();
+        createBg.setCornerRadius(dp(24));
+        create.setBackground(createBg);
+        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        createLp.topMargin = dp(16);
+        root.addView(create, createLp);
+        TextView cancel = new TextView(this);
+        cancel.setText(android.R.string.cancel);
+        cancel.setTextSize(14);
+        cancel.setTextColor(0xFF8E8E93);
+        cancel.setGravity(android.view.Gravity.CENTER);
+        cancel.setPadding(0, dp(14), 0, 0);
+        root.addView(cancel);
+        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+                .setView(root)
+                .setCancelable(true)
+                .create();
+        Runnable refreshCreate = () -> {
+            boolean hasName = et.getText() != null && !et.getText().toString().trim().isEmpty();
+            createBg.setColor(hasName ? 0xFFFA243C : 0xFFF5A8B0);
+            create.setEnabled(hasName);
+        };
+        et.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                refreshCreate.run();
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+        refreshCreate.run();
+        create.setOnClickListener(v -> {
+            String name = et.getText() == null ? "" : et.getText().toString();
+            dialog.dismiss();
+            cb.onResult(name);
+        });
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        dialog.show();
     }
 
     // ================= 导入歌单 =================

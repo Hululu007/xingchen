@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.content.res.ColorStateList;
+import android.net.Uri;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -29,6 +30,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -375,8 +377,19 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         });
     }
 
-    /** HEAD 取 Content-Length（跟随跳转，5 秒超时，复用单例客户端）；无长度／失败返回 -1。 */
+    /** HEAD 取 Content-Length（跟随跳转，5 秒超时，复用单例客户端）；无长度／失败返回 -1。
+     * 本地歌取链返回 file:// 地址，OkHttp 发不出 HEAD，改直接读文件长度。 */
     private static long headContentLength(String url) {
+        if (url != null && url.startsWith("file://")) {
+            try {
+                String path = Uri.parse(url).getPath();
+                if (path == null) return -1;
+                long len = new File(path).length();
+                return len > 0 ? len : -1;
+            } catch (Throwable ignored) {
+                return -1;
+            }
+        }
         okhttp3.OkHttpClient client = HEAD_CLIENT;
         okhttp3.Request req = new okhttp3.Request.Builder().url(url).head().build();
         try (okhttp3.Response resp = client.newCall(req).execute()) {

@@ -601,27 +601,6 @@
                     <View style="@style/MusicSettingDivider" />
 
                     <LinearLayout
-                        android:id="@+id/rowLyricBlur"
-                        style="@style/MusicSettingRow">
-
-                        <ImageView
-                            style="@style/MusicSettingIcon"
-                            android:backgroundTint="#CFD8DC"
-                            android:contentDescription="@null"
-                            android:src="@drawable/ic_setting_blur" />
-
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="非当前行模糊" />
-
-                        <TextView
-                            android:id="@+id/tvLyricBlur"
-                            style="@style/MusicSettingValue" />
-                    </LinearLayout>
-
-                    <View style="@style/MusicSettingDivider" />
-
-                    <LinearLayout
                         android:id="@+id/rowLyricPrimary"
                         style="@style/MusicSettingRow">
 

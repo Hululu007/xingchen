@@ -1882,6 +1882,8 @@ public class MusicPlaybackService extends MediaSessionService {
             int reason = lastFailReasonRes != 0 ? lastFailReasonRes : R.string.music_fail_unknown;
             listeners.forEach(l -> l.onTrackFailed(failed, reason));
         }
+        // 自动跳歌链后台不断链：失败收口前先顶回前台，免得后台跳歌时回调被推迟到回前台才执行。
+        if (autoAdvancing) startForegroundNow();
         if (MusicStore.isAutoSkipOnError() && advancePastFailed(failed)) return;
         // 第三波 G-B5：lx: 歌且无支撑落雪脚本时，提示改指缺脚本而非通用失败
         if (!lxNoSupportNotified(failed)) Notify.show(R.string.music_play_failed_stopped);
@@ -2241,6 +2243,18 @@ public class MusicPlaybackService extends MediaSessionService {
                             && player.getPlaybackState() == Player.STATE_ENDED) {
                         endedConsumed = true;
                         SpiderDebug.log("music", "trackEnded via ticker watchdog mode=%d", queue.getMode());
+                        onTrackEnded();
+                    }
+                    // 卡尾兜底：ENDED 没到、但播放器想播却停在曲尾（厂商吞回调／尾字节挂住），
+                    // 直接按曲终决策推进；用户手动暂停（playWhenReady=false）不触发。
+                    if (player != null && !preparing && !endedConsumed
+                            && player.getPlayWhenReady() && !player.isPlaying()
+                            && player.getPlaybackState() != Player.STATE_IDLE
+                            && player.getPlaybackState() != Player.STATE_ENDED
+                            && player.getDuration() > 0
+                            && player.getCurrentPosition() >= player.getDuration() - 500) {
+                        endedConsumed = true;
+                        SpiderDebug.log("music", "trackEnded via tail watchdog mode=%d", queue.getMode());
                         onTrackEnded();
                     }
                 } catch (Throwable ignored) {

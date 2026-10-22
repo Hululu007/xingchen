@@ -42,6 +42,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
+        android:clipChildren="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="28dp"
@@ -133,10 +134,15 @@
             </TableLayout>
         </LinearLayout>
 
+        <!-- 三键列：中心贴歌名行（瓜子实拍：键中心＝歌名中心），不是贴整块两行居中。
+             外行高 52dp（28＋2＋22），居中会把键顶推到 6dp、中心 26dp，比歌名中心 14dp 低 12dp；
+             负边距 -12dp 把键顶拉到 -6dp、中心回到 14dp，与歌名中心齐平；上溢 6dp 靠外行 clipChildren=false 露出，
+             上方还有 12dp 顶距垫着，不会顶到封面。 -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
+            android:layout_marginTop="-12dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 

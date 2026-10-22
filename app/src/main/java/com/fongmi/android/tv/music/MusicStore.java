@@ -460,6 +460,8 @@ public class MusicStore {
         if (kw == null) return;
         kw = kw.trim();
         if (kw.isEmpty()) return;
+        // 2026-10-22 搜索页重做：占位词（<unknown>／未知歌手等）不许记进最近搜索。
+        if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(kw)) return;
         try {
             List<String> list = loadRecentSearches();
             list.remove(kw);
@@ -787,13 +789,6 @@ public class MusicStore {
     /** 歌词对齐：靠右 */
     public static final int LYRIC_ALIGN_RIGHT = 2;
 
-    /** 非当前行模糊：关闭 */
-    public static final int LYRIC_BLUR_OFF = 0;
-    /** 非当前行模糊：轻度 */
-    public static final int LYRIC_BLUR_LIGHT = 1;
-    /** 非当前行模糊：中度 */
-    public static final int LYRIC_BLUR_MEDIUM = 2;
-
     /** 主歌词：原文 */
     public static final int LYRIC_PRIMARY_ORIGINAL = 0;
     /** 主歌词：翻译 */
@@ -806,7 +801,6 @@ public class MusicStore {
     private static final String K_LYRIC_FONT_SIZE = "music_lyric_font_size";
     private static final String K_LYRIC_WEIGHT = "music_lyric_weight";
     private static final String K_LYRIC_ALIGN = "music_lyric_align";
-    private static final String K_LYRIC_BLUR = "music_lyric_blur";
     private static final String K_LYRIC_PRIMARY = "music_lyric_primary";
     private static final String K_SHOW_TRANSLATION = "music_show_translation";
     private static final String K_SHOW_ROMANIZATION = "music_show_romanization";
@@ -907,15 +901,6 @@ public class MusicStore {
 
     public static void setLyricAlign(int align) {
         Prefers.put(K_LYRIC_ALIGN, Math.max(LYRIC_ALIGN_LEFT, Math.min(LYRIC_ALIGN_RIGHT, align)));
-    }
-
-    /** 非当前行模糊：0 关 1 轻 2 中（默认轻，与工具面板“恢复默认”值一致） */
-    public static int getLyricBlur() {
-        return Prefers.getInt(K_LYRIC_BLUR, LYRIC_BLUR_LIGHT);
-    }
-
-    public static void setLyricBlur(int blur) {
-        Prefers.put(K_LYRIC_BLUR, Math.max(LYRIC_BLUR_OFF, Math.min(LYRIC_BLUR_MEDIUM, blur)));
     }
 
     /** 主歌词：0 原文 1 翻译 2 音译（默认原文） */

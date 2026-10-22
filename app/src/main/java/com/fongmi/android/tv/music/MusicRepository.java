@@ -470,7 +470,6 @@ public class MusicRepository {
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
             }
-            break;
         }
         return null;
     }
@@ -600,7 +599,6 @@ public class MusicRepository {
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
             }
-            break;
         }
         // 4. Worker 聚合（主来源，已接线）：cfLyricWord 只认本地解析逐字，
         // 弱网／超时回空，不阻塞回落；回包口径不动。
@@ -866,7 +864,7 @@ public class MusicRepository {
                 }
             }
         }
-        // 3. 歌词型插件直查（与快路径同一步：只问第一个 FreeJS 源的歌词插件）
+        // 3. 歌词型插件直查（与快路径同一步：逐个问 FreeJS 源的歌词插件，2026-10-22 前这里无条件 break 只问第一家）
         for (MusicSource other : SOURCES) {
             if (!(other instanceof FreeJsMusicSource)) continue;
             try {
@@ -877,7 +875,6 @@ public class MusicRepository {
                 complete = false;
                 SpiderDebug.log("music", "lyricRichAll plugin search error %s", t.getMessage());
             }
-            break;
         }
         // 4. Worker 聚合（主来源，已接线）：cfLyricWordAll 全量交 addVersion，
         // 逐字签仍由 addVersion 本地解析正文判定，不认回包 kind 宣称。

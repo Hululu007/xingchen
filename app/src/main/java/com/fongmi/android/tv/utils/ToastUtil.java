@@ -2,12 +2,17 @@ package com.fongmi.android.tv.utils;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 
 import com.fongmi.android.tv.App;
 import com.google.android.material.snackbar.Snackbar;
@@ -40,11 +45,56 @@ public class ToastUtil {
                     if (current != null) current.dismiss();
                     int len = duration == Toast.LENGTH_LONG ? Snackbar.LENGTH_LONG : Snackbar.LENGTH_SHORT;
                     Snackbar bar = Snackbar.make(anchor, text, len);
-                    bar.getView().setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF262626")));
-                    TextView tv = bar.getView().findViewById(com.google.android.material.R.id.snackbar_text);
+                    View sbView = bar.getView();
+                    float density = activity.getResources().getDisplayMetrics().density;
+                    int screenW = activity.getResources().getDisplayMetrics().widthPixels;
+                    // 2026-10-22 潇洒哥纠正：提示不许贴底盖 tab 栏、不许满宽大条。
+                    // 改回老 Toast 的形态：居中小胶囊，字白底深；位置浮在 tab 栏上方（有 tab 栏时按其实高＋底边距＋8dp 缝顶上去，
+                    // 无 tab 栏时按老 Toast 的 64dp 底边距），不再是贴底满宽大条。
+                    GradientDrawable pill = new GradientDrawable();
+                    pill.setColor(Color.parseColor("#FF262626"));
+                    pill.setCornerRadius(24 * density);
+                    sbView.setBackground(pill);
+                    int padH = Math.round(24 * density);
+                    int padV = Math.round(12 * density);
+                    sbView.setPadding(padH, padV, padH, padV);
+                    TextView tv = sbView.findViewById(com.google.android.material.R.id.snackbar_text);
                     if (tv != null) {
                         tv.setTextColor(Color.WHITE);
                         tv.setMaxLines(5);
+                        tv.setMaxWidth(Math.round(screenW * 0.85f));
+                    }
+                    int bottomMargin = Math.round(64 * density);
+                    int navId = activity.getResources().getIdentifier("navigation", "id", activity.getPackageName());
+                    View tabBar = navId != 0 ? activity.findViewById(navId) : null;
+                    if (tabBar != null && tabBar.getVisibility() == View.VISIBLE) {
+                        int tabH = tabBar.getHeight();
+                        if (tabH <= 0) {
+                            int dimId = activity.getResources().getIdentifier("xc_bottombar_height", "dimen", activity.getPackageName());
+                            tabH = dimId != 0 ? activity.getResources().getDimensionPixelSize(dimId) : Math.round(56 * density);
+                        }
+                        int tabBottomMargin = 0;
+                        ViewGroup.LayoutParams tlp = tabBar.getLayoutParams();
+                        if (tlp instanceof ViewGroup.MarginLayoutParams) tabBottomMargin = ((ViewGroup.MarginLayoutParams) tlp).bottomMargin;
+                        if (tabBottomMargin <= 0) {
+                            int dimId = activity.getResources().getIdentifier("xc_bottombar_margin_bottom", "dimen", activity.getPackageName());
+                            if (dimId != 0) tabBottomMargin = activity.getResources().getDimensionPixelSize(dimId);
+                        }
+                        bottomMargin = tabH + tabBottomMargin + Math.round(8 * density);
+                    }
+                    ViewGroup.LayoutParams lp = sbView.getLayoutParams();
+                    if (lp instanceof FrameLayout.LayoutParams) {
+                        FrameLayout.LayoutParams flp = (FrameLayout.LayoutParams) lp;
+                        flp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        flp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
+                        flp.bottomMargin = bottomMargin;
+                        sbView.setLayoutParams(flp);
+                    } else if (lp instanceof CoordinatorLayout.LayoutParams) {
+                        CoordinatorLayout.LayoutParams clp = (CoordinatorLayout.LayoutParams) lp;
+                        clp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        clp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
+                        clp.bottomMargin = bottomMargin;
+                        sbView.setLayoutParams(clp);
                     }
                     current = bar;
                     bar.show();

@@ -358,10 +358,6 @@
     <string name="music_align_left">靠左</string>
     <string name="music_align_center">居中</string>
     <string name="music_align_right">靠右</string>
-    <string name="music_lyric_blur">模糊</string>
-    <string name="music_blur_off">关闭</string>
-    <string name="music_blur_light">轻度</string>
-    <string name="music_blur_medium">中度</string>
     <string name="music_lyric_primary">主歌词</string>
     <string name="music_primary_original">原文</string>
     <string name="music_primary_translation">翻译</string>

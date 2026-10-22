@@ -211,6 +211,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        // 工具面板遮罩：瓜子面板打开后底下播放页是暗下去的，星辰这边原来无遮罩（页全亮、面板飘在上面）。
+        // 在此显式加遮罩；0.32 为平台默认遮罩值（瓜子面板遮罩确数未从源码抠到，不写成瓜子值）。
+        try {
+            if (getDialog() != null && getDialog().getWindow() != null) {
+                getDialog().getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+                getDialog().getWindow().setDimAmount(0.32f);
+            }
+        } catch (Throwable ignored) {
+        }
         // 右缘防裁切：窗口宽强制 MATCH_PARENT，行值/开关完整可见
         try {
             if (getDialog() != null && getDialog().getWindow() != null) {
@@ -1425,14 +1434,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     fireLyricChanged();
                     showPanel(PANEL_LYRIC);
                 }), marginTop(dp(14)));
-        box.addView(lyricSegRow(getString(R.string.music_lyric_blur),
-                new String[]{getString(R.string.music_blur_off), getString(R.string.music_blur_light),
-                        getString(R.string.music_blur_medium)},
-                MusicStore.getLyricBlur(), idx -> {
-                    MusicStore.setLyricBlur(idx);
-                    fireLyricChanged();
-                    showPanel(PANEL_LYRIC);
-                }), marginTop(dp(14)));
         box.addView(lyricSegRow(getString(R.string.music_lyric_primary),
                 new String[]{getString(R.string.music_primary_original), getString(R.string.music_primary_translation),
                         getString(R.string.music_primary_romanization)},
@@ -1455,7 +1456,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     if (on) showAdvancedFxConfirm();
                 }));
         box.addView(card, marginTop(dp(16)));
-        // 恢复默认钮高 28dp（L5：全屏字号 24／封面字号 22 分别复位；其余粗细／对齐／模糊口径不变）
+        // 恢复默认钮高 28dp（L5：全屏字号 24／封面字号 22 分别复位；其余粗细／对齐口径不变）
         TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_DARK, false);
         restore.setGravity(Gravity.CENTER);
         restore.setBackgroundResource(R.drawable.bg_sheet_card);
@@ -1465,7 +1466,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             MusicStore.setCoverLyricFontSize(22f);
             MusicStore.setLyricWeight(MusicStore.LYRIC_WEIGHT_NORMAL);
             MusicStore.setLyricAlign(MusicStore.LYRIC_ALIGN_LEFT);
-            MusicStore.setLyricBlur(MusicStore.LYRIC_BLUR_LIGHT);
             fireLyricChanged();
             showPanel(PANEL_LYRIC);
         });

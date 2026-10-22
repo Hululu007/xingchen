@@ -144,6 +144,76 @@ public class MusicActivity extends BaseActivity {
         sHomeChartToneSet = false;
         sHomeChartCacheAt = 0;
         sHomeChartInvalidated = true;
+        try {
+            java.io.File f = new java.io.File(com.fongmi.android.tv.App.get().getFilesDir(), "music_home_chart.json");
+            if (f.isFile()) f.delete();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 榜单磁盘快照（2026-10-22 新歌榜冷启动像贴上去根因：静态缓存只活进程内，冷启动必重拉；落盘后冷启动先显快照、后台静默刷）。 */
+    private static class HomeChartSnapshot {
+        public java.util.List<MusicChart> tabs;
+        public String selName;
+        public String selKey;
+        public java.util.List<MusicTrack> tracks;
+        public int tone;
+        public String toneCover;
+        public boolean toneSet;
+        public long cacheAt;
+    }
+
+    private static void writeHomeChartDisk() {
+        try {
+            HomeChartSnapshot s = new HomeChartSnapshot();
+            s.tabs = sHomeChartTabs;
+            s.selName = sHomeChartSelName;
+            s.selKey = sHomeChartSelKey;
+            s.tracks = sHomeChartTracks;
+            s.tone = sHomeChartTone;
+            s.toneCover = sHomeChartToneCover;
+            s.toneSet = sHomeChartToneSet;
+            s.cacheAt = sHomeChartCacheAt;
+            String json = com.fongmi.android.tv.App.gson().toJson(s);
+            java.io.File f = new java.io.File(com.fongmi.android.tv.App.get().getFilesDir(), "music_home_chart.json");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            try {
+                out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } finally {
+                out.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 冷启动时把磁盘快照灌回静态缓存（静态为空时才读，读到坏文件当无缓存）。 */
+    private static void loadHomeChartDisk() {
+        if (sHomeChartTabs != null && !sHomeChartTabs.isEmpty()) return;
+        try {
+            java.io.File f = new java.io.File(com.fongmi.android.tv.App.get().getFilesDir(), "music_home_chart.json");
+            if (!f.isFile() || f.length() == 0) return;
+            byte[] bytes = new byte[(int) Math.min(f.length(), 4L * 1024 * 1024)];
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            int read;
+            try {
+                read = in.read(bytes);
+            } finally {
+                in.close();
+            }
+            if (read <= 0) return;
+            HomeChartSnapshot s = com.fongmi.android.tv.App.gson().fromJson(
+                    new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8), HomeChartSnapshot.class);
+            if (s == null || s.tabs == null || s.tabs.isEmpty() || s.tracks == null || s.tracks.isEmpty()) return;
+            sHomeChartTabs = s.tabs;
+            sHomeChartSelName = s.selName;
+            sHomeChartSelKey = s.selKey;
+            sHomeChartTracks = s.tracks;
+            sHomeChartTone = s.tone;
+            sHomeChartToneCover = s.toneCover == null ? "" : s.toneCover;
+            sHomeChartToneSet = s.toneSet;
+            sHomeChartCacheAt = s.cacheAt;
+        } catch (Throwable ignored) {
+        }
     }
 
     private static boolean eq(String a, String b) {
@@ -162,6 +232,7 @@ public class MusicActivity extends BaseActivity {
         sHomeChartToneCover = homeChartToneCover;
         sHomeChartToneSet = true;
         sHomeChartCacheAt = System.currentTimeMillis();
+        writeHomeChartDisk();
     }
 
     /** 新实例先用缓存还原：签行首建（新实例视图本来就是空的，不是重建）、tone 先取缓存值画下划线、内容直接填，
@@ -338,6 +409,8 @@ public class MusicActivity extends BaseActivity {
      */
     private void loadHomeChart() {
         // 缓存快路：新实例先显缓存；新鲜（10 分钟内）直接停，过期则静默刷新（先验签表、再刷当前签曲目）。
+        // 冷启动静态缓存是空的，先从磁盘快照灌回再走同一快路（快照新鲜直接停、过期先显后静默刷，不再空屏转圈再贴上去）。
+        loadHomeChartDisk();
         if (restoreHomeChartCache()) {
             if (System.currentTimeMillis() - sHomeChartCacheAt < HOME_CHART_CACHE_TTL_MS) return;
             refreshHomeChartSilently();
@@ -769,20 +842,7 @@ public class MusicActivity extends BaseActivity {
                 getString(R.string.music_cloud_drive),
                 "115／夸克",
                 () -> dismissThen.accept(() -> MusicCloudActivity.start(this))));
-        // 第三波 H4：听歌统计行——树内无独立统计／报告页，落点与聆听报告卡同款：
-        // 完整明细＝播放历史页（报告数据的全部明细），摘要仍在报告卡上；周聚合未做
-        // （播放记录 MusicStore.loadRecent() 存的只是 MusicTrack，无播放时间戳，算不出
-        // 本周／峰值时段／活跃天，见 refreshReport 注释），不编周口径数据。
-        View dividerStats = new View(this);
-        dividerStats.setBackgroundColor(0x14000000);
-        LinearLayout.LayoutParams dividerStatsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerStatsLp.leftMargin = dp(62);
-        card.addView(dividerStats, dividerStatsLp);
-        card.addView(menuRow(R.drawable.ic_bar_chart, 0xFF34C759,
-                "听歌统计",
-                "最近播放 · 收藏",
-                () -> dismissThen.accept(this::openFullReport)));
+        // 2026-10-22 潇洒哥：首页已有播放历史，⋮菜单的听歌统计纯重复（点开就是播放历史页），整行删掉。
         View divider2 = new View(this);
         divider2.setBackgroundColor(0x14000000);
         LinearLayout.LayoutParams dividerLp2 = new LinearLayout.LayoutParams(

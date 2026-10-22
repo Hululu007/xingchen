@@ -60,6 +60,9 @@ public class Vod implements Parcelable, Diffable<Vod> {
     @Element(name = "actor", required = false)
     @SerializedName("vod_actor")
     private String vodActor;
+    @Element(name = "album", required = false)
+    @SerializedName(value = "vod_album", alternate = {"album"})
+    private String vodAlbum;
     @Element(name = "des", required = false)
     @SerializedName("vod_content")
     private String vodContent;
@@ -197,6 +200,10 @@ public class Vod implements Parcelable, Diffable<Vod> {
 
     public String getActor() {
         return TextUtils.isEmpty(vodActor) ? "" : vodActor.trim();
+    }
+
+    public String getAlbum() {
+        return TextUtils.isEmpty(vodAlbum) ? "" : vodAlbum.trim();
     }
 
     public String getContent() {

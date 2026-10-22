@@ -61,7 +61,7 @@ public class MusicVodRouter {
                     index = queue.size();
                     found = true;
                 }
-                queue.add(PyMusicSource.trackForVod(siteKey, v.getId(), v.getName(), v.getPic()));
+                queue.add(PyMusicSource.trackForVod(siteKey, v));
             }
             if (queue.isEmpty()) return false;
             MusicController.get().play(queue, index, site.getName(), "list", null);

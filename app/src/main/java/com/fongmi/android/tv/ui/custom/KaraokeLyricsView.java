@@ -3,6 +3,8 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
@@ -1773,8 +1775,9 @@ public class KaraokeLyricsView extends View {
         long duration = Math.max(1, seg.charDurationMs);
         long originalDuration = word.getDurationMs();
         // 变色进度：按字符切片时长归一（与上浮分母分开，GZ 同口径）。
+        // 扫速：GZ liveSungOf 在字符内线性插值，扫边匀速走，不用 easeOutQuad（每字先快后慢会抖）。
         float colorProgress = clampF((relative - start) / (float) duration, 0f, 1f);
-        float colorEased = 1f - (1f - colorProgress) * (1f - colorProgress); // easeOutQuad（星辰现行提亮曲线）
+        float colorEased = colorProgress;
         int alpha = Math.round(255 * (WORD_ALPHA_FROM + (1f - WORD_ALPHA_FROM) * colorEased));
 
         float drawY = y;
@@ -1859,7 +1862,12 @@ public class KaraokeLyricsView extends View {
                     int saveClip = canvas.save();
                     canvas.clipRect(drawX, drawY + fm.top - em * 0.1f,
                             drawX + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
+                    float edgeX = drawX + seg.width * colorProgress;
+                    float feather = 0.35f * em;
+                    textPaint.setShader(new LinearGradient(edgeX - feather, 0, edgeX, 0,
+                            new int[]{subColor, Color.TRANSPARENT}, null, Shader.TileMode.CLAMP));
                     canvas.drawText(seg.text, drawX, drawY, textPaint);
+                    textPaint.setShader(null);
                     canvas.restoreToCount(saveClip);
                 }
             }
@@ -1878,7 +1886,12 @@ public class KaraokeLyricsView extends View {
                     int saveClip = canvas.save();
                     canvas.clipRect(drawX, drawY + fm.top - em * 0.1f,
                             drawX + seg.width * colorProgress, drawY + fm.bottom + em * 0.1f);
+                    float edgeX = drawX + seg.width * colorProgress;
+                    float feather = 0.35f * em;
+                    textPaint.setShader(new LinearGradient(edgeX - feather, 0, edgeX, 0,
+                            new int[]{activeColor(), Color.TRANSPARENT}, null, Shader.TileMode.CLAMP));
                     canvas.drawText(seg.text, drawX, drawY, textPaint);
+                    textPaint.setShader(null);
                     canvas.restoreToCount(saveClip);
                 }
             }

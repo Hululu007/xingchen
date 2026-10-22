@@ -64,6 +64,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     private static final int COLOR_CURRENT_INDEX = 0xB3FA243C; // 当前行序号＝AccentRed × 0.7
 
     private DialogMusicQueueBinding binding;
+    private FrameLayout sheetView;
+    private BottomSheetBehavior<FrameLayout> sheetBehavior;
     private final List<MusicTrack> tracks = new ArrayList<>();
     private QueueAdapter adapter;
     private ItemTouchHelper touchHelper;
@@ -123,6 +125,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             sheet.setLayoutParams(clp);
         }
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        sheetView = sheet;
+        sheetBehavior = behavior;
         behavior.setFitToContents(false);
         behavior.setDraggable(false);
         behavior.setSkipCollapsed(true);
@@ -317,6 +321,21 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                     binding.recycler.setLayoutParams(recLp);
                 }
             }
+            reanchorToRoot();
+        });
+    }
+
+    /** 贴底重锚：锚定必须按卡片（根）实高算，不能按 sheet 高——sheet 高可能跟内容脱节
+     * （空态先按 0.68 撑满、内容到后根回缩，sheet 高不变时布局监听不触发，旧锚点就把卡片
+     * 钉在半空、下面漏一截播放页底栏，正是 112892 两首时那截空）。post 排在高度改动之后，
+     * 跑时根高已是布局后的实高。 */
+    private void reanchorToRoot() {
+        if (binding == null || sheetView == null || sheetBehavior == null) return;
+        View root = binding.getRoot();
+        root.post(() -> {
+            if (binding == null || sheetView == null || sheetBehavior == null) return;
+            int rh = binding.getRoot().getHeight();
+            if (rh > 0) anchorSheet(sheetView, sheetBehavior, rh);
         });
     }
 

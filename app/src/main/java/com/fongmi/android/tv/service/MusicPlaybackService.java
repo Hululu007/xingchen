@@ -2172,7 +2172,7 @@ public class MusicPlaybackService extends MediaSessionService {
         public void onPlayerError(@NonNull PlaybackException error) {
             try {
                 MusicTrack errTrack = loadedTrack != null ? loadedTrack : queue.current();
-                SpiderDebug.log("music", "onPlayerError code=%d id=%s msg=%s cause=%s", error.getErrorCode(), errTrack != null ? errTrack.id : "null", error.getMessage(), error.getCause());
+                SpiderDebug.log("music", "onPlayerError code=%d id=%s msg=%s cause=%s", error.errorCode, errTrack != null ? errTrack.id : "null", error.getMessage(), error.getCause());
                 // P1：取链期播放器里还装着旧歌，旧歌此时报错不许算到新歌头上——
                 // 取链在途且当前序号已指新歌时，报错属于旧歌，直接忽略（新歌取链回来
                 // setMediaItem＋prepare 会恢复播放器）；不置 preparing、不顶序号、不进失败计数。

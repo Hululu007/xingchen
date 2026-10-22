@@ -1951,7 +1951,7 @@ public class MusicPlayerActivity extends BaseActivity {
                     float cropLeft = (work.getWidth() - cropW) / 2f;
                     float cropTop = (work.getHeight() - cropH) / 2f;
                     float stripH = cropH * 0.08f;
-                    RectF stripSrc = new RectF(cropLeft, cropTop + cropH - stripH, cropLeft + cropW, cropTop + cropH);
+                    Rect stripSrc = new Rect(Math.round(cropLeft), Math.round(cropTop + cropH - stripH), Math.round(cropLeft + cropW), Math.round(cropTop + cropH));
                     RectF bandDst = new RectF(0, cardBottom, viewW, bandBottom);
                     int save = canvas.saveLayer(bandDst, null);
                     canvas.drawBitmap(work, stripSrc, bandDst, paint);
@@ -3907,11 +3907,11 @@ public class MusicPlayerActivity extends BaseActivity {
         // 浅色 middle＝base、bottom＝mist；深色 middle＝blend(base, dominant, 0.12)、
         // bottom＝blend(base, dominant, 0.08)（深色 bottom 不再用 mist）。
         if (cdDisc != null) {
-            int fresh = blend(base, dominantColor, 0.22f);
-            int middle = dark ? blend(base, dominantColor, 0.12f) : base;
-            int bottom = dark ? blend(base, dominantColor, 0.08f) : mist;
+            int discFresh = blend(base, dominantColor, 0.22f);
+            int discMiddle = dark ? blend(base, dominantColor, 0.12f) : base;
+            int discBottom = dark ? blend(base, dominantColor, 0.08f) : mist;
             GradientDrawable disc = new GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR, new int[]{fresh, middle, bottom});
+                    GradientDrawable.Orientation.TL_BR, new int[]{discFresh, discMiddle, discBottom});
             disc.setShape(GradientDrawable.OVAL);
             disc.setStroke((int) (2 * getResources().getDisplayMetrics().density),
                     dark ? 0xFF3A3F4A : 0xFFD8D2C8);

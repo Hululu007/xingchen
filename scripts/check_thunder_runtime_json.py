@@ -45,8 +45,8 @@ def main():
         expected = {
             "module": "thunder",
             "packageName": "com.fongmi.runtime.thunder",
-            "versionCode": 1,
-            "versionName": "1.0",
+            "versionCode": 6,
+            "versionName": "1.1",
             "compatibilityId": "catvod-thunder-plugin-v1",
             "abi": abi,
             "entryClass": "com.xunlei.downloadlib.RuntimeEntry",

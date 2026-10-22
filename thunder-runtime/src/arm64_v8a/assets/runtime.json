@@ -1,8 +1,8 @@
 {
   "module": "thunder",
   "packageName": "com.fongmi.runtime.thunder",
-  "versionCode": 1,
-  "versionName": "1.0",
+  "versionCode": 6,
+  "versionName": "1.1",
   "compatibilityId": "catvod-thunder-plugin-v1",
   "abi": "arm64-v8a",
   "sha256": "a2aa4e17470c355da6172333859a1a38445ee77b0fa5cf263e934ae00bce4030",

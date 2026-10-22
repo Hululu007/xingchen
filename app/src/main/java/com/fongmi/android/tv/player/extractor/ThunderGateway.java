@@ -23,6 +23,14 @@ import java.util.List;
 // 不进缓存，装好后下次 runtime() 能直接接通，不用重启。
 public final class ThunderGateway {
 
+    // 模块未安装时的可见错文案，同时是播放页识别「缺模块」的标记：
+    // 播放页据它弹安装框（点磁力直接装），不许再在文案里指去设置页找入口。
+    public static final String MODULE_MISSING = "迅雷模块未安装";
+
+    public static boolean isModuleMissing(String message) {
+        return message != null && message.startsWith(MODULE_MISSING);
+    }
+
     private static final ThunderGateway INSTANCE = new ThunderGateway();
 
     public static ThunderGateway get() {
@@ -63,7 +71,7 @@ public final class ThunderGateway {
             activeExternal = false;
             return active;
         }
-        throw new ExtractException("迅雷模块未安装，请在设置-运行模块里安装迅雷模块后重试");
+        throw new ExtractException(MODULE_MISSING);
     }
 
     public synchronized boolean isExternal() {

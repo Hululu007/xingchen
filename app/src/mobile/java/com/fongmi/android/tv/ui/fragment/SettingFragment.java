@@ -91,8 +91,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         // 实验室入口：原「源健康检测」卡的位置与样式保留，文案换实验室（2026-10-18 定）
         mBinding.cardHealth.setOnClickListener(v -> com.fongmi.android.tv.ui.lab.LabHomeActivity.start(getActivity()));
         mBinding.cardXingchen.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.XingChenSettingsActivity.start(getActivity()));
-        // 运行模块入口：外置运行时（迅雷等）安装／卸载／检测页。
-        mBinding.cardModule.setOnClickListener(v -> getRoot().showModuleFragment());
         updateSubtitles();
     }
 

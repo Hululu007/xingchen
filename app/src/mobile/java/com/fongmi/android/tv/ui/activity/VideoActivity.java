@@ -124,6 +124,7 @@ import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
+import com.fongmi.android.tv.player.extractor.ThunderGateway;
 import com.fongmi.android.tv.player.karaoke.KaraokeController;
 import com.fongmi.android.tv.player.karaoke.KaraokePitchTrackGenerator;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
@@ -175,6 +176,7 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
+import com.fongmi.android.tv.ui.dialog.ModuleDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
@@ -189,6 +191,7 @@ import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.CoverRatioCache;
+import com.fongmi.android.tv.utils.ModuleUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -199,6 +202,7 @@ import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.utils.RuntimeModule;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -7491,8 +7495,59 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         player().resetTrack();
         player().reset();
         player().stop();
-        showError(msg);
+        if (ThunderGateway.isModuleMissing(msg) && !mThunderPromptShowing) showThunderInstallPrompt();
+        else showError(msg);
         startFlow();
+    }
+
+    private boolean mThunderPromptShowing;
+
+    // 磁力缺迅雷模块：设置页入口已删，不许再指去设置里找，直接在本页弹安装框。
+    // 安装过程有进度、失败有原因、安装钮能重点，都在模块弹窗里（ModuleViewModel 那套，
+    // 不另起下载链）；装好先经网关确认真接通才续播，接不通把原因摆出来，不假装能播。
+    private void showThunderInstallPrompt() {
+        int index = -1;
+        for (int i = 0; i < ModuleUtil.MODULES.length; i++) if (ModuleUtil.MODULES[i] == RuntimeModule.THUNDER) index = i;
+        if (index < 0 || isFinishing() || isDestroyed()) {
+            showError(ThunderGateway.MODULE_MISSING);
+            return;
+        }
+        mThunderPromptShowing = true;
+        hideError();
+        ModuleDialog dialog = ModuleDialog.create(index);
+        dialog.setOnInstalled(this::onThunderModuleInstalled);
+        dialog.setOnClosed(() -> {
+            mThunderPromptShowing = false;
+            if (!isFinishing() && !isDestroyed()) showError(ThunderGateway.MODULE_MISSING + "，重新点磁力可再装");
+        });
+        dialog.show(this);
+    }
+
+    private void onThunderModuleInstalled() {
+        Task.execute(() -> {
+            String failure = null;
+            try {
+                ThunderGateway.get().runtime();
+            } catch (Exception e) {
+                failure = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            String error = failure;
+            App.post(() -> {
+                mThunderPromptShowing = false;
+                for (androidx.fragment.app.Fragment fragment : getSupportFragmentManager().getFragments()) {
+                    if (fragment instanceof ModuleDialog) ((ModuleDialog) fragment).dismissAllowingStateLoss();
+                }
+                if (isFinishing() || isDestroyed()) return;
+                if (error != null) {
+                    showError("迅雷模块已安装但加载失败：" + error);
+                } else if (mFlagAdapter.isEmpty() || mEpisodeAdapter.isEmpty()) {
+                    showError("迅雷模块已装好，重新点磁力即可播放");
+                } else {
+                    hideError();
+                    onRefresh();
+                }
+            });
+        });
     }
 
     @Override

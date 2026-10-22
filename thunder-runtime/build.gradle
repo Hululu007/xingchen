@@ -10,7 +10,9 @@ plugins {
 // 不硬编码任何密码、不向任何人要 keystore；本地没有 local.properties 时与宿主一样
 // 回落 debug 签名——那种包与正式宿主签名不一致，verifyPackage 会拒，
 // 只能用于本地联调，不能当正式外置包发。
-// 版本与各 flavor 的 assets/runtime.json 必须一致（versionCode 1 / versionName 1.0）：
+// 版本与各 flavor 的 assets/runtime.json 必须一致（versionCode 6 / versionName 1.1）：
+// 位阶定在上游已发布的 5 / 1.0.4 之上——目录合并脚本拒降级，我方版本低于
+// 基础目录里的上游条目就合不进去；往后我方每发一版在此基础上递增。
 // RuntimeModule.verifyMetadata 逐项比对包信息与 runtime.json，差一项就拒。
 // runtime.json 的摘要与大小由脚本 scripts/check_thunder_runtime_json.py
 // 对 thunder/src/main/jniLibs 的 .so 实测重算，.so 换了必须重算重写，
@@ -40,8 +42,8 @@ android {
         applicationId 'com.fongmi.runtime.thunder'
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
-        versionCode 1
-        versionName '1.0'
+        versionCode 6
+        versionName '1.1'
     }
 
     flavorDimensions = ['abi']

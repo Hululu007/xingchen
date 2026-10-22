@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.content.DialogInterface;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -26,6 +27,12 @@ public final class ModuleDialog extends BaseBottomSheetDialog {
     private ModuleViewModel model;
     private ModuleViewModel.State lastState;
     private ModuleViewModel.Health lastHealth;
+    // 磁力缺模块直装路用：装完（状态回到空闲且已装版本在）回调一次；
+    // 没装成关掉时走 onClosed。模块页原有调用点不设这两个回调，行为不变。
+    private Runnable onInstalled;
+    private Runnable onClosed;
+    private boolean installArmed;
+    private boolean installFired;
 
     public static ModuleDialog create(int index) {
         if (index < 0 || index >= ModuleUtil.MODULES.length) throw new IllegalArgumentException("Invalid module index");
@@ -34,6 +41,22 @@ public final class ModuleDialog extends BaseBottomSheetDialog {
 
     private ModuleDialog(int index) {
         this.index = index;
+    }
+
+    public ModuleDialog setOnInstalled(Runnable onInstalled) {
+        this.onInstalled = onInstalled;
+        return this;
+    }
+
+    public ModuleDialog setOnClosed(Runnable onClosed) {
+        this.onClosed = onClosed;
+        return this;
+    }
+
+    @Override
+    public void onDismiss(@NonNull DialogInterface dialog) {
+        super.onDismiss(dialog);
+        if (!installFired && onClosed != null) onClosed.run();
     }
 
     public void show(FragmentActivity activity) {
@@ -52,12 +75,22 @@ public final class ModuleDialog extends BaseBottomSheetDialog {
         binding.moduleTitle.setText(model.getTitle());
         model.getState().observe(getViewLifecycleOwner(), state -> {
             lastState = state;
+            if (state.phase() == ModuleViewModel.Phase.INSTALLING || state.phase() == ModuleViewModel.Phase.READY) installArmed = true;
             render();
+            if (!installFired && installArmed && onInstalled != null
+                    && state.phase() == ModuleViewModel.Phase.IDLE
+                    && state.runtime() != null && state.runtime().installedVersion() != null) {
+                installFired = true;
+                onInstalled.run();
+            }
         });
         model.getHealth().observe(getViewLifecycleOwner(), health -> {
             lastHealth = health;
             render();
         });
+        // 重开时别停在上次的失败态：模型自己会判断要不要重新检测，
+        // 检测失败的原因照样显示在弹窗里，安装钮也能再点。
+        model.refresh();
     }
 
     @Override
@@ -82,6 +115,14 @@ public final class ModuleDialog extends BaseBottomSheetDialog {
         } else {
             binding.moduleError.setVisibility(View.VISIBLE);
             binding.moduleError.setText(error);
+        }
+        boolean downloading = lastState.phase() == ModuleViewModel.Phase.INSTALLING && lastState.total() > 0 && lastState.downloaded() >= 0;
+        binding.moduleProgress.setVisibility(downloading ? View.VISIBLE : View.GONE);
+        binding.moduleProgressText.setVisibility(downloading ? View.VISIBLE : View.GONE);
+        if (downloading) {
+            int percent = (int) (100L * lastState.downloaded() / lastState.total());
+            binding.moduleProgress.setProgress(percent);
+            binding.moduleProgressText.setText(percent + "%");
         }
         binding.btnTest.setEnabled(lastState.canTest());
         binding.btnInstall.setEnabled(lastState.canInstall());

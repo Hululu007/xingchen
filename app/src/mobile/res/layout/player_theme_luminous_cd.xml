@@ -49,9 +49,8 @@
                 android:gravity="center"
                 android:includeFontPadding="false"
                 android:lineHeight="21dp"
-                android:marqueeRepeatLimit="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
                 android:maxLines="1"
-                android:selected="true"
                 android:textColor="#282D36"
                 android:textSize="15sp" />
 

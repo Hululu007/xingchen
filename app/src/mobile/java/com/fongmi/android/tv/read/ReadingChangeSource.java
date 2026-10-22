@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.read;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.os.Handler;
@@ -92,7 +93,7 @@ public final class ReadingChangeSource {
                                      List<Candidate> candidates, int oldChapterIndex,
                                      float oldFraction, int oldPage) {
         if (candidates.isEmpty()) {
-            Toast.makeText(act, "其它书源里没找到这本书", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(act, "其它书源里没找到这本书", Toast.LENGTH_SHORT);
             return;
         }
         String[] names = new String[candidates.size()];
@@ -114,7 +115,7 @@ public final class ReadingChangeSource {
 
     private static void doSwitch(Activity act, ReadingSession old, Candidate c,
                                  int oldChapterIndex, float oldFraction, int oldPage) {
-        Toast.makeText(act, "正在从「" + c.source.tag() + "」取目录…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(act, "正在从「" + c.source.tag() + "」取目录…", Toast.LENGTH_SHORT);
         Task.execute(() -> {
             try {
                 LegadoPipeline pipe = new LegadoPipeline(c.source);
@@ -148,7 +149,7 @@ public final class ReadingChangeSource {
                     ReadingStore.save(r);
                 }
                 act.runOnUiThread(() -> {
-                    Toast.makeText(act, "已换到「" + c.source.tag() + "」", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(act, "已换到「" + c.source.tag() + "」", Toast.LENGTH_SHORT);
                     ReadingRouter.openReading(act, s);
                     act.finish();
                 });
@@ -159,7 +160,7 @@ public final class ReadingChangeSource {
     }
 
     private static void fail(Activity act, String msg) {
-        act.runOnUiThread(() -> Toast.makeText(act, msg, Toast.LENGTH_SHORT).show());
+        act.runOnUiThread(() -> ToastUtil.show(act, msg, Toast.LENGTH_SHORT));
     }
 
     private static String shortMsg(Throwable t) {

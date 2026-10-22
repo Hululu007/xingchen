@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.fragment;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.net.Uri;
 import android.text.TextUtils;
@@ -373,7 +374,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     private void onScriptSelected(java.io.File file, boolean isPy) {
         try {
-            android.widget.Toast.makeText(requireActivity(), "已选择: " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
+            ToastUtil.show(requireActivity(), "已选择: " + file.getName(), android.widget.Toast.LENGTH_SHORT);
             String name = file.getName();
             String baseName = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             String prefix = isPy ? "py_" : "js_";
@@ -390,7 +391,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
             homeContent(true);
         } catch (Exception e) {
             e.printStackTrace();
-            android.widget.Toast.makeText(requireActivity(), "加载失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            ToastUtil.show(requireActivity(), "加载失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT);
         }
     }
 
@@ -605,7 +606,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
                     .setTitle(typeName + (auto ? "（已自动识别为短剧）" : ""))
                     .setItems(options, (d, which) -> {
                         ShortDramaHelper.setShortDramaCategoryMarked(siteKey, typeId, !marked);
-                        android.widget.Toast.makeText(requireActivity(), !marked ? "已标记为短剧分类" : "已取消短剧分类标记", android.widget.Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(requireActivity(), !marked ? "已标记为短剧分类" : "已取消短剧分类标记", android.widget.Toast.LENGTH_SHORT);
                     })
                     .setNegativeButton("取消", null)
                     .show();

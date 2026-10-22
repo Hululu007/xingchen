@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.read;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.content.Context;
@@ -79,7 +80,7 @@ public class ReadingRouter {
         if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
             ReadingSession ls = com.fongmi.android.tv.localbook.LocalBookSession.fromRecord(r);
             if (ls == null) {
-                Toast.makeText(context, "这本本地书找不到了，请重新导入", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(context, "这本本地书找不到了，请重新导入", Toast.LENGTH_SHORT);
                 return;
             }
             int sp = com.fongmi.android.tv.localbook.LocalBookSession.startPageOf(r);
@@ -127,7 +128,7 @@ public class ReadingRouter {
      * 把记录定位回正确下标再开阅读器。拉失败/表为空时回退单章口径（fail-open）。
      */
     private static void fetchNovelChapters(Context context, ReadingStore.Record r, ReadingSession s) {
-        Toast.makeText(context, "正在拉取目录…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(context, "正在拉取目录…", Toast.LENGTH_SHORT);
         final String detailId = r.detailId;
         final String siteKey = r.siteKey;
         final String playFlag = r.playFlag;
@@ -161,7 +162,7 @@ public class ReadingRouter {
                     openReading(context, s);
                 } else {
                     if (!TextUtils.isEmpty(r.content)) s.text = r.content;
-                    Toast.makeText(context, "目录拉取失败，只读当前章", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(context, "目录拉取失败，只读当前章", Toast.LENGTH_SHORT);
                     openReading(context, s);
                 }
             });
@@ -236,7 +237,7 @@ public class ReadingRouter {
                 }
             }
         } catch (Throwable t) {
-            Toast.makeText(context, "打开失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, "打开失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -276,7 +277,7 @@ public class ReadingRouter {
                 }
             }
         } catch (Throwable t) {
-            Toast.makeText(context, "打开失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, "打开失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -288,7 +289,7 @@ public class ReadingRouter {
         if (context == null) return;
         ReadingStore.Record r = ReadingStore.latest();
         if (r == null || TextUtils.isEmpty(r.bookTitle)) {
-            Toast.makeText(context, "书架是空的，先去看一本吧", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, "书架是空的，先去看一本吧", Toast.LENGTH_SHORT);
             openShelf(context);
             return;
         }

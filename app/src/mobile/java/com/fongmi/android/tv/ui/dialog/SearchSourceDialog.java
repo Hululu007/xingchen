@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.dialog;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.view.View;
 import android.widget.CheckBox;
@@ -147,7 +148,7 @@ public class SearchSourceDialog extends BaseAlertDialog {
         }
         // JS scripts: not supported yet
         if (jsAdapter != null && !jsAdapter.getSelected().isEmpty()) {
-            Toast.makeText(requireContext(), "JS 暂未支持", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(requireContext(), "JS 暂未支持", Toast.LENGTH_SHORT);
         }
         dismiss();
     }

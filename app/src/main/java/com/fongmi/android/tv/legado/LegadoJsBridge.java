@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.legado;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.util.Log;
 import android.widget.Toast;
@@ -386,7 +387,7 @@ public class LegadoJsBridge {
             App app = App.get();
             if (app != null) {
                 android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-                h.post(() -> Toast.makeText(app, msg == null ? "" : msg, Toast.LENGTH_SHORT).show());
+                h.post(() -> ToastUtil.show(app, msg == null ? "" : msg, Toast.LENGTH_SHORT));
             }
         } catch (Throwable ignored) {
         }

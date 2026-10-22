@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.adapter;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.view.LayoutInflater;
 import android.view.View;
@@ -51,7 +52,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         holder.itemView.setOnLongClickListener(v -> {
             boolean next = !ShortDramaHelper.isPluginShortDrama(fileName);
             ShortDramaHelper.setPluginShortDrama(fileName, next);
-            Toast.makeText(v.getContext(), next ? "已标记为短剧源" : "已取消短剧标记", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(v.getContext(), next ? "已标记为短剧源" : "已取消短剧标记", Toast.LENGTH_SHORT);
             return true;
         });
         

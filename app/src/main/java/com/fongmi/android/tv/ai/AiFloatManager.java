@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ai;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.Manifest;
 import android.app.Activity;
@@ -239,11 +240,11 @@ public class AiFloatManager {
                         new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
             } catch (Exception ignored) {
             }
-            Toast.makeText(ctx, "需要麦克风权限，请允许后重试", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(ctx, "需要麦克风权限，请允许后重试", Toast.LENGTH_SHORT);
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(ctx)) {
-            Toast.makeText(ctx, "当前设备不支持语音识别", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(ctx, "当前设备不支持语音识别", Toast.LENGTH_SHORT);
             return;
         }
         try {
@@ -304,7 +305,7 @@ public class AiFloatManager {
         } catch (Exception e) {
             voiceRecording = false;
             destroyRecognizer();
-            Toast.makeText(ctx, "语音识别启动失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(ctx, "语音识别启动失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -325,7 +326,7 @@ public class AiFloatManager {
                 } catch (Exception ignored) {
                 }
                 Activity act = activityRef.get();
-                if (act != null) Toast.makeText(act, "识别超时，请重试", Toast.LENGTH_SHORT).show();
+                if (act != null) ToastUtil.show(act, "识别超时，请重试", Toast.LENGTH_SHORT);
             }
         }, 3000);
     }
@@ -401,7 +402,7 @@ public class AiFloatManager {
 
     private void toast(Context ctx, String msg) {
         try {
-            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show();
+            ToastUtil.show(ctx, msg, Toast.LENGTH_SHORT);
         } catch (Exception ignored) {
         }
     }

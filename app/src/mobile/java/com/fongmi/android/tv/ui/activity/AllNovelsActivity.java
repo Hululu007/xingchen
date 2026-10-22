@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -288,8 +289,8 @@ public class AllNovelsActivity extends AppCompatActivity {
         item.setOnLongClickListener(v -> {
             ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
             ReadingBookmarkStore.removeBook(r.key());
-            Toast.makeText(AllNovelsActivity.this, "已从书架移除",
-                    Toast.LENGTH_SHORT).show();
+            ToastUtil.show(AllNovelsActivity.this, "已从书架移除",
+                    Toast.LENGTH_SHORT);
             reload();
             return true;
         });

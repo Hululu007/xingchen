@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.dialog;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Dialog;
 import android.content.Context;
@@ -253,7 +254,7 @@ public class SourceScriptsDialog extends Dialog {
                             new JSONObject(raw);
                             json = raw;
                         } catch (Exception e) {
-                            Toast.makeText(ctx, "JSON 格式不正确", Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(ctx, "JSON 格式不正确", Toast.LENGTH_SHORT);
                             return;
                         }
                     }
@@ -270,7 +271,7 @@ public class SourceScriptsDialog extends Dialog {
                     }
                 }
                 PyExtConfig.save(ctx, key, json);
-                Toast.makeText(ctx, "已保存", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(ctx, "已保存", Toast.LENGTH_SHORT);
                 dialog.dismiss();
             });
 

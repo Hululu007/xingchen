@@ -1,20 +1,26 @@
 package com.fongmi.android.tv.utils;
 
+import android.app.Activity;
 import android.content.Context;
-import android.os.Build;
-import android.view.LayoutInflater;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.os.Looper;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.App;
+import com.google.android.material.snackbar.Snackbar;
 
 /**
- * 深色毛玻璃 Toast：替代系统浅色 Toast，解决浅色底看不清的问题。
- * 背景与文字分层：RenderEffect 只作用于独立背景层（toast_bg），文字层永远不被模糊。
- * API 31+ 背景层叠加 RenderEffect，低版本用深色半透明底。
+ * 全应用提示统一入口：优先用实底白字的 Snackbar。
+ * 他手机上系统 Toast 是浅色透底，盖在亮色画面上字看不清；自定义 Toast 视图在高版本
+ * 系统上会被忽略回系统样式，改了也白改，所以不再走 Toast 自定义视图。
+ * 没有可用 Activity 时才回落系统 Toast。
  */
 public class ToastUtil {
+
+    private static Snackbar current;
 
     public static void show(Context context, CharSequence text) {
         show(context, text, Toast.LENGTH_SHORT);
@@ -22,29 +28,43 @@ public class ToastUtil {
 
     public static void show(Context context, CharSequence text, int duration) {
         if (context == null || text == null) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            App.post(() -> show(context, text, duration));
+            return;
+        }
         try {
-            Context ctx = context.getApplicationContext();
-            Toast toast = new Toast(ctx);
-            View view = LayoutInflater.from(ctx).inflate(R.layout.view_dark_toast, null);
-            TextView tv = view.findViewById(R.id.toast_text);
-            tv.setText(text);
-            // 真模糊（API 31+）：只作用于独立背景层，文字层不被模糊
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                try {
-                    View bg = view.findViewById(R.id.toast_bg);
-                    bg.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(18f, 18f, android.graphics.Shader.TileMode.CLAMP));
-                } catch (Throwable ignored) {
+            Activity activity = context instanceof Activity ? (Activity) context : App.activity();
+            if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+                View anchor = activity.findViewById(android.R.id.content);
+                if (anchor != null) {
+                    if (current != null) current.dismiss();
+                    int len = duration == Toast.LENGTH_LONG ? Snackbar.LENGTH_LONG : Snackbar.LENGTH_SHORT;
+                    Snackbar bar = Snackbar.make(anchor, text, len);
+                    bar.getView().setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF262626")));
+                    TextView tv = bar.getView().findViewById(com.google.android.material.R.id.snackbar_text);
+                    if (tv != null) {
+                        tv.setTextColor(Color.WHITE);
+                        tv.setMaxLines(5);
+                    }
+                    current = bar;
+                    bar.show();
+                    return;
                 }
             }
-            toast.setView(view);
-            toast.setDuration(duration);
-            toast.show();
-        } catch (Throwable e) {
-            // 兜底：系统 Toast
-            try {
-                Toast.makeText(context.getApplicationContext(), text, duration).show();
-            } catch (Throwable ignored) {
-            }
+        } catch (Throwable ignored) {
         }
+        try {
+            // 兜底必须是系统 Toast 原样调用，不许再走 ToastUtil.show，否则自递归
+            android.widget.Toast.makeText(context.getApplicationContext(), text, duration).show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static void dismiss() {
+        try {
+            if (current != null) current.dismiss();
+        } catch (Throwable ignored) {
+        }
+        current = null;
     }
 }

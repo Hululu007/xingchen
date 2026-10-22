@@ -26,6 +26,7 @@ import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.setting.PlayerSetting;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PushNameClean;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -443,6 +444,9 @@ public class SiteApi {
                     untrackHomeFuture(gen, fVideo);
                 }
             }
+            // 崩溃恢复分支不再静默返回空数据：上次在首页闪退过，这次首页是被主动跳过的，
+            // 不吭声用户只会看到空列表、以为源坏了。给一句看得清的提示，下拉刷新即恢复。
+            if (crash) Notify.show("上次闪退，已跳过加载，下拉刷新重试");
             Prefers.put("crash", false);
             SpiderDebug.log("homeVideo", video);
             Result result = Result.fromJson(home);

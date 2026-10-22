@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.api.loader;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.os.FileObserver;
 import android.text.TextUtils;
@@ -290,7 +291,7 @@ public class PyLoader {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             String msg = "PY加载失败 [" + key + "]: " + cause.getClass().getSimpleName() + ": " + cause.getMessage();
             android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-            h.post(() -> android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_LONG).show());
+            h.post(() -> ToastUtil.show(App.get(), msg, android.widget.Toast.LENGTH_LONG));
             return new SpiderNull();
         }
     }

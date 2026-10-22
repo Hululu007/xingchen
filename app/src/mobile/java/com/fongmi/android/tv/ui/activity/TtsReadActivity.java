@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import com.fongmi.android.tv.read.ReadDialogs;
@@ -106,7 +107,7 @@ public class TtsReadActivity extends Activity
         jobId = getIntent().getStringExtra("job");
         job = TtsJob.get(jobId);
         if (job == null || job.chapters.isEmpty()) {
-            Toast.makeText(this, "朗读任务已失效", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "朗读任务已失效", Toast.LENGTH_SHORT);
             finish();
             return;
         }
@@ -579,7 +580,7 @@ public class TtsReadActivity extends Activity
                 engine.request(chapter, target);
                 if (mService != null && !player().isPlaying()
                         && player().getPlaybackState() != Player.STATE_BUFFERING) {
-                    Toast.makeText(this, "正在合成语音…", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "正在合成语音…", Toast.LENGTH_SHORT);
                 }
             });
         }).start();
@@ -618,22 +619,22 @@ public class TtsReadActivity extends Activity
             if (!segs.isEmpty()) {
                 if (guard > 1 || dir > 0) {
                     final ReadingSession.Chapter c = job.chapters.get(n);
-                    Toast.makeText(this, "「" + c.name + "」没有正文，已跳过",
-                            Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "「" + c.name + "」没有正文，已跳过",
+                            Toast.LENGTH_SHORT);
                 }
                 prepareChapter(n, 0, false);
                 return;
             }
             next += dir;
         }
-        Toast.makeText(this, "后面没有可读的章节了", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "后面没有可读的章节了", Toast.LENGTH_SHORT);
     }
 
     private void jumpChapter(int d) {
         int n = ci + d;
         if (n < 0 || n >= job.chapters.size()) {
-            Toast.makeText(this, d > 0 ? "已经是最后一章" : "已经是第一章",
-                    Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, d > 0 ? "已经是最后一章" : "已经是第一章",
+                    Toast.LENGTH_SHORT);
             return;
         }
         saveProgress();
@@ -671,7 +672,7 @@ public class TtsReadActivity extends Activity
                 if (mService != null) player().pause();
             } catch (Throwable ignored) {
             }
-            Toast.makeText(this, humanMsg + "（点播放可重试）", Toast.LENGTH_LONG).show();
+            ToastUtil.show(this, humanMsg + "（点播放可重试）", Toast.LENGTH_LONG);
         });
     }
 
@@ -687,7 +688,7 @@ public class TtsReadActivity extends Activity
             engine = new TtsEngine(this, job.bookKey(), this::resolveText, this);
             engine.setVoice(curVoice == null ? job.voiceId : curVoice.id, SPEEDS[speedIndex]);
             prepareChapter(ci, si, false);
-            Toast.makeText(this, "正在重连朗读服务…", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "正在重连朗读服务…", Toast.LENGTH_SHORT);
             return;
         }
         if (player().isPlaying()) player().pause();
@@ -704,7 +705,7 @@ public class TtsReadActivity extends Activity
             engine.setVoice(curVoice.id, s);
             // 语速走服务端合成：从本段起用新语速重听
             prepareChapter(ci, si, false);
-            Toast.makeText(this, "语速 " + label + "x，本段起生效", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "语速 " + label + "x，本段起生效", Toast.LENGTH_SHORT);
         }
     }
 
@@ -718,7 +719,7 @@ public class TtsReadActivity extends Activity
 
     private void pickVoice() {
         if (voices.isEmpty()) {
-            Toast.makeText(this, "音色列表加载中，稍候再试", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "音色列表加载中，稍候再试", Toast.LENGTH_SHORT);
             return;
         }
         String[] items = new String[voices.size()];
@@ -738,8 +739,8 @@ public class TtsReadActivity extends Activity
                     if (engine != null) {
                         engine.setVoice(v.id, SPEEDS[speedIndex]);
                         prepareChapter(ci, si, false);
-                        Toast.makeText(this, "已换「" + v.name + "」，本段起生效",
-                                Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(this, "已换「" + v.name + "」，本段起生效",
+                                Toast.LENGTH_SHORT);
                     }
                 }, "试听当前音色", this::trialVoice);
     }
@@ -748,7 +749,7 @@ public class TtsReadActivity extends Activity
         final EdgeVoice v = curVoice != null ? curVoice
                 : EdgeVoiceCatalog.find(voices, job.voiceId);
         if (v == null) return;
-        Toast.makeText(this, "正在合成试听…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "正在合成试听…", Toast.LENGTH_SHORT);
         new Thread(() -> {
             try {
                 byte[] mp3 = new EdgeTtsClient().synthesize(
@@ -771,11 +772,11 @@ public class TtsReadActivity extends Activity
                             Uri.fromFile(f).toString(), new HashMap<>(), meta));
                 });
             } catch (EdgeTtsClient.TtsException e) {
-                runOnUiThread(() -> Toast.makeText(TtsReadActivity.this,
-                        e.getMessage(), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> ToastUtil.show(TtsReadActivity.this,
+                        e.getMessage(), Toast.LENGTH_LONG));
             } catch (Throwable t) {
-                runOnUiThread(() -> Toast.makeText(TtsReadActivity.this,
-                        EdgeTtsClient.ERR_OFFLINE, Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> ToastUtil.show(TtsReadActivity.this,
+                        EdgeTtsClient.ERR_OFFLINE, Toast.LENGTH_LONG));
             }
         }).start();
     }
@@ -840,8 +841,8 @@ public class TtsReadActivity extends Activity
                         sleepAt = 0;
                         tvTimer.setText("定时关");
                         player().pause();
-                        Toast.makeText(TtsReadActivity.this, "定时到，已暂停",
-                                Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(TtsReadActivity.this, "定时到，已暂停",
+                                Toast.LENGTH_SHORT);
                     }
                     if (p != null && p.getPlaybackState() == Player.STATE_ENDED
                             && !(endedGuardCi == ci && endedGuardSi == si)) {

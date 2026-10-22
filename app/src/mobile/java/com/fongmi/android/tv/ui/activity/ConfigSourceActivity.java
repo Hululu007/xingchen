@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
@@ -165,9 +166,9 @@ public class ConfigSourceActivity extends BaseActivity {
             @Override
             public void error(String msg) {
                 try { progress.dismiss(); } catch (Exception e) {}
-                android.widget.Toast.makeText(ConfigSourceActivity.this,
+                ToastUtil.show(ConfigSourceActivity.this,
                         msg == null || msg.isEmpty() ? "切换失败" : msg,
-                        android.widget.Toast.LENGTH_SHORT).show();
+                        android.widget.Toast.LENGTH_SHORT);
                 updateCards();
             }
         });

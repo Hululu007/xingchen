@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.localbook;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -51,7 +52,7 @@ public class LocalBookOpenActivity extends AppCompatActivity {
                         }
                     }
                 } else {
-                    Toast.makeText(this, "打不开这本书：" + fErr, Toast.LENGTH_LONG).show();
+                    ToastUtil.show(this, "打不开这本书：" + fErr, Toast.LENGTH_LONG);
                 }
                 finish();
             });

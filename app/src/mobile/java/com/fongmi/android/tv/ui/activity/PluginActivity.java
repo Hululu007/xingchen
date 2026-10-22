@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -163,7 +164,7 @@ public class PluginActivity extends BaseActivity {
         if (testing) return;
         final List<Plugin> all = new ArrayList<>(plugins);
         if (all.isEmpty()) {
-            Toast.makeText(this, "没有插件可测", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "没有插件可测", Toast.LENGTH_SHORT);
             return;
         }
         testing = true;
@@ -172,7 +173,7 @@ public class PluginActivity extends BaseActivity {
         adapter.setTesting(testingPaths);
         adapter.notifyDataSetChanged();
         final String type = isPy ? "py" : "js";
-        Toast.makeText(this, "开始检测，共 " + all.size() + " 个插件", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "开始检测，共 " + all.size() + " 个插件", Toast.LENGTH_SHORT);
         ExecutorService pool = Executors.newFixedThreadPool(Math.min(10, all.size()));
         AtomicInteger done = new AtomicInteger();
         AtomicInteger ok = new AtomicInteger();
@@ -203,9 +204,9 @@ public class PluginActivity extends BaseActivity {
                         PluginHealth.setLastCheck(PluginActivity.this, type);
                         updateCount();
                         adapter.notifyDataSetChanged();
-                        Toast.makeText(PluginActivity.this,
+                        ToastUtil.show(PluginActivity.this,
                                 "检测完成：能用 " + ok.get() + "，慢 " + slow.get() + "，挂了 " + dead.get(),
-                                Toast.LENGTH_SHORT).show();
+                                Toast.LENGTH_SHORT);
                     }
                 });
             });

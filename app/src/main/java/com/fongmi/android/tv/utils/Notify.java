@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationChannelCompat;
@@ -22,7 +21,6 @@ public class Notify {
     public static final String DEFAULT = "default";
     public static final int ID = 9527;
     private AlertDialog mDialog;
-    private Toast mToast;
 
     private static class Loader {
         static volatile Notify INSTANCE = new Notify();
@@ -53,12 +51,8 @@ public class Notify {
 
     public static void show(String text) {
         if (TextUtils.isEmpty(text)) return;
-        // Toast 必须在主线程创建/显示，后台线程直接调会 NPE（Can't toast on a thread that has not called Looper.prepare()）
-        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            get().makeText(text);
-        } else {
-            App.post(() -> get().makeText(text));
-        }
+        // 全应用提示统一走 ToastUtil（实底白字），系统浅色 Toast 在亮色画面上看不清
+        ToastUtil.show(App.get(), text, android.widget.Toast.LENGTH_LONG);
     }
 
     public static void progress(Context context) {
@@ -74,10 +68,7 @@ public class Notify {
     }
 
     public static void dismissToast() {
-        try {
-            if (get().mToast != null) get().mToast.cancel();
-        } catch (Exception ignored) {
-        }
+        ToastUtil.dismiss();
     }
 
     private void create(Context context) {
@@ -85,11 +76,5 @@ public class Notify {
         mDialog = new MaterialAlertDialogBuilder(context).setView(binding.getRoot()).create();
         mDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         mDialog.show();
-    }
-
-    private void makeText(String text) {
-        if (mToast != null) mToast.cancel();
-        mToast = Toast.makeText(App.get(), text, Toast.LENGTH_LONG);
-        mToast.show();
     }
 }

@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.api.hk;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -44,7 +45,7 @@ public class HkQrUtil {
                 }
             } catch (Throwable t) {
                 try {
-                    Toast.makeText(activity, "处理失败", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(activity, "处理失败", Toast.LENGTH_SHORT);
                 } catch (Throwable ignored) {
                 }
             }
@@ -117,7 +118,7 @@ public class HkQrUtil {
                 ClipboardManager cm = (ClipboardManager)
                         activity.getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("scan", content));
-                Toast.makeText(activity, "已复制", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(activity, "已复制", Toast.LENGTH_SHORT);
             } catch (Throwable ignored) {
             }
             dialog.dismiss();

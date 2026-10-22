@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.graphics.Color;
 import android.os.Bundle;
@@ -76,7 +77,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         ReadingSkin.enableEdgeToEdge(this, true);
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {
-            Toast.makeText(this, "阅读会话已失效", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "阅读会话已失效", Toast.LENGTH_SHORT);
             finish();
             return;
         }
@@ -455,8 +456,8 @@ public class ComicReaderActivity extends AppCompatActivity {
                         case 0:
                             p.edit().putBoolean(KEY_RTL, !rtl()).apply();
                             applyLayoutManager();
-                            Toast.makeText(this, rtl() ? "已切换为从右往左" : "已切换为从左往右",
-                                    Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, rtl() ? "已切换为从右往左" : "已切换为从左往右",
+                                    Toast.LENGTH_SHORT);
                             break;
                         case 1:
                             p.edit().putBoolean(KEY_DUAL_PAGE, !dualPage()).apply();
@@ -476,7 +477,7 @@ public class ComicReaderActivity extends AppCompatActivity {
                             break;
                         case 4:
                             com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
-                            Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, "本书缓存已清除", Toast.LENGTH_SHORT);
                             break;
                     }
         });
@@ -509,7 +510,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         m.position = currentPage();
         m.excerpt = m.chapterName + " 第" + (m.position + 1) + "张";
         com.fongmi.android.tv.read.ReadingBookmarkStore.add(m);
-        Toast.makeText(this, "书签已保存", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "书签已保存", Toast.LENGTH_SHORT);
     }
 
     /** AI 口令"书签"。 */
@@ -522,11 +523,11 @@ public class ComicReaderActivity extends AppCompatActivity {
 
     private void changeSource() {
         if (!com.fongmi.android.tv.read.ReadingChangeSource.supported(session)) {
-            Toast.makeText(this, "当前这本不支持换源（仅书源的漫画可换）",
-                    Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "当前这本不支持换源（仅书源的漫画可换）",
+                    Toast.LENGTH_SHORT);
             return;
         }
-        Toast.makeText(this, "正在其它书源里找这本…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "正在其它书源里找这本…", Toast.LENGTH_SHORT);
         android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
         com.fongmi.android.tv.read.ReadingChangeSource.search(this, session, ui, candidates ->
                 com.fongmi.android.tv.read.ReadingChangeSource.pickAndSwitch(
@@ -569,7 +570,7 @@ public class ComicReaderActivity extends AppCompatActivity {
     private void loadChapter(int index, int startPage) {
         if (loading) return;
         if (index < 0 || (session.chapters.size() > 1 && index >= session.chapters.size())) {
-            Toast.makeText(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT);
             return;
         }
         loading = true;
@@ -587,7 +588,7 @@ public class ComicReaderActivity extends AppCompatActivity {
                 refreshTitle();
                 updateSeekMax();
                 if (images.isEmpty()) {
-                    Toast.makeText(this, "这一章没有取到图片", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "这一章没有取到图片", Toast.LENGTH_SHORT);
                 } else {
                     scrollToPage(Math.min(startPage, images.size() - 1));
                     preloadAhead();
@@ -672,7 +673,7 @@ public class ComicReaderActivity extends AppCompatActivity {
 
     private void showChapters() {
         if (session.chapters.isEmpty()) {
-            Toast.makeText(this, "没有章节列表", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "没有章节列表", Toast.LENGTH_SHORT);
             return;
         }
         java.util.List<String> names = new java.util.ArrayList<>(session.chapters.size());
@@ -690,14 +691,14 @@ public class ComicReaderActivity extends AppCompatActivity {
         String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
         int[] counts = {20, 50, Integer.MAX_VALUE};
         ReadDialogs.options(this, "缓存章节（离线看）", items, which -> {
-            Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT);
                     android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
                     com.fongmi.android.tv.read.ReadingDownload.downloadNextComic(
                             this, session, bookKey(), counts[which], ui,
-                            (ok, total) -> Toast.makeText(this,
+                            (ok, total) -> ToastUtil.show(this,
                                     total == 0 ? "没有可缓存的新章节"
                                             : "已缓存 " + ok + " / " + total + " 章",
-                                    Toast.LENGTH_SHORT).show());
+                                    Toast.LENGTH_SHORT));
         });
     }
 

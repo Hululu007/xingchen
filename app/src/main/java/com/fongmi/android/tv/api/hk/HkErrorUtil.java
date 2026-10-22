@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.api.hk;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -155,12 +156,12 @@ public class HkErrorUtil {
         try {
             ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm == null) {
-                Toast.makeText(context, "复制失败", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(context, "复制失败", Toast.LENGTH_SHORT);
                 return;
             }
             cm.setPrimaryClip(ClipData.newPlainText("error", text == null ? "" : text));
         } catch (Throwable t) {
-            Toast.makeText(context, "复制失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, "复制失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -172,9 +173,9 @@ public class HkErrorUtil {
         try {
             String title = ruleTitle == null ? "" : ruleTitle.replace("home@", "");
             boolean ok = HkRuleManager.get().delete(title);
-            Toast.makeText(context, ok ? "已删除规则" : "找不到规则：" + title, Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, ok ? "已删除规则" : "找不到规则：" + title, Toast.LENGTH_SHORT);
         } catch (Throwable t) {
-            Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(context, "删除失败", Toast.LENGTH_SHORT);
         }
     }
 

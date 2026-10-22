@@ -790,9 +790,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
 
     /** 等价原版 ToastMgr.shortCenter：居中短 Toast。 */
     protected void toastCenter(String msg) {
-        android.widget.Toast toast = android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT);
-        toast.setGravity(android.view.Gravity.CENTER, 0, 0);
-        toast.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(context, msg, android.widget.Toast.LENGTH_SHORT);
     }
 
     /**

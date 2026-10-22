@@ -637,22 +637,16 @@ public final class HkRouteBlocker {
     /** 照抄 ToastMgr.shortBottomCenter 的等价实现（底部居中短 toast，与 Fragment.toastBottom 同款）。 */
     static void toastShortBottom(Context context, String text) {
         if (context == null) return;
-        android.widget.Toast toast = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT);
-        toast.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL, 0, 0);
-        toast.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(context, text, android.widget.Toast.LENGTH_SHORT);
     }
 
     static void toastShortCenter(Context context, String text) {
         if (context == null) return;
-        android.widget.Toast toast = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT);
-        toast.setGravity(android.view.Gravity.CENTER, 0, 0);
-        toast.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(context, text, android.widget.Toast.LENGTH_SHORT);
     }
 
     static void toastLongCenter(Context context, String text) {
         if (context == null) return;
-        android.widget.Toast toast = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG);
-        toast.setGravity(android.view.Gravity.CENTER, 0, 0);
-        toast.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(context, text, android.widget.Toast.LENGTH_LONG);
     }
 }

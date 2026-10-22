@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.api.hk;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -1596,7 +1597,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             Logger.t(TAG).d("toast: %s", msg);
             try {
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_SHORT).show());
+                        ToastUtil.show(App.get(), msg, android.widget.Toast.LENGTH_SHORT));
             } catch (Throwable ignored) {
             }
             return null;
@@ -3128,7 +3129,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         "发布/分享规则", () -> {
                             try {
                                 android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-                                h.post(() -> android.widget.Toast.makeText(App.get(), "规则发布功能开发中", android.widget.Toast.LENGTH_SHORT).show());
+                                h.post(() -> ToastUtil.show(App.get(), "规则发布功能开发中", android.widget.Toast.LENGTH_SHORT));
                             } catch (Throwable ignored) {
                             }
                         });
@@ -6743,8 +6744,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             @Override public void showErr(String err) {
                 try {
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                            android.widget.Toast.makeText(App.get(), err == null ? "" : err,
-                                    android.widget.Toast.LENGTH_LONG).show());
+                            ToastUtil.show(App.get(), err == null ? "" : err,
+                                    android.widget.Toast.LENGTH_LONG));
                 } catch (Throwable ignored) {}
             }
         };
@@ -8677,7 +8678,7 @@ private void setErrorImpl(Object[] args) {
         if (callback == null) {
             try {
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        android.widget.Toast.makeText(App.get(), msg, android.widget.Toast.LENGTH_LONG).show());
+                        ToastUtil.show(App.get(), msg, android.widget.Toast.LENGTH_LONG));
             } catch (Throwable ignored) {
             }
         } else {

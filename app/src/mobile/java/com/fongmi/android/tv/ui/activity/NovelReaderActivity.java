@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -92,7 +93,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         ReadingSkin.enableEdgeToEdge(this, isNightPref(theme()));
         session = ReadingSession.take(getIntent().getStringExtra("session"));
         if (session == null) {
-            Toast.makeText(this, "阅读会话已失效", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "阅读会话已失效", Toast.LENGTH_SHORT);
             finish();
             return;
         }
@@ -567,7 +568,7 @@ public class NovelReaderActivity extends AppCompatActivity {
                 prefs.edit().putInt(KEY_THEME, pref).apply();
                 applyTheme();
                 refreshThemeRow();
-                Toast.makeText(this, "已切换主题", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, "已切换主题", Toast.LENGTH_SHORT);
             });
             themeRow.addView(cell);
             if (sel && themeScroll != null) {
@@ -603,8 +604,8 @@ public class NovelReaderActivity extends AppCompatActivity {
             t.setOnClickListener(v -> {
                 prefs.edit().putInt(KEY_PAGE_MODE, idx).apply();
                 refreshPageSeg();
-                Toast.makeText(this, "已切换为" + modes[idx] + "翻页",
-                        Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, "已切换为" + modes[idx] + "翻页",
+                        Toast.LENGTH_SHORT);
             });
             pageSeg.addView(t);
         }
@@ -629,7 +630,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         java.util.List<com.fongmi.android.tv.tts.EdgeVoice> voices =
                 com.fongmi.android.tv.tts.EdgeVoiceCatalog.builtIn();
         if (voices.isEmpty()) {
-            Toast.makeText(this, "音色列表为空", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "音色列表为空", Toast.LENGTH_SHORT);
             return;
         }
         String cur = com.fongmi.android.tv.tts.EdgeVoiceCatalog.defaultVoice();
@@ -646,8 +647,8 @@ public class NovelReaderActivity extends AppCompatActivity {
                     com.fongmi.android.tv.tts.EdgeVoiceCatalog
                             .setDefaultVoice(v.id);
                     refreshTtsSub();
-                    Toast.makeText(this, "已换「" + v.name + "」，下次朗读生效",
-                            Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "已换「" + v.name + "」，下次朗读生效",
+                            Toast.LENGTH_SHORT);
                 });
     }
 
@@ -680,7 +681,7 @@ public class NovelReaderActivity extends AppCompatActivity {
                     break;
                 case 5:
                     com.fongmi.android.tv.read.ReadingDownload.clearBook(this, bookKey());
-                    Toast.makeText(this, "本书缓存已清除", Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "本书缓存已清除", Toast.LENGTH_SHORT);
                     break;
             }
         });
@@ -690,7 +691,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         String[] modes = {"纵滑", "覆盖", "滑动"};
         ReadDialogs.optionsChecked(this, "翻页模式", modes, pageMode(), which -> {
             prefs.edit().putInt(KEY_PAGE_MODE, which).apply();
-            Toast.makeText(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT);
         });
     }
 
@@ -753,7 +754,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         m.position = Math.round(currentFraction() * 10000);
         m.excerpt = com.fongmi.android.tv.read.ReadingBookmarkStore.excerptOf(currentText);
         com.fongmi.android.tv.read.ReadingBookmarkStore.add(m);
-        Toast.makeText(this, "书签已保存", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "书签已保存", Toast.LENGTH_SHORT);
     }
 
     /** AI 口令"书签"：打开书签列表。 */
@@ -766,11 +767,11 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void changeSource() {
         if (!com.fongmi.android.tv.read.ReadingChangeSource.supported(session)) {
-            Toast.makeText(this, "当前这本书不支持换源（仅书源的书可换）",
-                    Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "当前这本书不支持换源（仅书源的书可换）",
+                    Toast.LENGTH_SHORT);
             return;
         }
-        Toast.makeText(this, "正在其它书源里找这本书…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "正在其它书源里找这本书…", Toast.LENGTH_SHORT);
         android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
         com.fongmi.android.tv.read.ReadingChangeSource.search(this, session, ui, candidates ->
                 com.fongmi.android.tv.read.ReadingChangeSource.pickAndSwitch(
@@ -811,7 +812,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             com.fongmi.android.tv.ui.activity.TtsReadActivity.start(this, id);
             setBarsVisible(false);
         } catch (Throwable t) {
-            Toast.makeText(this, "朗读启动失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "朗读启动失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -904,9 +905,9 @@ public class NovelReaderActivity extends AppCompatActivity {
                             prefs.edit().putInt(KEY_FONT, 3)
                                     .putString(KEY_FONT_PATH, out.getAbsolutePath()).apply();
                             applyTextStyle();
-                            Toast.makeText(this, "已应用导入的字体", Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, "已应用导入的字体", Toast.LENGTH_SHORT);
                         } catch (Throwable t) {
-                            Toast.makeText(this, "字体导入失败", Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, "字体导入失败", Toast.LENGTH_SHORT);
                         }
                     });
 
@@ -918,7 +919,7 @@ public class NovelReaderActivity extends AppCompatActivity {
             it.setType("*/*");
             fontPicker.launch(it);
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打不开文件选择器", Toast.LENGTH_SHORT);
         }
     }
 
@@ -970,7 +971,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         int maxIndex = (session.chapters == null || session.chapters.isEmpty())
                 ? 0 : session.chapters.size() - 1;
         if (index < 0 || index > maxIndex) {
-            Toast.makeText(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT);
             // 自愈：越界槽位里的缓存只可能是上面这个 bug 写进去的错章正文，清掉
             if (index > maxIndex && session.chapters != null && !session.chapters.isEmpty()) {
                 com.fongmi.android.tv.read.ReadingDownload.deleteNovelChapter(
@@ -1107,7 +1108,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         if (bottom && !wasBottom && autoAdvancedFor != session.chapterIndex
                 && System.currentTimeMillis() - loadUiDoneAt > 1500) {
             autoAdvancedFor = session.chapterIndex;
-            Toast.makeText(this, "已自动进入下一章", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "已自动进入下一章", Toast.LENGTH_SHORT);
             goChapter(session.chapterIndex + 1);
         }
         wasBottom = bottom;
@@ -1121,7 +1122,7 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void showChapters() {
         if (session.chapters.isEmpty()) {
-            Toast.makeText(this, "没有章节列表", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "没有章节列表", Toast.LENGTH_SHORT);
             return;
         }
         java.util.List<String> names = new java.util.ArrayList<>(session.chapters.size());
@@ -1140,14 +1141,14 @@ public class NovelReaderActivity extends AppCompatActivity {
         String[] items = {"后续 20 章", "后续 50 章", "全部剩余章节"};
         int[] counts = {20, 50, Integer.MAX_VALUE};
         ReadDialogs.options(this, "缓存章节（离线看）", items, which -> {
-            Toast.makeText(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "后台缓存中，完成后会提示", Toast.LENGTH_SHORT);
                     android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
                     com.fongmi.android.tv.read.ReadingDownload.downloadNextNovel(
                             this, session, bookKey(), counts[which], ui,
-                            (ok, total) -> Toast.makeText(this,
+                            (ok, total) -> ToastUtil.show(this,
                                     total == 0 ? "没有可缓存的新章节"
                                             : "已缓存 " + ok + " / " + total + " 章",
-                                    Toast.LENGTH_SHORT).show());
+                                    Toast.LENGTH_SHORT));
         });
     }
 

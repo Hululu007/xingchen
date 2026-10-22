@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.fragment;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -163,7 +164,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
             if (TextUtils.isEmpty(siteKey) || home.getKey().equals(siteKey)) {
                 if (selected == null || selected.contains(home.getKey())) {
                     if (isJsSite(home)) {
-                        App.post(() -> android.widget.Toast.makeText(requireContext(), "JS 暂未支持", android.widget.Toast.LENGTH_SHORT).show());
+                        App.post(() -> ToastUtil.show(requireContext(), "JS 暂未支持", android.widget.Toast.LENGTH_SHORT));
                     } else {
                         mSites.add(home);
                     }

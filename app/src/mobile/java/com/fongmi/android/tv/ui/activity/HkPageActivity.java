@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -244,7 +245,7 @@ public class HkPageActivity extends BaseActivity {
 
     private HkItem detailItem;
     private boolean detailFromSearch;
-    private android.widget.Toast loadingHint;
+
     private HkDetail currentDetail;
     // 8.83 原版：详情页走通用列表渲染器，不再用专用线路/选集模型
     private final List<HkItem> detailItems = new ArrayList<>();
@@ -3650,15 +3651,11 @@ public class HkPageActivity extends BaseActivity {
      */
     private void showLoadingHint() {
         hideLoadingHint();
-        loadingHint = android.widget.Toast.makeText(this, "加载中…", android.widget.Toast.LENGTH_LONG);
-        loadingHint.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(this, "加载中…", android.widget.Toast.LENGTH_LONG);
     }
 
     private void hideLoadingHint() {
-        if (loadingHint != null) {
-            loadingHint.cancel();
-            loadingHint = null;
-        }
+        com.fongmi.android.tv.utils.ToastUtil.dismiss();
     }
 
     /**
@@ -3723,7 +3720,7 @@ public class HkPageActivity extends BaseActivity {
                         if (!TextUtils.isEmpty(p.trim())) urls.add(p.trim());
                     }
                     if (urls.isEmpty()) {
-                        android.widget.Toast.makeText(this, "无图片", android.widget.Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(this, "无图片", android.widget.Toast.LENGTH_SHORT);
                         return;
                     }
                     ReadingSession s = new ReadingSession();
@@ -3775,7 +3772,7 @@ public class HkPageActivity extends BaseActivity {
                     try {
                         startActivity(android.content.Intent.createChooser(it2, "选择应用打开"));
                     } catch (Throwable e) {
-                        android.widget.Toast.makeText(this, "无应用可打开", android.widget.Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(this, "无应用可打开", android.widget.Toast.LENGTH_SHORT);
                     }
                     return;
                 }
@@ -3905,8 +3902,8 @@ public class HkPageActivity extends BaseActivity {
             final int sel = selIdx;
             App.post(() -> {
                 if (TextUtils.isEmpty(pu)) {
-                    android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试",
-                            android.widget.Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(HkPageActivity.this, "解析失败，换一条试试",
+                            android.widget.Toast.LENGTH_SHORT);
                     return;
                 }
                 String title = detailItem != null && !TextUtils.isEmpty(detailItem.getTitle())
@@ -4276,7 +4273,7 @@ public class HkPageActivity extends BaseActivity {
                 it.getTitle(), scheme, url.length());
         // 8.83 ArticleListFragment.clickItem(src 2917)：空链接 toast"链接为空，规则有误！"，不静默吞掉
         if (url.isEmpty()) {
-            android.widget.Toast.makeText(this, "链接为空，规则有误！", android.widget.Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "链接为空，规则有误！", android.widget.Toast.LENGTH_SHORT);
             return;
         }
         // 8.83 clickItem(src 2940)：base64:// 去前缀解码后再走分流
@@ -4300,7 +4297,7 @@ public class HkPageActivity extends BaseActivity {
             try {
                 startActivityForResult(android.content.Intent.createChooser(intent, "选择文件"), REQ_FILE_SELECT);
             } catch (Throwable t) {
-                android.widget.Toast.makeText(this, "无法打开文件选择器", android.widget.Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, "无法打开文件选择器", android.widget.Toast.LENGTH_SHORT);
             }
             return;
         }
@@ -4376,8 +4373,8 @@ public class HkPageActivity extends BaseActivity {
             final String pu = playUrl;
             App.post(() -> {
                 if (TextUtils.isEmpty(pu)) {
-                    android.widget.Toast.makeText(HkPageActivity.this, "解析失败，换一条试试",
-                            android.widget.Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(HkPageActivity.this, "解析失败，换一条试试",
+                            android.widget.Toast.LENGTH_SHORT);
                     return;
                 }
                 try {
@@ -4419,7 +4416,7 @@ public class HkPageActivity extends BaseActivity {
                     it.getPic() == null ? "" : it.getPic(),
                     arr.toString(), 0);
         } catch (Throwable e) {
-            android.widget.Toast.makeText(HkPageActivity.this, "无法播放此链接", android.widget.Toast.LENGTH_SHORT).show();
+            ToastUtil.show(HkPageActivity.this, "无法播放此链接", android.widget.Toast.LENGTH_SHORT);
         }
     }
 
@@ -4804,13 +4801,13 @@ public class HkPageActivity extends BaseActivity {
     private boolean handleActionUrl(String url, HkItem it) {
         try {
             if (url.startsWith("toast://")) {
-                android.widget.Toast.makeText(this, url.substring(8), android.widget.Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, url.substring(8), android.widget.Toast.LENGTH_SHORT);
                 return true;
             }
             if (url.startsWith("copy://")) {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 cm.setPrimaryClip(ClipData.newPlainText("hk", url.substring(7)));
-                android.widget.Toast.makeText(this, "已复制", android.widget.Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, "已复制", android.widget.Toast.LENGTH_SHORT);
                 return true;
             }
             if (url.startsWith("download://")) {
@@ -4821,9 +4818,9 @@ public class HkPageActivity extends BaseActivity {
                     req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                     req.setTitle(it != null && !TextUtils.isEmpty(it.getTitle()) ? stripHtml(it.getTitle()) : "下载");
                     dm.enqueue(req);
-                    android.widget.Toast.makeText(this, "开始下载", android.widget.Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "开始下载", android.widget.Toast.LENGTH_SHORT);
                 } catch (Throwable t) {
-                    android.widget.Toast.makeText(this, "下载失败", android.widget.Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, "下载失败", android.widget.Toast.LENGTH_SHORT);
                 }
                 return true;
             }
@@ -4890,7 +4887,7 @@ public class HkPageActivity extends BaseActivity {
                     App.post(() -> {
                         if (t.startsWith("http")) showWebViewDialog(t);
                         else if (!t.isEmpty())
-                            android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, t, android.widget.Toast.LENGTH_SHORT);
                     });
                 }).start();
                 return true;
@@ -4933,8 +4930,8 @@ public class HkPageActivity extends BaseActivity {
                     rHead, refresh, em == null ? "" : em);
             App.post(() -> {
                 if (em != null && !em.isEmpty()) {
-                    android.widget.Toast.makeText(HkPageActivity.this,
-                            "执行失败：" + em, android.widget.Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(HkPageActivity.this,
+                            "执行失败：" + em, android.widget.Toast.LENGTH_SHORT);
                 }
                 // 回调返回可导航目标才跳转；普通成功标记字符串（如 "ok"/"1"）不是 URL，
                 // 之前会被当成 URL 推开一个空白 V4，导致列表看起来"没刷新"（如口令正确却不刷新）。
@@ -5094,7 +5091,7 @@ public class HkPageActivity extends BaseActivity {
                     })
                     .show();
         } catch (Throwable e) {
-            android.widget.Toast.makeText(this, "打开网页失败", android.widget.Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打开网页失败", android.widget.Toast.LENGTH_SHORT);
         }
     }
 
@@ -6435,7 +6432,7 @@ public class HkPageActivity extends BaseActivity {
                         case 0: { // 复制链接
                             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                             cm.setPrimaryClip(ClipData.newPlainText("hk", url));
-                            android.widget.Toast.makeText(this, "已复制链接", android.widget.Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, "已复制链接", android.widget.Toast.LENGTH_SHORT);
                             break;
                         }
                         case 1: { // 访问链接：在系统浏览器打开 http(s) 链接
@@ -6443,10 +6440,10 @@ public class HkPageActivity extends BaseActivity {
                                 try {
                                     startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
                                 } catch (Throwable t) {
-                                    android.widget.Toast.makeText(this, "无法打开链接", android.widget.Toast.LENGTH_SHORT).show();
+                                    ToastUtil.show(this, "无法打开链接", android.widget.Toast.LENGTH_SHORT);
                                 }
                             } else {
-                                android.widget.Toast.makeText(this, "当前页面不支持此操作", android.widget.Toast.LENGTH_SHORT).show();
+                                ToastUtil.show(this, "当前页面不支持此操作", android.widget.Toast.LENGTH_SHORT);
                             }
                             break;
                         }
@@ -6462,7 +6459,7 @@ public class HkPageActivity extends BaseActivity {
                         case 3: { // 自由复制：复制标题+链接
                             ClipboardManager cm2 = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                             cm2.setPrimaryClip(ClipData.newPlainText("hk", title + "\n" + url));
-                            android.widget.Toast.makeText(this, "已复制", android.widget.Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(this, "已复制", android.widget.Toast.LENGTH_SHORT);
                             break;
                         }
                     }

@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.content.Context;
 import android.content.Intent;
@@ -1032,7 +1033,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         try {
             filePicker.launch(it);
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件选择器（选书）", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打不开文件选择器（选书）", Toast.LENGTH_SHORT);
         }
     }
 
@@ -1040,7 +1041,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
         try {
             treePicker.launch(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE));
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件夹选择器（选书）", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打不开文件夹选择器（选书）", Toast.LENGTH_SHORT);
         }
     }
 
@@ -1068,12 +1069,12 @@ public class ReadingShelfActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 setImporting(false);
                 if (fOk > 0) {
-                    Toast.makeText(ReadingShelfActivity.this,
+                    ToastUtil.show(ReadingShelfActivity.this,
                             "导入成功 " + fOk + " 本" + (fErr.isEmpty() ? "" : "；失败：" + fErr),
-                            Toast.LENGTH_LONG).show();
+                            Toast.LENGTH_LONG);
                 } else {
-                    Toast.makeText(ReadingShelfActivity.this, "导入失败：" + fErr,
-                            Toast.LENGTH_LONG).show();
+                    ToastUtil.show(ReadingShelfActivity.this, "导入失败：" + fErr,
+                            Toast.LENGTH_LONG);
                 }
                 refresh();
             });
@@ -1100,8 +1101,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
             final String fErr = err;
             runOnUiThread(() -> {
                 setImporting(false);
-                Toast.makeText(ReadingShelfActivity.this,
-                        fOk > 0 ? "导入成功" : "导入失败：" + fErr, Toast.LENGTH_LONG).show();
+                ToastUtil.show(ReadingShelfActivity.this,
+                        fOk > 0 ? "导入成功" : "导入失败：" + fErr, Toast.LENGTH_LONG);
                 refresh();
             });
         }).start();
@@ -1111,8 +1112,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
         com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
         // 定案：长按只是移出书架；本地书文件留在私有目录，不删（改口：2026-10-18）
-        Toast.makeText(ReadingShelfActivity.this, "已从书架移除",
-                Toast.LENGTH_SHORT).show();
+        ToastUtil.show(ReadingShelfActivity.this, "已从书架移除",
+                Toast.LENGTH_SHORT);
         refresh();
     }
 
@@ -1133,7 +1134,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
             a.index = 0;
             AudioBookActivity.start(this, LegadoAudio.put(a));
         } catch (Throwable t) {
-            Toast.makeText(this, "打开失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打开失败", Toast.LENGTH_SHORT);
         }
     }
 
@@ -1161,7 +1162,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
             job.rate = 1.0f;
             TtsReadActivity.start(this, TtsJob.put(job));
         } catch (Throwable t) {
-            Toast.makeText(this, "打开失败", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打开失败", Toast.LENGTH_SHORT);
         }
     }
 

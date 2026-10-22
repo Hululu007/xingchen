@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import com.fongmi.android.tv.read.ReadDialogs;
@@ -83,7 +84,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         ReadingSkin.enableEdgeToEdge(this, true);
         album = LegadoAudio.take(getIntent().getStringExtra("session"));
         if (album == null || album.chapters.isEmpty()) {
-            Toast.makeText(this, "专辑数据丢失", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "专辑数据丢失", Toast.LENGTH_SHORT);
             finish();
             return;
         }
@@ -762,8 +763,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     private void playDelta(int d) {
         int n = album.index + d;
         if (n < 0 || n >= album.chapters.size()) {
-            Toast.makeText(this, d > 0 ? "已经是最后一集" : "已经是第一集",
-                    Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, d > 0 ? "已经是最后一集" : "已经是第一集",
+                    Toast.LENGTH_SHORT);
             return;
         }
         saveProgress();
@@ -784,8 +785,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             } catch (Throwable t) {
                 runOnUiThread(() -> {
                     String m = t instanceof LegadoException ? t.getMessage() : "音频地址解析失败";
-                    Toast.makeText(AudioBookActivity.this, "源级错误：" + m,
-                            Toast.LENGTH_LONG).show();
+                    ToastUtil.show(AudioBookActivity.this, "源级错误：" + m,
+                            Toast.LENGTH_LONG);
                 });
                 return;
             }
@@ -822,7 +823,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         String label = String.format(Locale.US, "%.2f", s)
                 .replaceAll("0+$", "").replaceAll("\\.$", "");
         setOptValue(tvSpeedVal, label + "x");
-        Toast.makeText(this, "倍速 " + label + "x", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "倍速 " + label + "x", Toast.LENGTH_SHORT);
     }
 
     private void pickTimer() {
@@ -832,8 +833,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             sleepAt = ms[which] == 0 ? 0 : System.currentTimeMillis() + ms[which];
             setOptValue(tvTimerVal, ms[which] == 0 ? "定时关"
                     : "剩" + items[which]);
-            if (ms[which] == 0) Toast.makeText(this, "已关闭定时",
-                    Toast.LENGTH_SHORT).show();
+            if (ms[which] == 0) ToastUtil.show(this, "已关闭定时",
+                    Toast.LENGTH_SHORT);
         });
     }
 
@@ -886,8 +887,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                         sleepAt = 0;
                         setOptValue(tvTimerVal, "定时关");
                         player().pause();
-                        Toast.makeText(AudioBookActivity.this, "定时到，已暂停",
-                                Toast.LENGTH_SHORT).show();
+                        ToastUtil.show(AudioBookActivity.this, "定时到，已暂停",
+                                Toast.LENGTH_SHORT);
                     }
                     // 本集播完自动下一集
                     if (p != null && p.getPlaybackState() == Player.STATE_ENDED
@@ -897,8 +898,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                             saveProgress();
                             playChapter(album.index + 1, 0);
                         } else {
-                            Toast.makeText(AudioBookActivity.this, "专辑播完",
-                                    Toast.LENGTH_SHORT).show();
+                            ToastUtil.show(AudioBookActivity.this, "专辑播完",
+                                    Toast.LENGTH_SHORT);
                         }
                     }
                 }

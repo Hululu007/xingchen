@@ -1866,9 +1866,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
 
     private void toastCenter(String text) {
         if (getContext() != null) {
-            android.widget.Toast toast = android.widget.Toast.makeText(getContext(), text, android.widget.Toast.LENGTH_SHORT);
-            toast.setGravity(android.view.Gravity.CENTER, 0, 0);
-            toast.show();
+            com.fongmi.android.tv.utils.ToastUtil.show(getContext(), text, android.widget.Toast.LENGTH_SHORT);
         }
     }
 
@@ -2906,9 +2904,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     /** 对应 ToastMgr.shortBottomCenter。 */
     private void toastBottom(String text) {
         if (getContext() == null) return;
-        android.widget.Toast toast = android.widget.Toast.makeText(getContext(), text, android.widget.Toast.LENGTH_SHORT);
-        toast.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL, 0, 0);
-        toast.show();
+        com.fongmi.android.tv.utils.ToastUtil.show(getContext(), text, android.widget.Toast.LENGTH_SHORT);
     }
 
     /** 宿主高亮编辑页按原版 SettingConfig.highlightRule 模式回填的静态槽（onActivityResult 0x2382 消费后清空）。 */

@@ -1,4 +1,5 @@
 package com.fongmi.android.tv.ui.activity;
+import com.fongmi.android.tv.utils.ToastUtil;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -252,7 +253,7 @@ public class LegadoActivity extends Activity {
             i.addCategory(Intent.CATEGORY_OPENABLE);
             startActivityForResult(Intent.createChooser(i, "选择书源文件"), REQ_PICK_FILE);
         } catch (Throwable t) {
-            Toast.makeText(this, "打不开文件选择器（选书源文件）", Toast.LENGTH_SHORT).show();
+            ToastUtil.show(this, "打不开文件选择器（选书源文件）", Toast.LENGTH_SHORT);
         }
     }
 
@@ -262,7 +263,7 @@ public class LegadoActivity extends Activity {
         if (requestCode == REQ_PICK_FILE && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri == null) {
-                Toast.makeText(this, "没取到文件", Toast.LENGTH_SHORT).show();
+                ToastUtil.show(this, "没取到文件", Toast.LENGTH_SHORT);
                 return;
             }
             doImport(() -> {
@@ -292,14 +293,14 @@ public class LegadoActivity extends Activity {
     }
 
     private void doImport(Importer importer) {
-        Toast.makeText(this, "导入中…", Toast.LENGTH_SHORT).show();
+        ToastUtil.show(this, "导入中…", Toast.LENGTH_SHORT);
         new Thread(() -> {
             try {
                 String name = importer.run();
                 runOnUiThread(() -> {
                     String toast = (name.startsWith("已导入") || name.startsWith("进了"))
                             ? name : "已导入：" + name;
-                    Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
+                    ToastUtil.show(this, toast, Toast.LENGTH_SHORT);
                     reload();
                 });
             } catch (Throwable t) {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 播放队列面板（GZ PlayQueueSheet＋SheetSubPanelHeader 证据 redo2-gz-queue-evidence）：
-     面板底 #F3F3F3、根上内距 12dp；头部 44dp＝[‹ 圆钮 40] [标题 17sp/800] [随机筹] [计数筹·纯数字] [清空·红] [✕ 圆钮 40]，
-     ‹ 与 ✕ 都是关闭面板；来源行（队列级来源、全队一致才显示）；提示行「长按拖动调整顺序」；列表最大高屏高 0.68（代码钳）。 -->
+     面板底 #F3F3F3、根上内距 12dp；头部 44dp＝[标题 17sp/800] [随机筹] [计数筹·纯数字] [清空·红] [✕ 圆钮 40]，
+     头部不放自己的返回箭头，✕ 关闭钮保留；来源行（队列级来源、全队一致才显示）；提示行「长按拖动调整顺序」；列表最大高屏高 0.68（代码钳）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -16,16 +16,6 @@
         android:orientation="horizontal"
         android:paddingStart="16dp"
         android:paddingEnd="16dp">
-
-        <ImageView
-            android:id="@+id/btnBack"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_sheet_circle_btn"
-            android:contentDescription="@string/music_back"
-            android:padding="10dp"
-            android:src="@drawable/ic_music_chevron_left"
-            android:tint="#1C1C1E" />
 
         <TextView
             android:layout_width="wrap_content"

@@ -567,8 +567,9 @@
                         android:id="@+id/tvFavHistTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:letterSpacing="-0.03"
                         android:textColor="#1C1C1E"
-                        android:textSize="28sp" />
+                        android:textSize="22sp" />
 
                     <TextView
                         android:id="@+id/tvFavHistCount"
@@ -896,7 +897,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:background="@drawable/card_music_glass_24"
+            android:background="@drawable/bg_plugin_stats"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:padding="16dp"
@@ -906,9 +907,10 @@
                 android:id="@+id/pluginHeaderIcon"
                 android:layout_width="46dp"
                 android:layout_height="46dp"
-                android:background="@drawable/badge_music"
+                android:background="@drawable/bg_plugin_stats_icon"
                 android:padding="11dp"
-                android:src="@drawable/ic_music_puzzle" />
+                android:src="@drawable/ic_music_puzzle"
+                android:tint="@android:color/white" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -977,9 +979,10 @@
                 <ImageView
                     android:layout_width="32dp"
                     android:layout_height="32dp"
-                    android:background="@drawable/badge_music"
+                    android:background="@drawable/bg_plugin_add_local"
                     android:padding="4dp"
-                    android:src="@drawable/ic_music_plus" />
+                    android:src="@drawable/ic_music_plus"
+                    android:tint="#26A69A" />
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -1023,9 +1026,10 @@
                 <ImageView
                     android:layout_width="32dp"
                     android:layout_height="32dp"
-                    android:background="@drawable/badge_music"
+                    android:background="@drawable/bg_plugin_add_link"
                     android:padding="4dp"
-                    android:src="@drawable/ic_music_download" />
+                    android:src="@drawable/ic_music_download"
+                    android:tint="#42A5F5" />
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -1085,14 +1089,14 @@
                 android:id="@+id/btnPluginSort"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@drawable/badge_music"
+                android:background="@drawable/bg_plugin_sort_pill"
                 android:paddingStart="10dp"
                 android:paddingTop="7dp"
                 android:paddingEnd="10dp"
                 android:paddingBottom="7dp"
                 android:scaleX="0.96"
                 android:scaleY="0.96"
-                android:textColor="#1C1C1E"
+                android:textColor="#42A5F5"
                 android:textSize="11sp" />
         </LinearLayout>
 

@@ -151,8 +151,8 @@
             android:id="@+id/tpSeek"
             android:layout_width="match_parent"
             android:layout_height="28dp"
-            android:maxHeight="4dp"
-            android:minHeight="4dp"
+            android:maxHeight="2dp"
+            android:minHeight="2dp"
             android:progressDrawable="@drawable/bg_player_seek_progress_dark"
             android:thumb="@drawable/bg_player_seek_thumb" />
 

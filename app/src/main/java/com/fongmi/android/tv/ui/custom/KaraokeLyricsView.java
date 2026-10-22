@@ -1791,9 +1791,12 @@ public class KaraokeLyricsView extends View {
         float scaleAmount = 0f;
         float liftProgress = 0f;
         if (advancedFx) {
-            // 逐字上浮（GZ wordLiftProgressTime）：easeOut(clamp((t−字开始)/max(1100, 字时长))) × (−0.09em)；
-            // 拆字后“字”即字符切片，分母按切片时长算，上浮逐字符依次起落。
-            liftProgress = easeOut(clampF((relative - start) / (float) Math.max(WORD_LIFT_MIN_DURATION_MS, duration), 0f, 1f));
+            // 逐字上浮（GZ wordLiftProgressTime）：分母与起点按原词算，不按字符切片算——
+            // GZ 的 EmphasisRange 按词建（词起→词止，LyricsViewKt:12079），lift 数组按 range
+            // 索引、词内各字同乘词进度；此前按切片算，快字（中文单字 200-300ms）分母被
+            // 1100 下限压到 0.2，几乎不动，正是「逐字生硬」的根。按词算整词走完才满 0.09em。
+            long wordStart = word.getStartOffsetMs();
+            liftProgress = easeOut(clampF((relative - wordStart) / (float) Math.max(WORD_LIFT_MIN_DURATION_MS, originalDuration), 0f, 1f));
             drawY += WORD_LIFT_EM * em * liftProgress;
             // L3 逐字横向漂移 0.03（LyricsViewKt:7124-7147／10377）：只对拆字 Seg，按上浮进度算，
             // 整词 Seg（charCount＝0）不漂移，避免整词平移。

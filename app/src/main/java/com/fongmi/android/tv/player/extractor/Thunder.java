@@ -129,7 +129,7 @@ public class Thunder implements Source.Extractor {
         // 状态单次读数偶发误报 3（出错）：任务已下出字节且没被零字节监控记账时，以字节为准
         // （字节口径与复用条件一致：父计数或落盘长度任一 >0）。
         if (ns == 3 && hasDownloadedBytes() && (url == null || !zeroMark(url).exists())) ns = 1;
-        if (url != null && sameContent(url, lastKey) && lastLocal != null && taskId != null && ns != 3) {
+        if (url != null && sameContent(url, lastKey) && lastLocal != null && taskId != null && (ns == 0 || ns == 1 || ns == 2)) {
             if (hasDownloadedBytes()) {
                 SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
                 lastKey = url;
@@ -172,11 +172,13 @@ public class Thunder implements Source.Extractor {
         }
     }
 
-    // 任务是否还活着：原生状态 0/1/2 算活；-1 读不到不轻易判死（默认活，避免误杀在用任务）
+    // 复用判断的活任务：只认原生状态 0/1/2；-1（读不到）不算活——读不到就重建，
+    // 不许把死任务的地址递给播放器（之前 -1 默认活，死地址复用就是 00:00 无报错的来源之一）。
+    // 这里只管复用，不管删任务（删任务走 cleanupStaleTask），不存在误杀在用任务。
     private boolean isTaskAlive() {
         if (taskId == null) return false;
         int status = nativeStatus();
-        return status != 3;
+        return status == 0 || status == 1 || status == 2;
     }
 
     // 清理死任务：stop + delete，不释放引擎（重建任务走热引擎，与上游每轮建任务一致）
@@ -299,23 +301,54 @@ public class Thunder implements Source.Extractor {
         throw new ExtractException(String.format(Locale.ROOT, "磁力任务%d毫秒仍未下载到字节，无法起播（status=%d speed=%d size=%d），请换源或重试", maxRounds * 100L, lastStatus, lastSpeed, lastSize));
     }
 
-    // 照上游：ed2k/thunder 零等待，直接交本地地址
-    // 本批说明：ed2k 不在磁力 BT 字节门禁/预算文案的保障内，仍走零等待交地址
-    // 与通用超时；本批原定只动磁力 BT 路，ed2k 逻辑不动。
+    // ed2k/thunder 直建任务的字节门禁（10-22 日志实证补）：上游零等待交地址，
+    // 死任务（有元数据、无字节流）会让播放器永远 BUFFERING 且界面无报错——
+    // 15:45/15:55 两轮推送全是这条路（task handed 无 bt 前缀、status=1 speed=0 size=0，
+    // 本地代理 206 头对、body 一字节不来；且该链接此前已被零字节标记，属重复死任务）。
+    // 改与磁力 BT 路同款门禁：只在引擎计数或落盘文件已有字节时交地址；
+    // 200 轮（20 秒）仍 0 字节抛带状态的真错，不递死地址。
+    // 健康任务首字节通常 1 秒内到，门禁不拖慢正常起播；预算卡在 ViewModel 30 秒超时内。
     private String addThunderTask(String url) {
         File folder = Path.thunder(Util.md5(url));
         taskId = XLTaskHelper.get().addThunderTask(url, folder);
         File saveFile = taskId.getSaveFile();
-        String local = XLTaskHelper.get().getLocalUrl(saveFile);
-        lastDownloadFile = saveFile;
-        try {
-            XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(taskId);
-            SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info == null ? -1 : info.mTaskStatus, info == null ? 0 : info.mDownloadSpeed, info == null ? 0 : info.mDownloadSize);
-        } catch (Exception e) {
-            SpiderDebug.log("thunder", "task handed local=%s (info unreadable)", local);
+        int lastStatus = 0;
+        long lastSpeed = 0;
+        long lastSize = 0;
+        for (int i = 0; i < 200; i++) {
+            if (Thread.currentThread().isInterrupted()) throw new ExtractException("迅雷任务被中断，请重试");
+            XLTaskInfo info = null;
+            try {
+                info = XLTaskHelper.get().getNativeTaskInfo(taskId);
+            } catch (Exception ignored) {
+            }
+            if (info != null) {
+                lastStatus = info.mTaskStatus;
+                lastSpeed = info.mDownloadSpeed;
+                lastSize = info.mDownloadSize;
+                if (info.mTaskStatus == 3) {
+                    String err = info.getErrorMsg();
+                    if (err == null || err.isEmpty()) err = "迅雷任务出错，请重试";
+                    throw new ExtractException(err);
+                }
+                if (info.mTaskStatus != 0) {
+                    long onDisk = saveFile == null ? 0 : saveFile.length();
+                    if (info.mDownloadSize > 0 || onDisk > 0) {
+                        String local = XLTaskHelper.get().getLocalUrl(saveFile);
+                        SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info.mTaskStatus, info.mDownloadSpeed, info.mDownloadSize);
+                        if (local == null || local.isEmpty()) {
+                            throw new ExtractException("迅雷本地地址为空，请重试");
+                        }
+                        lastDownloadFile = saveFile;
+                        startProgressLog(taskId, url);
+                        return local;
+                    }
+                }
+            }
+            if (i % 50 == 49) SpiderDebug.log("thunder", "thunder waiting status=%d speed=%d size=%d", lastStatus, lastSpeed, lastSize);
+            SystemClock.sleep(100);
         }
-        startProgressLog(taskId, url);
-        return local;
+        throw new ExtractException(String.format(Locale.ROOT, "迅雷任务%d毫秒仍未下载到字节，无法起播（status=%d speed=%d size=%d），请换源或重试", 200 * 100L, lastStatus, lastSpeed, lastSize));
     }
 
     // 零字节标记：交地址后持续 0 字节的链接在 thunder 根目录留一个标记文件，
@@ -551,7 +584,11 @@ public class Thunder implements Source.Extractor {
             } catch (Exception e) {
                 throw new ExtractException("磁力解析超时，请检查网络后重试");
             }
-            if (!torrent && !taskId.getRealUrl().startsWith("magnet")) {
+            // parse 回空任务／空地址时下面 getRealUrl 直接 NPE，而上游 ViewModel 只把
+            // ExtractException 发成可见错，NPE 会被吞成空结果、界面静默 00:00。先验先说。
+            String realUrl = taskId == null ? null : taskId.getRealUrl();
+            if (realUrl == null) throw new ExtractException("磁力解析失败，请重试");
+            if (!torrent && !realUrl.startsWith("magnet")) {
                 SpiderDebug.log("thunder", "种子未解析出文件列表，回退单集 scheme=%s", u.contains(":") ? u.substring(0, u.indexOf(':')) : "");
                 return Arrays.asList(create(taskId));
             }
@@ -559,6 +596,12 @@ public class Thunder implements Source.Extractor {
             if (!torrent) waitDone(taskId);
             try {
                 return XLTaskHelper.get().getTorrentInfo(taskId.getSaveFile()).getMedias().stream().map(this::create).toList();
+            } catch (ExtractException e) {
+                throw e;
+            } catch (Exception e) {
+                // 种子信息取不到（元数据没到、SDK 回空）时原先 NPE 被上游吞成空结果、
+                // 界面静默 00:00；转成可见错，不递空结果。
+                throw new ExtractException("磁力解析失败，请重试");
             } finally {
                 XLTaskHelper.get().stopTask(taskId);
             }

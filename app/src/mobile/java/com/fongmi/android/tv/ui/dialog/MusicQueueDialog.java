@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.dialog;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
@@ -19,6 +20,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
+import androidx.core.view.WindowCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.ItemTouchHelper;
@@ -49,7 +51,7 @@ import java.util.List;
 
 /**
  * 播放队列面板（GZ PlayQueueSheet 证据 redo2-gz-queue-evidence 逐项转写）：
- * 头部 44dp＝[‹ 圆钮][标题 17sp/800][随机筹（仅随机模式）][计数筹·纯数字][清空·红 13sp][✕ 圆钮]，‹ 与 ✕ 均关面板；
+ * 头部 44dp＝[标题 17sp/800][随机筹（仅随机模式）][计数筹·纯数字][清空·红 13sp][✕ 圆钮]，头部不放自己的返回箭头，✕ 关闭钮保留；
  * 来源行＝开面板时按 track.platform 统计队列级来源，全队一致才显示（星辰无 GZ 的 route 跳转，不可点、无 ›）；
  * 提示行「长按拖动调整顺序」；队列行＝序号 %02d＋封面 36dp＋歌名 13sp/700＋歌手 11sp＋三钮常显（30dp/图标 18dp），
  * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
@@ -64,7 +66,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     private static final int COLOR_CURRENT_INDEX = 0xB3FA243C; // 当前行序号＝AccentRed × 0.7
 
     private DialogMusicQueueBinding binding;
-    private FrameLayout sheetView;
     private BottomSheetBehavior<FrameLayout> sheetBehavior;
     private final List<MusicTrack> tracks = new ArrayList<>();
     private QueueAdapter adapter;
@@ -95,16 +96,13 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         return true;
     }
 
-    // 贴底锚定（2026-10-22 04:41／04:44 崩溃根因修，1.4.6 回归）：
-    // 上一版把行为置空（clp.setBehavior(null)）想靠重力贴底，结果 Material 1.14 的
-    // BottomSheetDialog 在分发窗口 insets 时内部必调 BottomSheetBehavior.from(sheet)，
-    // 行为一空就抛「The view is not associated with BottomSheetBehavior」，开队列面板即崩，
-    // 栈顶 onApplyWindowInsets → BottomSheetBehavior.from 与此完全对上，且树里只有这一处
-    // 置空行为、也只在 1.4.6 才进。行为一律不许置空。
-    // 贴底改走工具面板同款已验证口径：行为保留、fitToContents 关、不可拖拽、跳过折叠、
-    // 展开态，并按实测高度显式定 expandedOffset＝屏高－面板高；高度变化时布局监听重定，
-    // 0.68 钳不动。✕／点外／系统返回关闭不受影响。
-    // GZ 对照：PlayQueueSheet 是标准底部弹窗（从底下上来、底部贴屏底、顶部圆角、上方遮罩），本修后形态与之同款。
+    // 队列面板重做结构（GZ PlayQueueSheet，不打补丁）：
+    // 行为一律不置空（1.4.6 教训：Material 1.14 在分发 insets 时必调 BottomSheetBehavior.from，
+    // 行为一空开面板即崩）。行为：fitToContents 关、不可拖拽、跳过折叠、展开态；
+    // 高度与偏移只由 updateSheetHeight 定（单一 owner），不挂布局监听、不另起重锚链；
+    // 窗口沉浸到底（GZ 队列白到底边），面板底边到屏底盖住活动层迷你进度条。
+    // GZ 对照：PlayQueueSheet 是标准底部弹窗（从底下上来、底部贴屏底、顶部圆角、上方遮罩），
+    // 面板高钳 0.68 屏高，行 pitch 56＋行间 2dp。✕／点外／系统返回关闭不受影响。
     @Override
     protected void setBehavior(BottomSheetDialog dialog) {
         FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
@@ -125,26 +123,16 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             sheet.setLayoutParams(clp);
         }
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        sheetView = sheet;
         sheetBehavior = behavior;
         behavior.setFitToContents(false);
         behavior.setDraggable(false);
         behavior.setSkipCollapsed(true);
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        sheet.addOnLayoutChangeListener((v, left, top, right, bottom,
-                                         oldLeft, oldTop, oldRight, oldBottom) -> {
-            int h = bottom - top;
-            int oldH = oldBottom - oldTop;
-            if (h > 0 && h != oldH) anchorSheet(sheet, behavior, h);
-        });
-        sheet.post(() -> anchorSheet(sheet, behavior, sheet.getHeight()));
-    }
-
-    private void anchorSheet(FrameLayout sheet, BottomSheetBehavior<FrameLayout> behavior, int height) {
-        if (sheet == null || behavior == null || height <= 0 || getContext() == null) return;
-        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
-        behavior.setPeekHeight(height);
-        behavior.setExpandedOffset(Math.max(0, screenH - height));
+        // 首帧先按最大高锚定（避免未设偏移时满高闪一下），数据到后 updateSheetHeight 再按实高定。
+        if (getContext() != null) {
+            int maxH = Math.round(getContext().getResources().getDisplayMetrics().heightPixels * 0.68f);
+            behavior.setPeekHeight(maxH);
+            behavior.setExpandedOffset(Math.max(0, getContext().getResources().getDisplayMetrics().heightPixels - maxH));
+        }
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
     }
 
@@ -166,11 +154,24 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 getDialog().getWindow().setLayout(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
                 getDialog().getWindow().setGravity(Gravity.BOTTOM);
+                // 重做结构里的沉浸到底（不是往旧逻辑上贴的补丁）：窗口内容铺进导航栏区、导航栏透明，
+                // 面板白到屏底盖住活动层迷你进度条；锚定用的 screenH 本就是全屏高，沉浸后坐标系与之一致。
+                WindowCompat.setDecorFitsSystemWindows(getDialog().getWindow(), false);
+                getDialog().getWindow().setNavigationBarColor(Color.TRANSPARENT);
             }
         } catch (Throwable ignored) {
         }
         // 队列面板最大高度＝屏高 0.68（GZ PlayQueueSheet 口径：钳整面板，不是只钳列表；内容短时不留白，空态时整面板撑到 0.68 以便空态 weight 1f 居中）
         binding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
+        // 沉浸后末行不藏手势区后：列表底垫导航栏高（clipToPadding 关，末行可滑进垫区看全）
+        try {
+            int navH = 0;
+            int navId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+            if (navId > 0) navH = getResources().getDimensionPixelSize(navId);
+            binding.recycler.setPadding(0, 0, 0, navH);
+            binding.recycler.setClipToPadding(false);
+        } catch (Throwable ignored) {
+        }
         // 行 pitch 56＋行间 2dp＝58dp（GZ spacedBy 2dp）：最后一行后不加间隔
         binding.recycler.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
@@ -190,9 +191,6 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             dismissAllowingStateLoss();
         });
         attachPress(binding.btnClear, 0.96f);
-        // GZ SheetSubPanelHeader：‹ 与 ✕ 传的是同一个关闭回调——两个都是关面板，不是返回上一级
-        binding.btnBack.setOnClickListener(v -> dismissAllowingStateLoss());
-        attachPress(binding.btnBack, 0.9f);
         binding.btnClose.setOnClickListener(v -> dismissAllowingStateLoss());
         attachPress(binding.btnClose, 0.9f);
         touchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
@@ -285,20 +283,24 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         super.onDestroyView();
     }
 
-    /** 整面板钳高（GZ fillMaxHeight 0.68）：根高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
-     * 空态时根高直接撑到 0.68×屏高，空态盒 weight 1f 才能占满居中；内容短时根高回 wrap_content，不留白 */
-    private void applyPanelHeight() {
-        if (binding == null || getContext() == null) return;
-        int maxH = Math.round(getContext().getResources().getDisplayMetrics().heightPixels * 0.68f);
+    /** 队列面板高度与偏移的唯一 owner（重做结构）：面板高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
+     * 空态直接撑 0.68 以便空态盒居中；内容短时回 wrap_content，不留白。
+     * 偏移一次定准：peekHeight＝面板高、expandedOffset＝屏高－面板高、展开态；不挂布局监听、不另起重锚链。
+     * 沉浸后坐标系是全屏高，与 screenH 口径一致。 */
+    private void updateSheetHeight() {
+        if (binding == null || sheetBehavior == null || getContext() == null) return;
+        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
+        int maxH = Math.round(screenH * 0.68f);
         View root = binding.getRoot();
         root.post(() -> {
-            if (binding == null) return;
+            if (binding == null || sheetBehavior == null) return;
             if (tracks.isEmpty()) {
                 ViewGroup.LayoutParams lp = root.getLayoutParams();
                 if (lp.height != maxH) {
                     lp.height = maxH;
                     root.setLayoutParams(lp);
                 }
+                setSheetOffsets(maxH);
                 return;
             }
             ViewGroup.LayoutParams rootLp = root.getLayoutParams();
@@ -309,34 +311,30 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 recLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
                 root.setLayoutParams(rootLp);
                 binding.recycler.setLayoutParams(recLp);
-                root.post(this::applyPanelHeight);
+                root.post(this::updateSheetHeight);
                 return;
             }
             int rootH = root.getHeight();
             int recH = binding.recycler.getHeight();
+            int finalH = rootH;
             if (rootH > maxH && recH > 0) {
                 int newRecH = maxH - (rootH - recH);
                 if (newRecH > 0 && newRecH < recH) {
                     recLp.height = newRecH;
                     binding.recycler.setLayoutParams(recLp);
+                    finalH = maxH;
                 }
             }
-            reanchorToRoot();
+            if (finalH > 0) setSheetOffsets(finalH);
         });
     }
 
-    /** 贴底重锚：锚定必须按卡片（根）实高算，不能按 sheet 高——sheet 高可能跟内容脱节
-     * （空态先按 0.68 撑满、内容到后根回缩，sheet 高不变时布局监听不触发，旧锚点就把卡片
-     * 钉在半空、下面漏一截播放页底栏，正是 112892 两首时那截空）。post 排在高度改动之后，
-     * 跑时根高已是布局后的实高。 */
-    private void reanchorToRoot() {
-        if (binding == null || sheetView == null || sheetBehavior == null) return;
-        View root = binding.getRoot();
-        root.post(() -> {
-            if (binding == null || sheetView == null || sheetBehavior == null) return;
-            int rh = binding.getRoot().getHeight();
-            if (rh > 0) anchorSheet(sheetView, sheetBehavior, rh);
-        });
+    private void setSheetOffsets(int panelH) {
+        if (sheetBehavior == null || getContext() == null || panelH <= 0) return;
+        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
+        sheetBehavior.setPeekHeight(panelH);
+        sheetBehavior.setExpandedOffset(Math.max(0, screenH - panelH));
+        sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
     }
 
     /** GZ 通用按压反馈（MotionKt：150ms；缩放值由调用方传） */
@@ -446,7 +444,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         binding.tvHint.setVisibility(View.VISIBLE);
         binding.btnClear.setVisibility(empty ? View.GONE : View.VISIBLE);
         adapter.notifyDataSetChanged();
-        applyPanelHeight();
+        updateSheetHeight();
     }
 
     /**

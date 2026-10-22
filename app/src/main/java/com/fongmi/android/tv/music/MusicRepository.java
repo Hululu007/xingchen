@@ -17,8 +17,11 @@ import com.fongmi.android.tv.api.music.LxKeyIssue;
 import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.fongmi.android.tv.api.music.KwChartSource;
 import com.fongmi.android.tv.api.music.QqChartSource;
+import com.fongmi.android.tv.player.lyrics.KuwoClient;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
+import com.fongmi.android.tv.player.lyrics.LyricsRequest;
+import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.utils.LocalTrackMeta;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
@@ -613,6 +616,16 @@ public class MusicRepository {
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
         }
+        // 5.5 酷我行级直连（lrclist 崩的宿主侧根治）：元力 KW 插件 getLyric 在酷我接口回空时
+        // 对 null 读 lrclist 抛未处理拒绝，宿主改不了远端混淆插件；本步用宿主自有 KuwoClient
+        // （空数据已判空回空串，绝不崩）按歌名直取行级词，记进 pick 的行级／首版桶——
+        // 默认逐字模式下不截断链（词版仍优先），最终 pick 无词版时回落本版，歌不再无词可显。
+        try {
+            hit = pick.note(kuwoLineLyric(track));
+            if (hit != null) return hit;
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lyricRich kuwo line error %s", t.getMessage());
+        }
         // 6. AMLL（B8）：最后兜底，AMLL 档带档位元数据；无命中返回空，不冒充
         // S6 门控：AMLL 开关关时跳过本步；默认开，行为与原来一致
         if (MusicStore.isAmllEnabled()) {
@@ -645,6 +658,34 @@ public class MusicRepository {
             }
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyricRich cf word error %s", t.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 酷我行级直连（宿主自有客户端，不走插件）：按歌名＋歌手搜酷我，取首个带行时间的版。
+     * KuwoClient 内部已判空（data null 回空串、toResult 无行时间回 null），酷我接口回空时
+     * 只返回 null 不抛错；本方法再兜一层 try，绝不把异常漏进回退链。
+     * 行级版不冒充逐字：format 标 LRC（行级），sourceName 标酷我。
+     */
+    private static MusicLyric kuwoLineLyric(MusicTrack track) {
+        try {
+            if (track == null || track.title == null || track.title.trim().isEmpty()) return null;
+            String artist = track.artist == null ? "" : track.artist.trim();
+            LyricsRequest req = new LyricsRequest("", "", track.title.trim(), artist, "", track.duration);
+            List<LyricsResult> results = new KuwoClient().findAll(req, 1);
+            if (results == null || results.isEmpty()) return null;
+            for (LyricsResult r : results) {
+                if (r == null) continue;
+                String text = r.getLyrics();
+                if (text == null || text.trim().isEmpty()) continue;
+                MusicLyric lyric = new MusicLyric(text);
+                lyric.format = "LRC";
+                lyric.sourceName = "酷我";
+                return lyric;
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "kuwo line lyric error %s", t.getMessage());
         }
         return null;
     }
@@ -894,6 +935,13 @@ public class MusicRepository {
         } catch (Throwable t) {
             complete = false;
             SpiderDebug.log("music", "lyricRichAll platform word error %s", t.getMessage());
+        }
+        // 5.5 酷我行级直连（与快路径同款：插件崩后宿主自有空安全客户端补一行级版，版本条行级桶收）。
+        try {
+            addVersion(out, seen, normalizeRich(kuwoLineLyric(track)));
+        } catch (Throwable t) {
+            complete = false;
+            SpiderDebug.log("music", "lyricRichAll kuwo line error %s", t.getMessage());
         }
         // 6. AMLL（B8）；S6 门控：关时跳过，默认开行为不变
         if (MusicStore.isAmllEnabled()) {

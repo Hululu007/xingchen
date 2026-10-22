@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- GZ 歌单行：封面 50dp、名 14sp、第二行“N 首”11sp、右播放圆钮 34dp＋⋮（星辰歌单无封面字段，50dp 格用图标垫块；字重未抠到，沿用星辰行粗体） -->
+<!-- GZ 歌单行：封面 50dp、名 14sp、第二行“N 首”11sp、右播放圆钮 34dp＋⋮；封面＝瓜子 CoverMosaic 口径（歌单内曲目封面拼块，1 张铺满、2 张以上 2×2、前 4 张；空歌单才回落彩色圆盘图标；字重未抠到，沿用星辰行粗体） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -9,13 +9,59 @@
     android:orientation="horizontal"
     android:padding="16dp">
 
-    <ImageView
-        android:id="@+id/icon"
+    <FrameLayout
+        android:id="@+id/coverBox"
         android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:padding="13dp"
-        android:src="@drawable/ic_music_queue"
-        android:tint="#FFFFFF" />
+        android:layout_height="50dp">
+
+        <GridLayout
+            android:id="@+id/mosaicGrid"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:columnCount="2"
+            android:rowCount="2"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/mosaic1"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic2"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic3"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic4"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:scaleType="centerCrop" />
+        </GridLayout>
+
+        <ImageView
+            android:id="@+id/mosaicSingle"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/icon"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:padding="13dp"
+            android:src="@drawable/ic_music_queue"
+            android:tint="#FFFFFF" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

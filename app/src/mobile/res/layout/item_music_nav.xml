@@ -9,13 +9,60 @@
     android:orientation="horizontal"
     android:padding="16dp">
 
-    <ImageView
-        android:id="@+id/icon"
+    <!-- 本地页回炉：组卡封面位（56dp）。专辑／歌手／文件夹组卡有成员封面时走马赛克（1 张铺满、2 张以上 2×2、前 4 张，瓜子合集行做法），无封面回落原彩色圆盘图标；其它卡类型只用 icon，mosaic 位默认 GONE。 -->
+    <FrameLayout
+        android:id="@+id/coverBox"
         android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:padding="14dp"
-        android:src="@drawable/ic_music_note"
-        android:tint="#9AA7B8" />
+        android:layout_height="56dp">
+
+        <GridLayout
+            android:id="@+id/mosaicGrid"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:columnCount="2"
+            android:rowCount="2"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/mosaic1"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic2"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic3"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/mosaic4"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:scaleType="centerCrop" />
+        </GridLayout>
+
+        <ImageView
+            android:id="@+id/mosaicSingle"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/icon"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:padding="14dp"
+            android:src="@drawable/ic_music_note"
+            android:tint="#9AA7B8" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

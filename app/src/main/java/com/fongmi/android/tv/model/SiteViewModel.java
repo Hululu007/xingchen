@@ -262,6 +262,9 @@ public class SiteViewModel extends ViewModel {
                     else if (type == TaskType.PLAYER && error instanceof TimeoutException) liveData.postValue(Result.error(ResUtil.getString(R.string.error_play_timeout)));
                     // 冷启动首次 py 首页加载超时：给明确错误，不许再吞成空结果。
                     else if (error instanceof SiteApi.ColdHomeTimeoutException) liveData.postValue(Result.error(error.getMessage()));
+                    // 播放失败一律给真错：以前非 ExtractException 直接 post 空结果，界面只剩 00:00、无任何报错，
+                    // 磁力就是这样静默死的。非播放类型保持原样（空结果），不动搜索／详情流。
+                    else if (type == TaskType.PLAYER) liveData.postValue(Result.error(error.getMessage() != null ? error.getMessage() : "播放失败，请重试"));
                     else liveData.postValue(Result.empty());
                     error.printStackTrace();
                 }

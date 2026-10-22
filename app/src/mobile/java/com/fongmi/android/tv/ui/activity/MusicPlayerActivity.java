@@ -279,6 +279,7 @@ public class MusicPlayerActivity extends BaseActivity {
     private TextView pageArtistView;
     private ImageView pageBtnFav;
     private ImageView pageBtnPlayTop;
+    private TextView pageBtnTr;
     private TextView pageChipQuality;
     private TextView pageChipWord;
     private SeekBar pageSeek;
@@ -1905,6 +1906,58 @@ public class MusicPlayerActivity extends BaseActivity {
         canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
     }
 
+    /** 经典罩子（封面带归零版）：颜色与 drawAmbientVeil 同源（toneAdjust＋两端明度平移），只改 alpha 包络——
+     * 顶 alpha → 封面带 0 → 熔边区放满 → 尾段到底色。停点正常几何下严格递增，退化几何（封面贴顶／
+     * 熔边触底）跳过无意义端点，不留重复停点。 */
+    private static void drawSharpVeil(Canvas canvas, int viewW, int viewH, int ambient, int topOff, int cardBottom, float meltPx) {
+        int base = CoverColor.toneAdjust(ambient);
+        float[] hsv = new float[3];
+        Color.colorToHSV(base, hsv);
+        float topV = Math.max(0.1f, Math.min(0.68f, hsv[2] + 0.05f));
+        int topColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], topV});
+        float bottomV = Math.max(0.1f, Math.min(0.68f, hsv[2] - 0.04f));
+        int bottomColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], bottomV});
+        int a0 = Math.round(Math.max(0f, Math.min(1f, 0.8f - 0.04f)) * 255);
+        int a2 = Math.round(Math.max(0f, Math.min(1f, 0.8f)) * 255);
+        int a3 = Math.round(Math.max(0f, Math.min(1f, 0.8f + 0.06f)) * 255);
+        float h = (float) viewH;
+        float pTop = Math.max(0f, Math.min(1f, topOff / h));
+        float pCard = Math.max(0f, Math.min(1f, cardBottom / h));
+        float pRamp = Math.max(0f, Math.min(1f, (cardBottom + meltPx) / h));
+        java.util.ArrayList<Float> posList = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> colList = new java.util.ArrayList<>();
+        if (topOff > 0) {
+            posList.add(0f);
+            colList.add(Color.argb(a0, Color.red(topColor), Color.green(topColor), Color.blue(topColor)));
+        }
+        posList.add(pTop);
+        colList.add(Color.argb(0, Color.red(base), Color.green(base), Color.blue(base)));
+        posList.add(pCard);
+        colList.add(Color.argb(0, Color.red(base), Color.green(base), Color.blue(base)));
+        // 封面触底时 pRamp 与 pCard 同点：不加放满停点（屏下本无区域要罩），杜绝同点异色台阶
+        if (pRamp > pCard) {
+            posList.add(pRamp);
+            colList.add(Color.argb(a2, Color.red(base), Color.green(base), Color.blue(base)));
+        }
+        if (pRamp < 1f) {
+            if (0.78f > pRamp) {
+                posList.add(0.78f);
+                colList.add(Color.argb(a2, Color.red(base), Color.green(base), Color.blue(base)));
+            }
+            posList.add(1f);
+            colList.add(Color.argb(a3, Color.red(bottomColor), Color.green(bottomColor), Color.blue(bottomColor)));
+        }
+        float[] positions = new float[posList.size()];
+        int[] colors = new int[colList.size()];
+        for (int i = 0; i < posList.size(); i++) {
+            positions[i] = posList.get(i);
+            colors[i] = colList.get(i);
+        }
+        Paint tint = new Paint();
+        tint.setShader(new LinearGradient(0, 0, 0, viewH, colors, positions, Shader.TileMode.CLAMP));
+        canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
+    }
+
     /** 一层满幅背景合成（后台线程跑）。底＝原图缩到 64px 宽、FastBlur StackBlur（半径 25，树内 HkArticleAdapter
      *  先例口径，不等于瓜子 24dp 实时模糊）真模糊后拉满；经典＝全幅四段取色渐变罩（GZ CoverAmbientKt:329：
      *  停点 0/0.4/0.78/1，alpha＝基数 0.8＋偏移钳制 [0,1]，颜色＝ambient 经 toneAdjust、两端按 s() 平移明度 V），
@@ -1962,9 +2015,12 @@ public class MusicPlayerActivity extends BaseActivity {
                     canvas.drawRect(bandDst, fade);
                     canvas.restoreToCount(save);
                 }
-                // 经典全幅四段取色渐变罩（GZ CoverAmbientKt:329，公式见 drawAmbientVeil；经典与 Apple 共用，
-                // 经典随后熔边同罩、Apple 直接整幅盖下）。底缘涂抹带整块已删（瓜子无此物）；黑压暗同步删掉。
-                drawAmbientVeil(canvas, viewW, viewH, ambient);
+                // 经典罩子改「封面带归零」：旧全幅罩子盖住除封面外的一切，封面 100% 原图，
+                // 断层正在罩子边界上——封面底边一边原图、一边 0.8 罩子，明暗必断，熔边条也被罩子盖住。
+                // 新罩子在封面带 [topOff, cardBottom] 内 alpha 恒 0（该区背景本就被不透明封面盖住），
+                // 上沿从顶 alpha 渐收到 0、下沿在熔边 48dp 内从 0 渐放到满，上下两边都没有台阶，
+                // 封面与背景真正连成一层。Apple 仍走全幅罩子（其封面是布局自己的 tpCover，不走此分支）。
+                drawSharpVeil(canvas, viewW, viewH, ambient, topOff, cardBottom, meltPx);
             } else if (mode == BG_APPLE) {
                 // Apple 外壳罩子（GZ 外壳口径）：糊底照片上整幅盖 4 段氛围罩子，无锐顶、无熔边
                 //（Apple 封面是布局自己的 tpCover，不走背景锐顶）；此前的 BG_DARK 弱压暗使控制区仍像照片，作废。
@@ -2922,6 +2978,12 @@ public class MusicPlayerActivity extends BaseActivity {
         if (binding != null && binding.themeContainer != null) binding.themeContainer.setVisibility(View.GONE);
         if (lyricView != null) lyricView.setSuspended(true);
         bindPageHeader(MusicController.get().current());
+        // 瓜子常态：副行有数据即显（工具面板歌词设置同款 subReset）；歌词页开页即回到全显，
+        // 否则默认关的音译副行有数据也不出（此前歌词页无拼音的根之一）。
+        if (!MusicStore.isShowTranslation() || !MusicStore.isShowRomanization()) {
+            MusicStore.setShowTranslation(true);
+            MusicStore.setShowRomanization(true);
+        }
         applyPageLyricStyle();
         feedPageLyricView();
         refreshPageQualityChip();
@@ -2934,6 +2996,45 @@ public class MusicPlayerActivity extends BaseActivity {
         // 内页开着时 pg 栈同样服从收起态（refreshPageQualityChip 刚跑过，守卫已压住，sync 再兜底）。
         syncBottomStack();
         return true;
+    }
+
+    /** 歌词页 Tr 钮（GZ 全屏歌词页右上 Tr）：主歌词三选小菜单——原文恒有，翻译／音译有数据时出
+     * （GZ CoverLyricStylePanel 主歌词口径）；选后即时刷新内嵌＋全屏两视图，与工具面板 onLyricStyleChanged 同路。 */
+    private void showPageTrMenu() {
+        if (pageBtnTr == null) return;
+        boolean hasTrans = false;
+        boolean hasRoma = false;
+        for (String s : lyricTrans) {
+            if (s != null && !s.trim().isEmpty()) {
+                hasTrans = true;
+                break;
+            }
+        }
+        for (String s : lyricRomas) {
+            if (s != null && !s.trim().isEmpty()) {
+                hasRoma = true;
+                break;
+            }
+        }
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, pageBtnTr);
+        int cur = MusicStore.getLyricPrimary();
+        menu.getMenu().add(0, 0, 0, R.string.music_primary_original);
+        if (hasTrans) menu.getMenu().add(0, 1, 1, R.string.music_primary_translation);
+        if (hasRoma) menu.getMenu().add(0, 2, 2, R.string.music_primary_romanization);
+        menu.getMenu().setGroupCheckable(0, true, true);
+        for (int i = 0; i < menu.getMenu().size(); i++) {
+            android.view.MenuItem it = menu.getMenu().getItem(i);
+            it.setCheckable(true);
+            it.setChecked(it.getItemId() == cur);
+        }
+        menu.setOnMenuItemClickListener(item -> {
+            MusicStore.setLyricPrimary(item.getItemId());
+            applyLyricStyle();
+            applyPageLyricStyle();
+            feedLyricView();
+            return true;
+        });
+        menu.show();
     }
 
     private void closeLyricsPage() {
@@ -3006,6 +3107,11 @@ public class MusicPlayerActivity extends BaseActivity {
             pageBtnPlayTop.setOnClickListener(v -> MusicController.get().toggle());
             attachPressScale(pageBtnPlayTop, 0.88f);
         }
+        pageBtnTr = findViewById(R.id.pgBtnTr);
+        if (pageBtnTr != null) {
+            pageBtnTr.setOnClickListener(v -> showPageTrMenu());
+            attachPressScale(pageBtnTr, 0.9f);
+        }
         if (pageBtnFav != null) pageBtnFav.setOnClickListener(v -> toggleFavorite(v));
         if (pageChipQuality != null) pageChipQuality.setOnClickListener(v -> {
             showQualityDialog();
@@ -3054,8 +3160,7 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** 歌词内页样式：GZ 全屏歌词口径——原值字号（不减 2）、非封面模式，其余项与播放页同源 MusicStore；
-     * A1：Apple 主题左划进页时复用本载体、仅把对齐改居中呈现（AppleLyricsView 未另建，
-     * 本处是复用不是冒充：独立 Apple 歌词视图、歌曲信息页均未建，见交回）。 */
+     * 对齐跟随存储设置（默认左），不因 Apple 主题硬改居中：瓜子歌词页一直在左边，星辰歌词页居中就是对差。 */
     private void applyPageLyricStyle() {
         if (pageLyricView == null) return;
         try {
@@ -3063,7 +3168,7 @@ public class MusicPlayerActivity extends BaseActivity {
             pageLyricView.setPrimary(MusicStore.getLyricPrimary());
             pageLyricView.setShowSub(MusicStore.isShowTranslation(), MusicStore.isShowRomanization());
             pageLyricView.setMainTextSizeSp(MusicStore.getLyricFontSize());
-            pageLyricView.setLyricAlign(appleLyricsPage ? MusicStore.LYRIC_ALIGN_CENTER : MusicStore.getLyricAlign());
+            pageLyricView.setLyricAlign(MusicStore.getLyricAlign());
             pageLyricView.setLyricWeight(MusicStore.getLyricWeight());
             pageLyricView.setBlurLevel(1);
             pageLyricView.setAdvancedFx(MusicStore.isAdvancedFx());

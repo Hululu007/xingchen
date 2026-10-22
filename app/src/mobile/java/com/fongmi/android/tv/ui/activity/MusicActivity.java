@@ -194,24 +194,39 @@ public class MusicActivity extends BaseActivity {
             if (!f.isFile() || f.length() == 0) return;
             byte[] bytes = new byte[(int) Math.min(f.length(), 4L * 1024 * 1024)];
             java.io.FileInputStream in = new java.io.FileInputStream(f);
-            int read;
+            int read = 0;
             try {
-                read = in.read(bytes);
+                // 单次 read 不保证读满：循环读到满或 EOF，半截 JSON 进 Gson 只会抛错被吞、
+                // 快照白白丢失、冷启动又回空屏转圈——这正是单次读的坑。
+                int n;
+                while (read < bytes.length && (n = in.read(bytes, read, bytes.length - read)) > 0) read += n;
             } finally {
                 in.close();
             }
             if (read <= 0) return;
-            HomeChartSnapshot s = com.fongmi.android.tv.App.gson().fromJson(
-                    new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8), HomeChartSnapshot.class);
-            if (s == null || s.tabs == null || s.tabs.isEmpty() || s.tracks == null || s.tracks.isEmpty()) return;
-            sHomeChartTabs = s.tabs;
-            sHomeChartSelName = s.selName;
-            sHomeChartSelKey = s.selKey;
-            sHomeChartTracks = s.tracks;
-            sHomeChartTone = s.tone;
-            sHomeChartToneCover = s.toneCover == null ? "" : s.toneCover;
-            sHomeChartToneSet = s.toneSet;
-            sHomeChartCacheAt = s.cacheAt;
+            // 崩溃根修（1.4.8 真机 ClassCastException LinkedTreeMap→MusicChart）：此前整包
+            // fromJson(HomeChartSnapshot.class)，R8 混淆抹掉 List 字段泛型签名，tabs/tracks 元素
+            // 读回成 LinkedTreeMap，恢复时赋值到 MusicChart 当场崩。改按 MusicStore 同款 TypeToken
+            // 逐项显式定型读（tabs/tracks 两列）；标量字段按名取、缺失给默认；旧快照文件结构不变，
+            // 修后直接读通，不用清缓存。
+            com.google.gson.Gson gson = com.fongmi.android.tv.App.gson();
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(
+                    new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            java.lang.reflect.Type chartListType = new com.google.gson.reflect.TypeToken<java.util.List<MusicChart>>() {
+            }.getType();
+            java.lang.reflect.Type trackListType = new com.google.gson.reflect.TypeToken<java.util.List<com.fongmi.android.tv.bean.music.MusicTrack>>() {
+            }.getType();
+            java.util.List<MusicChart> tabs = gson.fromJson(obj.get("tabs"), chartListType);
+            java.util.List<com.fongmi.android.tv.bean.music.MusicTrack> tracks = gson.fromJson(obj.get("tracks"), trackListType);
+            if (tabs == null || tabs.isEmpty() || tracks == null || tracks.isEmpty()) return;
+            sHomeChartTabs = tabs;
+            sHomeChartSelName = obj.has("selName") && !obj.get("selName").isJsonNull() ? obj.get("selName").getAsString() : null;
+            sHomeChartSelKey = obj.has("selKey") && !obj.get("selKey").isJsonNull() ? obj.get("selKey").getAsString() : null;
+            sHomeChartTracks = tracks;
+            sHomeChartTone = obj.has("tone") ? obj.get("tone").getAsInt() : 0;
+            sHomeChartToneCover = obj.has("toneCover") && !obj.get("toneCover").isJsonNull() ? obj.get("toneCover").getAsString() : "";
+            sHomeChartToneSet = obj.has("toneSet") && obj.get("toneSet").getAsBoolean();
+            sHomeChartCacheAt = obj.has("cacheAt") ? obj.get("cacheAt").getAsLong() : 0;
         } catch (Throwable ignored) {
         }
     }

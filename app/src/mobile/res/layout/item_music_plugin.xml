@@ -13,12 +13,13 @@
     android:paddingBottom="14dp"
     android:paddingEnd="14dp">
 
-    <!-- 第三波 B②：插件身份图标位（拼图图标，24dp） -->
+    <!-- 瓜子插件行图标位（彩色淡底方块＋彩色拼图，方块底色代码侧按行色淡染；块 44dp、图标 24dp） -->
     <ImageView
         android:id="@+id/pluginIcon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
         android:layout_marginEnd="12dp"
+        android:padding="10dp"
         android:src="@drawable/ic_music_puzzle" />
 
     <LinearLayout
@@ -40,7 +41,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#1C1C1E"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -56,12 +57,14 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- GZ 副文案串（单行 11sp）：官方／加密／版本／作者／耗时（有数据的段才拼，无数据不编） -->
+        <!-- GZ 副文案串（单行 11sp，超长截断不折行）：官方／加密／版本／作者／耗时（有数据的段才拼，无数据不编） -->
         <TextView
             android:id="@+id/version"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:textColor="#8E8E93"
             android:textSize="11sp"
             android:visibility="gone" />

@@ -335,12 +335,12 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         ImageView close = new ImageView(getContext());
         close.setImageResource(R.drawable.ic_music_close);
         close.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-        close.setPadding(dp(9), dp(9), dp(9), dp(9));
+        close.setPadding(dp(11), dp(11), dp(11), dp(11));
         close.setContentDescription(getString(R.string.music_close));
         close.setOnClickListener(v -> dismissAllowingStateLoss());
         attachPress(close, 0.9f);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dp(40), dp(40));
-        clp.setMarginStart(dp(12));
+        clp.setMarginStart(dp(8));
         row.addView(close, clp);
         MusicTrack track = MusicController.get().current();
         if (track == null) {
@@ -621,7 +621,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         volumeSpeaker = speaker;
         speaker.setImageResource(R.drawable.ic_widget_volume_medium);
         speaker.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-        row.addView(speaker, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        row.addView(speaker, new LinearLayout.LayoutParams(dp(24), dp(24)));
         volumeBar = new SeekBar(getContext());
         volumeBar.setProgressDrawable(getContext().getDrawable(R.drawable.sheet_volume_progress));
         volumeBar.setThumb(getContext().getDrawable(R.drawable.sheet_volume_thumb));
@@ -638,12 +638,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             ImageView device = new ImageView(getContext());
             device.setImageResource(R.drawable.ic_player_cast);
             device.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
-            device.setPadding(dp(8), dp(8), dp(8), dp(8));
-            device.setBackgroundResource(R.drawable.bg_sheet_circle_btn);
+            device.setPadding(dp(10), dp(14), dp(10), dp(14));
             device.setContentDescription(getString(R.string.music_output_device));
             device.setOnClickListener(v -> showPanel(PANEL_DEVICE));
-            attachPress(device, 0.9f);
-            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(36), dp(36));
+            attachPress(device, 0.94f);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(40), dp(48));
             dlp.setMarginStart(dp(4));
             row.addView(device, dlp);
         }
@@ -753,10 +752,14 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private View buildSettingsCard() {
         LinearLayout card = cardBox();
         MusicTrack track = MusicController.get().current();
-        // GZ 设置卡形态（本体图 112768_26）：2 列格——首行 均衡器｜播放页主题
-        // （GZ 次行是「外观设置/自定义封面」：外观设置已按 A4 落真格＋子面板（下 grid3），
-        // 自定义封面按瓜子位置落次行右格——本地相册选图，不走瓜子服务器、不收费、不登录，故不做赞助锁；
-        // 倍速已按用户令拿掉（瓜子没有），搜索歌词与歌词版本已收到歌词子面板，主面板只留快捷格一个歌词入口）
+        // GZ 设置卡顺序（ToolsMainPanel$lambda$3，2026-10-22 重做实证）：歌曲信息行 → 分隔线 →
+        // 两列格（均衡器｜播放页主题／外观设置｜自定义封面）→ 分隔线 → 播放页不熄屏 →［横屏：分隔线＋左手布局］。
+        // 旧版格在前、歌曲信息在后是倒置，已按瓜子重排；自定义封面按瓜子位置落次行右格——本地相册选图，
+        // 不走瓜子服务器、不收费、不登录，故不做赞助锁；倍速已按用户令拿掉（瓜子没有），搜索歌词与歌词版本
+        // 已收到歌词子面板，主面板只留快捷格一个歌词入口。
+        // 歌曲信息行（导航行，带雪佛龙），点进歌曲信息子面板；此行是 Apple 左划的同一入口（左划直达子面板，不经过主面板）。
+        addRow(card, getString(R.string.music_song_info), null, v -> showPanel(PANEL_SONG_INFO), true);
+        addDivider(card);
         LinearLayout grid1 = new LinearLayout(getContext());
         grid1.setOrientation(LinearLayout.HORIZONTAL);
         grid1.addView(settingsCell(R.drawable.ic_music_eq, getString(R.string.music_equalizer), null, v -> {
@@ -787,9 +790,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
         card.addView(grid3);
-        // 堵-2：主面板恢复歌曲信息行（导航行，带雪佛龙），点进歌曲信息子面板；
-        // 此行是 Apple 左划的同一入口（左划直达子面板，不经过主面板）。
-        addRow(card, getString(R.string.music_song_info), null, v -> showPanel(PANEL_SONG_INFO), false);
         addDivider(card);
         card.addView(switchRow(R.drawable.ic_setting_sun, getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
                 on -> MusicStore.setPlayerKeepScreenOn(on)));
@@ -1935,7 +1935,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, Math.round(0.5f * density())));
         lp.setMarginStart(dp(16));
-        lp.setMarginEnd(dp(16));
         card.addView(div, lp);
     }
 

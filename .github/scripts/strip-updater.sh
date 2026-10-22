@@ -22,6 +22,10 @@ grep -q "Updater.create().force().start(this)" "$SETA" || fail "设置页的检�
 sed -i "/import com\.fongmi\.android\.tv\.Updater;/d" "$SETA"
 sed -i "s/AboutDialog\.show(this, () -> Updater\.create()\.force()\.start(this))/AboutDialog.show(this, null)/" "$SETA"
 
+APP=app/src/main/java/com/fongmi/android/tv/App.java
+grep -q "Updater.create().notifyModules();" "$APP" || fail "App 的模块更新提示调用对不上"
+sed -i "/Updater\\.create()\\.notifyModules();/d" "$APP"
+
 # 复查（mobile 构建范围）：mobile 源集里不许再有任何地方引用 Updater 类。
 # 口径定稿（X-20 默认口径，不再留待定）：leanback 终检维持“只 warning、不失败”。
 # 定成这样的理由：① 工作流只编 assembleMobileArm64_v8aRelease，leanback 源集

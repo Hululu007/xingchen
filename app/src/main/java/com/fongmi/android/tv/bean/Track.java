@@ -17,6 +17,12 @@ public class Track {
 
     private static final String DISABLED = "__disabled__";
 
+    // 树适配：下面五个字段与 ROLE 常量是上游新版 Track 的成员，抄入的 TrackUtil 要用；
+    // 本树先以 @Ignore 运行时字段接入、不落库——落库要动 Track 表结构与数据库版本，
+    // 本批只修编译，落库迁移留待点播挂接批次单独验。访问器与 isSecondary 与上游同口径。
+    public static final int ROLE_PRIMARY = 0;
+    public static final int ROLE_SECONDARY = 1;
+
     @PrimaryKey(autoGenerate = true)
     private int id;
     private int type;
@@ -26,11 +32,23 @@ public class Track {
     private boolean selected;
     @Ignore
     private String playerId;
+    @Ignore
+    private int role;
+    @Ignore
+    private int ordinal;
+    @Ignore
+    private String label;
+    @Ignore
+    private String language;
+    @Ignore
+    private String mimeType;
 
     public Track(int type, String name, String format) {
         this.type = type;
         this.name = name;
         this.format = format;
+        this.role = ROLE_PRIMARY;
+        this.ordinal = -1;
     }
 
     public static Track disabled(int type, String name) {
@@ -112,6 +130,50 @@ public class Track {
     public Track key(String key) {
         setKey(key);
         return this;
+    }
+
+    public int getRole() {
+        return role;
+    }
+
+    public void setRole(int role) {
+        this.role = role;
+    }
+
+    public int getOrdinal() {
+        return ordinal;
+    }
+
+    public void setOrdinal(int ordinal) {
+        this.ordinal = ordinal;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public String getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    public String getMimeType() {
+        return mimeType;
+    }
+
+    public void setMimeType(String mimeType) {
+        this.mimeType = mimeType;
+    }
+
+    public boolean isSecondary() {
+        return role == ROLE_SECONDARY;
     }
 
     public boolean isDisabled() {

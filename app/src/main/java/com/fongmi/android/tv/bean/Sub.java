@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -10,6 +11,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.github.catvod.utils.Trans;
+import com.github.catvod.utils.UriUtil;
 import com.google.gson.annotations.SerializedName;
 
 public class Sub {
@@ -73,6 +75,15 @@ public class Sub {
 
     public void setFlag(int flag) {
         this.flag = flag;
+    }
+
+    // 上游 Sub 同名口径（MediaItemFactory 用）：空判定与 Uri 化。
+    public boolean isEmpty() {
+        return url == null || url.isEmpty();
+    }
+
+    public Uri getUri() {
+        return isEmpty() ? null : UriUtil.uri(getUrl());
     }
 
     public void trans() {

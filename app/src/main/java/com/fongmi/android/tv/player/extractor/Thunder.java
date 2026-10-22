@@ -89,7 +89,8 @@ public class Thunder implements Source.Extractor {
         try {
             synchronized (this) {
                 if (taskId != task || Thread.currentThread().isInterrupted()) throw new ExtractException("迅雷任务被中断，请重试");
-                if (task.getFileName() == null || task.getSavePath() == null) throw new ExtractException("迅雷本地地址为空，请重试");
+                // 树适配：旧 fork 直连 Task 有 getSavePath()，网关 Task 只有 getSaveFile()，同义判空。
+                if (task.getFileName() == null || task.getSaveFile() == null) throw new ExtractException("迅雷本地地址为空，请重试");
                 String local = runtime().getLocalUrl(task.getSaveFile());
                 SpiderDebug.log("thunder", "task handed local=%s", local);
                 if (local == null || local.isEmpty()) throw new ExtractException("迅雷本地地址为空，请重试");

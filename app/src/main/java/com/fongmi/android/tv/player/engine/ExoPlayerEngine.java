@@ -248,7 +248,8 @@ public class ExoPlayerEngine implements PlayerEngine {
         boolean newTunnelingEnabled = ExoUtil.isTunnelingEnabled(decode, tunnelingFallbackAttempted);
         ExoAssSession newAssSession = ExoAssSession.createIfEnabled(App.get(), newTunnelingEnabled);
         ExoSubtitleSession newSubtitleSession = new ExoSubtitleSession();
-        Player newPlayer;
+        // 树适配：字段 player 是 ExoPlayer，ExoUtil.buildPlayer 返回的也是 ExoPlayer，局部变量同型声明。
+        ExoPlayer newPlayer;
         try {
             newPlayer = ExoUtil.buildPlayer(
                     decode,

@@ -59,7 +59,8 @@ public final class ThunderGateway {
             active = external;
             activeExternal = true;
             return active;
-        } catch (RuntimeException | LinkageError | ExceptionInInitializerError ignored) {
+        } catch (RuntimeException | LinkageError ignored) {
+            // ExceptionInInitializerError 是 LinkageError 子类，多重 catch 不能并列，已由 LinkageError 覆盖。
             // 未接通：往下走直连回落；直连也没有才报模块未安装。
         }
         if (!directTried) {
@@ -165,6 +166,11 @@ public final class ThunderGateway {
         @Override
         public void check() {
             invoke(checkMethod);
+        }
+
+        @Override
+        public void release() {
+            invoke(releaseMethod);
         }
 
         @Override

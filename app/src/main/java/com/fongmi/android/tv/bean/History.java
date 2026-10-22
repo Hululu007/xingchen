@@ -72,6 +72,7 @@ public class History implements Diffable<History> {
     private int cid;
 
     private transient long updateTime;
+    private transient long saveTime;
 
     public History() {
         this.speed = 1;
@@ -365,6 +366,15 @@ public class History implements Diffable<History> {
 
     public boolean canSave() {
         return getPosition() > 0;
+    }
+
+    // 上游 History 同名口径（VodHistoryPolicy 用）：保存节流，5 秒内只排一次。
+    public boolean canScheduleSave() {
+        return System.currentTimeMillis() - saveTime > TimeUnit.SECONDS.toMillis(5);
+    }
+
+    public void markSaveScheduled() {
+        saveTime = System.currentTimeMillis();
     }
 
     public boolean isNearEnding() {

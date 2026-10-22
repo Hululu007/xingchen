@@ -26,7 +26,6 @@ import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.read.ReadingGate;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.setting.PlayerSetting;
-import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PushNameClean;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -36,7 +35,6 @@ import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.net.SourceGate;
-import com.github.catvod.utils.Prefers;
 import com.github.catvod.utils.Util;
 
 import java.io.IOException;
@@ -307,12 +305,12 @@ public class SiteApi {
         }
     }
 
-    /** 是否本进程第一次 py 首页加载：py 源且还没有蜘蛛成功创建过。 */
+    /** 该源蜘蛛是否首次创建：py 源且该源蜘蛛还没成功创建过（换源后第一次也给长预算，不只看进程第一次）。 */
     public static boolean isColdPyHomeLoad(Site site) {
-        return site != null && isPySpiderSite(site) && !PyLoader.hasAnySpider();
+        return site != null && isPySpiderSite(site) && !PyLoader.hasSpider(site.getKey());
     }
 
-    /** 首页加载的外层超时：冷启动第一次 py 加载给 90 秒，其余走常规 30 秒。 */
+    /** 首页加载的外层超时：首次创建蜘蛛的 py 加载给 90 秒，其余走常规 30 秒。 */
     public static long homeTimeoutFor(Site site) {
         return isColdPyHomeLoad(site) ? COLD_HOME_TIMEOUT_MS : Constant.TIMEOUT_VOD;
     }
@@ -369,9 +367,8 @@ public class SiteApi {
         boolean coldPy = isColdPyHomeLoad(site);
         if (isSpider(site.getKey(), site)) {
             Spider spider = site.recent().spider();
-            boolean crash = Prefers.getBoolean("crash");
-            // py 首页短时缓存：命中直接返回，不跑 Python。crash 兜底分支不走缓存。
-            boolean useHomeCache = isPySpiderSite(site) && !crash;
+            // py 首页短时缓存：命中直接返回，不跑 Python。
+            boolean useHomeCache = isPySpiderSite(site);
             String homeCacheKey = null;
             if (useHomeCache) {
                 homeCacheKey = site.getKey() + "|" + PyLoader.scriptStamp(site.getApi());
@@ -382,7 +379,7 @@ public class SiteApi {
             }
             // 首页预热 single-flight：预热缓存命中即晋升为普通缓存直接返回；
             // 切到在途预热源时接上等完（不另起一趟，更不掐了重跑）。
-            if (!crash) {
+            {
                 String pwKey = HomePrewarm.cacheKey(site);
                 if (forceRefresh) {
                     dropPrewarmKey(pwKey);
@@ -414,12 +411,9 @@ public class SiteApi {
             String video;
             int gen = homeLoadGen.get();
             long loadStart = System.currentTimeMillis(); // 耗时记账：只统计真正跑了脚本的加载
-            // 冷启动第一次：子任务也给加长预算（外层 90 秒由调用方按 homeTimeoutFor 给）。
+            // 首次创建：子任务也给加长预算（外层 90 秒由调用方按 homeTimeoutFor 给）。
             long subTimeout = coldPy ? COLD_HOME_SUB_TIMEOUT_SECONDS : HOME_SUB_TIMEOUT_SECONDS;
-            if (crash) {
-                home = "";
-                video = "";
-            } else {
+            {
                 Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> pyHomeContent(spider, gen)));
                 trackHomeFuture(gen, fHome);
                 Future<String> fVideo = spiderHomePool.submit(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));
@@ -444,10 +438,6 @@ public class SiteApi {
                     untrackHomeFuture(gen, fVideo);
                 }
             }
-            // 崩溃恢复分支不再静默返回空数据：上次在首页闪退过，这次首页是被主动跳过的，
-            // 不吭声用户只会看到空列表、以为源坏了。给一句看得清的提示，下拉刷新即恢复。
-            if (crash) Notify.show("上次闪退，已跳过加载，下拉刷新重试");
-            Prefers.put("crash", false);
             SpiderDebug.log("homeVideo", video);
             Result result = Result.fromJson(home);
             List<Vod> list = Result.fromJson(video).getList();
@@ -456,8 +446,8 @@ public class SiteApi {
             // 只缓存仍是当前代次的结果：被作废的旧加载即使跑完回来，也不许覆盖新加载的缓存。
             if (useHomeCache && gen == homeLoadGen.get())
                 homeCache.put(homeCacheKey, new HomeCacheEntry(System.currentTimeMillis(), result.toString()));
-            // 耗时记账：只记真正跑了脚本的成功加载；crash 兜底（没跑脚本）不记，避免 0ms 污染账本。
-            if (!crash) HomePrewarm.recordCost(site.getKey(), System.currentTimeMillis() - loadStart);
+            // 耗时记账：只记真正跑了脚本的成功加载。
+            HomePrewarm.recordCost(site.getKey(), System.currentTimeMillis() - loadStart);
             return result;
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();

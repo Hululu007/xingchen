@@ -33,9 +33,15 @@ public class PyLoader {
 
     /** 本进程是否有蜘蛛成功创建过：给首页冷热预算判定用（SiteApi.isColdPyHomeLoad）。 */
     private static final AtomicBoolean anySpider = new AtomicBoolean(false);
+    private static final java.util.Set<String> createdKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public static boolean hasAnySpider() {
         return anySpider.get();
+    }
+
+    /** 该源的蜘蛛是否已成功创建过：给首页预算判定用（只看本源，不看进程第一次）。 */
+    public static boolean hasSpider(String key) {
+        return key != null && createdKeys.contains(key);
     }
 
     /** 蜘蛛创建失败的包装（unchecked）：穿过 computeIfAbsent 时不被缓存，下次调用可重试。 */
@@ -62,6 +68,7 @@ public class PyLoader {
         SpiderDebug.log("pyloader", "clear reason=%s spiders=%d keys=%s", reason, count, spiders.keySet());
         spiders.values().forEach(Spider::destroy);
         spiders.clear();
+        createdKeys.clear();
         fileStamps.clear();
         pathKeys.clear();
         recent = null;
@@ -78,6 +85,7 @@ public class PyLoader {
     /** 单只驱逐：记原因＋key，真机重建频率靠这条日志看。 */
     public void remove(String key, String reason) {
         Spider spider = spiders.remove(key);
+        createdKeys.remove(key);
         fileStamps.remove(key);
         removeKeyFromPaths(key);
         if (spider != null) {
@@ -252,6 +260,7 @@ public class PyLoader {
                 fileStamps.remove(key);
             }
             anySpider.set(true);
+            createdKeys.add(key);
             boolean pycache = false;
             try {
                 pycache = new File(Path.py(), "__pycache__").exists();

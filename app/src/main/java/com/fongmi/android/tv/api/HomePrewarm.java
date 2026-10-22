@@ -294,11 +294,7 @@ public final class HomePrewarm {
             resetIdle();
             return;
         }
-        if (Prefers.getBoolean("crash")) { // 崩溃恢复模式：不添乱
-            com.github.catvod.crawler.SpiderDebug.log("prewarm", "skip (crash recovery mode)");
-            resetIdle();
-            return;
-        }
+
         // 队列源 = 插件文件源 ∪ VodConfig 配置源。
         // 插件文件非空就直接开跑、不等配置：用户 UI 现场拼临时 Site（setHome）从不进
         // VodConfig.sites，等配置的轮询对此类用户永远等不到——这就是之前整进程零日志的根。

@@ -59,8 +59,10 @@ public final class ThunderGateway {
             active = external;
             activeExternal = true;
             return active;
-        } catch (RuntimeException | LinkageError ignored) {
-            // ExceptionInInitializerError 是 LinkageError 子类，多重 catch 不能并列，已由 LinkageError 覆盖。
+        } catch (Exception | LinkageError ignored) {
+            // 口径：外置接通的任何失败（entry 的运行时异常、check() 的受检异常、
+            // 初始化/链接错误）都算未接通，一律往下走直连回落。ExceptionInInitializerError
+            // 是 LinkageError 子类、不能与之并列多重 catch，故只列 Exception 与 LinkageError 两项。
             // 未接通：往下走直连回落；直连也没有才报模块未安装。
         }
         if (!directTried) {

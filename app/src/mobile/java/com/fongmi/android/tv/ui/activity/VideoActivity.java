@@ -146,6 +146,7 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.subtitle.SubtitleManager;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.ui.MusicVodRouter;
 import com.fongmi.android.tv.ui.adapter.EpisodeAdapter;
 import com.fongmi.android.tv.ui.adapter.EpisodeGroupAdapter;
 import com.fongmi.android.tv.ui.adapter.FlagAdapter;
@@ -522,6 +523,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 播放器内显示线路/选集（官方 getChapters：列表条目即选集）。
      */
     public static void startHkPlay(Activity activity, String ruleTitle, String lineName, String episodeUrl, String episodeName, String name, String pic, String episodesJson, int selIdx) {
+        if (MusicVodRouter.routeHk(activity, ruleTitle, lineName, episodeUrl, name, pic)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("key", HkDetailBridge.siteKey(ruleTitle));
         intent.putExtra("id", episodeUrl);
@@ -609,6 +611,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content) {
+        if (MusicVodRouter.routeVod(activity, key, id, name, pic)) return;
         ImgUtil.preload(activity, pic);
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic) && !TextUtils.equals(wallPic, pic)) ImgUtil.preload(activity, wallPic);
         Intent intent = new Intent(activity, VideoActivity.class);
@@ -624,6 +627,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void startShortDrama(Activity activity, String key, String id, String name, String pic) {
+        if (MusicVodRouter.routeVod(activity, key, id, name, pic)) return;
         ImgUtil.preload(activity, pic);
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("name", name);

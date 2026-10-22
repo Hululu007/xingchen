@@ -97,6 +97,8 @@ public class MusicRepository {
         register(new LxMusicSource());
         // py 调用桥：已装的 py 点播音乐源递歌单进音乐播放器（跟阅读一样的调用口径）
         register(new PyMusicSource());
+        // 海阔音乐路由桥：海阔小程序里识别为音乐的条目进音乐播放器时取链用，不进源列表
+        register(new HkMusicSource());
         // 设备本地音乐（platform="device"）：取链/同目录 .lrc 歌词；列表走 DeviceMusicStore 扫描
         register(new DeviceMusicSource());
         // QQ 榜单壳内源（platform="qq"）：只供榜单（QQ 巅峰榜直连），歌拼落雪 tx 形态走现成链播

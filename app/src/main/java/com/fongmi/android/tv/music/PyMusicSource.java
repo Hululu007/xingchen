@@ -38,12 +38,18 @@ public class PyMusicSource implements MusicSource {
         return PLATFORM;
     }
 
-    /** 老音乐页判据原文照搬：名字＋键小写后含任一关键词即认作音乐源 */
-    static boolean looksMusic(Site s) {
-        String n = ((s.getName() == null ? "" : s.getName()) + " " + (s.getKey() == null ? "" : s.getKey())).toLowerCase(Locale.ROOT);
+    /** 音乐判据：文本（源名／键／海阔规则名）小写后含任一关键词即认作音乐 */
+    public static boolean looksMusicName(String text) {
+        String n = (text == null ? "" : text).toLowerCase(Locale.ROOT);
         return n.contains("音乐") || n.contains("听歌") || n.contains("歌曲") || n.contains("电台")
                 || n.contains("ktv") || n.contains("music") || n.contains(" mv") || n.contains("[mv]")
                 || n.contains("酷我") || n.contains("酷狗") || n.contains("qq音乐") || n.contains("网易云");
+    }
+
+    /** 老音乐页判据原文照搬：名字＋键小写后含任一关键词即认作音乐源 */
+    public static boolean looksMusic(Site s) {
+        if (s == null) return false;
+        return looksMusicName((s.getName() == null ? "" : s.getName()) + " " + (s.getKey() == null ? "" : s.getKey()));
     }
 
     /** py 蜘蛛判据：与 SiteApi.isPySpiderSite 同口径，再要求蜘蛛型（type 3）能走 spider 链 */
@@ -200,6 +206,27 @@ public class PyMusicSource implements MusicSource {
         for (MusicTrack t : mapList(site, result)) {
             if (seen.add(t.id)) out.add(t);
         }
+    }
+
+    /**
+     * 视频侧音乐路由用：点播源（py／js／json 等任意 VodConfig 源）被识别为音乐时直接建曲目。
+     * 取链只走 SiteApi 的详情＋解析链，与源类型无关；platform 仍标 py 以便服务按本桥解析。
+     * 歌手只有视频侧给的字段，缺失不猜，显示层按未知歌手兜底。
+     */
+    public static MusicTrack trackForVod(String siteKey, String vodId, String name, String pic) {
+        MusicTrack t = new MusicTrack();
+        t.id = PLATFORM + ":" + siteKey + ":" + vodId;
+        t.title = name == null ? "" : name;
+        t.artist = "";
+        t.cover = pic == null ? "" : pic;
+        t.platform = PLATFORM;
+        JsonObject raw = new JsonObject();
+        raw.addProperty("siteKey", siteKey);
+        raw.addProperty("vodId", vodId);
+        raw.addProperty("ep", 0);
+        raw.addProperty("flag", "");
+        t.rawJson = raw.toString();
+        return t;
     }
 
     private MusicTrack toTrack(Site site, Vod vod) {

@@ -1956,6 +1956,9 @@ public class MusicPlayerActivity extends BaseActivity {
         if (com.fongmi.android.tv.music.PyMusicSource.PLATFORM.equals(track.platform)) {
             return com.fongmi.android.tv.music.PyMusicSource.siteNameOf(track);
         }
+        if (com.fongmi.android.tv.music.HkMusicSource.PLATFORM.equals(track.platform)) {
+            return com.fongmi.android.tv.music.HkMusicSource.siteNameOf(track);
+        }
         return "";
     }
 

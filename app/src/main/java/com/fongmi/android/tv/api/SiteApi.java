@@ -363,6 +363,14 @@ public class SiteApi {
 
     @NonNull
     public static Result homeContent(@NonNull Site site, boolean forceRefresh) throws Exception {
+        // 第二层拦截（与 SiteViewModel.execute 的空 key 拦截互为表里）：直接调 SiteApi 的
+        // 调用方（PyMusicSource.tracks）不走 execute，空源一样会在这里被拦住，不许走到
+        // isSpider→OkHttp.newCall("") 的 no-scheme。判空要同时覆盖 site 为 null（旧链在
+        // site.getKey() 处先 NPE）与 key/api 为空（空 Site 走到空 URL 才抛 no-scheme）：
+        // 空源今天下游一定失败，提前抛 ExtractException，ViewModel 的错误分支会把它
+        // 原样发成可见错（Result.error），不吞成空结果；成功路径 key/api 恒非空，不受影响。
+        if (site == null || site.getKey().isEmpty() || site.getApi().isEmpty())
+            throw new com.fongmi.android.tv.exception.ExtractException("未配置首页源");
         // 冷热判定必须在 site.recent().spider() 创建蜘蛛之前：创建成功即算已热。
         boolean coldPy = isColdPyHomeLoad(site);
         if (isSpider(site.getKey(), site)) {

@@ -120,7 +120,10 @@ public final class DanmakuSettingDialog {
             ViewGroup.LayoutParams params = sheet.getLayoutParams();
             params.height = height;
             sheet.setLayoutParams(params);
-            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            // 与基类同款兜底：sheet 未关联 BottomSheetBehavior 时 from() 抛
+            // IllegalArgumentException，拿不到就只保留高度／背景调整、不崩。
+            BottomSheetBehavior<FrameLayout> behavior = behaviorOf(sheet);
+            if (behavior == null) return;
             behavior.setPeekHeight(height);
             behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             behavior.setSkipCollapsed(true);

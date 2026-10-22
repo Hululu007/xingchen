@@ -130,6 +130,13 @@ public class SiteViewModel extends ViewModel {
         // 否则慢网下进一次详情、返回首页就"打不开"（1.3.30 回归）；切源时新源的
         // homeContent 同样会作废旧源任务，原"切源不等旧源"意图不受影响。
         SiteApi.cancelHomeLoads();
+        // 冷启动约 200ms 内 viewmodel execute failed type=RESULT site=（空）、URL 为空：
+        // 未配置首页源时 home 是空 Site（getHome() 永不返回 null，空 Site 的 key/api 都是 ""），
+        // SiteApi.homeContent 一路走到 OkHttp.newCall("") 才抛 no-scheme。execute 入口的空 key
+        // 拦截只看得到 key，看不到 api，所以这里先把 home 为 null／key 为空／api 为空三
+        // 种情况都判出来：siteKey 传 "" 走 execute 的空 key 拦截，可见错由 execute 统一发，
+        // 不再把空 key/api 的 lambda 交给 SiteApi（lambda 在拦截下根本不会被执行）。
+        boolean homeBad = home == null || home.getKey().isEmpty() || home.getApi().isEmpty();
         // 冷启动第一次 py 首页加载：外层给 90 秒预算（冷链：蜘蛛首次加载＋依赖下载＋站点取数），
         // 热了之后一律 30 秒不动。预算由 SiteApi.homeTimeoutFor 按冷热判定。
         execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null,
@@ -139,7 +146,7 @@ public class SiteViewModel extends ViewModel {
                     if (error instanceof TimeoutException || error instanceof CancellationException)
                         SiteApi.cancelHomeLoads();
                 },
-                SiteApi.homeTimeoutFor(home), home == null ? "" : home.getKey());
+                SiteApi.homeTimeoutFor(home), homeBad ? "" : home.getKey());
     }
 
     public void categoryContent(String key, String tid, String page, boolean filter, HashMap<String, String> extend) {
@@ -242,6 +249,16 @@ public class SiteViewModel extends ViewModel {
         int currentId = taskId.incrementAndGet();
         ListenableFuture<?> old = futures.get(type);
         if (old != null) old.cancel(true);
+        // 空 key 执行前拦截（全调用方共用，homeContent／分类／动作／详情／起播／单源搜索
+        // 都走这里，不漏一路）：key 为空＝没有可用的源，绝不把 lambda 交给线程池——
+        // 否则 SiteApi 里空 Site 一路走到 OkHttp.newCall("") 才抛 no-scheme，界面只剩
+        // 空结果。先递增 taskId＋作废旧任务再发错：旧任务的回调按 taskId 丢弃，不会
+        // 反过来盖掉这条可见错；onError 不触发（这不是一次失败的请求，是根本没发）。
+        if (siteKey == null || siteKey.isEmpty()) {
+            SpiderDebug.log("viewmodel", "execute rejected type=%s site empty: no home source configured", type);
+            liveData.postValue(Result.error("未配置首页源"));
+            return;
+        }
         ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
         FluentFuture<Result> future = FluentFuture.from(executor.submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
         futures.put(type, future);

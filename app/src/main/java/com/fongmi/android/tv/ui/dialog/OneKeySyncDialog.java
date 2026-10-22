@@ -517,7 +517,10 @@ public class OneKeySyncDialog extends BaseBottomSheetDialog implements SyncDevic
         int maxHeight = (int) (ResUtil.getScreenHeight(requireContext()) * 0.9f);
         sheet.getLayoutParams().height = maxHeight;
         sheet.requestLayout();
-        BottomSheetBehavior.from(sheet).setPeekHeight(maxHeight);
+        // 与基类同款兜底：sheet 未关联 BottomSheetBehavior 时 from() 抛
+        // IllegalArgumentException，拿不到就只保留高度调整、不崩。
+        BottomSheetBehavior<View> behavior = behaviorOf(sheet);
+        if (behavior != null) behavior.setPeekHeight(maxHeight);
     }
 
     @Override

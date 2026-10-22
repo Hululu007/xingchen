@@ -24,13 +24,12 @@ package com.fongmi.android.tv.ui.custom;
  * 封套阴影 4dp、封面层阴影 3dp（同 1.5dp shape）；封面本体圆角 2dp（playerCoverTarget(…, 2.0f)），
  * 与 1.5dp shape 分属两层，不得混为一值。
  *
- * 星辰是横向列表、不是居中舞台，故有三处有据改编（不是偷工，见各处注释）：
- * 1. 槽位位移只取第一项 (1−v)×f3×0.24×缩放：第二项 density×c×slot 是舞台把居中槽位摊开的量，
- *    列表布局本身已按项宽排布，再加会双倍错位，故不取。
- * 2. 槽位变换只在绑定时取端点（当前项 slot＝0→1.0，相邻项 |slot|＝1→f4）：
- *    列表当前项贴左（20dp padding 起排），不是居中舞台，连续 slot＝(子项中心−列表中心)/槽位宽不成立。
- * 3. 外 Box 宽 1.48×f3、架板、盘心图／点、0.18×f3 图标只出系数、不渲染（原因见各常量注释）；
- *    项根宽仍为封套宽，否则列表项距与 B1 弹簧槽位宽（＝封套宽）错位。
+ * 星辰是 3 槽舞台（RecyclerView 只渲染前／当／后三槽，不再铺整条队列），故有一处有据改编（不是偷工）：
+ * 槽位移瓜子全式＝(1−v)×f3×0.24×缩放＋c×slot（舞台坐标，见 translationXDp），其中第二项 c×slot
+ * 是舞台把居中槽位摊开的量——3 槽列表按槽距 pitch＝c 排布，项布局中心本身已与舞台槽位重合，
+ * 再以 translationX 叠加第二项会双倍错位，故项位移只取首项（见 listItemTranslationXDp），公式本身已补全。
+ * 外 Box 宽 1.48×f3 现作当前槽项根宽（非当前槽仍为封套宽），架板已渲染（色值暂用本主题已有 Ink 色，
+ * 瓜子色值未定位，见 BOARD_NOT_RENDERED 注释）；盘心图／点、0.18×f3 图标只出系数、不渲染（原因见各常量注释）。
  */
 public final class ShelfStageGeometry {
 
@@ -47,21 +46,19 @@ public final class ShelfStageGeometry {
     /** 槽位中心参考 c＝宽×0.59（舞台摊位项，列表不取，见类注释）。 */
     public final float centerRefDp;
     /**
-     * S2：列表槽距＝中心参考 c（390dp 屏：c＝230.1dp，封套 185.25dp，项间间距＝槽距−封套≈45dp）。
-     * RecyclerView 项宽仍为封套，项间用 ItemDecoration 补（槽距−封套）；ShelfSlotAnimator 槽宽同步取此值，
-     * 否则弹簧落位按旧封套宽算、与实际项距错位。注意：按槽距居中时居中的是槽位盒，
-     * 封套视觉中心与槽位盒中心差半个间距（约 22dp／390dp 屏），属本改编的已知偏移，见交回。
-     * 必-9：槽距加钳制 min(c, 封套＋间距上限 45dp)——封套受舞台 300dp 封顶，800dp 横屏／平板
-     * 原槽距 472dp、间距约 221dp，一屏不足 2 项；钳后 800dp 屏槽距 295.8dp、间距仍 45dp，
-     * 390dp 屏 230.1dp＜230.25dp 不受影响；中心参考 c 本身仍保留瓜子原值，不改。
-     * 弹簧槽宽取同一 slotPitchDp（MusicPlayerActivity:3643），故弹簧行程同步收敛，不另改该文件。
+     * 3 槽舞台槽距＝中心参考 c（瓜子无钳制，RecordShelfPlayerKt:1713；390dp 屏 c＝230.1dp，
+     * 封套 185.25dp，项间间距＝槽距−封套≈45dp）。原 min(c, 封套＋45dp) 钳制已删：
+     * 宽屏下槽距不再被压到封套＋45dp。项间用 ItemDecoration 补（槽距−封套）；
+     * 当前槽项根宽 1.48×封套时，次槽布局左缘多出 0.48×封套，由次槽位移补偿（见 MusicPlayerActivity），
+     * 不改本值。按槽距居中时居中的是槽位盒，封套视觉中心与槽位盒中心差半个间距
+     * （约 22dp／390dp 屏），属本改编的已知偏移，见交回。
      */
     public final float slotPitchDp;
     /** 非当前项缩放 f4＝(f2×0.78)/f3。 */
     public final float nonCurrentScale;
     /** 圆盘尺寸＝0.97×封套。 */
     public final float discDp;
-    /** 袖外 Box 宽＝1.48×封套（舞台居中布局属性，列表项根不取，见类注释）。 */
+    /** 袖外 Box 宽＝1.48×封套（瓜子:3240；3 槽模型下作当前槽项根宽，非当前槽项根仍为封套宽）。 */
     public final float outerWidthDp;
     /** 架板宽＝1.1×封套（板体未渲染，见 BOARD_NOT_RENDERED）。 */
     public final float boardWidthDp;
@@ -72,18 +69,18 @@ public final class ShelfStageGeometry {
 
     /** 槽位位移第一项因子 0.24（星辰侧亦作圆盘右探位移因子，沿用既有映射）。 */
     public static final float PROTRUDE_FACTOR = 0.24f;
-    /** 封套 shape 圆角 1.5dp（袖层，与封面本体 2dp 分属两层；星辰单层封面用本体值）。 */
+    /** 封套 shape 圆角 1.5dp（袖层，与封面本体 2dp 分属两层；袖层为透明轮廓＋4dp 阴影，封面本体 2dp）。 */
     public static final float SLEEVE_CORNER_DP = 1.5f;
     /** 封面本体圆角 2dp（已应用）。 */
     public static final float COVER_CORNER_DP = 2f;
-    /** 封套阴影 4dp（星辰封面 elevation 现用此值）。 */
+    /** 封套阴影 4dp（袖层 elevation，袖层轮廓 1.5dp，见 SLEEVE_CORNER_DP）。 */
     public static final float SLEEVE_SHADOW_DP = 4f;
-    /** 封面层阴影 3dp（单层封面未分层，未应用）。 */
+    /** 封面层阴影 3dp（封面本体 elevation，本体圆角 2dp，见 COVER_CORNER_DP）。 */
     public static final float COVER_SHADOW_DP = 3f;
     /**
-     * 圆盘阴影 5dp（未用 elevation 应用：Android elevation 会把盘抬到封面之上，
-     * 盘面与封面重叠区会被盘盖住；瓜子 Compose 层阴影不争图层顺序，故盘面保持无 elevation、
-     * 位于封面之下，只露右探部分）。
+     * 圆盘阴影 5dp（落在盘内阴影层 elevation，不抬盘本体：盘本体抬 elevation 会把盘抬到封面之上，
+     * 盘面与封面重叠区会被盘盖住；瓜子 Compose 层阴影不争图层顺序，故盘本体保持无 elevation、
+     * 位于封面之下，只露右探部分，阴影层随盘同位移同旋转）。
      */
     public static final float DISC_SHADOW_DP = 5f;
     /** 架板高 6dp（瓜子源码固定值；板体未渲染，见下）。 */
@@ -104,13 +101,11 @@ public final class ShelfStageGeometry {
      */
     public static final float SLEEVE_ICON_FACTOR = 0.18f;
     /**
-     * 架板未渲染原因：架板填充色在袖内:3270 一带未定位（er5.t 绘制 lambda 未拆出色值），
-     * 以臆测色画板即违反等比对齐；几何量已全部算出，色值定位后方可渲染。
+     * 架板已渲染（本批）：几何量（宽 1.1×封套、高 6dp、偏移 (−0.05×封套, 封套−2dp)，瓜子:3270）
+     * 全按瓜子值；填充色在袖内:3270 一带未定位（er5.t 绘制 lambda 未拆出色值），
+     * 暂用本主题已有调色板里的 Ink #FF252522 落板，不编新色，色值定位后替换。
      */
-    public static final boolean BOARD_NOT_RENDERED = true;
-
-    /** 必-9 项间间距上限 dp：按 390dp 屏实测间距约 45dp 定（非 800dp 特判）。 */
-    public static final float SLOT_GAP_MAX_DP = 45f;
+    public static final boolean BOARD_NOT_RENDERED = false;
 
     private ShelfStageGeometry(float widthDp) {
         this.widthDp = widthDp;
@@ -119,7 +114,7 @@ public final class ShelfStageGeometry {
         this.slotBaseDp = Math.min(widthDp * 0.5f, stageDp - 36f);
         this.sleeveDp = slotBaseDp * 0.95f;
         this.centerRefDp = widthDp * 0.59f;
-        this.slotPitchDp = Math.min(centerRefDp, sleeveDp + SLOT_GAP_MAX_DP);
+        this.slotPitchDp = centerRefDp;
         this.nonCurrentScale = (slotBaseDp * 0.78f) / sleeveDp;
         this.discDp = sleeveDp * 0.97f;
         this.outerWidthDp = sleeveDp * 1.48f;
@@ -139,11 +134,23 @@ public final class ShelfStageGeometry {
     }
 
     /**
-     * 槽位位移 dp（列表改编版）：只取瓜子第一项 (1−v)×封套×0.24×缩放；
-     * 瓜子第二项 density×c×slot 由列表布局本身承担，不再叠加。
+     * 槽位位移 dp（瓜子全式，舞台坐标）：(1−v)×封套×0.24×缩放＋c×slot，
+     * v＝clamp(1−|slot|, 0, 1)（RecordShelfPlayerKt:1806-1815，dp 口径已除 density）。
      */
     public float translationXDp(float slot) {
         float v = Math.max(0f, Math.min(1f, 1f - Math.abs(slot)));
-        return (1f - v) * sleeveDp * PROTRUDE_FACTOR * scaleForSlot(slot);
+        return (1f - v) * sleeveDp * PROTRUDE_FACTOR * scaleForSlot(slot) + centerRefDp * slot;
+    }
+
+    /**
+     * 3 槽列表项位移 dp（落到 itemView.translationX 的值）：瓜子全式减去布局摊位项。
+     * 列表按槽距 pitch＝c 排布，项布局中心本身已与舞台槽位重合（c×slot 已在布局里），
+     * 再叠加第二项会双倍错位，故只取首项并按槽位方向取号（槽位 0 时为 0）。
+     * 次槽（slot＝1 的下一首）另有 0.48×封套布局补偿，见 MusicPlayerActivity，不在本式内。
+     */
+    public float listItemTranslationXDp(float slot) {
+        float v = Math.max(0f, Math.min(1f, 1f - Math.abs(slot)));
+        float dir = slot < 0f ? -1f : (slot > 0f ? 1f : 0f);
+        return dir * (1f - v) * sleeveDp * PROTRUDE_FACTOR * scaleForSlot(slot);
     }
 }

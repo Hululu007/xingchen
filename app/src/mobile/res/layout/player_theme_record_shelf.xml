@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 黑胶唱片架主题：横向队列陈列（每项封面方卡＋右侧滑出黑胶圆盘，当前项盘 30°/s 旋转，项视图由代码建）；
-     下方白色信息面内嵌 KaraokeLyricsView（浅色方案）；底部主控行同经典。 -->
+<!-- 黑胶唱片架主题：3 槽舞台（只渲染前／当／后三槽，每项封面方卡＋右侧滑出黑胶圆盘，当前项盘 30°/s 旋转，
+     项视图由代码建；切歌走槽位弹簧插值，不走列表滚动）；
+     下方白色信息面内嵌 KaraokeLyricsView（浅色方案，歌词面即 GZ shelfInnerPage）；底部主控行同经典。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -99,8 +100,8 @@
             android:tint="#E6252522" />
     </LinearLayout>
 
-    <!-- 唱片架横滑陈列：XML 高先占位，代码侧按屏宽算瓜子舞台高 f-23 覆盖（见 MusicPlayerActivity 架初始化），
-         项高仍是封套、架项几何不动；不用纯 wrap_content（项高＝封套时面顶比瓜子高约 49dp） -->
+    <!-- 唱片架 3 槽舞台：XML 高先占位，代码侧按屏宽算瓜子舞台高 f-23 覆盖（见 MusicPlayerActivity 架初始化），
+         只出前／当／后三槽、切歌走槽位弹簧插值；不用纯 wrap_content（项高＝封套时面顶比瓜子高约 49dp） -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/tpShelfList"
         android:layout_width="match_parent"
@@ -120,6 +121,7 @@
          注意：KLV 自绘另有固定 28dp 内垫（H_PADDING_DP），本改按项目既有口径计面＋歌词层＝40dp，
          实际字距以真机量为准，见交卷待真机项。 -->
     <FrameLayout
+        android:id="@+id/tpShelfInnerPage"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="12dp"

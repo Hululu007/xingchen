@@ -367,7 +367,7 @@ public class MusicRepository {
             return s.playUrl(track, quality, probe);
         } catch (Throwable t) {
             rethrowKeyIssue(t);
-            SpiderDebug.log("music", "playUrl error platform=%s %s", track.platform, t.getMessage());
+            SpiderDebug.log("music", "playUrl error platform=%s id=%s %s", track.platform, track.id, t.getMessage());
             return null;
         }
     }

@@ -2893,6 +2893,9 @@ public class PlayerManager implements ParseCallback {
         if (!isExo() || spec == null || TextUtils.isEmpty(spec.getUrl())) {
             return false;
         }
+        // 与 setMediaItemNow 同款拦截：重建直接调 engine.start，不经过 setMediaItemNow，
+        // 非 http(s) 地址不能从这里漏进 Exo（正常流程重建时 spec 已通过首检，这里是防御层）。
+        if (rejectNonHttpSpec()) return false;
         long position = Math.max(0, player.getCurrentPosition());
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
@@ -3543,8 +3546,40 @@ public class PlayerManager implements ParseCallback {
         });
     }
 
+    /**
+     * 非 http(s) 地址拦截（日志里 Exo ERROR_CODE_FAILED_RUNTIME_CHECK 1004 的那路）：
+     * 解析／嗅探漏网的未转换地址绝不交给 engine.start→setMediaItem→prepare，否则
+     * Exo 在 1004 报错、界面只剩 00:00 无可见错。拦截口径（全量核过进播放器的地址入口）：
+     * - 未转换地址（magnet/ed2k/thunder/video/p2p）：两个引擎都播不了，全拦；
+     * - 其余协议：只拦 Exo 引擎——MPV 原生吃 rtsp/rtmp/file 等；Exo 的合法输入除
+     *   http(s) 外还有直播 rtsp（recoverRtspLiveEdge）与本地 file/content/asset，
+     *   一并放行，严按“只拦 http(s)”会把直播 rtsp 与本地文件一起拦掉；
+     * - 空地址沿用原有静默返回（取链／解析失败另有可见错），这里只拦“有地址但协议不对”。
+     * 拦截走 callback.onError，与 onPlayerError 终态同一出口，可见、不静默。
+     * 其它进播放器的路：start()/parse 成功／换集／重建全部汇到 setMediaItemNow；
+     * Exo 重建路（rebuildAndRestartExo）另有一道同款检查；重试路（retryExo*）复用
+     * 同一个 spec 对象、URL 只能经 onParseSuccess→setMediaItem 改写（改写必过本检查），
+     * 故重试路不再重复拦；MPV 重建路不拦（MPV 原生协议面）；音乐走
+     * MusicPlaybackService.prepareTrack 的同款检查；PlaybackService 的外部
+     * setMediaItem 全部经 playViaManager→PlayerManager.start 汇到这里。
+     */
+    private boolean rejectNonHttpSpec() {
+        if (spec == null) return false;
+        String url = spec.getUrl();
+        if (url == null || url.isEmpty()) return false;
+        String scheme = Uri.parse(url).getScheme();
+        scheme = scheme == null ? "" : scheme.toLowerCase(java.util.Locale.ROOT);
+        boolean unconverted = scheme.equals("magnet") || scheme.equals("ed2k") || scheme.equals("thunder") || scheme.equals("video") || scheme.equals("p2p");
+        boolean exoAllowed = scheme.equals("http") || scheme.equals("https") || scheme.equals("rtsp") || scheme.equals("file") || scheme.equals("content") || scheme.equals("asset");
+        if (!unconverted && (isMpv() || exoAllowed)) return false;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "reject non-http url scheme=%s mpv=%s spec=%s", scheme, isMpv(), debugSpec());
+        callback.onError(ResUtil.getString(R.string.error_play_url));
+        return true;
+    }
+
     private void setMediaItemNow(long timeout, boolean notifyPrepare) {
         if (spec == null || spec.getUrl() == null || engine == null) return;
+        if (rejectNonHttpSpec()) return;
         prepareExoFrameSchedulingForNewPlayback();
         spec.setPlaybackTraceId(playbackTrace.ensure());
         spec.refreshPlaybackRoute();

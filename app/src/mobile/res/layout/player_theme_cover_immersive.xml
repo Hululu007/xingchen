@@ -101,17 +101,21 @@
             android:layout_height="match_parent"
             android:layout_gravity="center">
 
-            <!-- C1：后叠卡改真封面（前一首／后一首，缺邻曲时复用当前曲封面），按瓜子边卡 0.93 缩放 -->
+            <!-- C1：后叠卡改真封面（前一首／后一首，缺邻曲时复用当前曲封面），按瓜子边卡 0.93 缩放；
+                 后叠卡摆放照瓜子 ThreeCardAlternateStack：offset（非 margin 拼位移，第一张 (−12,−18)dp／旋转 −4°，
+                 第二张 (12,−14)dp／旋转 +4°），四边留 2dp 底衬、位移走 translationX/Y（瓜子侧无 margin 字面量）。 -->
             <ImageView
                 android:id="@+id/tpCoverBackPrev"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_marginStart="14dp"
-                android:layout_marginTop="10dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginTop="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_marginBottom="2dp"
                 android:background="@drawable/bg_cover_card_back"
-                android:rotation="2.5"
+                android:rotation="-4"
+                android:translationX="-12dp"
+                android:translationY="-18dp"
                 android:scaleX="0.93"
                 android:scaleY="0.93"
                 android:scaleType="centerCrop" />
@@ -122,10 +126,12 @@
                 android:layout_height="match_parent"
                 android:layout_marginStart="2dp"
                 android:layout_marginTop="2dp"
-                android:layout_marginEnd="14dp"
-                android:layout_marginBottom="10dp"
+                android:layout_marginEnd="2dp"
+                android:layout_marginBottom="2dp"
                 android:background="@drawable/bg_cover_card_back"
-                android:rotation="-2.5"
+                android:rotation="4"
+                android:translationX="12dp"
+                android:translationY="-14dp"
                 android:scaleX="0.93"
                 android:scaleY="0.93"
                 android:scaleType="centerCrop" />
@@ -177,13 +183,18 @@
                         android:orientation="vertical"
                         android:visibility="gone">
 
+                        <!-- 展开态信息卡（GZ CoverSongInfoCard:10125/10140：标题 16sp/800/白 0.95；
+                             歌手·专辑行 11sp/500/白 0.55。星辰信息卡歌手／专辑仍为分行视图（绑定见 toggleCoverInfo），
+                             仅数值对齐、不合并结构；分区小标题（GZ CoverInfoSection:9329，11sp/700/白 0.55/字距 0.5）
+                             在星辰信息卡内无对应视图，不另造新视图，见报告。 -->
                         <TextView
                             android:id="@+id/tpInfoTitle"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:ellipsize="end"
+                            android:fontWeight="800"
                             android:maxLines="1"
-                            android:textColor="#F5FFFFFF"
+                            android:textColor="#F2FFFFFF"
                             android:textSize="16sp"
                             android:textStyle="bold" />
 
@@ -193,9 +204,10 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="6dp"
                             android:ellipsize="end"
+                            android:fontWeight="500"
                             android:maxLines="1"
-                            android:textColor="#A6FFFFFF"
-                            android:textSize="13sp" />
+                            android:textColor="#8CFFFFFF"
+                            android:textSize="11sp" />
 
                         <TextView
                             android:id="@+id/tpInfoAlbum"
@@ -203,9 +215,10 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:ellipsize="end"
+                            android:fontWeight="500"
                             android:maxLines="1"
-                            android:textColor="#A6FFFFFF"
-                            android:textSize="13sp" />
+                            android:textColor="#8CFFFFFF"
+                            android:textSize="11sp" />
 
                         <TextView
                             android:id="@+id/tpInfoSource"
@@ -396,6 +409,7 @@
                         android:paddingEnd="2dp"
                         android:paddingBottom="0dp">
 
+                        <!-- 展开态主时间行（GZ PlaybackScrubber 默认值：11sp、左右各 40dp 宽盒、字距 0.2sp≈0.018em） -->
                         <TextView
                             android:id="@+id/tpPosition"
                             android:layout_width="40dp"
@@ -404,7 +418,7 @@
                             android:letterSpacing="0.018"
                             android:text="00:00"
                             android:textColor="#A6FFFFFF"
-                            android:textSize="12sp" />
+                            android:textSize="11sp" />
 
                         <View
                             android:layout_width="0dp"
@@ -420,7 +434,7 @@
                             android:letterSpacing="0.018"
                             android:text="00:00"
                             android:textColor="#A6FFFFFF"
-                            android:textSize="12sp" />
+                            android:textSize="11sp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>

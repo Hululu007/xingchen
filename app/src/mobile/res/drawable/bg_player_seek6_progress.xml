@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Apple 主题进度/音量：轨道 6dp、已播白 0.58 alpha（GZ Apple 调用口径） -->
+<!-- Apple 主题进度：轨道 6dp、底轨白 0.14、已播白 0.58（GZ PlaybackScrubber scrubTrackIdle 常态 0.14） -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <solid android:color="#47FFFFFF" />
+            <solid android:color="#24FFFFFF" />
             <corners android:radius="3dp" />
             <size android:height="6dp" />
         </shape>

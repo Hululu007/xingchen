@@ -42,22 +42,44 @@ public class Proxy implements Process {
         } catch (Throwable e) {
             e.printStackTrace();
             SpiderDebug.log("proxy", e);
+            // 代理上游已死（删源／重载后撞上已关闭的蜘蛛、空列表转换 NPE）不许再
+            // 以 500 内部错收场：播放器拿到 500 只会当成普通网络失败重试，502 才
+            // 是“上游已死、重试无用”的可见信号。其它异常保持原有 500 口径。
+            if (isClosedObject(e) || e instanceof NullPointerException)
+                return proxyError("代理源已关闭或返回无效，请重试");
             return Nano.error(Objects.toString(e.getMessage(), e.toString()));
         }
+    }
+
+    /** 502 响应：NanoHTTPD 2.3 的 Status 枚举以 lookup(502) 取，取不到退回 500。 */
+    private static Response proxyError(String text) {
+        Response.Status status = Response.Status.lookup(502);
+        return NanoHTTPD.newFixedLengthResponse(status != null ? status : Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, text);
+    }
+
+    private static boolean isClosedObject(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.toLowerCase(java.util.Locale.ROOT).contains("is closed")) return true;
+        }
+        return false;
     }
 
     private Response createResponse(Map<String, String> params, String url, Object[] rs) {
         if (rs == null || rs.length == 0) {
             SpiderDebug.log("proxy", "response invalid do=%s uri=%s reason=null_or_empty", params.get("do"), url);
-            return Nano.error(INVALID_RESPONSE);
+            return proxyError("代理源不可用，请重试");
         }
         if (rs[0] instanceof Response response) {
             SpiderDebug.log("proxy", "response object do=%s type=%s", params.get("do"), rs[0].getClass().getName());
             return response;
         }
+        // 逐字段判空（BaseLoader 已归一过一次，这里是最后一道，不抛）：
+        // [0] 状态码非 Integer、[2] 数据流非 InputStream（含 null）一律按上游无效转 502；
+        // [1] mime 为空透传 null、[3] 请求头不是 Map 按空处理，绝不因字段空崩。
         if (rs.length < 3 || !(rs[0] instanceof Integer code) || !(rs[2] instanceof InputStream stream)) {
             SpiderDebug.log("proxy", "response invalid do=%s status=%s mime=%s body=%s headers=%s", params.get("do"), rs.length > 0 ? rs[0] : null, rs.length > 1 ? rs[1] : null, rs.length > 2 ? rs[2] : null, rs.length > 3 ? rs[3] : null);
-            return Nano.error(INVALID_RESPONSE);
+            return proxyError("代理源返回无效，请重试");
         }
         SpiderDebug.log("proxy", "response do=%s status=%s mime=%s body=%s headers=%s", params.get("do"), code, rs[1], stream.getClass().getName(), rs.length > 3 ? rs[3] : null);
         Map<String, String> headers = headers(rs.length > 3 ? rs[3] : null);

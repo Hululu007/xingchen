@@ -62,6 +62,65 @@ public class ShelfSlotAnimator {
         }
     };
 
+    /** 槽位浮点弹簧回调：onShift 每帧推连续槽位偏移，onSettled 落位时跑一次。 */
+    public interface ShiftListener {
+        void onShift(float shift);
+
+        void onSettled();
+    }
+
+    private boolean shiftRunning;
+    private float shiftX;
+    private float shiftTarget;
+    private float shiftV;
+    private long shiftLastMs = -1;
+    private long shiftStartMs;
+    private ShiftListener shiftListener;
+
+    private final Runnable shiftFrame = new Runnable() {
+        @Override
+        public void run() {
+            if (!shiftRunning) return;
+            long now = SystemClock.uptimeMillis();
+            float dt = shiftLastMs < 0 ? 0.016f : Math.min(0.032f, (now - shiftLastMs) / 1000f);
+            shiftLastMs = now;
+            float c = 2f * DAMPING_RATIO * (float) Math.sqrt(STIFFNESS);
+            float a = -STIFFNESS * (shiftX - shiftTarget) - c * shiftV;
+            shiftV += a * dt;
+            shiftX += shiftV * dt;
+            if (Math.abs(shiftX - shiftTarget) <= SNAP_SLOT || now - shiftStartMs > WATCHDOG_MS) {
+                shiftX = shiftTarget;
+                shiftRunning = false;
+                ShiftListener cb = shiftListener;
+                shiftListener = null;
+                if (cb != null) {
+                    cb.onShift(shiftX);
+                    cb.onSettled();
+                }
+                return;
+            }
+            if (shiftListener != null) shiftListener.onShift(shiftX);
+            rv.postOnAnimation(this);
+        }
+    };
+
+    /**
+     * 槽位连续插值弹簧（3 槽舞台模型用）：shift 从 from 压回 to，不滚动列表，
+     * 调用方按 shift 重算各槽位移／缩放。参数与滚动弹簧同一套（阻尼 0.9、刚度 300、snap 0.001）。
+     */
+    public boolean animateSlotShift(float from, float to, ShiftListener listener) {
+        if (listener == null) return false;
+        shiftX = from;
+        shiftTarget = to;
+        shiftV = 0;
+        shiftListener = listener;
+        shiftLastMs = -1;
+        shiftStartMs = SystemClock.uptimeMillis();
+        shiftRunning = true;
+        rv.postOnAnimation(shiftFrame);
+        return true;
+    }
+
     public ShelfSlotAnimator(RecyclerView rv, int slotWidth) {
         this.rv = rv;
         this.slotWidth = slotWidth;
@@ -89,6 +148,9 @@ public class ShelfSlotAnimator {
         running = false;
         onSettled = null;
         rv.removeCallbacks(frame);
+        shiftRunning = false;
+        shiftListener = null;
+        rv.removeCallbacks(shiftFrame);
     }
 
     private int maxScroll() {

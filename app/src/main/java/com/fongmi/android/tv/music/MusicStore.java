@@ -885,6 +885,24 @@ public class MusicStore {
         Prefers.put(K_LYRIC_FONT_SIZE_COVER, Math.max(14f, Math.min(32f, size)));
     }
 
+    /** 封面歌词非当前行模糊档：0 关 1 轻 2 中（与 KaraokeLyricsView.setBlurLevel 同档）。 */
+    public static final int LYRIC_BLUR_OFF = 0;
+    public static final int LYRIC_BLUR_LIGHT = 1;
+    public static final int LYRIC_BLUR_MEDIUM = 2;
+    private static final String K_COVER_LYRIC_BLUR = "music_cover_lyric_blur";
+
+    /** 封面歌词非当前行模糊档（默认 medium，即瓜子 coverLyricBlur 默认值）。
+     * 档→系数照瓜子 CoverCurrentLyric（LyricsViewKt:4676）：off→0、light→0.45、medium→1.0；
+     * 系数由 KaraokeLyricsView.blurMultiplier 落地，这里只存档位，不另造一套映射。 */
+    public static int getCoverLyricBlurLevel() {
+        return Math.max(LYRIC_BLUR_OFF, Math.min(LYRIC_BLUR_MEDIUM,
+                Prefers.getInt(K_COVER_LYRIC_BLUR, LYRIC_BLUR_MEDIUM)));
+    }
+
+    public static void setCoverLyricBlurLevel(int blur) {
+        Prefers.put(K_COVER_LYRIC_BLUR, Math.max(LYRIC_BLUR_OFF, Math.min(LYRIC_BLUR_MEDIUM, blur)));
+    }
+
     /** 歌词粗细：0 标准 1 加粗 2 特粗（默认标准） */
     public static int getLyricWeight() {
         return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_NORMAL);

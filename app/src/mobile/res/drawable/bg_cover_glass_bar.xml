@@ -1,15 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 玻璃歌词条（GZ CoverLyricGlassBar：白渐变 0.26→0.08、描边 1dp、圆角 22dp；
-     基底改半透明 #CC1E1E22（0.80）：条子不在锐封面上、落在已糊化的页面底图上，半透明底让糊底透出来才是毛玻璃，
-     原 #FF1E1E22 全不透明＝实心黑块，即实拍“黑条重”来源。0.80 是调参近似值（瓜子 chromeFrost 染色 alpha 未抠到），
-     不是瓜子数；他手机上看玻璃感够不够再调。 -->
+<!-- 玻璃歌词条（GZ CoverLyricGlassBar chromeFrost：只有白渐变 0.26→0.08、描边 1dp、圆角 22dp，无深色实底；
+     此前 0.80 深底已删——瓜子侧无此层，星辰旧注释自认 0.80 是调参近似值、不是瓜子数）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#CC1E1E22" />
-            <corners android:radius="22dp" />
-        </shape>
-    </item>
     <item>
         <shape android:shape="rectangle">
             <gradient android:angle="270" android:startColor="#42FFFFFF" android:endColor="#14FFFFFF" />

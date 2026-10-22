@@ -13,10 +13,9 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
 import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.RenderEffect;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
@@ -196,8 +195,9 @@ public class MusicPlayerActivity extends BaseActivity {
     private MusicTrack lastBoundTrack;
     private android.animation.AnimatorSet cdSheenAnim;
     private android.animation.ValueAnimator cdDetailAnim;
-    /** D2：流光 CD 持续流动层动画器（周期自定 6s，瓜子周期未抠实，见 buildCdAnimator 注释） */
-    private android.animation.ValueAnimator cdFlowAnimator;
+    /** 流光 CD 四路流动相位初值（瓜子 rememberCdMotion，LuminousCdPlayerKt:3707 起）：
+     * spin＝0、flow＝0、caustic＝42、undertow＝214；四路速率在瓜子侧是随节拍包络变化的实时回调值，
+     * 无固定字面速率（见 buildCdAnimator），故星辰侧不编速率、不设连续推进动画器。 */
     /** D5：拖动浮动时间 label（CD 与唱片架共用同一套：主进度条拖动时跟手显示，松手隐藏） */
     private TextView scrubTimeLabel;
     /** A1：Apple 主题经右划打开的歌词页（复用通用歌词页载体、Apple 居中呈现，见 applyPageLyricStyle） */
@@ -208,10 +208,15 @@ public class MusicPlayerActivity extends BaseActivity {
     private boolean cdPaletteFirstApply = true;
     private boolean favoriteBusy;
     private int shelfPrevIndex = -1;
-    private int shelfSwitchToken;
-    private boolean shelfSwitchDone;
     /** B1：唱片架槽位弹簧（切歌定位由此驱动，RecyclerView 只作视图复用） */
     private com.fongmi.android.tv.ui.custom.ShelfSlotAnimator shelfSlotAnimator;
+    /** 3 槽舞台切歌插值：旧内容整体平移一槽（下一首 shift 0→−1、上一首 0→＋1），落位同帧重绑新内容；
+     * shift＝0 时各槽即静态槽位；动画帧只改位移／缩放（GPU 属性），不触发布局、不重绑。 */
+    private float shelfSlotShift;
+    /** 槽位弹簧进行中：新切歌到达时先取消旧弹簧、直接落位重绑，不叠加第二根弹簧。 */
+    private boolean shelfShiftRunning;
+    /** 唱片架歌词面（GZ shelfInnerPage）：切歌时 300＋150／150／0.98 切换动画落在这块面上，不落槽根。 */
+    private View shelfInnerPageView;
     private android.animation.AnimatorSet shelfSwitchAnim;
     private android.animation.AnimatorSet coverExpandAnim;
     private RecyclerView shelfList;
@@ -252,6 +257,8 @@ public class MusicPlayerActivity extends BaseActivity {
     private ValueAnimator ambientAnimator;
     /** 进度条补间（GZ 通用进度 animateFloatAsState tween(200, bs4.a)：tick 间平滑滑动而非跳步） */
     private ValueAnimator seekAnim;
+    /** 封面卡片展开态轨高补间（GZ PlaybackScrubber 4dp↔5dp 用 150ms tween；只限沉浸，其余主题走原即时切换）。 */
+    private ValueAnimator seekTrackHeightAnim;
     // GZ 全局缓动（defpackage/bs4）：a=FastOutSlowIn(0.2,0,0,1)、e=Emphasized(0.05,0.7,0.1,1)、b=LinearOutSlowIn(0,0,0,1)、f=滑出(0.3,0,0.8,0.15)
     private static final android.view.animation.Interpolator INTERP_FOSI = new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
     private static final android.view.animation.Interpolator INTERP_EMPH = new android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
@@ -294,12 +301,15 @@ public class MusicPlayerActivity extends BaseActivity {
     /** 流光 CD 歌词展开态（redo3 F4）与展开动画。 */
     private boolean cdLyricsExpanded;
     private ValueAnimator cdExpandAnimator;
-    private int cdCoverWrapHeight;
     /** 封面回中弹簧（redo3 M5：spring(阻尼比 0.9, 刚度 1400) 半隐式欧拉积分）状态。 */
     private android.view.Choreographer.FrameCallback coverSpringCallback;
     private float coverSpringVx;
     private float coverSpringVy;
     private long coverSpringLastMs;
+    /** 双击封面缩放回落弹簧（瓜子 CoverArt 回落：spring 阻尼 0.9／刚度 300，半隐式欧拉积分，目标缩放 1）状态。 */
+    private android.view.Choreographer.FrameCallback coverScaleSpringCallback;
+    private float coverScaleSpringV;
+    private long coverScaleSpringLastMs;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicPlayerActivity.class));
@@ -329,7 +339,10 @@ public class MusicPlayerActivity extends BaseActivity {
 
         @Override
         public void onModeChanged(int mode) {
-            runOnUiThread(() -> refreshModeIcon(mode));
+            runOnUiThread(() -> {
+                refreshModeIcon(mode);
+                refreshAppleTransportAlpha();
+            });
         }
 
         @Override
@@ -524,7 +537,8 @@ public class MusicPlayerActivity extends BaseActivity {
         }
         binding.themeContainer.removeAllViews();
         themeRoot = LayoutInflater.from(this).inflate(layout, binding.themeContainer, false);
-        // 主题切换过渡（GZ MotionKt 进出转场 tween(260, bs4.a) 近似：淡入＋0.98 微缩放）
+        // 主题切换过渡（星辰自加：淡入＋0.98 微缩放、260ms；瓜子侧换主题无过渡字面量、属条件重组直切，
+        // 故 260ms 不是瓜子值；保留理由见经典动效对照表——共享入口不动、直切更生硬，不为对齐硬改）
         themeRoot.setAlpha(0f);
         themeRoot.setScaleX(0.98f);
         themeRoot.setScaleY(0.98f);
@@ -717,6 +731,7 @@ public class MusicPlayerActivity extends BaseActivity {
         cdSummarySub = find(R.id.tpCdSummarySub);
         cdSweepView = find(R.id.tpCdSweep);
         shelfList = find(R.id.tpShelfList);
+        shelfInnerPageView = find(R.id.tpShelfInnerPage);
     }
 
     private void wireThemeViews() {
@@ -845,9 +860,10 @@ public class MusicPlayerActivity extends BaseActivity {
             attachPagerSwipe(lyricView, true);
         }
 
-        // Apple 专属：歌词入口/音质入口＋运输键按压缩放（上/下一首 0.88、播放 0.9）
+        // Apple 专属：歌词入口/音质入口＋运输键按压缩放（上/下一首 0.88、播放 0.9）；
+        // 功能行首项是瓜子“歌词选择”菜单：开星辰现有歌词版本选择面板（MusicLyricVersionDialog），不进全屏歌词页
         View btnLyric = find(R.id.tpBtnLyric);
-        if (btnLyric != null) btnLyric.setOnClickListener(v -> openLyricsPage());
+        if (btnLyric != null) btnLyric.setOnClickListener(v -> openLyricVersionDialog());
         View btnQuality = find(R.id.tpBtnQuality);
         if (btnQuality != null) btnQuality.setOnClickListener(v -> showQualityDialog());
         if (THEME_APPLE.equals(themeId)) {
@@ -902,14 +918,12 @@ public class MusicPlayerActivity extends BaseActivity {
             if (cdSummaryView != null) cdSummaryView.setOnClickListener(v -> toggleCdLyricsExpanded());
             refreshCdUtilGlyphs();
             refreshCdUtilRowEnabled();
-            if (cdSheenView != null && cdSheenView.getBackground() == null) {
-                android.graphics.drawable.GradientDrawable sheen = new android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                        new int[]{0x00FFFFFF, 0x2EFFFFFF, 0x00FFFFFF});
-                sheen.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                cdSheenView.setBackground(sheen);
-                cdSheenView.setAlpha(0f);
-            }
+            // 光泽层底色由 applyCdPalette 按表面刷 hubSweep（见该函数），此处只定静止态 alpha 0（触发式淡入淡出见 triggerCdSheen）。
+            if (cdSheenView != null) cdSheenView.setAlpha(0f);
+            // 顶行收起键（瓜子向下箭头，非 ‹）：走系统返回，与铁律一致；歌名跑马灯需 selected 态（布局已写 selected，代码再保一手）。
+            View cdCollapse = find(R.id.tpBtnCollapse);
+            if (cdCollapse != null) cdCollapse.setOnClickListener(v -> onBackPressed());
+            if (titleView != null) titleView.setSelected(true);
             if (cdDetailBtn != null) cdDetailBtn.setOnClickListener(v -> toggleCdDetailContent());
             // 五图标行：①歌曲信息／盘心详情（即 cdDetailBtn，已在上行接线）②音质③歌词版本⑤表面切换
             View cdUtilQuality = find(R.id.tpCdUtilQuality);
@@ -920,12 +934,21 @@ public class MusicPlayerActivity extends BaseActivity {
             if (cdUtilTheme != null) cdUtilTheme.setOnClickListener(v -> cycleCdSurface());
             if (cdDetailView != null) cdDetailView.setAlpha(0f);
         }
-        // 黑胶唱片架：横向队列陈列；架列高取瓜子舞台高 f-23（RecordShelfPlayerKt:1397），项高仍是封套、架项几何不动，
-        // 只把架列撑高、把白歌词面往下放（390dp 屏：架列 185→234dp，面顶向瓜子 41.4% 靠）。
+        // 黑胶唱片架：3 槽舞台（只渲染前／当／后三槽，不再铺整条队列；切歌走槽位弹簧插值，不走列表滚动）；
+        // 架列高取瓜子舞台高 f-23（RecordShelfPlayerKt:1397），只把架列撑高、把白歌词面往下放
+        // （390dp 屏：架列 185→234dp，面顶向瓜子 41.4% 靠）。
         if (shelfList != null) {
-            shelfList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+            // 舞台模型不许手指横拖列表：横向滚动禁掉，切歌只走槽位弹簧（scrollShelfToCurrent），
+            // 否则手指拖动会把三槽拖离舞台中心；竖滑切歌仍走整页拦截层，不动。
+            shelfList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false) {
+                @Override
+                public boolean canScrollHorizontally() {
+                    return false;
+                }
+            });
             shelfAdapter = new ShelfAdapter();
-            // S2：项间补（槽距−封套）间距（390dp 屏约 45dp），使列表项距＝瓜子槽距；槽宽同步见 startShelfSlotSpring。
+            // 项间补（槽距−封套）间距（390dp 屏约 45dp），使列表项距＝瓜子槽距（槽距即中心参考 c，无钳制）；
+            // 当前槽项根宽 1.48×封套使次槽布局左缘多出 0.48×封套，由次槽位移补偿（见 onBind），不改本间距。
             shelfList.addItemDecoration(new RecyclerView.ItemDecoration() {
                 @Override
                 public void getItemOffsets(@NonNull android.graphics.Rect outRect, @NonNull View view,
@@ -944,7 +967,7 @@ public class MusicPlayerActivity extends BaseActivity {
             ViewGroup.LayoutParams shelfLp = shelfList.getLayoutParams();
             shelfLp.height = (int) (shelfAdapter.shelfGeometry().stageHeightDp * d);
             // 架列视口只容 3 槽：宽＝左槽左缘→右槽右缘（2×槽距＋封套）＋两侧 20dp 内垫，居中；
-            // 视口外第 4 项不再露半截（瓜子固定 3 槽的静止态；滑动过程仍是列表滚动，与瓜子槽位移位动画形态不同，但静止态一致）。
+            // 适配器只出 3 项，视口外不再有第 4 项（瓜子固定 3 槽；切歌过程走槽位弹簧插值）。
             ShelfStageGeometry g3 = shelfAdapter.shelfGeometry();
             shelfLp.width = Math.round((2 * g3.slotPitchDp + g3.sleeveDp) * d)
                     + shelfList.getPaddingStart() + shelfList.getPaddingEnd();
@@ -999,7 +1022,8 @@ public class MusicPlayerActivity extends BaseActivity {
             attachPressScale(queueView, 0.88f);
             attachPressScale(find(R.id.tpBtnInfoExp), 0.88f);
             attachPressScale(favBtnView, 0.88f);
-            attachPressScale(playView, 0.96f);
+            // 封面卡片玻璃条播放键按压 0.88（GZ PlayerScreenKt:9620-9640），不是默认主题 0.96。
+            attachPressScale(playView, 0.88f);
         } else if (THEME_CD.equals(themeId)) {
             // GZ CD 运输行各键按压 0.9（播放键已是 0.9）
             attachPressScale(prevView, 0.9f);
@@ -1007,9 +1031,10 @@ public class MusicPlayerActivity extends BaseActivity {
             attachPressScale(playView, 0.9f);
             attachPressScale(queueView, 0.9f);
             attachPressScale(modeView, 0.9f);
-            // GZ CD 行内键按压 0.9：五图标行五键＋顶右菜单同 0.9（favHeartView 即五图标行第 4 格收藏心）
+            // GZ CD 行内键按压 0.9：五图标行五键＋顶右菜单＋顶行收起键同 0.9（favHeartView 即五图标行第 4 格收藏心）
             attachPressScale(favHeartView, 0.9f);
             attachPressScale(find(R.id.tpBtnMenu), 0.9f);
+            attachPressScale(find(R.id.tpBtnCollapse), 0.9f);
             attachPressScale(find(R.id.tpCdUtilInfo), 0.9f);
             attachPressScale(find(R.id.tpCdUtilQuality), 0.9f);
             attachPressScale(find(R.id.tpCdUtilLyric), 0.9f);
@@ -1130,13 +1155,29 @@ public class MusicPlayerActivity extends BaseActivity {
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                // G7：双击＝收藏切换（不只加不减）；爆发／缩放／震动只在“新收藏”时触发，已收藏再双击只取消收藏、不全套效果。
+                // 双击＝收藏切换（不只加不减）；adding＝切后收藏态（favorited 为切前态，取反即切后态）。
                 MusicTrack track = MusicController.get().current();
                 boolean adding = track != null && !favorited;
                 if (track != null) toggleFavorite(null);
-                if (!adding) return true;
+                if (THEME_CLASSIC.equals(themeId)) {
+                    // 经典：瓜子 genBurstHearts——收藏态 8 颗、非收藏态 5 颗（burstCover 的 big 参即此档）；
+                    // 封面 1.045／200ms，回落走 spring（阻尼 0.9／刚度 300），不用 250ms tween 后半段。
+                    if (track == null) return true;
+                    float[] p = toOverlayPoint(wrap, e.getX(), e.getY());
+                    binding.heartsOverlay.burstCover(p[0], p[1], adding);
+                    cancelCoverScaleSpring();
+                    wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
+                            .withEndAction(() -> startCoverScaleSpring(wrap))
+                            .start();
+                    try {
+                        wrap.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                    } catch (Throwable ignored) {
+                    }
+                    return true;
+                }
+                // 取消收藏也有爱心（瓜子行为）：其余主题与经典一致，收藏态 8 颗、取消态 5 颗。
                 float[] p = toOverlayPoint(wrap, e.getX(), e.getY());
-                binding.heartsOverlay.burstCover(p[0], p[1], true);
+                binding.heartsOverlay.burstCover(p[0], p[1], adding);
                 wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
                         .withEndAction(() -> wrap.animate().scaleX(1f).scaleY(1f).setDuration(250).start())
                         .start();
@@ -1332,6 +1373,45 @@ public class MusicPlayerActivity extends BaseActivity {
         android.view.Choreographer.getInstance().postFrameCallback(coverSpringCallback);
     }
 
+    private void cancelCoverScaleSpring() {
+        if (coverScaleSpringCallback != null) {
+            android.view.Choreographer.getInstance().removeFrameCallback(coverScaleSpringCallback);
+            coverScaleSpringCallback = null;
+        }
+    }
+
+    /** 双击封面缩放回落：从当前缩放（1.045）以 spring（阻尼 0.9／刚度 300）回落到 1，半隐式欧拉逐帧积分，dt 钳 50ms。 */
+    private void startCoverScaleSpring(final View target) {
+        if (target == null) return;
+        cancelCoverScaleSpring();
+        coverScaleSpringV = 0f;
+        coverScaleSpringLastMs = 0L;
+        coverScaleSpringCallback = new android.view.Choreographer.FrameCallback() {
+            @Override
+            public void doFrame(long frameTimeNanos) {
+                long nowMs = frameTimeNanos / 1000000L;
+                float dt = coverScaleSpringLastMs == 0 ? 0.016f
+                        : Math.min(0.05f, (nowMs - coverScaleSpringLastMs) / 1000f);
+                coverScaleSpringLastMs = nowMs;
+                double k = 300d;
+                double damp = 2d * 0.9d * Math.sqrt(k);
+                float s = target.getScaleX();
+                coverScaleSpringV += (float) ((k * (1f - s) - damp * coverScaleSpringV) * dt);
+                s += coverScaleSpringV * dt;
+                target.setScaleX(s);
+                target.setScaleY(s);
+                if (Math.abs(s - 1f) < 0.001f && Math.abs(coverScaleSpringV) < 0.01f) {
+                    target.setScaleX(1f);
+                    target.setScaleY(1f);
+                    coverScaleSpringCallback = null;
+                } else {
+                    android.view.Choreographer.getInstance().postFrameCallback(this);
+                }
+            }
+        };
+        android.view.Choreographer.getInstance().postFrameCallback(coverScaleSpringCallback);
+    }
+
     /** 主题内坐标 → 爱心覆盖层坐标 */
     private float[] toOverlayPoint(View anchor, float x, float y) {
         int[] a = new int[2];
@@ -1363,7 +1443,8 @@ public class MusicPlayerActivity extends BaseActivity {
         loadLyric(track, false);
         refreshFavorite(track);
         refreshQualityValue();
-        if (shelfAdapter != null) shelfAdapter.notifyDataSetChanged();
+        // 唱片架 3 槽模型：内容重绑时机归 scrollShelfToCurrent——切歌时先滑旧内容、落位同帧重绑，
+        // 这里不再提前 notifyDataSetChanged（提前重绑会让弹簧起点闪一下新／旧封面）；非唱片架主题 shelfAdapter 为空，不动。
         scrollShelfToCurrent();
     }
 
@@ -1456,6 +1537,7 @@ public class MusicPlayerActivity extends BaseActivity {
             refreshCdUtilGlyphs();
             refreshCdUtilRowEnabled();
         }
+        refreshAppleTransportAlpha();
     }
 
     /** 当前曲应显示的封面地址：自定义封面优先（本地相册选图），否则原封面 */
@@ -1539,28 +1621,37 @@ public class MusicPlayerActivity extends BaseActivity {
         updateBackground(track);
         // 本地歌无封面（内嵌／旁路／专辑 art 全空才到这）：后台按净歌名搜在线封面，命中补上
         maybeFetchOnlineCover(track);
-        // 封面切换照 GZ CoverTransitionSpec：经典 400ms/enterScaleFrom 0.94、Apple 600ms/0.97、
-        // exitAlphaEnd 0（新封面自透明淡入）；其余主题无独立 Spec，沿用 400ms/0.96 近似。
-        // 暂停缩放 0.9 只对经典/Apple。
+        // 封面切换：经典/Apple 照 GZ CoverTransitionSpec（经典 400ms/enterScaleFrom 0.94、Apple 600ms/0.97、
+        // exitAlphaEnd 0，新封面自透明淡入）；封面卡片不走 CoverTransitionSpec（该文件只有 Classic/Apple
+        // 两个预设、无 cover_immersive 分支），改走瓜子 ThreeCardAlternateStack 切歌换卡 transitionSpec：
+        // 350ms、入场缩放 0.94→1、出场缩放→0.92；其余主题仍沿用 400ms/0.96 近似。瓜子暂停封面不缩小，入场目标恒 1。
         if (coverView != null && track != null) {
-            long dur = THEME_APPLE.equals(themeId) ? 600 : 400;
-            float fromScale = THEME_APPLE.equals(themeId) ? 0.97f : THEME_CLASSIC.equals(themeId) ? 0.94f : 0.96f;
-            boolean pauseScale = THEME_CLASSIC.equals(themeId) || THEME_APPLE.equals(themeId);
-            float target = pauseScale ? (playing ? 1f : 0.9f) : 1f;
+            boolean immersive = THEME_IMMERSIVE.equals(themeId);
+            long dur = THEME_APPLE.equals(themeId) ? 600 : immersive ? 350 : 400;
+            float fromScale = THEME_APPLE.equals(themeId) ? 0.97f : THEME_CLASSIC.equals(themeId) || immersive ? 0.94f : 0.96f;
+            float target = 1f;
             if (stagedExit) {
                 // 出场动画（与入场同时跑）：经典出场缩放 1→0.96＋反向位移 0.5×高、Apple 出场缩放 1→1.03、
-                // 其余主题出场只有淡出（GZ 未给其余主题出场缩放值，不编）；出场透明度 1→0，出场层动画结束即隐藏。
+                // 封面卡片出场缩放 1→0.92＋整幅滑出（ThreeCard 换卡 spec）、其余主题出场只有淡出
+                // （GZ 未给其余主题出场缩放值，不编）；出场透明度 1→0，出场层动画结束即隐藏。
                 // Apple keepFallbackVisible＝true：出场层在整个转场期间可见，即本层本身。
-                float exitScale = THEME_CLASSIC.equals(themeId) ? 0.96f : THEME_APPLE.equals(themeId) ? 1.03f : 1f;
+                float exitScale = THEME_CLASSIC.equals(themeId) ? 0.96f : THEME_APPLE.equals(themeId) ? 1.03f : immersive ? 0.92f : 1f;
                 float exitSlide = 0f;
+                float exitSlideX = 0f;
                 if (THEME_CLASSIC.equals(themeId)) {
                     int h = coverView.getHeight();
                     exitSlide = -(h > 0 ? h : 300 * getResources().getDisplayMetrics().density) * 0.5f;
+                } else if (immersive) {
+                    // 三卡换卡出场滑出：方向与切歌方向相反（下一首向左、上一首向右），幅度取内容整幅宽
+                    // （瓜子滑出偏移由内容全尺寸推导，无 1/4 这类字面量，不编）；滑出缓动 bs4.c。
+                    int w = coverView.getWidth();
+                    float full = w > 0 ? w : getResources().getDisplayMetrics().widthPixels;
+                    exitSlideX = -lastSkipDirection * full;
                 }
                 final int gen = coverExitGen;
                 coverExitView.animate().alpha(0f).scaleX(exitScale).scaleY(exitScale)
-                        .translationY(exitSlide).setDuration(dur)
-                        .setInterpolator(THEME_CLASSIC.equals(themeId) ? INTERP_EMPH : INTERP_FOSI)
+                        .translationX(exitSlideX).translationY(exitSlide).setDuration(dur)
+                        .setInterpolator(THEME_CLASSIC.equals(themeId) ? INTERP_EMPH : immersive ? INTERP_OUT_C : INTERP_FOSI)
                         .withEndAction(() -> {
                             if (coverExitView != null && coverExitGen == gen) {
                                 coverExitView.setVisibility(View.GONE);
@@ -1571,17 +1662,25 @@ public class MusicPlayerActivity extends BaseActivity {
             coverView.setAlpha(0f);
             coverView.setScaleX(fromScale);
             coverView.setScaleY(fromScale);
-            // 入场滑移（GZ CoverTransitionSpec coverSlotTransform）：经典竖向入场位移 0.5×高×(1−进度)、
-            // 缓动经典 Emphasized(bs4.e)/Apple FastOutSlowIn(bs4.a)；Apple 入场位移 0。出场由上方的出场封面层承担。
+            // 入场滑移：经典竖向入场位移 0.5×高×(1−进度)（GZ CoverTransitionSpec coverSlotTransform）；
+            // 封面卡片切歌换卡入场整幅滑入（瓜子 ThreeCard 滑入偏移由内容全尺寸推导、方向随切歌方向），
+            // 只在有出场层（真切歌）时滑入，首绑／换主题／重刷无出场层时不滑、只淡入＋缩放；
+            // Apple 入场位移 0。出场由上方的出场封面层承担。
+            // 缓动：单条 ViewPropertyAnimator 链无法像瓜子那样把淡入（bs4.a）与缩放／滑移（bs4.e）分开，
+            // 入场整链取 Emphasized（经典链同款取法），淡入缓动随链走、属近似。
             if (THEME_CLASSIC.equals(themeId)) {
                 int h = coverView.getHeight();
                 float slide = (h > 0 ? h : 300 * getResources().getDisplayMetrics().density) * 0.5f;
                 coverView.setTranslationY(slide);
+            } else if (immersive && stagedExit) {
+                int w = coverView.getWidth();
+                float full = w > 0 ? w : getResources().getDisplayMetrics().widthPixels;
+                coverView.setTranslationX(lastSkipDirection * full);
             }
             coverView.animate().alpha(1f).scaleX(target).scaleY(target)
                     .translationX(0f).translationY(0f)
                     .setDuration(dur)
-                    .setInterpolator(THEME_CLASSIC.equals(themeId) ? INTERP_EMPH : INTERP_FOSI)
+                    .setInterpolator(THEME_CLASSIC.equals(themeId) || immersive ? INTERP_EMPH : INTERP_FOSI)
                     .start();
             if (THEME_CD.equals(themeId)) triggerCdSweep();
         }
@@ -1818,6 +1917,11 @@ public class MusicPlayerActivity extends BaseActivity {
         if (cover == null || cover.isEmpty()) return;
         int mode = compositeMode();
         if (bgCompositeApplied && cover.equals(bgCompositeUrl) && bgCompositeMode == mode) return;
+        // 唱片架页：瓜子本页无整幅糊底压暗层（全文无 Brush/Gradient/veil，根只有纯色 #FFF1F0ED）；
+        // 星辰 BG_DARK 合成图贴在 ivBgBlur 上，但架根是不透明 #FFF1F0ED、整页盖住背景层，veil 视觉上无效，
+        // 本页直接跳过合成（省一次后台模糊＋贴图；旧合成图残留在背景层、仍被不透明根盖住，不可见）。
+        // 歌词页开着时 BG_LYRICS 是另一面（全屏歌词页的暗底），不跳过。
+        if (THEME_SHELF.equals(themeId) && !lyricsPageOpen) return;
         Bitmap src;
         if (mode == BG_SHARP) {
             if (bgFullBitmap == null || !cover.equals(bgFullUrl)) return; // 原图还在路上：全图回调里会再刷一次
@@ -1870,6 +1974,16 @@ public class MusicPlayerActivity extends BaseActivity {
                     if (c == null || !cover.equals(effectiveCover(c))) return;
                     if (compositeMode() != mode) return;
                     binding.ivBgBlur.setImageDrawable(new BitmapDrawable(getResources(), out));
+                    // 经典 API31+：糊底模糊由视图层 RenderEffect 24dp 落地（位图层已跳过 FastBlur）；
+                    // 切离经典时清掉，避免糊底效果漏到其他主题；低版本无 RenderEffect，无需清。
+                    if (android.os.Build.VERSION.SDK_INT >= 31) {
+                        if (mode == BG_SHARP) {
+                            float r = 24f * bgView.getResources().getDisplayMetrics().density;
+                            bgView.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
+                        } else {
+                            bgView.setRenderEffect(null);
+                        }
+                    }
                     bgCompositeApplied = true;
                     bgCompositeMode = mode;
                     bgCompositeUrl = cover;
@@ -1906,63 +2020,12 @@ public class MusicPlayerActivity extends BaseActivity {
         canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
     }
 
-    /** 经典罩子（封面带归零版）：颜色与 drawAmbientVeil 同源（toneAdjust＋两端明度平移），只改 alpha 包络——
-     * 顶 alpha → 封面带 0 → 熔边区放满 → 尾段到底色。停点正常几何下严格递增，退化几何（封面贴顶／
-     * 熔边触底）跳过无意义端点，不留重复停点。 */
-    private static void drawSharpVeil(Canvas canvas, int viewW, int viewH, int ambient, int topOff, int cardBottom, float meltPx) {
-        int base = CoverColor.toneAdjust(ambient);
-        float[] hsv = new float[3];
-        Color.colorToHSV(base, hsv);
-        float topV = Math.max(0.1f, Math.min(0.68f, hsv[2] + 0.05f));
-        int topColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], topV});
-        float bottomV = Math.max(0.1f, Math.min(0.68f, hsv[2] - 0.04f));
-        int bottomColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], bottomV});
-        int a0 = Math.round(Math.max(0f, Math.min(1f, 0.8f - 0.04f)) * 255);
-        int a2 = Math.round(Math.max(0f, Math.min(1f, 0.8f)) * 255);
-        int a3 = Math.round(Math.max(0f, Math.min(1f, 0.8f + 0.06f)) * 255);
-        float h = (float) viewH;
-        float pTop = Math.max(0f, Math.min(1f, topOff / h));
-        float pCard = Math.max(0f, Math.min(1f, cardBottom / h));
-        float pRamp = Math.max(0f, Math.min(1f, (cardBottom + meltPx) / h));
-        java.util.ArrayList<Float> posList = new java.util.ArrayList<>();
-        java.util.ArrayList<Integer> colList = new java.util.ArrayList<>();
-        if (topOff > 0) {
-            posList.add(0f);
-            colList.add(Color.argb(a0, Color.red(topColor), Color.green(topColor), Color.blue(topColor)));
-        }
-        posList.add(pTop);
-        colList.add(Color.argb(0, Color.red(base), Color.green(base), Color.blue(base)));
-        posList.add(pCard);
-        colList.add(Color.argb(0, Color.red(base), Color.green(base), Color.blue(base)));
-        // 封面触底时 pRamp 与 pCard 同点：不加放满停点（屏下本无区域要罩），杜绝同点异色台阶
-        if (pRamp > pCard) {
-            posList.add(pRamp);
-            colList.add(Color.argb(a2, Color.red(base), Color.green(base), Color.blue(base)));
-        }
-        if (pRamp < 1f) {
-            if (0.78f > pRamp) {
-                posList.add(0.78f);
-                colList.add(Color.argb(a2, Color.red(base), Color.green(base), Color.blue(base)));
-            }
-            posList.add(1f);
-            colList.add(Color.argb(a3, Color.red(bottomColor), Color.green(bottomColor), Color.blue(bottomColor)));
-        }
-        float[] positions = new float[posList.size()];
-        int[] colors = new int[colList.size()];
-        for (int i = 0; i < posList.size(); i++) {
-            positions[i] = posList.get(i);
-            colors[i] = colList.get(i);
-        }
-        Paint tint = new Paint();
-        tint.setShader(new LinearGradient(0, 0, 0, viewH, colors, positions, Shader.TileMode.CLAMP));
-        canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
-    }
-
-    /** 一层满幅背景合成（后台线程跑）。底＝原图缩到 64px 宽、FastBlur StackBlur（半径 25，树内 HkArticleAdapter
-     *  先例口径，不等于瓜子 24dp 实时模糊）真模糊后拉满；经典＝全幅四段取色渐变罩（GZ CoverAmbientKt:329：
-     *  停点 0/0.4/0.78/1，alpha＝基数 0.8＋偏移钳制 [0,1]，颜色＝ambient 经 toneAdjust、两端按 s() 平移明度 V），
-     *  底缘涂抹带与黑压暗已删（瓜子无此物）；其余主题＝只压暗（卡／盘／架是独立物件，不熔化），不读 ambient 参数；
-     *  歌词页＝整幅压暗。ambient 由 buildCompositeAsync 在主线程快照当前氛围色后透传。 */
+    /** 一层满幅背景合成（后台线程跑）。底＝原图缩到 64px 宽拉满；经典＝整幅模糊底＋整幅四段取色渐变罩
+     *  （GZ CoverAmbientKt:329：停点 0/0.4/0.78/1，alpha＝基数 0.8＋偏移钳制 [0,1]，颜色＝ambient 经 toneAdjust、
+     *  两端按 s() 平移明度 V），模糊口径：API31+ 由前台视图 RenderEffect 24dp 落地（位图层跳过 FastBlur），
+     *  API<31 回落 FastBlur 25；48dp 熔边条、封面带归零罩子与黑压暗已删（瓜子无此物）；
+     *  其余主题＝只压暗（卡／盘／架是独立物件，不熔化），不读 ambient 参数；歌词页＝整幅压暗。
+     *  ambient 由 buildCompositeAsync 在主线程快照当前氛围色后透传。 */
     private static Bitmap buildPlayerBackground(Bitmap src, int viewW, int viewH, int topOff, int cardBottom, int mode, float density, int ambient) {
         if (src == null || src.isRecycled() || viewW <= 0 || viewH <= 0) return null;
         boolean sharpTop = mode == BG_SHARP;
@@ -1983,44 +2046,24 @@ public class MusicPlayerActivity extends BaseActivity {
             Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
             int smallH = Math.max(1, Math.round(64f * work.getHeight() / (float) work.getWidth()));
             Bitmap small = Bitmap.createScaledBitmap(work, 64, smallH, true);
+            // 经典 API31+：位图层不做 FastBlur，糊底由前台 ivBgBlur 的 RenderEffect 24dp 落地
+            // （瓜子 BlurredCoverAmbient 24dp 实时模糊口径，见 buildCompositeAsync 贴图处）；
+            // API<31 回落 FastBlur 25（树内现行值，非 24dp 精确换算，仅作等效回落）；非经典分支一律走原 FastBlur 25，不动。
             // 真模糊：small 是本函数现生成的图，canReuse=true 原地模糊安全（绝不能传缓存 bgFull/bgSoft）；
             // 模糊失败（半径非法时才返 null，本处半径 25 不会）则回落直贴，不崩
-            Bitmap blurred = FastBlur.blur(small, 25, true);
-            if (blurred != null) small = blurred;
+            boolean renderEffectBlur = sharpTop && android.os.Build.VERSION.SDK_INT >= 31;
+            if (!renderEffectBlur) {
+                Bitmap blurred = FastBlur.blur(small, 25, true);
+                if (blurred != null) small = blurred;
+            }
             canvas.drawBitmap(small, null, new RectF(0, 0, viewW, viewH), paint);
             small.recycle();
             if (sharpTop) {
-                // 经典熔边（GZ 上半原图、下半模糊延伸）：锐封面在 cardBottom 处硬断，下层是
-                // 模糊＋罩子，断层刺眼。取显示区底边一小条向下纵拉 48dp、同时纵向渐隐到底
-                // 透明，底色自然续上模糊底，断层变熔边。centerCrop 显示区先算裁剪源区，底条
-                // 取裁剪区底边 8%，方图与非方图都对得上。罩子随后整幅盖下，熔边与下层同罩。
-                float meltPx = 48f * density;
-                int bandBottom = (int) Math.min(viewH, cardBottom + meltPx);
-                if (bandBottom > cardBottom) {
-                    float dispH = cardBottom - topOff;
-                    float scale = Math.max(viewW / (float) work.getWidth(), dispH / work.getHeight());
-                    float cropW = viewW / scale;
-                    float cropH = dispH / scale;
-                    float cropLeft = (work.getWidth() - cropW) / 2f;
-                    float cropTop = (work.getHeight() - cropH) / 2f;
-                    float stripH = cropH * 0.08f;
-                    Rect stripSrc = new Rect(Math.round(cropLeft), Math.round(cropTop + cropH - stripH), Math.round(cropLeft + cropW), Math.round(cropTop + cropH));
-                    RectF bandDst = new RectF(0, cardBottom, viewW, bandBottom);
-                    int save = canvas.saveLayer(bandDst, null);
-                    canvas.drawBitmap(work, stripSrc, bandDst, paint);
-                    Paint fade = new Paint();
-                    fade.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
-                    fade.setShader(new LinearGradient(0, cardBottom, 0, bandBottom,
-                            new int[]{0xFF000000, 0x00000000}, null, Shader.TileMode.CLAMP));
-                    canvas.drawRect(bandDst, fade);
-                    canvas.restoreToCount(save);
-                }
-                // 经典罩子改「封面带归零」：旧全幅罩子盖住除封面外的一切，封面 100% 原图，
-                // 断层正在罩子边界上——封面底边一边原图、一边 0.8 罩子，明暗必断，熔边条也被罩子盖住。
-                // 新罩子在封面带 [topOff, cardBottom] 内 alpha 恒 0（该区背景本就被不透明封面盖住），
-                // 上沿从顶 alpha 渐收到 0、下沿在熔边 48dp 内从 0 渐放到满，上下两边都没有台阶，
-                // 封面与背景真正连成一层。Apple 仍走全幅罩子（其封面是布局自己的 tpCover，不走此分支）。
-                drawSharpVeil(canvas, viewW, viewH, ambient, topOff, cardBottom, meltPx);
+                // 经典＝瓜子整幅模糊底＋整幅 4 段罩（与 Apple 共用 drawAmbientVeil：停点 0/0.4/0.78/1，
+                // alpha 基数 0.8）；48dp 熔边条与封面带 alpha 恒 0 的归零罩子已删（瓜子无此物）。
+                // 注：罩子与糊底同在一张位图里，视图层 RenderEffect 会同时柔化罩子渐变
+                // （停点不变、过渡更 soft），真机需核罩子是否仍读得出 4 段。
+                drawAmbientVeil(canvas, viewW, viewH, ambient);
             } else if (mode == BG_APPLE) {
                 // Apple 外壳罩子（GZ 外壳口径）：糊底照片上整幅盖 4 段氛围罩子，无锐顶、无熔边
                 //（Apple 封面是布局自己的 tpCover，不走背景锐顶）；此前的 BG_DARK 弱压暗使控制区仍像照片，作废。
@@ -2615,6 +2658,9 @@ public class MusicPlayerActivity extends BaseActivity {
             weight = MusicStore.getLyricWeight();
             fontSize = MusicStore.getLyricFontSize();
             advanced = MusicStore.isAdvancedFx();
+            // 经典：封面歌词模糊不再硬编码轻档（旧 blur=1），改读封面模糊档（默认 medium）；
+            // 其余主题本批不动，仍走旧值 1。
+            if (THEME_CLASSIC.equals(themeId)) blur = MusicStore.getCoverLyricBlurLevel();
         } catch (Throwable ignored) {
         }
         if (lyricView != null) {
@@ -2750,7 +2796,11 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
-    /** 封面卡片展开切换动画（redo3 第四轮 V11，GZ coverAlternate 三路 350ms）：
+    /** 封面卡片展开切换动画（redo3 第四轮 V11，星辰侧保留的交互动效、行为不动）：
+     * 正名：瓜子展开分支是 plain if 切换、无 transitionSpec 字面量，本动画的 350ms／0.94→1／→0.92
+     * 数值与瓜子 ThreeCardAlternateStack 切歌换卡 spec 撞值，但不是瓜子展开动效的出处——切歌换卡
+     * 的对齐已移到 bindCovers 沉浸分支，本函数只是把既有展开手感原样保留，不改直切（无字面值可对、
+     * 直切是拿“无证据”当证据，且会丢顺滑手感）；收起滑出四分之一幅同样是星辰侧既有值、瓜子侧无字面量。
      * 平移（满幅入场／四分之一幅出场，展开取一向、收起取反向：入场自右侧满幅滑入，收起向右侧滑出四分之一幅）、
      * 透明度（淡入／淡出均 INTERP_FOSI）、缩放（入场 0.94→1／出场 1→0.92）；
      * 入场平移／缩放用 INTERP_EMPH，出场平移／缩放用 INTERP_OUT_C；出场动画结束后再 setVisibility(GONE)。 */
@@ -2819,26 +2869,28 @@ public class MusicPlayerActivity extends BaseActivity {
      * wave2：瓜子独立摘要行——收起态只显摘要行（主行 16sp／副行 12sp，78dp），展开态只显歌词窗；
      * 触发口径（瓜子实证）：展开态布尔由 CdLyricSummary 点按（未展开时置详情＝歌词并取反）与歌曲信息键切换驱动；
      * 星辰映射为——未展开时点歌词区／摘要行展开、展开后点行 seek、点空白处收起；
-     * 歌曲信息键变体不另建新键。展开时盘面区（tpCoverWrap）高度同步缩到 0，收起时恢复权重布局；
-     * 盘面随 collapse 因子的缩放／淡出无逐项值，本批只落歌词区高度动画。
+     * 歌曲信息键变体不另建新键。展开时盘区本身无缩放／淡出（瓜子 dig：盘区 Box 上无 graphicsLayer，
+     * 盘径只随可用高约束收缩，见 applyCdDiscSize），故本批不再把盘区高度缩到 0；随 collapse 淡出的是
+     * 下方整列（摘要＋进度＋五图标行＋主控），展开内容区与顶行标题各按瓜子公式走 alpha（见动画内注释）。
      */
     private void toggleCdLyricsExpanded() {
         if (lyricView == null || !THEME_CD.equals(themeId)) return;
         ViewGroup parent = (ViewGroup) lyricView.getParent();
-        View wrap = find(R.id.tpCoverWrap);
         if (parent == null || parent.getHeight() <= 0) return;
         float density = getResources().getDisplayMetrics().density;
         int collapsedH = Math.round(78 * density);
         boolean expanding = !cdLyricsExpanded;
         int fromLyric = lyricView.getHeight() > 0 ? lyricView.getHeight() : collapsedH;
-        int fromWrap = wrap == null ? 0 : wrap.getHeight();
-        if (expanding) cdCoverWrapHeight = fromWrap;
         int toLyric;
         if (expanding) {
+            // 固定高＝除歌词窗／盘区／摘要行／弹性空隙外的兄弟高（空隙是收起态填充件，展开时不计入固定高；
+            // 动画中它仍在布局里随歌词区显式高自动收缩，同一布局 pass 内抵消，不产生跳变；动画结束再置 GONE，
+            // 此时它的 weight 份额已为 0，置 GONE 无视觉变化）。
+            View gap = find(R.id.tpCdGap);
             int rest = 0;
             for (int i = 0; i < parent.getChildCount(); i++) {
                 View child = parent.getChildAt(i);
-                if (child == lyricView || child == wrap || child == cdSummaryView) continue;
+                if (child == lyricView || child == cdSummaryView || child == gap) continue;
                 rest += child.getHeight();
                 if (child.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
                     ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) child.getLayoutParams();
@@ -2854,65 +2906,89 @@ public class MusicPlayerActivity extends BaseActivity {
         } else {
             toLyric = collapsedH;
         }
-        int toWrap = expanding ? 0 : cdCoverWrapHeight;
         cdLyricsExpanded = expanding;
         refreshCdUtilGlyphs();
         // wave2：展开时歌词窗先可见、摘要行先隐藏；收起动画跑完才换回（动画结束回调里换）。
         if (expanding) {
             if (cdSummaryView != null) cdSummaryView.setVisibility(View.GONE);
             lyricView.setVisibility(View.VISIBLE);
+        } else {
+            // 收起开始先复现弹性空隙：此时它 weight 份额为 0（总高已满），无视觉变化；随后歌词区缩小时
+            // 空隙自动伸长吸掉差额，底部各行位置不动；若只在动画结束才复现，收尾会跳一帧（歌词窗 78dp 槽位
+            // 与空隙＋摘要行槽位错位）。
+            View gap0 = find(R.id.tpCdGap);
+            if (gap0 != null) gap0.setVisibility(View.VISIBLE);
         }
-        // U-06 意图：歌词区布局即 weight 1 占剩余高（不改布局）；收起写死 78dp 时必须清 weight，
-        // 否则 78dp＋weight 1 会再分 1/6 剩余高、收起后实际比 78 高且盘区被挤；展开时恢复 weight 1。
+        // 动画期间歌词区只用显式高，weight 清 0：显式高＋weight 会双份分剩余高，收起后实际比 78 高且盘区被挤。
+        // 盘区参数动画全程不动（无 weight、无显式高改动）；盘径跟随由每帧末的 applyCdDiscSize 负责。
         ViewGroup.LayoutParams lyricLp = lyricView.getLayoutParams();
         if (lyricLp instanceof android.widget.LinearLayout.LayoutParams) {
-            ((android.widget.LinearLayout.LayoutParams) lyricLp).weight = expanding ? 1f : 0f;
+            ((android.widget.LinearLayout.LayoutParams) lyricLp).weight = 0f;
             lyricView.setLayoutParams(lyricLp);
         }
+        // 瓜子三路 collapse 公式（LuminousCdPlayerKt dig §11，collapse＝展开进度 0→1）：
+        // 下方整列 alpha＝clamp(1−1.6×collapse,0,1)；展开内容区（歌词窗）alpha＝clamp((collapse−0.15)/0.85,0,1)；
+        // 顶行标题 alpha＝clamp(1−1.4×collapse,0,1) 且上移 20dp×collapse（CD_TEXT_SLIDE）。
+        // 三路只改 alpha／translationY（渲染属性，不触发布局）；歌词窗显式高动画仍需一次布局 pass（见动效审计）。
+        final View topTitle = find(R.id.tpCdTopTitle);
+        final View utilRow = find(R.id.tpCdUtilRow);
+        final View timeRow = find(R.id.tpCdTimeRow);
+        final View mainRow = find(R.id.tpCdMainRow);
+        final float slidePx = 20f * density;
         if (cdExpandAnimator != null) cdExpandAnimator.cancel();
         final int startLyric = fromLyric;
-        final int startWrap = fromWrap;
+        // 卡顿审计注：歌词窗显式高动画仍是逐帧布局（见报告审计节，未达 GPU-only 标准）；
+        // 此处只做两点节流：高度取整后未变的帧不 setLayoutParams（600ms 内约半数帧跳过），
+        // 盘径重算只跟高度变化帧走（applyCdDiscSize 内另有尺寸不变 guard）；盘区参数动画全程不动。
+        final int[] lastLyricH = new int[]{-1};
         cdExpandAnimator = ValueAnimator.ofFloat(0f, 1f);
         cdExpandAnimator.setDuration(expanding ? 600 : 500);
         cdExpandAnimator.setInterpolator(INTERP_CD_EXPAND);
         cdExpandAnimator.addUpdateListener(a -> {
             float f = (float) a.getAnimatedValue();
-            ViewGroup.LayoutParams lp = lyricView.getLayoutParams();
-            if (lp != null) {
-                lp.height = Math.round(startLyric + (toLyric - startLyric) * f);
-                lyricView.setLayoutParams(lp);
-            }
-            if (wrap != null) {
-                ViewGroup.LayoutParams wlp = wrap.getLayoutParams();
-                if (wlp != null) {
-                    if (wlp instanceof android.widget.LinearLayout.LayoutParams) {
-                        ((android.widget.LinearLayout.LayoutParams) wlp).weight = 0f;
-                    }
-                    wlp.height = Math.round(startWrap + (toWrap - startWrap) * f);
-                    wrap.setLayoutParams(wlp);
+            float collapse = expanding ? f : 1f - f;
+            int newLyricH = Math.round(startLyric + (toLyric - startLyric) * f);
+            if (newLyricH != lastLyricH[0]) {
+                lastLyricH[0] = newLyricH;
+                ViewGroup.LayoutParams lp = lyricView.getLayoutParams();
+                if (lp != null) {
+                    lp.height = newLyricH;
+                    lyricView.setLayoutParams(lp);
                 }
+                // 盘径只随可用高约束收缩：歌词区显式高变了，可用高才变，post 到布局后重算（尺寸不变时 guard 挡住）。
+                applyCdDiscSize();
+            }
+            float belowAlpha = Math.max(0f, Math.min(1f, 1f - 1.6f * collapse));
+            if (cdSummaryView != null) cdSummaryView.setAlpha(belowAlpha);
+            if (utilRow != null) utilRow.setAlpha(belowAlpha);
+            if (seekView != null) seekView.setAlpha(belowAlpha);
+            if (timeRow != null) timeRow.setAlpha(belowAlpha);
+            if (mainRow != null) mainRow.setAlpha(belowAlpha);
+            if (lyricView != null) {
+                lyricView.setAlpha(Math.max(0f, Math.min(1f, (collapse - 0.15f) / 0.85f)));
+            }
+            if (topTitle != null) {
+                topTitle.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.4f * collapse)));
+                topTitle.setTranslationY(-slidePx * collapse);
             }
         });
         cdExpandAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
-                if (!cdLyricsExpanded && wrap != null) {
-                    ViewGroup.LayoutParams wlp = wrap.getLayoutParams();
-                    if (wlp != null) {
-                        wlp.height = 0;
-                        if (wlp instanceof android.widget.LinearLayout.LayoutParams) {
-                            ((android.widget.LinearLayout.LayoutParams) wlp).weight = 5f;
-                        }
-                        wrap.setLayoutParams(wlp);
-                    }
+                if (cdLyricsExpanded) {
+                    View gap = find(R.id.tpCdGap);
+                    if (gap != null) gap.setVisibility(View.GONE);
                 }
-                // wave2：收起动画跑完，歌词窗隐藏、摘要行复现（展开态不走这条，摘要行早已隐藏）。
+                // wave2：收起动画跑完，歌词窗隐藏、摘要行复现、弹性空隙复现（展开态不走这条，摘要行早已隐藏）。
                 if (!cdLyricsExpanded) {
                     if (lyricView != null) lyricView.setVisibility(View.GONE);
                     if (cdSummaryView != null) cdSummaryView.setVisibility(View.VISIBLE);
+                    View gap = find(R.id.tpCdGap);
+                    if (gap != null) gap.setVisibility(View.VISIBLE);
                     lyricIndex = Integer.MIN_VALUE;
                     updateCurrentLyricTexts(MusicController.get().position());
                 }
+                applyCdDiscSize();
             }
         });
         cdExpandAnimator.start();
@@ -3566,8 +3642,12 @@ public class MusicPlayerActivity extends BaseActivity {
             applyCdDetail((float) position / duration, cdDetailContent == CdDetailContent.SONG_INFO);
         }
         if (positionView != null) positionView.setText(fmt(position));
-        // GZ Scrubber 底行右＝负剩余（-mm:ss），不是总时长
-        if (durationView != null) durationView.setText("-" + fmt(Math.max(0, duration - position)));
+        // GZ CD 时间行右端＝总时长（LuminousCdPlayerKt:1664 cdTime(duration)），不是负剩余；此前星辰负剩余是错值。
+        // 注意：tpDuration 为 CD／唱片架／封面卡片展开态共用视图，本批只改 CD 分支，其余主题保持原负剩余不动。
+        if (durationView != null) {
+            if (THEME_CD.equals(themeId)) durationView.setText(fmt(duration));
+            else durationView.setText("-" + fmt(duration - position));
+        }
         if (positionTopView != null) positionTopView.setText(fmt(position));
         if (durationTopView != null) durationTopView.setText(fmt(duration));
         if (lyricView != null) {
@@ -3679,10 +3759,22 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** 播放/暂停切换只重绑当前唱片一项来启停自旋，不整表重绑（整表 notify 会让每张唱片重载封面＋重建旋转动画，是卡顿源） */
+    /** 播放／暂停切换只启停圆盘自旋，不重绑：3 槽模型下按 holder 实际绑定的队列号找当前槽，
+     * 弹簧进行中重绑会把旧内容槽换成新内容、打断连续插值，故一律不 notify，只动自旋态。 */
     private void refreshShelfSpins() {
-        if (shelfAdapter == null) return;
+        if (shelfAdapter == null || shelfList == null) return;
         int cur = MusicController.get().index();
-        if (cur >= 0) shelfAdapter.notifyItemChanged(cur);
+        for (int slotPos = 0; slotPos < 3; slotPos++) {
+            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(slotPos);
+            if (!(vh instanceof ShelfAdapter.Holder)) continue;
+            ShelfAdapter.Holder h = (ShelfAdapter.Holder) vh;
+            h.stopSpin();
+            // 不按槽位号认当前槽：弹簧进行中当前曲在滑入的邻槽视图上（boundQueueIndex 即当前曲号），
+            // 静态时当前曲恒为槽位 1，两态同一条件。
+            if (cur >= 0 && h.boundQueueIndex == cur && playing && animationsEnabled()) {
+                h.startSpin();
+            }
+        }
     }
 
     private void refreshModeIcon(int mode) {
@@ -3713,6 +3805,29 @@ public class MusicPlayerActivity extends BaseActivity {
             modeView.setImageTintList(ColorStateList.valueOf(active ? 0xFFFA243C : 0xFF9AA7B8));
         }
         modeView.setContentDescription(MusicQueue.modeName(mode));
+    }
+
+    /** Apple 运输键禁用态 alpha（GZ Apple：启用 0.9 上/下一首／0.95 播放、禁用 0.35；仅 Apple 分支）。
+     * 启用门用树内现成口径：播放＝有当前曲；下一首＝MusicController.canNext()（顺序单首队重头播已含）；
+     * 上一首＝服务侧 prevIndex() >= 0（顺序首首／单曲循环／洗牌首位时服务侧返回本首序号，即“重播本首”而非无上一首，
+     * 故上一首仅在无队／无序号时禁用）。其它主题不走本方法，alpha 与启用态原样不动。 */
+    private void refreshAppleTransportAlpha() {
+        if (!THEME_APPLE.equals(themeId)) return;
+        boolean hasTrack = MusicController.get().current() != null;
+        boolean prevEnabled = hasTrack && MusicController.get().queuePrevIndex() >= 0;
+        boolean nextEnabled = hasTrack && MusicController.get().canNext();
+        if (prevView != null) {
+            prevView.setEnabled(prevEnabled);
+            prevView.setAlpha(prevEnabled ? 0.9f : 0.35f);
+        }
+        if (nextView != null) {
+            nextView.setEnabled(nextEnabled);
+            nextView.setAlpha(nextEnabled ? 0.9f : 0.35f);
+        }
+        if (playView != null) {
+            playView.setEnabled(hasTrack);
+            playView.setAlpha(hasTrack ? 0.95f : 0.35f);
+        }
     }
 
     // ================= 流光 CD =================
@@ -3750,8 +3865,13 @@ public class MusicPlayerActivity extends BaseActivity {
 
     /** CdPalette：浅 Pearl(base #F4F2EE/mist #E9EFF5/ink #282D36/muted #747D89)，深 Space(base #14161C/ink #F2F2F7/muted #8E96A3) */
     /** 流光 CD 盘／封面响应式尺寸（wave2 修正，GZ LuminousCdPlayerKt:3243）：
-     * 盘外框 f＝min(盘区宽, 盘区高, 400dp)，封面＝f×0.89285713；旧式“盘＝基径×0.892857、封面＝盘×0.68”错一级
-     * （0.68 只是中心封面加载像素换算系数，不是显示占比）；中心点 14dp 无瓜子对应值，留着不动。 */
+     * 盘外框 f＝min(区宽, 区高, 400dp)，封面＝f×0.89285713；旧式“盘＝基径×0.892857、封面＝盘×0.68”错一级
+     * （0.68 只是中心封面加载像素换算系数，不是显示占比）；中心点 14dp 无瓜子对应值，留着不动。
+     * 核对：瓜子纵向盘区无 weight（dig §2），星辰侧盘区 weight 5 已删；区高不再读盘区自身高（盘区现为
+     * wrap_content，读它会自指），而按 Compose 度量口径取父列可用高＝父高－父上下垫－固定兄弟高（顶行／
+     * 摘要行／歌词窗／五图标行／进度／时间行／主控行，GONE 计 0；盘区、歌词窗显式高动画中的歌词窗、
+     * 弹性空隙三者不计：盘区是被求量，歌词窗在动画帧里以布局参数高为准、post 到布局后与 getHeight 一致，
+     * 空隙是收起态填充件）；父高未量出时回落盘区现有高，再无则返回等下一帧。 */
     private void applyCdDiscSize() {
         View wrap = find(R.id.tpCoverWrap);
         if (wrap == null || cdDisc == null) return;
@@ -3759,7 +3879,37 @@ public class MusicPlayerActivity extends BaseActivity {
             if (cdDisc == null) return;
             float d = getResources().getDisplayMetrics().density;
             float availW = wrap.getWidth() / d;
-            float availH = wrap.getHeight() / d;
+            float availH = -1f;
+            android.view.ViewParent p = wrap.getParent();
+            if (p instanceof ViewGroup) {
+                ViewGroup parent = (ViewGroup) p;
+                if (parent.getHeight() > 0) {
+                    float usedPx = parent.getPaddingTop() + parent.getPaddingBottom();
+                    for (int i = 0; i < parent.getChildCount(); i++) {
+                        View child = parent.getChildAt(i);
+                        if (child == wrap || child == lyricView) continue;
+                        if (child.getId() == R.id.tpCdGap) continue;
+                        if (child.getVisibility() == View.GONE) continue;
+                        usedPx += child.getHeight();
+                        if (child.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                            ViewGroup.MarginLayoutParams m =
+                                    (ViewGroup.MarginLayoutParams) child.getLayoutParams();
+                            usedPx += m.topMargin + m.bottomMargin;
+                        }
+                    }
+                    // 歌词窗：动画帧里布局参数高即当前目标高（post 时布局已过，getHeight 与之相同，取其一即可）。
+                    if (lyricView != null && lyricView.getVisibility() != View.GONE) {
+                        usedPx += lyricView.getHeight();
+                        if (lyricView.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                            ViewGroup.MarginLayoutParams m =
+                                    (ViewGroup.MarginLayoutParams) lyricView.getLayoutParams();
+                            usedPx += m.topMargin + m.bottomMargin;
+                        }
+                    }
+                    availH = (parent.getHeight() - usedPx) / d;
+                }
+            }
+            if (availH <= 0) availH = wrap.getHeight() / d;
             if (availW <= 0 || availH <= 0) return;
             float base = Math.min(Math.min(availW, availH), 400f);
             float disc = base;
@@ -3857,21 +4007,34 @@ public class MusicPlayerActivity extends BaseActivity {
         }
     }
 
-    /** CD 五图标行禁用门控（wave2，GZ m122CdUtilityAction 的 enabled 口径：音质／歌词版本／收藏均受 enabled 门控，
-     * 不可用时 alpha ×0.35＝CD_DETAIL_FADE_END）：星辰侧只落确切不可用态——无当前曲时整行禁用；
-     * 其余触发条件（瓜子 qualitySelectable 等）未抠到对应信号，不编。 */
+    /** CD 五图标行禁用门控（瓜子 LuminousCdPlayerKt:3000 前后五次 m122 调用逐格解码）：
+     * ①歌曲信息／③歌词版本／④收藏／⑤表面：enabled＝getEnabled()（①⑤在调用掩码里走默认 enabled，
+     * 与 getEnabled() 同值）；②音质：enabled＝getEnabled() && qualitySelectable；
+     * 不可用时 alpha ×0.35＝CD_DETAIL_FADE_END（LuminousCdPlayerKt:213）。
+     * 星辰侧 getEnabled() 对应＝有当前曲；qualitySelectable 在星辰模型里无独立信号（音质面板对有当前曲
+     * 一律出档位、无“不可选”态），故 isQualitySelectable() 目前即有当前曲（钩子已按格拆开，待瓜子
+     * qualitySelectable 的产生条件抠到后再接真信号，不编本地／无档位之类的猜测条件）。 */
     private void refreshCdUtilRowEnabled() {
         if (!THEME_CD.equals(themeId)) return;
-        boolean enabled = MusicController.get().current() != null;
-        float alpha = enabled ? 1f : 0.35f;
-        for (int id : new int[]{R.id.tpCdUtilInfo, R.id.tpCdUtilQuality, R.id.tpCdUtilLyric,
-                R.id.tpFavHeart, R.id.tpCdUtilTheme}) {
-            View v = find(id);
-            if (v == null) continue;
-            v.setEnabled(enabled);
-            // 收藏心 tint 由 paintFavoriteIcons 管，alpha 照门控走（启用 1／禁用 0.35）。
-            v.setAlpha(alpha);
-        }
+        boolean hasTrack = MusicController.get().current() != null;
+        setCdUtilCellEnabled(R.id.tpCdUtilInfo, hasTrack);
+        setCdUtilCellEnabled(R.id.tpCdUtilQuality, hasTrack && isQualitySelectable());
+        setCdUtilCellEnabled(R.id.tpCdUtilLyric, hasTrack);
+        setCdUtilCellEnabled(R.id.tpFavHeart, hasTrack);
+        setCdUtilCellEnabled(R.id.tpCdUtilTheme, hasTrack);
+    }
+
+    private void setCdUtilCellEnabled(int id, boolean enabled) {
+        View v = find(id);
+        if (v == null) return;
+        v.setEnabled(enabled);
+        // 收藏心 tint 由 paintFavoriteIcons 管，alpha 照门控走（启用 1／禁用 0.35）。
+        v.setAlpha(enabled ? 1f : 0.35f);
+    }
+
+    /** 瓜子 qualitySelectable 的星辰侧钩子：星辰音质面板无“不可选”态，故目前＝有当前曲；见上。 */
+    private boolean isQualitySelectable() {
+        return MusicController.get().current() != null;
     }
 
     private void refreshCdDetailTexts() {
@@ -3925,6 +4088,106 @@ public class MusicPlayerActivity extends BaseActivity {
         if (cdDetailBtn != null) cdDetailBtn.setAlpha(p <= 0.02f ? 0.35f : 1f);
     }
 
+    /** 带显式停点的纵向线性渐变（GradientDrawable 只能均分停点，瓜子背景停点 0／0.34／0.68／1 需此类）。 */
+    private static final class StopLinearDrawable extends android.graphics.drawable.Drawable {
+        private final int[] colors;
+        private final float[] positions;
+        private final android.graphics.Paint paint = new android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        StopLinearDrawable(int[] colors, float[] positions) {
+            this.colors = colors;
+            this.positions = positions;
+        }
+
+        @Override
+        protected void onBoundsChange(android.graphics.Rect bounds) {
+            super.onBoundsChange(bounds);
+            paint.setShader(bounds.height() > 0 ? new android.graphics.LinearGradient(
+                    0, 0, 0, bounds.height(), colors, positions,
+                    android.graphics.Shader.TileMode.CLAMP) : null);
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            canvas.drawRect(getBounds(), paint);
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter filter) {
+            paint.setColorFilter(filter);
+        }
+
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+    }
+
+    /** 带显式停点的扫掠渐变（瓜子 hubSweep 停点用；起始角可指定，星辰光泽层用 caustic 初值 42°）。 */
+    private static final class SweepStopsDrawable extends android.graphics.drawable.Drawable {
+        private final int[] colors;
+        private final float[] positions;
+        private final float startAngleDeg;
+        private final android.graphics.Paint paint = new android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        SweepStopsDrawable(int[] colors, float[] positions, float startAngleDeg) {
+            this.colors = colors;
+            this.positions = positions;
+            this.startAngleDeg = startAngleDeg;
+        }
+
+        @Override
+        protected void onBoundsChange(android.graphics.Rect bounds) {
+            super.onBoundsChange(bounds);
+            android.graphics.Rect b = getBounds();
+            paint.setShader(b.width() > 0 && b.height() > 0 ? new android.graphics.SweepGradient(
+                    b.exactCenterX(), b.exactCenterY(), colors, positions) : null);
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            canvas.save();
+            canvas.rotate(startAngleDeg, b.exactCenterX(), b.exactCenterY());
+            canvas.drawOval(new android.graphics.RectF(b), paint);
+            canvas.restore();
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter filter) {
+            paint.setColorFilter(filter);
+        }
+
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+    }
+
+    /** 线性 sRGB 相对亮度（Compose Color.luminance 口径，a21.a()/b() 变换用；minSdk 下不用 Color.luminance）。 */
+    private static float cdLuminance(int color) {
+        float r = linearize(android.graphics.Color.red(color) / 255f);
+        float g = linearize(android.graphics.Color.green(color) / 255f);
+        float b = linearize(android.graphics.Color.blue(color) / 255f);
+        return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    }
+
+    private static float linearize(float c) {
+        return c <= 0.04045f ? c / 12.92f : (float) Math.pow((c + 0.055f) / 1.055f, 2.4);
+    }
+
     private void applyCdPalette() {
         if (cdRoot == null) return;
         boolean dark = cdIsDark();
@@ -3938,7 +4201,8 @@ public class MusicPlayerActivity extends BaseActivity {
         // fresh＝base 向封面色混 0.22；middle＝base 向（base 向封面色混 0.12）按 bgMix 再混；
         // bottom＝mist 向（base 向封面色混 0.08）按 bgMix 再混；upper＝base 向 fresh 按 lerp(0.48,0.73,bgMix) 混。
         // Pearl bgMix 0、Space bgMix 1；封面色取当前氛围色 ambientColor。
-        // GradientDrawable 四色均分（0／0.33／0.67／1）与瓜子停点（0／0.34／0.68／1）差≤0.013，肉眼无差，不另做自定义停点。
+        // 停点照瓜子 LuminousCdPlayerKt:2478 的 0／0.34／0.68／1（GradientDrawable 只能均分 0／0.33／0.67／1，
+        // 故用 StopLinearDrawable 带停点画，见本文件底部小类）。
         float bgMix = dark ? 1f : 0f;
         int cover = ambientColor;
         int fresh = blend(base, cover, 0.22f);
@@ -3947,9 +4211,8 @@ public class MusicPlayerActivity extends BaseActivity {
         float upperF = 0.48f + (0.73f - 0.48f) * bgMix;
         int upper = blend(base, fresh, upperF);
         int top = blend(base, fresh, 0.92f);
-        android.graphics.drawable.GradientDrawable grad = new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{top, upper, middle, bottom});
+        android.graphics.drawable.Drawable grad = new StopLinearDrawable(
+                new int[]{top, upper, middle, bottom}, new float[]{0f, 0.34f, 0.68f, 1f});
         // 首帧直接定渐变（新 inflate 的根还是布局写死的 #F4F2EE，深色表面若先闪一帧浅色即错）；
         // 之后表面切换 500ms 交叉淡入新渐变（对应瓜子 500ms 全板混色；文字色即时跟随不变）。
         try {
@@ -3970,7 +4233,9 @@ public class MusicPlayerActivity extends BaseActivity {
         } catch (Throwable ignored) {
             cdRoot.setBackground(grad);
         }
-        if (titleView != null) titleView.setTextColor(ink);
+        // 歌名色＝solidInk＝ink×solidAlpha（CdPalette:39,44）：浅 solidAlpha 1.0、深 0.72（0.72×255＝184＝0xB8）。
+        int solidInk = dark ? (ink & 0x00FFFFFF) | 0xB8000000 : ink;
+        if (titleView != null) titleView.setTextColor(solidInk);
         if (artistView != null) artistView.setTextColor(muted);
         // CD 细节行与主标题同口径按表面重刷：布局写死的深墨标题／muted 歌手在深空底上隐形
         if (cdDetailTitle != null) cdDetailTitle.setTextColor(ink);
@@ -4008,19 +4273,52 @@ public class MusicPlayerActivity extends BaseActivity {
         if (playView != null) playView.setImageTintList(inkList);
         if (queueView != null) queueView.setImageTintList(inkList);
         triggerCdSheen(); // D11：光泽与 D10 表面切换分开跑（独立动画器）
-        // D1 盘面三段色（按表面分支算，fresh 0.22 已对不动）：
-        // 浅色 middle＝base、bottom＝mist；深色 middle＝blend(base, dominant, 0.12)、
-        // bottom＝blend(base, dominant, 0.08)（深色 bottom 不再用 mist）。
+        // 盘面材质（瓜子 CdDiscMaterial，defpackage/a21.java:19,23）：盘面扫掠 sweep 组浅 8 档／深 8 档，
+        // 每档先经 a21.b()（向基色 c 混：浅 c＝白、深 c＝#FF2A3038，系数 clamp((1−亮度)×e＋d, ≤0.92)，
+        // 浅 d＝0.55／e＝0.25、深 d＝0.50／e＝0）得基调色，再经 a21.a()（向基调色混 (1−亮度×0.65)×f，
+        // 浅 f＝0.55、深 f＝0.34）得最终档色；档色按扫掠渐变铺盘面（Compose sweep 颜色表均分，无显式停点，
+        // 故用 GradientDrawable SWEEP_GRADIENT）。此前星辰三段 TL_BR 渐变＋2dp 描边作废：描边值瓜子侧
+        // 未抠到（对照表“描边值未抠到”），不留星辰自定的 2dp 描边。亮度取线性 sRGB 相对亮度（Compose luminance 口径）。
         if (cdDisc != null) {
-            int discFresh = blend(base, dominantColor, 0.22f);
-            int discMiddle = dark ? blend(base, dominantColor, 0.12f) : base;
-            int discBottom = dark ? blend(base, dominantColor, 0.08f) : mist;
-            GradientDrawable disc = new GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR, new int[]{discFresh, discMiddle, discBottom});
+            int[] sweepRaw = dark ? new int[]{0xFF2E3742, 0xFF8792A0, 0xFF3B4653, 0xFF4E493F,
+                    0xFF262D37, 0xFF8C97A5, 0xFF46405A, 0xFF2E3742}
+                    : new int[]{0xFF9FAAB7, 0xFFF0F3F6, 0xFFB6C7D0, 0xFFE9E3D4,
+                    0xFF929FAC, 0xFFF7F8FA, 0xFFD4CADB, 0xFF9FAAB7};
+            float toneLum = cdLuminance(dominantColor);
+            float i0 = Math.min((1f - toneLum) * (dark ? 0f : 0.25f) + (dark ? 0.50f : 0.55f), 0.92f);
+            int toneBase = blend(dark ? 0xFF2A3038 : 0xFFFFFFFF, dominantColor, i0);
+            int[] sweep = new int[sweepRaw.length];
+            for (int i = 0; i < sweepRaw.length; i++) {
+                float v = Math.max(0f, Math.min(1f, cdLuminance(sweepRaw[i]))) * 0.65f;
+                sweep[i] = blend(sweepRaw[i], toneBase, (1f - v) * (dark ? 0.34f : 0.55f));
+            }
+            GradientDrawable disc = new GradientDrawable();
             disc.setShape(GradientDrawable.OVAL);
-            disc.setStroke((int) (2 * getResources().getDisplayMetrics().density),
-                    dark ? 0xFF3A3F4A : 0xFFD8D2C8);
+            disc.setGradientType(GradientDrawable.SWEEP_GRADIENT);
+            disc.setColors(sweep);
             cdDisc.setBackground(disc);
+        }
+        // 光泽层（tpCdSheen）：此前星辰自定的 TL_BR 白光三段盖满盘面作废，改瓜子 hubSweep 组（a21.b，10 档，
+        // 停点 0／0.15／0.27／0.31／0.38／0.5／0.67／0.79／0.84／1.0，档色与盘面同式经 a21.a() 变换）；
+        // 光泽层以 caustic 初值 42° 为扫掠起始角（rememberCdMotion 初值）。
+        // 缺口说明：hubSweep 在瓜子 CdArtwork 里画在封面之下（hub 圆半径远小于封面圆，封面盖住），星辰侧
+        // 无独立 hub 面可贴；此处是借用星辰现成的全盘光泽层表面铺 hubSweep 档色（触发式 700／450ms 淡入淡出
+        // 的载体），不是瓜子 hub 面的原位置复现，见报告。
+        if (cdSheenView != null) {
+            int[] hubRaw = dark ? new int[]{0xFF2E3742, 0xFF8792A0, 0xFF3B4653, 0xFF443C52,
+                    0xFF4E493F, 0xFF262D37, 0xFF8C97A5, 0xFF3C4A55, 0xFF46405A, 0xFF2E3742}
+                    : new int[]{0xFF9FAAB7, 0xFFF0F3F6, 0xFFB6C7D0, 0xFFCFC6D8,
+                    0xFFE9E3D4, 0xFF929FAC, 0xFFF7F8FA, 0xFFBACCD2, 0xFFD4CADB, 0xFF9FAAB7};
+            float toneLum2 = cdLuminance(dominantColor);
+            float i02 = Math.min((1f - toneLum2) * (dark ? 0f : 0.25f) + (dark ? 0.50f : 0.55f), 0.92f);
+            int toneBase2 = blend(dark ? 0xFF2A3038 : 0xFFFFFFFF, dominantColor, i02);
+            int[] hub = new int[hubRaw.length];
+            for (int i = 0; i < hubRaw.length; i++) {
+                float v = Math.max(0f, Math.min(1f, cdLuminance(hubRaw[i]))) * 0.65f;
+                hub[i] = blend(hubRaw[i], toneBase2, (1f - v) * (dark ? 0.34f : 0.55f));
+            }
+            cdSheenView.setBackground(new SweepStopsDrawable(hub,
+                    new float[]{0f, 0.15f, 0.27f, 0.31f, 0.38f, 0.5f, 0.67f, 0.79f, 0.84f, 1f}, 42f));
         }
         refreshModeIcon(MusicController.get().getMode());
         // GZ CD 顶右菜单＋五图标行（除收藏心外）统一刷 muted（收藏心由下面 paintFavoriteIcons 按收藏态刷 muted／红心）；
@@ -4028,6 +4326,9 @@ public class MusicPlayerActivity extends BaseActivity {
         ColorStateList mutedList = ColorStateList.valueOf(muted);
         View cdMenu = find(R.id.tpBtnMenu);
         if (cdMenu instanceof ImageView) ((ImageView) cdMenu).setImageTintList(mutedList);
+        // 顶行收起键与菜单同口径刷 muted（瓜子 CdIcon 默认色即 muted）。
+        View cdCollapseBtn = find(R.id.tpBtnCollapse);
+        if (cdCollapseBtn instanceof ImageView) ((ImageView) cdCollapseBtn).setImageTintList(mutedList);
         View utilRow = find(R.id.tpCdUtilRow);
         if (utilRow instanceof ViewGroup) {
             ViewGroup row = (ViewGroup) utilRow;
@@ -4056,6 +4357,10 @@ public class MusicPlayerActivity extends BaseActivity {
          （不用 ColorFilter：SRC_IN 会拿 drawable 自身半透明 alpha 相乘，底轨 0.12 会被乘成 0.02 近乎透明）。 */
     private void applyShelfSeekTint() {
         if (seekView == null || !THEME_SHELF.equals(themeId)) return;
+        // 歌词调色与进度填充同源（封面语气色 dominantColor）：唱片架歌词走瓜子 Color＋alpha 模型
+        // （sung＝语气色向 Ink 混 0.65、未唱 0.48、闲行 Muted 0.72、翻译 Muted），不在浅色面 hex 值上；
+        // 调用点与进度着色一致（主题装配／无封面／取色回调），封面换了调色跟着换。
+        if (lyricView != null) lyricView.setShelfLyricPalette(dominantColor);
         try {
             android.graphics.drawable.Drawable pd = seekView.getProgressDrawable();
             if (!(pd instanceof android.graphics.drawable.LayerDrawable)) return;
@@ -4093,31 +4398,22 @@ public class MusicPlayerActivity extends BaseActivity {
         cdSweepView.sweep(lastSkipDirection);
     }
 
-    /** CD 自旋 16°/s：整圈 22500ms 线性无限；暂停冻结角度（animator.pause 保角） */
+    /** CD 自旋 16°/s：整圈 22500ms 线性无限；暂停冻结角度（animator.pause 保角）。
+     * 持续流动层（瓜子 CdMotion，rememberCdMotion:3707 起）：四路状态初值 spin＝0、flow＝0、caustic＝42、
+     * undertow＝214 已落（光泽层 SweepStopsDrawable 以 caustic 初值 42° 为扫掠起始角，见 applyCdPalette；
+     * spin 初值 0 即盘旋转起始角）；四路推进速率在瓜子侧是节拍包络回调的实时值（runner 内 boost×16°/s
+     * 之外，flow／caustic／undertow 的速率回调由调用方传入的实时状态驱动，jadx 内无固定字面速率），
+     * 星辰侧不编速率：此前 6000ms 正弦微动是星辰自定值（无瓜子出处），本批删除，缺口见动效对照表。
+     * 光泽层平时静止（触发式 700ms 淡入／450ms 淡出见 triggerCdSheen），持续微动待速率解码后另落。 */
     private void buildCdAnimator() {
         if (cdDisc == null) return;
+        // 卡顿审计：盘旋转本身是渲染属性（ROTATION），但盘子树含封面位图＋扫光＋光泽层，无硬件层时每帧
+        // 重绘整棵子树；挂硬件层后旋转只走图层变换，位图不逐帧重绘（暂停时 animator.pause 保角，图层保留）。
+        cdDisc.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         cdAnimator = ObjectAnimator.ofFloat(cdDisc, View.ROTATION, 0f, 360f);
         cdAnimator.setDuration(22500);
         cdAnimator.setRepeatCount(ValueAnimator.INFINITE);
         cdAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
-        // D2：持续流动层——盘面流动光泽＋底部 undertow 随播放缓动：光泽层（tpCdSheen）alpha
-        // 在 0.12–0.22 间正弦微动、同时纵向 ±3dp 缓移；周期自定 6000ms（瓜子 spin/flow/caustic/
-        // undertow 四路周期数值未抠实，先按“有持续微动”落，数值待抠）；切歌一次性扫光
-        // （triggerCdSheen）进行时流动层让路，结束后恢复；播放暂停时与旋转同口径冻结。
-        if (cdFlowAnimator == null && cdSheenView != null) {
-            cdFlowAnimator = ValueAnimator.ofFloat(0f, 1f);
-            cdFlowAnimator.setDuration(6000);
-            cdFlowAnimator.setRepeatCount(ValueAnimator.INFINITE);
-            cdFlowAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
-            cdFlowAnimator.addUpdateListener(a -> {
-                if (cdSheenView == null) return;
-                if (cdSheenAnim != null && cdSheenAnim.isRunning()) return;
-                float t = (float) a.getAnimatedValue();
-                float s = (float) Math.sin(t * 2 * Math.PI);
-                cdSheenView.setAlpha(0.17f + 0.05f * s);
-                cdSheenView.setTranslationY(s * 3f * getResources().getDisplayMetrics().density);
-            });
-        }
         updateRotations();
     }
 
@@ -4127,13 +4423,8 @@ public class MusicPlayerActivity extends BaseActivity {
         if (playing && !destroyed && animationsEnabled()) {
             if (cdAnimator.isPaused()) cdAnimator.resume();
             else if (!cdAnimator.isStarted()) cdAnimator.start();
-            if (cdFlowAnimator != null) {
-                if (cdFlowAnimator.isPaused()) cdFlowAnimator.resume();
-                else if (!cdFlowAnimator.isStarted()) cdFlowAnimator.start();
-            }
         } else {
             if (cdAnimator.isRunning()) cdAnimator.pause();
-            if (cdFlowAnimator != null && cdFlowAnimator.isRunning()) cdFlowAnimator.pause();
         }
     }
 
@@ -4150,99 +4441,169 @@ public class MusicPlayerActivity extends BaseActivity {
     // ================= 黑胶唱片架 =================
 
     private void scrollShelfToCurrent() {
-        if (shelfList == null) return;
+        if (shelfList == null || shelfAdapter == null) return;
         int idx = MusicController.get().index();
-        if (idx < 0) return;
-        // redo3 第四轮 S10：切歌时旧当前项先跑 150ms 出场（动画结束回绑为 S4 非当前态）；
-        // B1：定位改槽位弹簧（ShelfSlotAnimator，spring(0.9, 300)＋snap 0.001 槽位），不再用 smoothScrollToPosition；
-        // 新当前项入场由弹簧落位回调（或目标已可见时的一次性接线）跑 animateShelfPageSwitch(…, true)。
+        if (idx < 0) {
+            // 无曲目：直接重绑（不走弹簧，见 bindTrackViews 注释）。
+            shelfAdapter.notifyDataSetChanged();
+            return;
+        }
+        // 3 槽舞台连续插值：切歌时先不重绑，旧内容整体平移一槽（下一首 shift 0→−1、上一首 0→＋1），
+        // 落位瞬间同帧重绑新内容——落位前中心槽显示的正是新当前曲封面（旧邻槽滑入），落位后中心槽
+        // 仍是同一封面（新当前），像素级连续，无封面闪换；先重绑再滑会在弹簧起点闪一下旧／新封面。
+        // 歌词面切换动画（GZ shelfInnerPage：出 150ms／入 300ms＋延迟 150ms／缩放 0.98）与弹簧并行，
+        // 落在歌词面视图上，不与槽位变换写同一属性，无冲突。
         int prev = shelfPrevIndex;
         shelfPrevIndex = idx;
-        if (prev >= 0 && prev != idx) {
-            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(prev);
-            if (vh instanceof ShelfAdapter.Holder) animateShelfPageSwitch((ShelfAdapter.Holder) vh, false);
+        if (prev >= 0 && prev != idx) animateShelfInnerPageSwitch();
+        if (prev < 0 || prev == idx || Math.abs(idx - prev) != 1) {
+            // 首绑／同曲重绑／跳号切歌（随机播放跳到非相邻曲目）：无滑动，直接重绑。
+            // 跳号时滑一槽是假动作——落位重绑会把中心封面换成跳号后的曲，等于闪一下，不如直接换。
+            shelfSlotShift = 0f;
+            shelfAdapter.notifyDataSetChanged();
+            applyShelfSlotShift();
+            return;
         }
-        final int token = ++shelfSwitchToken;
-        shelfSwitchDone = false;
-        shelfList.post(() -> {
-            if (!startShelfSlotSpring(idx, () -> tryShelfPageEnter(token, idx))) {
-                shelfList.smoothScrollToPosition(idx);
+        if (shelfShiftRunning) {
+            // 快速连切：旧弹簧未落位时新切歌到达——取消旧弹簧、直接落位重绑到最新曲目，不叠加弹簧；
+            // 连续动画让给最终态，中间态不逐个补播，否则越切越拖。
+            if (shelfSlotAnimator != null) shelfSlotAnimator.cancel();
+            shelfShiftRunning = false;
+            shelfSlotShift = 0f;
+            rebindShelfSlotsSync();
+            return;
+        }
+        final float dir = idx > prev ? -1f : 1f;
+        shelfSlotShift = 0f;
+        // 弹簧期间收藏键先藏（旧当前视图滑向邻槽时键会跟着走，落位重绑后恢复只在当前槽显示）。
+        for (int slotPos = 0; slotPos < 3; slotPos++) {
+            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(slotPos);
+            if (vh instanceof ShelfAdapter.Holder && ((ShelfAdapter.Holder) vh).fav != null) {
+                ((ShelfAdapter.Holder) vh).fav.setVisibility(View.GONE);
             }
-            shelfList.post(() -> tryShelfPageEnter(token, idx));
-        });
+        }
+        if (!startShelfSlotShiftSpring(dir, () -> {
+            // 落位同帧重绑：先把 shift 清零、再同步重绑三槽——同一帧内完成，中心槽像素不变，
+            // 不经过“旧内容回静态位、下一帧才换新内容”的中间帧，否则闪一帧旧内容。
+            shelfSlotShift = 0f;
+            rebindShelfSlotsSync();
+        })) {
+            shelfSlotShift = 0f;
+            rebindShelfSlotsSync();
+        }
     }
 
-    /** B1：起槽位弹簧——S2：槽宽取列表槽距（中心参考 c，390dp 屏 230.1dp），与项间间距同步，
-     * 仍取旧封套宽会使弹簧落位与实际项距错位；起不来返回 false 回落旧滚动 */
-    private boolean startShelfSlotSpring(int idx, Runnable onSettled) {
+    /** 三槽同步重绑：直接调 onBindViewHolder（不走 notify 的异步布局），供落位／打断时同帧换内容。 */
+    private void rebindShelfSlotsSync() {
+        if (shelfList == null || shelfAdapter == null) return;
+        for (int slotPos = 0; slotPos < 3; slotPos++) {
+            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(slotPos);
+            if (vh instanceof ShelfAdapter.Holder) shelfAdapter.onBindViewHolder((ShelfAdapter.Holder) vh, slotPos);
+        }
+    }
+
+    /** 3 槽舞台槽位弹簧：shift 从 0 压向 dir（下一首 −1、上一首 ＋1），落位回调跑 onSettled。 */
+    private boolean startShelfSlotShiftSpring(float dir, Runnable onSettled) {
         if (shelfList == null || shelfAdapter == null) return false;
         float d = getResources().getDisplayMetrics().density;
         int slotW = (int) (shelfAdapter.shelfGeometry().slotPitchDp * d);
-        if (slotW <= 0 || shelfList.getWidth() <= 0) return false;
+        if (slotW <= 0) return false;
         if (shelfSlotAnimator != null) shelfSlotAnimator.cancel();
         shelfSlotAnimator = new com.fongmi.android.tv.ui.custom.ShelfSlotAnimator(shelfList, slotW);
-        return shelfSlotAnimator.animateToCenter(idx, onSettled);
-    }
-
-    private void tryShelfPageEnter(int token, int idx) {
-        if (shelfSwitchDone || token != shelfSwitchToken || shelfList == null) return;
-        RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(idx);
-        if (vh instanceof ShelfAdapter.Holder) {
-            shelfSwitchDone = true;
-            animateShelfPageSwitch((ShelfAdapter.Holder) vh, true);
-        }
-    }
-
-    /** 唱片架封套切换动画（redo3 第四轮 S10，GZ shelfInnerPage AnimatedContent）：
-     * 入场＝淡入 300ms＋150ms 延迟（INTERP_LOSI）＋缩放 0.98→1（INTERP_EMPH）；
-     * 出场＝淡出 150ms（INTERP_OUT_C）＋缩放 1→0.98；尺寸变换 null（不改项尺寸）；
-     * View 侧适配：RecyclerView 旧项不会被移除，出场结束回绑该项（恢复 S4 非当前态），不让旧项停在透明态。 */
-    private void animateShelfPageSwitch(ShelfAdapter.Holder holder, boolean entering) {
-        if (holder == null) return;
-        View root = holder.itemView;
-        if (shelfSwitchAnim != null) shelfSwitchAnim.cancel();
-        if (entering) {
-            root.setAlpha(0f);
-            root.setScaleX(0.98f);
-            root.setScaleY(0.98f);
-            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(root, View.ALPHA, 0f, 1f);
-            al.setDuration(300);
-            al.setStartDelay(150);
-            al.setInterpolator(INTERP_LOSI);
-            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_X, 0.98f, 1f);
-            sx.setDuration(300);
-            sx.setStartDelay(150);
-            sx.setInterpolator(INTERP_EMPH);
-            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_Y, 0.98f, 1f);
-            sy.setDuration(300);
-            sy.setStartDelay(150);
-            sy.setInterpolator(INTERP_EMPH);
-            shelfSwitchAnim = new android.animation.AnimatorSet();
-            shelfSwitchAnim.playTogether(al, sx, sy);
-            shelfSwitchAnim.start();
-        } else {
-            final int pos = holder.getBindingAdapterPosition();
-            android.animation.ObjectAnimator al = android.animation.ObjectAnimator.ofFloat(root, View.ALPHA, root.getAlpha(), 0f);
-            al.setDuration(150);
-            al.setInterpolator(INTERP_OUT_C);
-            android.animation.ObjectAnimator sx = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_X, root.getScaleX(), 0.98f);
-            sx.setDuration(150);
-            sx.setInterpolator(INTERP_OUT_C);
-            android.animation.ObjectAnimator sy = android.animation.ObjectAnimator.ofFloat(root, View.SCALE_Y, root.getScaleY(), 0.98f);
-            sy.setDuration(150);
-            sy.setInterpolator(INTERP_OUT_C);
-            shelfSwitchAnim = new android.animation.AnimatorSet();
-            shelfSwitchAnim.playTogether(al, sx, sy);
-            shelfSwitchAnim.addListener(new android.animation.AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(android.animation.Animator animation) {
-                    if (shelfAdapter != null && pos >= 0 && pos != MusicController.get().index()) {
-                        shelfAdapter.notifyItemChanged(pos);
+        shelfShiftRunning = true;
+        return shelfSlotAnimator.animateSlotShift(0f, dir,
+                new com.fongmi.android.tv.ui.custom.ShelfSlotAnimator.ShiftListener() {
+                    @Override
+                    public void onShift(float shift) {
+                        shelfSlotShift = shift;
+                        applyShelfSlotShift();
                     }
-                }
-            });
-            shelfSwitchAnim.start();
+
+                    @Override
+                    public void onSettled() {
+                        shelfShiftRunning = false;
+                        if (onSettled != null) onSettled.run();
+                    }
+                });
+    }
+
+    /** 槽位插值帧：只改三槽 holder 的位移／缩放（GPU 属性），不触发布局、不重绑、不重载图。 */
+    private void applyShelfSlotShift() {
+        if (shelfList == null || shelfAdapter == null) return;
+        for (int slotPos = 0; slotPos < 3; slotPos++) {
+            RecyclerView.ViewHolder vh = shelfList.findViewHolderForAdapterPosition(slotPos);
+            if (vh instanceof ShelfAdapter.Holder) applyShelfSlotTransform((ShelfAdapter.Holder) vh, slotPos);
         }
+    }
+
+    /**
+     * 单槽变换：有效槽位＝静态槽位（slotPos−1）＋当前插值 shift；缩放取瓜子公式
+     * scaleForSlot（f4＋(1−f4)×v，v＝clamp(1−|slot|,0,1)）；位移＝shift×槽距（整组槽位同向平移，
+     * 新当前项由此从旧邻槽滑入中央）＋首项＋次槽布局补偿；alpha 不在这里动（出场淡出／入场淡入
+     * 另有动画写 alpha，同属性双写会抖动，静态 alpha＝1 由 onBind 定）。
+     * 变换原点 (0.5, 1) 底部居中已在 onCreate 定死（pivotX＝封套×0.5，pivotY＝封套），不动。
+     */
+    private void applyShelfSlotTransform(ShelfAdapter.Holder h, int slotPos) {
+        if (shelfAdapter == null) return;
+        ShelfStageGeometry g = shelfAdapter.shelfGeometry();
+        float d = getResources().getDisplayMetrics().density;
+        float effSlot = (slotPos - 1) + shelfSlotShift;
+        float scale = g.scaleForSlot(effSlot);
+        h.itemView.setScaleX(scale);
+        h.itemView.setScaleY(scale);
+        float txDp = shelfSlotShift * g.slotPitchDp + g.listItemTranslationXDp(effSlot);
+        if (slotPos == 2) txDp -= (g.outerWidthDp - g.sleeveDp); // 次槽布局补偿：当前槽根宽 1.48×封套多出的 0.48×封套
+        h.itemView.setTranslationX(txDp * d);
+    }
+
+    /** 唱片架歌词面切换动画（GZ shelfInnerPage AnimatedContent，RecordShelfPlayerKt:732-737）：
+     * 出场＝淡出 150ms（INTERP_OUT_C）＋缩放→0.98；入场＝淡入 300ms＋150ms 延迟（INTERP_LOSI）
+     * ＋缩放 0.98→1（INTERP_EMPH）；数值与瓜子一致。注意：对照表称 shelfInnerPage 为歌词面，
+     * 故动画落点是歌词面视图（shelfInnerPageView），不是槽根——旧代码落在槽根上是目标错位，
+     * 且会与槽位弹簧写同一批位移／缩放属性打架；本批纠正到歌词面，与弹簧并行无冲突。 */
+    private void animateShelfInnerPageSwitch() {
+        final View surface = shelfInnerPageView;
+        if (surface == null) return;
+        if (shelfSwitchAnim != null) shelfSwitchAnim.cancel();
+        android.animation.ObjectAnimator alOut = android.animation.ObjectAnimator.ofFloat(
+                surface, View.ALPHA, surface.getAlpha(), 0f);
+        alOut.setDuration(150);
+        alOut.setInterpolator(INTERP_OUT_C);
+        android.animation.ObjectAnimator sxOut = android.animation.ObjectAnimator.ofFloat(
+                surface, View.SCALE_X, surface.getScaleX(), 0.98f);
+        sxOut.setDuration(150);
+        sxOut.setInterpolator(INTERP_OUT_C);
+        android.animation.ObjectAnimator syOut = android.animation.ObjectAnimator.ofFloat(
+                surface, View.SCALE_Y, surface.getScaleY(), 0.98f);
+        syOut.setDuration(150);
+        syOut.setInterpolator(INTERP_OUT_C);
+        android.animation.AnimatorSet outSet = new android.animation.AnimatorSet();
+        outSet.playTogether(alOut, sxOut, syOut);
+        outSet.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                android.animation.ObjectAnimator alIn = android.animation.ObjectAnimator.ofFloat(
+                        surface, View.ALPHA, 0f, 1f);
+                alIn.setDuration(300);
+                alIn.setStartDelay(150);
+                alIn.setInterpolator(INTERP_LOSI);
+                android.animation.ObjectAnimator sxIn = android.animation.ObjectAnimator.ofFloat(
+                        surface, View.SCALE_X, 0.98f, 1f);
+                sxIn.setDuration(300);
+                sxIn.setStartDelay(150);
+                sxIn.setInterpolator(INTERP_EMPH);
+                android.animation.ObjectAnimator syIn = android.animation.ObjectAnimator.ofFloat(
+                        surface, View.SCALE_Y, 0.98f, 1f);
+                syIn.setDuration(300);
+                syIn.setStartDelay(150);
+                syIn.setInterpolator(INTERP_EMPH);
+                shelfSwitchAnim = new android.animation.AnimatorSet();
+                shelfSwitchAnim.playTogether(alIn, sxIn, syIn);
+                shelfSwitchAnim.start();
+            }
+        });
+        shelfSwitchAnim = outSet;
+        outSet.start();
     }
 
     /** 唱片架项收藏 reveal（redo3 第四轮 S7）：300ms 收起（INTERP_OUT_C）→调现有 toggleFavorite（写盘＋paintFavoriteIcons＋burstFavorite 原样保留）
@@ -4251,7 +4612,8 @@ public class MusicPlayerActivity extends BaseActivity {
     private void revealFavorite(ShelfAdapter.Holder holder) {
         if (holder == null || favoriteBusy) return;
         int pos = holder.getBindingAdapterPosition();
-        if (pos < 0 || pos != MusicController.get().index()) return;
+        // pos 是槽位号：按槽位映射回队列号再比当前曲目（收藏只作用于当前曲目）。
+        if (pos < 0 || shelfAdapter == null || shelfAdapter.slotQueueIndex(pos) != MusicController.get().index()) return;
         favoriteBusy = true;
         View root = holder.itemView;
         try {
@@ -4278,17 +4640,32 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     /** 唱片架项：封面方卡（左）＋黑胶圆盘（右侧滑出）；当前项盘旋转 30°/s，其余静止；点按切歌；
-     * S4 全量：项几何走 ShelfStageGeometry（瓜子舞台公式链，约束维取屏宽 dp：舞台 clamp(宽×0.66,180,300)，
-     * f2 = min(宽×0.5, 舞台-36)，封套 = f2×0.95，圆盘 = 0.97×封套，中心参考 = 宽×0.59，
-     * 非当前缩放 f4 = (f2×0.78)／封套由公式算出）；圆盘以 0.24×封套向右探出；
-     * 封面本体圆角 2dp、阴影 4dp（袖层值）；非当前项按 f4 缩小＋按相对位置位移、无 alpha 压暗（瓜子无压暗）。
-     * 列表改编（见 ShelfStageGeometry 类注释）：c×slot 摊位项由列表布局承担；外 Box 1.48×封套、架板、
-     * 盘心图／点、0.18×封套图标只出系数未渲染；圆盘不设 elevation（防盘盖封面）。 */
+     * 3 槽舞台：适配器只出前／当／后三槽（slotQueueIndex：槽位 0＝上一首、1＝当前、2＝下一首，
+     * 队首／队尾空槽占位不可见），不再铺整条队列；切歌走槽位弹簧插值（scrollShelfToCurrent）。
+     * 项几何走 ShelfStageGeometry（瓜子舞台公式链，约束维取屏宽 dp：舞台 clamp(宽×0.66,180,300)，
+     * f2 = min(宽×0.5, 舞台-36)，封套 = f2×0.95，圆盘 = 0.97×封套，中心参考 c = 宽×0.59，槽距即 c（无钳制），
+     * 非当前缩放 f4 = (f2×0.78)／封套由公式算出）；圆盘以 0.24×封套向右探出（瓜子右探量仅推导 0.48×封套，
+     * 非字面值，星辰 0.24 留着，见交回）；双层圆角：袖层 1.5dp（透明轮廓＋4dp 阴影）＋封面本体 2dp（3dp 阴影）；
+     * 圆盘阴影 5dp 落在盘内阴影层（盘本体不抬 elevation，防盘盖封面）；架板已渲染（宽 1.1×封套、高 6dp、
+     * 偏移 (−0.05×封套, 封套−2dp)，色暂用本主题已有 Ink #FF252522，瓜子色值未定位）；
+     * 当前槽项根宽 1.48×封套、非当前槽根宽封套；非当前项按 f4 缩小＋按相对位置位移、无 alpha 压暗（瓜子无压暗）。
+     * 布局改编（见 ShelfStageGeometry 类注释）：瓜子位移第二项 c×slot 由槽距排布承担，不以 translationX 叠加。 */
     private class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.Holder> {
 
         ShelfStageGeometry shelfGeometry() {
             float w = getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density;
             return ShelfStageGeometry.fromWidthDp(w);
+        }
+
+        /** 槽位→队列号：槽位 0＝上一首、1＝当前、2＝下一首；队首／队尾越界返回 −1（空槽占位）。 */
+        int slotQueueIndex(int slotPos) {
+            try {
+                int idx = MusicController.get().index();
+                if (idx < 0) return -1;
+                return idx + slotPos - 1;
+            } catch (Throwable ignored) {
+                return -1;
+            }
         }
 
         float shelfSleeveDp() {
@@ -4308,19 +4685,39 @@ public class MusicPlayerActivity extends BaseActivity {
             // S2：缩放原点改底部（瓜子槽位变换原点 (0.5, 1)），与槽位缩放一致。
             root.setPivotX(sleeve * d * 0.5f);
             root.setPivotY(sleeve * d);
+            // 架板（瓜子:3270）：宽 1.1×封套、高 6dp、偏移 (−0.05×封套, 封套−2dp)，相对封套左缘定位，
+            // 最先加（在盘与封面之下）；色暂用本主题已有 Ink #FF252522，瓜子色值未定位，见交回。
+            View board = new View(parent.getContext());
+            FrameLayout.LayoutParams boardLp = new FrameLayout.LayoutParams(
+                    (int) (g.boardWidthDp * d), (int) (ShelfStageGeometry.BOARD_HEIGHT_DP * d));
+            boardLp.gravity = Gravity.TOP | Gravity.START;
+            boardLp.leftMargin = Math.round(g.boardOffsetXDp * d);
+            boardLp.topMargin = Math.round(g.boardOffsetYDp * d);
+            board.setLayoutParams(boardLp);
+            board.setBackgroundColor(0xFF252522);
+            root.addView(board);
             // S1：disc 改黑胶盘面绘制——黑底＋纹理环＋中心小封面 0.22×盘＋中心点；
             // 旋转仍转 disc 层（整层 FrameLayout 转，纹理／中心图／中心点同转）。
-            // 圆盘不设 elevation：GZ 盘阴影 5dp 不可用 elevation 搬（会把盘抬到封面之上），
-            // 自绘阴影未落地（盘外圈仅一圈半透明描边近似），见交回。
+            // 圆盘阴影 5dp 落在盘内阴影层（elevation 5dp、透明椭圆轮廓，只出阴影不填色）：
+            // 盘本体不抬 elevation（抬了会把盘抬到封面之上、盖住封面右半），阴影层随盘同位移同旋转，
+            // 旧 1dp 半透明描边近似删掉。
             FrameLayout disc = new FrameLayout(parent.getContext());
             FrameLayout.LayoutParams discLp = new FrameLayout.LayoutParams((int) (discSize * d), (int) (discSize * d));
             discLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
             disc.setLayoutParams(discLp);
             disc.setTranslationX(sleeve * ShelfStageGeometry.PROTRUDE_FACTOR * d);
+            View discShadow = new View(parent.getContext());
+            discShadow.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            android.graphics.drawable.GradientDrawable shadowBg = new android.graphics.drawable.GradientDrawable();
+            shadowBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            shadowBg.setColor(0x00000000);
+            discShadow.setBackground(shadowBg);
+            discShadow.setElevation(ShelfStageGeometry.DISC_SHADOW_DP * d);
+            disc.addView(discShadow);
             android.graphics.drawable.GradientDrawable vinyl = new android.graphics.drawable.GradientDrawable();
             vinyl.setShape(android.graphics.drawable.GradientDrawable.OVAL);
             vinyl.setColor(0xFF0A0A0C);
-            vinyl.setStroke(Math.round(1 * d), 0x33000000);
             disc.setBackground(vinyl);
             disc.setClipChildren(false);
             for (float frac : new float[]{0.88f, 0.72f, 0.56f}) {
@@ -4367,17 +4764,33 @@ public class MusicPlayerActivity extends BaseActivity {
             dotInner.setBackground(dotInBg);
             disc.addView(dotInner);
             root.addView(disc);
+            // 双层圆角：袖层（1.5dp 透明轮廓＋4dp 阴影）包封面本体（2dp 圆角＋3dp 阴影）；
+            // 袖层不填色（不编填充色），只出阴影轮廓；clipChildren 关掉，封面阴影不被袖层裁掉。
+            FrameLayout sleeveWrap = new FrameLayout(parent.getContext());
+            FrameLayout.LayoutParams wrapLp = new FrameLayout.LayoutParams((int) (sleeve * d), (int) (sleeve * d));
+            wrapLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+            sleeveWrap.setLayoutParams(wrapLp);
+            sleeveWrap.setClipChildren(false);
+            android.graphics.drawable.GradientDrawable sleeveBg = new android.graphics.drawable.GradientDrawable();
+            sleeveBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            sleeveBg.setCornerRadius(ShelfStageGeometry.SLEEVE_CORNER_DP * d);
+            sleeveBg.setColor(0x00000000);
+            sleeveWrap.setBackground(sleeveBg);
+            sleeveWrap.setElevation(ShelfStageGeometry.SLEEVE_SHADOW_DP * d);
             ImageView cover = new ImageView(parent.getContext());
-            FrameLayout.LayoutParams coverLp = new FrameLayout.LayoutParams((int) (sleeve * d), (int) (sleeve * d));
-            coverLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
-            cover.setLayoutParams(coverLp);
+            cover.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setElevation(ShelfStageGeometry.SLEEVE_SHADOW_DP * d);
+            cover.setElevation(ShelfStageGeometry.COVER_SHADOW_DP * d);
             setRounded(cover, ShelfStageGeometry.COVER_CORNER_DP);
-            root.addView(cover);
+            sleeveWrap.addView(cover);
+            root.addView(sleeveWrap);
             ImageView fav = new ImageView(parent.getContext());
             FrameLayout.LayoutParams favLp = new FrameLayout.LayoutParams((int) (40 * d), (int) (40 * d));
-            favLp.gravity = Gravity.TOP | Gravity.END;
+            // 收藏键锚在封套右上角（START＋左 margin＝封套−40dp），不随当前槽根宽 1.48×封套右移；
+            // 否则当前槽键会跑到圆盘区上方。
+            favLp.gravity = Gravity.TOP | Gravity.START;
+            favLp.leftMargin = (int) ((sleeve - 40) * d);
             fav.setLayoutParams(favLp);
             fav.setPadding((int) (10 * d), (int) (10 * d), (int) (10 * d), (int) (10 * d));
             fav.setElevation(8 * d);
@@ -4389,9 +4802,24 @@ public class MusicPlayerActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
+            // 3 槽模型：position 是槽位号（0＝上一首、1＝当前、2＝下一首），不是队列号。
+            int queueIndex = slotQueueIndex(position);
             List<MusicTrack> queue = MusicController.get().queue();
-            if (position < 0 || position >= queue.size()) return;
-            MusicTrack track = queue.get(position);
+            if (queueIndex < 0 || queueIndex >= queue.size()) {
+                // 队首／队尾空槽：占位不可见（仍占布局宽，当前槽保持居中），不绑图、不转、不点。
+                h.boundQueueIndex = -1;
+                h.itemView.setVisibility(View.INVISIBLE);
+                h.stopSpin();
+                h.itemView.setOnClickListener(null);
+                if (h.fav != null) {
+                    h.fav.setVisibility(View.GONE);
+                    h.fav.setOnClickListener(null);
+                }
+                return;
+            }
+            h.itemView.setVisibility(View.VISIBLE);
+            h.boundQueueIndex = queueIndex;
+            MusicTrack track = queue.get(queueIndex);
             String title = track.displayTitle();
             if (track.cover == null || track.cover.isEmpty()) {
                 h.cover.setImageDrawable(new CoverTextDrawable(title, false,
@@ -4402,31 +4830,31 @@ public class MusicPlayerActivity extends BaseActivity {
                 ImgUtil.load(title, track.cover, h.cover);
                 ImgUtil.load(title, track.cover, h.discCenter);
             }
-            boolean current = position == MusicController.get().index();
-            // S4：非当前项不再 alpha 压暗（瓜子变换内无 alpha 调用）；缩放取公式算出的 f4＝(f2×0.78)／封套，
-            // 不写死 0.82；位移取公式第一项 (1−v)×封套×0.24×缩放（相邻项 v＝0），c×slot 项由列表布局承担、不叠加。
+            boolean current = queueIndex == MusicController.get().index();
             ShelfStageGeometry g = shelfGeometry();
+            float d = getResources().getDisplayMetrics().density;
             float sleeve = g.sleeveDp;
-            if (current) {
-                h.itemView.setScaleX(1f);
-                h.itemView.setScaleY(1f);
-                h.itemView.setTranslationX(0f);
-                h.itemView.setAlpha(1f);
-            } else {
-                float s = g.nonCurrentScale;
-                h.itemView.setScaleX(s);
-                h.itemView.setScaleY(s);
-                int dir = position < MusicController.get().index() ? -1 : 1;
-                h.itemView.setTranslationX(dir * sleeve * ShelfStageGeometry.PROTRUDE_FACTOR * s * getResources().getDisplayMetrics().density);
-                h.itemView.setAlpha(1f);
+            // 项根宽：当前槽 1.48×封套（瓜子:3240）、非当前槽封套宽；根宽变了才重设（避免逐次 requestLayout）。
+            ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
+            int wPx = Math.round((current ? g.outerWidthDp : sleeve) * d);
+            if (lp.width != wPx) {
+                lp.width = wPx;
+                h.itemView.setLayoutParams(lp);
             }
+            // 圆盘锚在封套上：根宽 1.48×封套时盘若仍按 END＋0.24 探出，盘会右移 0.48×封套；
+            // 当前槽盘位移改 −0.24×封套，使盘左缘恒为封套左缘＋0.27×封套（右探量仍是 0.24×封套，不动）。
+            h.disc.setTranslationX((current ? -1f : 1f) * sleeve * ShelfStageGeometry.PROTRUDE_FACTOR * d);
+            // S4：非当前项不再 alpha 压暗（瓜子变换内无 alpha 调用）；缩放／位移走槽位变换
+            // （缩放＝f4＋(1−f4)×v，位移＝shift×槽距＋首项＋次槽补偿；c×slot 由槽距排布承担、不叠加）。
+            h.itemView.setAlpha(1f);
+            applyShelfSlotTransform(h, position);
             h.stopSpin();
             if (current && playing && animationsEnabled()) h.startSpin();
             // wave2：点当前架项不再从头重播（GZ 点当前槽是收藏，不是重播；星辰架项已有当前项爱心键做收藏，
             // 故点当前项改为无操作，不重复触发收藏，避免一次点按双份动作）。
             h.itemView.setOnClickListener(v -> {
-                if (position == MusicController.get().index()) return;
-                MusicController.get().playAt(position);
+                if (queueIndex == MusicController.get().index()) return;
+                MusicController.get().playAt(queueIndex);
             });
             // S7：架项收藏键只在当前项显示，点按走 revealFavorite（非当前项不露键，避免错指曲目）。
             if (h.fav != null) {
@@ -4450,8 +4878,9 @@ public class MusicPlayerActivity extends BaseActivity {
 
         @Override
         public int getItemCount() {
+            // 3 槽模型：只出前／当／后三槽（空队列 0 项）；队列长度不再决定项数。
             try {
-                return MusicController.get().queue().size();
+                return MusicController.get().queue().isEmpty() ? 0 : 3;
             } catch (Throwable ignored) {
                 return 0;
             }
@@ -4462,6 +4891,8 @@ public class MusicPlayerActivity extends BaseActivity {
             final View disc;
             final ImageView discCenter;
             final ImageView fav;
+            /** 本 holder 当前绑定的队列号（−1＝空槽占位）；自旋刷新按此认当前槽，不按槽位号。 */
+            int boundQueueIndex = -1;
             ObjectAnimator spin;
 
             Holder(View root, ImageView cover, View disc, ImageView discCenter, ImageView fav) {
@@ -4496,15 +4927,35 @@ public class MusicPlayerActivity extends BaseActivity {
         return (AudioManager) getSystemService(AUDIO_SERVICE);
     }
 
-    /** 经典 Scrubber 轨高（redo3 C9）：静止 4dp、拖动 5dp；Apple 6dp 固定、CD 口径未抠到，均不动（封面卡片展开态 Scrubber 与经典同配置，随经典走）。 */
+    /** 经典 Scrubber 轨高（redo3 C9）：静止 4dp、拖动 5dp；Apple 6dp 固定、CD 口径未抠到，均不动（封面卡片展开态 Scrubber 与经典同配置，随经典走）。
+     * 封面卡片展开态另按瓜子 PlaybackScrubber 默认值走 150ms tween（4dp↔5dp），其余主题仍即时切换、不动。 */
     private void setSeekTrackHeight(SeekBar bar, float dp) {
         if (bar == null || THEME_APPLE.equals(themeId) || THEME_CD.equals(themeId)) return;
         int px = Math.round(dp * getResources().getDisplayMetrics().density);
-        bar.setMaxHeight(px);
-        bar.setMinHeight(px);
+        if (!THEME_IMMERSIVE.equals(themeId)) {
+            bar.setMaxHeight(px);
+            bar.setMinHeight(px);
+            return;
+        }
+        if (seekTrackHeightAnim != null) seekTrackHeightAnim.cancel();
+        int from = bar.getMaxHeight();
+        if (from == px) {
+            bar.setMaxHeight(px);
+            bar.setMinHeight(px);
+            return;
+        }
+        seekTrackHeightAnim = ValueAnimator.ofInt(from, px);
+        seekTrackHeightAnim.setDuration(150);
+        seekTrackHeightAnim.setInterpolator(INTERP_FOSI);
+        seekTrackHeightAnim.addUpdateListener(a -> {
+            int h = (int) a.getAnimatedValue();
+            bar.setMaxHeight(h);
+            bar.setMinHeight(h);
+        });
+        seekTrackHeightAnim.start();
     }
 
-    /** 进度拖动态换装：经典系 bg_player_seek_progress ↔ _active（0.42→0.78）；Apple seek6 ↔ _active（0.58→0.9）；CD 深色变体不换 */
+    /** 进度拖动态换装：经典系 bg_player_seek_progress ↔ _active（0.42→0.78）；Apple seek6 ↔ _active（填充 0.58→0.9、底轨 0.14→拖动 0.22）；CD 深色变体不换 */
     private void swapSeekDrawable(SeekBar bar, boolean active) {
         if (bar == null) return;
         try {

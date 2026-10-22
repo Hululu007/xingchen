@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A2：Apple 音量条专属（不与进度条共用 seek6，避免改动进度轨色）：
-     底白 0.14（#24FFFFFF，实测旧 seek6 底为 #47＝0.28，与瓜子 0.14 不符，故另建）；
-     填充白渐变 0.42→0.6（#6B→#99），轨 6dp。 -->
+     底白 0.14（#24FFFFFF）；填充白渐变 0.42→0.6（#6B→#99），轨 6dp。
+     与进度 seek6 分开建：进度填充是纯色 0.58，音量填充是渐变 0.42→0.6，两色不同。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">

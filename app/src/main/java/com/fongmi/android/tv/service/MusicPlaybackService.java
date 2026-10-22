@@ -1783,6 +1783,20 @@ public class MusicPlaybackService extends MediaSessionService {
                     onPlayFailed(track);
                     return;
                 }
+                // 音乐播放器入口同款拦截（视频那路 Exo 1004 的同源问题）：非 http(s)
+                // 直链绝不交给 player.setMediaItem→prepare。放行口径与视频一致再加
+                // 本地音乐：http(s) 在线链、content/file 本地歌（DeviceMusicSource
+                // 给的就是 content:// 与 file://），其余协议（magnet/ed2k 等未转换
+                // 链）走 onPlayFailed 可见失败＋自动跳歌，不进播放器抛 1004。
+                String fScheme = android.net.Uri.parse(fUrl).getScheme();
+                if (!"http".equalsIgnoreCase(fScheme) && !"https".equalsIgnoreCase(fScheme)
+                        && !"content".equalsIgnoreCase(fScheme) && !"file".equalsIgnoreCase(fScheme)) {
+                    SpiderDebug.log("music", "playUrl non-http scheme=%s id=%s", fScheme, track.id);
+                    currentPlayUrl = null;
+                    lastFailReasonRes = autoAdvancing ? R.string.music_fail_next_url : R.string.music_fail_url;
+                    onPlayFailed(track);
+                    return;
+                }
                 MediaItem item = new MediaItem.Builder()
                         .setMediaId(track.id == null ? "" : track.id)
                         .setUri(fUrl)
@@ -2157,7 +2171,8 @@ public class MusicPlaybackService extends MediaSessionService {
         @Override
         public void onPlayerError(@NonNull PlaybackException error) {
             try {
-                SpiderDebug.log("music", "onPlayerError %s", error.getMessage());
+                MusicTrack errTrack = loadedTrack != null ? loadedTrack : queue.current();
+                SpiderDebug.log("music", "onPlayerError code=%d id=%s msg=%s cause=%s", error.getErrorCode(), errTrack != null ? errTrack.id : "null", error.getMessage(), error.getCause());
                 // P1：取链期播放器里还装着旧歌，旧歌此时报错不许算到新歌头上——
                 // 取链在途且当前序号已指新歌时，报错属于旧歌，直接忽略（新歌取链回来
                 // setMediaItem＋prepare 会恢复播放器）；不置 preparing、不顶序号、不进失败计数。

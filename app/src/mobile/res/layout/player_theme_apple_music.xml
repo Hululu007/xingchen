@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Apple Music 主题：背景层即全屏封面糊底（activity 层 ivBgBlur＋fluidAmbient，本文件无主题层背景视图，与默认主题一致）；
      大封面居中上部＋歌名/歌手/专辑行（右侧圆形玻璃爱心 tpBtnFav＋更多钮 tpBtnMenu，GZ Apple 口径）
-     ＋6dp 进度＋96dp 运输键行＋系统音量条＋52dp 功能筹行。不内嵌歌词（GZ Apple 这面不放歌词，歌词走底行歌词键进全屏歌词页）。
+     ＋6dp 进度＋96dp 运输键行＋系统音量条＋52dp 功能筹行。不内嵌歌词（GZ Apple 这面不放歌词，底行歌词键开歌词版本选择面板，不进全屏歌词页）。
      数值照 GZ 参数表 Apple 节。下一首块不在本主题（并行子工正在全 app 拿掉下一首块＋进度条下放，本文件不碰进度线位置）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -34,8 +34,8 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- 歌名 20sp/800/白 0.96 / 歌手 14sp/500/白 0.60（歌名→歌手间距 5dp）/ 歌手行内专辑 12sp/500/白 0.42
-         （用户令：歌手 ♡ 专辑名同一行，偏离 GZ Apple 原第三行专辑行 form；专辑仅非空且≠未知专辑时显；不是来源·实测音质，来源·实测音质行已拿掉）；
+    <!-- 歌名 20sp/800/白 0.96 / 歌手 14sp/500/白 0.60（歌名→歌手间距 5dp）/ 专辑独立第三行 12sp/500/白 0.42
+         （GZ Apple 原第三行专辑行：行高 18dp、12sp、行高 16dp、白 0.42；专辑仅非空且≠未知专辑时显；不是来源·实测音质，来源·实测音质行已拿掉）；
          标题列相对封面下沿上叠 −12dp（layout_marginTop="-12dp"），横向自垫 24dp（根不再垫）；
          右侧圆形玻璃爱心＋更多钮（GZ Apple 口径：盒 34dp、图标 20dp、白 0.85、底面白 0.14、圆形、按压 0.88；
          爱心键前 8dp、爱心与三个点之间 12dp；两键 id 均为 activity 通用接线，
@@ -71,8 +71,7 @@
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
-            <!-- 歌手行：歌手 ♡ 专辑名同一行（用户令，五主题一起；偏离 GZ Apple 原三行 form：原第三行专辑行并入歌手行），
-                 歌手点进歌手搜索、专辑点进专辑搜索；分隔心跟专辑同显同藏；右侧玻璃爱心仍是收藏键 -->
+            <!-- 歌手行：歌手单行，点进歌手搜索；右侧玻璃爱心仍是收藏键 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="22dp"
@@ -82,9 +81,8 @@
 
                 <TextView
                     android:id="@+id/tpArtist"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:ellipsize="end"
                     android:fontWeight="500"
                     android:gravity="center_vertical"
@@ -93,17 +91,15 @@
                     android:maxLines="1"
                     android:textColor="#99FFFFFF"
                     android:textSize="14sp" />
+            </LinearLayout>
 
-                <ImageView
-                    android:id="@+id/tpAlbumSep"
-                    android:layout_width="27dp"
-                    android:layout_height="13dp"
-                    android:paddingLeft="7dp"
-                    android:paddingRight="7dp"
-                    android:paddingTop="0dp"
-                    android:paddingBottom="0dp"
-                    android:src="@drawable/ic_music_heart"
-                    android:tint="#FFFFFF" />
+            <!-- 专辑独立第三行（GZ Apple：行高 18dp、12sp、行高 16dp、白 0.42；空或“未知专辑”时隐藏，
+                 显隐由 activity bindTrackViews 按 Apple 口径控制；歌手→专辑间距对差表未给值，此处不另加间距） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="18dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
                 <TextView
                     android:id="@+id/tpAlbum"
@@ -149,7 +145,7 @@
         android:id="@+id/tpSeek"
         android:layout_width="match_parent"
         android:layout_height="28dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="8dp"
         android:maxHeight="6dp"
         android:minHeight="6dp"
         android:paddingStart="24dp"
@@ -185,9 +181,9 @@
             android:layout_marginEnd="24dp"
             android:contentDescription="@string/pl_play_pause"
             android:paddingStart="12dp"
-            android:paddingTop="16dp"
+            android:paddingTop="15.75dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="16dp"
+            android:paddingBottom="15.75dp"
             android:src="@drawable/ic_music_pause"
             android:tint="#FFFFFF" />
 
@@ -207,7 +203,7 @@
     <!-- A2：系统音量行（STREAM_MUSIC；横向 24dp，行自垫；控制行后间隔 6dp）：
          瓜子 AppleMusicVolumeSlider 本体只有滑杆一行、无两端图标盒——旧两端 32dp 图标盒已删；
          音量条走专属轨色（底白 0.14、填充渐变 0.42→0.6，见 bg_player_volume_progress），
-         不与进度条共用 seek6（旧 seek6 底 #47＝0.28、填充纯色 0.58，与瓜子音量轨色不符）；
+         不与进度条共用 seek6（进度填充纯色 0.58，与瓜子音量渐变轨色不符）；
          接线不变：tpVolume 仍走 wireVolume 系统音量。 -->
     <LinearLayout
         android:layout_width="match_parent"

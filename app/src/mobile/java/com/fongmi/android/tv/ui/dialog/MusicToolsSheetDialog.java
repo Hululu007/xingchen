@@ -1088,7 +1088,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         for (int i = 0; i < THEME_IDS.length; i++) {
             final String id = THEME_IDS[i];
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(112), ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (i > 0) lp.setMarginStart(dp(10));
+            if (i > 0) lp.setMarginStart(dp(12));
             row.addView(themeCard(id, THEME_NAMES[i], THEME_COLORS[i], id.equals(cur), v -> {
                 MusicStore.setPlayerTheme(id);
                 if (listener != null) listener.onThemeChanged();
@@ -1126,7 +1126,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_CARD);
         bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), COLOR_BORDER);
+        bg.setStroke(dp(2), COLOR_BORDER);
         if (selected) bg.setStroke(dp(2), COLOR_RED);
         card.setBackground(bg);
         View block = new View(getContext());
@@ -1147,7 +1147,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
         card.setContentDescription(getString(nameRes));
         card.setOnClickListener(click);
-        attachPress(card, 0.96f);
+        attachPress(card, 0.97f);
         if (selected) {
             android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofObject(
                     new android.animation.ArgbEvaluator(), 0xFFFFFFFF, 0xFFF8E1E3);

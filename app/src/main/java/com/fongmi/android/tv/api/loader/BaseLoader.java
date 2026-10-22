@@ -131,10 +131,73 @@ public class BaseLoader {
     }
 
     public Object[] proxy(Map<String, String> params) throws Exception {
-        if (params.containsKey("siteKey")) return getSpider(params.get("siteKey")).proxy(params);
-        if ("js".equals(params.get("do"))) return jsLoader.proxy(params);
-        if ("py".equals(params.get("do"))) return pyLoader.proxy(params);
-        return jarLoader.proxy(params);
+        // 代理 seam（本地 NanoHTTPD 唯一入口 server/process/Proxy.java:41）：
+        // ① 存活判定：siteKey 路先解析蜘蛛——解析出来是 SpiderNull（源已删／无此源）
+        // 就是已死的代理，直接返回 null，不许死蜘蛛进代理；do=py/do=js 路由 recent，
+        // recent 已清／蜘蛛已摘时 loader 本身返回 null，同样不进代理。
+        // ② 已关闭对象／空列表转换失败：删源／重载／世代切换后仍在途的代理请求可能
+        // 撞上刚被 destroy() 的蜘蛛——依赖库内 Spider.proxy 读已关闭的 PyObject
+        // （PyObject is closed）或对 null 返回做 asList() 抛 NPE，seam 拦不住库内那
+        // 一行，但能拦住它抛出来的结果：这两种一律按“代理上游已死”处理，返回 null，
+        // 由 Proxy 转 502 可见错，不许以 500／崩溃／静默空结果收场；其它异常（网络、
+        // 上游 4xx/5xx 等）原样上抛，保持原有错误口径。
+        // ③ 逐字段判空：蜘蛛返回的 Object[] 只有到这里才看得见，逐下标归一——
+        // [0] 状态码非 Integer、[2] 数据流非 InputStream、长度不足 3，一律按无效
+        // 返回 null（Proxy 转 502）；[1] mime 为空、[3] 请求头不是 Map／为空，按空
+        // 处理不抛（mime 透传 null、请求头透传 null，Proxy.createResponse 同样容忍）。
+        // 注意：py 返回列表本身为 null 时库内 asList() 已抛 NPE，seam 看不到“空列
+        // 表”，只能按②转 502——这是 seam 的边界，见交回卡点。
+        Object[] rs;
+        try {
+            if (params.containsKey("siteKey")) {
+                Spider spider = getSpider(params.get("siteKey"));
+                if (spider instanceof SpiderNull) {
+                    SpiderDebug.log("proxy", "dead spider siteKey=%s: source removed or unknown, skip proxy", params.get("siteKey"));
+                    return null;
+                }
+                rs = spider.proxy(params);
+            } else if ("js".equals(params.get("do"))) {
+                rs = jsLoader.proxy(params);
+            } else if ("py".equals(params.get("do"))) {
+                rs = pyLoader.proxy(params);
+            } else {
+                rs = jarLoader.proxy(params);
+            }
+        } catch (NullPointerException e) {
+            SpiderDebug.log("proxy", "proxy result null conversion do=%s siteKey=%s: %s", params.get("do"), params.get("siteKey"), e);
+            return null;
+        } catch (Exception e) {
+            // 已关闭对象报错走 Exception 族（IllegalStateException／PyException），
+            // 这里只接 Exception：Error 不拦、不转 502，原样上抛。
+            if (isClosedObject(e)) {
+                SpiderDebug.log("proxy", "proxy spider closed do=%s siteKey=%s: %s", params.get("do"), params.get("siteKey"), e);
+                return null;
+            }
+            throw e;
+        }
+        return normalizeProxyResult(rs);
+    }
+
+    /** 原因链里出现“已关闭对象”特征：Chaquopy 已关闭 PyObject 的访问报错。 */
+    private static boolean isClosedObject(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.toLowerCase(java.util.Locale.ROOT).contains("is closed")) return true;
+        }
+        return false;
+    }
+
+    /** 逐字段归一：Response 直通原样返回；其余按 [状态码, mime, 数据流, 请求头] 归一。 */
+    private static Object[] normalizeProxyResult(Object[] rs) {
+        if (rs == null || rs.length == 0) return null;
+        if (rs[0] instanceof fi.iki.elonen.NanoHTTPD.Response) return rs;
+        if (rs.length < 3 || !(rs[0] instanceof Integer) || !(rs[2] instanceof java.io.InputStream)) return null;
+        Object[] out = new Object[4];
+        out[0] = rs[0];
+        out[1] = rs[1] == null ? null : rs[1].toString();
+        out[2] = rs[2];
+        out[3] = rs.length > 3 && rs[3] instanceof Map ? rs[3] : null;
+        return out;
     }
 
     public void parseJar(String jar, boolean recent) {

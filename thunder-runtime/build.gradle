@@ -17,8 +17,10 @@ plugins {
 // runtime.json 的摘要与大小由脚本 scripts/check_thunder_runtime_json.py
 // 对 thunder/src/main/jniLibs 的 .so 实测重算，.so 换了必须重算重写，
 // 否则宿主验包时 verifyPayloads 摘要对不上。
-// .so 在 APK 里默认不压缩存放（verifyPayloads 要求 lib/*.so 必须 STORED），
-// 不要给这个模块加压缩 jniLibs 的配置。
+// .so 必须以 STORED（不压缩）留在 APK 里（RuntimeModule 的 "!/lib/<abi>/*.so"
+// 直载与 verifyPayloads 都要求 STORED）：靠下面 packaging.jniLibs.useLegacyPackaging
+// 保证；清单里显式写 extractNativeLibs 会被打包任务拒绝，不要往清单加。
+// 也不要给这个模块加任何压缩 jniLibs 的配置。
 // 打包路：buildSrc 的 PrepareRuntimeTask（上游原文）+ AbiApkPackaging
 // 是生成／校验这份 runtime.json 的工具；当前 flavor 资产就是按它
 // writeRuntimeMetadata 的字段口径生成的，见脚本。
@@ -83,7 +85,12 @@ android {
         targetCompatibility JavaVersion.VERSION_21
     }
 
-    packaging.jniLibs.keepDebugSymbols.add('**/*.so')
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols.add('**/*.so')
+        }
+    }
 }
 
 dependencies {

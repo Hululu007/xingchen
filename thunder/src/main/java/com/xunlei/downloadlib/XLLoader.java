@@ -22,7 +22,8 @@ class XLLoader {
     public XLLoader() {
         try {
             RuntimeModule.THUNDER.load(path -> System.load(path));
-        } catch (RuntimeException | LinkageError | ExceptionInInitializerError e) {
+        } catch (RuntimeException | LinkageError e) {
+            // ExceptionInInitializerError 是 LinkageError 子类，多重 catch 不能并列，已由 LinkageError 覆盖。
             System.loadLibrary("xl_stat");
             System.loadLibrary("xl_thunder_sdk");
         }

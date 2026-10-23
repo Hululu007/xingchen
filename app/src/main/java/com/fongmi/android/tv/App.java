@@ -125,7 +125,11 @@ public class App extends Application implements Application.ActivityLifecycleCal
             com.fongmi.android.tv.api.loader.BaseLoader.get()
                     .watchJsPlugins(new java.io.File(getFilesDir(), "plugins/js"));
         } catch (Throwable ignored) {}
-        post(this::startBackgroundServices, 1200);
+        // 后台服务全家只许主进程起：崩溃页进程（:error_activity）此前无守卫，
+        // 会在崩溃页进程里再起一整套（本地服务/RemoteAgent/节点内核/Python 预热），
+        // 主进程崩后残留占位，重新拉起时播放全线对着残留状态假死、须强退才恢复。
+        // 恢复页进程已有 isRecoveryProcess 守卫，这里按主进程一刀切补齐。
+        if (PlaybackRecoveryMonitor.isMainProcess(this)) post(this::startBackgroundServices, 1200);
     }
 
     @Override
@@ -141,6 +145,8 @@ public class App extends Application implements Application.ActivityLifecycleCal
     }
 
     private void startBackgroundServices() {
+        // 双保险：投递点已按主进程守卫，这里再挡一次，非主进程绝不起后台全家。
+        if (!PlaybackRecoveryMonitor.isMainProcess(this)) return;
         SpiderDebug.log("startup", "background services start cost=%sms", System.currentTimeMillis() - time);
         Server.get().start();
         PlaybackRemoteSyncer.start();

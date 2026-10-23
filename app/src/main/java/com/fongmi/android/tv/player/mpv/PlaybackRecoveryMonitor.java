@@ -31,6 +31,7 @@ import java.util.UUID;
 /** Called only from mpv's watchdog thread. No JNI, player locks or UI-thread I/O. */
 public final class PlaybackRecoveryMonitor {
     public static final String PROCESS_SUFFIX = ":playback_recovery";
+    public static final String ERROR_PROCESS_SUFFIX = ":error_activity";
     public static final String EXTRA_TOKEN = "recovery_token";
     private static final int FILE_VERSION = 1;
     private final Context context;
@@ -48,12 +49,32 @@ public final class PlaybackRecoveryMonitor {
         return context.getApplicationInfo().processName;
     }
 
-    public static boolean isRecoveryProcess(Context context) {
+    private static String currentProcessName() {
         String name = Build.VERSION.SDK_INT >= 28 ? Application.getProcessName()
                 : readSmallFile("/proc/self/cmdline");
         int nul = name == null ? -1 : name.indexOf('\0');
         if (nul >= 0) name = name.substring(0, nul);
-        return (mainProcessName(context) + PROCESS_SUFFIX).equals(name);
+        return name;
+    }
+
+    public static boolean isRecoveryProcess(Context context) {
+        return (mainProcessName(context) + PROCESS_SUFFIX).equals(currentProcessName());
+    }
+
+    public static boolean isErrorProcess(Context context) {
+        return (mainProcessName(context) + ERROR_PROCESS_SUFFIX).equals(currentProcessName());
+    }
+
+    /**
+     * 主进程判定：后台服务全家（本地服务、RemoteAgent、节点内核、Python 预热等）
+     * 只许主进程起。崩溃页进程（:error_activity）与恢复页进程若照单全收，主进程
+     * 崩后会留下一个占着本地服务首选端口、对外冒充主进程的残留进程：重新拉起的
+     * 主进程里，内容侧钉死在旧端口/旧路由上的播放地址会打到残留进程的空壳服务
+     * 上，表现为全线「加载中、0 KB/s」假死，只有强退把残留进程一并杀掉才恢复。
+     * 守卫按「非主进程」一刀切，不逐个进程名单打补丁。
+     */
+    public static boolean isMainProcess(Context context) {
+        return mainProcessName(context).equals(currentProcessName());
     }
 
     public void onStall(long heartbeatPostedMs, long nowMs, String trace) {

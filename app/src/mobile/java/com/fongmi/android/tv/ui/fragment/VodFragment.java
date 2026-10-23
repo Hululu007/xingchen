@@ -561,6 +561,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
                 break;
             case CATEGORY:
                 if (mWeb != null && mWeb.isVisible()) return;
+                if (mBinding.pager.getAdapter() == null || mBinding.pager.getAdapter().getCount() == 0) return;
                 getFragment().onRefresh();
                 break;
         }

@@ -28,6 +28,7 @@ import com.fongmi.android.tv.databinding.ActivityVideoBinding;
 import com.fongmi.android.tv.databinding.DialogControlBinding;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.lut.LutPreset;
+import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.ParseAdapter;
@@ -279,7 +280,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.episodeColumn1.setSelected(column == 1);
         binding.episodeColumn2.setSelected(column == 2);
         binding.compactEpisodeTitle.setSelected(Setting.isCompactEpisodeTitle());
-        boolean visible = parent.control.action.episodes.getVisibility() == View.VISIBLE;
+        // 读源头可用性（集数≥2＋用户按钮设置），不镜像竖屏行裁定压过的选集按钮显隐
+        boolean visible = PlayerButtonSetting.isVisible(PlayerButtonSetting.EPISODES) && isMultiEpisode();
         binding.episodeColumnText.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.episodeColumnRow.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
@@ -323,7 +325,11 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setLut();
         setEpisodeColumn();
         binding.decode.setVisibility(parent.control.action.decode.getVisibility());
-        binding.danmaku.setVisibility(parent.control.action.danmakuText.getVisibility());
+        // 弹幕行读源头可用性（有弹幕源＋用户按钮设置），不镜像竖屏行裁定压过的弹幕按钮显隐
+        binding.danmaku.setVisibility(PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) && player.haveDanmaku() ? View.VISIBLE : View.GONE);
+        // 片头/片尾镜像主行裁定：主行已按集数判定（单片藏），这里跟着藏，不另造口径
+        binding.opening.setVisibility(parent.control.action.openingItem.getVisibility());
+        binding.ending.setVisibility(parent.control.action.endingItem.getVisibility());
         setImmersiveAudioVisible();
         setTrackVisible();
     }
@@ -350,12 +356,18 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public void setTrackVisible() {
-        binding.text.setVisibility(parent.control.action.text.getVisibility());
+        // 字幕行读源头可用性（有字幕轨或点播＋用户按钮设置），不镜像竖屏行裁定压过的字幕按钮显隐
+        binding.text.setVisibility(PlayerButtonSetting.isVisible(PlayerButtonSetting.TEXT) && (player.haveTrack(C.TRACK_TYPE_TEXT) || player.isVod()) ? View.VISIBLE : View.GONE);
         binding.audio.setVisibility(player.haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
         binding.video.setVisibility(player.haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         boolean visible = binding.text.getVisibility() != View.GONE || binding.audio.getVisibility() != View.GONE || binding.video.getVisibility() != View.GONE || binding.title.getVisibility() != View.GONE || binding.danmaku.getVisibility() != View.GONE;
         binding.trackText.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.trackRow.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isMultiEpisode() {
+        FragmentActivity activity = getActivity();
+        return activity instanceof Listener listener && listener.isControlMultiEpisode();
     }
 
     private void setImmersiveAudioVisible() {
@@ -456,6 +468,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         boolean isControlParseEnabled();
 
         boolean isControlAudioContent();
+
+        boolean isControlMultiEpisode();
 
         void onScale(int tag);
 

@@ -316,10 +316,10 @@ public class Source {
     }
 
     // 上游同款：stop() 只转发给各 Extractor.stop()，本文件不删任务、不 release。
-    // 磁力语义由 Thunder.stop() 决定：有 taskId 就删任务——等待中未交地址的任务
-    // 照样删（见 Thunder.stop()，只删任务、不 release、不按地址判断）；被顶掉的
-    // 旧路在 wait／直建分支里因 taskId != task 抛可见错。本方法不另加任何拦截
-    // 或跳过，否则就偏离上游原文。synchronized 照上游原文补上。
+    // 磁力语义由 Thunder.stop() 决定（见 Thunder.stop()）：同链接任务还活着
+    // 且已交过地址时不杀（基线防护，防并发解析绞杀在用任务），其余情形只删
+    // 任务、不 release；被顶掉的旧路在 wait／直建分支里因 taskId != task 抛
+    // 可见错。本方法不另加任何拦截或跳过。synchronized 照上游原文补上。
     public synchronized void stop() {
         if (extractors == null) return;
         extractors.forEach(Extractor::stop);

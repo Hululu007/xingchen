@@ -1159,6 +1159,7 @@ public class HkPageActivity extends BaseActivity {
      * UI 线程调用。
      */
     private void showImportGroupPicker(String titleText, OnImportGroupPicked cb) {
+        if (isFinishing() || isDestroyed()) return;
         List<String> values = new ArrayList<>();
         values.add(""); // 全部（默认）
         for (String g : STD_GROUPS) if (!values.contains(g)) values.add(g);
@@ -1538,6 +1539,7 @@ public class HkPageActivity extends BaseActivity {
 
     /** 带密码分享的补问框：输了密码带着重试。 */
     private void showImportPasswordDialog(String code) {
+        if (isFinishing() || isDestroyed()) return;
         EditText et = new EditText(this);
         et.setHint("输入分享人给的密码");
         et.setSingleLine(true);
@@ -1860,6 +1862,7 @@ public class HkPageActivity extends BaseActivity {
      * @param picked 选中的勾选项（UI 线程调用）
      */
     private void importPickedRules(List<PickEntry> picked) {
+        if (isFinishing() || isDestroyed()) return;
         if (picked.isEmpty()) {
             Notify.show("未选中任何规则");
             return;
@@ -2169,6 +2172,7 @@ public class HkPageActivity extends BaseActivity {
      * @param entries 解析好的全部勾选项
      */
     private void showPickRulesDialog(List<PickEntry> entries) {
+        if (isFinishing() || isDestroyed()) return;
         float density = getResources().getDisplayMetrics().density;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2279,6 +2283,7 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void showExportCodeDialog(String title, String code) {
+        if (isFinishing() || isDestroyed()) return;
         String full = code + "\n\n小程序：" + title;
         TextView tv = new TextView(this);
         tv.setText(full);

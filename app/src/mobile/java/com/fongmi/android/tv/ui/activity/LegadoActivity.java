@@ -493,6 +493,7 @@ public class LegadoActivity extends Activity {
      * 英文原文/堆栈一律打日志，不上屏。
      */
     private void failDialog(String title, String body, Throwable t) {
+        if (isFinishing() || isDestroyed()) return;
         android.util.Log.e("Legado", title + " raw=" + t, t);
         new ReadDialogs(this).setTitle(title).setMessage(body)
                 .setPositiveButton("知道了", null).show();

@@ -42,6 +42,7 @@ import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.exo.ExoOutputModeManager;
 import com.fongmi.android.tv.player.exo.ExoOutputModePolicy;
 import com.fongmi.android.tv.player.exo.ExoUtil;
+import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.player.exo.ass.ExoAssSession;
@@ -65,6 +66,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private boolean audioOnly;
     private boolean redirect;
     private boolean playbackExiting;
+    private boolean resumeOnReturn;
+    private String resumeOnReturnUrl;
     private boolean nativeOutputPending;
     private boolean bound;
     private boolean stop;
@@ -917,6 +920,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service connected %s", lifecycleState());
         onServiceConnected();
+        tryResumeOnReturn();
+        // 崩后恢复链探活：本地服务没在跑时在播放入口补拉一次。启动那一拍若被
+        // 崩后残留进程占位打断，Server 侧只有限次重试兜底；这里是第二个自愈点，
+        // 免得重进后播放全线对着死掉的本地服务静默假死。在跑时仅一次判空空转。
+        if (!Server.get().isRunning()) Server.get().start();
     }
 
     @Override
@@ -942,6 +950,32 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             detachSurface();
             onReclaim();
         }
+        tryResumeOnReturn();
+    }
+
+    /**
+     * 回前台续播：只认 onStop 在「后台播放关闭」暂停前记下的标记。回来时内容已换
+     * （地址对不上）、已不是本页在播、或状态已不在可播区间都不动；用户在后台期间
+     * 已从通知栏等处按了播放（playWhenReady 已为真）时也不重复触发。
+     * 服务还没绑回来时不消费标记，等 onServiceConnected 再试。
+     */
+    private void tryResumeOnReturn() {
+        if (!resumeOnReturn || mService == null) return;
+        String url = resumeOnReturnUrl;
+        resumeOnReturn = false;
+        resumeOnReturnUrl = null;
+        try {
+            if (isFinishing() || !isOwner() || player() == null) return;
+            Player target = mController != null ? mController : player().getPlayer();
+            if (target == null || target.getPlayWhenReady()) return;
+            int state = target.getPlaybackState();
+            if (state != Player.STATE_READY && state != Player.STATE_BUFFERING) return;
+            if (url == null || !url.equals(player().getUrl())) return;
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "resume on return after background pause %s", lifecycleState());
+            if (mController != null) mController.play();
+            else player().play();
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -960,10 +994,23 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         restoreExoOutputMode();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
+        // 先清上次的回前台续播标记，下面的暂停若符合条件再重新置位，
+        // 保证标记只描述「最近这一次切后台」。
+        resumeOnReturn = false;
+        resumeOnReturnUrl = null;
         if (isOwner() && !isAudioOnly() && PlayerSetting.isBackgroundOff()) {
             // 后台播放关闭时切后台必须暂停：mController 可能尚未连接（null），此时直接停 player，
             // 否则开关关了关 App 仍有声音。
             try {
+                // 暂停前先看清：只有「正在播（playWhenReady 为真且状态在可播区间）」被这次
+                // 切后台暂停的，才记回前台续播标记并存下当前地址；用户在切后台前已手动
+                // 暂停或已播完的不记，切回来不许擅自播。正在结束页面的也不记。
+                Player target = mController != null ? mController : mService != null && player() != null ? player().getPlayer() : null;
+                if (target != null && !isFinishing() && target.getPlayWhenReady()
+                        && (target.getPlaybackState() == Player.STATE_READY || target.getPlaybackState() == Player.STATE_BUFFERING)) {
+                    resumeOnReturn = true;
+                    resumeOnReturnUrl = player() != null ? player().getUrl() : null;
+                }
                 if (mController != null) mController.pause();
                 else if (mService != null) player().pause();
             } catch (Throwable ignored) {

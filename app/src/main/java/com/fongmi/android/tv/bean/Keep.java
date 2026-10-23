@@ -165,7 +165,8 @@ public class Keep implements Diffable<Keep> {
     }
 
     public String getVodId() {
-        return getKey().split(AppDatabase.SYMBOL)[1];
+        String[] parts = Objects.toString(getKey(), "").split(AppDatabase.SYMBOL);
+        return parts.length > 1 ? parts[1] : "";
     }
 
     public void save(int cid) {

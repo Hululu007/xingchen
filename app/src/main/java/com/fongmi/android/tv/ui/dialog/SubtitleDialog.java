@@ -65,8 +65,12 @@ public final class SubtitleDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        if (!isFull()) return;
         int count = binding.getRoot().getChildCount();
-        if (isFull()) for (int i = 0; i < count; i++) ((ImageView) binding.getRoot().getChildAt(i)).getDrawable().setTint(MDColor.WHITE);
+        for (int i = 0; i < count; i++) {
+            View child = binding.getRoot().getChildAt(i);
+            if (child instanceof ImageView imageView && imageView.getDrawable() != null) imageView.getDrawable().setTint(MDColor.WHITE);
+        }
     }
 
     @Override

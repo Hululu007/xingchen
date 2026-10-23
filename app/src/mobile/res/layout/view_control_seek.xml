@@ -24,7 +24,7 @@
         android:layout_marginEnd="8dp"
         android:layout_weight="1"
         app:bar_height="3dp"
-        app:buffered_color="#6EFFFFFF"
+        app:buffered_color="#FFFFFFFF"
         app:played_color="@color/player_gold"
         app:scrubber_color="@color/player_gold"
         app:unplayed_color="#4DFFFFFF" />

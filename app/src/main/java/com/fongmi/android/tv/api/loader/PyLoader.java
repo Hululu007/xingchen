@@ -283,6 +283,11 @@ public class PyLoader {
         } catch (Throwable t) {
             SpiderDebug.log("pyloader", "create failed key=%s spiderCost=%dms initCost=%dms error=%s", key, spiderCost, System.currentTimeMillis() - initStart, t);
             t.printStackTrace();
+            // init 失败也要确定性销毁：蜘蛛已造出、既不入缓存也不能掉给 finalize（1.4.1 同款崩法）。
+            try {
+                spider.destroy();
+            } catch (Throwable ignored) {
+            }
             throw new SpiderLoadFailed(t);
         }
     }

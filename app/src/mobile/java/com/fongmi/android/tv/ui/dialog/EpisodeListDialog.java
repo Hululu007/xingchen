@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Dialog;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
@@ -96,16 +97,28 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         overlay.setBackgroundColor(Color.TRANSPARENT);
         overlay.setOnClickListener(view -> dismiss());
         binding.getRoot().setClickable(true);
-        FrameLayout.LayoutParams params;
-        // 竖屏一律底部半屏抽屉：原来的右侧整高面板在手机竖屏下宽 360dp、占屏九成，
-        // 直接盖住播放画面（竖屏视频点选集时整块白面板糊住视频）。横屏才用右侧面板。
-        if (shortDrama || !ResUtil.isLand(requireContext())) {
-            params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.getScreenHeight(requireContext()) / 2, Gravity.BOTTOM);
-        } else {
-            params = new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
-        }
-        overlay.addView(binding.getRoot(), params);
+        overlay.addView(binding.getRoot(), getPanelParams());
         return overlay;
+    }
+
+    // 面板形态只认实际方向：竖屏底部半屏抽屉（右侧整高面板在手机竖屏下宽 360dp、占屏九成，
+    // 会直接盖住播放画面），横屏右侧整高面板。短剧标记只影响分组行去留（内容差异），
+    // 不许再参与形态判定——否则竖屏短剧转横屏会把底部抽屉带进横屏（1.4.12 真机实证）。
+    private FrameLayout.LayoutParams getPanelParams() {
+        if (!ResUtil.isLand(requireContext())) {
+            return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.getScreenHeight(requireContext()) / 2, Gravity.BOTTOM);
+        }
+        return new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (binding == null) return;
+        // 弹窗开着时旋转：宿主以 configChanges 自行处理方向、不重建，形态参数不会自动重算，
+        // 必须按新方向当场重套，否则先开窗再旋转同样会把旧方向的形态留住。
+        if (binding.getRoot().getParent() instanceof FrameLayout) binding.getRoot().setLayoutParams(getPanelParams());
+        if (episodeAdapter != null) updateEpisodeSpan(episodeAdapter.getItems());
     }
 
     @Override
@@ -207,9 +220,15 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         for (Episode item : episodes) maxLen = Math.max(maxLen, item.getDisplayName().length());
         if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
         int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
-        int available = Math.max(ResUtil.dp2px(240), getWidth() - ResUtil.dp2px(28));
+        int available = Math.max(ResUtil.dp2px(240), getPanelContentWidth() - ResUtil.dp2px(28));
         int span = available / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(4, span));
+    }
+
+    // 列数按当前形态的真实面板宽算：横屏右侧面板宽走 getWidth() 口径，
+    // 竖屏底部抽屉是整屏宽——此前一律拿横屏面板宽算，竖屏（尤其宽屏/折叠屏）会少数列。
+    private int getPanelContentWidth() {
+        return ResUtil.isLand(requireContext()) ? getWidth() : ResUtil.getScreenWidth(requireContext());
     }
 
     private int getSelectedEpisodePosition(List<Episode> episodes) {

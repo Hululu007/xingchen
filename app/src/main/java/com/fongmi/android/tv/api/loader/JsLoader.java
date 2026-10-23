@@ -142,8 +142,9 @@ public class JsLoader {
     public Spider getSpider(String key, String api, String ext, String jar) {
         try {
             return spiders.computeIfAbsent(key, k -> {
+                Spider spider = null;
                 try {
-                    Spider spider = loader.spider(api, BaseLoader.get().dex(jar));
+                    spider = loader.spider(api, BaseLoader.get().dex(jar));
                     spider.siteKey = key;
                     spider.init(App.get(), ext);
                     recordPath(key, api);
@@ -152,6 +153,13 @@ public class JsLoader {
                     SpiderDebug.log("JsLoader", "JS spider init failed: key=%s api=%s", key, api);
                     SpiderDebug.log("JsLoader", e);
                     e.printStackTrace();
+                    // init 失败也要确定性销毁（destroy 内部走 releaseJS），别把 QuickJS 上下文留给 GC。
+                    if (spider != null) {
+                        try {
+                            spider.destroy();
+                        } catch (Throwable ignored) {
+                        }
+                    }
                     throw new SpiderLoadFailed(e);
                 }
             });

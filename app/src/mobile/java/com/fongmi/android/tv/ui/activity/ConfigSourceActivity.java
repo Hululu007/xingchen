@@ -116,6 +116,7 @@ public class ConfigSourceActivity extends BaseActivity {
                     @Override
                     public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
                         int pos = vh.getAdapterPosition();
+                        if (pos == RecyclerView.NO_POSITION) return;
                         com.fongmi.android.tv.bean.Config c = historyAdapter.getItem(pos);
                         com.fongmi.android.tv.db.AppDatabase.get().getConfigDao().delete(c.getUrl(), 0);
                         historyAdapter.remove(pos);

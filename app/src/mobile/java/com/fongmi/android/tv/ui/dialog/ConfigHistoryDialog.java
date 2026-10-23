@@ -112,6 +112,7 @@ public class ConfigHistoryDialog extends DialogFragment {
             @Override
             public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
                 int pos = vh.getAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION) return;
                 Config config = adapter.getItem(pos);
                 boolean wasCurrent = isCurrentVodConfig(config);
                 AppDatabase.get().getConfigDao().delete(config.getUrl(), type);

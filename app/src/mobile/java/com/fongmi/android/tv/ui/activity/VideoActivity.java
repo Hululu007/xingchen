@@ -27,7 +27,6 @@ import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
-import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -378,13 +377,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private FlagAdapter mFlagAdapter;
     private PlayerOsdController mOsd;
     private CustomKeyDown mKeyDown;
-    // 切集盖图层：盖在视频面上（控件/进度层之下），切集装载期盖住黑屏，首帧到达才撤
+    // 短剧滑动预览层：盖在视频面上（控件/进度层之下），只在跟手滑动期间露相邻集封面；切集成立即撤，不参与切集装载期
     private ViewGroup mSwitchCover;
     private ImageView mSwitchCoverImage;
     private TextView mSwitchCoverLabel;
-    private Bitmap mSwitchCoverBitmap;
-    private Bitmap mPendingCoverFrame;
-    private boolean mSwitchCoverHold;
     private int mSwitchCoverDir;
     private List<String> mBroken;
     private History mHistory;
@@ -780,6 +776,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return mBinding.getRoot().getTag().equals("port");
     }
 
+    // 实际方向：旋转不重建时布局 tag 不变，凡按「当前屏幕方向」选控件套/排布的地方用这个，别用 isLand()/isPort() 的布局身份
+    private boolean isActualLand() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
     @Override
     protected ViewBinding getBinding() {
         return mBinding = ActivityVideoBinding.inflate(getLayoutInflater());
@@ -811,7 +812,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 平板布局无 topProgress id：只判 mBinding 不够，字段本身也要判空（与 getTopProgressView 同口径）
         TopProgressView topProgress = getTopProgressView();
         if (topProgress == null) return;
-        boolean controlsVisible = mBinding.control.getRoot().getVisibility() == View.VISIBLE;
+        View controlRoot = mBinding.control.getRoot();
+        // 淡出途中算未显示：控制栏是淡出后才 GONE（XcFadeTransition），若只看 visibility，
+        // hideControl 调用本方法时栏还 VISIBLE、淡出结束又无人重判，顶部条会被永久压住
+        boolean controlsVisible = controlRoot.getVisibility() == View.VISIBLE && !XcFadeTransition.isFadingOut(controlRoot);
         boolean hasDuration = service() != null && !player().isEmpty() && player().isVod();
         topProgress.setVisibility(TopProgressRule.shouldShow(isFullscreen(), controlsVisible, hasDuration) ? View.VISIBLE : View.GONE);
     }
@@ -1327,7 +1331,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mCustomRightButtonRow.removeAllViews();
         mCustomPortraitButtonRow.removeAllViews();
         List<MpvConfigStore.CustomButton> buttons = MpvConfigStore.customButtons();
-        boolean landscape = isLand();
+        boolean landscape = isActualLand();
         for (int index = 0; index < buttons.size(); index++) {
             MpvConfigStore.CustomButton button = buttons.get(index);
             if (!button.isButtonVisible()) continue;
@@ -1429,7 +1433,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void updateCustomButtonLayout() {
         if (mCustomLeftButtons == null || mBinding.video.getWidth() <= 0) return;
-        boolean landscape = isLand();
+        boolean landscape = isActualLand();
         if (!landscape) return;
 
         int margin = ResUtil.dp2px(8);
@@ -1449,15 +1453,37 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void updateCustomButtonVisibility() {
         updateCustomButtonStates();
         boolean visible = service() != null && player().isMpv() && isVisible(mBinding.control.getRoot());
-        if (mCustomLeftButtons != null) mCustomLeftButtons.setVisibility(visible && isLand() ? View.VISIBLE : View.GONE);
-        if (mCustomRightButtons != null) mCustomRightButtons.setVisibility(visible && isLand() ? View.VISIBLE : View.GONE);
-        if (mCustomPortraitButtons != null) mCustomPortraitButtons.setVisibility(visible && !isLand() ? View.VISIBLE : View.GONE);
+        boolean land = isActualLand();
+        if (mCustomLeftButtons != null) mCustomLeftButtons.setVisibility(visible && land ? View.VISIBLE : View.GONE);
+        if (mCustomRightButtons != null) mCustomRightButtons.setVisibility(visible && land ? View.VISIBLE : View.GONE);
+        if (mCustomPortraitButtons != null) mCustomPortraitButtons.setVisibility(visible && !land ? View.VISIBLE : View.GONE);
         updateCustomButtonLayout();
     }
 
     private void applyActionButtonVisibility() {
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);
+        applyPortraitActionRow();
         updateCustomButtonVisibility();
+    }
+
+    // 竖屏全屏底部行只留 6 项（内核/硬解/倍速/片头/片尾/更多）：字幕、弹幕移入更多面板，选集与右侧竖栏重复，一并收起
+    // 三项显隐在此按方向统一裁定（盖过内容侧置位）；离开竖屏全屏时按各自原规则还原，用户在按钮设置里关掉的仍保持隐藏
+    // 竖屏套判定与 showControl 同口径：实际屏幕方向，不看视频宽高（竖屏短剧转横屏后底部行走横屏原构成）
+    // 片头/片尾是给多集打点用的，另按集数裁定：集数<2（单片，与选集同一判定）横竖两行都藏；恢复显示仍先过用户按钮设置
+    private void applyPortraitActionRow() {
+        if (player() == null) return;
+        boolean hasEpisodes = mEpisodeAdapter != null && getEpisodeCount() >= 2;
+        mBinding.control.action.openingItem.setVisibility(hasEpisodes && PlayerButtonSetting.isVisible(PlayerButtonSetting.OPENING) ? View.VISIBLE : View.GONE);
+        mBinding.control.action.endingItem.setVisibility(hasEpisodes && PlayerButtonSetting.isVisible(PlayerButtonSetting.ENDING) ? View.VISIBLE : View.GONE);
+        if (isFullscreen() && !isActualLand()) {
+            mBinding.control.action.text.setVisibility(View.GONE);
+            mBinding.control.action.danmakuText.setVisibility(View.GONE);
+            mBinding.control.action.episodes.setVisibility(View.GONE);
+            return;
+        }
+        if (PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU)) mBinding.control.action.danmakuText.setVisibility(View.VISIBLE);
+        if (PlayerButtonSetting.isVisible(PlayerButtonSetting.TEXT)) mBinding.control.action.text.setVisibility(player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod() ? View.VISIBLE : View.GONE);
+        if (PlayerButtonSetting.isVisible(PlayerButtonSetting.EPISODES) && mEpisodeAdapter != null) mBinding.control.action.episodes.setVisibility(getEpisodeCount() < 2 ? View.GONE : View.VISIBLE);
     }
 
     private void setVideoView(boolean isInPictureInPictureMode) {
@@ -2012,8 +2038,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
-        // 切集盖图：新内容装载到首帧之间先盖住视频区，不让黑屏裸露（撤除只认首帧回调）
-        showSwitchCover();
+        // 切集不盖图：滑动预览层在切集成立时立即撤下，下一集已由预下备好、切过来直接起播出画
+        hideSwitchCover();
         // 起播：详情页的无海报背景门控解除，后续走播放页原有背景逻辑
         mDetailWallOff = false;
         mBinding.control.title.setText(episode.getDisplayName());
@@ -3561,15 +3587,57 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         binding.moreAudio.setOnClickListener(v -> { dialog.dismiss(); onTrack(C.TRACK_TYPE_AUDIO); });
         binding.moreVideo.setOnClickListener(v -> { dialog.dismiss(); onTrack(C.TRACK_TYPE_VIDEO); });
         binding.moreSubtitleSetting.setOnClickListener(v -> { dialog.dismiss(); onSubtitleClick(); });
-        // 音轨/视轨无轨时隐藏（原 setTrackVisible 逻辑）
+        binding.moreTextTrack.setOnClickListener(v -> { dialog.dismiss(); onTrack(C.TRACK_TYPE_TEXT); });
+        binding.moreTextTrack.setOnLongClickListener(v -> { dialog.dismiss(); return onTextLong(); });
+        binding.moreDanmaku.setOnClickListener(v -> { dialog.dismiss(); onDanmaku(); });
+        // 音轨/视轨无轨时隐藏（原 setTrackVisible 逻辑）；字幕设置同字幕键闸门：没字幕轨且非点播不露
         binding.moreAudio.setVisibility(player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
         binding.moreVideo.setVisibility(player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
+        binding.moreSubtitleSetting.setVisibility(player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod() ? View.VISIBLE : View.GONE);
+        // 三格全藏时整行一并收起，不许留一条带 12dp 上距的空行
+        binding.moreTrackRow.setVisibility(binding.moreAudio.getVisibility() == View.VISIBLE || binding.moreVideo.getVisibility() == View.VISIBLE || binding.moreSubtitleSetting.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE);
+        // 竖屏全屏专属：底部行收起的字幕（选轨）/弹幕（换源）落在这里；横屏底部行仍有这两项，面板不重复出现
+        // 竖屏套判定与 showControl 同口径：实际屏幕方向，不看视频宽高
+        boolean verticalFullscreen = isFullscreen() && !isActualLand();
+        // 整行连同 12dp 上距一起收放：只藏格子会把空行和上距留在面板底部（横屏凭空多一条空行）
+        binding.morePortraitRow.setVisibility(verticalFullscreen ? View.VISIBLE : View.GONE);
+        binding.moreTextTrack.setVisibility(verticalFullscreen && (player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
+        binding.moreDanmaku.setVisibility(verticalFullscreen ? View.VISIBLE : View.GONE);
+        // 裸 BottomSheetDialog 在横屏会停在折叠态：自动 peek 按 16:9 公式算约等于 0，只露出标题行、内容全在折线下（真机实证面板是空的）
+        // 与本页其它播放弹窗同款处理（showAudioSheet）：show 时强制展开并跳过折叠态；behavior 未关联时降级为裸 show，不崩
+        dialog.setOnShowListener(d -> {
+            FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            if (sheet == null) return;
+            try {
+                BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                behavior.setSkipCollapsed(true);
+            } catch (IllegalArgumentException e) {
+                SpiderDebug.log("bottomsheet", "more panel behavior unavailable, degraded: %s", e.getMessage());
+            }
+        });
         dialog.show();
         hideControl();
     }
 
     /** 新增：右上角弹幕/字幕细设入口（横屏全屏＋竖屏全屏） */
     private void onFineSetting() {
+        // 细设只列当前真有的：没弹幕不列弹幕细设；没字幕轨且非点播不列字幕细设（与字幕键同一闸门）；只剩一项直接打开
+        boolean hasDanmaku = player().haveDanmaku();
+        boolean hasSubtitle = player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod();
+        if (hasDanmaku && !hasSubtitle) {
+            DanmakuSettingDialog.create().player(player()).show(this);
+            hideControl();
+            return;
+        }
+        if (!hasDanmaku && hasSubtitle) {
+            onSubtitleClick();
+            return;
+        }
+        if (!hasDanmaku) {
+            hideControl();
+            return;
+        }
         ChoiceDialog.showSingle(this, R.string.player_fine_setting,
                 new CharSequence[]{"弹幕设置", "字幕设置"}, -1, which -> {
                     if (which == 0) DanmakuSettingDialog.create().player(player()).show(this);
@@ -5385,6 +5453,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     @Override
+    public boolean isControlMultiEpisode() {
+        return mEpisodeAdapter != null && getEpisodeCount() >= 2;
+    }
+
+    @Override
     public boolean isDanmakuFullscreen() {
         return isFullscreen();
     }
@@ -5509,8 +5582,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onRefresh() {
-        // 停播前先抓旧集末帧，切集盖图优先用它（停播后画面可能已清，抓不到再回落封面）
-        capturePendingCoverFrame();
         saveHistory();
         player().stop();
         player().clear();
@@ -5891,10 +5962,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setTrackVisible();
         hideWidgetOverlay();
         mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !DanmakuSetting.isShow() ? View.GONE : View.VISIBLE);
-        boolean isVerticalFullscreen = isFullscreen() && player().isPortrait();
+        // 竖屏套按实际屏幕方向定：屏幕横了走横屏套（哪怕视频本身是竖的短剧），不按视频宽高
+        boolean isVerticalFullscreen = isFullscreen() && !isActualLand();
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
-        // 新增细设入口：横屏全屏＋竖屏全屏均显示
-        mBinding.control.fineSetting.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
+        // 新增细设入口：横屏全屏＋竖屏全屏均显示；细设两项（弹幕/字幕）都无对象时入口一并藏（该藏的藏）
+        mBinding.control.fineSetting.setVisibility(isFullscreen() && !isLock() && (player().haveDanmaku() || player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.fullscreen.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
@@ -5903,7 +5975,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         // 更多面板为独立弹窗（定稿 9 宫格），不再随竖屏全屏隐藏其中按钮
-        mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        // 竖排选集与底部行选集同一判定：集数<2（单片）不露，选集只对多集有意义
+        mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() && mEpisodeAdapter != null && getEpisodeCount() >= 2 ? View.VISIBLE : View.GONE);
         mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
@@ -9191,7 +9264,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         else checkPrev();
     }
 
-    // ===== 切集盖图（保帧）＋短剧滑动切集预览 =====
+    // ===== 短剧滑动切集预览 =====
 
     private void createSwitchCover() {
         FrameLayout cover = new FrameLayout(this);
@@ -9210,89 +9283,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         labelParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         labelParams.bottomMargin = ResUtil.dp2px(36);
         cover.addView(mSwitchCoverLabel, labelParams);
-        // 插在视频面正上方：控件、进度（含网速）、OSD 都在它之上，盖图只盖视频区
+        // 插在视频面正上方：控件、进度（含网速）、OSD 都在它之上，预览只盖视频区
         ViewGroup parent = (ViewGroup) mBinding.exo.getParent();
         parent.addView(cover, parent.indexOfChild(mBinding.exo) + 1, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         mSwitchCover = cover;
     }
 
-    private Bitmap captureVideoFrame() {
-        try {
-            View surface = mBinding.exo.getVideoSurfaceView();
-            if (surface instanceof TextureView texture) {
-                Bitmap bitmap = texture.getBitmap();
-                if (bitmap != null) {
-                    if (bitmap.getWidth() > 0 && bitmap.getHeight() > 0 && !isMostlyBlack(bitmap)) return bitmap;
-                    bitmap.recycle();
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return null;
-    }
-
-    // 近乎全黑的帧（刚停播被清、暗场误抓）不算有效末帧，回落封面图
-    private boolean isMostlyBlack(Bitmap bitmap) {
-        int w = bitmap.getWidth();
-        int h = bitmap.getHeight();
-        int[] xs = {w / 4, w / 2, w * 3 / 4};
-        int[] ys = {h / 4, h / 2, h * 3 / 4};
-        for (int x : xs) {
-            for (int y : ys) {
-                int pixel = bitmap.getPixel(x, y);
-                if (Color.red(pixel) > 16 || Color.green(pixel) > 16 || Color.blue(pixel) > 16) return false;
-            }
-        }
-        return true;
-    }
-
-    private void capturePendingCoverFrame() {
-        if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
-        mPendingCoverFrame = captureVideoFrame();
-    }
-
-    private void clearSwitchCoverBitmap() {
-        if (mSwitchCoverBitmap != null && !mSwitchCoverBitmap.isRecycled()) mSwitchCoverBitmap.recycle();
-        mSwitchCoverBitmap = null;
-    }
-
-    private void showSwitchCover() {
-        if (mSwitchCover == null) return;
-        if (mSwitchCoverHold) {
-            // 滑动切集已把相邻集封面停在盖图层上，保持原图直接顶到首帧
-            mSwitchCover.setVisibility(View.VISIBLE);
-            return;
-        }
-        if (shouldUseImmersiveAudio()) {
-            hideSwitchCover();
-            return;
-        }
-        if (mPendingCoverFrame != null) {
-            mSwitchCoverImage.setImageBitmap(mPendingCoverFrame);
-            clearSwitchCoverBitmap();
-            mSwitchCoverBitmap = mPendingCoverFrame;
-            mPendingCoverFrame = null;
-        } else {
-            clearSwitchCoverBitmap();
-            ImgUtil.load(getName(), getPic(), mSwitchCoverImage, true);
-        }
-        mSwitchCoverLabel.setVisibility(View.GONE);
-        mSwitchCoverDir = 0;
-        mSwitchCover.setTranslationY(0);
-        mSwitchCover.setVisibility(View.VISIBLE);
-    }
-
+    // 预览层撤除：切集成立（getPlayer）、首帧到达、报错、拖动未吸附时都走这里
     private void hideSwitchCover() {
-        mSwitchCoverHold = false;
         mSwitchCoverDir = 0;
         if (mSwitchCover != null) {
             mSwitchCover.setVisibility(View.GONE);
             mSwitchCover.setTranslationY(0);
         }
         if (mSwitchCoverImage != null) mSwitchCoverImage.setImageDrawable(null);
-        clearSwitchCoverBitmap();
-        if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
-        mPendingCoverFrame = null;
     }
 
     @Override
@@ -9322,11 +9326,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onPageCommit(boolean up) {
-        // 先立保持标记再走原切集链：起播时盖图不换图，相邻集封面直接顶到新集首帧
-        mSwitchCoverHold = true;
+        // 跟手预览到切集成立为止：切集链同步走到 getPlayer 时立即撤层，下一集直接起播出画
         if (up) onFlingUp();
         else onFlingDown();
-        // 盖图层不透明且已停在原位，视频面在此刻归位不可见
+        // 视频面归位
         mBinding.exo.setTranslationY(0);
     }
 
@@ -9349,9 +9352,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (dir > 0 ? !canPageUp() : !canPageDown()) return;
         if (mSwitchCoverDir != dir) {
             mSwitchCoverDir = dir;
-            clearSwitchCoverBitmap();
-            if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
-            mPendingCoverFrame = null;
             ImgUtil.load(getName(), getPic(), mSwitchCoverImage, true);
             mSwitchCoverLabel.setText(getAdjacentEpisode(dir).getDisplayName());
             mSwitchCoverLabel.setVisibility(View.VISIBLE);

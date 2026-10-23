@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.custom;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.text.TextUtils;
@@ -40,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 
 public class CustomWebView extends WebView implements DialogInterface.OnDismissListener {
@@ -51,6 +53,7 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
     private static final int MAX_URLS = 5;
 
     private final AtomicReference<ParseCallback> callbackRef = new AtomicReference<>();
+    private int pageGeneration;
     private LinkedHashSet<String> urls;
     private WebResourceResponse empty;
     private WebDialog dialog;
@@ -103,6 +106,7 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         this.from = from;
         this.key = key;
         this.url = url;
+        WebViewClicker.ensureViewport(this);
         start(headers);
         return this;
     }
@@ -125,6 +129,12 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
     private WebViewClient webViewClient() {
         return new WebViewClient() {
             @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                pageGeneration++;
+            }
+
+            @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 String host = request.getUrl().getHost();
@@ -141,7 +151,9 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
                 super.onPageFinished(view, url);
                 if (url.equals(BLANK)) return;
                 SpiderDebug.log("webview-parse", "page finished key=%s from=%s url=%s title=%s", key, from, url, view.getTitle());
-                evaluate(getScript(url), 0);
+                int generation = pageGeneration;
+                BooleanSupplier current = () -> !stopped && generation == pageGeneration;
+                evaluate(getScript(url), 0, () -> WebViewClicker.click(CustomWebView.this, Sniffer.getClick(Uri.parse(url)), current));
             }
 
             @Override
@@ -202,13 +214,16 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         return script;
     }
 
-    private void evaluate(List<String> script, int index) {
-        if (index >= script.size()) return;
+    private void evaluate(List<String> script, int index, Runnable complete) {
+        if (index >= script.size()) {
+            complete.run();
+            return;
+        }
         String js = script.get(index);
         if (TextUtils.isEmpty(js)) {
-            evaluate(script, index + 1);
+            evaluate(script, index + 1, complete);
         } else {
-            evaluateJavascript(js, value -> evaluate(script, index + 1));
+            evaluateJavascript(js, value -> evaluate(script, index + 1, complete));
         }
     }
 

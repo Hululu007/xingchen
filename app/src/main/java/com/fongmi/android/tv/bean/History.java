@@ -130,6 +130,29 @@ public class History implements Diffable<History> {
         return AppDatabase.get().getHistoryDao().find(cid, System.currentTimeMillis() - Constant.HISTORY_TIME);
     }
 
+    /**
+     * 海阔条目的识别口径（全应用统一）：History.key 的站点段（首个分隔符前）
+     * 以 HkDetailBridge 的 hk_ 命名空间开头——与 SiteApi 播放拦截的 isHkKey 同一把尺。
+     * 海阔播放与点播源播放共用同一张 History 表（写入端不分家），分家在读取端做。
+     */
+    public static boolean isHk(History item) {
+        return item != null && com.fongmi.android.tv.api.hk.HkDetailBridge.isHkKey(item.getSiteKey());
+    }
+
+    /** 星辰自有面（首页播放历史等）用：剔除海阔条目，海阔历史只在海阔自己的历史页出现。 */
+    public static List<History> getForHome() {
+        List<History> items = new java.util.ArrayList<>(get());
+        items.removeIf(History::isHk);
+        return items;
+    }
+
+    /** 海阔历史页用：只取海阔条目。 */
+    public static List<History> getHk() {
+        List<History> items = new java.util.ArrayList<>(get());
+        items.removeIf(item -> !isHk(item));
+        return items;
+    }
+
     public static History find(String key) {
         return AppDatabase.get().getHistoryDao().find(VodConfig.getCid(), key);
     }

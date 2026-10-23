@@ -167,6 +167,8 @@ public class HkPageActivity extends BaseActivity {
     private RuleAdapter ruleAdapter;
     private GridLayoutManager ruleGrid;
     private final List<HkRule> rules = new ArrayList<>();
+    /** 本页内存列表对应的 HkRuleManager 落盘戳；戳变了（别处导入/删改）才整表重读。 */
+    private long rulesStampSeen = HkRuleManager.saveStamp();
     /** 小程序列表：名称排序开关 / 搜索关键字 / 管理模式（编辑按钮切换）/ 分组筛选（""=全部） */
     private boolean ruleSortByName = false;
     private String ruleKeyword = "";
@@ -397,6 +399,9 @@ public class HkPageActivity extends BaseActivity {
     protected void onResume() {
         super.onResume();
         hkPaused = false;
+        // 本页不在前台时别处也能改规则落盘（规则页内口令导入、分享导入等）：
+        // 落盘戳变了才整表重读换新对象，没变不重读（避免每次回页重建丢滚动位置）。
+        if (HkRuleManager.saveStamp() != rulesStampSeen) refreshRules();
         // 液态玻璃：页面回可见，恢复动态背景（兜底，View 自停为主；背景是 decor 注入挂在 content 根，
         // 不在 activity_hk.xml 的 binding 里，用注入时打的 id 找）
         HkDynamicBgView bg = findViewById(R.id.hk_dynamic_bg);
@@ -528,6 +533,8 @@ public class HkPageActivity extends BaseActivity {
         binding.btnEditRule.setOnClickListener(v -> toggleRuleManageMode());
         // 用户拍板：收藏入口放编辑左边（搜索/筛选 … 收藏/编辑），进海阔自己的收藏页
         binding.btnFavoriteRule.setOnClickListener(v -> HkFavoriteActivity.start(this));
+        // 用户拍板（2026-10-23）：历史入口放收藏左边，进海阔自己的播放历史页
+        binding.btnHistoryRule.setOnClickListener(v -> HkHistoryActivity.start(this));
         binding.btnGroupManage.setOnClickListener(v -> showGroupManageDialog());
         binding.btnImport.setOnClickListener(v -> showImportDialog());
         binding.rvRuleGroup.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -665,6 +672,7 @@ public class HkPageActivity extends BaseActivity {
         HkPressFeedback.attach(binding.btnSearchRule);
         HkPressFeedback.attach(binding.btnSortRule);
         HkPressFeedback.attach(binding.btnFavoriteRule);
+        HkPressFeedback.attach(binding.btnHistoryRule);
         // 底部导入钮：奶油玻璃胶囊（奶油渐变＋1dp 金描边）＋深金字
         binding.btnImport.setBackground(HkGlassDrawable.creamButton(this, 26));
         binding.btnImport.setTextColor(0xFF7A5A00);
@@ -679,6 +687,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSearchRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         binding.btnSortRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         binding.btnFavoriteRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
+        binding.btnHistoryRule.setVisibility(ruleManageMode ? View.GONE : View.VISIBLE);
         // 编辑模式下收起 inline 搜索（搜索图标已隐藏）
         if (ruleManageMode && binding.inlineSearchBar.getVisibility() == View.VISIBLE) {
             binding.inlineSearchBar.setVisibility(View.GONE);
@@ -710,6 +719,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSortRule.setVisibility(View.GONE);
         binding.btnEditRule.setVisibility(View.GONE);
         binding.btnFavoriteRule.setVisibility(View.GONE);
+        binding.btnHistoryRule.setVisibility(View.GONE);
         binding.btnSelectAllRules.setVisibility(View.VISIBLE);
         binding.btnDeleteSelectedRules.setVisibility(View.VISIBLE);
         binding.btnSelectDone.setVisibility(View.VISIBLE);
@@ -725,6 +735,7 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSortRule.setVisibility(View.VISIBLE);
         binding.btnEditRule.setVisibility(View.VISIBLE);
         binding.btnFavoriteRule.setVisibility(View.VISIBLE);
+        binding.btnHistoryRule.setVisibility(View.VISIBLE);
         binding.btnSelectAllRules.setVisibility(View.GONE);
         binding.btnDeleteSelectedRules.setVisibility(View.GONE);
         binding.btnSelectDone.setVisibility(View.GONE);
@@ -1419,12 +1430,34 @@ public class HkPageActivity extends BaseActivity {
                 .show();
     }
 
+    /**
+     * 导入/更新后把新规则并入内存列表：同标题必须替换旧对象，不能只 add。
+     * 只 add 的旧口径下，列表里攥着导入前载入的旧 HkRule 对象，openRule 把它
+     * 序列化传给内容页——导入后从列表点开还是旧版（在线更新路径 applyRuleUpdates
+     * 一直是替换口径，三条导入路径漏了）。
+     */
+    private void mergeRulesIntoList(List<HkRule> fresh) {
+        for (HkRule r : fresh) {
+            boolean replaced = false;
+            for (int i = 0; i < rules.size(); i++) {
+                if (r.getTitle().equals(rules.get(i).getTitle())) {
+                    rules.set(i, r);
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) rules.add(r);
+        }
+        rulesStampSeen = HkRuleManager.saveStamp();
+    }
+
     private void refreshRules() {
         new Thread(() -> {
             List<HkRule> list = HkRuleManager.get().getRules();
             App.post(() -> {
                 rules.clear();
                 rules.addAll(list);
+                rulesStampSeen = HkRuleManager.saveStamp();
                 syncCustomOrder();
                 ruleAdapter.rebuildSections();
                 ruleAdapter.notifyDataSetChanged();
@@ -1568,12 +1601,8 @@ public class HkPageActivity extends BaseActivity {
                 App.post(() -> {
                     applyImportGroup(one, Collections.singletonList(isNew), group);
                     Notify.show("导入成功：" + p.rule.getTitle());
-                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
-                    boolean exists = false;
-                    for (HkRule r : HkPageActivity.this.rules) {
-                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
-                    }
-                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    // 并入内存列表：同标题替换旧对象（见 mergeRulesIntoList 注释）
+                    mergeRulesIntoList(one);
                     syncCustomOrder();
                     ruleAdapter.rebuildSections();
                     ruleAdapter.notifyDataSetChanged();
@@ -1822,12 +1851,8 @@ public class HkPageActivity extends BaseActivity {
                 App.post(() -> {
                     applyImportGroup(one, Collections.singletonList(isNew), group);
                     Notify.show("导入成功：" + p.rule.getTitle());
-                    // 直接合并内存规则进列表（不走 refreshRules 磁盘重读，避免 getRules() 异常时列表空）
-                    boolean exists = false;
-                    for (HkRule r : HkPageActivity.this.rules) {
-                        if (r.getTitle().equals(p.rule.getTitle())) { exists = true; break; }
-                    }
-                    if (!exists) HkPageActivity.this.rules.add(p.rule);
+                    // 并入内存列表：同标题替换旧对象（见 mergeRulesIntoList 注释）
+                    mergeRulesIntoList(one);
                     syncCustomOrder();
                     ruleAdapter.rebuildSections();
                     ruleAdapter.notifyDataSetChanged();
@@ -1949,17 +1974,10 @@ public class HkPageActivity extends BaseActivity {
                     // 只对新导入的规则应用分组选择；已安装的更新保持原有分组映射不动
                     applyImportGroup(rules, isNewList, pickedGroup);
                     Notify.show(msg);
-                    // 直接合并内存中的规则进列表（不走 refreshRules 磁盘重读：
-                    // getRules() 在某些机型/场景下返回空会导致导入后列表空，
-                    // 内存中的 rules 是刚解析成功的，直接用最可靠）
-                    java.util.Set<String> have = new java.util.HashSet<>();
-                    for (HkRule r : HkPageActivity.this.rules) have.add(r.getTitle());
-                    for (HkRule r : rules) {
-                        if (!have.contains(r.getTitle())) {
-                            HkPageActivity.this.rules.add(r);
-                            have.add(r.getTitle());
-                        }
-                    }
+                    // 并入内存列表：同标题替换旧对象（见 mergeRulesIntoList 注释；
+                    // 不走 refreshRules 磁盘重读是怕 getRules() 异常时列表空，
+                    // 但只 add 不替换会让更新导入永远摸不到列表里的旧对象）
+                    mergeRulesIntoList(rules);
                     syncCustomOrder();
                     ruleAdapter.rebuildSections();
                     ruleAdapter.notifyDataSetChanged();
@@ -2138,17 +2156,7 @@ public class HkPageActivity extends BaseActivity {
                     updated.add(p.rule);
                 }
                 App.post(() -> {
-                    for (HkRule r : updated) {
-                        boolean replaced = false;
-                        for (int i = 0; i < rules.size(); i++) {
-                            if (r.getTitle().equals(rules.get(i).getTitle())) {
-                                rules.set(i, r);
-                                replaced = true;
-                                break;
-                            }
-                        }
-                        if (!replaced) rules.add(r);
-                    }
+                    mergeRulesIntoList(updated);
                     syncCustomOrder();
                     ruleAdapter.rebuildSections();
                     ruleAdapter.notifyDataSetChanged();
@@ -3362,6 +3370,8 @@ public class HkPageActivity extends BaseActivity {
         AlertDialog dialog = new HkDialogs(this)
                 .setView(outer).create();
         holder[0] = dialog;
+        // 浅色卡片自成一面：清掉窗口暗色玻璃底，不许黑层从卡片边缘探出
+        HkDialogs.clearWindowBackground(dialog);
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
     }
@@ -3976,6 +3986,9 @@ public class HkPageActivity extends BaseActivity {
                     s.bookTitle = stripHtml(item.getTitle());
                     s.images = urls;
                     s.referer = hkRuleUrl();
+                    // 页面地址另存 pageUrl（图片组装的真上下文）：hkRuleUrl 优先实际抓取页、
+                    // 回退才是规则主页；别再只靠 referer 一个字段混装地址与请求头
+                    s.pageUrl = hkRuleUrl();
                     ReadingSession.Chapter c = new ReadingSession.Chapter(s.bookTitle, url);
                     c.pic = item.getPic() == null ? "" : item.getPic();
                     s.chapters.add(c);

@@ -40,12 +40,12 @@ public class ShooterProvider implements SubtitleProvider {
 
     @Override
     public boolean isAvailable() {
-        return SubtitleSetting.isSrcEnabled("shooter") && !TextUtils.isEmpty(SubtitleSetting.getAssrtToken());
+        return SubtitleSetting.isSrcEnabled("shooter") && !TextUtils.isEmpty(SubtitleSetting.getEffectiveToken());
     }
 
     /** 未填 Token 时也视为"需要配置"（给 UI 展示用） */
     public static boolean needsToken() {
-        return SubtitleSetting.isSrcEnabled("shooter") && TextUtils.isEmpty(SubtitleSetting.getAssrtToken());
+        return SubtitleSetting.isSrcEnabled("shooter") && TextUtils.isEmpty(SubtitleSetting.getEffectiveToken());
     }
 
     @Override
@@ -53,7 +53,7 @@ public class ShooterProvider implements SubtitleProvider {
         List<SubtitleInfo> result = new ArrayList<>();
         if (TextUtils.isEmpty(query) || !isAvailable()) return result;
         try {
-            String url = API + "/v1/sub/search?token=" + Uri.encode(SubtitleSetting.getAssrtToken())
+            String url = API + "/v1/sub/search?token=" + Uri.encode(SubtitleSetting.getEffectiveToken())
                     + "&q=" + Uri.encode(query) + "&cnt=15";
             String body = OkHttp.string(url, headers());
             if (TextUtils.isEmpty(body)) return result;
@@ -88,7 +88,7 @@ public class ShooterProvider implements SubtitleProvider {
         try {
             if (!stored.startsWith("assrt://")) return stored;
             String id = stored.substring("assrt://".length());
-            String token = SubtitleSetting.getAssrtToken();
+            String token = SubtitleSetting.getEffectiveToken();
             if (TextUtils.isEmpty(id) || TextUtils.isEmpty(token)) return "";
             String url = API + "/v1/sub/detail?token=" + Uri.encode(token) + "&id=" + Uri.encode(id);
             String body = OkHttp.string(url, headers());

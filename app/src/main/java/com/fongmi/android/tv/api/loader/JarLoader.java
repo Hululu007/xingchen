@@ -152,8 +152,9 @@ public class JarLoader {
             method.invoke(clz, App.get());
             SpiderDebug.log("jar-loader", "jar init done key=%s cost=%sms", key, System.currentTimeMillis() - start);
         } catch (Throwable e) {
-            SpiderDebug.log("jar-loader", "jar init error key=%s cost=%sms error=%s", key, System.currentTimeMillis() - start, error(e));
-            SpiderDebug.log("jar-loader", e);
+            // jar 装载初始化失败走强制通道：调试开关没开也必须落盘（断点判别靠它）。
+            SpiderDebug.forceLog("jar-loader", "jar init error key=%s cost=%sms error=%s", key, System.currentTimeMillis() - start, error(e));
+            SpiderDebug.forceLog("jar-loader", e);
             e.printStackTrace();
         }
     }
@@ -183,6 +184,9 @@ public class JarLoader {
     public void parseJar(String key, String jar) {
         if (loaders.containsKey(key)) return;
         if (jar.startsWith("assets")) jar = UrlUtil.convert(jar);
+        // clan://localhost/<路径> 与 file://<路径> 同义（本地仓包的订阅形态）：
+        // jar 引用不走 UrlUtil.convert，在此归一成 file 形态，落既有 file 分支直读存储文件。
+        if (jar.startsWith("clan://")) jar = "file://" + jar.substring(7).replaceFirst("(?i)^localhost/", "");
         Object lock = locks.computeIfAbsent(key, k -> new Object());
         synchronized (lock) {
             if (loaders.containsKey(key)) return;
@@ -195,10 +199,13 @@ public class JarLoader {
                 load(key, Path.jar(jar));
             } else if (jar.startsWith("http")) {
                 File local = Path.jar(jar);
-                if (shouldReuseLocalJar(local)) {
+                // 默影视口径：配置声明了 md5 就以 md5 为准——能走到这里说明本地那份与声明对不上，必须重下；
+                // 24 小时本地复用只许用在没声明 md5 的 jar 上，不许短路 md5 校验。
+                if (md5.isEmpty() && shouldReuseLocalJar(local)) {
                     SpiderDebug.log("jar-loader", "parse reuse local key=%s file=%s age=%sh", key, local.getAbsolutePath(), (System.currentTimeMillis() - local.lastModified()) / 3600000);
                     load(key, local);
                 } else {
+                    if (!md5.isEmpty()) SpiderDebug.log("jar-loader", "parse redownload md5 mismatch key=%s file=%s", key, local.getAbsolutePath());
                     load(key, Download.createForJar(jar, local).get());
                 }
             } else if (jar.startsWith("file")) {
@@ -210,6 +217,8 @@ public class JarLoader {
     /**
      * 无 md5 时复用本地已下 jar：24 小时内视为新鲜，直接装载；过期/不存在/空文件才重下。
      * 文件名已是 md5(url) 天然键。jar 换包不换 URL 的场景最多延迟一天生效。
+     * 前置条件由调用方（parseJar）保证：仅在配置没声明 md5 时才查本方法；
+     * 声明了 md5 的一律先走 Util.equals，对不上直接重下，不进本方法。
      */
     public static boolean shouldReuseLocalJar(File local) {
         return local != null && local.exists() && local.length() > 0
@@ -228,8 +237,11 @@ public class JarLoader {
     }
 
     public Spider getSpider(String key, String api, String ext, String jar) {
-        // Emby 内置源：不走 DexClassLoader，直接 new 应用类里的 EmbySpider（数据层已实现）。
+        // csp_Emby：配置给了 jar 就先按默影视口径从 jar 装 Emby 类，装到用 jar 的；
+        // jar 缺类/装载失败，或根本没给 jar（星辰自有 Emby 虚拟源 jar 恒为 ""），才落内置 EmbySpider 兜底。
         if ("csp_Emby".equals(api)) {
+            Spider fromJar = embyFromJar(key, api, ext, jar);
+            if (fromJar != null) return fromJar;
             String spKey = "emby:" + key;
             return spiders.computeIfAbsent(spKey, k -> {
                 try {
@@ -239,7 +251,8 @@ public class JarLoader {
                     SpiderDebug.log("jar-loader", "emby spider init done site=%s", key);
                     return spider;
                 } catch (Throwable e) {
-                    SpiderDebug.log("jar-loader", "emby spider init error site=%s error=%s", key, error(e));
+                    // 同属蜘蛛初始化失败，走强制通道。
+                    SpiderDebug.forceLog("jar-loader", "emby spider init error site=%s error=%s", key, error(e));
                     e.printStackTrace();
                     return new SpiderNull();
                 }
@@ -247,33 +260,47 @@ public class JarLoader {
         }
         String jaKey = Util.md5(jar);
         String spKey = jaKey + key;
-        return getOrCreateSpider(spKey, () -> {
-            long start = System.currentTimeMillis();
-            try {
-                if (Thread.currentThread().isInterrupted()) {
-                    SpiderDebug.log("jar-loader", "spider init skip interrupted site=%s api=%s jar=%s", key, api, jaKey);
-                    return new SpiderNull();
-                }
-                SpiderDebug.log("jar-loader", "spider init start site=%s api=%s jar=%s ext=%s", key, api, jaKey, ext == null ? 0 : ext.length());
-                parseJar(jaKey, jar);
-                DexClassLoader loader = loaders.get(jaKey);
-                if (loader == null) {
-                    SpiderDebug.log("jar-loader", "spider init skip loader missing site=%s api=%s jar=%s cost=%sms", key, api, jaKey, System.currentTimeMillis() - start);
-                    return new SpiderNull();
-                }
-                Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
-                spider.siteKey = key;
-                spider.init(App.get(), ext);
-                SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
-                return spider;
-            } catch (Throwable e) {
-                if (isInterrupted(e)) Thread.currentThread().interrupt();
-                SpiderDebug.log("jar-loader", "spider init error site=%s api=%s jar=%s cost=%sms error=%s", key, api, jaKey, System.currentTimeMillis() - start, error(e));
-                SpiderDebug.log("jar-loader", e);
-                e.printStackTrace();
+        return getOrCreateSpider(spKey, () -> createJarSpider(key, api, ext, jar, jaKey));
+    }
+
+    /** csp_Emby 的 jar 路：装到返回蜘蛛；没给 jar 或任何一环装不到都返回 null，由调用方落内置兜底。 */
+    private Spider embyFromJar(String key, String api, String ext, String jar) {
+        if (jar == null || jar.isEmpty()) return null;
+        // 内置兜底已经为这个站建过就别再反复试 jar，进程内一次定死（与内置缓存同寿命）。
+        if (spiders.containsKey("emby:" + key)) return null;
+        String jaKey = Util.md5(jar);
+        Spider spider = getOrCreateSpider(jaKey + key, () -> createJarSpider(key, api, ext, jar, jaKey));
+        return spider instanceof SpiderNull ? null : spider;
+    }
+
+    private Spider createJarSpider(String key, String api, String ext, String jar, String jaKey) {
+        long start = System.currentTimeMillis();
+        try {
+            if (Thread.currentThread().isInterrupted()) {
+                SpiderDebug.log("jar-loader", "spider init skip interrupted site=%s api=%s jar=%s", key, api, jaKey);
                 return new SpiderNull();
             }
-        });
+            SpiderDebug.log("jar-loader", "spider init start site=%s api=%s jar=%s ext=%s", key, api, jaKey, ext == null ? 0 : ext.length());
+            parseJar(jaKey, jar);
+            DexClassLoader loader = loaders.get(jaKey);
+            if (loader == null) {
+                // jar 根本没装上也是蜘蛛初始化失败的一种，走强制通道留痕。
+                SpiderDebug.forceLog("jar-loader", "spider init skip loader missing site=%s api=%s jar=%s cost=%sms", key, api, jaKey, System.currentTimeMillis() - start);
+                return new SpiderNull();
+            }
+            Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
+            spider.siteKey = key;
+            spider.init(App.get(), ext);
+            SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
+            return spider;
+        } catch (Throwable e) {
+            if (isInterrupted(e)) Thread.currentThread().interrupt();
+            // 蜘蛛初始化失败走强制通道：调试开关没开也必须落盘（断点判别靠它）。
+            SpiderDebug.forceLog("jar-loader", "spider init error site=%s api=%s jar=%s cost=%sms error=%s", key, api, jaKey, System.currentTimeMillis() - start, error(e));
+            SpiderDebug.forceLog("jar-loader", e);
+            e.printStackTrace();
+            return new SpiderNull();
+        }
     }
 
     Spider getOrCreateSpider(String key, Supplier<Spider> factory) {

@@ -247,13 +247,49 @@ public class HkRuleManager {
         return rule;
     }
 
+    /**
+     * 规则落盘戳：每次 saveRule/delete 成功后 +1。
+     * 供持有规则列表快照的页面（HkPageActivity）判断「我这份列表是不是已经过期」，
+     * 变了才整表重读；没变不重读，避免回页重建列表丢滚动位置。
+     */
+    private static final java.util.concurrent.atomic.AtomicLong SAVE_STAMP =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    public static long saveStamp() {
+        return SAVE_STAMP.get();
+    }
+
     /** 把解析好的规则落盘（保留原始 JSON 文本，不丢失未知字段）。 */
     public void saveRule(HkRule rule, String rawJson) throws Exception {
         if (rule == null) throw new IllegalArgumentException("规则为空");
         if (rawJson == null || rawJson.isEmpty()) rawJson = new Gson().toJson(rule);
         File target = new File(getDir(), safeFileName(rule.getTitle()) + ".json");
+        // 同标题只许一份：先清掉其它文件名下标题相同的旧副本（历史遗留/改名残留），
+        // 否则 getRules 去重按文件顺序取舍，导入新版后仍可能读到旧的那份。
+        deleteSameTitleFiles(rule.getTitle(), target.getName());
         Files.write(target.toPath(), rawJson.getBytes(StandardCharsets.UTF_8));
+        SAVE_STAMP.incrementAndGet();
         rule.setEnabled(isEnabled(rule.getTitle()));
+    }
+
+    /** 删除规则目录里「JSON 标题与 title 相同、但文件名不是 keepName」的文件（逐个解析比对，坏文件跳过）。 */
+    private void deleteSameTitleFiles(String title, String keepName) {
+        if (title == null || title.isEmpty()) return;
+        try {
+            File[] files = getDir().listFiles((d, name) -> name.endsWith(".json"));
+            if (files == null) return;
+            Gson gson = new Gson();
+            for (File f : files) {
+                if (f.getName().equals(keepName)) continue;
+                try {
+                    byte[] bytes = Files.readAllBytes(f.toPath());
+                    HkRule other = gson.fromJson(new String(bytes, StandardCharsets.UTF_8), HkRule.class);
+                    if (other != null && title.equals(other.getTitle())) f.delete();
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -1140,7 +1176,12 @@ public class HkRuleManager {
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
         if (files == null) return list;
         Gson gson = new Gson();
-        java.util.Set<String> seenTitles = new java.util.HashSet<>();
+        // 同标题去重：保留最后落盘（mtime 最新）的那份，平局时标准文件名优先。
+        // 旧口径「保留 listFiles 第一个」顺序不确定：目录里只要有同标题旧副本，
+        // 就可能一直读旧的——导入新版看着没效果。此处只定取舍，物理清理由 saveRule 做。
+        java.util.Map<String, HkRule> best = new LinkedHashMap<>();
+        java.util.Map<String, Long> bestMtime = new java.util.HashMap<>();
+        java.util.Map<String, Boolean> bestCanonical = new java.util.HashMap<>();
         for (File f : files) {
             try {
                 byte[] bytes = Files.readAllBytes(f.toPath());
@@ -1152,15 +1193,27 @@ public class HkRuleManager {
                     if (fn.endsWith(".json")) fn = fn.substring(0, fn.length() - 5);
                     if (!fn.isEmpty() && !"unnamed".equals(fn)) rule.setTitle(fn);
                 }
-                // 去重：跳过重复标题的规则（保留第一个）
-                if (!seenTitles.add(rule.getTitle())) continue;
-                rule.setEnabled(isEnabled(rule.getTitle()));
-                list.add(rule);
+                String title = rule.getTitle();
+                boolean canonical = f.getName().equals(safeFileName(title) + ".json");
+                long mtime = f.lastModified();
+                HkRule cur = best.get(title);
+                if (cur != null) {
+                    long curMtime = bestMtime.get(title);
+                    boolean curCanonical = Boolean.TRUE.equals(bestCanonical.get(title));
+                    boolean newer = mtime > curMtime
+                            || (mtime == curMtime && canonical && !curCanonical);
+                    if (!newer) continue;
+                }
+                rule.setEnabled(isEnabled(title));
+                best.put(title, rule);
+                bestMtime.put(title, mtime);
+                bestCanonical.put(title, canonical);
             } catch (Exception e) {
                 e.printStackTrace();
                 logRuleError(f.getName(), e);
             }
         }
+        list.addAll(best.values());
         return list;
     }
 
@@ -1207,6 +1260,7 @@ public class HkRuleManager {
         if (title == null) return false;
         File f = new File(getDir(), safeFileName(title) + ".json");
         boolean ok = !f.exists() || f.delete();
+        if (ok) SAVE_STAMP.incrementAndGet();
         try {
             deleteRecursive(getDataDir(title));
         } catch (Throwable ignored) {

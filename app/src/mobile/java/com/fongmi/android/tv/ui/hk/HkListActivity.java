@@ -480,6 +480,8 @@ public class HkListActivity extends AppCompatActivity
                             : (!TextUtils.isEmpty(request.title) ? request.title : "");
                     if (request.pics != null) s.images = new ArrayList<>(request.pics);
                     s.referer = request.url == null ? "" : request.url;
+                    // request.url 就是本章真实页地址：另存 pageUrl 供阅读器组图（与 referer 分开）
+                    s.pageUrl = request.url == null ? "" : request.url;
                     if (request.chapters != null) {
                         for (HkArticleFragment.HkChapter ch : request.chapters) {
                             ReadingSession.Chapter c = new ReadingSession.Chapter(
@@ -1805,6 +1807,8 @@ public class HkListActivity extends AppCompatActivity
         AlertDialog dialog = new HkDialogs(this)
                 .setView(outer).create();
         holder[0] = dialog;
+        // 浅色卡片自成一面：清掉窗口暗色玻璃底，不许黑层从卡片边缘探出
+        HkDialogs.clearWindowBackground(dialog);
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
     }

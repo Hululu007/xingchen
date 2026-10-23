@@ -201,6 +201,7 @@ public class HkRouter {
                         detail.setLazyParseFailed(true);
                         return detail;
                     }
+                    detail.setPageUrl(pageUrl);
                     detail.setRawItems(jsItems);
                     return detail;
                 }
@@ -244,6 +245,7 @@ public class HkRouter {
                 }
             }
             // 8.83 原版：详情条目直接进通用列表渲染，不做线路/选集分类
+            detail.setPageUrl(url);
             detail.setRawItems(items);
         } catch (Throwable e) {
             Logger.t(TAG).d("detail failed: %s", e.getMessage());

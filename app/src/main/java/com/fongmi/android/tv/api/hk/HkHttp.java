@@ -241,11 +241,320 @@ public class HkHttp {
         return false;
     }
 
+    // ------------------------------------------------------------------
+    // 图片自动 DNS（8.83 DohProvidersKt 整套移植，2026-10-23 补齐）：
+    // 逐图判定在 HkGlideUrlLoader.buildLoadData（照 OkHttpUrlLoader.smali：
+    // 先判 shouldUseAutoDNS，命中才换 client），与原版共用同一张名单——
+    // 即上面的 AUTO_DOMAIN（种子 + dns0.txt 文件/远程维护 + 规则 registerDNS
+    // 三个来源，原版 autoDomain 亦是同一张表）。此前星辰只有 HK_IMAGE_DNS 里
+    // 「haikuoshijie + 用户开 DoH」一支近似实现，名单整套未移植：系统 DNS 被
+    // 污染给出错 IP 时不抛异常、兜底永不触发，图床图片反复刷不出。
+    // ------------------------------------------------------------------
+
+    /** 自动 DNS 总开关（8.83 DohProvidersKt.dnsAuto，字段默认 true）。 */
+    private static volatile boolean dnsAuto = true;
+
+    /** 远程名单下发地址（8.83 DohProvidersKt.autoDNSCheckUrl 原文）。 */
+    private static final String AUTO_DNS_CHECK_URL =
+            "http://gh.haikuoshijie.cn/https://github.com/qiusunshine/hiker-rules/blob/master/dns0.txt";
+
     /**
-     * 图片 client 专用 DNS（照 8.83 OkHttpUrlLoader.buildLoadData 口径）：
+     * APK 内置名单快照（8.83 DohProvidersKt$loadAutoDNSFromRemote$1 的内置文本，
+     * 四条记录：01xs.com→360 DoH、raw.githubusercontent.com / github.com /
+     * haikuoshijie.cn→阿里 DoH。smali 原文四条记录之间无分隔符、按原版解析法
+     * 只会解出一条坏记录，这里按记录边界补回换行，记录内容一字未改）。
+     */
+    private static final String AUTO_DNS_BUNDLED =
+            "01xs.com https://doh.360.cn/dns-query\n"
+                    + "raw.githubusercontent.com https://dns.alidns.com/dns-query\n"
+                    + "github.com https://dns.alidns.com/dns-query\n"
+                    + "haikuoshijie.cn https://dns.alidns.com/dns-query";
+
+    /** 名单刷新间隔：24 小时（8.83 原版常量 0x5265c00 毫秒）。 */
+    private static final long AUTO_DNS_REFRESH_MS = 86_400_000L;
+
+    private static final java.util.concurrent.atomic.AtomicBoolean AUTO_DNS_INITED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    /** 名单值 → 解析器缓存（避免逐图重建）。 */
+    private static final java.util.Map<String, Dns> AUTO_DNS_BY_VALUE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 阿里 DoH（8.83 DohProvidersKt.dohAliDNS：地址 + 四个自举 IP），自动 DNS 的默认解析器。 */
+    private static final Dns ALI_AUTO_DNS = cappedDns(buildAliDoh());
+
+    private static DnsOverHttps buildAliDoh() {
+        try {
+            List<InetAddress> bootstrap = new java.util.ArrayList<>();
+            for (String ip : new String[]{"223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"}) {
+                try {
+                    bootstrap.add(InetAddress.getByName(ip));
+                } catch (Exception ignored) {
+                }
+            }
+            HttpUrl url = HttpUrl.parse("https://dns.alidns.com/dns-query");
+            if (url == null) return null;
+            return new DnsOverHttps.Builder()
+                    .client(new OkHttpClient())
+                    .url(url)
+                    .bootstrapDnsHosts(bootstrap)
+                    .build();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 给任意 Dns 套与 HK_DNS 同款的 10 秒解析封顶（守护线程池代查、超时按解析失败处理）。 */
+    private static Dns cappedDns(Dns delegate) {
+        if (delegate == null) return Dns.SYSTEM;
+        return new Dns() {
+            @Override
+            public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+                java.util.concurrent.Future<List<InetAddress>> f =
+                        DNS_POOL.submit(() -> delegate.lookup(hostname));
+                try {
+                    List<InetAddress> r = f.get(DNS_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS);
+                    // 同图片既有口径：混着的 [::] 空地址先剔掉（有真地址时）
+                    List<InetAddress> clean = stripAnyLocal(r);
+                    return clean.isEmpty() ? r : clean;
+                } catch (java.util.concurrent.TimeoutException e) {
+                    f.cancel(true);
+                    throw new UnknownHostException("dns timeout: " + hostname);
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Throwable c = e.getCause();
+                    if (c instanceof UnknownHostException) throw (UnknownHostException) c;
+                    throw new UnknownHostException(String.valueOf(c));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new UnknownHostException("dns interrupted: " + hostname);
+                }
+            }
+        };
+    }
+
+    /**
+     * 8.83 DohProvidersKt.shouldUseAutoDNS(String) 原文口径：
+     * 地址空 → 否；总开关关 → 否；host 含 "haikuoshijie" → 是；
+     * host 命中名单 → 是（经 autoDomainValue：精确 equals 或后缀 endsWith，
+     * 与原版 containsKey + endsWith 遍历一致）；其余否。
+     */
+    public static boolean shouldUseAutoDNS(String url) {
+        if (url == null || url.isEmpty()) return false;
+        if (!dnsAuto) return false;
+        try {
+            HttpUrl u = HttpUrl.parse(url);
+            if (u == null) return false;
+            String host = u.host();
+            if (host.isEmpty()) return false;
+            if (host.contains("haikuoshijie")) return true;
+            return autoDomainValue(host) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 8.83 DohProvidersKt.buildAutoDNSClient(String, OkHttpClient) 原文口径：
+     * 名单给了该 host 的解析方式 → 按方式换 Dns 当主解析（值为 DoH 地址走该
+     * DoH；值为空格分隔的 IP 列表走静态地址，即原版 dohCustom/toHostMap 的
+     * 语义）；名单没给（只有 haikuoshijie 子串命中那类）→ 默认阿里 DoH
+     * （dohAliDNS）。异常回退原 client。派生 client 经 newBuilder 与 base
+     * 共享连接池/分发器，不新建池；解析器按名单值缓存，避免逐图重建
+     * （原版逐图新建 client，星辰这里只缓存 Dns、client 本身仍逐图派生）。
+     */
+    public static OkHttpClient buildAutoDNSClient(String url, OkHttpClient base) {
+        if (base == null) base = imageClient();
+        try {
+            HttpUrl u = url == null ? null : HttpUrl.parse(url);
+            String host = u == null ? null : u.host();
+            String value = host == null ? null : autoDomainValue(host);
+            if (value != null && !value.trim().isEmpty()) {
+                return base.newBuilder().dns(autoDnsFor(value.trim(), host)).build();
+            }
+            return base.newBuilder().dns(ALI_AUTO_DNS).build();
+        } catch (Throwable t) {
+            return base;
+        }
+    }
+
+    /**
+     * 名单值 → 解析器（按值缓存）：http(s) 开头是 DoH 地址（经既有 autoDoh 缓存
+     * 建 DnsOverHttps，再套 10 秒封顶）；其余按空格分隔的静态 IP 列表，只对
+     * 名单命中的那个 host 生效（原版 toHostMap 就是按页面 host 绑定的），
+     * 其它 host 回系统解析。
+     */
+    private static Dns autoDnsFor(String value, String host) {
+        String cacheKey = value + "@" + (host == null ? "" : host);
+        Dns cached = AUTO_DNS_BY_VALUE.get(cacheKey);
+        if (cached != null) return cached;
+        Dns d;
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            DnsOverHttps doh = autoDoh(value);
+            d = doh != null ? cappedDns(doh) : Dns.SYSTEM;
+        } else {
+            List<InetAddress> ips = new java.util.ArrayList<>();
+            for (String ip : value.split("\\s+")) {
+                try {
+                    ips.add(InetAddress.getByName(ip));
+                } catch (Exception ignored) {
+                }
+            }
+            List<InetAddress> fixed = ips;
+            String boundHost = host;
+            d = hostname -> {
+                if (boundHost != null && boundHost.equals(hostname) && !fixed.isEmpty()) return fixed;
+                return Dns.SYSTEM.lookup(hostname);
+            };
+        }
+        AUTO_DNS_BY_VALUE.put(cacheKey, d);
+        return d;
+    }
+
+    /**
+     * 8.83 DohProvidersKt.initDnsAuto 的星辰落点：由 applyDoh 在启动与改 DoH
+     * 设置时调用（原版在 JSEngine 初始化时调）。总开关口径：原版
+     * dnsAuto =（DNS 设置 == "智能"默认档）；星辰无"智能"档，未指定 DoH
+     * （系统档、hkDoh == null）即等价默认档，故 dnsAuto = (hkDoh == null)，
+     * 在 applyDoh 里先行刷新。名单维护每进程只实跑一次（原版
+     * loadAutoDNSFromFile 会 clearAutoDomain 重置整张名单，放启动期跑可避开
+     * 运行期规则 registerDNS 的登记被冲掉；原版同为引擎初始化期触发）。
+     */
+    public static void initAutoDns(Context context) {
+        if (context == null || !dnsAuto) return;
+        if (!AUTO_DNS_INITED.compareAndSet(false, true)) return;
+        try {
+            DNS_POOL.execute(() -> maintainAutoDomain(context));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 名单文件维护（8.83 loadAutoDNSFromFile + loadAutoDNSFromRemote 的串行等价，终态一致）。 */
+    private static void maintainAutoDomain(Context context) {
+        try {
+            java.io.File file = autoDnsFile(context);
+            // FromFile：本地文件在就先重置名单并加载它（原版 clearAutoDomain + fileToString + loadAutoDNS）
+            if (file != null && file.exists()) {
+                reseedAutoDomain();
+                loadAutoDNS(readTextFile(file));
+            }
+            // FromRemote：文件缺失或已满 24 小时才刷新。8.83 出厂构建在这一步并未
+            // 真发请求，而是把内置快照写回文件再加载（autoDNSCheckUrl 只声明、
+            // 全包无消费方）；星辰在此先按该下发地址试拉一次，拉不到或内容不成
+            // 名单才回退内置快照，写回文件后重置名单并加载（多一道内容校验，
+            // 防下发端点返回网页正文污染名单 —— 与原版的差异仅此一处校验）。
+            if (file == null || !file.exists()
+                    || System.currentTimeMillis() - file.lastModified() >= AUTO_DNS_REFRESH_MS) {
+                String text = fetchAutoDnsText();
+                if (text == null || !hasParsableAutoDnsLine(text)) text = AUTO_DNS_BUNDLED;
+                if (file != null) writeTextFile(file, text);
+                reseedAutoDomain();
+                loadAutoDNS(text);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 名单文件位置：原版 <外部文件根>/rules/dns0.txt；星辰海阔根在 filesDir/plugins/hk 下，结构照搬。 */
+    private static java.io.File autoDnsFile(Context context) {
+        try {
+            Context app = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+            return new java.io.File(new java.io.File(app.getFilesDir(), "plugins/hk"), "rules/dns0.txt");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 8.83 DohProvidersKt.clearAutoDomain：清空名单并放回内置种子。 */
+    private static void reseedAutoDomain() {
+        AUTO_DOMAIN.clear();
+        AUTO_DOMAIN.put("pasteme.tyrantg.com", "https://dns.alidns.com/dns-query");
+    }
+
+    /**
+     * 8.83 DohProvidersKt.loadAutoDNS(String) 解析口径：按行切，每行按空白切，
+     * 首段是域名、其余段以空格拼回作解析方式（DoH 地址或 IP 列表），不足
+     * 两段的行跳过。（原版按字面空格切分且不 trim，对规整名单结果一致。）
+     */
+    static void loadAutoDNS(String text) {
+        if (text == null) return;
+        for (String line : text.split("\n")) {
+            if (line == null || line.trim().isEmpty()) continue;
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length < 2) continue;
+            StringBuilder value = new StringBuilder();
+            for (int i = 1; i < parts.length; i++) {
+                if (i > 1) value.append(' ');
+                value.append(parts[i]);
+            }
+            AUTO_DOMAIN.put(parts[0], value.toString());
+        }
+    }
+
+    /** 下发内容是否至少有一行像名单（域名 + DoH 地址/IP），防网页正文污染名单。 */
+    private static boolean hasParsableAutoDnsLine(String text) {
+        if (text == null) return false;
+        for (String line : text.split("\n")) {
+            if (line == null) continue;
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length < 2 || !parts[0].contains(".")) continue;
+            String v = parts[1];
+            if (v.startsWith("http://") || v.startsWith("https://")) return true;
+            if (v.matches("[0-9a-fA-F.:]+")) {
+                try {
+                    if (InetAddress.getByName(v) != null) return true;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 按下发地址拉名单原文（15 秒超时，失败返回 null）。 */
+    private static String fetchAutoDnsText() {
+        try {
+            OkHttpClient c = new OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .build();
+            Request req = new Request.Builder().url(AUTO_DNS_CHECK_URL).build();
+            try (Response resp = c.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) return null;
+                return resp.body().string();
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static String readTextFile(java.io.File file) {
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static void writeTextFile(java.io.File file, String text) {
+        try {
+            java.io.File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.nio.file.Files.write(file.toPath(),
+                    text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 图片 client 的基础 DNS（非自动 DNS 命中地址走这里）：
      * 默认系统解析；仅 host 含 "haikuoshijie" 的地址（原版
      * DohProvidersKt.shouldUseAutoDNS 口径）在用户开了 DoH 时走 hkDoh，
      * 其余一律系统解析。
+     *
+     * <p>自动 DNS 总开关开启时，shouldUseAutoDNS 命中的地址在
+     * HkGlideUrlLoader.buildLoadData 就换成 buildAutoDNSClient 派生 client
+     * （名单内走名单解析、未给解析方式走阿里 DoH 主解析），根本不到本 Dns；
+     * 本 Dns 只兜未命中地址与总开关关闭（用户指定 DoH）时的情形，行为与
+     * 移植前一致。</p>
      *
      * <p>8.83 的图片 client 在 builder 上不装自定义 Dns（loadDns 默认"智能"
      * 不装任何东西），按地址加 DoH 是逐请求在 buildLoadData 里判的；此前
@@ -297,8 +606,11 @@ public class HkHttp {
     };
 
     /**
-     * 照原版 DohProvidersKt.shouldUseAutoDNS：host 含 haikuoshijie 即走自动 DNS。
-     * 原版另有远端下发的 autoDomain 名单一并参与，星辰未移植该名单，按任务口径只保留 haikuoshijie 一类。
+     * 照原版 DohProvidersKt.shouldUseAutoDNS 里 haikuoshijie 子串一支：
+     * 本方法只服务 HK_IMAGE_DNS 在自动 DNS 总开关关闭（用户指定了具体 DoH）
+     * 时，让这类地址走用户 DoH 的既有分支。总开关开启时的逐图判定与名单
+     * 机制已整套移植（shouldUseAutoDNS / buildAutoDNSClient + dns0.txt 名单
+     * 维护，判定点在 HkGlideUrlLoader.buildLoadData），不经本方法。
      */
     private static boolean isAutoDnsHost(String hostname) {
         return hostname != null && hostname.toLowerCase(java.util.Locale.US).contains("haikuoshijie");
@@ -322,6 +634,11 @@ public class HkHttp {
                 client = null;
                 imageClient = null;
             }
+            // 8.83 initDnsAuto 同步点：自动 DNS 总开关随用户 DoH 选择刷新
+            //（未指定 DoH = 原版"智能"默认档 → 开；指定了具体 DoH → 关，
+            // 逐图自动 DNS 不再插手），名单维护每进程只实跑一次。
+            dnsAuto = hkDoh == null;
+            initAutoDns(context);
         } catch (Throwable t) {
             t.printStackTrace();
         }
@@ -332,7 +649,8 @@ public class HkHttp {
      * - BrotliInterceptor
      * - 信任所有证书 SSL（UnSafeTrustManager + UnSafeHostnameVerifier）
      * - DNS：HK_IMAGE_DNS——默认系统解析，仅 haikuoshijie 类地址在用户开 DoH 时走 DoH
-     *   （照 8.83 buildLoadData 逐地址判定口径；此前误装恒走 DoH 的 HK_DNS 致零封面）
+     *   （此前误装恒走 DoH 的 HK_DNS 致零封面）；8.83 buildLoadData 的逐地址
+     *   自动 DNS 判定由 HkGlideUrlLoader 在派生 client 上完成（见 shouldUseAutoDNS）
      * - 超时 + CookieJar
      * 不含 ContentType 拦截器（8.83 图片 client 同样不加）。
      */

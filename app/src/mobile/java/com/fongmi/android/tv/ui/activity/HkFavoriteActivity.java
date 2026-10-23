@@ -28,7 +28,6 @@ import com.fongmi.android.tv.databinding.ActivityHkFavoriteBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.hk.HkDynamicBgView;
 import com.fongmi.android.tv.ui.hk.HkFavoriteDialogs;
-import com.fongmi.android.tv.ui.hk.HkListActivity;
 import com.fongmi.android.tv.ui.hk.HkPressFeedback;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -42,7 +41,7 @@ import java.util.Locale;
 /**
  * 海阔收藏页：对齐 8.83 CollectionListActivity（分组筛选 + 条目列表）。
  * 收藏只进海阔侧存储（HkFavoriteStore），不混入主 App 首页收藏。
- * 点条目：打开所属小程序页（原版直达详情；星辰新模块无详情直达入口，偏离点见报告）。
+ * 点条目：用存下的 episodeUrl 直达那条内容的详情页（与规则内点条目同一路，对齐原版）。
  * 长按条目：更新收藏 / 取消收藏。
  */
 public class HkFavoriteActivity extends BaseActivity {
@@ -149,7 +148,9 @@ public class HkFavoriteActivity extends BaseActivity {
             Notify.show("该小程序已删除");
             return;
         }
-        HkListActivity.startRule(this, rule, rule.getTitle());
+        // 直达那条内容（对齐 8.83 点收藏进 CUrl 页面）：用存下的 episodeUrl 走与规则内
+        // 点条目同一条详情链（startHk → VideoActivity 海阔分支），不再只开小程序首页。
+        VideoActivity.startHk(this, f.getRuleTitle(), f.getEpisodeUrl(), f.getTitle(), f.getPicUrl());
     }
 
     private class FavAdapter extends RecyclerView.Adapter<FavAdapter.Holder> {

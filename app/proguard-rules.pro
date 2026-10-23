@@ -67,10 +67,32 @@
 -keep class org.slf4j.** { *; }
 
 # CatVod
+# 宿主面全包保名（2026-10-23 jar 全灭实锤补）：jar 里的爬虫（含加密载荷）在
+# 编译期按 com.github.catvod.** 标准宿主面链接，成品里任一类被 R8 改名或裁掉，
+# 载荷一执行到引用点就 NoClassDefFoundError、整 jar 失效。1.4.16 成品 dex 实测：
+# 只保了 Proxy/crawler/net，utils 整包（Util/Json/Path/Prefers/Auth/Shell 等 12 类）
+# ＋顶层 Init/Runtime＋bean 3 类＋runtime 2 类共 19 个类原名消失。此行与 FongMi
+# catvod/consumer-rules.pro 的 `-keep class com.github.catvod.** { *; }` 同口径，
+# 全包保原名与成员；下面三条旧规则已被此行覆盖，保留不动。
+-keep class com.github.catvod.** { *; }
 -keep class com.github.catvod.Proxy { *; }
 -keep class com.github.catvod.crawler.** { *; }
 -keep class com.github.catvod.net.** { *; }
 -keep class * extends com.github.catvod.crawler.Spider
+
+# jar 按名引用的宿主配置门面（2026-10-23 全量对差 appclass-keep-sweep 补）：
+# vox.jar 的 merge 框架运行时按类名构造 com.fongmi.android.tv.api.config.VodConfig
+# （类名在 jar 内为加密字符串池，本地仓拆解 jadx 解密实证；本批字节直查为密文形态）。
+# 1.4.16 成品类清单实测：api.config 整包 5 类（BaseConfig/LiveConfig/RuleConfig/
+# VodConfig/WallConfig）原名全缺、同包同命运，故按小包粒度整包保原名与成员。
+-keep class com.fongmi.android.tv.api.config.** { *; }
+
+# QuickJS 桥面全包保名（同批对差补）：FongMi 由 quickjs/consumer-rules.pro
+# （com.fongmi.quickjs.*）与 runtime/proguard-rules.pro（com.fongmi.quickjs.**）
+# 两处保名；星辰此前只有 method 子包一条，1.4.16 成品实测 bean 4 类＋utils 6 类
+# ＋crawler/Loader 共 11 类原名缺失。按三家并集口径全包补齐（与本文件第 7 行
+# 既有的 method.** 规则重叠无副作用）。
+-keep class com.fongmi.quickjs.** { *; }
 
 # Jianpian
 -keep class com.p2p.** { *; }
@@ -119,6 +141,11 @@
 # 图片解密桥：crypto-java.js 按名调 FileUtil.toBytes（即本类），R8 改名后真机
 # TypeError 找不到函数、封面空流（1.3.7 真机日志实锤）。整类保名。
 -keep class com.fongmi.android.tv.api.hk.HkCryptoFileUtil { *; }
+
+# 8.83 宿主类同包名补齐：规则 JS 在任意作用域按全名直调
+# com.example.hikerview.utils.FileUtil.*（列表期解密封面等），无 Java 侧引用，
+# R8 不保名会把类/方法改名或整类裁掉、类路径解析当场落空。整类保名。
+-keep class com.example.hikerview.utils.FileUtil { *; }
 
 # 海阔模型：Gson 按字段名序列化/反序列化（MY_RULE、hiker://page 规则体），字段名不能改
 -keep class com.fongmi.android.tv.api.hk.HkRule { *; }

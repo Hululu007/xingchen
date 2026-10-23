@@ -51,6 +51,17 @@ public class Trans {
         return pass || text.isEmpty() ? text : convert(text, S2T);
     }
 
+    public static String convert(String text, String lang) {
+        if (text == null) return null;
+        String language = lang == null ? "" : lang.trim().toLowerCase(Locale.ROOT);
+        if (language.isEmpty()) return t2s(text);
+        return switch (language) {
+            case "zh-tw", "zh-hk", "zh-mo", "zh-hant" -> s2t(false, text);
+            case "zh-cn", "zh-sg", "zh-hans" -> t2s(false, text);
+            default -> text;
+        };
+    }
+
     public static String t2s(boolean pass, String text) {
         return pass || text.isEmpty() ? text : convert(text, T2S);
     }

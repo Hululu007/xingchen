@@ -1591,6 +1591,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                         detailFinishTime = System.currentTimeMillis();
                         markEpisodeRender = true;
                         setDetail(vod);
+                        backfillHkFavoritePic(ruleTitle, getId(), vod.getPic());
                     }
                 });
             } catch (Throwable e) {
@@ -3527,19 +3528,57 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             });
             return;
         }
+        // 新增收藏直接存（2026-10-23 定案）：点一下就存好，不先弹「新增收藏」表单；
+        // 改名/分组走收藏页长按的「更新收藏」。标题/封面取值链见 hkKeepTitle/hkKeepPic。
         HkFavorite f = new HkFavorite();
         f.setRuleTitle(ruleTitle);
         f.setEpisodeUrl(episodeUrl);
-        String name = getIntent().getStringExtra("name");
-        if (name == null || name.isEmpty()) name = mHistory != null ? mHistory.getVodName() : "";
-        f.setTitle(name);
-        String pic = getIntent().getStringExtra("pic");
-        f.setPicUrl(pic);
+        f.setTitle(hkKeepTitle());
+        f.setPicUrl(hkKeepPic());
         f.setGroup(HkFavoriteStore.DEFAULT_GROUP);
         f.setTime(System.currentTimeMillis());
         HkRule rule = HkRuleManager.get().getInstalledRule(ruleTitle);
         if (rule != null) f.setRuleUrl(rule.getUrl());
-        showHkFavoriteEdit(f);
+        HkFavoriteStore.addOrUpdate(f);
+        Notify.show("已加入收藏");
+        checkKeepImg();
+    }
+
+    /** 收藏标题：已加载详情标题 → 入口条目名 → 历史记录名，取第一个非空。 */
+    private String hkKeepTitle() {
+        if (mAiVod != null && !TextUtils.isEmpty(mAiVod.getName())) return mAiVod.getName();
+        String name = getIntent().getStringExtra("name");
+        if (!TextUtils.isEmpty(name)) return name;
+        return mHistory != null && mHistory.getVodName() != null ? mHistory.getVodName() : "";
+    }
+
+    /**
+     * 收藏封面取值链（2026-10-23 定案，覆盖两条入口）：
+     * 已加载 Vod 的封面（有详情页时）→ 历史记录里的 vodPic → 入口条目带的 pic 参数
+     * （没详情页、从列表直接进播放时条目自带的封面），取第一个非空。
+     * 旧实现只取 intent 的 pic：海阔详情进来时该参数为空，封面被存成空串，收藏页只剩首字占位块。
+     */
+    private String hkKeepPic() {
+        if (mAiVod != null && !TextUtils.isEmpty(mAiVod.getPic())) return mAiVod.getPic();
+        if (mHistory != null && !TextUtils.isEmpty(mHistory.getVodPic())) return mHistory.getVodPic();
+        String pic = getIntent().getStringExtra("pic");
+        return pic == null ? "" : pic;
+    }
+
+    /**
+     * 老收藏补封面：早期存下的收藏 picUrl 为空，打开它的详情、封面加载到后顺手补存（只补空、不覆盖）。
+     * 在海阔详情加载成功处调用（收藏页点条目也走同一条详情链，故老收藏点开即补）。
+     */
+    private void backfillHkFavoritePic(String ruleTitle, String episodeUrl, String pic) {
+        if (TextUtils.isEmpty(pic)) return;
+        try {
+            HkFavorite fav = HkFavoriteStore.find(ruleTitle, episodeUrl);
+            if (fav != null && TextUtils.isEmpty(fav.getPicUrl())) {
+                fav.setPicUrl(pic);
+                HkFavoriteStore.addOrUpdate(fav);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 海阔收藏编辑弹窗：标题可改、分组可选（对齐原版 BookmarkEditPopup）。 */

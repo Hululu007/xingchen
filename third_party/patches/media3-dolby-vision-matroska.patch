@@ -1,11 +1,31 @@
+# Xingchen baseline patch: Matroska Dolby Vision BlockAdditional RPU emission.
+#
+# 基线：上游 media 锁定提交 3c2cbe8ac742c2fe15eff52f03eeb3b1b648848d。
+#
+# 内容：MatroskaExtractor 新增
+# newFactory(subtitleParserFactory, emitDolbyVisionBlockAdditionalData)
+# 与对应构造器链/字段；开启时把 Matroska BlockAdditional 里的 DV RPU
+# 以 Annex-B NAL 追加到关联 HEVC 样本（appendDolbyVisionBlockAdditionalData），
+# 与 MP4/TS 内嵌 DV 走同一条下游路径。media3-exo-avs3-r2.patch 已带走
+# 该文件里 AVS3 与相邻 hunk，本补丁是其余 DV 工厂/发射部分；后像与
+# 现行工作树逐字一致。
+# 本文件由 webhtv 的零上下文旧补丁按 2026-10-23 口径重生成（带上下文
+# 锚点）。
+#
+# 与现行工作树的唯一偏差（有据）：现行树该文件 Track.reset() 里有一行
+# `trueHdAtmosAnalysisComplete = false;`，但新锁定基线已删除整个
+# TrueHD Atmos 分析特征（字段与门控逻辑均不存在，旧基线 sources 里
+# 共有 4 处），该行是零上下文旧补丁强行落位时带进的悬空引用，文件按
+# 现行树原样 javac 必断（cannot find symbol）。本补丁剔除这一行；
+# DV 特征本身不受影响。
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java b/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
-index 7608dd32e9..1b24e3d976 100644
+index 64e293c..26ab31a 100644
 --- a/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
-@@ -102,6 +102,25 @@ public class MatroskaExtractor implements Extractor {
+@@ -104,6 +104,25 @@ public class MatroskaExtractor implements Extractor {
      return () -> new Extractor[] {new MatroskaExtractor(subtitleParserFactory)};
    }
-
+ 
 +  /**
 +   * Creates a factory that can expose Dolby Vision RPU data stored in Matroska BlockAdditional.
 +   *
@@ -28,15 +48,15 @@ index 7608dd32e9..1b24e3d976 100644
    /**
     * Flags controlling the behavior of the extractor. Possible flag values are {@link
     * #FLAG_DISABLE_SEEK_FOR_CUES} and {#FLAG_EMIT_RAW_SUBTITLE_DATA}.
-@@ -460,6 +479,7 @@ public class MatroskaExtractor implements Extractor {
+@@ -471,6 +490,7 @@ public class MatroskaExtractor implements Extractor {
    private final boolean seekForCuesEnabled;
    private final boolean parseSubtitlesDuringExtraction;
    private final SubtitleParser.Factory subtitleParserFactory;
 +  private final boolean emitDolbyVisionBlockAdditionalData;
-
+ 
    // Temporary arrays.
    private final ParsableByteArray nalStartCode;
-@@ -552,7 +572,11 @@ public class MatroskaExtractor implements Extractor {
+@@ -563,7 +583,11 @@ public class MatroskaExtractor implements Extractor {
     */
    @Deprecated
    public MatroskaExtractor() {
@@ -47,9 +67,9 @@ index 7608dd32e9..1b24e3d976 100644
 +        SubtitleParser.Factory.UNSUPPORTED,
 +        /* emitDolbyVisionBlockAdditionalData= */ false);
    }
-
+ 
    /**
-@@ -563,7 +587,8 @@ public class MatroskaExtractor implements Extractor {
+@@ -574,7 +598,8 @@ public class MatroskaExtractor implements Extractor {
      this(
          new DefaultEbmlReader(),
          flags | FLAG_EMIT_RAW_SUBTITLE_DATA,
@@ -57,9 +77,9 @@ index 7608dd32e9..1b24e3d976 100644
 +        SubtitleParser.Factory.UNSUPPORTED,
 +        /* emitDolbyVisionBlockAdditionalData= */ false);
    }
-
+ 
    /**
-@@ -573,7 +598,11 @@ public class MatroskaExtractor implements Extractor {
+@@ -584,7 +609,11 @@ public class MatroskaExtractor implements Extractor {
     *     extraction.
     */
    public MatroskaExtractor(SubtitleParser.Factory subtitleParserFactory) {
@@ -70,9 +90,9 @@ index 7608dd32e9..1b24e3d976 100644
 +        subtitleParserFactory,
 +        /* emitDolbyVisionBlockAdditionalData= */ false);
    }
-
+ 
    /**
-@@ -584,14 +613,51 @@ public class MatroskaExtractor implements Extractor {
+@@ -595,14 +624,51 @@ public class MatroskaExtractor implements Extractor {
     * @param flags Flags that control the extractor's behavior.
     */
    public MatroskaExtractor(SubtitleParser.Factory subtitleParserFactory, @Flags int flags) {
@@ -103,7 +123,7 @@ index 7608dd32e9..1b24e3d976 100644
 +        subtitleParserFactory,
 +        emitDolbyVisionBlockAdditionalData);
    }
-
+ 
    /* package */ MatroskaExtractor(
        EbmlReader reader, @Flags int flags, SubtitleParser.Factory subtitleParserFactory) {
 +    this(
@@ -125,15 +145,16 @@ index 7608dd32e9..1b24e3d976 100644
      this.perTrackCues = new SparseArray<>();
      seekForCuesEnabled = (flags & FLAG_DISABLE_SEEK_FOR_CUES) == 0;
      parseSubtitlesDuringExtraction = (flags & FLAG_EMIT_RAW_SUBTITLE_DATA) == 0;
-@@ -1027,6 +1093,7 @@ public class MatroskaExtractor implements Extractor {
-                   .putLong(blockGroupDiscardPaddingNs)
+@@ -1039,6 +1105,8 @@ public class MatroskaExtractor implements Extractor {
                    .array());
          }
+ 
 +        appendDolbyVisionBlockAdditionalData(track);
-
++
          // Commit sample metadata.
          int sampleOffset = 0;
-@@ -1732,12 +1799,36 @@ public class MatroskaExtractor implements Extractor {
+         for (int i = 0; i < blockSampleCount; i++) {
+@@ -1743,12 +1811,36 @@ public class MatroskaExtractor implements Extractor {
          && CODEC_ID_VP9.equals(track.codecId)) {
        supplementalData.reset(contentSize);
        input.readFully(supplementalData.getData(), 0, contentSize);
@@ -148,7 +169,7 @@ index 7608dd32e9..1b24e3d976 100644
        input.skipFully(contentSize);
      }
    }
-
+ 
 +  @RequiresNonNull("#1.output")
 +  private void appendDolbyVisionBlockAdditionalData(Track track) {
 +    byte[] blockAdditionalData = track.pendingDolbyVisionBlockAdditionalData;
@@ -170,19 +191,19 @@ index 7608dd32e9..1b24e3d976 100644
    @EnsuresNonNull("currentChapter")
    private void assertInEditionEntry(int id) throws ParserException {
      if (currentChapter == null) {
-@@ -2472,6 +2563,7 @@ public class MatroskaExtractor implements Extractor {
+@@ -2503,6 +2595,7 @@ public class MatroskaExtractor implements Extractor {
      public float maxMasteringLuminance = Format.NO_VALUE;
      public float minMasteringLuminance = Format.NO_VALUE;
      public byte @MonotonicNonNull [] dolbyVisionConfigBytes;
 +    public byte @MonotonicNonNull [] pendingDolbyVisionBlockAdditionalData;
-
+ 
      // Audio elements. Initially set to their default values.
      public int channelCount = 1;
-@@ -2885,6 +2977,7 @@ public class MatroskaExtractor implements Extractor {
+@@ -2929,6 +3022,7 @@ public class MatroskaExtractor implements Extractor {
+       if (trueHdSampleRechunker != null) {
          trueHdSampleRechunker.reset();
-         trueHdAtmosAnalysisComplete = false;
        }
 +      pendingDolbyVisionBlockAdditionalData = null;
      }
-
+ 
      /**

@@ -48,8 +48,17 @@ public class UrlUtil {
         String path = null;
         if ("assets".equals(scheme) || "asset".equals(scheme)) path = "/";
         else if ("file".equals(scheme)) path = "/file/";
+        else if ("clan".equals(scheme)) path = "/file/";
         else if ("proxy".equals(scheme)) path = "/proxy?";
-        return path != null ? url.replace(scheme + "://", Server.get().getAddress(path)) : url;
+        if (path == null) return url;
+        if ("clan".equals(scheme)) {
+            // clan://localhost/<路径> 与 file://<路径> 同义：localhost 只是占位主机名，
+            // 剥掉后剩下的就是存储根起的路径，与 file 形态逐字汇合到 /file/ 空间。
+            String rest = url.substring(url.indexOf("://") + 3);
+            if (rest.regionMatches(true, 0, "localhost/", 0, 10)) rest = rest.substring(10);
+            return Server.get().getAddress(path) + rest;
+        }
+        return url.replace(scheme + "://", Server.get().getAddress(path));
     }
 
     public static String getName(String url) {

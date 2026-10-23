@@ -36,6 +36,7 @@ import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.net.SourceGate;
+import com.github.catvod.utils.Trans;
 import com.github.catvod.utils.Util;
 
 import java.io.IOException;
@@ -1093,8 +1094,8 @@ public class SiteApi {
         HkPlay play = router.play(id);
         // 阅读分流（漫画 pics://）：命中则直接返回带会话的 Result，不再组装视频地址。
         // pics 只由 pics:// 分支产出，视频规则永远不走该分支。
-        ReadingSession comic = ReadingGate.fromHkComic(title, "", "", id, play,
-                play.getHeaders() != null ? play.getHeaders().get("Referer") : "");
+        // 整套 play 请求头带进会话（旧口径只摘 Referer 一个值，其余头在此全丢——漫画没画面断点）
+        ReadingSession comic = ReadingGate.fromHkComic(title, "", "", id, play, play.getHeaders());
         if (comic != null) {
             Result comicResult = new Result();
             comicResult.setReadingSession(comic);
@@ -1133,17 +1134,18 @@ public class SiteApi {
 
     @NonNull
     public static Result searchContent(@NonNull Site site, @NonNull String keyword, boolean quick, @NonNull String page) throws Exception {
-        SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s", site.getName(), keyword, quick, page);
+        String word = Trans.convert(keyword, site.getLang());
+        SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s", site.getName(), word, quick, page);
         boolean hasPage = !page.equals("1");
         if (isSpider(site.getKey(), site)) {
-            String searchContent = marked(site, () -> hasPage ? site.spider().searchContent(keyword, quick, page) : site.spider().searchContent(keyword, quick));
+            String searchContent = marked(site, () -> hasPage ? site.spider().searchContent(word, quick, page) : site.spider().searchContent(word, quick));
             SpiderDebug.log("search", searchContent);
             Result result = Result.fromJson(searchContent);
             for (Vod vod : result.getList()) vod.setSite(site);
             return result;
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
-            params.put("wd", keyword);
+            params.put("wd", word);
             params.put("quick", String.valueOf(quick));
             params.put("extend", "");
             if (hasPage) params.put("pg", page);

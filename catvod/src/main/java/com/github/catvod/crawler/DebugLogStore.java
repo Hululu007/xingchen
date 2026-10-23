@@ -123,6 +123,27 @@ public class DebugLogStore {
         current.add(tag, message, critical);
     }
 
+    /**
+     * 强制记录通道：只供「jar 装载初始化失败」与「蜘蛛初始化失败」两类事件使用
+     * （入口收在 SpiderDebug.forceLog，调用方只许 JarLoader 的失败分支）。
+     * 无视总开关与分类过滤：开关关时缓冲没建就现建、没启动就启动，失败事件
+     * 直接落进与普通日志同一个缓冲与同一份落盘文件；普通日志仍走 add/event
+     * 的开关口径，不许借道。本方法绝不抛异常——记日志失败必须静默，
+     * 不能反噬装载流程。
+     */
+    public static void force(String tag, String message) {
+        if (message == null || message.isEmpty()) return;
+        try {
+            DiagnosticLogBuffer current = buffer;
+            if (current == null) current = create();
+            if (current == null) return;
+            if (!current.isEnabled()) current.start(false);
+            current.add(tag, message, true);
+        } catch (Throwable ignored) {
+            // 强制通道自身失败静默：装载流程优先。
+        }
+    }
+
     public static void event(DiagnosticEvent event) {
         DiagnosticLogBuffer current = buffer;
         if (enabled && current != null && DiagnosticCategories.accepts(categories, event.category())) current.event(event);
@@ -140,7 +161,14 @@ public class DebugLogStore {
     }
 
     public static String text() {
-        if (!enabled) return "调试日志未开启";
+        if (!enabled) {
+            // 开关关时普通日志不记，但强制通道落下的失败记录必须能当场读回：
+            // 事后再开开关会清缓冲并删落盘段，等开完再读就什么都没了。
+            // 缓冲里有内容才给内容，没有才回未开启，旧口径不变。
+            DiagnosticLogBuffer.Snapshot forced = incremental(-1, "", -1);
+            if (forced == null || forced.lines().isEmpty()) return "调试日志未开启";
+            return DiagnosticLogBuffer.header(forced.health()) + forced.text();
+        }
         DiagnosticLogBuffer.Snapshot snapshot = incremental(-1, "", -1);
         if (snapshot == null) return "暂无调试日志";
         return DiagnosticLogBuffer.header(snapshot.health()) + snapshot.text();
@@ -164,6 +192,8 @@ public class DebugLogStore {
     public static DiagnosticLogBuffer.Export export() {
         DiagnosticLogBuffer current = buffer;
         if (enabled && current != null) return current.export(750);
+        // 同 text()：开关关时若缓冲里有强制通道落下的失败记录，照常导出那一份。
+        if (current != null && size() > 0) return current.export(750);
         byte[] bytes = "调试日志未开启".getBytes(StandardCharsets.UTF_8);
         return new DiagnosticLogBuffer.Export(new ByteArrayInputStream(bytes), bytes.length, true, () -> new ByteArrayInputStream(bytes));
     }

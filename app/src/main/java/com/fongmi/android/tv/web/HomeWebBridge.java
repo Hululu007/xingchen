@@ -332,7 +332,8 @@ public class HomeWebBridge {
     }
 
     private String history() {
-        return App.gson().toJson(History.get());
+        // 首页播放历史不收海阔条目（2026-10-23 分家定案）：海阔历史回海阔自己的历史页。
+        return App.gson().toJson(History.getForHome());
     }
 
     private String checkLinks(JsonObject payload) {

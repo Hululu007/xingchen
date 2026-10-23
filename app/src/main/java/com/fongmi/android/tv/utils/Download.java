@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.utils;
 
 import com.fongmi.android.tv.App;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.google.common.net.HttpHeaders;
@@ -22,6 +23,8 @@ public class Download {
     private Future<?> future;
     private String tag;
     private volatile boolean canceled;
+    /** 仅 jar 下载（createForJar）且代理改写过地址时有值：代理路下载失败后用它直连再下一次。 */
+    private String fallbackUrl;
 
     public static Download create(String url, File file) {
         return new Download(url, file);
@@ -29,7 +32,10 @@ public class Download {
 
     /** jar 下载专用入口：GitHub 地址默认套代理（App 更新/环境包等其它链不受影响）。 */
     public static Download createForJar(String url, File file) {
-        return new Download(GithubProxy.apply(url), file);
+        String proxied = GithubProxy.apply(url);
+        Download download = new Download(proxied, file);
+        if (!proxied.equals(url)) download.fallbackUrl = url;
+        return download;
     }
 
     public Download(String url, File file) {
@@ -44,8 +50,15 @@ public class Download {
     }
 
     public File get() {
-        doInBackground();
-        return file;
+        try {
+            doInBackground();
+            return file;
+        } catch (RuntimeException e) {
+            if (fallbackUrl == null) throw e;
+            // 代理前缀路失败：用原 URL 直连再下一次（直连实例不再带 fallback，不会递归重试）。
+            SpiderDebug.log("jar-download", "proxy download failed, retry direct url=%s error=%s", fallbackUrl, e.getMessage());
+            return new Download(fallbackUrl, file).get();
+        }
     }
 
     public void start(Callback callback) {

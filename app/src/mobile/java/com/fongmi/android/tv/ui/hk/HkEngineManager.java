@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.hk;
 import com.fongmi.android.tv.api.hk.HkImage;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkRule;
+import com.fongmi.android.tv.api.hk.HkRuleManager;
 
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +21,8 @@ public final class HkEngineManager {
 
     private static final Map<String, HkJsRuntime> RUNTIMES = new ConcurrentHashMap<>();
     private static final Set<HkJsRuntime> INITIALIZED = ConcurrentHashMap.newKeySet();
+    /** 每个常驻运行时创建时规则文件的 mtime；与现文件不一致 = 规则已被新导入覆盖。 */
+    private static final Map<String, Long> RUNTIME_FILE_MTIMES = new ConcurrentHashMap<>();
     private static final ThreadLocal<HkRule> CURRENT_RULE = new ThreadLocal<>();
 
     private HkEngineManager() {
@@ -37,11 +40,28 @@ public final class HkEngineManager {
     /** 取（或建）规则的常驻运行时；不 init、不销毁。 */
     public static HkJsRuntime runtimeFor(HkRule rule) {
         String key = ruleKey(rule);
+        // 规则文件被新导入覆盖后（mtime 变了），旧常驻运行时必须作废：
+        // init/preRule 每实例只跑一次，不作废的话新版 preRule 永不重跑，
+        // 动态域名/cookie 还停在旧版，看着就像导入没生效。文件不存在（mtime=-1）不判。
+        long mtime = -1;
+        try {
+            mtime = HkRuleManager.get().ruleModified(rule == null ? null : rule.getTitle());
+        } catch (Throwable ignored) {
+        }
         HkJsRuntime rt = RUNTIMES.get(key);
+        if (rt != null && mtime != -1) {
+            Long seen = RUNTIME_FILE_MTIMES.get(key);
+            if (seen != null && seen.longValue() != mtime && RUNTIMES.remove(key, rt)) {
+                INITIALIZED.remove(rt);
+                RUNTIME_FILE_MTIMES.remove(key);
+                rt = null;
+            }
+        }
         if (rt == null) {
             HkJsRuntime created = new HkJsRuntime(rule);
             HkJsRuntime prev = RUNTIMES.putIfAbsent(key, created);
             rt = prev == null ? created : prev;
+            if (prev == null) RUNTIME_FILE_MTIMES.put(key, mtime);
         }
         // 块一 W3 接缝：按当前页规则重绑，求值上下文（MY_RULE 等）随页现拼，
         // 不许停留在实例创建时按 title 缓存的旧规则对象（子页与首页同 title）。

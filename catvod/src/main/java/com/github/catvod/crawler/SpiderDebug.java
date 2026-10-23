@@ -44,6 +44,29 @@ public class SpiderDebug {
         Logger.t(safeTag(tag)).e(message);
     }
 
+    /**
+     * 强制版：只供 jar 装载初始化失败与蜘蛛初始化失败使用（调用方只许 JarLoader
+     * 的失败分支）。无视调试总开关与分类过滤，异常全文必落缓冲与落盘文件；
+     * 成功与普通日志不许走这里。绝不抛异常，记日志失败静默。
+     */
+    public static void forceLog(String tag, Throwable th) {
+        if (th == null) return;
+        try {
+            DebugLogStore.force(tag, DiagnosticText.throwable(th));
+        } catch (Throwable ignored) {
+            // 强制通道已在 DebugLogStore.force 内吞异常，这里只兜格式化本身。
+        }
+    }
+
+    public static void forceLog(String tag, String msg, Object... args) {
+        if (TextUtils.isEmpty(msg)) return;
+        try {
+            DebugLogStore.force(tag, format(msg, args));
+        } catch (Throwable ignored) {
+            // 同上：静默。
+        }
+    }
+
     public static void log(String msg) {
         if (TextUtils.isEmpty(msg)) return;
         if (!DebugLogStore.acceptsTag(TAG)) return;

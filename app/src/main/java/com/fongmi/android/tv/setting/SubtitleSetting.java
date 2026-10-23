@@ -1,7 +1,9 @@
 package com.fongmi.android.tv.setting;
 
 import android.graphics.Color;
+import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.github.catvod.utils.Prefers;
 
 /**
@@ -134,6 +136,12 @@ public class SubtitleSetting {
 
     public static String getAssrtToken() {
         return Prefers.getString("subtitle_assrt_token", "");
+    }
+
+    /** 生效 token（照 FongMi 口径）：用户自填的优先，没填就用当前配置顶层 assrt 字段带的。 */
+    public static String getEffectiveToken() {
+        String userToken = getAssrtToken();
+        return TextUtils.isEmpty(userToken) ? VodConfig.get().getConfig().getAssrt() : userToken;
     }
 
     public static void putAssrtToken(String token) {

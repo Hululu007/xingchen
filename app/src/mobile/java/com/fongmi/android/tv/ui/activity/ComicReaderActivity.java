@@ -639,6 +639,12 @@ public class ComicReaderActivity extends AppCompatActivity {
                 if (router != null) {
                     HkPlay play = router.play(ch.url);
                     if (play != null && !play.getPics().isEmpty()) {
+                        // 切章刷新来源：本章页地址与整套 play 请求头随 pics 一并换新，
+                        // 后续组图不吃入口那一刻的旧值（旧值多半为空或规则主页，图必死）
+                        session.pageUrl = ch.url;
+                        session.playHeaders = new java.util.HashMap<>(play.getHeaders());
+                        String ref = play.getHeaders().get("Referer");
+                        if (ref != null) session.referer = ref;
                         return new ArrayList<>(play.getPics());
                     }
                 }
@@ -738,13 +744,20 @@ public class ComicReaderActivity extends AppCompatActivity {
         updatePageLabel();
     }
 
-    /** 预加载后面 3 张（跟手的关键）。 */
+    /** 组图用的页面上下文：优先会话存的章节页地址，回退旧 referer 字段（入口乙/丙的存量会话）。 */
+    private String sessionPageUrl() {
+        if (session == null) return null;
+        if (!TextUtils.isEmpty(session.pageUrl)) return session.pageUrl;
+        return TextUtils.isEmpty(session.referer) ? null : session.referer;
+    }
+
+    /** 预加载后面 3 张（跟手的关键）。与显示同路组装，不走降级单参路。 */
     private void preloadAhead() {
         try {
             int cur = currentPage();
             for (int i = 1; i <= 3; i++) {
                 int p = cur + i;
-                if (p < images.size()) ImgUtil.preload(this, images.get(p));
+                if (p < images.size()) ImgUtil.preload(this, images.get(p), sessionPageUrl(), session.playHeaders);
             }
         } catch (Throwable ignored) {
         }
@@ -816,8 +829,9 @@ public class ComicReaderActivity extends AppCompatActivity {
         public void onBindViewHolder(Holder holder, int position) {
             String url = images.get(position);
             // 按屏宽缩放：宽铺满、高按比例，不跳版
-            ImgUtil.load("", url, holder.iv, false, 0, 0,
-                    TextUtils.isEmpty(session.referer) ? null : session.referer);
+            // 与海阔文章页同路组装：真章节页地址走双参路（@js=/@headers= 解析＋自动 Referer），
+            // 图串没带的头由会话 play 请求头补缺——旧口径拿 referer 值冒充页面地址，两头落空
+            ImgUtil.load("", url, holder.iv, false, 0, 0, sessionPageUrl(), session.playHeaders);
         }
 
         @Override

@@ -11,11 +11,17 @@ import com.bumptech.glide.load.model.MultiModelLoaderFactory;
 import java.io.InputStream;
 
 import okhttp3.Call;
+import okhttp3.OkHttpClient;
 
 /**
  * GlideUrl → InputStream 的 ModelLoader（8.83 OkHttpLibraryGlideModule 注册同款），
  * 数据抓取走 {@link HkOkHttpStreamFetcher}（@js= 流式解密语义）。
  * 缓存键用 GlideUrl 默认（即 8.83 官方 OkHttpUrlLoader 的 `new LoadData<>(model, fetcher)`），不做归一化。
+ *
+ * <p>逐图自动 DNS（照 8.83 OkHttpUrlLoader.buildLoadData 原文）：先判
+ * {@link HkHttp#shouldUseAutoDNS(String)}，命中才把 client 换成
+ * {@link HkHttp#buildAutoDNSClient(String, OkHttpClient)} 的派生 client
+ * （名单内域名主解析走 DoH/静态地址，不再先过系统解析）；未命中用原 client。</p>
  */
 public class HkGlideUrlLoader implements ModelLoader<GlideUrl, InputStream> {
 
@@ -27,7 +33,12 @@ public class HkGlideUrlLoader implements ModelLoader<GlideUrl, InputStream> {
 
     @Override
     public LoadData<InputStream> buildLoadData(@NonNull GlideUrl model, int width, int height, @NonNull Options options) {
-        return new LoadData<>(model, new HkOkHttpStreamFetcher(client, model));
+        Call.Factory use = client;
+        String url = model.toStringUrl();
+        if (url != null && client instanceof OkHttpClient && HkHttp.shouldUseAutoDNS(url)) {
+            use = HkHttp.buildAutoDNSClient(url, (OkHttpClient) client);
+        }
+        return new LoadData<>(model, new HkOkHttpStreamFetcher(use, model));
     }
 
     @Override

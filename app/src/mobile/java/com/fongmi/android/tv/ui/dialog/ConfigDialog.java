@@ -154,15 +154,6 @@ public class ConfigDialog extends BaseAlertDialog {
         };
     }
 
-    private Config getStoredConfig() {
-        return switch (type) {
-            case 0 -> Config.vod();
-            case 1 -> Config.live();
-            case 2 -> Config.wall();
-            default -> Config.create(type);
-        };
-    }
-
     private int getTypeName() {
         return switch (type) {
             case 0 -> R.string.setting_vod;
@@ -215,12 +206,16 @@ public class ConfigDialog extends BaseAlertDialog {
     private void onPositive() {
         String url = binding.url.getText().toString().trim();
         String name = binding.name.getText().toString().trim();
-        Config config = saveConfig(url, name);
-        if (config == null) {
-            Notify.show(R.string.remote_trust_config_url_required);
-            binding.url.requestFocus();
+        if (url.isEmpty()) {
+            // 空地址确认＝清槽位（2026-10-23 定案）：不再弹「没有url」拦人。
+            clearSlot();
+            if (getActivity() instanceof com.fongmi.android.tv.ui.activity.ConfigSourceActivity) {
+                ((com.fongmi.android.tv.ui.activity.ConfigSourceActivity) getActivity()).updateCards();
+            }
+            dismiss();
             return;
         }
+        Config config = saveConfig(url, name);
         loadConfig(config);
         if (getActivity() instanceof com.fongmi.android.tv.ui.activity.ConfigSourceActivity) {
             ((com.fongmi.android.tv.ui.activity.ConfigSourceActivity) getActivity()).updateCards();
@@ -228,13 +223,42 @@ public class ConfigDialog extends BaseAlertDialog {
         dismiss();
     }
 
+    /**
+     * 删空确认的收尾：删掉 ori 这条接口记录（配置源、本页历史、首页线路管理同一路数据，删行三处同步消失）；
+     * 若删的正是当前生效的那条，把生效配置清回无配置状态——直接清成空，不自动切别的线路
+     * （与线路管理列表删除的「有剩余顶上」口径分开，此弹窗是清槽位）。点播清完发 ConfigEvent.vod()，
+     * 首页据此落到空首页（与冷启未加线路同一个状态）；直播同理清 LiveConfig。
+     * 历史记录自身的左滑/清空删法不在此处，不受影响。
+     */
+    private void clearSlot() {
+        if (TextUtils.isEmpty(ori)) return;
+        Config active = getConfig();
+        boolean wasActive = active != null && ori.equals(active.getUrl());
+        Config.delete(ori, type);
+        if (!wasActive) {
+            Notify.show("已删除");
+            return;
+        }
+        switch (type) {
+            case 0 -> {
+                VodConfig.get().clear().config(Config.create(0));
+                com.fongmi.android.tv.event.ConfigEvent.vod();
+            }
+            case 1 -> {
+                LiveConfig.get().clear().config(Config.create(1));
+                com.fongmi.android.tv.event.ConfigEvent.live();
+            }
+            case 2 -> {
+                WallConfig.get().config(Config.create(2));
+                com.fongmi.android.tv.event.ConfigEvent.wall();
+            }
+        }
+        Notify.show("已删除");
+    }
+
     private Config saveConfig(String url, String name) {
         Config config;
-        if (url.isEmpty()) {
-            if (!edit) return null;
-            if (!TextUtils.isEmpty(ori)) Config.delete(ori, type);
-            return getStoredConfig();
-        } else if (edit) {
+        if (edit) {
             config = Config.find(ori, type).url(url).name(name).update();
         } else {
             Config exists = AppDatabase.get().getConfigDao().find(url, type);

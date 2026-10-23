@@ -87,6 +87,16 @@ public class ImgUtil {
         }
     }
 
+    /** 带页面上下文的预加载（漫画阅读器用）：与显示同路组装，不再降级走单参路。 */
+    public static void preload(Context context, String url, String ruleUrl, Map<String, String> fillHeaders) {
+        if (TextUtils.isEmpty(url)) return;
+        try {
+            Glide.with(context).load(getUrl(url, ruleUrl, fillHeaders)).override(ResUtil.getScreenWidth(), ResUtil.getScreenHeight()).preload();
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void load(String text, String url, ImageView view) {
         load(text, url, view, true);
     }
@@ -109,11 +119,16 @@ public class ImgUtil {
     }
 
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl) {
+        load(text, url, view, vod, width, height, ruleUrl, null);
+    }
+
+    /** 在 {@link #load(String, String, ImageView, boolean, int, int, String)} 基础上补会话请求头（漫画阅读器用）。 */
+    public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl, Map<String, String> fillHeaders) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
         if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, 0);
         else try {
-            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl, fillHeaders)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
             builder.placeholder(getTextDrawable(text, vod));
             // D4：海阔列表分支（ruleUrl 非空）与 8.83 ArticleListRuleAdapter 对齐，
@@ -219,9 +234,57 @@ public class ImgUtil {
     }
 
     /**
+     * 图标失败记忆（用户 2026-10-23 亲定，推翻旧「失败不拉黑、重绑重试」口径）：
+     * 拉不到的图标不许每次进页/每次绑定都重试——失败一次记 24 小时（进程内集＋落盘），
+     * 命中者直接显示默认块、不发请求；到期才许再试一次；成功即清除记忆。
+     * 只记 http(s) 图标（data:/本地文件不记）。注意：这是兜底，不是失败根因的修复。
+     */
+    private static final long ICON_FAIL_TTL_MS = 24L * 60 * 60 * 1000;
+    private static final java.util.Map<String, Long> ICON_FAIL_MEM = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final String ICON_FAIL_PREFS = "hk_icon_fail";
+
+    private static boolean iconFailedRecently(String url) {
+        try {
+            Long t = ICON_FAIL_MEM.get(url);
+            if (t == null) {
+                long stored = App.get().getSharedPreferences(ICON_FAIL_PREFS, Context.MODE_PRIVATE).getLong(iconFailKey(url), 0);
+                if (stored > 0) {
+                    t = stored;
+                    ICON_FAIL_MEM.put(url, t);
+                }
+            }
+            return t != null && System.currentTimeMillis() - t < ICON_FAIL_TTL_MS;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    private static void markIconFailed(String url) {
+        try {
+            long now = System.currentTimeMillis();
+            ICON_FAIL_MEM.put(url, now);
+            App.get().getSharedPreferences(ICON_FAIL_PREFS, Context.MODE_PRIVATE).edit().putLong(iconFailKey(url), now).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void clearIconFailed(String url) {
+        try {
+            if (ICON_FAIL_MEM.remove(url) != null) {
+                App.get().getSharedPreferences(ICON_FAIL_PREFS, Context.MODE_PRIVATE).edit().remove(iconFailKey(url)).apply();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String iconFailKey(String url) {
+        return Integer.toHexString(url.hashCode()) + "_" + url.length();
+    }
+
+    /**
      * 小程序列表图标：URL 图标加载。对照 8.83
-     * ArticleListRuleAdapter.smali:194（icon_mini_program_icon）：失败时用默认图标占位，
-     * 不永久拉黑，重新绑定即可重试。
+     * ArticleListRuleAdapter.smali:194（icon_mini_program_icon）：失败时用默认图标占位。
+     * 失败重试口径按用户 2026-10-23 定：走上方失败记忆（24 小时），不再每次绑定重试。
      */
     public static void loadRuleIcon(String title, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
@@ -231,27 +294,36 @@ public class ImgUtil {
             view.setImageDrawable(defaultMiniIcon(view));
             return;
         }
+        boolean httpIcon = url.startsWith("http://") || url.startsWith("https://");
+        // 命中失败记忆：直接稳稳显示默认块，不发请求不闪
+        if (httpIcon && iconFailedRecently(url)) {
+            clearRequest(view);
+            view.setImageDrawable(defaultMiniIcon(view));
+            return;
+        }
         try {
             // 8.83 ArticleListRuleAdapter: getGlideUrl(getIcon(), getIcon())——图标自身 URL 当 ruleUrl，
             // 走完整后缀链（@js= 剥离+流式解密、@Headers=/@Cookie=/@Referer=/@User-Agent= 剥离组装）。
             // line173 边界：最终 URL==ruleUrl 时自动 Referer 置空，与原版逐行一致，不自创。
             // data:/本地文件等非 http 沿用原单参数逻辑，行为不变。
-            Object model = (url.startsWith("http://") || url.startsWith("https://"))
-                    ? getUrl(url, url) : getUrl(url);
+            Object model = httpIcon ? getUrl(url, url) : getUrl(url);
             if (model == null) {
                 clearRequest(view);
                 view.setImageDrawable(defaultMiniIcon(view));
                 return;
             }
-            Glide.with(view).load(model).listener(new RequestListener<Drawable>() {
+            final String failKey = httpIcon ? url : null;
+            Glide.with(view).load(model).placeholder(defaultMiniIcon(view)).listener(new RequestListener<Drawable>() {
                 @Override
                 public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
+                    if (failKey != null) markIconFailed(failKey);
                     view.setImageDrawable(defaultMiniIcon(view));
                     return true;
                 }
 
                 @Override
                 public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                    if (failKey != null) clearIconFailed(failKey);
                     return false;
                 }
             }).centerCrop().into(view);
@@ -284,6 +356,16 @@ public class ImgUtil {
         // 本地音乐封面全黑的根因。原样返回字符串，交给 Glide 的 content 加载器。
         if (url.startsWith("content://") || url.startsWith("android.resource://")) return url;
         LazyHeaders.Builder builder = new LazyHeaders.Builder();
+        // @js=（与双参版对齐补上）：此前单参路不认这个后缀，只带 @js= 的图四个后缀
+        // 都不命中、整串连后缀当 URL 发出必 404。剥后缀并把代码组进 "js" 头，
+        // 由 HkOkHttpStreamFetcher 做流式解密（该头不发服务器，抓图器口径）。
+        if (url.contains("@js=")) {
+            String[] jsParts = url.split("@js=");
+            if (jsParts.length > 1) {
+                url = jsParts[0];
+                builder.addHeader("js", jsParts[1]);
+            }
+        }
         if (url.contains("@Headers=")) addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
         if (url.contains("@Cookie=")) builder.addHeader(HttpHeaders.COOKIE, param = url.split("@Cookie=")[1].split("@")[0]);
         if (url.contains("@Referer=")) builder.addHeader(HttpHeaders.REFERER, param = url.split("@Referer=")[1].split("@")[0]);
@@ -459,6 +541,53 @@ public class ImgUtil {
             Logger.t(TAG).d("getUrl failed: %s", t.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 双参组装 + 会话请求头补缺（漫画阅读器用）：先按 {@link #getUrl(String, String)}
+     * 与文章页同路组装，再把 fill 里图串自身没给出的头补进 GlideUrl——
+     * 已组装出的头（图串 @后缀、自动 Referer、默认 UA）一律不覆盖，键名大小写不敏感。
+     * 跨域图床算不出自动 Referer 时，就靠这一步把 play 的 Referer/UA/Cookie 递过去。
+     * 结果不是 GlideUrl（data:/色块/本地文件等）时原样返回，fill 不适用。
+     */
+    public static Object getUrl(String picUrl, String ruleUrl, Map<String, String> fill) {
+        Object model = getUrl(picUrl, ruleUrl);
+        if (fill == null || fill.isEmpty() || !(model instanceof GlideUrl)) return model;
+        GlideUrl gu = (GlideUrl) model;
+        Map<String, String> existing;
+        try {
+            existing = gu.getHeaders();
+        } catch (Throwable t) {
+            return model;
+        }
+        boolean anyMissing = false;
+        for (Map.Entry<String, String> e : fill.entrySet()) {
+            if (e.getKey() == null || TextUtils.isEmpty(e.getValue())) continue;
+            if (!hasHeaderKey(existing, e.getKey())) {
+                anyMissing = true;
+                break;
+            }
+        }
+        if (!anyMissing) return model;
+        LazyHeaders.Builder builder = new LazyHeaders.Builder();
+        if (existing != null) {
+            for (Map.Entry<String, String> e : existing.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null) builder.addHeader(e.getKey(), e.getValue());
+            }
+        }
+        for (Map.Entry<String, String> e : fill.entrySet()) {
+            if (e.getKey() == null || TextUtils.isEmpty(e.getValue())) continue;
+            if (!hasHeaderKey(existing, e.getKey())) builder.addHeader(UrlUtil.fixHeader(e.getKey()), e.getValue());
+        }
+        return new GlideUrl(gu.toStringUrl(), builder.build());
+    }
+
+    private static boolean hasHeaderKey(Map<String, String> headers, String key) {
+        if (headers == null || key == null) return false;
+        for (String k : headers.keySet()) {
+            if (k != null && k.equalsIgnoreCase(key)) return true;
+        }
+        return false;
     }
 
     /** 8.83 默认 UA（SettingConfig.getGlideUA 同款语义：默认为 null，不发 UA 头）。 */

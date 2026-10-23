@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.read;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -50,6 +51,17 @@ public class ReadingSession {
     public String chapterUrl = "";
     /** 图片防盗链 Referer（海阔规则页地址）。 */
     public String referer = "";
+    /**
+     * 章节页地址：图片组装时的页面上下文（与海阔文章页 getGlideUrl 的 pageUrl 同义，
+     * 供自动 Referer 计算与 @js=/@headers= 后缀解析）。与 referer 分开存——
+     * referer 只是请求头里的一个值，顶替不了页面地址，混装正是漫画没画面的断点。
+     */
+    public String pageUrl = "";
+    /**
+     * play 解析的整套请求头（Cookie/UA/Referer 等）：图片组装时图串自带后缀
+     * 没给的头从这里补。入口带入、切章时随新章 play 一并刷新。
+     */
+    public Map<String, String> playHeaders = new HashMap<>();
     /** py 源 key（懒取章节表用）。 */
     public String siteKey = "";
     /** py 小说：书的详情 id（书架重建章节表时重拉详情用；老会话为空）。 */

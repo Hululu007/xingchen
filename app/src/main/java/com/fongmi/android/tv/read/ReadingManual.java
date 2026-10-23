@@ -166,13 +166,8 @@ public final class ReadingManual {
             SiteApi.ReadingProbe probe = SiteApi.readingProbe(key, playFlag, chapterId);
             if (probe == null || probe.hkPlay == null) return null;
             if (isHkComicRelaxed(probe.hkPlay)) {
-                String referer = "";
-                try {
-                    Map<String, String> headers = probe.hkPlay.getHeaders();
-                    if (headers != null && headers.get("Referer") != null) referer = headers.get("Referer");
-                } catch (Throwable ignored) {
-                }
-                return ReadingGate.fromHkComic(title, null, episodeName, chapterId, probe.hkPlay, referer);
+                // 与 SiteApi 入口同口径：整套 play 请求头带进会话，不再只摘 Referer
+                return ReadingGate.fromHkComic(title, null, episodeName, chapterId, probe.hkPlay, probe.hkPlay.getHeaders());
             }
             if (isNovelRelaxed(probe.hkPlay.getUrl())) {
                 return ReadingGate.fromHkNovel(title, null,

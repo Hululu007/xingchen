@@ -253,6 +253,13 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 海阔播放历史页：只列海阔条目（与星辰首页播放历史分家，2026-10-23） -->
+        <activity
+            android:name=".ui.activity.HkHistoryActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <!-- 阅读模块：漫画阅读器 / 小说阅读器 / 书架（干净阅读体验，不堆控件） -->
         <activity
             android:name=".ui.activity.ComicReaderActivity"

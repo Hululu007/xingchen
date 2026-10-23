@@ -6,6 +6,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.quickjs.crawler.Loader;
+import com.fongmi.quickjs.crawler.WvSpider;
 import com.fongmi.quickjs.utils.Module;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
@@ -146,12 +147,27 @@ public class JsLoader {
         return false;
     }
 
+    /**
+     * 通道分发：新格式宿主型 JS（wvB/WvSpider 类）进 WvSpider，其余仍走普通通道。
+     * 判定以内容为准（wvB 样本文件名是 .js 后缀，只看后缀会漏检）：
+     * 内容取不到时才回退 .wv 后缀提示。产出 __JS_SPIDER__ 的源在
+     * WvSpider.isWvSource 里有一票否决，普通源路径不受影响。
+     */
+    private boolean isWv(String api) {
+        try {
+            String content = Module.get().fetch(api);
+            if (content != null && !content.isEmpty()) return WvSpider.isWvSource(content);
+        } catch (Throwable ignored) {
+        }
+        return api != null && api.contains(".wv");
+    }
+
     public Spider getSpider(String key, String api, String ext, String jar) {
         try {
             return spiders.computeIfAbsent(key, k -> {
                 Spider spider = null;
                 try {
-                    spider = loader.spider(api, BaseLoader.get().dex(jar));
+                    spider = isWv(api) ? loader.wvSpider(api) : loader.spider(api, BaseLoader.get().dex(jar));
                     spider.siteKey = key;
                     spider.init(App.get(), ext);
                     recordPath(key, api);

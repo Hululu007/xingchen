@@ -9,7 +9,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="2dp"
-        app:cardBackgroundColor="#FFFFFFFF"
+        app:cardBackgroundColor="#00000000"
         app:cardCornerRadius="8dp"
         app:cardElevation="0dp">
 
@@ -17,7 +17,7 @@
             android:id="@+id/tv_chip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="@drawable/hk_ripple_white"
+            android:background="@drawable/hk_ripple_glass"
             android:ellipsize="end"
             android:gravity="center"
             android:maxLines="1"

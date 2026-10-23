@@ -2221,9 +2221,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         putFunction(storage0, "getPublicItem", args -> storage0Get(publicKv, args));
         ScriptableObject.putProperty(apiRegTarget != null ? apiRegTarget : scope, "storage0", storage0);
         // 8.83 crypto-java.js 原生 AES 接线（规则作用域也可用，如文本加签场景）。
-        ScriptableObject.putProperty(apiRegTarget != null ? apiRegTarget : scope, "__cryptoFileUtil",
-                Context.javaToJS(new HkCryptoFileUtil(), apiRegTarget != null ? apiRegTarget : scope));
-        injectAndroidPackage(apiRegTarget != null ? apiRegTarget : scope);
+        ScriptableObject cryptoTarget = apiRegTarget != null ? apiRegTarget : scope;
+        Object cryptoFileUtil = Context.javaToJS(new HkCryptoFileUtil(), cryptoTarget);
+        ScriptableObject.putProperty(cryptoTarget, "__cryptoFileUtil", cryptoFileUtil);
+        // 8.83 宿主类路径补齐：原版 com.example.hikerview.utils.FileUtil 是包内真实类，
+        // 规则在列表/详情/搜索/播放各作用域都直调；星辰已按原包名补回真实类
+        // （com.example.hikerview.utils.FileUtil），ImporterTopLevel 作用域原生可达；
+        // 共享作用域的 com 是普通 JS 对象、包解析走不到，这里把同一实例挂进对象链
+        // 兜底（判定与合并规则见 HkHostClasses）。缺了这步，规则在列表期同步解密
+        // 图片直调 FileUtil.toBytes 抛错、被规则 catch 吞掉回退加密原址 → 没封面。
+        HkHostClasses.installFileUtilChain(cryptoTarget, cryptoFileUtil);
+        injectAndroidPackage(cryptoTarget);
 
         // ---- 当前结果列表的动态修改（官方经 EventBus 改 UI 列表；本宿主直接改 results） ----
         putFunction("updateItem", args -> {

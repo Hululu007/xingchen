@@ -10,6 +10,7 @@ import com.fongmi.android.tv.bean.Result;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -78,7 +79,7 @@ public class ReadingGate {
      * 加固：至少一段含 "."，过滤 "pics://封面图" 这类占位文本（否则走原链，旧行为）。
      */
     public static ReadingSession fromHkComic(String ruleTitle, String bookTitle, String chapterName,
-                                             String chapterUrl, HkPlay play, String referer) {
+                                             String chapterUrl, HkPlay play, Map<String, String> headers) {
         if (play == null || play.getPics().isEmpty()) return null;
         boolean anyReal = false;
         for (String p : play.getPics()) {
@@ -98,7 +99,14 @@ public class ReadingGate {
         s.chapters.add(c);
         s.chapterIndex = 0;
         s.images = new ArrayList<>(play.getPics());
-        s.referer = referer == null ? "" : referer;
+        // 来源交接：章节页地址与 play 整套请求头分开存。旧口径只摘一个 Referer 值
+        // 塞进 referer 字段当页面地址喂组装函数——头全丢、地址是假，图必死（断点报告）。
+        s.pageUrl = s.chapterUrl;
+        if (headers != null) {
+            s.playHeaders.putAll(headers);
+            String ref = headers.get("Referer");
+            if (ref != null) s.referer = ref;
+        }
         logDivert("divert kind=COMIC rule=%s pics=%d why=pics-scheme", s.sourceName, play.getPics().size());
         return s;
     }

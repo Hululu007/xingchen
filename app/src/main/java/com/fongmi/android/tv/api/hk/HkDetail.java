@@ -26,6 +26,17 @@ public class HkDetail {
      */
     private List<HkDetailItem> rawItems = new ArrayList<>();
 
+    /** 详情页自身 URL（HkRouter 取数时写入）：选集分拣剔自链、提取本片编号用。 */
+    private String pageUrl = "";
+
+    public String getPageUrl() {
+        return pageUrl;
+    }
+
+    public void setPageUrl(String pageUrl) {
+        if (pageUrl != null && !pageUrl.isEmpty()) this.pageUrl = pageUrl;
+    }
+
     public List<HkDetailItem> getRawItems() {
         return rawItems;
     }

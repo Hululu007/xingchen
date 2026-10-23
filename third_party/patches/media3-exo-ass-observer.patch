@@ -1,10 +1,29 @@
+# Xingchen baseline patch: ASS subtitle observer bridge for TextRenderer.
+#
+# 基线：上游 media 锁定提交 3c2cbe8ac742c2fe15eff52f03eeb3b1b648848d
+# （见 third_party/media-lock.json）。
+#
+# 背景：已提交产物基线（843a7774/902b8c10 的 third_party/maven）里的
+# exoplayer AAR 带 TextRenderer.Observer / TextRenderer.Stream 接口，
+# 星辰 App 的 ASS 字幕链依赖它；该改动此前只活在产物里，2026-10-23
+# build-media3 全量重建（bot 提交 2dfb644d）把它冲掉后双版构建失败。
+# 本补丁把它固化为源码补丁（media-lock.json 里 exoplayer 的
+# artifact_overrides 所记 "including ASS and diagnostics" 的 ASS 部分）。
+#
+# 内容：Observer/Stream 接口、setObserver、stream 注册与样本转发，
+# 与 third_party/sources/media 现行工作树的 TextRenderer 逐字一致。
+# 本文件由 webhtv 的零上下文旧补丁按 2026-10-23 口径重生成：带 3 行
+# 上下文锚点，可在锁定基线上以 --unidiff-zero 校验、应用，后像与
+# 现行树该文件逐字一致。
 diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/TextRenderer.java b/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/TextRenderer.java
+index 148a719..7e3b69d 100644
 --- a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/TextRenderer.java
 +++ b/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/TextRenderer.java
-@@ -74,6 +74,43 @@
+@@ -73,6 +73,43 @@ public final class TextRenderer extends BaseRenderer implements Callback {
+ 
    private static final String TAG = "TextRenderer";
  
-   /**
++  /**
 +   * Optional side-channel for a separately owned subtitle presenter.
 +   *
 +   * <p>All callbacks run on the playback thread and must return without waiting, native calls or
@@ -41,15 +60,13 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
 +    }
 +  }
 +
-+  /**
+   /**
     * The type of a message that can be passed to this renderer via {@link
     * androidx.media3.exoplayer.ExoPlayer#createMessage(
-    * androidx.media3.exoplayer.PlayerMessage.Target)} to set the text display offset, in
-@@ -147,6 +184,45 @@
-   private long textOffsetUs;
+@@ -148,6 +185,45 @@ public final class TextRenderer extends BaseRenderer implements Callback {
    private boolean textOffsetChanged;
    private boolean legacyDecodingEnabled;
-+
+ 
 +  @Nullable private Observer observer;
 +  @Nullable private Stream observerReadingStream;
 +  @Nullable private Stream observerDecoderStream;
@@ -88,10 +105,12 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
 +      observerFailed(error);
 +    }
 +  }
- 
++
    /**
     * @param output The output.
-@@ -246,6 +322,18 @@
+    * @param outputLooper The looper associated with the thread on which the output should be called.
+@@ -245,7 +321,19 @@ public final class TextRenderer extends BaseRenderer implements Callback {
+     this.textOffsetUs = textOffsetUs;
      textOffsetChanged = true;
      if (lastRendererPositionUs != C.TIME_UNSET) {
 -      clearOutput();
@@ -111,7 +130,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
      }
    }
  
-@@ -261,6 +338,15 @@
+@@ -261,6 +349,15 @@ public final class TextRenderer extends BaseRenderer implements Callback {
        long offsetUs,
        MediaSource.MediaPeriodId mediaPeriodId) {
      streamFormat = formats[0];
@@ -127,7 +146,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
      if (!isCuesWithTiming(streamFormat)) {
        assertLegacyDecodingEnabledIfRequired();
        if (subtitleDecoder != null) {
-@@ -280,6 +366,14 @@
+@@ -280,6 +377,14 @@ public final class TextRenderer extends BaseRenderer implements Callback {
    protected void onPositionReset(
        long positionUs, boolean joining, boolean sampleStreamIsResetToKeyFrame) {
      lastRendererPositionUs = positionUs;
@@ -142,7 +161,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
      if (cuesResolver != null) {
        cuesResolver.clear();
      }
-@@ -310,6 +404,7 @@
+@@ -310,6 +415,7 @@ public final class TextRenderer extends BaseRenderer implements Callback {
      }
  
      if (outputStreamEnded) {
@@ -150,7 +169,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
        return;
      }
  
-@@ -320,6 +415,17 @@
+@@ -320,6 +426,17 @@ public final class TextRenderer extends BaseRenderer implements Callback {
        assertLegacyDecodingEnabledIfRequired();
        renderFromSubtitles(positionUs);
      }
@@ -168,7 +187,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
    }
  
    /**
-@@ -479,6 +585,7 @@
+@@ -482,6 +599,7 @@ public final class TextRenderer extends BaseRenderer implements Callback {
          }
          nextSubtitleEventIndex = nextSubtitle.getNextEventTimeIndex(subtitlePositionUs);
          subtitle = nextSubtitle;
@@ -176,7 +195,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
          this.nextSubtitle = null;
          textRendererNeedsUpdate = true;
        }
-@@ -553,6 +660,16 @@
+@@ -557,6 +675,16 @@ public final class TextRenderer extends BaseRenderer implements Callback {
              }
              nextInputBuffer.subsampleOffsetUs = format.subsampleOffsetUs;
              nextInputBuffer.flip();
@@ -193,7 +212,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
              waitingForKeyFrame &= !nextInputBuffer.isKeyFrame();
            }
            if (!waitingForKeyFrame) {
-@@ -570,6 +687,16 @@
+@@ -574,6 +702,16 @@ public final class TextRenderer extends BaseRenderer implements Callback {
  
    @Override
    protected void onDisabled() {
@@ -210,7 +229,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
      streamFormat = null;
      finalStreamEndPositionUs = C.TIME_UNSET;
      clearOutput();
-@@ -643,6 +770,7 @@
+@@ -648,6 +786,7 @@ public final class TextRenderer extends BaseRenderer implements Callback {
    }
  
    private void initSubtitleDecoder() {
@@ -218,7 +237,7 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/text/Te
      waitingForKeyFrame = true;
      subtitleDecoder = subtitleDecoderFactory.createDecoder(checkNotNull(streamFormat));
      subtitleDecoder.setOutputStartTimeUs(getLastResetPositionUs());
-@@ -664,6 +792,13 @@
+@@ -669,6 +808,13 @@ public final class TextRenderer extends BaseRenderer implements Callback {
    }
  
    private void updateOutput(CueGroup cueGroup) {

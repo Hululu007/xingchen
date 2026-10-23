@@ -40,6 +40,10 @@ public class BaseLoader {
     }
 
     private static boolean isJs(String api) {
+        // 这里只是 JS 家族的总闸（.js/.wv 都先进 JsLoader）；通道细分在
+        // JsLoader.getSpider 按内容判定：新格式宿主型 JS（wvB/WvSpider 类，
+        // 无 __JS_SPIDER__、带 @config/routes/同名入口函数）分发到 WvSpider
+        // 新通道，不再塞进普通 drpy 通道；普通源路径不变。
         return api.contains(".js") || api.contains(".wv");
     }
 

@@ -155,6 +155,21 @@
                             android:layout_height="1dp"
                             android:layout_weight="1" />
 
+                        <!-- 用户拍板（2026-10-23）：历史入口放收藏左边（… 历史/收藏/编辑），与收藏同款胶囊 -->
+                        <TextView
+                            android:id="@+id/btn_history_rule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/hk_btn_glass"
+                            android:gravity="center"
+                            android:minWidth="64dp"
+                            android:paddingLeft="14dp"
+                            android:paddingRight="14dp"
+                            android:text="历史"
+                            android:textColor="#101216"
+                            android:textSize="14sp" />
+
                         <!-- 用户拍板：收藏入口放编辑左边（搜索/筛选 … 收藏/编辑），与编辑同款胶囊 -->
                         <TextView
                             android:id="@+id/btn_favorite_rule"

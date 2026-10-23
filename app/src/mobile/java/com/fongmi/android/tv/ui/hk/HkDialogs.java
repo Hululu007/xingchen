@@ -52,6 +52,21 @@ public class HkDialogs extends AlertDialog.Builder {
     }
 
     /**
+     * 内容自带整卡背景（浅色卡片自成一面）时必调：清掉窗口的暗色玻璃底，只剩卡片本身。
+     * 否则主题的 windowBackground（dialog_glass_dark）比卡片大一圈，从卡片边缘（尤其左上与圆角外）
+     * 探出黑层——「选择小程序」弹窗漏黑的根因（用户 2026-10-23 截图亲指：上面一层比下面一层小）。
+     * 在 create() 后、show() 前调用。
+     */
+    public static void clearWindowBackground(@Nullable AlertDialog dialog) {
+        if (dialog == null) return;
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                    android.graphics.Color.TRANSPARENT));
+        }
+    }
+
+    /**
      * 选项卡片弹窗（对等 setItems）：每项一张白底独立圆角卡片，项与项之间带间距；
      * 点选后自动关闭再调 onPick，语义与 setItems 一致。
      *

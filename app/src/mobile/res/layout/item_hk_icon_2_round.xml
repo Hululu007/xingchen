@@ -8,13 +8,14 @@
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="60dp"
+        app:cardBackgroundColor="#00000000"
         app:cardCornerRadius="8dp"
         app:cardElevation="0dp">
 
         <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@drawable/hk_ripple_grey"
+            android:background="@drawable/hk_ripple_glass"
             android:paddingStart="2dp"
             android:paddingEnd="2dp">
 

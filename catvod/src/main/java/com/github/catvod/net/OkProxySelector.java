@@ -18,10 +18,11 @@ public class OkProxySelector extends ProxySelector {
 
     private static final long DEBUG_LOG_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
 
+    private static boolean authenticatorInstalled;
+
     private final List<Proxy> proxy;
     private final ProxySelector system;
     private final DebugEventLimiter debugLogLimiter;
-    private boolean authSet;
 
     public OkProxySelector() {
         proxy = new CopyOnWriteArrayList<>();
@@ -31,13 +32,15 @@ public class OkProxySelector extends ProxySelector {
     }
 
     private void ensureAuthenticator() {
-        if (authSet) return;
-        authSet = true;
+        if (authenticatorInstalled) return;
+        authenticatorInstalled = true;
         // JVM 全局认证器只装一次、装后永不摘除：旧写法构造装、clear 又
         // setDefault(null)，会把进程里其它模块预期的默认认证器一并摘掉。
         // 装着的认证器在无规则命中时返回 null，留着无副作用；认证器本体
         // 经本选择器（OkHttp 单例持有）查规则，不依赖后续重装。
-        if (!(Authenticator.getDefault() instanceof ProxyAuthenticator)) Authenticator.setDefault(new ProxyAuthenticator(this));
+        // 「只装一次」用自家静态旗记，不查 Authenticator.getDefault()：
+        // 该方法在本工程的编译平台上不存在（CI 实测 cannot find symbol）。
+        Authenticator.setDefault(new ProxyAuthenticator(this));
     }
 
     public synchronized void addAll(List<Proxy> items) {

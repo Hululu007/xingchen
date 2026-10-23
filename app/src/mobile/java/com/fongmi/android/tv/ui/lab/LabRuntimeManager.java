@@ -40,6 +40,28 @@ public final class LabRuntimeManager {
     /** 整包 sha256（下载后校验用） */
     private static final Map<String, String> PKG_SHA256 = new HashMap<>();
 
+    /** 正在安装中的环境（防重复：同环境并发安装会抢同一个目录互相 deleteDir） */
+    private static final java.util.Set<String> INSTALLING =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    private static boolean beginInstall(String runtime, Listener listener) {
+        if (INSTALLING.add(runtime)) return true;
+        fail(listener, "「" + label(runtime) + "」正在安装中，等它装完再试");
+        return false;
+    }
+
+    private static void endInstall(String runtime) {
+        INSTALLING.remove(runtime);
+    }
+
+    /** 没有在线地址时的真因（别再报「下载地址还没准备好」这种假原因：地址是故意留空的） */
+    private static String noAddressReason(String runtime) {
+        if ("ubuntu".equals(runtime)) {
+            return "Ubuntu 环境暂时装不了：它的运行基座（proot）还没接好";
+        }
+        return "「" + label(runtime) + "」还没有在线安装地址，换本地安装试试";
+    }
+
     /** 仓侧包 id：运行时叫 nodejs、仓里叫 node。查表前先经全仓唯一归一入口对齐，
      * 不管传进来的是 node 还是 nodejs 都落到仓侧键，别再出现两表键不一致查不到 */
     private static String pkgKey(String runtime) {
@@ -65,38 +87,39 @@ public final class LabRuntimeManager {
         DOWNLOAD_URLS.put("alist", REPO_RAW + "env-alist.json");
         // ubuntu 留空：rootfs 过不了 bin/ 校验、proot 未接，填了是骗点击
 
-        PKG_VERSION.put("python", "3.14.8");
-        PKG_VERSION.put("node", "26.4.0");
-        PKG_VERSION.put("php", "8.5.1");
-        PKG_VERSION.put("mihomo", "1.19.30");
-        PKG_VERSION.put("alist", "3.63.0");
-        PKG_VERSION.put("frp", "0.71.0");
+        // 回填表必须与目录资产（lab_env_catalog.json）同值：仓里无版本名文件已被新版
+        // 原名覆盖（python/mihomo/frp 大小已按公开仓实核），表停旧值时回退路 sha 永远
+        // 验不过、版本号也与目录对不上（假更新提示）。.json 分片路（node/php/java/alist）
+        // 的 sha 在清单里自带，本表不放其 sha。
+        PKG_VERSION.put("python", "3.14.8-1");
+        PKG_VERSION.put("node", "26.4.0-1");
+        PKG_VERSION.put("php", "8.5.1-1");
+        PKG_VERSION.put("mihomo", "1.19.32");
+        PKG_VERSION.put("alist", "3.65.0");
+        PKG_VERSION.put("frp", "0.71.1");
         PKG_VERSION.put("aria2", "1.37.0");
         PKG_VERSION.put("java", "17.0.20");
         PKG_VERSION.put("bun", "1.4.3");
-        PKG_VERSION.put("ffmpeg", "5.1");
+        PKG_VERSION.put("ffmpeg", "9.0.2");
 
-        PKG_SIZE.put("python", 14116073L);
-        PKG_SIZE.put("node", 51475599L);
-        PKG_SIZE.put("php", 49136207L);
-        PKG_SIZE.put("mihomo", 17932610L);
-        PKG_SIZE.put("alist", 43917406L);
-        PKG_SIZE.put("frp", 13065311L);
+        PKG_SIZE.put("python", 14158025L);
+        PKG_SIZE.put("node", 55876413L);
+        PKG_SIZE.put("php", 49454027L);
+        PKG_SIZE.put("mihomo", 20698996L);
+        PKG_SIZE.put("alist", 42010903L);
+        PKG_SIZE.put("frp", 12469827L);
         PKG_SIZE.put("aria2", 2481027L);
         PKG_SIZE.put("java", 66186060L);
         PKG_SIZE.put("bun", 39196506L);
-        PKG_SIZE.put("ffmpeg", 8686722L);
+        PKG_SIZE.put("ffmpeg", 42056568L);
 
-        PKG_SHA256.put("python", "08939ad4606b06389628dd1eca7f251f1e26c4f765b19605057e0c2cf170f9be");
-        PKG_SHA256.put("node", "74df95356c84225fcbd3415104994b1dfff30af2ba3cf4c8b7d2e672832e5212");
-        PKG_SHA256.put("php", "776c92d5828673c23b794b3af16714c3fb8e98b7f6af312bf81a44e4f99e422a");
-        PKG_SHA256.put("mihomo", "69c7e0c8d1f23e41e0656a4dac912267b0fb2db91c9274536506b2bfc759b473");
-        PKG_SHA256.put("alist", "5dcacda0d3105188eb142363424d9c35c55f3cfd49875e86996e0ac5e9c840b4");
-        PKG_SHA256.put("frp", "3204e9df734107ff960d77a588443def83017d38a9f212fdeb4ef444be50772f");
+        PKG_SHA256.put("python", "a9369193e2bd06936cac97047001caab22cc656bc5378e32e3082003f3ce5ce6");
+        PKG_SHA256.put("mihomo", "5c89a3108406d264ad83d9c89e00c50701435e6ffe43025add4556a727884dd9");
+        PKG_SHA256.put("frp", "1e86a57b73a0ccd5e8bcf20d3b16996a80dcd337e3805925d1008165171e5809");
         PKG_SHA256.put("aria2", "272ebf5c717a337ea86e27007ff5dbb07875993d2d4a20277622956641780580");
         PKG_SHA256.put("java", "38fb0699ce4ff746d302d8dc82985abf6c86384b7755827ff665f35414f4800f");
         PKG_SHA256.put("bun", "8ff4385d826a9d5a6c3f7efe93375e6586a1cd6127d012952ea992266de2da0d");
-        PKG_SHA256.put("ffmpeg", "4b5395abc8b4e6a238fe47c6bcaac2dc6664478bf13cfd5f60e2b91bf7598868");
+        PKG_SHA256.put("ffmpeg", "6118b3717cb1532644610db0a3c199eecad2e0ab26f301d9780e884df624e8e0");
     }
 
     /** jsDelivr 镜像（gh 端点单文件 ≤20MB 才吃得下）：raw 域名换过去即得 */
@@ -134,10 +157,11 @@ public final class LabRuntimeManager {
         }
         String url = DOWNLOAD_URLS.get(pkgKey(runtime));
         if (url == null || url.isEmpty()) {
-            fail(listener, "下载地址还没准备好");
+            fail(listener, noAddressReason(runtime));
             return;
         }
         final String rt = runtime;
+        if (!beginInstall(rt, listener)) return;
         new Thread(() -> {
             try {
                 File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
@@ -152,6 +176,8 @@ public final class LabRuntimeManager {
             } catch (Exception ex) {
                 String m = ex.getMessage();
                 fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            } finally {
+                endInstall(rt);
             }
         }).start();
     }
@@ -410,6 +436,7 @@ public final class LabRuntimeManager {
     /** 从本地 zip 导入环境包（在线下载落盘后也走同一条安装管线） */
     public static void importFromUri(Context ctx, String runtime, Uri uri, Listener listener) {
         final String rt = LabManifest.normalizeRuntime(runtime);
+        if (!beginInstall(rt, listener)) return;
         new Thread(() -> {
             try {
                 File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
@@ -419,6 +446,8 @@ public final class LabRuntimeManager {
             } catch (Exception e) {
                 String m = e.getMessage();
                 fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+            } finally {
+                endInstall(rt);
             }
         }).start();
     }
@@ -426,6 +455,7 @@ public final class LabRuntimeManager {
     /** 在线安装：从下载地址拉包，落盘后走与本地安装同一条管线（跨源重试） */
     public static void importFromUrl(Context ctx, String runtime, String url, Listener listener) {
         final String rt = LabManifest.normalizeRuntime(runtime);
+        if (!beginInstall(rt, listener)) return;
         new Thread(() -> {
             try {
                 progress(listener, "正在下载环境包…");
@@ -437,6 +467,8 @@ public final class LabRuntimeManager {
             } catch (Exception e) {
                 String m = e.getMessage();
                 fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            } finally {
+                endInstall(rt);
             }
         }).start();
     }
@@ -454,6 +486,9 @@ public final class LabRuntimeManager {
     private static void installFromFile(Context ctx, String runtime, File zip, String version, Listener listener) {
         try {
             progress(listener, "正在准备环境…");
+            // 重装先停靠这个环境跑着的服务再删目录（与卸载同口径）：
+            // 不停就删，进程脚下的 bin/lib 被抽走，服务半死不活
+            stopRuntimeUsers(ctx, runtime);
             File dest = LabPaths.runtimeDir(ctx, runtime);
             LabPackageInstaller.deleteDir(dest);
             dest.mkdirs();
@@ -540,10 +575,10 @@ public final class LabRuntimeManager {
         runtime = LabManifest.normalizeRuntime(runtime);
         LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(ctx, runtime);
         if (entry == null || entry.downloads.isEmpty()) {
-            // 目录没到：走旧路（下载地址占位时如实说）
+            // 目录没到：走旧路（下载地址故意留空时如实说真因，不报假原因）
             String url = downloadUrl(runtime);
             if (url == null || url.isEmpty()) {
-                fail(listener, "下载地址还没准备好");
+                fail(listener, noAddressReason(runtime));
                 return;
             }
             importFromUrl(ctx, runtime, url, listener);
@@ -555,6 +590,7 @@ public final class LabRuntimeManager {
             return;
         }
         final String rt2 = runtime;
+        if (!beginInstall(rt2, listener)) return;
         new Thread(() -> {
             try {
                 // 文件名：目录给了 file 字段就用它（版本化新名），没给从 URL 尾段取
@@ -591,6 +627,8 @@ public final class LabRuntimeManager {
             } catch (Exception e) {
                 String m = e.getMessage();
                 fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+            } finally {
+                endInstall(rt2);
             }
         }).start();
     }
@@ -666,15 +704,20 @@ public final class LabRuntimeManager {
         return e == null ? "" : e.version;
     }
 
-    /** 卸载环境：先停掉依赖它的运行中服务，再删环境目录、注销登记 */
-    public static void uninstall(Context ctx, String runtime) {
-        runtime = LabManifest.normalizeRuntime(runtime);
+    /** 停掉依赖某环境的运行中服务（卸载/重装环境删目录前用） */
+    private static void stopRuntimeUsers(Context ctx, String runtime) {
         for (LabRegistry.Svc s : LabRegistry.get(ctx).services(runtime)) {
             try {
                 LabRunner.stopPackage(ctx, s.id);
             } catch (Exception ignored) {
             }
         }
+    }
+
+    /** 卸载环境：先停掉依赖它的运行中服务，再删环境目录、注销登记 */
+    public static void uninstall(Context ctx, String runtime) {
+        runtime = LabManifest.normalizeRuntime(runtime);
+        stopRuntimeUsers(ctx, runtime);
         LabPackageInstaller.deleteDir(LabPaths.runtimeDir(ctx, runtime));
         LabRegistry.get(ctx).removeRuntime(ctx, runtime);
     }

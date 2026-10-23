@@ -85,11 +85,14 @@ public class ManageService extends Service {
     }
 
     public static String getLocalUrl() {
-        return Server.get().getAddress(true) + PATH;
+        // 未起服时不许拼地址：端口还是未起态的 -1，拼出来是一个根本不存在的
+        // 地址，管理页拿到只会当真打开然后死等。空串配合 session 的
+        // serverRunning 字段，页面能如实显示未启动。
+        return Server.get().isRunning() ? Server.get().getAddress(true) + PATH : "";
     }
 
     public static String getLanUrl() {
-        return Server.get().getAddress(false) + PATH;
+        return Server.get().isRunning() ? Server.get().getAddress(false) + PATH : "";
     }
 
     public static long getLastAccess() {

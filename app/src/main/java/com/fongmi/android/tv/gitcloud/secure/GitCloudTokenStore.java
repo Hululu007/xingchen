@@ -59,10 +59,22 @@ public final class GitCloudTokenStore {
         prefs().edit().remove(key).apply();
     }
 
+    // gitcloud 自家键的唯一命名口径：GitAccount.tokenKey = "git_cloud_" + account.id
+    // （GitAccount.create 与 GitCloudAccountStore.normalize 两处生成，全树无其它自家键）。
+    // 本仓被 remote（remote_dt:/remote_gt:/remote_bg:）与 emby（emby_tok:）共用，
+    // 导出只认自家前缀，外来前缀一律排除，不许随登录态归档明文扩散出去。
+    private static final String OWN_PREFIX = "git_cloud_";
+
+    private static boolean isOwnKey(String key) {
+        if (TextUtils.isEmpty(key)) return false;
+        if (key.startsWith("remote_") || key.startsWith("emby_")) return false;
+        return key.startsWith(OWN_PREFIX);
+    }
+
     public static JsonObject exportTokens() {
         JsonObject object = new JsonObject();
         for (Map.Entry<String, ?> entry : prefs().getAll().entrySet()) {
-            if (TextUtils.isEmpty(entry.getKey()) || !(entry.getValue() instanceof String)) continue;
+            if (!isOwnKey(entry.getKey()) || !(entry.getValue() instanceof String)) continue;
             try {
                 String token = decrypt(App.get(), (String) entry.getValue());
                 if (!TextUtils.isEmpty(token)) object.addProperty(entry.getKey(), token);

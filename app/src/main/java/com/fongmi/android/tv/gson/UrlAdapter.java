@@ -15,12 +15,18 @@ public class UrlAdapter implements JsonDeserializer<Url> {
     public Url deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
         if (json.isJsonArray()) return convert(json.getAsJsonArray());
         if (json.isJsonObject()) return Url.objectFrom(json);
+        // 畸形守卫：JsonNull 直达 getAsString 会抛，拖死整份 Result；按无地址处理。
+        if (!json.isJsonPrimitive()) return Url.create();
         return Url.create().add(json.getAsString());
     }
 
     private Url convert(JsonArray array) {
         Url url = Url.create();
-        for (int i = 0; i + 1 < array.size(); i += 2) url.add(array.get(i).getAsString(), array.get(i + 1).getAsString());
+        for (int i = 0; i + 1 < array.size(); i += 2) {
+            JsonElement name = array.get(i);
+            JsonElement value = array.get(i + 1);
+            if (name.isJsonPrimitive() && value.isJsonPrimitive()) url.add(name.getAsString(), value.getAsString());
+        }
         return url;
     }
 }

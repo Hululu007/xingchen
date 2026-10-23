@@ -34,14 +34,15 @@ public class XLDownloadManager {
         this.init();
     }
 
-    // 上游原文（XLTaskFactory 与上游 XLDownloadManager 各调用点共用）：错码转可见错。
+    // 上游原文（上游 XLDownloadManager 各调用点共用）：错码转可见错。
     static void checkErrorCode(int code) {
         if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException(ErrorCode.get(code));
     }
 
     public void init() {
         InitParam param = new InitParam(context.getFilesDir().getPath());
-        loader.init(param.getSoKey(), "com.android.providers.downloads", param.mAppVersion, "", getPeerId(), getGuid(), param.mStatSavePath, param.mStatCfgSavePath, 0, param.mPermissionLevel, param.mQueryConfOnInit);
+        int code = loader.init(param.getSoKey(), "com.android.providers.downloads", param.mAppVersion, "", getPeerId(), getGuid(), param.mStatSavePath, param.mStatCfgSavePath, 0, param.mPermissionLevel, param.mQueryConfOnInit);
+        checkErrorCode(code);
         getDownloadLibVersion(new GetDownloadLibVersion());
         setOSVersion(Build.VERSION.INCREMENTAL + "_alpha");
         setLocalProperty("PhoneModel", Build.MODEL);
@@ -70,7 +71,7 @@ public class XLDownloadManager {
     }
 
     public void startTask(long taskId) {
-        loader.startTask(taskId);
+        checkErrorCode(loader.startTask(taskId));
     }
 
     public void stopTask(long taskId) {
@@ -78,11 +79,11 @@ public class XLDownloadManager {
     }
 
     public void getTaskInfo(long taskId, int i, XLTaskInfo taskInfo) {
-        loader.getTaskInfo(taskId, i, taskInfo);
+        checkErrorCode(loader.getTaskInfo(taskId, i, taskInfo));
     }
 
     public void getLocalUrl(String filePath, XLTaskLocalUrl localUrl) {
-        loader.getLocalUrl(filePath, localUrl);
+        checkErrorCode(loader.getLocalUrl(filePath, localUrl));
     }
 
     public void getDownloadLibVersion(GetDownloadLibVersion version) {
@@ -130,26 +131,26 @@ public class XLDownloadManager {
     }
 
     public void getTorrentInfo(TorrentInfo info) {
-        loader.getTorrentInfo(info.getFile().getAbsolutePath(), info);
+        checkErrorCode(loader.getTorrentInfo(info.getFile().getAbsolutePath(), info));
     }
 
     public void getBtSubTaskInfo(long taskId, int index, BtSubTaskDetail detail) {
-        loader.getBtSubTaskInfo(taskId, index, detail);
+        checkErrorCode(loader.getBtSubTaskInfo(taskId, index, detail));
     }
 
     public void deselectBtSubTask(long taskId, BtIndexSet btIndexSet) {
-        loader.deselectBtSubTask(taskId, btIndexSet);
+        checkErrorCode(loader.deselectBtSubTask(taskId, btIndexSet));
     }
 
     public String parserThunderUrl(String url) {
         ThunderUrlInfo thunderUrlInfo = new ThunderUrlInfo();
-        loader.parserThunderUrl(url, thunderUrlInfo);
+        checkErrorCode(loader.parserThunderUrl(url, thunderUrlInfo));
         return thunderUrlInfo.mUrl;
     }
 
     public String getFileNameFromUrl(String url) {
         GetFileName getFileName = new GetFileName();
-        loader.getFileNameFromUrl(url, getFileName);
+        checkErrorCode(loader.getFileNameFromUrl(url, getFileName));
         return getFileName.getFileName();
     }
 

@@ -59,10 +59,30 @@ public class AiAsrEngine {
     private IAiAsrBridge bridge;
     private long streamPtr = 0;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    /** start 与 release 的状态锁（低-09）：防 start 抢在 release 队列任务置空 bridge 之前建流。 */
+    private final Object stateLock = new Object();
+    /** 释放中标记（低-02，由 stateLock 守）：release() 同步置位、新桥装入时清零；置位期间 start() 一律失败返回。 */
+    private boolean releasing;
     private Listener listener;
     private String lastText = "";
 
     private AiAsrEngine() {}
+
+    /**
+     * 取桥现判（低-04）：本类另持的 bridge 与插件管理器是同一实例；插件被删时
+     * 管理器先 release 并置空自己的引用，本类若继续拿着旧引用调用，就是摸已释放
+     * 的桥。故每次用桥前先与管理器当前持有的实例对一遍：对不上＝桥已被释放/替换，
+     * 本地引用一并清掉、按无桥处理，绝不再调用它。
+     */
+    private IAiAsrBridge liveBridge() {
+        IAiAsrBridge b = bridge;
+        if (b == null) return null;
+        if (b != AiAsrPluginManager.getBridge()) {
+            bridge = null;
+            return null;
+        }
+        return b;
+    }
 
     public void setListener(Listener l) {
         this.listener = l;
@@ -76,7 +96,8 @@ public class AiAsrEngine {
      * 准备引擎：确保插件已加载且模型已下载，然后初始化识别器。
      */
     public void prepare(Context context, PrepareCallback callback) {
-        if (bridge != null && bridge.isReady()) {
+        IAiAsrBridge ready = liveBridge();
+        if (ready != null && ready.isReady()) {
             callback.onReady();
             return;
         }
@@ -128,7 +149,10 @@ public class AiAsrEngine {
                             postError(callback, "识别器初始化失败");
                             return;
                         }
-                        bridge = b;
+                        synchronized (stateLock) {
+                            bridge = b;
+                            releasing = false; // 新桥装入：解除 release() 留下的释放中标记
+                        }
                         mainHandler.post(callback::onReady);
                     } catch (Exception e) {
                         postError(callback, "初始化失败：" + e.getMessage());
@@ -152,19 +176,24 @@ public class AiAsrEngine {
      * 必须在 prepare 成功后调用。
      */
     public boolean start() {
-        if (bridge == null || !bridge.isReady()) return false;
-        if (!running.compareAndSet(false, true)) return true; // 已在运行
-        try {
-            streamPtr = bridge.createStream();
-            if (streamPtr == 0) {
+        synchronized (stateLock) {
+            // 取桥与建流同锁核对（低-02）：释放中直接失败，不许在已被摘下的旧桥上建流
+            if (releasing) return false;
+            IAiAsrBridge b = liveBridge();
+            if (b == null || !b.isReady()) return false;
+            if (!running.compareAndSet(false, true)) return true; // 已在运行
+            try {
+                streamPtr = b.createStream();
+                if (streamPtr == 0) {
+                    running.set(false);
+                    return false;
+                }
+                lastText = "";
+                return true;
+            } catch (Exception e) {
                 running.set(false);
                 return false;
             }
-            lastText = "";
-            return true;
-        } catch (Exception e) {
-            running.set(false);
-            return false;
         }
     }
 
@@ -173,21 +202,23 @@ public class AiAsrEngine {
      * 由 AiAsrAudioProcessor 在音频线程调用。
      */
     public void feedPcm(float[] samples) {
-        if (!running.get() || bridge == null || streamPtr == 0) return;
+        final IAiAsrBridge b = liveBridge();
+        if (!running.get() || b == null || streamPtr == 0) return;
         if (samples == null || samples.length == 0) return;
         final long ptr = streamPtr;
         final float[] copy = samples.clone(); // 避免调用方复用 buffer
         decodeExecutor.execute(() -> {
-            if (!running.get() || ptr != streamPtr) return;
+            // 排队期间桥可能被删插件释放：与管理器当前持有的桥对不上就不摸
+            if (!running.get() || ptr != streamPtr || AiAsrPluginManager.getBridge() != b) return;
             try {
-                bridge.acceptWaveform(ptr, copy);
-                bridge.decode(ptr);
-                String text = bridge.getResult(ptr);
+                b.acceptWaveform(ptr, copy);
+                b.decode(ptr);
+                String text = b.getResult(ptr);
                 if (text != null && !text.equals(lastText)) {
                     lastText = text;
                     final String t = text;
                     // 端点检测：一句话说完
-                    if (bridge.isEndpoint(ptr)) {
+                    if (b.isEndpoint(ptr)) {
                         mainHandler.post(() -> {
                             if (listener != null) listener.onFinal(t);
                         });
@@ -208,12 +239,14 @@ public class AiAsrEngine {
     private void resetStream() {
         decodeExecutor.execute(() -> {
             if (!running.get()) return;
+            IAiAsrBridge b = liveBridge();
+            if (b == null) return;
             try {
                 long oldPtr = streamPtr;
-                long newPtr = bridge.createStream();
+                long newPtr = b.createStream();
                 if (newPtr != 0) {
                     streamPtr = newPtr;
-                    bridge.releaseStream(oldPtr);
+                    b.releaseStream(oldPtr);
                     lastText = "";
                 }
             } catch (Exception ignored) {
@@ -226,11 +259,13 @@ public class AiAsrEngine {
         if (!running.compareAndSet(true, false)) return;
         final long ptr = streamPtr;
         streamPtr = 0;
+        final IAiAsrBridge b = liveBridge();
         decodeExecutor.execute(() -> {
             try {
-                if (bridge != null && ptr != 0) {
-                    bridge.inputFinished(ptr);
-                    bridge.releaseStream(ptr);
+                // 排队期间桥被删插件释放过：流随桥一起没了，不再摸已释放的桥
+                if (b != null && ptr != 0 && AiAsrPluginManager.getBridge() == b) {
+                    b.inputFinished(ptr);
+                    b.releaseStream(ptr);
                 }
             } catch (Exception ignored) {}
         });
@@ -238,12 +273,36 @@ public class AiAsrEngine {
 
     /** 释放引擎（App 退出时） */
     public void release() {
-        stop();
-        decodeExecutor.execute(() -> {
-            try {
-                if (bridge != null) bridge.release();
-            } catch (Exception ignored) {}
+        // 先同步摘桥（低-02）：在 stateLock 内当场打释放中标记、置空 bridge、置
+        // running=false 并摘下当前流——摘桥在 release() 返回前就完成，此后 start()
+        // 同锁核对只能见到 releasing 或空桥，必失败返回，不可能再在旧桥上建流并报
+        // 成功、随后被队列任务回滚（低-09 只排队收尾时正是这个窗口）。
+        final IAiAsrBridge oldBridge;
+        final long oldStream;
+        synchronized (stateLock) {
+            releasing = true;
+            oldBridge = bridge;
             bridge = null;
+            oldStream = streamPtr;
+            streamPtr = 0;
+            running.set(false);
+        }
+        // 真 release 是重活，仍排队列：任务只碰上面捕获的旧桥/旧流，不再读写的
+        // bridge、running、streamPtr 等共享状态，排在它前面的喂入任务也只会因
+        // running=false／流指针已清而自行跳过。
+        decodeExecutor.execute(() -> {
+            // 幂等（低-04）：管理器已不持有这只桥＝删插件时已由管理器 release 过，
+            // 这里再碰就是二次释放；只有管理器还持有的才归本类收尾。
+            if (oldBridge == null || oldBridge != AiAsrPluginManager.getBridge()) return;
+            try {
+                if (oldStream != 0) {
+                    oldBridge.inputFinished(oldStream);
+                    oldBridge.releaseStream(oldStream);
+                }
+            } catch (Exception ignored) {}
+            try {
+                oldBridge.release();
+            } catch (Exception ignored) {}
         });
     }
 }

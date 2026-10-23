@@ -145,6 +145,8 @@ public class MusicListActivity extends BaseActivity {
     private final Set<String> dlSelected = new java.util.HashSet<>();
     private boolean dlListenerOn;
     private String mode = "tracks";
+    /** onResume 首过标记（中-03）：首次由 initView 的 load() 负责，之后回页才重拉。 */
+    private boolean resumedOnce = false;
     private final com.fongmi.android.tv.utils.download.DownloadManager.Listener dlListener = task -> {
         if (!mode.equals("download")) return;
         runOnUiThread(() -> {
@@ -524,6 +526,42 @@ public class MusicListActivity extends BaseActivity {
         });
         MusicController.get().addListener(controllerListener);
         load();
+    }
+
+    /**
+     * 回页刷新本地数据（中-03）：此前本页没有 onResume，从播放页/别页改了收藏、
+     * 删了下载、移了歌单回来都还是旧列表，只能杀页重进。只重拉本地数据模式，
+     * 网络模式（榜单/站点/搜索/猜你喜欢）不回页重拉，免得白耗流量与接口。
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!resumedOnce) {
+            resumedOnce = true;
+            return;
+        }
+        switch (mode) {
+            case "sheets":
+                loadSheets();
+                break;
+            case "favorite":
+                loadFavorites();
+                break;
+            case "history":
+                loadHistory();
+                break;
+            case "sheet":
+                loadSheetTracks();
+                break;
+            case "download":
+                loadDownloads();
+                break;
+            case "device":
+                loadDevice();
+                break;
+            default:
+                break;
+        }
     }
 
     @Override
@@ -5650,7 +5688,8 @@ public class MusicListActivity extends BaseActivity {
                 if (sheetsSelected.contains(p.getId())) sheetsSelected.remove(p.getId());
                 else sheetsSelected.add(p.getId());
                 binding.tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
-                adapter.notifyItemChanged(h.getBindingAdapterPosition());
+                int pos = h.getBindingAdapterPosition();
+                if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) adapter.notifyItemChanged(pos);
             };
             h.itemView.setOnClickListener(sheetsMulti ? toggle
                     : v -> startSheet(MusicListActivity.this, p.getId(), p.getName()));

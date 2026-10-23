@@ -48,12 +48,12 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
         holder.switchEnable.setChecked(p.isEnabled());
         
         // 短剧标记：行内「短剧」小标是可见入口（点它切换），长按整行保留为备用入口
-        String fileName = new File(p.getPath()).getName();
+        String fileName = new File(p.getPath() == null ? "" : p.getPath()).getName();
         updateShortDramaBadge(holder.tvShortDrama, fileName);
         holder.tvShortDrama.setOnClickListener(v -> {
             int pos = holder.getBindingAdapterPosition();
             if (pos == RecyclerView.NO_POSITION || pos >= plugins.size()) return;
-            String fn = new File(plugins.get(pos).getPath()).getName();
+            String fn = new File(plugins.get(pos).getPath() == null ? "" : plugins.get(pos).getPath()).getName();
             boolean next = !ShortDramaHelper.isPluginShortDrama(fn);
             ShortDramaHelper.setPluginShortDrama(fn, next);
             updateShortDramaBadge(holder.tvShortDrama, fn);
@@ -81,7 +81,7 @@ public class PluginAdapter extends RecyclerView.Adapter<PluginAdapter.ViewHolder
             if (pos == RecyclerView.NO_POSITION || pos >= plugins.size()) return;
             Plugin item = plugins.get(pos);
             boolean py = item.getPath() != null && item.getPath().endsWith(".py");
-            new File(item.getPath()).delete();
+            if (item.getPath() != null) new File(item.getPath()).delete();
             plugins.remove(pos);
             notifyItemRemoved(pos);
             // 单删也要走失效：只清该插件对应的蜘蛛＋首页缓存并让首页立刻重载，

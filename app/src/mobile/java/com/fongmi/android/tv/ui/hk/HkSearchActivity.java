@@ -465,7 +465,16 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         @Override
         public long getItemId(int position) {
             HkSearchEngine e = engines.get(position);
-            return (String.valueOf(e.getTitle()) + "|" + keyword + "|" + currentGroup).hashCode();
+            // 身份串带上 search_url/url 区分同名同组的不同的发动机，再走 64 位 FNV-1a，
+            // 避免 32 位 hashCode 撞 id 把两个发动机的 Fragment 复用错
+            String identity = String.valueOf(e.getTitle()) + "|" + keyword + "|" + currentGroup
+                    + "|" + String.valueOf(e.getSearch_url()) + "|" + String.valueOf(e.getUrl());
+            long hash = 0xcbf29ce484222325L;
+            for (int i = 0; i < identity.length(); i++) {
+                hash ^= identity.charAt(i);
+                hash *= 0x100000001b3L;
+            }
+            return hash;
         }
 
         @Override

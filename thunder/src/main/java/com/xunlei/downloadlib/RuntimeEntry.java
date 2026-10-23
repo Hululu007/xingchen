@@ -41,14 +41,19 @@ public final class RuntimeEntry implements ThunderRuntime {
         return XLTaskHelper.get().getLocalUrl(file);
     }
 
+    private static GetTaskId requireTask(Task task) {
+        if (!(task instanceof GetTaskId taskId)) throw new IllegalArgumentException("Unsupported thunder task: " + (task == null ? "null" : task.getClass().getName()));
+        return taskId;
+    }
+
     @Override
     public void deleteTask(Task task) {
-        XLTaskHelper.get().deleteTask((GetTaskId) task);
+        XLTaskHelper.get().deleteTask(requireTask(task));
     }
 
     @Override
     public void stopTask(Task task) {
-        XLTaskHelper.get().stopTask((GetTaskId) task);
+        XLTaskHelper.get().stopTask(requireTask(task));
     }
 
     private Status status(XLTaskInfo info) {
@@ -57,12 +62,12 @@ public final class RuntimeEntry implements ThunderRuntime {
 
     @Override
     public Status getTaskInfo(Task task) {
-        return status(XLTaskHelper.get().getTaskInfo((GetTaskId) task));
+        return status(XLTaskHelper.get().getTaskInfo(requireTask(task)));
     }
 
     @Override
     public Status getBtSubTaskInfo(Task task, int index) {
-        return status(XLTaskHelper.get().getBtSubTaskInfo((GetTaskId) task, index).mTaskInfo);
+        return status(XLTaskHelper.get().getBtSubTaskInfo(requireTask(task), index).mTaskInfo);
     }
 
     @Override

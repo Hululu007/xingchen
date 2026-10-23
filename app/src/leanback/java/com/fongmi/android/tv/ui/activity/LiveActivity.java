@@ -386,7 +386,15 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void onTrack(View view) {
         if (player() == null) return;
-        TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int type;
+        try {
+            type = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
 

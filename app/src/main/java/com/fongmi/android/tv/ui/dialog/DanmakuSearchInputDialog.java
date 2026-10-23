@@ -362,15 +362,22 @@ public final class DanmakuSearchInputDialog extends DialogFragment implements Ca
 
     private void showError(String message) {
         if (!isAdded()) return;
-        if (TextUtils.isEmpty(message)) message = getString(R.string.error_empty);
+        // 给用户看的只留本地化文案：已知的本地化文案（无结果/接口无效）
+        // 原样保留，其余一律视为底层异常原文（多为英文技术串），换成
+        // 统一的失败文案；原文只进调试日志，不直弹。
+        String emptyText = getString(R.string.error_empty);
+        String shown;
+        if (TextUtils.isEmpty(message)) shown = emptyText;
+        else if (message.equals(emptyText) || message.equals(getString(R.string.danmaku_api_invalid))) shown = message;
+        else shown = getString(R.string.danmaku_search_failed);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "search dialog failed error=%s", message);
         hideProgress();
         sourceScroll.setVisibility(GONE);
         resultFrame.setVisibility(VISIBLE);
         recycler.setVisibility(GONE);
-        empty.setText(message);
+        empty.setText(shown);
         empty.setVisibility(VISIBLE);
-        Notify.show(message);
+        Notify.show(shown);
     }
 
     private void onSuccess(List<Danmaku> items) {

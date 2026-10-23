@@ -156,6 +156,9 @@ public class AiAsrController {
                     mpvMode = true;
                     if (!startMpvCapture()) {
                         mpvMode = false;
+                        // 回滚已落盘的开启标志（中-09）：不回滚的话设置页/开关显示「已开」
+                        // 而引擎根本没在跑，成了假状态。
+                        setEnabled(context, false);
                         mainHandler.post(() -> callback.onError("无法获取 MPV 播放地址，AI 字幕不可用"));
                         return;
                     }
@@ -166,6 +169,11 @@ public class AiAsrController {
                 if (AiAsrEngine.get().start()) {
                     mainHandler.post(callback::onEnabled);
                 } else {
+                    // 同上回滚：采集与标志一并撤掉，与 disable() 的收尾口径一致。
+                    audioProcessor.setCaptureEnabled(false);
+                    stopMpvCapture();
+                    mpvMode = false;
+                    setEnabled(context, false);
                     mainHandler.post(() -> callback.onError("识别启动失败"));
                 }
             }

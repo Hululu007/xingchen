@@ -198,7 +198,21 @@ public final class LabProc {
     }
 
     private static String keyFile(String key) {
-        return key.replaceAll("[^a-zA-Z0-9_.-]", "_");
+        // 清洗后再加原键短哈希：光清洗会把不同键映成同名（"a/b" 与 "a:b" 都成 "a_b"），
+        // 两条命令共用一个 pid/日志文件、互杀互串。改名后旧文件成孤儿，state.json 为准。
+        return key.replaceAll("[^a-zA-Z0-9_.-]", "_") + "-" + shortHash(key);
+    }
+
+    private static String shortHash(String key) {
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-1")
+                    .digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 5; i++) sb.append(String.format("%02x", d[i]));
+            return sb.toString();
+        } catch (Exception e) {
+            return "x" + Math.abs(key.hashCode());
+        }
     }
 
     private static Map<String, JSONObject> load(Context c) {

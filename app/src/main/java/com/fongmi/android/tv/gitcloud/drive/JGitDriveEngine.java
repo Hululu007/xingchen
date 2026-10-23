@@ -9,17 +9,58 @@ import com.github.catvod.utils.Path;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class JGitDriveEngine implements GitDriveEngine {
 
-    private final Map<String, Boolean> cancelled = new ConcurrentHashMap<>();
+    /**
+     * 在途操作的取消监视器集合。旧实现 cancel() 只往一张没人读的 map 里 put：
+     * 任务停不下来、条目还只增不减。现在取消直接落到 JGit 的 ProgressMonitor 上
+     * （传输层会轮询 isCancelled 并中止），操作结束在 finally 里注销，不留存量。
+     */
+    private final Set<CancelMonitor> active = ConcurrentHashMap.newKeySet();
+
+    private static final class CancelMonitor implements ProgressMonitor {
+
+        private volatile boolean cancelled;
+
+        void trip() {
+            cancelled = true;
+        }
+
+        @Override
+        public void start(int totalTasks) {
+        }
+
+        @Override
+        public void beginTask(String title, int totalWork) {
+        }
+
+        @Override
+        public void update(int completed) {
+        }
+
+        @Override
+        public void endTask() {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled;
+        }
+
+        // ProgressMonitor 在新版 JGit 多了这个抽象方法，老版没有；
+        // 不带 @Override 写一份，两版都能编过。
+        public void showDuration(boolean enabled) {
+        }
+    }
 
     @Override
     public GitDriveState bind(GitDriveConfig config) throws GitCloudException {
@@ -27,13 +68,17 @@ public class JGitDriveEngine implements GitDriveEngine {
         if (new File(config.worktreeDir, ".git").exists()) return status(config);
         File tmp = new File(config.worktreeDir.getParentFile(), config.worktreeDir.getName() + ".tmp");
         Path.clear(tmp);
+        CancelMonitor monitor = new CancelMonitor();
+        active.add(monitor);
         try {
             org.eclipse.jgit.api.CloneCommand command = Git.cloneRepository()
                     .setURI(config.repo.cloneUrl)
                     .setDirectory(tmp)
+                    .setProgressMonitor(monitor)
                     .setCredentialsProvider(credentials(config));
             if (!TextUtils.isEmpty(config.branch())) command.setBranch(config.branch());
             command.call().close();
+            if (monitor.isCancelled()) throw new GitCloudException("绑定已取消");
             Path.clear(config.worktreeDir);
             if (!tmp.renameTo(config.worktreeDir)) throw new GitCloudException("切换本地工作目录失败");
             return status(config);
@@ -41,18 +86,29 @@ public class JGitDriveEngine implements GitDriveEngine {
             throw e;
         } catch (Throwable e) {
             Path.clear(tmp);
+            if (monitor.isCancelled()) throw new GitCloudException("绑定已取消", e);
             throw new GitCloudException("绑定仓库失败：" + sanitize(e.getMessage()), e);
+        } finally {
+            active.remove(monitor);
         }
     }
 
     @Override
     public GitDriveState pull(GitDriveConfig config) throws GitCloudException {
         require(config);
+        CancelMonitor monitor = new CancelMonitor();
+        active.add(monitor);
         try (Git git = Git.open(config.worktreeDir)) {
-            git.pull().setCredentialsProvider(credentials(config)).call();
+            git.pull().setProgressMonitor(monitor).setCredentialsProvider(credentials(config)).call();
+            if (monitor.isCancelled()) throw new GitCloudException("同步已取消");
             return state(git, "同步完成");
+        } catch (GitCloudException e) {
+            throw e;
         } catch (Throwable e) {
+            if (monitor.isCancelled()) throw new GitCloudException("同步已取消", e);
             throw new GitCloudException("同步失败：" + sanitize(e.getMessage()), e);
+        } finally {
+            active.remove(monitor);
         }
     }
 
@@ -60,8 +116,11 @@ public class JGitDriveEngine implements GitDriveEngine {
     public CommitResult commitAndPush(GitDriveConfig config, List<FileChange> changes) throws GitCloudException {
         require(config);
         if (changes == null || changes.isEmpty()) throw new GitCloudException("没有需要上传的文件");
+        CancelMonitor monitor = new CancelMonitor();
+        active.add(monitor);
         try (Git git = openOrBind(config)) {
             for (FileChange change : changes) {
+                if (monitor.isCancelled()) throw new GitCloudException("上传已取消");
                 if (change == null || TextUtils.isEmpty(change.path)) continue;
                 File target = safeFile(config.worktreeDir, change.path);
                 if (change.delete) {
@@ -80,7 +139,8 @@ public class JGitDriveEngine implements GitDriveEngine {
             }
             String message = "upload: WebHTV files " + System.currentTimeMillis();
             ObjectId id = git.commit().setMessage(message).setAuthor("WebHTV", "webhtv@app.local").call().getId();
-            git.push().setCredentialsProvider(credentials(config)).call();
+            git.push().setProgressMonitor(monitor).setCredentialsProvider(credentials(config)).call();
+            if (monitor.isCancelled()) throw new GitCloudException("上传已取消");
             CommitResult result = new CommitResult();
             result.commitSha = id == null ? "" : id.name();
             result.pushed = true;
@@ -89,7 +149,10 @@ public class JGitDriveEngine implements GitDriveEngine {
         } catch (GitCloudException e) {
             throw e;
         } catch (Throwable e) {
+            if (monitor.isCancelled()) throw new GitCloudException("上传已取消", e);
             throw new GitCloudException("上传失败：" + sanitize(e.getMessage()), e);
+        } finally {
+            active.remove(monitor);
         }
     }
 
@@ -105,7 +168,9 @@ public class JGitDriveEngine implements GitDriveEngine {
 
     @Override
     public void cancel(String taskId) {
-        if (!TextUtils.isEmpty(taskId)) cancelled.put(taskId, true);
+        // 引擎的操作不带 taskId 入参，在途操作就登记在 active 里：
+        // 取消直接触发全部在途监视器（JGit 传输轮询到即中止，本地段在检查点停）。
+        for (CancelMonitor monitor : active) monitor.trip();
     }
 
     private Git openOrBind(GitDriveConfig config) throws Exception {

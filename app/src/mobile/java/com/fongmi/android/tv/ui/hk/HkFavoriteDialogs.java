@@ -38,6 +38,7 @@ public class HkFavoriteDialogs {
 
     /** 选项弹窗：取消收藏 / 更新收藏（对齐原版 cancelCollectOrUpdate 的请选择操作）。 */
     public static void showOptions(Context ctx, String title, String[] labels, OnSelect cb) {
+        if (HkDialogs.isHostGone(ctx)) return;
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(ctx, 20), dp(ctx, 16), dp(ctx, 20), dp(ctx, 16));
@@ -76,6 +77,7 @@ public class HkFavoriteDialogs {
      * 对齐原版 BookmarkEditPopup（groupEditable，标题不能为空）。
      */
     public static void showEdit(Context ctx, String dialogTitle, String initTitle, String initGroup, OnConfirm cb) {
+        if (HkDialogs.isHostGone(ctx)) return;
         List<String> groups = new ArrayList<>();
         groups.add(HkFavoriteStore.DEFAULT_GROUP);
         for (String g : HkFavoriteStore.groups()) {
@@ -100,7 +102,8 @@ public class HkFavoriteDialogs {
         EditText et = new EditText(ctx);
         et.setText(initTitle == null ? "" : initTitle);
         et.setSelection(et.getText().length());
-        et.setTextColor(0xFFF2F4F8);
+        et.setTextColor(0xFF1A1D24);
+        et.setHintTextColor(0xFF8A8F98);
         et.setTextSize(15);
         et.setHint("请输入标题，不能为空");
         et.setBackgroundResource(R.drawable.dialog_option_card_light);

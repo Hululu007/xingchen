@@ -342,10 +342,15 @@ public class LegadoStore {
         List<Entry> list = all();
         List<Entry> keep = new ArrayList<>();
         for (Entry e : list) {
+            // 解析失败的条目不许连带删（中-10）：它不是要删的目标，只是解析不了，
+            // 删掉等于把用户那个源无声弄丢；只有明确命中目标 url 的才丢弃。
+            boolean drop = false;
             try {
-                if (!parse(e.json).bookSourceUrl.equals(bookSourceUrl)) keep.add(e);
+                drop = parse(e.json).bookSourceUrl.equals(bookSourceUrl);
             } catch (Throwable ignored) {
+                drop = false;
             }
+            if (!drop) keep.add(e);
         }
         saveAll(keep);
     }

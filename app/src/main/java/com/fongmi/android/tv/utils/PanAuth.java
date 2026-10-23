@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.fongmi.android.tv.App;
+import com.github.catvod.crawler.SpiderDebug;
 
 import org.json.JSONObject;
 
@@ -27,16 +28,69 @@ public class PanAuth {
     }
 
     /**
-     * App 内登录流程的 115 cookie，只看 SharedPreferences。
-     * 用于 UI 登录态判定。
+     * 网盘 cookie 的准存储是 CloudAccountStore 加密轨（与 PikPak 同口径）。
+     * 此前 115/夸克 cookie 明文躺在普通 SharedPreferences 里，与加密轨双轨并存。
+     * 读时先看加密轨；加密轨没有而老明文还在，就迁过去并删明文，完成单轨收口。
      */
-    public static String get115Cookie() {
+    private static String secureGetCookie(String driveId, String legacyKey) {
         try {
-            String c = prefs().getString(KEY_115_COOKIE, "");
-            return c == null ? "" : c;
+            String c = com.fongmi.android.tv.cloud.CloudAccountStore.getCookie(App.get(), driveId);
+            if (c != null && !c.isEmpty()) return c;
+            String legacy = prefs().getString(legacyKey, "");
+            if (legacy != null && !legacy.isEmpty()) {
+                com.fongmi.android.tv.cloud.CloudAccountStore.saveCookie(App.get(), driveId, legacy);
+                // W7-05：写后回读校验，回读与刚写的值全等才删明文——加密轨
+                // 写失败被吞时无条件删明文会把 cookie 整体丢掉；不一致就
+                // 保留明文（读路下次还会重试迁移）并留痕。回读本身抛错按
+                // 校验失败处理、不许把本次应返回的 legacy 一并吞掉。
+                String migrated = null;
+                try {
+                    migrated = com.fongmi.android.tv.cloud.CloudAccountStore.getCookie(App.get(), driveId);
+                } catch (Throwable ignored) {
+                }
+                if (legacy.equals(migrated)) {
+                    prefs().edit().remove(legacyKey).apply();
+                } else {
+                    SpiderDebug.log("panauth", "cookie migrate verify failed drive=%s, keep legacy plaintext", driveId);
+                }
+                return legacy;
+            }
+            return "";
         } catch (Throwable ignored) {
             return "";
         }
+    }
+
+    private static void securePutCookie(String driveId, String legacyKey, String cookie) {
+        String value = cookie == null ? "" : cookie;
+        try {
+            com.fongmi.android.tv.cloud.CloudAccountStore.saveCookie(App.get(), driveId, value);
+            // W7-05：同迁移路——写后回读校验成功才删明文键；写失败或
+            // 回读不一致都保留明文并留痕，不许新 cookie 两头落空。
+            String saved = com.fongmi.android.tv.cloud.CloudAccountStore.getCookie(App.get(), driveId);
+            if (value.equals(saved)) {
+                prefs().edit().remove(legacyKey).apply();
+            } else {
+                SpiderDebug.log("panauth", "cookie save verify failed drive=%s, keep legacy plaintext", driveId);
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("panauth", "cookie save failed drive=%s error=%s, keep legacy plaintext", driveId, t.getMessage());
+        }
+    }
+
+    private static void secureClearCookie(String driveId) {
+        try {
+            com.fongmi.android.tv.cloud.CloudAccountStore.clear(App.get(), driveId);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * App 内登录流程的 115 cookie（加密存储，见 secureGetCookie）。
+     * 用于 UI 登录态判定。
+     */
+    public static String get115Cookie() {
+        return secureGetCookie("115", KEY_115_COOKIE);
     }
 
     /**
@@ -79,10 +133,11 @@ public class PanAuth {
     }
 
     public static void put115Cookie(String cookie) {
-        prefs().edit().putString(KEY_115_COOKIE, cookie == null ? "" : cookie).apply();
+        securePutCookie("115", KEY_115_COOKIE, cookie);
     }
 
     public static void clear115() {
+        secureClearCookie("115");
         prefs().edit().remove(KEY_115_COOKIE).remove(KEY_115_VIP).apply();
     }
 
@@ -109,19 +164,15 @@ public class PanAuth {
     }
 
     public static String getQuarkCookie() {
-        try {
-            String c = prefs().getString(KEY_QUARK_COOKIE, "");
-            return c == null ? "" : c;
-        } catch (Throwable ignored) {
-            return "";
-        }
+        return secureGetCookie("quark", KEY_QUARK_COOKIE);
     }
 
     public static void putQuarkCookie(String cookie) {
-        prefs().edit().putString(KEY_QUARK_COOKIE, cookie == null ? "" : cookie).apply();
+        securePutCookie("quark", KEY_QUARK_COOKIE, cookie);
     }
 
     public static void clearQuark() {
+        secureClearCookie("quark");
         prefs().edit().remove(KEY_QUARK_COOKIE).remove(KEY_QUARK_VIP).apply();
     }
 

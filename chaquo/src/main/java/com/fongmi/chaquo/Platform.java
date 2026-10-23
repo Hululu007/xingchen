@@ -90,14 +90,10 @@ public class Platform extends Python.Platform {
     @Override
     public void onStart(@NotNull Python py) {
         String[] appPath = {Common.ASSET_APP, Common.ASSET_REQUIREMENTS, Common.ASSET_STDLIB + "-" + ABI};
-        PyObject module = py.getModule("java.android");
-        try {
-            // initialize 返回 None，是全局单例包装，不关（见 chaquo Spider
-            // 类头纪律）；本模块的包装全树只有这一处取、无人长期持有，关它安全。
-            module.callAttr("initialize", context, buildJson, appPath);
-        } finally {
-            Loader.closeQuietly(module);
-        }
+        // 模块包装与 initialize 返回的 None 都是进程级共享包装，永不关
+        // （与 chaquo Spider 类头纪律统一）：getModule 经身份缓存返回同一
+        // 实例，close 关掉的是所有人手里的那一份。
+        py.getModule("java.android").callAttr("initialize", context, buildJson, appPath);
     }
 
     private void deleteObsolete(File baseDir, String[] filenames) {

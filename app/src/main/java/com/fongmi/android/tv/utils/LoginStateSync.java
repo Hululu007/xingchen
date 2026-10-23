@@ -11,6 +11,7 @@ import com.fongmi.android.tv.gitcloud.secure.GitCloudTokenStore;
 import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 
@@ -624,11 +625,40 @@ public class LoginStateSync {
     }
 
     private static Snapshot snapshotFromJson(String json) {
+        // 定型读回：不用 fromJson(json, Snapshot.class) —— entries 是
+        // List<Entry>，混淆后靠 proguard 的 -keepattributes Signature 才不
+        // 退化成 LinkedTreeMap；保险丝一旦被动，退化发生在 fromJson 内部、
+        // 调用方迭代强转时才在 try 外崩。这里按 JsonObject 逐字段手工组装
+        // Entry（只有 path/size/modified 三个标量），与 Signature 是否在位无关。
         try {
-            Snapshot snapshot = App.gson().fromJson(json, Snapshot.class);
-            return snapshot == null || snapshot.entries == null ? new Snapshot(Collections.emptyList()) : snapshot;
+            JsonObject object = App.gson().fromJson(json, JsonObject.class);
+            if (object == null) return new Snapshot(Collections.emptyList());
+            JsonElement element = object.get("entries");
+            if (element == null || !element.isJsonArray()) return new Snapshot(Collections.emptyList());
+            List<Entry> entries = new ArrayList<>();
+            for (JsonElement item : element.getAsJsonArray()) {
+                if (item == null || !item.isJsonObject()) continue;
+                JsonObject entryObject = item.getAsJsonObject();
+                entries.add(new Entry(entryText(entryObject, "path"), entryLong(entryObject, "size"), entryLong(entryObject, "modified")));
+            }
+            return new Snapshot(entries);
         } catch (Exception e) {
             return new Snapshot(Collections.emptyList());
+        }
+    }
+
+    private static String entryText(JsonObject object, String key) {
+        JsonElement element = object.get(key);
+        return element != null && element.isJsonPrimitive() ? element.getAsString() : "";
+    }
+
+    private static long entryLong(JsonObject object, String key) {
+        JsonElement element = object.get(key);
+        if (element == null || !element.isJsonPrimitive()) return 0;
+        try {
+            return element.getAsLong();
+        } catch (Exception e) {
+            return 0;
         }
     }
 

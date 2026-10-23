@@ -75,6 +75,7 @@ public class HkCenterListPopup {
     }
 
     public void show() {
+        if (com.fongmi.android.tv.ui.hk.HkDialogs.isHostGone(context)) return;
         View root = LayoutInflater.from(context).inflate(R.layout.pop_custom_center_recycler_view, null);
         if (title != null && !title.isEmpty()) {
             TextView titleView = root.findViewById(R.id.title);

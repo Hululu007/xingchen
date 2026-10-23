@@ -141,7 +141,7 @@ public class HkDynamicBgView extends View {
     private static void ensureTicker() {
         synchronized (LOCK) {
             if (sTickerRunning) return;
-            if (sBuffer == null) initBufferLocked();
+            ensureBufferSizeLocked();
             if (sStartNanos == 0) sStartNanos = System.nanoTime();
             sTickerRunning = true;
             sHandler.post(sTick);
@@ -181,11 +181,18 @@ public class HkDynamicBgView extends View {
         }
     };
 
-    private static void initBufferLocked() {
+    /** 缓冲尺寸与当前屏幕对不上（旋转后宽高互换）就重建，否则旧缓冲会被拉伸铺满。调用方已持 LOCK。 */
+    private static void ensureBufferSizeLocked() {
         android.util.DisplayMetrics dm = android.content.res.Resources.getSystem().getDisplayMetrics();
-        sBufferW = Math.max(2, dm.widthPixels / 4);
-        sBufferH = Math.max(2, dm.heightPixels / 4);
-        sBuffer = Bitmap.createBitmap(sBufferW, sBufferH, Bitmap.Config.ARGB_8888);
+        int w = Math.max(2, dm.widthPixels / 4);
+        int h = Math.max(2, dm.heightPixels / 4);
+        if (sBuffer != null && !sBuffer.isRecycled() && w == sBufferW && h == sBufferH) return;
+        Bitmap old = sBuffer;
+        sBufferW = w;
+        sBufferH = h;
+        sBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        if (old != null && old != sBuffer) old.recycle();
+        sBufferVersion++;
     }
 
     /** 玻璃件用：缓冲是否就绪。 */
@@ -225,7 +232,7 @@ public class HkDynamicBgView extends View {
 
     /** 在共享缓冲上重绘一帧：对角渐变 ＋ 4 色团漂移。调用方已持 LOCK。 */
     private static void drawBufferLocked() {
-        if (sBuffer == null || sBuffer.isRecycled()) initBufferLocked();
+        ensureBufferSizeLocked();
         Canvas c = new Canvas(sBuffer);
         float w = sBufferW, h = sBufferH;
         float density = android.content.res.Resources.getSystem().getDisplayMetrics().density;

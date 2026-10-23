@@ -111,7 +111,7 @@ public class ImgUtil {
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, 0));
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, 0);
         else try {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
@@ -136,9 +136,11 @@ public class ImgUtil {
     /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer。 */
     public static void loadCircle(String text, String url, ImageView view, String ruleUrl) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, true, -1));
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, true, -1);
         else try {
-            Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).circleCrop().into(view);
+            // 与其余变体同口径补透明 placeholder：不补时加载中不清空视图，
+            // 回收行会短暂残留上一行的旧图（失败口径仍走透明，不变）。
+            Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).placeholder(getTextDrawable(text, true)).circleCrop().into(view);
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -150,7 +152,12 @@ public class ImgUtil {
      */
     public static void loadTopRounded(String text, String url, ImageView view, int width, int height) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(8)));
+        // 素图圆角必须与成功图的 GranularRoundedCorners(8,8,0,0) 逐角一致：
+        // 只圆上两角，底部两角保持直角，否则素图底角多圆一圈透出底色。
+        if (TextUtils.isEmpty(url)) {
+            float r = ResUtil.dp2px(8);
+            showEmptyCover(view, text, false, new float[]{r, r, r, r, 0, 0, 0, 0});
+        }
         else try {
             int r = ResUtil.dp2px(8);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -169,7 +176,7 @@ public class ImgUtil {
      */
     public static void loadRounded(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(8)));
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, ResUtil.dp2px(8));
         else try {
             int r = ResUtil.dp2px(8);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -184,7 +191,7 @@ public class ImgUtil {
     /** 第 9 项：猜你喜欢叠卡单张圆角 16dp（loadRounded 写死 8dp，不够用，单张照 GZ 16dp 另起一个） */
     public static void loadRounded16(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(16)));
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, ResUtil.dp2px(16));
         else try {
             int r = ResUtil.dp2px(16);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -199,7 +206,7 @@ public class ImgUtil {
     /** 第 3 项：榜单详情行封面圆角 10dp（loadRounded 写死 8dp，榜单详情行照 GZ 10dp 另起一个）。 */
     public static void loadRounded10(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(10)));
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, ResUtil.dp2px(10));
         else try {
             int r = ResUtil.dp2px(10);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -220,6 +227,7 @@ public class ImgUtil {
         view.setScaleType(CENTER_CROP);
         view.setContentDescription(title);
         if (TextUtils.isEmpty(url)) {
+            clearRequest(view);
             view.setImageDrawable(defaultMiniIcon(view));
             return;
         }
@@ -231,6 +239,7 @@ public class ImgUtil {
             Object model = (url.startsWith("http://") || url.startsWith("https://"))
                     ? getUrl(url, url) : getUrl(url);
             if (model == null) {
+                clearRequest(view);
                 view.setImageDrawable(defaultMiniIcon(view));
                 return;
             }
@@ -248,6 +257,7 @@ public class ImgUtil {
             }).centerCrop().into(view);
         } catch (Throwable e) {
             e.printStackTrace();
+            clearRequest(view);
             view.setImageDrawable(defaultMiniIcon(view));
         }
     }
@@ -513,6 +523,32 @@ public class ImgUtil {
      */
     private static Drawable getEmptyCoverDrawable(String text, boolean firstCharOnly, float cornerRadiusPx) {
         return new CoverTextDrawable(text, firstCharOnly, cornerRadiusPx);
+    }
+
+    private static Drawable getEmptyCoverDrawable(String text, boolean firstCharOnly, float[] cornerRadiiPx) {
+        return new CoverTextDrawable(text, firstCharOnly, cornerRadiiPx);
+    }
+
+    /**
+     * 清掉该 ImageView 的在途 Glide 请求：回收行重绑到无封面条目时，只
+     * setImageDrawable 不清请求，上一行迟到的图/迟到失败回调会把刚设的
+     * 素图盖掉。判空分支设任何静态图前都必须先清。
+     */
+    private static void clearRequest(ImageView view) {
+        try {
+            Glide.with(view).clear(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void showEmptyCover(ImageView view, String text, boolean firstCharOnly, float cornerRadiusPx) {
+        clearRequest(view);
+        view.setImageDrawable(getEmptyCoverDrawable(text, firstCharOnly, cornerRadiusPx));
+    }
+
+    private static void showEmptyCover(ImageView view, String text, boolean firstCharOnly, float[] cornerRadiiPx) {
+        clearRequest(view);
+        view.setImageDrawable(getEmptyCoverDrawable(text, firstCharOnly, cornerRadiiPx));
     }
 
     private static Drawable getTextDrawable(String text, boolean vod) {

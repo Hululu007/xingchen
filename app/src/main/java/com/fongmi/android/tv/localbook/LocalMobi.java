@@ -250,22 +250,37 @@ public class LocalMobi {
         }
     }
 
+    /** 可扩容字节缓冲：数组与长度绑在一起，扩容不会丢（中-11 的根就在这）。 */
+    private static class Buf {
+        byte[] a;
+        int n;
+
+        Buf(int cap) {
+            a = new byte[cap];
+        }
+
+        void put(byte b) {
+            if (n >= a.length) a = grow(a);
+            a[n++] = b;
+        }
+    }
+
     /** PalmDOC LZ77 解压（compression=2 的标准算法）。 */
     public static byte[] palmDocDecompress(byte[] data) {
-        byte[] out = new byte[Math.max(16, data.length * 2)];
-        int n = 0;
+        // 此前 put(out,n,b) 里 out=grow(out) 只改形参，扩容出的新数组被丢弃：
+        // 写满初始容量后继续往旧数组越界写 → 解压必崩/截断。改 Buf 持有数组本体。
+        Buf out = new Buf(Math.max(16, data.length * 2));
         int i = 0;
         while (i < data.length) {
             int c = data[i++] & 0xFF;
             if (c == 0) {
-                n = put(out, n, (byte) 0);
+                out.put((byte) 0);
             } else if (c <= 8) {
                 for (int k = 0; k < c && i < data.length; k++) {
-                    if (n >= out.length) out = grow(out);
-                    out[n++] = data[i++];
+                    out.put(data[i++]);
                 }
             } else if (c <= 0x7F) {
-                n = put(out, n, (byte) c);
+                out.put((byte) c);
             } else if (c <= 0xBF) {
                 if (i >= data.length) break;
                 int c2 = data[i++] & 0xFF;
@@ -273,23 +288,17 @@ public class LocalMobi {
                 int dist = (code & 0x3FFF) >> 3;
                 int len = (code & 7) + 3;
                 for (int k = 0; k < len; k++) {
-                    byte b = (dist <= n && dist > 0) ? out[n - dist] : 0;
-                    n = put(out, n, b);
+                    byte b = (dist <= out.n && dist > 0) ? out.a[out.n - dist] : 0;
+                    out.put(b);
                 }
             } else {
-                n = put(out, n, (byte) 0x20);
-                n = put(out, n, (byte) (c ^ 0x80));
+                out.put((byte) 0x20);
+                out.put((byte) (c ^ 0x80));
             }
         }
-        byte[] r = new byte[n];
-        System.arraycopy(out, 0, r, 0, n);
+        byte[] r = new byte[out.n];
+        System.arraycopy(out.a, 0, r, 0, out.n);
         return r;
-    }
-
-    private static int put(byte[] out, int n, byte b) {
-        if (n >= out.length) out = grow(out);
-        out[n++] = b;
-        return n;
     }
 
     private static byte[] grow(byte[] out) {

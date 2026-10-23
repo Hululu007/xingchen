@@ -107,7 +107,13 @@ public class History implements Diffable<History> {
     }
 
     public static History objectFrom(String str) {
-        return App.gson().fromJson(str, History.class);
+        try {
+            History history = App.gson().fromJson(str, History.class);
+            return history == null ? new History() : history;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10）：投屏/同步对端发来的坏数据给空对象，不崩
+            return new History();
+        }
     }
 
     public static List<History> arrayFrom(String str) {

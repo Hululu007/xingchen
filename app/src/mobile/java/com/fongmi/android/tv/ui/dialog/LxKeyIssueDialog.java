@@ -22,6 +22,11 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
     private String detail;
     private Runnable onRetry;
 
+    // 重试回调按令牌登记在进程内表里：令牌随 arguments 走，系统重建弹窗后凭令牌取回；
+    // 弹窗真正销毁（非配置变化）时摘除防泄漏。
+    private static final java.util.Map<String, Runnable> PENDING = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicInteger SEQ = new java.util.concurrent.atomic.AtomicInteger();
+
     public static void show(FragmentActivity activity, String platform, String detail, Runnable onRetry) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         try {
@@ -36,10 +41,51 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         android.os.Bundle args = new android.os.Bundle();
         args.putString("platform", d.platform);
         args.putString("detail", d.detail);
+        String token = null;
+        if (onRetry != null) {
+            token = "lx_" + SEQ.incrementAndGet();
+            PENDING.put(token, onRetry);
+            args.putString("cb_token", token);
+        }
         d.setArguments(args);
         try {
             d.show(activity.getSupportFragmentManager(), "lx_key_issue");
         } catch (Throwable ignored) {
+            // show 失败被吞：弹窗不会走 onDestroy 摘令牌，在这里摘掉防残留
+            if (token != null) PENDING.remove(token);
+        }
+    }
+
+    private Runnable resolveRetry() {
+        if (onRetry != null) return onRetry;
+        android.os.Bundle args = getArguments();
+        String token = args == null ? null : args.getString("cb_token");
+        return token == null ? null : PENDING.get(token);
+    }
+
+    // 失效自关判定：字段已丢（系统重建的新实例）＋arguments 里有令牌（原本登记过重试回调）
+    // ＋凭令牌回表取不到。三条全中只可能是进程死亡把静态表清空，重试回调已不可恢复。
+    private boolean callbackLost() {
+        if (onRetry != null) return false;
+        android.os.Bundle args = getArguments();
+        String token = args == null ? null : args.getString("cb_token");
+        return token != null && PENDING.get(token) == null;
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // 显示后自检：取不到重试回调就立即自关，不留能看不能点的僵尸弹窗；用户从活页面重开即正常。
+        if (callbackLost()) dismissAllowingStateLoss();
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (getActivity() == null || !getActivity().isChangingConfigurations()) {
+            android.os.Bundle args = getArguments();
+            String token = args == null ? null : args.getString("cb_token");
+            if (token != null) PENDING.remove(token);
         }
     }
 
@@ -99,7 +145,8 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         TextView retry = button(inflater, "重试", true);
         retry.setOnClickListener(v -> {
             dismissAllowingStateLoss();
-            if (onRetry != null) onRetry.run();
+            Runnable r = resolveRetry();
+            if (r != null) r.run();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f);

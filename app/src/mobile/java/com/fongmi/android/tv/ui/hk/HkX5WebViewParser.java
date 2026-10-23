@@ -41,7 +41,7 @@ public class HkX5WebViewParser extends HkIWebViewParser {
 
     public static synchronized boolean finishParse(Context context, String url, String ticket) {
         if (instance != null) {
-            if (ticket.equals(String.valueOf(instance.hashCode()))) {
+            if (String.valueOf(instance.hashCode()).equals(ticket)) {
                 Log.d(TAG, String.format("finishParse, ticket: %s", ticket));
                 return instance.finishParseInner(context, url);
             }

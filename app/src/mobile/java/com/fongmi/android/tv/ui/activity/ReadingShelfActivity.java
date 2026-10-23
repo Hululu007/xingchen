@@ -1069,9 +1069,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
         new Thread(() -> {
             int ok = 0;
             String err = "";
+            StringBuilder warnAcc = new StringBuilder();
             for (android.net.Uri u : uris) {
                 try {
-                    LocalBookImporter.importUri(getApplicationContext(), u);
+                    LocalBookImporter.Result r = LocalBookImporter.importUri(getApplicationContext(), u);
+                    if (r != null && r.warn != null && !r.warn.isEmpty()) {
+                        if (warnAcc.length() > 0) warnAcc.append("；");
+                        warnAcc.append(r.warn);
+                    }
                     ok++;
                 } catch (Exception e) {
                     err = e.getMessage();
@@ -1079,11 +1084,13 @@ public class ReadingShelfActivity extends AppCompatActivity {
             }
             final int fOk = ok;
             final String fErr = err;
+            final String fWarn = warnAcc.toString();
             runOnUiThread(() -> {
                 setImporting(false);
                 if (fOk > 0) {
                     ToastUtil.show(ReadingShelfActivity.this,
-                            "导入成功 " + fOk + " 本" + (fErr.isEmpty() ? "" : "；失败：" + fErr),
+                            "导入成功 " + fOk + " 本" + (fErr.isEmpty() ? "" : "；失败：" + fErr)
+                                    + (fWarn.isEmpty() ? "" : "；" + fWarn),
                             Toast.LENGTH_LONG);
                 } else {
                     ToastUtil.show(ReadingShelfActivity.this, "导入失败：" + fErr,

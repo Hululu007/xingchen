@@ -102,7 +102,7 @@ public class FluidCoverAmbientView extends View {
         float a2 = clamp(level * 0.12f + mapRange(cos, 0.3f, 0.78f, 0.52f), 0f, 0.9f);
         float s2 = (cos * 0.22f + 1.9f) * (level * 0.25f + 1f);
         drawBlob(canvas, w * 0.75f, h * 0.7f, base * s2, colors[2], a2, 0f);
-        if (isAttachedToWindow()) postInvalidateOnAnimation();
+        if (isAttachedToWindow() && isShown()) postInvalidateOnAnimation();
     }
 
     private void drawBlob(Canvas canvas, float cx, float cy, float radius, int color, float alpha, float rotDeg) {

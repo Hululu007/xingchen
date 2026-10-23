@@ -160,6 +160,9 @@ public class TtsEngine {
         if (!f.exists()) {
             if (!synthesize(n, segs.get(n.seg))) return; // 已报错停工
         }
+        // 已 shutdown 就不再回调/预取：在途段是 shutdown 前起的活，
+        // 合成返回时页面多半已退出，回调摸已销毁宿主没有意义。
+        if (!running) return;
         listener.onSegmentReady(n.chapter, n.seg, f);
         // 预取：本章后两段
         prefetch(n.chapter, n.seg + 1);
@@ -268,5 +271,9 @@ public class TtsEngine {
         synchronized (queue) {
             queue.notify();
         }
+        // 只置旗时 worker 若正卡在在途合成的网络调用里，要等整段返回才
+        // 退出；interrupt 让等待中的 worker 立刻醒，在途段返回后也会被
+        // synthesize 的 running 检查与 process 的回调闸拦下，不再往下走。
+        worker.interrupt();
     }
 }

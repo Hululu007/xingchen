@@ -32,6 +32,8 @@ public class CoverTextDrawable extends Drawable {
     private final String text;
     private final boolean firstCharOnly;
     private final float cornerRadiusPx;
+    /** 逐角圆角（8 个值：左上/右上/右下/左下各 x,y）；非 null 时优先于统一圆角。 */
+    private final float[] cornerRadiiPx;
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Path clipPath = new Path();
@@ -41,6 +43,17 @@ public class CoverTextDrawable extends Drawable {
         this.text = text == null ? "" : text;
         this.firstCharOnly = firstCharOnly;
         this.cornerRadiusPx = cornerRadiusPx;
+        this.cornerRadiiPx = null;
+        textPaint.setColor(TEXT_COLOR);
+        textPaint.setFakeBoldText(true);
+    }
+
+    /** 只圆上面两角这类场景用：素图圆角必须与成功图的变换逐角对齐。 */
+    public CoverTextDrawable(String text, boolean firstCharOnly, float[] cornerRadiiPx) {
+        this.text = text == null ? "" : text;
+        this.firstCharOnly = firstCharOnly;
+        this.cornerRadiusPx = 0;
+        this.cornerRadiiPx = cornerRadiiPx;
         textPaint.setColor(TEXT_COLOR);
         textPaint.setFakeBoldText(true);
     }
@@ -49,9 +62,13 @@ public class CoverTextDrawable extends Drawable {
     public void draw(Canvas canvas) {
         Rect b = getBounds();
         if (b.width() <= 0 || b.height() <= 0) return;
-        float radius = cornerRadiusPx < 0 ? Math.min(b.width(), b.height()) / 2f : cornerRadiusPx;
         clipPath.reset();
-        clipPath.addRoundRect(new RectF(b), radius, radius, Path.Direction.CW);
+        if (cornerRadiiPx != null) {
+            clipPath.addRoundRect(new RectF(b), cornerRadiiPx, Path.Direction.CW);
+        } else {
+            float radius = cornerRadiusPx < 0 ? Math.min(b.width(), b.height()) / 2f : cornerRadiusPx;
+            clipPath.addRoundRect(new RectF(b), radius, radius, Path.Direction.CW);
+        }
         canvas.save();
         canvas.clipPath(clipPath);
         bgPaint.setShader(new LinearGradient(b.left, b.top, b.left, b.bottom,

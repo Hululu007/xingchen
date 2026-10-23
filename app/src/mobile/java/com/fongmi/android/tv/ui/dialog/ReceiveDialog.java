@@ -60,11 +60,16 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
     }
 
     public void show(FragmentActivity activity) {
+        // 投屏事件经 EventBus 异步到达：宿主已走完存状态流程时 show 必抛，先按本批异步弹窗同口径守住
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) if (f instanceof ReceiveDialog) return;
         show(activity.getSupportFragmentManager(), null);
     }
 
     public void show(Fragment fragment) {
+        if (fragment == null || !fragment.isAdded() || fragment.isStateSaved()) return;
+        FragmentActivity activity = fragment.getActivity();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || fragment.getChildFragmentManager().isStateSaved()) return;
         for (Fragment f : fragment.getChildFragmentManager().getFragments()) if (f instanceof ReceiveDialog) return;
         show(fragment.getChildFragmentManager(), null);
     }

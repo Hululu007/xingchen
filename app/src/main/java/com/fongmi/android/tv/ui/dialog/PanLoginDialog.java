@@ -257,6 +257,23 @@ public class PanLoginDialog extends BaseAlertDialog {
         dismissAllowingStateLoss();
     }
 
+    @Override
+    public void onDestroyView() {
+        // 与 ShieldWebViewDialog 同口径：WebView 必须显式收尾，
+        // 只靠 GC 会把页面与宿主引用一直拖住。
+        try {
+            if (binding != null && binding.webview != null) {
+                binding.webview.stopLoading();
+                binding.webview.setWebViewClient(null);
+                binding.webview.setWebChromeClient(null);
+                binding.webview.destroy();
+            }
+        } catch (Throwable ignored) {
+        }
+        binding = null;
+        super.onDestroyView();
+    }
+
     private static class WebSettingsHolder {
         static void apply(WebView webView) {
             android.webkit.WebSettings s = webView.getSettings();

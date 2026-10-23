@@ -134,8 +134,8 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
         binding.rvShortDrama.setLayoutManager(new androidx.recyclerview.widget.GridLayoutManager(getContext(), 4));
         java.util.ArrayList<Episode> items = new java.util.ArrayList<>();
         if (episodes != null) {
-            if (reverse) java.util.Collections.reverse(episodes);
             items.addAll(episodes);
+            if (reverse) java.util.Collections.reverse(items);
         }
         EpisodeAdapter.OnClickListener listener = episode -> {
             ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(episode);

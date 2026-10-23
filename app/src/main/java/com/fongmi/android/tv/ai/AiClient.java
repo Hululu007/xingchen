@@ -237,14 +237,37 @@ public class AiClient {
         return s;
     }
 
+    /**
+     * content 字段转文本（低-06）：部分服务商回数组分片（[{type:text,text:...}]）或对象，
+     * 此前 getAsString() 对非字符串直接抛错、被外层吞成空串 → 上层误判「AI 返回空」。
+     * 字符串直取；数组拼接各 part 的 text；对象取 text 字段。
+     */
+    private static String contentToString(com.google.gson.JsonElement el) {
+        if (el == null || el.isJsonNull()) return "";
+        if (el.isJsonPrimitive()) return el.getAsString();
+        if (el.isJsonArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (com.google.gson.JsonElement part : el.getAsJsonArray()) {
+                sb.append(contentToString(part));
+            }
+            return sb.toString();
+        }
+        if (el.isJsonObject()) {
+            JsonObject obj = el.getAsJsonObject();
+            if (obj.has("text")) return contentToString(obj.get("text"));
+            if (obj.has("content")) return contentToString(obj.get("content"));
+        }
+        return "";
+    }
+
     private static String extractContent(String raw) {
         try {
             JsonObject root = JsonParser.parseString(raw).getAsJsonObject();
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices != null && choices.size() > 0) {
                 JsonObject msg = choices.get(0).getAsJsonObject().getAsJsonObject("message");
-                if (msg != null && msg.has("content") && !msg.get("content").isJsonNull()) {
-                    return msg.get("content").getAsString();
+                if (msg != null && msg.has("content")) {
+                    return contentToString(msg.get("content"));
                 }
             }
         } catch (Exception ignored) {
@@ -258,8 +281,8 @@ public class AiClient {
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices != null && choices.size() > 0) {
                 JsonObject delta = choices.get(0).getAsJsonObject().getAsJsonObject("delta");
-                if (delta != null && delta.has("content") && !delta.get("content").isJsonNull()) {
-                    return delta.get("content").getAsString();
+                if (delta != null && delta.has("content")) {
+                    return contentToString(delta.get("content"));
                 }
             }
         } catch (Exception ignored) {

@@ -69,6 +69,8 @@ public abstract class BaseSideSheetDialog extends AppCompatDialogFragment {
     public void onStart() {
         super.onStart();
         applyWindow();
+        // 与 applyWindow 同口径补判空：getDialog() 理论上可为 null。
+        if (getDialog() == null) return;
         FrameLayout sheet = getDialog().findViewById(com.google.android.material.R.id.m3_side_sheet);
         if (sheet == null) return;
         if (edgeToEdgeOnFullscreen() && fullscreen) {

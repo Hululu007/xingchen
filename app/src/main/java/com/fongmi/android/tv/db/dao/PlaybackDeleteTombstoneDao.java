@@ -23,4 +23,10 @@ public abstract class PlaybackDeleteTombstoneDao {
 
     @Query("DELETE FROM PlaybackDeleteTombstone WHERE deletedAt < :cutoff")
     public abstract void deleteBefore(long cutoff);
+
+    @Query("DELETE FROM PlaybackDeleteTombstone")
+    public abstract void deleteAll();
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    public abstract void insertOrUpdate(List<PlaybackDeleteTombstone> tombstones);
 }

@@ -12,10 +12,8 @@ import android.view.ViewGroup;
 
 import androidx.fragment.app.FragmentActivity;
 
-import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogAboutBinding;
-import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.ResUtil;
 
 public final class AboutDialog {
@@ -24,6 +22,8 @@ public final class AboutDialog {
     }
 
     public static void show(FragmentActivity activity, Runnable updateAction) {
+        // 裸 Dialog.show() 无守卫时，宿主正退出/已销毁会抛异常：先判活。
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         DialogAboutBinding binding = DialogAboutBinding.inflate(LayoutInflater.from(activity));
         configureContentHeight(activity, binding);
 

@@ -186,8 +186,13 @@ public final class HttpUpdateTransfer implements UpdateTransfer {
     private void deleteQuietly() {
         try {
             // 删失败不静默：留痕到文件日志，否则坏档留盘下次还会撞同一处。
+            // 身份旁车一并摘掉（与 Updater 校验失败处的口径对齐）：只删包体
+            // 会把孤旁车留在盘上，下次 reconcile 前谁读到都得再猜一遍。
             if (file.exists() && !file.delete()) {
                 com.github.catvod.crawler.SpiderDebug.log("update", "http transfer delete failed path=%s", file.getAbsolutePath());
+            }
+            if (!UpdateIdentity.clearSidecar(file)) {
+                com.github.catvod.crawler.SpiderDebug.log("update", "http transfer sidecar delete failed path=%s", file.getAbsolutePath());
             }
         } catch (Exception ignored) {
         }

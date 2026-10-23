@@ -13,6 +13,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleEventObserver;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -253,6 +255,12 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     private AlertDialog translateProgressDialog;
     private ProgressBar translateProgressBar;
     private TextView translateProgressText;
+    // 进度窗挂在宿主 Activity 上（本弹窗在翻译开始时已自关）：宿主销毁
+    // 必须连带收窗，否则进度窗成孤窗、回调还摸已销毁的宿主。
+    private FragmentActivity translateHost;
+    private final LifecycleEventObserver translateHostObserver = (source, event) -> {
+        if (event == Lifecycle.Event.ON_DESTROY) dismissTranslateProgress();
+    };
 
     private void onAiTranslate(View view) {
         Context ctx = getContext();
@@ -370,14 +378,19 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         AiSubtitleTranslator.translate(activity, lines, srcLang, targetLang, new AiSubtitleTranslator.Callback() {
             @Override
             public void onProgress(int done, int total) {
-                // TrackDialog 已关闭，用捕获的 activity 引用更新进度
-                activity.runOnUiThread(() -> updateTranslateProgress(done, total));
+                // TrackDialog 已关闭，用捕获的 activity 引用更新进度；
+                // 宿主已销毁/正退出时不再摸它的视图（进度窗由生命周期观察者收）。
+                activity.runOnUiThread(() -> {
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
+                    updateTranslateProgress(done, total);
+                });
             }
 
             @Override
             public void onDone(List<AiSubtitleTranslator.SubtitleLine> translated) {
                 activity.runOnUiThread(() -> {
                     dismissTranslateProgress();
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
                     applyTranslated(activity, translated, subFile, tag);
                 });
             }
@@ -386,6 +399,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
             public void onError(String msg) {
                 activity.runOnUiThread(() -> {
                     dismissTranslateProgress();
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
                     Notify.show("翻译失败：" + msg);
                 });
             }
@@ -439,6 +453,8 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
                 .setCancelable(false)
                 .create();
         translateProgressDialog.show();
+        translateHost = activity;
+        activity.getLifecycle().addObserver(translateHostObserver);
     }
 
     private void updateTranslateProgress(int done, int total) {
@@ -447,6 +463,10 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     }
 
     private void dismissTranslateProgress() {
+        if (translateHost != null) {
+            translateHost.getLifecycle().removeObserver(translateHostObserver);
+            translateHost = null;
+        }
         if (translateProgressDialog != null) {
             try {
                 translateProgressDialog.dismiss();

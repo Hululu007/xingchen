@@ -3,11 +3,8 @@ package com.fongmi.android.tv.ai;
 import android.content.Context;
 import android.text.TextUtils;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -172,17 +169,30 @@ public class AiSubtitleTranslator {
     public static String readFile(File file) {
         if (file == null || !file.exists()) return "";
         StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line).append('\n');
-        } catch (Exception e) {
-            // 尝试 GBK（部分字幕是 GBK 编码）
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), "GBK"))) {
-                sb.setLength(0);
-                String line;
-                while ((line = br.readLine()) != null) sb.append(line).append('\n');
-            } catch (Exception ignored) {
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+            String text;
+            try {
+                // 严格解码（低-10）：InputStreamReader 默认 REPLACE，GBK 字节常能「无错」拼出
+                // 乱码而不抛异常，原先的 catch 回退永远进不来，GBK 字幕整片乱码。
+                text = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                        .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            } catch (java.nio.charset.CharacterCodingException e) {
+                // 尝试 GBK（部分字幕是 GBK 编码）
+                text = new String(bytes, "GBK");
             }
+            String[] parts = text.split("\n", -1);
+            int count = parts.length;
+            // 与 readLine 口径一致：文本以换行结尾时，末尾的空段不算一行
+            if (count > 0 && parts[count - 1].isEmpty() && text.endsWith("\n")) count--;
+            for (int i = 0; i < count; i++) {
+                String line = parts[i];
+                if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                sb.append(line).append('\n');
+            }
+        } catch (Exception ignored) {
         }
         return sb.toString();
     }
@@ -292,26 +302,42 @@ public class AiSubtitleTranslator {
     }
 
     private static List<String> parseBatchResponse(String text, List<String> fallback) {
-        List<String> out = new ArrayList<>();
-        if (TextUtils.isEmpty(text)) return new ArrayList<>(fallback);
+        // 按序号回填（中-08）：提示词序号从 0 起、与下标一致，序号是对齐的唯一可靠信号。
+        // 此前剥掉序号按顺序 append，AI 漏一条就从缺口起整批平移错位；现按序号落位，
+        // 缺条/空译文的槽位留原文兜底（out 预填 fallback），无序号行退回顺序兜底。
+        List<String> out = new ArrayList<>(fallback);
+        if (TextUtils.isEmpty(text)) return out;
+        boolean[] filled = new boolean[fallback.size()];
+        int cursor = 0;
         for (String raw : text.split("\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
-            int sep = line.indexOf("|||");
+            Integer num = null;
             String t;
+            int sep = line.indexOf("|||");
             if (sep >= 0) {
+                try {
+                    num = Integer.parseInt(line.substring(0, sep).trim());
+                } catch (NumberFormatException ignored) {
+                    num = null;
+                }
                 t = line.substring(sep + 3).trim();
             } else {
                 t = line.replaceFirst("^\\d+[.:)\\s\\-]+", "").trim();
             }
-            out.add(t);
-            if (out.size() >= fallback.size()) break;
-        }
-        // 数量不足时用原文补齐
-        for (int i = out.size(); i < fallback.size(); i++) out.add(fallback.get(i));
-        // 空译文回退原文
-        for (int i = 0; i < out.size(); i++) {
-            if (TextUtils.isEmpty(out.get(i))) out.set(i, fallback.get(i));
+            int idx;
+            if (num != null) {
+                idx = num;
+                if (idx < 0 || idx >= out.size() || filled[idx]) continue;
+            } else {
+                while (cursor < out.size() && filled[cursor]) cursor++;
+                if (cursor >= out.size()) break;
+                idx = cursor;
+            }
+            if (!TextUtils.isEmpty(t)) {
+                out.set(idx, t);
+                filled[idx] = true;
+            }
         }
         return out;
     }

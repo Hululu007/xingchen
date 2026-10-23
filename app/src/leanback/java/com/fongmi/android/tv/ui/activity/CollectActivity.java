@@ -169,8 +169,18 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mViewModel.getResult().observe(this, this::setSearch);
     }
 
+    private List<String> getKeywords() {
+        if (Setting.getKeyword().isEmpty()) return new ArrayList<>();
+        try {
+            List<String> items = App.gson().fromJson(Setting.getKeyword(), TypeToken.getParameterized(List.class, String.class).getType());
+            return items == null ? new ArrayList<>() : items;
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
     private void saveKeyword() {
-        List<String> items = Setting.getKeyword().isEmpty() ? new ArrayList<>() : App.gson().fromJson(Setting.getKeyword(), TypeToken.getParameterized(List.class, String.class).getType());
+        List<String> items = getKeywords();
         items.remove(getKeyword());
         items.add(0, getKeyword());
         if (items.size() > 9) items.remove(9);

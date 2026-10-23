@@ -44,7 +44,7 @@ public class CollectAdapter extends BaseDiffAdapter<Collect, CollectAdapter.View
     }
 
     public Collect getActivated() {
-        return getItems().get(getPosition());
+        return getItemCount() == 0 ? null : getItems().get(getPosition());
     }
 
     public void setSelected(int position) {

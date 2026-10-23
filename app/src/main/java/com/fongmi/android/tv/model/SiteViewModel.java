@@ -46,7 +46,7 @@ public class SiteViewModel extends ViewModel {
     private final MutableLiveData<SearchProgress> searchProgress;
     private final MutableLiveData<Result> action;
 
-    private final List<Future<?>> searchFuture;
+    private final List<ExecHandle> searchHandles;
     private final AtomicInteger searchEpoch;
     private final AtomicInteger resultEpoch;
     private final AtomicInteger actionEpoch;
@@ -61,7 +61,7 @@ public class SiteViewModel extends ViewModel {
         searchProgress = new MutableLiveData<>();
         action = new MutableLiveData<>();
         searchEpoch = new AtomicInteger(0);
-        searchFuture = new CopyOnWriteArrayList<>();
+        searchHandles = new CopyOnWriteArrayList<>();
         resultEpoch = new AtomicInteger(0);
         actionEpoch = new AtomicInteger(0);
         resultTask = new AtomicReference<>();
@@ -223,9 +223,21 @@ public class SiteViewModel extends ViewModel {
         searchProgress.postValue(SearchProgress.start(total));
         for (Site site : tasks) {
             long start = System.currentTimeMillis();
-            FluentFuture<Result> future = FluentFuture.from(Task.largeExecutor().submit(SearchTask.create(site, keyword, quick))).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
-            searchFuture.add(future);
-            future.addCallback(Task.callback(
+            // 超时从开跑算（与 execute 同口径）：先占住大池线程，任务真正开跑那刻
+            // 才建计时 future 起表；旧形 submit 后立即 withTimeout，排队时间也计入，
+            // 多源齐搜时排队靠后的源没开跑就被判超时。
+            ExecHandle handle = new ExecHandle();
+            searchHandles.add(handle);
+            Task.largeExecutor().execute(() -> {
+                if (handle.isDone()) return;
+                ListenableFutureTask<Result> task = ListenableFutureTask.create(SearchTask.create(site, keyword, quick));
+                FluentFuture<Result> timed = FluentFuture.from(task).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
+                handle.attach(timed);
+                if (handle.isDone()) return;
+                Futures.addCallback(timed, Task.callback(handle::success, handle::fail), MoreExecutors.directExecutor());
+                task.run();
+            });
+            Futures.addCallback(handle.future(), Task.callback(
                     result -> {
                         if (searchEpoch.get() != epoch) return;
                         SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, "");
@@ -307,6 +319,11 @@ public class SiteViewModel extends ViewModel {
                 },
                 error -> {
                     if (epoch.get() != mine) return;
+                    // 被取消的一发不是失败（与上面搜索回调同口径）：取消也可能
+                    // 来自子任务被中断后 SiteApi 按 CancellationException 出门，
+                    // 那时本 ViewModel 的代次没动、epoch 挡不住，必须按类型
+                    // 静默——不弹提示、不投错误结果、不记失败。
+                    if (error instanceof CancellationException) return;
                     if (onError != null) onError.accept(error);
                     SpiderDebug.log("viewmodel", "execute failed type=%s site=%s error=%s", type, siteKey, error);
                     // 上游形：所有错误都投 Result.error，不吞成空结果；RESULT 再补一条 Notify。
@@ -324,8 +341,11 @@ public class SiteViewModel extends ViewModel {
 
     public int stopSearch() {
         int epoch = searchEpoch.incrementAndGet();
-        searchFuture.forEach(future -> future.cancel(true));
-        searchFuture.clear();
+        // 走 ExecHandle.cancel() 而不是 cancel 外层 future：SettableFuture 被 cancel
+        // 不传导到已 attach 的计时 future，正在跑的任务断不掉（外层 cancel 只挡回报）。
+        // ExecHandle.cancel 先断外层、再断计时 future，在途任务真停。
+        searchHandles.forEach(handle -> handle.cancel());
+        searchHandles.clear();
         return epoch;
     }
 

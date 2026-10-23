@@ -34,6 +34,24 @@ public class Spider extends com.github.catvod.crawler.Spider {
     // 其它蜘蛛仍能跑）。超时后任务不强杀：它可能稍后自己返回，队列随后恢复。
     private static final long TIMEOUT_SECONDS = 60;
 
+    // setHomeGeneration 是静态模块调用，没有单只蜘蛛的队列可借（FIX-H23
+    // 收尾）：单独一条守护线程串行执行＋有界等待，与 invoke 同口径，不许
+    // 调用方（壳子的加载/作废线程）被一次卡死的 Python 调用无限期挂住。
+    // 代次在 Python 侧有只进不退的守卫，等待超时放弃的旧值迟到执行也会
+    // 被忽略；下一次推送带更新的代次，不丢最终状态。
+    private static final ExecutorService HOME_GEN_EXECUTOR = newHomeGenExecutor();
+    private static final long HOME_GEN_WAIT_SECONDS = 5;
+
+    private static ExecutorService newHomeGenExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
+            Thread t = new Thread(r, "chaquo-homegen");
+            t.setDaemon(true);
+            return t;
+        });
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
     private final PyObject app;
     private final PyObject obj;
     private final String api;
@@ -182,15 +200,29 @@ public class Spider extends com.github.catvod.crawler.Spider {
     }
 
     /**
-     * 推送首页代次到 Python 透传层。由 SiteApi.cancelHomeLoads() 在作废旧首页加载
-     * 时调用；Python 未启动时跳过（此时也不可能有在途 py 加载）。
+     * 推送首页代次到 Python 透传层。由 SiteApi 的批次认领（claimHomeLoadBatch，
+     * 新加载顶替旧加载时）与配置切换作废（invalidateHomeLoads）调用，代次只进
+     * 不退；Python 未启动时跳过（此时也不可能有在途 py 加载）。调用走
+     * HOME_GEN_EXECUTOR 串行＋有界等待（见该字段注释），不直调。
      */
     public static void setHomeGeneration(int gen) {
         try {
-            // 两个 PyObject 都不许关：getModule("app") 经身份缓存返回的与
-            // Loader.app 是同一个实例，关掉即关死全进程的 app 通道（1.4.3 全
-            // py 通杀点）；callAttr 返回值是 None 单例包装，同理。见类头纪律。
-            if (Python.isStarted()) Python.getInstance().getModule("app").callAttr("set_home_generation", gen);
+            if (!Python.isStarted()) return;
+            HOME_GEN_EXECUTOR.submit(() -> {
+                try {
+                    // 两个 PyObject 都不许关：getModule("app") 经身份缓存返回的与
+                    // Loader.app 是同一个实例，关掉即关死全进程的 app 通道（1.4.3 全
+                    // py 通杀点）；callAttr 返回值是 None 单例包装，同理。见类头纪律。
+                    Python.getInstance().getModule("app").callAttr("set_home_generation", gen);
+                } catch (Throwable ignored) {
+                }
+                return null;
+            }).get(HOME_GEN_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            // 等待被自家取消机制打断＝本次推送被取消：恢复中断旗，不报错
+            // （与 invoke 的中断分类同口径；排队中的任务迟到执行也无妨，
+            // Python 侧代次只进不退）。
+            Thread.currentThread().interrupt();
         } catch (Throwable ignored) {
         }
     }
@@ -346,6 +378,10 @@ public class Spider extends com.github.catvod.crawler.Spider {
         try {
             List<PyObject> list = result.asList();
             try {
+                // 前三位（状态码/类型/流）是 localProxy 的契约下限：短于 3 的
+                // 返回是坏结果，按「无代理结果」返回 null，不许 get(0/1/2)
+                // 越界把异常打穿上层（上层按返回 null 处理无代理）。
+                if (list.size() < 3) return null;
                 boolean base64 = list.size() > 4 && list.get(4).toInt() == 1;
                 boolean header = list.size() > 3 && list.get(3) != null;
                 Object[] out = new Object[4];
@@ -462,7 +498,16 @@ public class Spider extends com.github.catvod.crawler.Spider {
         String url = UriUtil.resolve(api, name);
         // download 返回状态串（skipped-length／skipped-hash／cached-offline／updated），
         // 是现造 str，取值后立即关；万一拿到 None 单例（旧 Python）不许关（见类头纪律）。
-        PyObject result = app.callAttr("download", path, url);
+        PyObject result;
+        try {
+            result = app.callAttr("download", path, url);
+        } catch (RuntimeException e) {
+            // 依赖下载失败不许打穿 init：app.py 的 download 本就用状态串表达
+            // 失败（cached-offline 等），抛错属同一类非致命失败——记下真因
+            // 继续，依赖可能已在缓存里；真缺依赖会在用到它时再报错。
+            SpiderDebug.log("python-spider", "dep download failed name=%s error=%s", name, e.getMessage());
+            return;
+        }
         String status = result == null ? "none" : result.toString();
         if (!"None".equals(status)) closeQuietly(result);
         SpiderDebug.log("python-spider", "dep %s name=%s", status, name);

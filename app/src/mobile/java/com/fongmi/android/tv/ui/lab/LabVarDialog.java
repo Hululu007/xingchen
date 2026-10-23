@@ -38,6 +38,7 @@ public final class LabVarDialog {
 
     private static class PickTarget {
         EditText edit;
+        boolean dir;
     }
 
     /** Activity 侧在 onActivityResult 里调这一行即可 */
@@ -47,10 +48,97 @@ public final class LabVarDialog {
         pendingPick = null;
         if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null && t.edit != null) {
             Uri uri = data.getData();
-            String path = uri.getPath();
-            t.edit.setText(path == null ? uri.toString() : path);
+            try {
+                activity.getContentResolver().takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+            }
+            // 回填必须是真实文件路径：命令拿这个值当路径用，此前直接填 uri.getPath()，
+            // content URI 的 path 是 /document/primary:… 这种假路径，命令永远找不到文件
+            String path = resolvePath(uri, t.dir);
+            if (path != null) {
+                t.edit.setText(path);
+            } else if (t.dir) {
+                Notify.show("这个目录拿不到真实路径，换个位置试试");
+            } else {
+                String copied = copyToCache(activity, uri);
+                if (copied != null) t.edit.setText(copied);
+                else Notify.show("这个文件拿不到真实路径，换个位置试试");
+            }
         }
         return true;
+    }
+
+    /** content URI → 真实路径：file 直取；document/tree 按文档 id 拆卷与相对路径
+     * （primary=内部存储根，其它卷=/storage/&lt;卷&gt;，raw: 后面就是真路径）；拆不出返回 null */
+    private static String resolvePath(Uri uri, boolean dir) {
+        if ("file".equals(uri.getScheme())) return uri.getPath();
+        try {
+            String docId = dir
+                    ? android.provider.DocumentsContract.getTreeDocumentId(uri)
+                    : android.provider.DocumentsContract.getDocumentId(uri);
+            if (docId == null) return null;
+            if (docId.startsWith("raw:")) return docId.substring(4);
+            int colon = docId.indexOf(':');
+            if (colon < 0) return null;
+            String volume = docId.substring(0, colon);
+            String rel = docId.substring(colon + 1);
+            String base = "primary".equalsIgnoreCase(volume)
+                    ? android.os.Environment.getExternalStorageDirectory().getAbsolutePath()
+                    : "/storage/" + volume;
+            return rel.isEmpty() ? base : base + "/" + rel;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 文件型实在拿不到真实路径时，把内容复制进缓存目录、落一个真路径 */
+    private static String copyToCache(Activity activity, Uri uri) {
+        try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri)) {
+            if (in == null) return null;
+            java.io.File folder = new java.io.File(activity.getCacheDir(), "lab-var-files");
+            folder.mkdirs();
+            java.io.File out = new java.io.File(folder, "pick-" + System.currentTimeMillis());
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            }
+            return out.getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 变量 filter → MIME：含「/」直接当 MIME；「.json」这类扩展名查小表；认不出不限制 */
+    private static String mimeOfFilter(String filter) {
+        if (filter == null || filter.trim().isEmpty()) return "*/*";
+        String f = filter.trim().toLowerCase();
+        if (f.contains("/")) return f;
+        if (f.startsWith(".")) f = f.substring(1);
+        switch (f) {
+            case "json":
+                return "application/json";
+            case "txt":
+            case "log":
+            case "md":
+                return "text/plain";
+            case "zip":
+                return "application/zip";
+            case "7z":
+                return "application/x-7z-compressed";
+            case "js":
+                return "text/javascript";
+            case "py":
+                return "text/x-python";
+            case "png":
+                return "image/png";
+            case "jpg":
+            case "jpeg":
+                return "image/jpeg";
+            default:
+                return "*/*";
+        }
     }
 
     private LabVarDialog() {
@@ -172,16 +260,13 @@ public final class LabVarDialog {
                 sel.setOnClickListener(vv -> {
                     pendingPick = new PickTarget();
                     pendingPick.edit = et;
+                    pendingPick.dir = dir;
                     Intent i = dir
                             ? new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                             : new Intent(Intent.ACTION_OPEN_DOCUMENT);
                     if (!dir) {
                         i.addCategory(Intent.CATEGORY_OPENABLE);
-                        i.setType("*/*");
-                        if (v.filter != null && !v.filter.isEmpty()) {
-                            String f = v.filter.trim();
-                            if (f.startsWith(".")) i.setType("*/*");
-                        }
+                        i.setType(mimeOfFilter(v.filter));
                     }
                     try {
                         activity.startActivityForResult(i, REQ_VAR_PICK);

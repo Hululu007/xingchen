@@ -27,25 +27,41 @@ import android.util.Log;
 public class HkSuggestModel {
     private static final String TAG = "HkSuggestModel";
 
+    /** 防抖：连续按键只保留最后一发，停顿 250ms 后才真正发请求；序号顶掉的旧请求结果直接丢弃。 */
+    private static final android.os.Handler DEBOUNCE =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final java.util.concurrent.atomic.AtomicInteger SEQ =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private static Runnable pending;
+
     private HkSuggestModel() {
     }
 
     /** 异步拉取百度建议词并回调（后台线程执行，consumer 在后台线程触发，调用方自行切主线程）。 */
     public static void loadFromRemote(String query, Consumer<List<String>> consumer) {
-        new Thread(() -> {
-            List<String> result = new ArrayList<>();
-            try {
-                String url = "http://suggestion.baidu.com/su?wd="
-                        + HkHttpParser.encodeUrl(query)
-                        + "&p=1&t=" + new Date().getTime();
-                Log.d(TAG, String.format("getRecommands: %s", url));
-                String body = httpGet(url);
-                if (body != null) result = parseRecommands(body);
-            } catch (Exception e) {
-                Log.e(TAG, "hk error", e);
-            }
-            if (consumer != null) consumer.accept(result);
-        }, "hk-suggest").start();
+        final int seq = SEQ.incrementAndGet();
+        Runnable task = () -> {
+            if (seq != SEQ.get()) return;
+            new Thread(() -> {
+                List<String> result = new ArrayList<>();
+                try {
+                    String url = "http://suggestion.baidu.com/su?wd="
+                            + HkHttpParser.encodeUrl(query)
+                            + "&p=1&t=" + new Date().getTime();
+                    Log.d(TAG, String.format("getRecommands: %s", url));
+                    String body = httpGet(url);
+                    if (body != null) result = parseRecommands(body);
+                } catch (Exception e) {
+                    Log.e(TAG, "hk error", e);
+                }
+                if (consumer != null && seq == SEQ.get()) consumer.accept(result);
+            }, "hk-suggest").start();
+        };
+        synchronized (HkSuggestModel.class) {
+            if (pending != null) DEBOUNCE.removeCallbacks(pending);
+            pending = task;
+        }
+        DEBOUNCE.postDelayed(task, 250);
     }
 
     /** 照原版 getRecommands(String)：剥壳后取 "s" 数组逐项 toString 入列；异常回已收集部分。 */

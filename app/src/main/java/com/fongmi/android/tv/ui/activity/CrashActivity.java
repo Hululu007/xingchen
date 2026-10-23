@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.content.Intent;
 import android.os.Bundle;
-import android.text.TextUtils;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.viewbinding.ViewBinding;
@@ -10,9 +10,8 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityCrashBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 
-import java.util.Objects;
-
 import cat.ereza.customactivityoncrash.CustomActivityOnCrash;
+import cat.ereza.customactivityoncrash.config.CaocConfig;
 
 public class CrashActivity extends BaseActivity {
 
@@ -32,7 +31,24 @@ public class CrashActivity extends BaseActivity {
     @Override
     protected void initEvent() {
         mBinding.details.setOnClickListener(v -> showError());
-        mBinding.restart.setOnClickListener(v -> CustomActivityOnCrash.restartApplication(this, Objects.requireNonNull(CustomActivityOnCrash.getConfigFromIntent(getIntent()))));
+        mBinding.restart.setOnClickListener(v -> restart());
+    }
+
+    private void restart() {
+        CaocConfig config = CustomActivityOnCrash.getConfigFromIntent(getIntent());
+        if (config != null) {
+            CustomActivityOnCrash.restartApplication(this, config);
+            return;
+        }
+        // intent 没带崩溃配置时（理论窄路）不许 requireNonNull 把崩溃页
+        // 自己再崩一次：退回启动器意图重启，拿不到就只关掉本页。
+        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (launch == null) launch = getPackageManager().getLeanbackLaunchIntentForPackage(getPackageName());
+        if (launch != null) {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(launch);
+        }
+        finishAndRemoveTask();
     }
 
 

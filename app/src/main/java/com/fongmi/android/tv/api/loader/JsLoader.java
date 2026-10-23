@@ -139,6 +139,13 @@ public class JsLoader {
         }
     }
 
+    private static boolean isInterrupted(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof InterruptedException) return true;
+        }
+        return false;
+    }
+
     public Spider getSpider(String key, String api, String ext, String jar) {
         try {
             return spiders.computeIfAbsent(key, k -> {
@@ -150,9 +157,15 @@ public class JsLoader {
                     recordPath(key, api);
                     return spider;
                 } catch (Throwable e) {
-                    SpiderDebug.log("JsLoader", "JS spider init failed: key=%s api=%s", key, api);
-                    SpiderDebug.log("JsLoader", e);
-                    e.printStackTrace();
+                    if (isInterrupted(e)) {
+                        // 被取消（顶替/销毁/外层超时打断等待）：不是 init 失败，
+                        // 不打失败日志与堆栈；销毁与不缓存口径与失败相同。
+                        SpiderDebug.log("JsLoader", "JS spider init cancelled: key=%s api=%s", key, api);
+                    } else {
+                        SpiderDebug.log("JsLoader", "JS spider init failed: key=%s api=%s", key, api);
+                        SpiderDebug.log("JsLoader", e);
+                        e.printStackTrace();
+                    }
                     // init 失败也要确定性销毁（destroy 内部走 releaseJS），别把 QuickJS 上下文留给 GC。
                     if (spider != null) {
                         try {

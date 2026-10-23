@@ -25,6 +25,7 @@ public class OkDns implements Dns {
     private final ConcurrentHashMap<String, String> map;
     private volatile Supplier<Doh> supplier;
     private volatile DnsOverHttps doh;
+    private OkHttpClient dohClient;
 
     public OkDns() {
         this.map = new ConcurrentHashMap<>();
@@ -32,9 +33,23 @@ public class OkDns implements Dns {
 
     public synchronized void setDoh(Doh item) {
         HttpUrl url = HttpUrl.parse(item.getUrl());
-        this.doh = url == null ? null : new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).bootstrapDnsHosts(item.getHosts()).build();
+        OkHttpClient old = dohClient;
+        dohClient = url == null ? null : new OkHttpClient();
+        this.doh = url == null ? null : new DnsOverHttps.Builder().client(dohClient).url(url).bootstrapDnsHosts(item.getHosts()).build();
         this.supplier = null;
+        // 换 DoH 时把旧 client 的线程池与连接池收掉：旧写法每次新建裸
+        // client 从不回收，反复改 DoH 设置会持续累积线程与连接。
+        shutdownClient(old);
         // 注意：不要 clear map，它是 hosts 覆盖表（接口下发的 host=ip），不是 DNS 缓存
+    }
+
+    private static void shutdownClient(OkHttpClient client) {
+        if (client == null) return;
+        try {
+            client.dispatcher().executorService().shutdown();
+            client.connectionPool().evictAll();
+        } catch (Throwable ignored) {
+        }
     }
 
     public synchronized void setDoh(Supplier<Doh> supplier) {
@@ -45,6 +60,9 @@ public class OkDns implements Dns {
     public synchronized void clearDoh() {
         this.doh = null;
         this.supplier = null;
+        OkHttpClient old = dohClient;
+        dohClient = null;
+        shutdownClient(old);
         // 注意：不要 clear map，它是 hosts 覆盖表，不是 DNS 缓存
     }
 

@@ -94,6 +94,7 @@ public class CastDialog extends BaseAlertDialog implements DeviceAdapter.OnClick
     }
 
     public void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) if (f instanceof CastDialog) return;
         show(activity.getSupportFragmentManager(), null);
     }
@@ -236,8 +237,10 @@ public class CastDialog extends BaseAlertDialog implements DeviceAdapter.OnClick
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        DLNACastManager.get().setDeviceListener(null);
-        DLNACastManager.get().release(requireActivity());
+        // 全局单槽监听只清「当前登记的还是自己」那一份，避免叠开的另一个弹窗被连带摘掉
+        if (DLNACastManager.get().getDeviceListener() == this) DLNACastManager.get().setDeviceListener(null);
+        Activity activity = getActivity();
+        if (activity != null) DLNACastManager.get().release(activity);
         scanTask.stop();
     }
 

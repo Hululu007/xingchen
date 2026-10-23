@@ -331,11 +331,19 @@ public final class ReadingDownload {
                             n++;
                         }
                     }
-                    if (n > 0) {
+                    if (n == imgs.size()) {
                         try (FileOutputStream out = new FileOutputStream(new File(dir, "manifest.txt"))) {
                             out.write(mf.toString().getBytes(StandardCharsets.UTF_8));
                         }
                         ok++;
+                    } else {
+                        // 缺页不许报整章成功（低-19）：此前下到任意一张就写 manifest 计 ok，
+                        // hasComicChapter 从此恒真、缺的页永远补不回来。缺页整章作废：
+                        // 不写 manifest、不计 ok、删掉已下文件，下次重试整章重下。
+                        File[] partials = dir.listFiles();
+                        if (partials != null) {
+                            for (File pf : partials) pf.delete();
+                        }
                     }
                 }
                 enforceQuota(ctx);

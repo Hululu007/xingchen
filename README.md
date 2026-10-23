@@ -25,10 +25,7 @@
 
 ## 补丁说明
 
-`tools/` 目录下是星辰定制补丁：
-- `xingchen-clean-patch.py`：基础清理和主题补丁
-- `xingchen-settings-write.py`：设置页重写
-- `xingchen-java-clean.py`：Java 层清理
+`tools/` 目录下是星辰定制素材：
 - `poster_shanjian.jpg`：默认壁纸
 - `*.xml`：卡片和分段选择器样式
 

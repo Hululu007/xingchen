@@ -22,4 +22,5 @@ android {
 dependencies {
     implementation project(':catvod')
     coreLibraryDesugaring libs.desugar
+    testImplementation libs.junit
 }

@@ -122,15 +122,24 @@ public class LocalSevenZ {
                 }
             }
             if (!hit) throw new Exception("entry missing");
+            boolean tooLarge = false;
             try (OutputStream os = new FileOutputStream(target)) {
                 byte[] buf = new byte[8192];
                 int r;
                 long total = 0;
                 while ((r = zf.read(buf, 0, buf.length)) > 0) {
                     total += r;
-                    if (total > 100L * 1024 * 1024) break;
+                    // 超限不许静默截断交付（低-15，与 zip/rar 同一口径）：删半成品并抛错
+                    if (total > 100L * 1024 * 1024) {
+                        tooLarge = true;
+                        break;
+                    }
                     os.write(buf, 0, r);
                 }
+            }
+            if (tooLarge) {
+                target.delete();
+                throw new Exception("entry too large");
             }
         } catch (PasswordRequiredException p) {
             throw new EncryptedException();

@@ -228,7 +228,10 @@ public class AiProviderEditActivity extends BaseActivity {
     private void save() {
         AiProvider p = collect(true);
         if (p == null) return;
-        AiStore.addOrUpdate(this, p);
+        if (!AiStore.addOrUpdate(this, p)) {
+            Notify.show("存储损坏，操作未保存");
+            return;
+        }
         Notify.show("已保存");
         finish();
     }

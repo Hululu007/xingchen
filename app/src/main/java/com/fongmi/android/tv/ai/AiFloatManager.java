@@ -145,7 +145,7 @@ public class AiFloatManager {
                     downTop = l.topMargin;
                     dragging = false;
                     longPressed = false;
-                    // 长按检测：600ms 后触发按住说话（无弹窗）
+                    // 长按检测：400ms（LONG_PRESS_TIMEOUT）后触发按住说话（无弹窗）
                     longPressRunnable = () -> {
                         longPressed = true;
                         startPressToTalk(activity);
@@ -216,6 +216,10 @@ public class AiFloatManager {
 
     private void detach() {
         cancelPressToTalk();
+        // 识别器不随 detach 销毁（低-01）：它已改用 applicationContext 创建（低-05），
+        // 不持有 Activity、无泄漏；且「只建一次反复用」是 startPressToTalk 的既定口径，
+        // 每离开一页就销毁，下次长按新建后立即 startListening 会撞系统服务未绑定窗口哑火。
+        // 识别器随本单例走进程生命周期，仅启动失败时在 startPressToTalk 内销毁重建。
         if (floatView != null) {
             try {
                 ViewGroup parent = (ViewGroup) floatView.getParent();
@@ -257,7 +261,10 @@ public class AiFloatManager {
         }
         try {
             // 与 AiChatDialog 同款用法：识别器只建一次反复用；每按必销毁重建会撞上系统服务未绑定的窗口，直接哑火
-            if (voiceRecognizer == null) voiceRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx);
+            // 用应用 Context 建（低-05）：识别器是长命单例字段，拿 Activity 建会把页面钉住泄漏
+            if (voiceRecognizer == null) {
+                voiceRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx.getApplicationContext());
+            }
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);

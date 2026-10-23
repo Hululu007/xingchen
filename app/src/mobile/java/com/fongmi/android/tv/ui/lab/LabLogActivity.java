@@ -49,6 +49,8 @@ public class LabLogActivity extends AppCompatActivity {
 
     private String pkgId;
     private String svcName;
+    /** 上次已展示的日志全文：定时刷新时内容没变就跳过重建，仅追加时只补新行 */
+    private String lastShownLog;
     private TextView stateLine;
     private LinearLayout logBox;
     private ScrollView scroll;
@@ -169,9 +171,22 @@ public class LabLogActivity extends AppCompatActivity {
         stateLine.setText(running ? "运行中" : "已停止");
         stateLine.setTextColor(running ? LabSkin.GREEN : LabSkin.TEXT_DIM);
 
-        logBox.removeAllViews();
         String log = LabRunner.getLog(this, pkgId);
-        if (TextUtils.isEmpty(log)) {
+        if (log == null) log = "";
+        // 内容没变就不重建：定时刷新 1.5 秒一轮，此前每轮全量重建整页 +
+        // 无条件 fullScroll，用户上翻看旧记录会被反复拽回底部
+        if (log.equals(lastShownLog)) return;
+        boolean appendOnly = lastShownLog != null && !lastShownLog.isEmpty()
+                && log.startsWith(lastShownLog);
+        int prevLines = appendOnly ? lastShownLog.split("\n").length : 0;
+        lastShownLog = log;
+        // 改动前测用户是否停在底部附近：只有在底部才跟随滚动
+        boolean nearBottom = scroll.getChildCount() == 0
+                || scroll.getScrollY() + scroll.getHeight()
+                >= scroll.getChildAt(0).getHeight() - dp(48);
+
+        if (log.isEmpty()) {
+            logBox.removeAllViews();
             TextView empty = new TextView(this);
             empty.setText("还没有记录，启动一次就有");
             empty.setTextSize(15);
@@ -181,13 +196,19 @@ public class LabLogActivity extends AppCompatActivity {
             return;
         }
         String[] lines = log.split("\n");
-        int start = Math.max(0, lines.length - 300);
+        int start;
+        if (!appendOnly || lines.length - prevLines > 300) {
+            logBox.removeAllViews();
+            start = Math.max(0, lines.length - 300);
+        } else {
+            start = prevLines; // 仅追加：只补新行，不重建旧行
+        }
         for (int i = start; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.isEmpty()) continue;
             logBox.addView(logRow(line));
         }
-        scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
+        if (nearBottom) scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
     }
 
     /** 记录行：点＋时间＋正文（颜色按内容：红错/黄警告/绿正常） */

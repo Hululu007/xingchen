@@ -103,6 +103,8 @@ public final class HkGlideUtil {
             w = getScreenMin(context);
             h = (int) ((float) bitmap.getHeight() / (float) bitmap.getWidth() * (float) w);
         }
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
         return new int[]{w, h};
     }
 
@@ -110,6 +112,8 @@ public final class HkGlideUtil {
     public static int[] smartCompress(Context context, Drawable drawable) {
         int w = drawable.getIntrinsicWidth();
         int h = drawable.getIntrinsicHeight();
+        // 无内在尺寸（矢量/色块类 drawable 可为 0/-1）时除法会出 NaN/0、下游缩放必崩：原样返回，调用方走不压缩直摆
+        if (w <= 0 || h <= 0) return new int[]{w, h};
         int byteCount = 0;
         if (drawable instanceof BitmapDrawable) {
             Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
@@ -145,6 +149,8 @@ public final class HkGlideUtil {
             w = getScreenMin(context);
             h = (int) ((float) ih / (float) iw * (float) w);
         }
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
         return new int[]{w, h};
     }
 
@@ -238,7 +244,19 @@ public final class HkGlideUtil {
                     if (tagListener != null) tagListener.accept((String) imageView.getTag());
                     final int fw = wh[0], fh = wh[1];
                     HEAVY.execute(() -> {
-                        Drawable compressed = compressImage(context.getResources(), resource, fw, fh);
+                        Drawable compressed;
+                        try {
+                            compressed = compressImage(context.getResources(), resource, fw, fh);
+                        } catch (Exception e) {
+                            // 压缩失败不许让图静默永不显示：回主线程把原图直接摆上
+                            MAIN.post(() -> {
+                                if (ticket != imageView.getTag(R.id.custom_tag)) return;
+                                imageView.setTag(resource.getIntrinsicWidth() + "×" + resource.getIntrinsicHeight());
+                                imageView.setPadding(0, 0, 0, 0);
+                                imageView.setImageDrawable(resource);
+                            });
+                            return;
+                        }
                         MAIN.post(() -> {
                             if (ticket != imageView.getTag(R.id.custom_tag)) return;
                             loadFullPicDrawable(context, imageView, compressed, options, fw, fh);

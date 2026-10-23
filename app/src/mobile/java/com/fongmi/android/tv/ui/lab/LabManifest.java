@@ -18,6 +18,7 @@ import java.util.List;
  *   desc          一句人话简介（上游写法 description 同认）
  *   icon          图标字（1-2 个字，如 Py/Js/网/剧）
  *   version       包版本
+ *   group         分组 id（上游 Item.group，可选，如 network）
  *   runtime       python | nodejs | php | mihomo | alist | frp | aria2 | ubuntu | java | bun | ffmpeg | none（必填）
  *                 上游常写 node，进门统一归一成 nodejs（normalizeRuntime，全仓唯一入口）
  *   autoStart     默认是否自动启动（上游写法 auto_execute / auto_start 同认）
@@ -36,6 +37,8 @@ public class LabManifest {
     public String desc;
     public String icon;
     public String version;
+    /** 分组 id（上游 Item.group，如 network；兼容导入时落进来），无分组为空串 */
+    public String group = "";
     public String runtime = "none";
     public boolean autoStart = false;
     public final List<LabCommand> commands = new ArrayList<>();
@@ -134,6 +137,7 @@ public class LabManifest {
         m.desc = o.has("description") ? o.optString("description", "") : o.optString("desc", "");
         m.icon = o.optString("icon", "包");
         m.version = o.optString("version", "1.0");
+        m.group = o.optString("group", "");
         m.runtime = normalizeRuntime(o.optString("runtime", "none"));
         // 上游写法 auto_execute / auto_start，自家写法 autoStart，两种都吃
         m.autoStart = o.has("auto_execute") ? o.optBoolean("auto_execute", false)

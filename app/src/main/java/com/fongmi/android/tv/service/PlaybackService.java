@@ -206,12 +206,18 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     public void onDestroy() {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service destroy before %s", serviceState());
         running = false;
-        player.prepareTerminalRelease();
-        PlaybackEventCollector.get().onStop(player);
+        // player 在 onCreate 首段才赋值：构造中途抛错时 player 为 null，
+        // 这里无条件解引用会以二次 NPE 把真因盖掉，故逐处判空。
+        if (player != null) {
+            player.prepareTerminalRelease();
+            PlaybackEventCollector.get().onStop(player);
+        }
         if (desktopLyrics != null) desktopLyrics.release();
         releaseSession();
-        player.stop();
-        player.release();
+        if (player != null) {
+            player.stop();
+            player.release();
+        }
         removeForeground();
         Server.get().setService(null);
         EventBus.getDefault().unregister(this);

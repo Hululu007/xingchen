@@ -74,7 +74,13 @@ public class Device implements Diffable<Device>, Comparable<Device> {
     }
 
     public static Device objectFrom(String str) {
-        return App.gson().fromJson(str, Device.class);
+        try {
+            Device device = App.gson().fromJson(str, Device.class);
+            return device == null ? new Device() : device;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10）：投屏/同步对端发来的坏数据给空对象，不崩
+            return new Device();
+        }
     }
 
     public static List<Device> getAll() {

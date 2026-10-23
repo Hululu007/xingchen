@@ -37,7 +37,12 @@ public class LabTerminalActivity extends AppCompatActivity {
 
     private String pkgId;
     private String runKey;
-    private Process process;
+    /** 当前 shell 进程：pump 线程与 UI 线程都读写，标 volatile；身份判断按实例比对 */
+    private volatile Process process;
+    /** shell 正在启动中（防重复拉起多个 shell） */
+    private volatile boolean shellStarting;
+    /** shell 没起来时先存下的待写字节，起来后按序补写（不再回显了却把命令丢掉） */
+    private final java.util.List<byte[]> pendingWrites = new java.util.ArrayList<>();
     private TextView output;
     private ScrollView scroll;
     private EditText input;
@@ -194,22 +199,44 @@ public class LabTerminalActivity extends AppCompatActivity {
     }
 
     private void startShell() {
+        if (shellStarting) return;
+        shellStarting = true;
         new Thread(() -> {
             try {
-                process = LabRunner.startTerminal(this, pkgId);
+                Process p = LabRunner.startTerminal(this, pkgId);
+                process = p;
                 runKey = "term/" + pkgId;
-                pump();
+                shellStarting = false;
+                flushPending();
+                pump(p);
             } catch (Exception e) {
+                shellStarting = false;
                 String m = e.getMessage();
                 runOnUiThread(() -> append("[终端起不来：" + (m == null ? "未知原因" : m) + "]\n"));
             }
         }).start();
     }
 
-    private void pump() {
+    /** shell 起来后把排队等写的字节按序补写进去 */
+    private void flushPending() {
+        java.util.List<byte[]> copy;
+        synchronized (pendingWrites) {
+            if (pendingWrites.isEmpty()) return;
+            copy = new java.util.ArrayList<>(pendingWrites);
+            pendingWrites.clear();
+        }
+        for (byte[] b : copy) {
+            try {
+                LabRunner.writeStdin(runKey, b);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void pump(Process p) {
         new Thread(() -> {
             try (BufferedReader br = new BufferedReader(new InputStreamReader(
-                    process.getInputStream(), StandardCharsets.UTF_8))) {
+                    p.getInputStream(), StandardCharsets.UTF_8))) {
                 char[] cbuf = new char[4096];
                 int n;
                 while ((n = br.read(cbuf)) > 0) {
@@ -218,8 +245,11 @@ public class LabTerminalActivity extends AppCompatActivity {
                 }
             } catch (Exception ignored) {
             }
-            runOnUiThread(() -> append("\n[shell 退出了，输命令会自动重开]\n"));
-            process = null;
+            // 只清自己这一代的进程引用：新 shell 已接管时，旧 pump 退出不许把新进程置空
+            if (process == p) {
+                process = null;
+                runOnUiThread(() -> append("\n[shell 退出了，输命令会自动重开]\n"));
+            }
         }).start();
     }
 
@@ -281,9 +311,17 @@ public class LabTerminalActivity extends AppCompatActivity {
         }
         historyIndex = commandHistory.size();
         append("$ " + command + "\n");
+        byte[] bytes = (command + "\n").getBytes(StandardCharsets.UTF_8);
         try {
-            if (process == null || !process.isAlive()) startShell();
-            else LabRunner.writeStdin(runKey, (command + "\n").getBytes(StandardCharsets.UTF_8));
+            if (process != null && process.isAlive()) {
+                LabRunner.writeStdin(runKey, bytes);
+            } else {
+                // shell 还没起来：命令先排队，起来后补写（此前只回显、命令直接丢）
+                synchronized (pendingWrites) {
+                    pendingWrites.add(bytes);
+                }
+                startShell();
+            }
         } catch (Exception e) {
             append("[写入失败]\n");
         }
@@ -291,8 +329,14 @@ public class LabTerminalActivity extends AppCompatActivity {
 
     private void writeRaw(byte[] bytes) {
         try {
-            if (process == null || !process.isAlive()) startShell();
-            else LabRunner.writeStdin(runKey, bytes);
+            if (process != null && process.isAlive()) {
+                LabRunner.writeStdin(runKey, bytes);
+            } else {
+                synchronized (pendingWrites) {
+                    pendingWrites.add(bytes);
+                }
+                startShell();
+            }
         } catch (Exception ignored) {
         }
     }

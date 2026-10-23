@@ -3,9 +3,12 @@ package com.fongmi.android.tv.clash;
 import android.content.Context;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 /**
 * mihomo 内核进程全生命周期：下载校验 → 生成配置 → 启停 → 健康检查 → 退出清理。
@@ -170,6 +173,7 @@ pb.directory(dir);
 pb.redirectErrorStream(true);
 // 子进程继承环境即可；不注入代理变量，避免内核自身流量回环
 process = pb.start();
+drainOutput(process);
 int port = ClashSettings.getMixedPort(app);
 if (!waitHealthy(port)) {
 stopSync();
@@ -177,6 +181,25 @@ throw new IllegalStateException("内核健康检查超时");
 }
 Log.i(TAG, "mihomo started, mixed-port=" + port);
 com.github.catvod.crawler.SpiderDebug.log("clash", "kernel started port=%d", port);
+}
+
+/**
+* 排流：内核输出（stdout/stderr 已合并）必须有人持续读走。
+* 没人读时管道缓冲攒满，内核写日志会阻塞、代理静默 stall 且无日志可查。
+* 守护线程逐行读到 EOF（进程退出即收），顺手转进 logcat 留痕。
+*/
+private void drainOutput(Process p) {
+Thread t = new Thread(() -> {
+try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+String line;
+while ((line = reader.readLine()) != null) {
+Log.d(TAG, "kernel: " + line);
+}
+} catch (Throwable ignored) {
+}
+}, "mihomo-output-drain");
+t.setDaemon(true);
+t.start();
 }
 
 /** 同步停止：杀进程并清理。 */

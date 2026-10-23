@@ -192,6 +192,7 @@ public class ProxyDialog extends BaseAlertDialog {
                 Site site = VodConfig.get().getHome();
                 ProxySetting.Suggestion suggestion = ProxySetting.suggest(site);
                 handler.post(() -> {
+                    if (!isAdded() || binding == null) return;
                     if (suggestion.isEmpty()) {
                         Notify.show("未找到可建议的域名");
                         return;
@@ -217,7 +218,10 @@ public class ProxyDialog extends BaseAlertDialog {
                     Notify.show("已填入 " + suggestion.hosts().size() + " 个建议域名");
                 });
             } catch (Exception e) {
-                handler.post(() -> Notify.show("建议失败"));
+                handler.post(() -> {
+                    if (!isAdded() || binding == null) return;
+                    Notify.show("建议失败");
+                });
             }
         });
     }
@@ -233,6 +237,7 @@ public class ProxyDialog extends BaseAlertDialog {
                     }
                 }
                 handler.post(() -> {
+                    if (!isAdded() || binding == null) return;
                     if (found.isEmpty()) {
                         Notify.show("未识别到代理地址");
                         return;
@@ -241,7 +246,10 @@ public class ProxyDialog extends BaseAlertDialog {
                     Notify.show("已识别: " + found.get(0));
                 });
             } catch (Exception e) {
-                handler.post(() -> Notify.show("识别失败"));
+                handler.post(() -> {
+                    if (!isAdded() || binding == null) return;
+                    Notify.show("识别失败");
+                });
             }
         });
     }
@@ -277,6 +285,7 @@ public class ProxyDialog extends BaseAlertDialog {
             boolean result = ok;
             String host = testHost;
             handler.post(() -> {
+                if (!isAdded() || binding == null) return;
                 binding.btnTest.setText("测试代理");
                 binding.btnTest.setEnabled(true);
                 Notify.show(result ? "代理可用 (" + host + ")" : "代理不可用");

@@ -8,6 +8,7 @@ import android.view.View;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.ai.asr.AiAsrController;
+import com.fongmi.android.tv.ai.asr.AiAsrEngine;
 import com.fongmi.android.tv.ai.asr.AiAsrModelManager;
 import com.fongmi.android.tv.ai.asr.AiAsrPluginManager;
 import com.fongmi.android.tv.databinding.ActivityAiAsrSettingsBinding;
@@ -148,6 +149,8 @@ public class AiAsrSettingsActivity extends BaseActivity {
         if (AiAsrPluginManager.isPluginDownloaded(this)) {
             items.add("删除识别引擎（" + formatSize(AiAsrPluginManager.getPluginSize(this)) + "）");
             actions.add(() -> {
+                // 删插件前先停引擎：别让识别中的喂入/收尾任务还攥着正被释放的桥
+                AiAsrEngine.get().stop();
                 AiAsrPluginManager.deletePlugin(this);
                 Notify.show("已删除识别引擎");
                 refresh();

@@ -3,7 +3,6 @@ package com.fongmi.android.tv.bean;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.room.Entity;
-import androidx.room.PrimaryKey;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.config.LiveConfig;
@@ -18,11 +17,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-@Entity
+// 复合主键 (key, cid, type)：同一 key 在不同配置（cid）或不同类型（点播 0／直播 1）
+// 下各存一行，互不顶替。此前单 key 主键下 insertOrUpdate 整行覆盖，同名收藏跨配置
+// 写层互覆（H14）；数据库 40→41 迁移同步换主键，见 Migrations.MIGRATION_40_41。
+@Entity(primaryKeys = {"key", "cid", "type"})
 public class Keep implements Diffable<Keep> {
 
     @NonNull
-    @PrimaryKey
     @SerializedName("key")
     private String key;
     @SerializedName("siteName")
@@ -100,7 +101,12 @@ public class Keep implements Diffable<Keep> {
     public static void sync(List<Config> configs, List<Keep> targets) {
         targets.forEach(target -> configs.stream()
                 .filter(config -> target.getCid() == config.getId()).findFirst()
-                .ifPresent(config -> target.save(Config.find(config).getId())));
+                .ifPresent(config -> {
+                    // 复合主键下改 cid 是换行不是改行：先删旧 (key, cid, type) 行再以新 cid 存，
+                    // 否则旧 cid 行残留成孤儿（同一收藏在两个配置名下重复出现）。
+                    target.delete();
+                    target.save(Config.find(config).getId());
+                }));
     }
 
     @NonNull
@@ -188,12 +194,14 @@ public class Keep implements Diffable<Keep> {
     public boolean equals(@Nullable Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof Keep it)) return false;
-        return Objects.equals(getKey(), it.getKey());
+        // 与复合主键同口径：key＋cid＋type 三元才算同一行；收藏页按 type 混排全部 cid，
+        // 只比 key 会把同 key 不同配置的两行判成同一项，DiffUtil 刷新错位。
+        return getCid() == it.getCid() && getType() == it.getType() && Objects.equals(getKey(), it.getKey());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(getKey());
+        return Objects.hash(getKey(), getCid(), getType());
     }
 
     @Override

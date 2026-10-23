@@ -1220,6 +1220,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
+     * 求值等待上限（与 init 的 60 秒同口径）：各入口旧形 submit().get() 无超时，
+     * 规则里写死循环时调用线程永久挂起、该 runtime 后续调用全堵在单线程
+     * executor 后面。加超时后调用方拿到 TimeoutException 按失败处理；
+     * 死循环任务本身停不下来（Rhino 无强制中止），要等 destroy 换 runtime。
+     */
+    private static final long EVAL_TIMEOUT_SECONDS = 60;
+
+    /** destroy 的清理等待：只给短暂窗口，超时就走 shutdownNow，不陪死循环耗。 */
+    private static final long DESTROY_WAIT_SECONDS = 5;
+
+    /**
      * 在 JS 线程上初始化：建 Context、注册 API、加载 kv、跑 preRule。
      */
     public void init() throws Exception {
@@ -5081,7 +5092,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 throw e;
             }
             return drainResults();
-        }).get();
+        }).get(EVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     /** 带当前页规则的入口（8.83 parseHome 形态：规则随求值带入）：先重绑再走原路。 */
@@ -5128,7 +5139,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 throw e;
             }
             return drainSearchResults();
-        }).get();
+        }).get(EVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     /** 带当前页规则的入口（8.83 parseSearchRes 形态：规则随求值带入）：先重绑再走原路。 */
@@ -5173,7 +5184,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 // 8.83 语义：数字/布尔返回值转字符串（如 .js: 取 input.id 为数字时），
                 // 用 argStr() 而非裸 getString()（后者对 Number 返回 null → ""）。
                 return argStr(r);
-            }).get();
+            }).get(EVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             String msg = e.getCause() != null && e.getCause().getMessage() != null
                     ? e.getCause().getMessage() : e.getMessage();
@@ -5695,7 +5706,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 return "";
             }
             return s;
-        }).get();
+        }).get(EVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     /** 带当前页规则的入口：先重绑再走原路（子页 lazy 求值的 MY_RULE 须为子页规则）。 */
@@ -5837,7 +5848,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 rhinoCx = null;
                 scope = null;
                 return null;
-            }).get();
+            }).get(DESTROY_WAIT_SECONDS, TimeUnit.SECONDS);
         } catch (Throwable ignored) {
         } finally {
             executor.shutdownNow();
@@ -6197,7 +6208,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             rawResults.clear();
             results.clear();
             return out;
-        }).get();
+        }).get(EVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     /** 带当前页规则的入口：先重绑再走原路（详情求值的 MY_RULE 须为当前页规则）。 */
@@ -8378,9 +8389,11 @@ private URI getDirectory() {
 @SuppressWarnings("unchecked")
 private Object generateRequestOptions(Object options, boolean isPc) {
     if (options != null && !isUndefined(options)) {
-        Map<String, Object> map = (Map<String, Object>) argsNativeObjectAdjust(options);
-        Map<String, Object> headers = (Map<String, Object>) map.get("headers");
-        if (headers == null) headers = (Map<String, Object>) map.get("header");
+        Object adjusted = argsNativeObjectAdjust(options);
+        Map<String, Object> map = adjusted instanceof Map ? (Map<String, Object>) adjusted : new HashMap<>();
+        Object headersObj = map.get("headers");
+        if (!(headersObj instanceof Map)) headersObj = map.get("header");
+        Map<String, Object> headers = headersObj instanceof Map ? (Map<String, Object>) headersObj : null;
         if (headers == null) {
             headers = new HashMap<>();
             map.put("headers", headers);
@@ -8410,7 +8423,8 @@ private Object generateRequestOptions(Object options, boolean isPc) {
 private Object generateHeadersOptions(Object options) {
     Boolean withHeaders = Boolean.valueOf(true);
     if (options != null && !isUndefined(options)) {
-        Map<String, Object> map = (Map<String, Object>) argsNativeObjectAdjust(options);
+        Object adjusted = argsNativeObjectAdjust(options);
+        Map<String, Object> map = adjusted instanceof Map ? (Map<String, Object>) adjusted : new HashMap<>();
         map.put("withHeaders", withHeaders);
         return map;
     }

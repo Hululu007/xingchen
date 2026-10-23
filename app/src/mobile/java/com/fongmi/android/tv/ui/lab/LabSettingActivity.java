@@ -19,7 +19,7 @@ import com.fongmi.android.tv.R;
 
 /**
  * 实验室设置页：点实验室首页标题「实验室」进入。
- * 只两项：显示到 tab 栏开关、忽略电池优化。
+ * 三项：显示到 tab 栏开关、全局代理（开关＋端口＋不走代理）、忽略电池优化。
  * 顶栏只留标题，走系统返回。
  */
 public class LabSettingActivity extends AppCompatActivity {
@@ -98,7 +98,92 @@ public class LabSettingActivity extends AppCompatActivity {
     private void refresh() {
         body.removeAllViews();
         body.addView(tabCard());
+        body.addView(proxyCard());
         body.addView(batteryCard());
+    }
+
+    /**
+     * 全局代理卡：LabSettings 的 proxy_on/proxy_port/proxy_no 此前只有存取、
+     * 没有任何界面能写（LabRunner.applyEnv 在读，用户却开不了），这里补齐入口。
+     */
+    private View proxyCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(LabSkin.glassDark(this));
+        card.setPadding(dp(20), dp(20), dp(20), dp(20));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(18), 0, dp(18), dp(12));
+        card.setLayoutParams(lp);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = rowLabel("全局代理");
+        label.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        head.addView(label);
+        head.addView(LabSkin.miniSwitch(this, LabSettings.proxyOn(this), on -> {
+            LabSettings.setProxyOn(this, on);
+            Notify.show(on ? "全局代理已开（新启动的服务生效）" : "全局代理已关");
+        }));
+        card.addView(head);
+
+        card.addView(proxyValueRow("端口", LabSettings.proxyPort(this), () -> editProxyPort()));
+        card.addView(proxyValueRow("不走代理", LabSettings.proxyNoProxy(this), () -> editProxyNoProxy()));
+        return card;
+    }
+
+    private View proxyValueRow(String name, String value, Runnable onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(14), 0, 0);
+        TextView n = new TextView(this);
+        n.setText(name);
+        n.setTextSize(14);
+        n.setTextColor(LabSkin.HINT_ON_DARK);
+        n.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(n);
+        TextView v = new TextView(this);
+        v.setText(value == null || value.isEmpty() ? "未填" : value);
+        v.setTextSize(14);
+        v.setTextColor(LabSkin.TEXT_ON_DARK);
+        row.addView(v);
+        row.setOnClickListener(view -> onClick.run());
+        return row;
+    }
+
+    private void editProxyPort() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        android.widget.EditText et = LabInstallDialog.darkEdit(this, "7890", LabSettings.proxyPort(this));
+        et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        box.addView(et);
+        LabInstallDialog.showForm(this, "代理端口", box, "保存", () -> {
+            String p = et.getText() == null ? "" : et.getText().toString().trim();
+            try {
+                int port = Integer.parseInt(p);
+                if (port < 1 || port > 65535) throw new NumberFormatException();
+            } catch (Exception e) {
+                Notify.show("端口得是 1 到 65535 的数字");
+                return false;
+            }
+            LabSettings.setProxyPort(this, p);
+            refresh();
+            return true;
+        }, null, null);
+    }
+
+    private void editProxyNoProxy() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        android.widget.EditText et = LabInstallDialog.darkEdit(this, "localhost,127.0.0.1", LabSettings.proxyNoProxy(this));
+        box.addView(et);
+        LabInstallDialog.showForm(this, "不走代理", box, "保存", () -> {
+            LabSettings.setProxyNoProxy(this, et.getText() == null ? "" : et.getText().toString());
+            refresh();
+            return true;
+        }, null, null);
     }
 
     private SharedPreferences prefs() {

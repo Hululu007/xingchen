@@ -10,6 +10,7 @@ import com.fongmi.android.tv.remote.RemoteModels.RemoteBindGrant;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteDevice;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteGroup;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteProfile;
+import com.fongmi.android.tv.gitcloud.secure.GitCloudTokenStore;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteStoreFile;
 import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.SpiderDebug;
@@ -46,24 +47,53 @@ public final class RemoteStore {
     public static synchronized void reloadFromFile() {
         loaded = true;
         RemoteStoreFile store = null;
+        boolean[] migrated = new boolean[1];
+        boolean fromFile = false;
         if (Setting.hasFileAccess()) {
             File file = file();
             if (file.exists() && file.length() > 0) {
                 if (file.length() <= MAX_STORE_FILE_SIZE) {
-                    store = parse(Path.read(file));
-                    if (store != null) Prefers.put(KEY_STORE, App.gson().toJson(ensure(store)));
+                    store = parse(Path.read(file), migrated);
+                    if (store != null) {
+                        fromFile = true;
+                        Prefers.put(KEY_STORE, persistJson(ensure(store)));
+                    }
                 } else {
                     log("skip oversized profile file size=%d", file.length());
                 }
             }
         }
-        if (store == null) store = parse(Prefers.getString(KEY_STORE));
+        if (store == null) {
+            migrated[0] = false;
+            store = parse(Prefers.getString(KEY_STORE), migrated);
+            // Prefers 路径真发生了迁移才回写剥离版一次；没迁移的读不写盘。
+            if (store != null && migrated[0]) {
+                try {
+                    Prefers.put(KEY_STORE, persistJson(ensure(store)));
+                } catch (Throwable e) {
+                    SpiderDebug.log("remote", "rewrite stripped prefs failed error=%s", e.getMessage());
+                }
+            }
+        }
         cache = ensure(store);
+        // 文件路径：Prefers 已在上面回写剥离版，profile.json 文件本身也要回写，
+        // 不让老明文躺在文件里到下一次 save()。回写失败只留痕，不影响读结果。
+        if (fromFile && migrated[0]) {
+            try {
+                String json = persistJson(cache);
+                File target = file();
+                File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
+                Path.write(tmp, json.getBytes(StandardCharsets.UTF_8));
+                if (!tmp.renameTo(target)) Path.move(tmp, target);
+            } catch (Throwable e) {
+                SpiderDebug.log("remote", "rewrite stripped profile file failed error=%s", e.getMessage());
+            }
+        }
     }
 
     public static synchronized void save(RemoteStoreFile store) {
         cache = ensure(store);
-        String json = App.gson().toJson(cache);
+        String json = persistJson(cache);
         Prefers.put(KEY_STORE, json);
         if (!Setting.hasFileAccess()) return;
         try {
@@ -235,11 +265,16 @@ public final class RemoteStore {
 
     public static synchronized void removeProfile(String serverOrigin) {
         RemoteStoreFile store = get();
+        List<RemoteProfile> removed = new ArrayList<>();
         for (Iterator<RemoteProfile> it = store.profiles.iterator(); it.hasNext(); ) {
             RemoteProfile profile = it.next();
-            if (profile != null && TextUtils.equals(profile.serverOrigin, serverOrigin)) it.remove();
+            if (profile != null && TextUtils.equals(profile.serverOrigin, serverOrigin)) {
+                removed.add(profile);
+                it.remove();
+            }
         }
         save(store);
+        for (RemoteProfile profile : removed) removeTokens(profile);
     }
 
     public static synchronized boolean removeDevice(String serverOrigin, String groupId, String deviceId) {
@@ -270,6 +305,9 @@ public final class RemoteStore {
     }
 
     public static synchronized void clear() {
+        if (cache != null && cache.profiles != null) {
+            for (RemoteProfile profile : cache.profiles) removeTokens(profile);
+        }
         cache = new RemoteStoreFile();
         loaded = true;
         Prefers.remove(KEY_STORE);
@@ -409,12 +447,124 @@ public final class RemoteStore {
         return profile != null && !TextUtils.isEmpty(profile.deviceId) && TextUtils.equals(profile.deviceId, deviceId);
     }
 
-    private static RemoteStoreFile parse(String json) {
+    private static RemoteStoreFile parse(String json, boolean[] migrated) {
         if (TextUtils.isEmpty(json)) return null;
         try {
-            return ensure(App.gson().fromJson(json, RemoteStoreFile.class));
+            RemoteStoreFile store = ensure(App.gson().fromJson(json, RemoteStoreFile.class));
+            rehydrateTokens(store, migrated);
+            return store;
         } catch (Throwable e) {
             return null;
+        }
+    }
+
+    // ---- 令牌加密分存（与 gitcloud 同口径：GitCloudTokenStore AES-GCM）----
+    // 此前 deviceToken/groupToken/bindGrantToken 随整店 JSON 明文进 Prefers 与
+    // profile.json。现落盘前剥离进加密令牌仓、JSON 里只留空位，读盘时回填；
+    // 老明文里带回的内联令牌在回填时顺手迁入加密仓，读路径随即回写剥离版（见 reloadFromFile）。
+
+    private static String deviceKey(RemoteProfile profile) {
+        return TextUtils.isEmpty(profile.serverOrigin) ? "" : "remote_dt:" + profile.serverOrigin;
+    }
+
+    private static String groupKey(RemoteProfile profile, RemoteGroup group) {
+        return TextUtils.isEmpty(profile.serverOrigin) || TextUtils.isEmpty(group.groupId) ? "" : "remote_gt:" + profile.serverOrigin + ":" + group.groupId;
+    }
+
+    private static String grantKey(RemoteProfile profile, RemoteBindGrant grant) {
+        return TextUtils.isEmpty(profile.serverOrigin) || TextUtils.isEmpty(grant.grantId) ? "" : "remote_bg:" + profile.serverOrigin + ":" + grant.grantId;
+    }
+
+    /** 落盘序列化：深拷贝后剥离令牌（内存对象不动），令牌同步进加密仓（清空即删） */
+    private static String persistJson(RemoteStoreFile store) {
+        RemoteStoreFile copy;
+        try {
+            copy = ensure(App.gson().fromJson(App.gson().toJson(store), RemoteStoreFile.class));
+        } catch (Throwable e) {
+            // 拷贝失败绝不能拿活对象剥离（会把内存里的令牌也抹了）：退回整串直写
+            return App.gson().toJson(store);
+        }
+        for (RemoteProfile profile : copy.profiles) {
+            if (profile == null) continue;
+            // 只有加密写回读校验通过才剥离拷贝上的令牌；校验不过保留内联值落盘，不静默丢令牌。
+            if (tokenSync(deviceKey(profile), profile.deviceToken)) profile.deviceToken = "";
+            for (RemoteGroup group : profile.groups) {
+                if (group == null) continue;
+                if (tokenSync(groupKey(profile, group), group.groupToken)) group.groupToken = "";
+            }
+            for (RemoteBindGrant grant : profile.pendingBindGrants) {
+                if (grant == null) continue;
+                if (tokenSync(grantKey(profile, grant), grant.bindGrantToken)) grant.bindGrantToken = "";
+            }
+        }
+        return App.gson().toJson(copy);
+    }
+
+    private static void rehydrateTokens(RemoteStoreFile store, boolean[] migrated) {
+        for (RemoteProfile profile : store.profiles) {
+            if (profile == null) continue;
+            profile.deviceToken = takeToken(deviceKey(profile), profile.deviceToken, migrated);
+            for (RemoteGroup group : profile.groups) {
+                if (group != null) group.groupToken = takeToken(groupKey(profile, group), group.groupToken, migrated);
+            }
+            for (RemoteBindGrant grant : profile.pendingBindGrants) {
+                if (grant != null) grant.bindGrantToken = takeToken(grantKey(profile, grant), grant.bindGrantToken, migrated);
+            }
+        }
+    }
+
+    /** 内联有值＝老明文，迁入加密仓后用它（migrated 置真供读路径回写剥离版）；内联为空＝从加密仓回填 */
+    private static String takeToken(String key, String inline, boolean[] migrated) {
+        if (TextUtils.isEmpty(key)) return inline == null ? "" : inline;
+        try {
+            if (!TextUtils.isEmpty(inline)) {
+                GitCloudTokenStore.put(key, inline);
+                if (migrated != null) migrated[0] = true;
+                return inline;
+            }
+            String stored = GitCloudTokenStore.get(key);
+            return stored == null ? "" : stored;
+        } catch (Throwable e) {
+            return inline == null ? "" : inline;
+        }
+    }
+
+    /**
+     * 令牌同步进加密仓；返回 true 才表示落盘副本可以剥离：
+     * 非空令牌写后必须回读校验（读回值等于刚写值），校验不过／写抛错都留痕并返回 false。
+     * 留痕直走 SpiderDebug，不经 log() 的 enabled 门——未启用的 profile 写失败也要有痕。
+     * 空令牌＝清除，删仓即算完成。
+     */
+    private static boolean tokenSync(String key, String token) {
+        if (TextUtils.isEmpty(key)) return TextUtils.isEmpty(token);
+        try {
+            if (TextUtils.isEmpty(token)) {
+                GitCloudTokenStore.remove(key);
+                return true;
+            }
+            GitCloudTokenStore.put(key, token);
+            String back = GitCloudTokenStore.get(key);
+            if (TextUtils.equals(token, back)) return true;
+            SpiderDebug.log("remote", "secure token verify failed key=%s, keep inline", key);
+            return false;
+        } catch (Throwable e) {
+            SpiderDebug.log("remote", "secure token store failed error=%s, keep inline", e.getMessage());
+            return false;
+        }
+    }
+
+    private static void removeTokens(RemoteProfile profile) {
+        if (profile == null) return;
+        tokenSync(deviceKey(profile), "");
+        if (profile.groups != null) {
+            for (RemoteGroup group : profile.groups) {
+                if (group != null) tokenSync(groupKey(profile, group), "");
+            }
+        }
+        if (profile.pendingBindGrants != null) {
+            for (RemoteBindGrant grant : profile.pendingBindGrants) {
+                if (grant != null) tokenSync(grantKey(profile, grant), "");
+            }
         }
     }
 

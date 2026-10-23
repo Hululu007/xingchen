@@ -28,6 +28,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -191,28 +194,32 @@ public class HealthActivity extends BaseActivity {
             if (site == null || site.isEmpty()) site = dynamicSites.get(item.key);
             if (site == null || site.isEmpty()) return false;
             Spider spider = site.spider();
-            Future<String> future = Task.executor().submit(() -> spider.homeContent(true));
-            String json;
-            try {
-                json = future.get(60, TimeUnit.SECONDS);
-            } finally {
-                future.cancel(true);
-            }
+            String json = callSpider(() -> spider.homeContent(true));
             Result result = Result.fromJson(json);
             if (result != null && result.getList() != null && !result.getList().isEmpty()) return true;
             // Fallback: some sources return an empty homeContent list but homeVideoContent has data
             // (same fallback logic as SiteApi.homeContent)
-            Future<String> fVideo = Task.executor().submit(spider::homeVideoContent);
-            String video;
-            try {
-                video = fVideo.get(60, TimeUnit.SECONDS);
-            } finally {
-                fVideo.cancel(true);
-            }
+            String video = callSpider(spider::homeVideoContent);
             Result videoResult = Result.fromJson(video);
             return videoResult != null && videoResult.getList() != null && !videoResult.getList().isEmpty();
         } catch (Throwable e) {
             return false;
+        }
+    }
+
+    // 探针走专用单线程池（同 PluginActivity 口径）：60 秒从真正开跑起表，不吃共用池排队时间，
+    // 阻塞等待也不占着共用池线程干等同池任务。
+    private String callSpider(Callable<String> call) throws Exception {
+        ExecutorService probe = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> future = probe.submit(call);
+            try {
+                return future.get(60, TimeUnit.SECONDS);
+            } finally {
+                future.cancel(true);
+            }
+        } finally {
+            probe.shutdownNow();
         }
     }
 

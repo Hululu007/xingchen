@@ -9,6 +9,7 @@ import com.fongmi.quickjs.utils.Crypto;
 import com.fongmi.quickjs.utils.JSUtil;
 import com.fongmi.quickjs.utils.Parser;
 import com.github.catvod.Proxy;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Trans;
 import com.github.catvod.utils.UriUtil;
 import com.orhanobut.logger.Logger;
@@ -71,6 +72,10 @@ public class Global {
                 try {
                     return method.invoke(this, args);
                 } catch (Exception e) {
+                    // JS 侧口径不变（仍回 null），但真因必须留痕：旧写法静默
+                    // 吞掉，req/md5/aes 等方法坏掉时 JS 侧只见 null、无从排查。
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    SpiderDebug.log("quickjs", "js method %s failed error=%s", method.getName(), cause);
                     return null;
                 }
             });
@@ -154,7 +159,7 @@ public class Global {
             Response res = Connect.to(url, req).execute();
             return Connect.success(ctx, req, res);
         } catch (Exception e) {
-            return Connect.error(ctx);
+            return Connect.error(ctx, e);
         }
     }
 
@@ -219,7 +224,7 @@ public class Global {
 
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                completeError(complete);
+                completeError(complete, e);
             }
         };
     }
@@ -230,7 +235,7 @@ public class Global {
             Req req = Req.objectFrom(options.stringify());
             Connect.to(url, req).enqueue(getCallback(complete, req));
         } catch (Throwable e) {
-            completeError(complete);
+            completeError(complete, e);
         }
     }
 
@@ -239,8 +244,8 @@ public class Global {
         if (!posted) res.close();
     }
 
-    private void completeError(JSFunction complete) {
-        postCallback(complete, () -> complete.call(Connect.error(ctx)));
+    private void completeError(JSFunction complete, Throwable error) {
+        postCallback(complete, () -> complete.call(Connect.error(ctx, error)));
     }
 
     private boolean postCallback(JSFunction callback, Runnable runnable) {

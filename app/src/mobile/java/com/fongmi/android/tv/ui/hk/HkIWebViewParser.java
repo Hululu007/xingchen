@@ -30,7 +30,12 @@ public abstract class HkIWebViewParser {
         HkX5Extra extra = new HkX5Extra();
         String jsStr = "";
         if (HkStringUtil.isNotEmpty(extraJson)) {
-            HkX5Extra parsed = new Gson().fromJson(extraJson, HkX5Extra.class);
+            HkX5Extra parsed = null;
+            try {
+                parsed = new Gson().fromJson(extraJson, HkX5Extra.class);
+            } catch (Exception ignored) {
+                // extra 来自规则作者数据，畸形 JSON 或字段类型不对时按无 extra 处理，不许沿点击链上抛崩页
+            }
             if (parsed != null) {
                 if (HkStringUtil.isNotEmpty(parsed.getUa())) extra.setUa(parsed.getUa());
                 if (HkParserKit.isNotEmpty(parsed.getBlockRules())) extra.setBlockRules(parsed.getBlockRules());

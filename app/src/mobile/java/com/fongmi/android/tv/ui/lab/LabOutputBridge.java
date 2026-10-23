@@ -72,13 +72,19 @@ public final class LabOutputBridge {
                         : Config.create(type).url(url).name(name).update();
                 Callback cb = new Callback() {
                     @Override
+                    public void success() {
+                        // 「已接好」只在源真加载成功后才报：此前 load() 一发出就无条件报，
+                        // 加载失败时成功、失败两条提示赛跑（假成功）
+                        runUi(act, () -> Notify.show("已接好，去" + (live ? "直播" : "点播") + "里用吧"));
+                    }
+
+                    @Override
                     public void error(String msg) {
                         runUi(act, () -> Notify.show(msg == null ? "加源失败" : msg));
                     }
                 };
                 if (live) LiveConfig.load(config, cb);
                 else VodConfig.load(config, cb);
-                runUi(act, () -> Notify.show("已接好，去" + (live ? "直播" : "点播") + "里用吧"));
             } catch (Exception e) {
                 runUi(act, () -> Notify.show("加源失败，换个方式试试"));
             }

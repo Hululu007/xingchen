@@ -58,8 +58,17 @@ public class Async {
         if (then == null) {
             future.complete(promise);
         } else {
-            consume(then, success);
-            consume(promise.getJSFunction("catch"), error);
+            try {
+                consume(then, success);
+                consume(promise.getJSFunction("catch"), error);
+            } finally {
+                // promise 本体的包装由本次调用独占：回调挂完即释放，不再靠
+                // ctx 销毁兜底（旧写法每次异步调用漏这一个包装，长寿命蜘蛛
+                // 持续累积）。JS 侧结算用的 resolve/reject 自带引用，承诺
+                // 对象不会因本包装释放被提前回收；then/catch 两个函数包装
+                // 已由 consume 在调用后各自释放。
+                promise.release();
+            }
         }
     }
 

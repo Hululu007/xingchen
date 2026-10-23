@@ -79,9 +79,9 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.adblockText.setText(getSwitch(Setting.isAdblock()));
         mBinding.speedText.setText(format.format(PlayerSetting.getSpeed()));
         mBinding.bufferText.setText(String.valueOf(PlayerSetting.getBuffer()));
-        mBinding.bufferBytesText.setText((bufferBytes = ResUtil.getStringArray(R.array.select_buffer_bytes))[PlayerSetting.getBufferBytesOption()]);
-        mBinding.backBufferText.setText((backBuffer = ResUtil.getStringArray(R.array.select_back_buffer))[PlayerSetting.getBackBufferOption()]);
-        mBinding.playCacheText.setText((playCache = ResUtil.getStringArray(R.array.select_play_cache))[PlayerSetting.getPlayCacheOption()]);
+        mBinding.bufferBytesText.setText(at(bufferBytes = ResUtil.getStringArray(R.array.select_buffer_bytes), PlayerSetting.getBufferBytesOption()));
+        mBinding.backBufferText.setText(at(backBuffer = ResUtil.getStringArray(R.array.select_back_buffer), PlayerSetting.getBackBufferOption()));
+        mBinding.playCacheText.setText(at(playCache = ResUtil.getStringArray(R.array.select_play_cache), PlayerSetting.getPlayCacheOption()));
         setPreloadText();
         mBinding.autoPlayText.setText(getSwitch(PlayerSetting.isAutoPlay()));
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
@@ -90,13 +90,13 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.videoDecodeText.setText(getSwitch(PlayerSetting.isVideoPrefer()));
         mBinding.caption.setVisibility(PlayerSetting.hasCaption() ? View.VISIBLE : View.GONE);
         mBinding.osdText.setText(getOsdText(osd = ResUtil.getStringArray(R.array.select_player_osd)));
-        mBinding.kernelText.setText((kernel = ResUtil.getStringArray(R.array.select_player_kernel))[PlayerSetting.playerToIndex(PlayerSetting.getPlayer())]);
-        mBinding.scaleText.setText((scale = ResUtil.getStringArray(R.array.select_scale))[PlayerSetting.getScale()]);
+        mBinding.kernelText.setText(at(kernel = ResUtil.getStringArray(R.array.select_player_kernel), PlayerSetting.playerToIndex(PlayerSetting.getPlayer())));
+        mBinding.scaleText.setText(at(scale = ResUtil.getStringArray(R.array.select_scale), PlayerSetting.getScale()));
         mBinding.lutText.setText(LutSetting.getSummary());
         setMpvRows();
-        mBinding.renderText.setText((render = ResUtil.getStringArray(R.array.select_render))[PlayerSetting.getRender()]);
+        mBinding.renderText.setText(at(render = ResUtil.getStringArray(R.array.select_render), PlayerSetting.getRender()));
         mBinding.captionText.setText((caption = ResUtil.getStringArray(R.array.select_caption))[PlayerSetting.isCaption() ? 1 : 0]);
-        mBinding.backgroundText.setText((background = ResUtil.getStringArray(R.array.select_background))[PlayerSetting.getBackground()]);
+        mBinding.backgroundText.setText(at(background = ResUtil.getStringArray(R.array.select_background), PlayerSetting.getBackground()));
         hidePerformanceRows();
     }
 
@@ -203,7 +203,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
 
     private void setPadLiveModeText() {
         mBinding.padLive.setVisibility(ResUtil.isPad() ? View.VISIBLE : View.GONE);
-        mBinding.padLiveText.setText((padLiveMode = ResUtil.getStringArray(R.array.select_pad_live_mode))[PlayerSetting.getPadLiveMode()]);
+        mBinding.padLiveText.setText(at(padLiveMode = ResUtil.getStringArray(R.array.select_pad_live_mode), PlayerSetting.getPadLiveMode()));
     }
 
     private void setPadLiveMode(View view) {
@@ -226,10 +226,15 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         PlayerSetting.putOsdDiagnostics(checked[6]);
     }
 
+    /** 偏好值直索引字符串数组的统一钳位：存储值损坏/越界时钳到最近项，不崩。 */
+    private static String at(String[] array, int index) {
+        return array[Math.max(0, Math.min(index, array.length - 1))];
+    }
+
     private String getOsdText(String[] items) {
         boolean[] checked = getOsdChecked();
         StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < checked.length; i++) {
+        for (int i = 0; i < checked.length && i < items.length; i++) {
             if (!checked[i]) continue;
             if (builder.length() > 0) builder.append(" / ");
             builder.append(items[i]);
@@ -435,10 +440,10 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
 
     private void refreshPerformanceSettings() {
         mBinding.bufferText.setText(String.valueOf(PlayerSetting.getBuffer()));
-        mBinding.bufferBytesText.setText(bufferBytes[PlayerSetting.getBufferBytesOption()]);
-        mBinding.backBufferText.setText(backBuffer[PlayerSetting.getBackBufferOption()]);
-        mBinding.playCacheText.setText(playCache[PlayerSetting.getPlayCacheOption()]);
-        mBinding.renderText.setText(render[PlayerSetting.getRender()]);
+        mBinding.bufferBytesText.setText(at(bufferBytes, PlayerSetting.getBufferBytesOption()));
+        mBinding.backBufferText.setText(at(backBuffer, PlayerSetting.getBackBufferOption()));
+        mBinding.playCacheText.setText(at(playCache, PlayerSetting.getPlayCacheOption()));
+        mBinding.renderText.setText(at(render, PlayerSetting.getRender()));
         mBinding.tunnelText.setText(getSwitch(PlayerSetting.isTunnel()));
         mBinding.aacText.setText(getSwitch(PlayerSetting.isPreferAAC()));
         mBinding.audioDecodeText.setText(getSwitch(PlayerSetting.isAudioPrefer()));

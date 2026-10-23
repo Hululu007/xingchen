@@ -6,6 +6,7 @@ import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.MusicPlaylistItem;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 
 import java.util.ArrayList;
@@ -18,6 +19,18 @@ public class MusicLibrary {
 
     public interface DataCallback<T> {
         void onResult(T data);
+
+        /** 写库失败通道（默认空实现，旧调用方不受影响；写方法失败时走这里而不是假回调成功）。 */
+        default void onError(Throwable t) {
+        }
+    }
+
+    /**
+     * 写库失败统一出口：不许再 catch 后照常回调成功装作存上了。
+     * 失败时提示用户、且不发成功回调（调用方的界面保持旧数据＝真状态）。
+     */
+    private static void postWriteError() {
+        post(() -> Notify.show("曲库写入失败，请重试"));
     }
 
     private static MusicTrack toTrack(MusicFavorite f) {
@@ -84,6 +97,7 @@ public class MusicLibrary {
 
     public static void setFavorite(MusicTrack track, boolean fav, Runnable done) {
         Task.execute(() -> {
+            boolean ok = true;
             try {
                 if (track != null && track.id != null) {
                     if (fav) {
@@ -102,9 +116,15 @@ public class MusicLibrary {
                         AppDatabase.get().getMusicFavoriteDao().delete(track.id);
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                ok = false;
             }
+            boolean success = ok;
             post(() -> {
+                if (!success) {
+                    postWriteError();
+                    return;
+                }
                 if (done != null) done.run();
             });
         });
@@ -150,6 +170,7 @@ public class MusicLibrary {
     public static void createPlaylist(String name, DataCallback<MusicPlaylist> cb) {
         Task.execute(() -> {
             MusicPlaylist p = new MusicPlaylist();
+            Throwable error = null;
             try {
                 p.setName(name == null || name.trim().isEmpty() ? "新建歌单" : name.trim());
                 long now = System.currentTimeMillis();
@@ -157,14 +178,24 @@ public class MusicLibrary {
                 p.setUpdateTime(now);
                 long id = AppDatabase.get().getMusicPlaylistDao().insert(p);
                 p.setId(id);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                error = t;
             }
-            post(() -> cb.onResult(p));
+            Throwable err = error;
+            post(() -> {
+                if (err != null) {
+                    cb.onError(err);
+                    postWriteError();
+                    return;
+                }
+                cb.onResult(p);
+            });
         });
     }
 
     public static void renamePlaylist(long id, String name, Runnable done) {
         Task.execute(() -> {
+            boolean ok = true;
             try {
                 MusicPlaylist p = AppDatabase.get().getMusicPlaylistDao().find(id);
                 if (p != null) {
@@ -172,9 +203,15 @@ public class MusicLibrary {
                     p.setUpdateTime(System.currentTimeMillis());
                     AppDatabase.get().getMusicPlaylistDao().update(p);
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                ok = false;
             }
+            boolean success = ok;
             post(() -> {
+                if (!success) {
+                    postWriteError();
+                    return;
+                }
                 if (done != null) done.run();
             });
         });
@@ -182,12 +219,19 @@ public class MusicLibrary {
 
     public static void deletePlaylist(long id, Runnable done) {
         Task.execute(() -> {
+            boolean ok = true;
             try {
                 AppDatabase.get().getMusicPlaylistItemDao().deleteByPlaylist(id);
                 AppDatabase.get().getMusicPlaylistDao().delete(id);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                ok = false;
             }
+            boolean success = ok;
             post(() -> {
+                if (!success) {
+                    postWriteError();
+                    return;
+                }
                 if (done != null) done.run();
             });
         });
@@ -220,6 +264,7 @@ public class MusicLibrary {
     public static void addToPlaylist(long playlistId, MusicTrack track, DataCallback<Boolean> cb) {
         Task.execute(() -> {
             boolean added = false;
+            Throwable error = null;
             try {
                 Integer max = AppDatabase.get().getMusicPlaylistItemDao().maxPosition(playlistId);
                 MusicPlaylistItem i = toItem(playlistId, track, max == null ? 0 : max + 1, System.currentTimeMillis());
@@ -229,10 +274,21 @@ public class MusicLibrary {
                     p.setUpdateTime(System.currentTimeMillis());
                     AppDatabase.get().getMusicPlaylistDao().update(p);
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                error = t;
             }
             boolean r = added;
-            post(() -> cb.onResult(r));
+            Throwable err = error;
+            post(() -> {
+                // 与其余写路同口径：真异常走 onError＋写入失败提示，不许吞成假的 false
+                // （false 只留给「已在歌单」这种业务结果）
+                if (err != null) {
+                    cb.onError(err);
+                    postWriteError();
+                    return;
+                }
+                cb.onResult(r);
+            });
         });
     }
 
@@ -240,6 +296,7 @@ public class MusicLibrary {
     public static void replaceTrackInPlaylist(long playlistId, String oldTrackId, MusicTrack replacement, DataCallback<Boolean> cb) {
         Task.execute(() -> {
             boolean ok = false;
+            Throwable error = null;
             try {
                 if (replacement != null && replacement.id != null) {
                     MusicPlaylistItem found = null;
@@ -261,16 +318,28 @@ public class MusicLibrary {
                         ok = true;
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                error = t;
             }
             boolean r = ok;
-            post(() -> cb.onResult(r));
+            Throwable err = error;
+            post(() -> {
+                // 与其余写路同口径：真异常走 onError＋写入失败提示，不许吞成假的 false
+                // （false 只留给「没找到原曲/替换曲无效」这种业务结果）
+                if (err != null) {
+                    cb.onError(err);
+                    postWriteError();
+                    return;
+                }
+                cb.onResult(r);
+            });
         });
     }
 
     /** 重新匹配封面：只改歌单里某首的封面地址，其它字段不动 */
     public static void updateTrackCover(long playlistId, String trackId, String cover, Runnable done) {
         Task.execute(() -> {
+            boolean ok = true;
             try {
                 for (MusicPlaylistItem i : AppDatabase.get().getMusicPlaylistItemDao().findByPlaylist(playlistId)) {
                     if (trackId != null && trackId.equals(i.getTrackId())) {
@@ -279,9 +348,15 @@ public class MusicLibrary {
                         break;
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                ok = false;
             }
+            boolean success = ok;
             post(() -> {
+                if (!success) {
+                    postWriteError();
+                    return;
+                }
                 if (done != null) done.run();
             });
         });
@@ -297,6 +372,7 @@ public class MusicLibrary {
     public static void importPlaylist(String name, List<MusicTrack> tracks, DataCallback<ImportResult> cb) {
         Task.execute(() -> {
             ImportResult r = new ImportResult();
+            Throwable error = null;
             try {
                 long now = System.currentTimeMillis();
                 MusicPlaylist p = new MusicPlaylist();
@@ -318,19 +394,35 @@ public class MusicLibrary {
                     for (Long id : ids) if (id != null && id != -1) n++;
                     r.inserted = n;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                error = t;
             }
-            post(() -> cb.onResult(r));
+            Throwable err = error;
+            post(() -> {
+                if (err != null) {
+                    cb.onError(err);
+                    postWriteError();
+                    return;
+                }
+                cb.onResult(r);
+            });
         });
     }
 
     public static void removeFromPlaylist(long itemId, Runnable done) {
         Task.execute(() -> {
+            boolean ok = true;
             try {
                 AppDatabase.get().getMusicPlaylistItemDao().deleteById(itemId);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                ok = false;
             }
+            boolean success = ok;
             post(() -> {
+                if (!success) {
+                    postWriteError();
+                    return;
+                }
                 if (done != null) done.run();
             });
         });

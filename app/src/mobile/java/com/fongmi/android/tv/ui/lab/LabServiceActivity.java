@@ -40,6 +40,8 @@ public class LabServiceActivity extends AppCompatActivity {
     private static final String EXTRA_ID = "id";
 
     private String pkgId;
+    /** 包说明读坏只提示一次（peekManifest 多处调用，别每进一处都弹一遍） */
+    private boolean manifestBadNotified;
     private LinearLayout body;
     private TextView navTitle;
     private TextView navEnv;
@@ -662,6 +664,14 @@ public class LabServiceActivity extends AppCompatActivity {
         swRow.addView(swLab);
         swRow.addView(sw);
         box.addView(swRow);
+        // 双门槛明示：命令自启还要求包级「自启」开着（LabBoot 两道门都过才拉起），
+        // 此前只写「开机自动运行」，用户开了这一处仍不自启、还不知道卡在哪
+        TextView gateHint = new TextView(this);
+        gateHint.setText("还要这个包的「自启」开着（在环境页这个服务那一行），两个都开才会开机自动跑");
+        gateHint.setTextSize(12);
+        gateHint.setTextColor(LabSkin.HINT_ON_DARK);
+        gateHint.setPadding(0, 0, 0, dp(8));
+        box.addView(gateHint);
 
         LabInstallDialog.showForm(this, old == null ? "添加命令" : "改命令", box,
                 "保存", () -> {
@@ -681,6 +691,13 @@ public class LabServiceActivity extends AppCompatActivity {
                     if (old == null) LabCustomCommands.add(this, pkgId, cc);
                     else LabCustomCommands.update(this, pkgId, cc);
                     Notify.show("存好了");
+                    // 开了命令自启但包级自启没开：当场点破，别让用户对着不自启的命令猜
+                    if (cc.autoExecute) {
+                        LabRegistry.Svc svc = LabRegistry.get(this).svc(pkgId);
+                        if (svc != null && !LabRegistry.autoStartOf(svc)) {
+                            Notify.show("这条命令开了自动运行，但这个包的「自启」还没开（在环境页这个服务那一行），两个都开才会开机自动跑");
+                        }
+                    }
                     reload();
                     return true;
                 },
@@ -764,6 +781,14 @@ public class LabServiceActivity extends AppCompatActivity {
             in.close();
             return LabManifest.parse(new String(buf, 0, n, "UTF-8"));
         } catch (Exception e) {
+            // 文件不存在已在上面静默返回；走到这里是文件在但读坏/解坏，留痕 + 报因一次，
+            // 别再静默回 null 让页面装作没这个包
+            android.util.Log.e("LabService", "包说明读不出来 pkg=" + pkgId, e);
+            if (!manifestBadNotified) {
+                manifestBadNotified = true;
+                String m = e.getMessage();
+                Notify.show("包说明读不出来：" + (m == null ? "内容损坏" : m));
+            }
             return null;
         }
     }

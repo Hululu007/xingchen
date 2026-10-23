@@ -24,11 +24,14 @@ public class EpisodeFragment extends BaseFragment implements EpisodeAdapter.OnCl
     private FragmentEpisodeBinding mBinding;
 
     private int getSpanCount() {
-        return getArguments().getInt("spanCount");
+        Bundle args = getArguments();
+        return Math.max(1, args == null ? 0 : args.getInt("spanCount"));
     }
 
     private ArrayList<Episode> getItems() {
-        return getArguments().getParcelableArrayList("items");
+        Bundle args = getArguments();
+        ArrayList<Episode> items = args == null ? null : args.getParcelableArrayList("items");
+        return items == null ? new ArrayList<>() : items;
     }
 
     public static EpisodeFragment newInstance(int spanCount, List<Episode> items) {

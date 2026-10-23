@@ -55,6 +55,6 @@ public class Product {
         if (cutout == null) return 0;
         int left = cutout.getSafeInsetLeft();
         int right = cutout.getSafeInsetRight();
-        return left | right;
+        return left + right;
     }
 }

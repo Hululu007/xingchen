@@ -10,7 +10,6 @@ import com.google.gson.JsonParser;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -186,10 +185,29 @@ public final class LabRegistry {
         LabRegistry r = new LabRegistry();
         File f = LabPaths.registry(c);
         if (!f.exists()) return r;
-        try (FileInputStream in = new FileInputStream(f);
-             InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-            parseRegistry(reader, r);
-        } catch (Exception ignored) {
+        try {
+            String text;
+            try (FileInputStream in = new FileInputStream(f);
+                 java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream()) {
+                byte[] b = new byte[8192];
+                int n;
+                while ((n = in.read(b)) > 0) buf.write(b, 0, n);
+                text = buf.toString(StandardCharsets.UTF_8.name());
+            }
+            if (text == null || text.trim().isEmpty()) return r;
+            // 语法预检：parseRegistry 对截断 JSON 是半吞（坏一半静默少一半服务），
+            // 用户只看见列表变空不知道为什么。真坏了改名留尸 + 留痕，再从空登记起。
+            JsonParser.parseString(text);
+            try (java.io.StringReader sr = new java.io.StringReader(text)) {
+                parseRegistry(sr, r);
+            }
+        } catch (Exception e) {
+            android.util.Log.e("LabRegistry", "registry 读取失败，坏文件已改名备份", e);
+            try {
+                f.renameTo(new File(f.getParentFile(),
+                        f.getName() + ".corrupt-" + System.currentTimeMillis()));
+            } catch (Exception ignored) {
+            }
         }
         return r;
     }
@@ -235,14 +253,26 @@ public final class LabRegistry {
     }
 
     private synchronized void save(Context c) {
+        // 写临时文件再改名（原子落盘）：直接覆写时进程被杀会留半截 JSON，
+        // 下次 load 就把登记表读空；失败留痕，不再静默吞。
         try {
             File f = LabPaths.registry(c);
             if (f.getParentFile() != null) f.getParentFile().mkdirs();
-            try (FileOutputStream out = new FileOutputStream(f);
+            File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp);
                  OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
                 new Gson().toJson(this, writer);
             }
-        } catch (Exception ignored) {
+            if (!tmp.renameTo(f)) {
+                android.util.Log.e("LabRegistry", "registry 临时文件改名失败，退回直写");
+                try (FileOutputStream out = new FileOutputStream(f);
+                     OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+                    new Gson().toJson(this, writer);
+                }
+                tmp.delete();
+            }
+        } catch (Exception e) {
+            android.util.Log.e("LabRegistry", "registry 保存失败", e);
         }
     }
 }

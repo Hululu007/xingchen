@@ -122,12 +122,12 @@
 
         <activity
             android:name=".ui.activity.MusicActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
         <activity
             android:name=".ui.activity.MusicListActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
         <activity

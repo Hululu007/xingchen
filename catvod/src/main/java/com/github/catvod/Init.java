@@ -17,7 +17,10 @@ public class Init {
     }
 
     public static Context context() {
-        return get().context.get();
+        // 未 set 或 WeakReference 已被回收时回 null（调用方按无上下文
+        // 处理），不许在这里先 NPE 把真因盖掉。
+        WeakReference<Context> ref = get().context;
+        return ref == null ? null : ref.get();
     }
 
     private static class Loader {

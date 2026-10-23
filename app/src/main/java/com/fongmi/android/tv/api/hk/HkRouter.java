@@ -818,8 +818,8 @@ public class HkRouter {
      * （经 SiteApi.hkPlayerContent 的 Source.fetch → Thunder.fetch 迅雷转换），
      * 不维持原版、不走系统选应用。口径只认 scheme 前缀（magnet:/ed2k:/thunder:/ftp://），
      * 不要求 "//"，与 Thunder.match 的 scheme 判定、SiteApi.isThunderId、
-     * VideoActivity.isThunderUrl 看齐。上游 Thunder SCHEMES 本就含 ftp，XLTaskFactory
-     * 的 ftp 走 P2sp 任务（createDownload 内 ftp:// 分支），故 ftp 不再留给系统选应用。
+     * VideoActivity.isThunderUrl 看齐。上游 Thunder SCHEMES 本就含 ftp，活链
+     * XLTaskHelper.addThunderTask 内 ftp:// 走 P2sp 任务，故 ftp 不再留给系统选应用。
      */
     public static boolean isP2pPlayLink(String url) {
         if (url == null) return false;

@@ -52,6 +52,26 @@ public class PyLoader {
         }
     }
 
+    /**
+     * 蜘蛛创建被取消的包装：异常链里含 InterruptedException＝本次加载线程被自家
+     * 取消机制打断（新加载顶替／页面销毁／外层超时），不是源加载失败——外层必须
+     * 静默给空蜘蛛：不弹「PY加载失败」、不打失败日志。顶替的那一发会自己把蜘蛛
+     * 建好，死掉的这一发除了这条提示不该留下任何痕迹（1.4.14 真机实证：列表
+     * 正常出来、底部却弹 RuntimeException: InterruptedException）。
+     */
+    private static class SpiderLoadCancelled extends RuntimeException {
+        SpiderLoadCancelled(Throwable cause) {
+            super(cause);
+        }
+    }
+
+    private static boolean isInterrupted(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof InterruptedException) return true;
+        }
+        return false;
+    }
+
     public PyLoader() {
         spiders = new ConcurrentHashMap<>();
         fileStamps = new ConcurrentHashMap<>();
@@ -235,6 +255,9 @@ public class PyLoader {
         }
         try {
             return spiders.computeIfAbsent(key, k -> createSpider(k, resolvedApi, ext, localFile));
+        } catch (SpiderLoadCancelled e) {
+            // 被取消的一发：静默，与失败无关。
+            return new SpiderNull();
         } catch (SpiderLoadFailed e) {
             // 失败不缓存（computeIfAbsent 在映射函数抛异常时不写入），下次调用重试。
             return new SpiderNull();
@@ -255,6 +278,10 @@ public class PyLoader {
         try {
             spider = loader.spider(api);
         } catch (Throwable t) {
+            if (isInterrupted(t)) {
+                SpiderDebug.log("pyloader", "create cancelled key=%s cost=%dms", key, System.currentTimeMillis() - spiderStart);
+                throw new SpiderLoadCancelled(t);
+            }
             SpiderDebug.log("pyloader", "create failed key=%s cost=%dms error=%s", key, System.currentTimeMillis() - spiderStart, t);
             t.printStackTrace();
             throw new SpiderLoadFailed(t);
@@ -281,13 +308,20 @@ public class PyLoader {
             SpiderDebug.log("pyloader", "create key=%s spiderCost=%dms initCost=%dms pycache=%s", key, spiderCost, System.currentTimeMillis() - initStart, pycache);
             return spider;
         } catch (Throwable t) {
-            SpiderDebug.log("pyloader", "create failed key=%s spiderCost=%dms initCost=%dms error=%s", key, spiderCost, System.currentTimeMillis() - initStart, t);
-            t.printStackTrace();
+            boolean cancelled = isInterrupted(t);
+            if (cancelled) {
+                SpiderDebug.log("pyloader", "create cancelled key=%s spiderCost=%dms initCost=%dms", key, spiderCost, System.currentTimeMillis() - initStart);
+            } else {
+                SpiderDebug.log("pyloader", "create failed key=%s spiderCost=%dms initCost=%dms error=%s", key, spiderCost, System.currentTimeMillis() - initStart, t);
+                t.printStackTrace();
+            }
             // init 失败也要确定性销毁：蜘蛛已造出、既不入缓存也不能掉给 finalize（1.4.1 同款崩法）。
+            // 被取消同理：半成品蜘蛛一样要销毁，不能因为「只是取消」就漏给 finalize。
             try {
                 spider.destroy();
             } catch (Throwable ignored) {
             }
+            if (cancelled) throw new SpiderLoadCancelled(t);
             throw new SpiderLoadFailed(t);
         }
     }
@@ -311,6 +345,11 @@ public class PyLoader {
         }
         try {
             return spiders.computeIfAbsent(key, k -> createSpider(k, resolvedApi, ext, localFile));
+        } catch (SpiderLoadCancelled e) {
+            // 本次加载被取消（顶替/页面销毁/外层超时打断了等待）：不是加载失败，
+            // 不弹提示、不记源坏——顶替的那一发自会建好蜘蛛并出列表。
+            SpiderDebug.log("pyloader", "getSpider cancelled key=%s", key);
+            return new SpiderNull();
         } catch (SpiderLoadFailed e) {
             // 失败不缓存：下次打开重试。computeIfAbsent 在映射函数抛异常时不写入，
             // 此前这里返回 SpiderNull 会被写进缓存，一次失败毒化该源整个进程。

@@ -44,16 +44,11 @@ public class Loader {
     public Loader() {
         if (!Python.isStarted()) Python.start(Platform.create());
         try {
-            // 本次调用现造的 PyObject 要显式 close，丢给 GC finalize 会在
-            // Python 忙时触发 finalize 超时崩溃（见 Spider 类头纪律）；但
-            // install 返回的 None 是全局单例包装，不许关。本模块的包装全树
-            // 只有本构造器取、无人长期持有，关它安全。
-            PyObject logging = Python.getInstance().getModule("webhtv_logging");
-            try {
-                logging.callAttr("install");
-            } finally {
-                closeQuietly(logging);
-            }
+            // 模块包装永不关（与 chaquo Spider 类头纪律统一）：getModule 经
+            // 身份缓存返回全进程共享的同一个包装，close 关掉的是所有人手里
+            // 的那一份（1.4.3 关 app 包装导致全 py 通杀，同一机理）。install
+            // 返回的 None 也是全局单例包装，同样不关。
+            Python.getInstance().getModule("webhtv_logging").callAttr("install");
         } catch (RuntimeException error) {
             SpiderDebug.log("python-spider", error);
         }
@@ -62,12 +57,8 @@ public class Loader {
         // Session、JavMenu 用 urllib）全绕过去，定向对它们从来没生效过（真机实证：
         // py 源跑了多轮，gate 的 via=py 决策记录一条都没有）。
         try {
-            PyObject gatePatch = Python.getInstance().getModule("gate_patch");
-            try {
-                gatePatch.callAttr("install");
-            } finally {
-                closeQuietly(gatePatch);
-            }
+            // 同上：模块包装永不关（见 chaquo Spider 类头纪律）。
+            Python.getInstance().getModule("gate_patch").callAttr("install");
         } catch (RuntimeException error) {
             SpiderDebug.log("python-spider", error);
         }
@@ -100,8 +91,9 @@ public class Loader {
         String name = scriptName(api);
         String source = source(api, name);
         PyObject obj;
+        java.util.concurrent.Future<PyObject> create = CREATE_EXECUTOR.submit(() -> app.callAttr("spider", Path.py().getAbsolutePath(), source, name));
         try {
-            obj = CREATE_EXECUTOR.submit(() -> app.callAttr("spider", Path.py().getAbsolutePath(), source, name)).get(60, TimeUnit.SECONDS);
+            obj = create.get(60, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             throw new IllegalStateException("python spider create timeout: " + name, e);
         } catch (ExecutionException e) {
@@ -109,6 +101,10 @@ public class Loader {
             if (cause instanceof RuntimeException) throw (RuntimeException) cause;
             throw new RuntimeException(cause);
         } catch (InterruptedException e) {
+            // 等待方被取消（顶替/销毁/外层超时）：创建任务一并掐掉，不留它跑完
+            // 产出一个无人接、无人关的 PyObject 孤儿；中断旗照旧恢复，语义是
+            // 「本次创建被取消」，由 PyLoader 按取消分类，不算加载失败。
+            create.cancel(true);
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }

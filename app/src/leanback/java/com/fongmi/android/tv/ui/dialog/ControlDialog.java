@@ -17,6 +17,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.media3.common.C;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
@@ -28,6 +29,7 @@ import com.fongmi.android.tv.databinding.ActivityVideoBinding;
 import com.fongmi.android.tv.databinding.DialogControlBinding;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.lut.LutPreset;
+import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.ParseAdapter;
@@ -254,7 +256,29 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void onTrack(View view) {
-        ((Listener) requireActivity()).onTrackPanel(Integer.parseInt(view.getTag().toString()));
+        Integer type = parseTagInt(view);
+        if (type == null) return;
+        ((Listener) requireActivity()).onTrackPanel(type);
+    }
+
+    private Integer parseTagInt(View view) {
+        Object tag = view.getTag();
+        if (tag == null) return null;
+        try {
+            return Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Float parseTagFloat(View view) {
+        Object tag = view.getTag();
+        if (tag == null) return null;
+        try {
+            return Float.parseFloat(tag.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private void setSheetBackground() {
@@ -270,17 +294,22 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         PlayerSetting.putDefaultSpeed(speed);
         parent.control.action.speed.setText(player.setSpeed(speed));
         setSpeedPresets();
-        binding.speed.setValue(Math.max(player.getSpeed(), 0.5f));
+        binding.speed.setValue(Math.min(Math.max(player.getSpeed(), binding.speed.getValueFrom()), binding.speed.getValueTo()));
         if (history != null) history.setSpeed(player.getSpeed());
     }
 
     private void setSpeedPreset(View view) {
-        applySpeed(Float.parseFloat(view.getTag().toString()));
+        Float value = parseTagFloat(view);
+        if (value == null) return;
+        applySpeed(value);
     }
 
     private void setSpeedPresets() {
         float speed = player.getSpeed();
-        for (TextView view : speeds) view.setSelected(Math.abs(Float.parseFloat(view.getTag().toString()) - speed) < 0.01f);
+        for (TextView view : speeds) {
+            Float tag = parseTagFloat(view);
+            view.setSelected(tag != null && Math.abs(tag - speed) < 0.01f);
+        }
     }
 
     private void setScaleText() {
@@ -301,8 +330,10 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void setScale(View view) {
+        Integer tag = parseTagInt(view);
+        if (tag == null) return;
         for (TextView textView : scales) textView.setSelected(false);
-        ((Listener) requireActivity()).onScale(Integer.parseInt(view.getTag().toString()));
+        ((Listener) requireActivity()).onScale(tag);
         view.setSelected(true);
     }
 
@@ -316,9 +347,15 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.episodeColumn1.setSelected(column == 1);
         binding.episodeColumn2.setSelected(column == 2);
         binding.compactEpisodeTitle.setSelected(Setting.isCompactEpisodeTitle());
-        boolean visible = parent.control.action.episodes.getVisibility() == View.VISIBLE;
+        // 读源头可用性（集数≥2＋用户按钮设置），不镜像主行裁定压过的选集按钮显隐（与 mobile 同口径）
+        boolean visible = PlayerButtonSetting.isVisible(PlayerButtonSetting.EPISODES) && isMultiEpisode();
         binding.episodeColumnText.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.episodeColumnRow.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isMultiEpisode() {
+        FragmentActivity activity = getActivity();
+        return activity instanceof Listener listener && listener.isControlMultiEpisode();
     }
 
     private void setCompactEpisodeTitle() {
@@ -354,14 +391,18 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     public void setPlayer() {
         if (binding == null || parent == null) return;
-        binding.speed.setValue(Math.max(player.getSpeed(), 0.5f));
+        binding.speed.setValue(Math.min(Math.max(player.getSpeed(), binding.speed.getValueFrom()), binding.speed.getValueTo()));
         setSpeedPresets();
         binding.player.setText(parent.control.action.player.getText());
         binding.reset.setText(parent.control.action.reset.getText());
         setLut();
         setEpisodeColumn();
         binding.decode.setVisibility(parent.control.action.decode.getVisibility());
-        binding.danmaku.setVisibility(parent.control.action.danmaku.getVisibility());
+        // 弹幕行读源头可用性（有弹幕源＋用户按钮设置），不镜像主行裁定压过的弹幕按钮显隐（与 mobile 同口径）
+        binding.danmaku.setVisibility(PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) && player.haveDanmaku() ? View.VISIBLE : View.GONE);
+        // 片头/片尾跟主行同一判定（集数≥2＋用户按钮设置）：leanback 主行没有 mobile 的 openingItem 包装层，按源头直算，单片时跟着藏
+        binding.opening.setVisibility(isMultiEpisode() && PlayerButtonSetting.isVisible(PlayerButtonSetting.OPENING) ? View.VISIBLE : View.GONE);
+        binding.ending.setVisibility(isMultiEpisode() && PlayerButtonSetting.isVisible(PlayerButtonSetting.ENDING) ? View.VISIBLE : View.GONE);
         setKaraokeVisible();
         setImmersiveAudioVisible();
         setTrackVisible();
@@ -378,9 +419,10 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public void setTrackVisible() {
-        binding.text.setVisibility(parent.control.action.text.getVisibility());
-        binding.audio.setVisibility(parent.control.action.audio.getVisibility());
-        binding.video.setVisibility(parent.control.action.video.getVisibility());
+        // 字幕行读源头可用性（有字幕轨或点播＋用户按钮设置），不镜像主行裁定压过的字幕按钮显隐（与 mobile 同口径）
+        binding.text.setVisibility(PlayerButtonSetting.isVisible(PlayerButtonSetting.TEXT) && (player.haveTrack(C.TRACK_TYPE_TEXT) || player.isVod()) ? View.VISIBLE : View.GONE);
+        binding.audio.setVisibility(player.haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
+        binding.video.setVisibility(player.haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         boolean visible = binding.text.getVisibility() != View.GONE || binding.audio.getVisibility() != View.GONE || binding.video.getVisibility() != View.GONE || binding.title.getVisibility() != View.GONE || binding.danmaku.getVisibility() != View.GONE;
         binding.trackText.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.trackRow.setVisibility(visible ? View.VISIBLE : View.GONE);
@@ -464,7 +506,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public void setTitleVisible() {
-        binding.title.setVisibility(parent.control.action.title.getVisibility());
+        binding.title.setVisibility(player.haveTitle() ? View.VISIBLE : View.GONE);
         setTrackVisible();
     }
 
@@ -477,6 +519,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     public interface Listener {
 
         boolean isControlAudioContent();
+
+        boolean isControlMultiEpisode();
 
         void onScale(int tag);
 

@@ -18,6 +18,7 @@ import java.security.cert.X509Certificate;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
@@ -144,40 +145,39 @@ public class OkHttp {
 
     public static String string(String url) {
         if (!url.startsWith("http")) return "";
-        try (Response res = newCall(url).execute()) {
-            return res.body().string();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "";
-        }
+        return string(() -> newCall(url), url);
     }
 
     public static String string(String url, long timeout) {
         if (!url.startsWith("http")) return "";
-        try (Response res = newCall(client(timeout), url).execute()) {
-            return res.body().string();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "";
-        }
+        return string(() -> newCall(client(timeout), url), url);
     }
 
     public static String string(String url, Map<String, String> headers) {
         if (!url.startsWith("http")) return "";
-        try (Response res = newCall(url, headers).execute()) {
-            return res.body().string();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "";
-        }
+        return string(() -> newCall(url, headers), url);
     }
 
     public static String string(String url, Map<String, String> headers, long timeout) {
         if (!url.startsWith("http")) return "";
-        try (Response res = newCall(client(timeout), url, headers).execute()) {
-            return res.body().string();
+        return string(() -> newCall(client(timeout), url, headers), url);
+    }
+
+    private static String string(Supplier<Call> supplier, String url) {
+        Call call = null;
+        try {
+            call = supplier.get();
+            try (Response res = call.execute()) {
+                return res.body().string();
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            // 返回值口径不变（失败仍回空串，调用方众多），但失败不再与
+            // 空响应同形无痕：真因进 SpiderDebug，下游按空内容误判时
+            // 至少有据可查（旧写法只 printStackTrace、日志里查不到）。
+            // newCall 求值也在 try 内：畸形 URL/header 抛的
+            // IllegalArgumentException 同样按此口径回空串＋留真因，
+            // 不直穿调用方（旧契约：失败一律回空串）。
+            SpiderDebug.log("okhttp", "string fetch failed url=%s error=%s", call != null ? call.request().url() : url, e.getMessage());
             return "";
         }
     }
@@ -272,7 +272,9 @@ public class OkHttp {
             context.init(null, new TrustManager[]{trustAllCertificates()}, new SecureRandom());
             return context;
         } catch (Throwable e) {
-            return null;
+            // 不许回 null：唯一调用点直接 getSocketFactory()，回 null 只会
+            // 变成一条无真因的 NPE。失败就带着真因当场抛。
+            throw new IllegalStateException("failed to create SSLContext", e);
         }
     }
 

@@ -49,11 +49,15 @@ public class Module {
         try {
             java.io.File file = new java.io.File(path);
             if (!file.exists()) return null;
-            java.io.FileInputStream fis = new java.io.FileInputStream(file);
             byte[] bytes = new byte[(int) file.length()];
-            fis.read(bytes);
-            fis.close();
-            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            int offset = 0;
+            // 单次 read 不保证读满：循环读到文件尾，慢存储／大文件也不会
+            // 拿到截断的脚本；流走 try-with-resources，抛错也关。
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+                int read;
+                while (offset < bytes.length && (read = fis.read(bytes, offset, bytes.length - offset)) != -1) offset += read;
+            }
+            return new String(bytes, 0, offset, java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             e.printStackTrace();
             return null;

@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.app.Dialog;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
@@ -25,6 +26,7 @@ public class PassDialog extends BaseBottomSheetDialog {
     }
 
     public void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) if (f instanceof PassDialog) return;
         show(activity.getSupportFragmentManager(), null);
     }
@@ -53,6 +55,7 @@ public class PassDialog extends BaseBottomSheetDialog {
     @Override
     public void onResume() {
         super.onResume();
-        getDialog().getWindow().setLayout(ResUtil.dp2px(250), -1);
+        Dialog dialog = getDialog();
+        if (dialog != null && dialog.getWindow() != null) dialog.getWindow().setLayout(ResUtil.dp2px(250), -1);
     }
 }

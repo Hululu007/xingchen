@@ -24,14 +24,14 @@ public class TxtParser {
     }
 
     /** 匹配 http(s)/ftp/thunder/magnet/video 及 ed2k 链接。ftp 走迅雷线（上游
-     * Thunder SCHEMES 含 ftp，XLTaskFactory.createDownload 内 ftp:// 走 P2sp 任务），
-     * 故与 magnet/thunder 同款抽取，不再漏给直播列表。ed2k 只认 scheme 前缀，
-     * 不做 |file|／大小／32 位哈希结构校验：上游 Thunder.Parser.PATTERN
-     * （Thunder.java:126）就是 {@code ^(magnet|thunder|ed2k):.*} 前缀口径，
-     * XLTaskFactory.createDownload（XLTaskFactory.java:65 起）ftp 外一律走
-     * Emule 任务、不解析 ed2k 内部结构；任务层唯一硬门是
-     * XLTaskHelper.addThunderTask（XLTaskHelper.java:82）要求 ed2k:// 前缀，
-     * 无 // 的 ed2k 在此抽出后由下游以真错拒绝，不在本门静默丢弃。
+     * Thunder SCHEMES 含 ftp，活链 XLTaskHelper.addThunderTask 内 ftp:// 走
+     * P2sp 任务），故与 magnet/thunder 同款抽取，不再漏给直播列表。ed2k 只认
+     * scheme 前缀，不做 |file|／大小／32 位哈希结构校验：上游
+     * Thunder.Parser.PATTERN 就是 {@code ^(magnet|thunder|ed2k):.*} 前缀口径，
+     * 活链 addThunderTask 不解析 ed2k 内部结构：ftp:// 走 P2sp、ed2k:// 走
+     * Emule、其余 scheme 直接抛错拒绝；任务层唯一硬门是 addThunderTask
+     * 要求 ed2k:// 前缀，无 // 的 ed2k 在此抽出后由下游以真错拒绝，
+     * 不在本门静默丢弃。
      * 抽取时优先在规范 |/ 结尾处收束（其后可选 |sources,…|/ 段），无 |/
      * 才整段收 token，避免把行尾紧贴的中文名吞进地址。 */
     private static final Pattern LINK = Pattern.compile("(https?|ftp|thunder|magnet|video):\\S+|ed2k:[^\\s]*?\\|/(\\|sources,[^|]*\\|/)?|ed2k:\\S+");

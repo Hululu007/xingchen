@@ -79,6 +79,7 @@ public class SyncDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
     }
 
     public void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) if (f instanceof SyncDialog) return;
         show(activity.getSupportFragmentManager(), null);
     }
@@ -152,6 +153,7 @@ public class SyncDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
 
     @Override
     public void onFind(Device device) {
+        if (binding == null) return;
         binding.recycler.setVisibility(View.VISIBLE);
         adapter.sort(device);
     }
@@ -180,7 +182,13 @@ public class SyncDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
         return new Callback() {
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
-                App.post(() -> onSuccess());
+                boolean ok = response.isSuccessful();
+                int code = response.code();
+                response.close();
+                App.post(() -> {
+                    if (ok) onSuccess();
+                    else Notify.show("同步失败（" + code + "）");
+                });
             }
 
             @Override
@@ -194,6 +202,7 @@ public class SyncDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
     public void onDestroyView() {
         super.onDestroyView();
         scanTask.stop();
+        binding = null;
     }
 
     private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {

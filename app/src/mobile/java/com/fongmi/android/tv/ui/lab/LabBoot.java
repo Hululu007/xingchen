@@ -46,6 +46,8 @@ public final class LabBoot {
             }
         }
         // 自启的对：自定义命令里开了开机自动运行的，也拉起来（变量值走缓存）
+        // 双门槛是有意的：包级 autoStartOf 不开，这个包的任何命令都不自启；
+        // 已在命令弹窗里把这一条写明（LabServiceActivity.showCustomCommandDialog），不是暗坑
         for (LabRegistry.Svc p : pkgs) {
             try {
                 if (!LabRegistry.autoStartOf(p)) continue;

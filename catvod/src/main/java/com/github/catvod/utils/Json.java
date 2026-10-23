@@ -50,6 +50,7 @@ public class Json {
         if (element.isJsonNull()) return true;
         if (element.isJsonArray()) return element.getAsJsonArray().isEmpty();
         if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) return element.getAsString().trim().isEmpty();
+        if (element.isJsonObject()) return element.getAsJsonObject().size() == 0;
         return true;
     }
 
@@ -64,16 +65,19 @@ public class Json {
     public static List<String> safeListString(JsonObject obj, String key) {
         List<String> result = new ArrayList<>();
         if (!obj.has(key)) return result;
-        if (obj.get(key).isJsonObject()) result.add(safeString(obj, key));
-        else for (JsonElement opt : obj.getAsJsonArray(key)) result.add(opt.getAsString());
+        JsonElement element = obj.get(key);
+        if (element.isJsonObject()) result.add(safeString(obj, key));
+        else if (element.isJsonArray()) for (JsonElement opt : element.getAsJsonArray()) if (opt.isJsonPrimitive()) result.add(opt.getAsString());
+        else if (element.isJsonPrimitive()) result.add(element.getAsString());
         return result;
     }
 
     public static List<JsonElement> safeListElement(JsonObject obj, String key) {
         List<JsonElement> result = new ArrayList<>();
         if (!obj.has(key)) return result;
-        if (obj.get(key).isJsonObject()) result.add(obj.get(key).getAsJsonObject());
-        else for (JsonElement opt : obj.getAsJsonArray(key)) result.add(opt.getAsJsonObject());
+        JsonElement element = obj.get(key);
+        if (element.isJsonObject()) result.add(element.getAsJsonObject());
+        else if (element.isJsonArray()) for (JsonElement opt : element.getAsJsonArray()) if (opt.isJsonObject()) result.add(opt.getAsJsonObject());
         return result;
     }
 

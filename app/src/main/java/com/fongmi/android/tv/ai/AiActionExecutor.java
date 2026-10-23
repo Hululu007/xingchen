@@ -63,7 +63,15 @@ public class AiActionExecutor {
         boolean done = activity != null && dispatchToActivity(activity, cmd);
         // 兜底：不在视频页但音乐在播，暂停/上下首走音乐
         if (!done) done = dispatchToMusicFallback(cmd);
-        if (cb != null) cb.onFeedback(done ? cmd.feedback : "请在播放页面使用该指令");
+        if (cb != null) cb.onFeedback(done ? cmd.feedback : wrongPageHint(cmd));
+    }
+
+    /** 落不了地时的页面提示要名副其实（低-08）：阅读类指令说阅读页，其余说播放页。 */
+    private static String wrongPageHint(AiVoiceCommand.Command cmd) {
+        if (cmd != null && cmd.action != null && cmd.action.startsWith("reading_")) {
+            return "请在阅读页面使用该指令";
+        }
+        return "请在播放页面使用该指令";
     }
 
     /** 是否为音乐指令 */
@@ -490,6 +498,9 @@ public class AiActionExecutor {
                                 + "emby_switch（切换到第 N 号 Emby 服务器，params 为序号）。\n"
                                 + "【全局开关】doh_next（切换 DoH）、float_on（打开悬浮窗）、"
                                 + "float_off（关闭悬浮窗）、py_refresh（刷新首页）。\n"
+                                + "【音乐】music_toggle（音乐暂停/播放切换）、music_next（下一首）、"
+                                + "music_prev（上一首）、music_search（搜歌，text 为歌名）、"
+                                + "music_source（切换音乐源）、music_quality（切换音质）。\n"
                                 + "无法理解时 action 为 none。\n"
                                 + "示例：{\"action\":\"seek_by\",\"params\":30000} "
                                 + "示例：{\"action\":\"nav_search\",\"text\":\"周星驰\"} "
@@ -504,16 +515,24 @@ public class AiActionExecutor {
                     postFeedback(cb, "没听懂，换个说法试试");
                     return;
                 }
+                // 分流口径与本地路 executeLocal 完全一致（中-07）：Emby→导航→开关→音乐→播放页。
+                // 此前 AI 路只分流导航/开关，parseAiJson 产出的 music_*/emby_* 指令全被
+                // 挡回「请在播放页面使用」，AI 对话里的点播/Emby 指令永远落不了地。
                 String feedback;
-                if (isNavCommand(cmd)) {
+                if (isEmbyCommand(cmd)) {
+                    feedback = executeEmby(context, cmd, cb);
+                } else if (isNavCommand(cmd)) {
                     boolean done = navigate(context, cmd);
                     feedback = done ? cmd.feedback : "打开失败，请重试";
                 } else if (isSwitchCommand(cmd)) {
                     feedback = executeSwitch(context, cmd);
+                } else if (isMusicCommand(cmd)) {
+                    feedback = executeMusic(context, cmd);
                 } else {
                     Activity activity = findTopActivity(context);
                     boolean done = activity != null && dispatchToActivity(activity, cmd);
-                    feedback = done ? cmd.feedback : "请在播放页面使用该指令";
+                    if (!done) done = dispatchToMusicFallback(cmd);
+                    feedback = done ? cmd.feedback : wrongPageHint(cmd);
                 }
                 postFeedback(cb, feedback);
             } catch (Exception e) {
@@ -557,6 +576,10 @@ public class AiActionExecutor {
                     return new AiVoiceCommand.Command(action, "已切上一首");
                 case AiVoiceCommand.ACTION_MUSIC_SEARCH:
                     return new AiVoiceCommand.Command(action, text, "正在搜歌" + text);
+                case AiVoiceCommand.ACTION_MUSIC_SOURCE:
+                    return new AiVoiceCommand.Command(action, "已切换音乐源");
+                case AiVoiceCommand.ACTION_MUSIC_QUALITY:
+                    return new AiVoiceCommand.Command(action, "已切换音质");
                 case AiVoiceCommand.ACTION_SEEK_BY:
                     return new AiVoiceCommand.Command(action, params,
                             params >= 0 ? "已快进 " + (params / 1000) + " 秒" : "已快退 " + (-params / 1000) + " 秒");

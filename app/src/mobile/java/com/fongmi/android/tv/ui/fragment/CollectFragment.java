@@ -146,9 +146,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class).init();
-        mViewModel.getSearch().observe(this, this::setCollect);
-        mViewModel.getSearchProgress().observe(this, this::setSearchProgress);
-        mViewModel.getResult().observe(this, this::setSearch);
+        mViewModel.getSearch().observe(getViewLifecycleOwner(), this::setCollect);
+        mViewModel.getSearchProgress().observe(getViewLifecycleOwner(), this::setSearchProgress);
+        mViewModel.getResult().observe(getViewLifecycleOwner(), this::setSearch);
     }
 
     private void setSites() {
@@ -376,9 +376,11 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     private void setSearch(Result result) {
         if (result == null) return;
         mScroller.endLoading(result);
-        boolean same = !result.getList().isEmpty() && mCollectAdapter.getActivated().getSite().equals(result.getVod().getSite());
-        if (same) mCollectAdapter.getActivated().getList().addAll(result.getList());
-        if (same) mSearchAdapter.setItems(new ArrayList<>(mCollectAdapter.getActivated().getList()));
+        // getActivated() 在列表为空时返 null（修根后口径）：无激活源就按不同源处理，不解引用
+        Collect activated = mCollectAdapter.getActivated();
+        boolean same = activated != null && activated.getSite() != null && !result.getList().isEmpty() && activated.getSite().equals(result.getVod().getSite());
+        if (same) activated.getList().addAll(result.getList());
+        if (same) mSearchAdapter.setItems(new ArrayList<>(activated.getList()));
     }
 
     @Override
@@ -403,6 +405,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     @Override
     public boolean onLoadMore(String page) {
         Collect activated = mCollectAdapter.getActivated();
+        // 无激活源（列表为空）时没有可翻页的源，直接收手
+        if (activated == null || activated.getSite() == null) return false;
         if ("all".equals(activated.getSite().getKey())) return false;
         mViewModel.searchContent(activated.getSite(), getKeyword(), false, page);
         activated.setPage(Integer.parseInt(page));
@@ -444,5 +448,6 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         mViewModel.stopSearch();
         SiteHealthStore.flush();
         requireActivity().removeMenuProvider(this);
+        mBinding = null;
     }
 }

@@ -21,12 +21,12 @@ public class Cache {
     }
 
     private void updatePdfh(String html) {
-        if (html.equals(pdfhHtml)) return;
+        if (html == null || html.equals(pdfhHtml)) return;
         pdfhDoc = Jsoup.parse(pdfhHtml = html);
     }
 
     private void updatePdfa(String html) {
-        if (html.equals(pdfaHtml)) return;
+        if (html == null || html.equals(pdfaHtml)) return;
         pdfaDoc = Jsoup.parse(pdfaHtml = html);
     }
 }

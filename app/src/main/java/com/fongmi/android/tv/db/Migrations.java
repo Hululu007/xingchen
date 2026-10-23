@@ -95,4 +95,18 @@ public class Migrations {
             database.execSQL("ALTER TABLE MusicPlaylistItem ADD COLUMN rawJson TEXT");
         }
     };
+
+    public static final Migration MIGRATION_40_41 = new Migration(40, 41) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // Keep 主键由单 key 换复合 (key, cid, type)：同名收藏跨配置/跨类型互覆的根治（H14）。
+            // SQLite 改主键只能重建表。旧表 key 本就唯一，(key, cid, type) 必然不冲突，
+            // INSERT 全量直搬，旧收藏一行不丢、不改值；同名不同配置的旧行在旧表里已被顶掉
+            // 的部分无从恢复，保留下来的行原样保留，升级后新写各归各行不再互覆。
+            database.execSQL("CREATE TABLE IF NOT EXISTS `Keep_new` (`key` TEXT NOT NULL, `siteName` TEXT, `vodName` TEXT, `vodPic` TEXT, `createTime` INTEGER NOT NULL, `type` INTEGER NOT NULL, `cid` INTEGER NOT NULL, PRIMARY KEY(`key`, `cid`, `type`))");
+            database.execSQL("INSERT INTO `Keep_new` (`key`, `siteName`, `vodName`, `vodPic`, `createTime`, `type`, `cid`) SELECT `key`, `siteName`, `vodName`, `vodPic`, `createTime`, `type`, `cid` FROM `Keep`");
+            database.execSQL("DROP TABLE IF EXISTS `Keep`");
+            database.execSQL("ALTER TABLE `Keep_new` RENAME TO `Keep`");
+        }
+    };
 }

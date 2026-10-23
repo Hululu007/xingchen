@@ -147,8 +147,7 @@ public class DriveQuark implements CloudDrive {
         rb.get();
         try (Response resp = client.newCall(rb.build()).execute()) {
             absorbCookies(resp.headers("Set-Cookie"));
-            String txt = resp.body() != null ? resp.body().string() : "";
-            return new JSONObject(txt.trim());
+            return toJson(resp);
         }
     }
 
@@ -163,8 +162,7 @@ public class DriveQuark implements CloudDrive {
         rb.post(RequestBody.create(body.toString(), JSON_MEDIA));
         try (Response resp = client.newCall(rb.build()).execute()) {
             absorbCookies(resp.headers("Set-Cookie"));
-            String txt = resp.body() != null ? resp.body().string() : "";
-            return new JSONObject(txt.trim());
+            return toJson(resp);
         }
     }
 
@@ -178,9 +176,25 @@ public class DriveQuark implements CloudDrive {
         if (!TextUtils.isEmpty(ck)) rb.header("Cookie", ck);
         try (Response resp = client.newCall(rb.build()).execute()) {
             absorbCookies(resp.headers("Set-Cookie"));
-            String txt = resp.body() != null ? resp.body().string() : "";
-            return new JSONObject(txt.trim());
+            return toJson(resp);
         }
+    }
+
+    /**
+     * 统一收口：先查 HTTP 状态码再解析 JSON。
+     * 此前三条 reqJson 全程不看状态码，401/403 的响应体多为非 JSON，
+     * new JSONObject 直接抛解析错，用户看到的是「解析失败」而非登录过期，名不副实。
+     */
+    private JSONObject toJson(Response resp) throws Exception {
+        int code = resp.code();
+        String txt = resp.body() != null ? resp.body().string() : "";
+        if (code == 401 || code == 403) {
+            throw new Exception("登录已过期或被拒绝（HTTP " + code + "），请重新登录夸克网盘");
+        }
+        if (code < 200 || code >= 300) {
+            throw new Exception("夸克接口请求失败（HTTP " + code + "）");
+        }
+        return new JSONObject(txt.trim());
     }
 
     private static String q(String s) {
@@ -360,9 +374,21 @@ public class DriveQuark implements CloudDrive {
         if (file == null || TextUtils.isEmpty(file.getId())) {
             throw new Exception("文件 id 为空");
         }
+        // 直链过期自愈（对照 115 的 403 重铸最多 3 次）：取到链先探活，
+        // 403 说明这条链已死，重新取一条再探；探活本身出错（网络抖动等）
+        // 不拦路，照常把链交给播放器，别让探活把能播的也挡下。
+        for (int attempt = 0; attempt <= 3; attempt++) {
+            String url = mintDownloadUrl(file.getId());
+            if (!probeForbidden(url)) return url;
+        }
+        throw new Exception("夸克直链已过期（403），多次重新获取仍失败，请稍后重试");
+    }
+
+    /** 现取一条 download_url（file/download） */
+    private String mintDownloadUrl(String fid) throws Exception {
         JSONObject body = new JSONObject();
         JSONArray fids = new JSONArray();
-        fids.put(file.getId());
+        fids.put(fid);
         body.put("fids", fids);
         JSONObject d = reqJsonPost(API_DOWNLOAD, body);
         if (d.optInt("status", -1) != 200) {
@@ -373,13 +399,29 @@ public class DriveQuark implements CloudDrive {
         return url;
     }
 
+    /** 探活：与播放器同样的无 cookie 直连条件发一个 1 字节 Range 请求，只有明确 403 才算链已死 */
+    private boolean probeForbidden(String url) {
+        try {
+            Request.Builder rb = new Request.Builder().url(url);
+            rb.header("User-Agent", UA);
+            rb.header("Referer", REFERER);
+            rb.header("Range", "bytes=0-0");
+            try (Response resp = client.newCall(rb.build()).execute()) {
+                return resp.code() == 403;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 防御性解析 download_url：data[0].download_url / data.list[0].download_url / data.download_url */
     private static String parseDownloadUrl(JSONObject d) {
         JSONObject data = d.optJSONObject("data");
         if (data != null) {
             JSONArray list = data.optJSONArray("list");
             if (list != null && list.length() > 0) {
-                String u = list.optJSONObject(0).optString("download_url");
+                JSONObject first = list.optJSONObject(0);
+                String u = first != null ? first.optString("download_url") : "";
                 if (!TextUtils.isEmpty(u)) return u;
             }
             String u = data.optString("download_url");
@@ -387,7 +429,8 @@ public class DriveQuark implements CloudDrive {
         }
         JSONArray arr = d.optJSONArray("data");
         if (arr != null && arr.length() > 0) {
-            String u = arr.optJSONObject(0).optString("download_url");
+            JSONObject first = arr.optJSONObject(0);
+            String u = first != null ? first.optString("download_url") : "";
             if (!TextUtils.isEmpty(u)) return u;
         }
         return "";

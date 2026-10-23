@@ -97,10 +97,11 @@ public class LocalArchive {
         }
     }
 
-    /** 抽取条目到目标文件（图片懒解包用）。 */
+    /** 抽取条目到目标文件（图片懒解包用）。单条目上限 100MB，三种格式同一口径（低-15）。 */
     public static void extractTo(ZipFile zip, String entryName, java.io.File target) throws Exception {
         ZipEntry e = zip.getEntry(entryName);
         if (e == null) throw new Exception("entry missing");
+        boolean tooLarge = false;
         try (InputStream in = zip.getInputStream(e);
              java.io.FileOutputStream fos = new java.io.FileOutputStream(target)) {
             byte[] buf = new byte[8192];
@@ -108,9 +109,17 @@ public class LocalArchive {
             long total = 0;
             while ((r = in.read(buf)) > 0) {
                 total += r;
-                if (total > 100L * 1024 * 1024) break;
+                // 超限不许静默截断当完整图交付（解出一半的图会被当好图缓存/显示）
+                if (total > 100L * 1024 * 1024) {
+                    tooLarge = true;
+                    break;
+                }
                 fos.write(buf, 0, r);
             }
+        }
+        if (tooLarge) {
+            target.delete();
+            throw new Exception("entry too large");
         }
     }
 }

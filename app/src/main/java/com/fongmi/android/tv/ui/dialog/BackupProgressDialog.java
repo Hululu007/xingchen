@@ -35,7 +35,11 @@ public final class BackupProgressDialog extends DialogFragment {
         BackupProgressDialog dialog = new BackupProgressDialog();
         dialog.title = title == null ? "" : title;
         dialog.setCancelable(false);
-        dialog.show(manager, BackupProgressDialog.class.getSimpleName());
+        // 调用方含恢复流程的异步完成链：状态已保存时 show() 必抛
+        // IllegalStateException。跳过开窗只回实例——备份/恢复照常走完，
+        // update/finish 对未开窗实例都是安全空转，不为进度窗崩掉整条链。
+        // （调用方都不判空，这里不许改成回 null 把崩点挪到调用方。）
+        if (manager != null && !manager.isStateSaved()) dialog.show(manager, BackupProgressDialog.class.getSimpleName());
         return dialog;
     }
 
@@ -46,12 +50,14 @@ public final class BackupProgressDialog extends DialogFragment {
         LinearLayoutCompat root = new LinearLayoutCompat(requireContext());
         root.setOrientation(LinearLayoutCompat.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(18));
+        // 弹窗不用白色底（定案口径）：与关于弹窗同色深灰底＋白字，
+        // 文字与底的对比照旧看得清。
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Color.parseColor("#2E2E2E"));
         background.setCornerRadius(dp(14));
         root.setBackground(background);
 
-        MaterialTextView heading = text(title, 18, Color.parseColor("#202124"));
+        MaterialTextView heading = text(title, 18, Color.WHITE);
         heading.setGravity(Gravity.START);
         root.addView(heading, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -61,7 +67,7 @@ public final class BackupProgressDialog extends DialogFragment {
         progressParams.topMargin = dp(16);
         root.addView(progress, progressParams);
 
-        detail = text("", 13, Color.parseColor("#5F6368"));
+        detail = text("", 13, Color.parseColor("#C8C8C8"));
         LinearLayoutCompat.LayoutParams detailParams = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         detailParams.topMargin = dp(10);
         root.addView(detail, detailParams);
@@ -93,7 +99,11 @@ public final class BackupProgressDialog extends DialogFragment {
     }
 
     public void finish() {
-        App.post(this::dismissAllowingStateLoss);
+        // 未开窗（状态已保存被跳过）或已脱离宿主时无窗可关，直接收工。
+        if (!isAdded()) return;
+        App.post(() -> {
+            if (isAdded()) dismissAllowingStateLoss();
+        });
     }
 
     private void render() {

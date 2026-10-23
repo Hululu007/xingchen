@@ -34,7 +34,7 @@ public class HkArticleListModel {
 
         void bindObjectToView(String key, HkItem item);
 
-        void error(String key, String title, String msg, Exception e);
+        void error(String title, String msg, String code, Exception e);
 
         void loading(boolean show);
     }
@@ -255,8 +255,8 @@ public class HkArticleListModel {
         }
 
         @Override
-        public void error(String key, String title, String msg, Exception e) {
-            if (isValid()) baseCallback.error(key, title, msg, e);
+        public void error(String title, String msg, String code, Exception e) {
+            if (isValid()) baseCallback.error(title, msg, code, e);
         }
 
         @Override
@@ -299,8 +299,8 @@ public class HkArticleListModel {
         }
 
         @Override
-        public void error(String key, String title, String msg, Exception e) {
-            baseCallback.error(key, title, msg, e);
+        public void error(String title, String msg, String code, Exception e) {
+            baseCallback.error(title, msg, code, e);
         }
 
         @Override

@@ -11,10 +11,14 @@ import com.fongmi.android.tv.bean.MusicDownload;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.db.dao.MusicDownloadDao;
+import com.fongmi.android.tv.update.UpdateIdentity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.fongmi.android.tv.utils.download.DownloadTask;
+import com.github.catvod.utils.Prefers;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -177,6 +181,7 @@ public class MusicDownloadStore {
 
     public static void all(DataCallback<List<MusicTrack>> cb) {
         Task.execute(() -> {
+            reconcilePending();
             List<MusicTrack> list = new ArrayList<>();
             try {
                 for (MusicDownload d : AppDatabase.get().getMusicDownloadDao().findAll()) list.add(toTrack(d));
@@ -203,12 +208,176 @@ public class MusicDownloadStore {
     private static final Map<String, MusicTrack> pending = new ConcurrentHashMap<>();
     private static boolean listenerAdded;
 
+    /**
+     * pending 落盘（低-01）：只靠进程内回调登记时，进程被杀后由系统/服务拉起的新进程
+     * 里把歌下完也没人登记成本地音乐。快照随 pending 增删同步落盘，重启后先恢复再对账。
+     */
+    private static final String KEY_PENDING = "music_pending_downloads";
+    private static volatile boolean pendingLoaded;
+
+    private static void persistPending() {
+        try {
+            Prefers.put(KEY_PENDING, new Gson().toJson(new java.util.HashMap<>(pending)));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void loadPending() {
+        if (pendingLoaded) return;
+        pendingLoaded = true;
+        try {
+            String json = Prefers.getString(KEY_PENDING, "");
+            if (json == null || json.isEmpty()) return;
+            java.lang.reflect.Type type = new TypeToken<Map<String, MusicTrack>>() {
+            }.getType();
+            Map<String, MusicTrack> saved = new Gson().fromJson(json, type);
+            if (saved != null) pending.putAll(saved);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 对账：把「外进程期间已下完」的任务补登记。
+     * 任务表是纯内存的：进程被杀后新进程里 getTask 恒为 null，旧对账永远等不到
+     * 任务记录、pending 残条永久滞留。任务查不到时改去下载目录核对实际文件。
+     * 成品判据不能只凭「文件存在＋大小>0」：下载器是直写最终文件（无 .part
+     * 落盘后改名），进程被杀在下载中途，最终路径上躺着的正是半截文件且大小>0，
+     * 只凭大小会把半截歌登记成已下载、还清掉 pending 断了续传。故判成品还须
+     * 两个未完标记都不在——.progress 进度档与 .id 身份旁车（下载器开下时落、
+     * 成品落定时摘，见 HttpDownloader／UpdateIdentity）。任一标记在＝未下完，
+     * 保留 pending 不清不登记；同名文件已被本轮前一条目认领＝同样保留 pending，
+     * 不静默丢任务；同名文件不在才清掉残条（旧进程已死，不会再有任务把它下完）。
+     * pending 快照不存期望大小，无期望大小可用，故以标记为判据。
+     */
+    private static void reconcilePending() {
+        loadPending();
+        if (pending.isEmpty()) return;
+        boolean changed = false;
+        java.util.Set<String> claimed = new java.util.HashSet<>();
+        for (Map.Entry<String, MusicTrack> e : new ArrayList<>(pending.entrySet())) {
+            try {
+                DownloadTask task = DownloadManager.get().getTask(e.getKey());
+                if (task != null) {
+                    if (task.getStatus() == DownloadTask.STATUS_COMPLETED
+                            && task.getFilePath() != null && !task.getFilePath().isEmpty()) {
+                        pending.remove(e.getKey());
+                        changed = true;
+                        save(e.getValue(), task.getFilePath());
+                    }
+                    continue;
+                }
+                File hit = findPendingFile(e.getValue(), claimed);
+                if (hit != null) {
+                    claimed.add(hit.getAbsolutePath());
+                    pending.remove(e.getKey());
+                    changed = true;
+                    save(e.getValue(), hit.getAbsolutePath());
+                } else if (hasAnyPendingFile(e.getValue())) {
+                    // 同名文件在但没下完（未完标记还在），或已被本轮前一条目
+                    // 认领走：保留 pending 不清不登记，下轮对账再看。
+                    continue;
+                } else {
+                    // 同名文件不在：旧进程已死、不会再有任务把它下完，清残条。
+                    pending.remove(e.getKey());
+                    changed = true;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (changed) persistPending();
+    }
+
+    /** 下载目录（与 DownloadManager.getDownloadDir 同口径：私有 Downloads/XingChen，旧版 filesDir/Download 兼容）。 */
+    private static File downloadDir() {
+        try {
+            Context ctx = App.get();
+            if (ctx == null) return null;
+            File dir = new File(ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "XingChen");
+            File legacy = new File(ctx.getFilesDir(), "Download");
+            if (legacy.exists() && !dir.exists()) return legacy;
+            return dir;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 按任务名在下载目录里找可补登记的成品文件：文件名（去扩展名）与任务名一致或带 _N 去重后缀、大小>0、未被本轮其他条目认领、且两个下载未完标记都不在。 */
+    private static File findPendingFile(MusicTrack track, java.util.Set<String> claimed) {
+        if (track == null) return null;
+        File dir = downloadDir();
+        if (dir == null || !dir.isDirectory()) return null;
+        String base = sanitizeFileName(downloadFileName(track));
+        if (base.isEmpty()) return null;
+        File[] files = dir.listFiles();
+        if (files == null) return null;
+        for (File f : files) {
+            if (f == null || !f.isFile() || f.length() <= 0) continue;
+            if (claimed.contains(f.getAbsolutePath())) continue;
+            if (hasDownloadMarkers(f)) continue;
+            if (nameMatches(f, base)) return f;
+        }
+        return null;
+    }
+
+    /** 下载目录里有没有同名落盘文件（大小>0）：不看认领、不看标记，只判「在不在」，供对账区分「文件不在可清残条」与「文件在但未下完／已被认领须留 pending」。 */
+    private static boolean hasAnyPendingFile(MusicTrack track) {
+        if (track == null) return false;
+        File dir = downloadDir();
+        if (dir == null || !dir.isDirectory()) return false;
+        String base = sanitizeFileName(downloadFileName(track));
+        if (base.isEmpty()) return false;
+        File[] files = dir.listFiles();
+        if (files == null) return false;
+        for (File f : files) {
+            if (f == null || !f.isFile() || f.length() <= 0) continue;
+            if (nameMatches(f, base)) return true;
+        }
+        return false;
+    }
+
+    /** 文件名（去扩展名）与任务名一致，或带 _N 去重后缀。 */
+    private static boolean nameMatches(File f, String base) {
+        String name = f.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        return stem.equals(base) || isDedupStem(stem, base);
+    }
+
+    /**
+     * 下载未完标记（与 HttpDownloader 的落盘口径逐一对齐）：
+     * ①.progress 进度档＝目标文件绝对路径＋".progress"（多线程分块进度，
+     * HttpDownloader 开下时写、成品落定时删）；
+     * ②.id 身份旁车＝UpdateIdentity.sidecar（同目录、文件名＋".id"，开下前
+     * 先落、成品落定时 clearSidecar 摘掉）。
+     * 任一在＝这份文件还没下完，不许当成品登记。
+     */
+    private static boolean hasDownloadMarkers(File f) {
+        if (new File(f.getAbsolutePath() + ".progress").exists()) return true;
+        return UpdateIdentity.sidecar(f).exists();
+    }
+
+    /** 任务名_N 形态（DownloadManager 避免重名时加的后缀），N 必须全数字 */
+    private static boolean isDedupStem(String stem, String base) {
+        if (!stem.startsWith(base + "_")) return false;
+        String tail = stem.substring(base.length() + 1);
+        if (tail.isEmpty()) return false;
+        for (int i = 0; i < tail.length(); i++) if (!Character.isDigit(tail.charAt(i))) return false;
+        return true;
+    }
+
+    /** 与 DownloadManager.sanitizeFileName 同口径的文件名净化 */
+    private static String sanitizeFileName(String name) {
+        return name == null ? "" : name.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
     private static synchronized void ensureListener() {
         if (listenerAdded) return;
         listenerAdded = true;
+        loadPending();
         DownloadManager.get().addListener(task -> {
             if (task.getStatus() == DownloadTask.STATUS_COMPLETED) {
                 MusicTrack t = pending.remove(task.getId());
+                if (t != null) persistPending();
                 if (t != null && task.getFilePath() != null && !task.getFilePath().isEmpty()) {
                     save(t, task.getFilePath());
                 }
@@ -306,6 +475,7 @@ public class MusicDownloadStore {
                 return;
             }
             // 重试同曲：先清掉该曲的失败旧任务（DownloadManager 删任务＋pending 除名），免得一曲两行
+            loadPending();
             for (Map.Entry<String, MusicTrack> e : new ArrayList<>(pending.entrySet())) {
                 if (e.getValue() != null && localId(track).equals(e.getValue().id)) {
                     DownloadTask old = DownloadManager.get().getTask(e.getKey());
@@ -315,6 +485,7 @@ public class MusicDownloadStore {
                     }
                 }
             }
+            persistPending();
             for (DownloadTask t : DownloadManager.get().getTasks()) {
                 if (url.equals(t.getUrl()) && (t.getStatus() == DownloadTask.STATUS_DOWNLOADING
                         || t.getStatus() == DownloadTask.STATUS_WAITING)) {
@@ -329,7 +500,10 @@ public class MusicDownloadStore {
             post(() -> {
                 try {
                     DownloadTask task = DownloadManager.get().add(taskUrl, taskName);
-                    if (task != null) pending.put(task.getId(), snapshot);
+                    if (task != null) {
+                        pending.put(task.getId(), snapshot);
+                        persistPending();
+                    }
                 } catch (Throwable e) {
                     Notify.show(R.string.music_download_failed);
                 }
@@ -582,6 +756,7 @@ public class MusicDownloadStore {
 
     /** 进行中任务：pending 里还有 DownloadManager 任务的（已完成已被监听除名，不会混进来） */
     public static List<LiveTask> liveTasks() {
+        loadPending();
         List<LiveTask> out = new ArrayList<>();
         for (Map.Entry<String, MusicTrack> e : pending.entrySet()) {
             DownloadTask t = DownloadManager.get().getTask(e.getKey());
@@ -606,6 +781,7 @@ public class MusicDownloadStore {
         if (taskId == null) return;
         DownloadManager.get().delete(taskId);
         pending.remove(taskId);
+        persistPending();
     }
 
     /** 全部暂停：只动等待中／下载中的任务 */
@@ -630,6 +806,7 @@ public class MusicDownloadStore {
             DownloadManager.get().delete(lt.taskId);
             pending.remove(lt.taskId);
         }
+        persistPending();
     }
 
     /** 清除失败：只删失败态任务＋pending 除名 */
@@ -640,5 +817,6 @@ public class MusicDownloadStore {
                 pending.remove(lt.taskId);
             }
         }
+        persistPending();
     }
 }

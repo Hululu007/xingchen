@@ -46,12 +46,14 @@ public final class ThunderGateway {
     }
 
     public synchronized StatusEx taskStatus(ThunderRuntime.Task task) throws ExtractException {
-        XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo((GetTaskId) task);
+        if (!(task instanceof GetTaskId getTaskId)) return null;
+        XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo(getTaskId);
         return info == null ? null : toStatusEx(info);
     }
 
     public synchronized StatusEx btSubTaskStatus(ThunderRuntime.Task task, int index) throws ExtractException {
-        BtSubTaskDetail detail = XLTaskHelper.get().getBtSubTaskInfo((GetTaskId) task, index);
+        if (!(task instanceof GetTaskId getTaskId)) return null;
+        BtSubTaskDetail detail = XLTaskHelper.get().getBtSubTaskInfo(getTaskId, index);
         return detail == null || detail.mTaskInfo == null ? null : toStatusEx(detail.mTaskInfo);
     }
 

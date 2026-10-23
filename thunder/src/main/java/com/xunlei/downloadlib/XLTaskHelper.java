@@ -1,5 +1,6 @@
 package com.xunlei.downloadlib;
 
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 import com.xunlei.downloadlib.parameter.BtIndexSet;
 import com.xunlei.downloadlib.parameter.BtSubTaskDetail;
@@ -64,7 +65,7 @@ public class XLTaskHelper {
 
     // 只归一 scheme 段（trim ＋ scheme 小写），冒号后内容不动（哈希大小写敏感）。
     // 下面的 "magnet:?"/"thunder://" 门限是精确前缀，粘贴变体不归一会被静默跳过。
-    private static String normalizeScheme(String raw) {
+    static String normalizeScheme(String raw) {
         String u = raw == null ? "" : raw.trim();
         int colon = u.indexOf(':');
         if (colon > 0) u = u.substring(0, colon).toLowerCase(Locale.ROOT) + u.substring(colon);
@@ -112,6 +113,8 @@ public class XLTaskHelper {
             param.setUrl(url);
             int code = getManager().createEmuleTask(param, taskId);
             if (code != XLConstant.XLErrorCode.NO_ERROR) throw new IllegalStateException("迅雷建任务失败，错码=" + code);
+        } else {
+            throw new IllegalStateException("迅雷建任务失败：只支持 ftp:// 与 ed2k:// 链接");
         }
         getManager().setDownloadTaskOrigin(taskId.getTaskId(), "out_app/out_app_paste");
         getManager().setOriginUserAgent(taskId.getTaskId(), "AndroidDownloadManager/4.4.4 (Linux; U; Android 4.4.4; Build/KTU84Q)");
@@ -140,7 +143,11 @@ public class XLTaskHelper {
             }
             BtIndexSet btIndexSet = new BtIndexSet(list.size());
             for (int i = 0; i < list.size(); i++) btIndexSet.mIndexSet[i] = list.get(i);
-            getManager().deselectBtSubTask(taskId.getTaskId(), btIndexSet);
+            try {
+                getManager().deselectBtSubTask(taskId.getTaskId(), btIndexSet);
+            } catch (IllegalStateException e) {
+                SpiderDebug.log("thunder", "deselect bt sub task failed err=%s", String.valueOf(e.getMessage()));
+            }
         }
         return startTask(taskId, index);
     }
@@ -167,18 +174,16 @@ public class XLTaskHelper {
         getManager().releaseTask(taskId.getTaskId());
     }
 
+    // 始终取原生任务信息（真实已下载字节/总大小/状态），不再按「存档存在」合成完成状态
     public synchronized XLTaskInfo getTaskInfo(GetTaskId taskId) {
-        XLTaskInfo taskInfo = new XLTaskInfo();
-        if (taskId.getSaveFile().exists()) taskInfo.setTaskStatus(2);
-        else getManager().getTaskInfo(taskId.getTaskId(), 1, taskInfo);
-        return taskInfo;
-    }
-
-    // 绕开 getTaskInfo 的状态合成，始终取原生任务信息（真实已下载字节/总大小/状态）
-    public synchronized XLTaskInfo getNativeTaskInfo(GetTaskId taskId) {
         XLTaskInfo taskInfo = new XLTaskInfo();
         getManager().getTaskInfo(taskId.getTaskId(), 1, taskInfo);
         return taskInfo;
+    }
+
+    // 与 getTaskInfo 同口径（原生任务信息），保留给既有调用方
+    public synchronized XLTaskInfo getNativeTaskInfo(GetTaskId taskId) {
+        return getTaskInfo(taskId);
     }
 
     public synchronized BtSubTaskDetail getBtSubTaskInfo(GetTaskId taskId, int index) {

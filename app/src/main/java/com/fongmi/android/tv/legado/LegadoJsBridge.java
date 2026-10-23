@@ -46,6 +46,33 @@ public class LegadoJsBridge {
         return t;
     });
 
+    /**
+     * 死循环熔断（低-18）：Rhino 解释执行不响应线程中断，此前 Future.cancel(true)
+     * 杀不掉跑飞的 JS 线程，cached pool 被一个个占满后新求值全排队假死。
+     * 改指令计数观察：每 10000 条指令查一次本线程截止时间，超期直接抛 Error 打断求值。
+     */
+    private static final ThreadLocal<Long> DEADLINE = new ThreadLocal<>();
+
+    private static class DeadlineContextFactory extends org.mozilla.javascript.ContextFactory {
+        @Override
+        protected Context makeContext() {
+            Context cx = super.makeContext();
+            cx.setOptimizationLevel(-1);
+            cx.setInstructionObserverThreshold(10000);
+            return cx;
+        }
+
+        @Override
+        protected void observeInstructionCount(Context cx, int instructionCount) {
+            Long deadline = DEADLINE.get();
+            if (deadline != null && System.currentTimeMillis() > deadline) {
+                throw new Error("legado js deadline exceeded");
+            }
+        }
+    }
+
+    private static final DeadlineContextFactory FACTORY = new DeadlineContextFactory();
+
     private final LegadoRuleEvaluator.Ctx ctx;
 
     public LegadoJsBridge(LegadoRuleEvaluator.Ctx ctx) {
@@ -69,29 +96,30 @@ public class LegadoJsBridge {
     }
 
     private Object evalInternal(String code) {
-        Context cx = Context.enter();
+        DEADLINE.set(System.currentTimeMillis() + JS_TIMEOUT_MS);
         try {
-            cx.setOptimizationLevel(-1);
-            cx.setLanguageVersion(200);
-            cx.setClassShutter(new SandboxShutter());
-            ScriptableObject scope = cx.initStandardObjects();
-            ScriptableObject.putProperty(scope, "java", Context.javaToJS(this, scope));
-            ScriptableObject.putProperty(scope, "baseUrl", ctx.baseUrl);
-            ScriptableObject.putProperty(scope, "result", Context.javaToJS(ctx.rawText, scope));
-            ScriptableObject.putProperty(scope, "book", Context.javaToJS(new HashMap<>(ctx.book), scope));
-            ScriptableObject.putProperty(scope, "chapter", Context.javaToJS(new HashMap<>(ctx.chapter), scope));
-            ScriptableObject.putProperty(scope, "source", Context.javaToJS(new HashMap<>(ctx.source), scope));
-            ScriptableObject.putProperty(scope, "cookie", Context.javaToJS(new HashMap<>(ctx.cookie), scope));
-            ScriptableObject.putProperty(scope, "cache", Context.javaToJS(new HashMap<>(ctx.vars), scope));
-            ScriptableObject.putProperty(scope, "title", ctx.title);
-            Object r = cx.evaluateString(scope, code, "legado", 1, null);
-            return convert(r);
+            return FACTORY.call(cx -> {
+                cx.setLanguageVersion(200);
+                cx.setClassShutter(new SandboxShutter());
+                ScriptableObject scope = cx.initStandardObjects();
+                ScriptableObject.putProperty(scope, "java", Context.javaToJS(this, scope));
+                ScriptableObject.putProperty(scope, "baseUrl", ctx.baseUrl);
+                ScriptableObject.putProperty(scope, "result", Context.javaToJS(ctx.rawText, scope));
+                ScriptableObject.putProperty(scope, "book", Context.javaToJS(new HashMap<>(ctx.book), scope));
+                ScriptableObject.putProperty(scope, "chapter", Context.javaToJS(new HashMap<>(ctx.chapter), scope));
+                ScriptableObject.putProperty(scope, "source", Context.javaToJS(new HashMap<>(ctx.source), scope));
+                ScriptableObject.putProperty(scope, "cookie", Context.javaToJS(new HashMap<>(ctx.cookie), scope));
+                ScriptableObject.putProperty(scope, "cache", Context.javaToJS(new HashMap<>(ctx.vars), scope));
+                ScriptableObject.putProperty(scope, "title", ctx.title);
+                Object r = cx.evaluateString(scope, code, "legado", 1, null);
+                return convert(r);
+            });
         } catch (LegadoException e) {
             throw e;
         } catch (Throwable t) {
             throw toRuleException(t, code);
         } finally {
-            Context.exit();
+            DEADLINE.remove();
         }
     }
 

@@ -88,7 +88,7 @@ public class FolderFragment extends BaseFragment {
     }
 
     public Result getResult() {
-        return getParent().getResult();
+        return getParentFragment() instanceof VodFragment parent ? parent.getResult() : null;
     }
 
     public void onRefresh() {

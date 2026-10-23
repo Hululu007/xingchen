@@ -82,7 +82,15 @@ def main():
         if len(matches) != 1:
             raise ValueError("Resolve exact compiler dependency: " + name)
         classpath.append(matches[0])
-    sdk = os.environ.get("ANDROID_HOME", "/Users/macbookpro/Downloads/bizhi/android-sdk")
+    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    if not sdk:
+        local_properties = ROOT / "local.properties"
+        if local_properties.exists():
+            for line in local_properties.read_text().splitlines():
+                if line.startswith("sdk.dir="):
+                    sdk = line.split("=", 1)[1]
+    if not sdk:
+        raise ValueError("Set ANDROID_HOME to the installed Android SDK")
     classpath.append(Path(sdk) / "platforms/android-36/android.jar")
     javac = Path(os.environ["JAVA_HOME"]) / "bin/javac"
     classes = work / "classes"

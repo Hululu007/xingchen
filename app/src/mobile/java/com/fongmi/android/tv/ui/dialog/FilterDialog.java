@@ -38,9 +38,10 @@ public class FilterDialog extends BaseBottomSheetDialog {
     }
 
     public void show(Fragment fragment) {
+        if (fragment == null || !fragment.isAdded() || fragment.getChildFragmentManager().isStateSaved()) return;
         for (Fragment f : fragment.getChildFragmentManager().getFragments()) if (f instanceof FilterDialog) return;
-        show(fragment.getChildFragmentManager(), null);
         this.listener = (FilterListener) fragment;
+        show(fragment.getChildFragmentManager(), null);
     }
 
     @Override

@@ -80,7 +80,13 @@ public class Channel {
     }
 
     public static Channel objectFrom(JsonElement element) {
-        return App.gson().fromJson(element, Channel.class);
+        try {
+            Channel channel = App.gson().fromJson(element, Channel.class);
+            return channel == null ? new Channel() : channel;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10，与已守卫一组口径统一）
+            return new Channel();
+        }
     }
 
     public static Channel create(int number) {

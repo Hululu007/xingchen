@@ -113,6 +113,7 @@ public class FileChooser {
 
     private static String getPathFromDocumentUri(Context context, Uri uri) {
         String docId = DocumentsContract.getDocumentId(uri);
+        if (docId == null) return null;
         String[] split = docId.split(":");
         if (isExternalStorageDocument(uri)) return getPath(docId, split);
         else if (isDownloadsDocument(uri)) return getPath(context, uri, docId);
@@ -135,16 +136,33 @@ public class FileChooser {
         } else if (fileName != null) {
             return Environment.getExternalStorageDirectory() + "/Download/" + fileName;
         } else {
-            return getDataColumn(context, ContentUris.withAppendedId(Uri.parse("content://downloads/public_downloads"), Long.parseLong(docId)));
+            // 外部选择器给的 docId 不可信：非数字时 parseLong 会把
+            // NumberFormatException 直抛调用方，畸形 id 按取不到路径处理。
+            long id;
+            try {
+                id = Long.parseLong(docId);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            return getDataColumn(context, ContentUris.withAppendedId(Uri.parse("content://downloads/public_downloads"), id));
         }
     }
 
     private static String getPath(Context context, String[] split) {
+        // docId 形如「image:123」：无冒号（split 只有一段）或 id 非数字时，
+        // 直接 split[1]/parseLong 会把异常直抛调用方——畸形 id 按取不到路径处理。
+        if (split.length < 2) return null;
+        long id;
+        try {
+            id = Long.parseLong(split[1]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
         return switch (split[0]) {
-            case "image" -> getDataColumn(context, ContentUris.withAppendedId(getImageUri(), Long.parseLong(split[1])));
-            case "video" -> getDataColumn(context, ContentUris.withAppendedId(getVideoUri(), Long.parseLong(split[1])));
-            case "audio" -> getDataColumn(context, ContentUris.withAppendedId(getAudioUri(), Long.parseLong(split[1])));
-            default -> getDataColumn(context, ContentUris.withAppendedId(getFilesUri(), Long.parseLong(split[1])));
+            case "image" -> getDataColumn(context, ContentUris.withAppendedId(getImageUri(), id));
+            case "video" -> getDataColumn(context, ContentUris.withAppendedId(getVideoUri(), id));
+            case "audio" -> getDataColumn(context, ContentUris.withAppendedId(getAudioUri(), id));
+            default -> getDataColumn(context, ContentUris.withAppendedId(getFilesUri(), id));
         };
     }
 

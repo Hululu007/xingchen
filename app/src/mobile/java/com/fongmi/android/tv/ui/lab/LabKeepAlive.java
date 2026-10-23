@@ -29,13 +29,21 @@ public class LabKeepAlive extends Service {
             i.setAction("refresh");
             i.putExtra("count", n);
             try {
-                c.startService(i);
-            } catch (Exception ignored) {
+                // API 26+ 从后台 startService 会被系统拒（IllegalStateException）；
+                // 本服务本来就是前台服务（onStartCommand 里 startForeground），走专用入口
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    c.startForegroundService(i);
+                } else {
+                    c.startService(i);
+                }
+            } catch (Exception e) {
+                android.util.Log.e("LabKeepAlive", "保活服务起不来", e);
             }
         } else {
             try {
                 c.stopService(i);
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                android.util.Log.e("LabKeepAlive", "保活服务停不下来", e);
             }
         }
     }

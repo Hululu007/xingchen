@@ -248,16 +248,6 @@ public final class HkUrlDetector {
         }
     }
 
-    private static void saveVideoRules() {
-        if (appContext == null) return;
-        try {
-            String json = new com.google.gson.Gson().toJson(videoRules);
-            appContext.getSharedPreferences("hk_big_text", Context.MODE_PRIVATE)
-                    .edit().putString("video_rules", json).apply();
-        } catch (Exception ignored) {
-        }
-    }
-
     public static List<String> getVideoRules() {
         return videoRules;
     }

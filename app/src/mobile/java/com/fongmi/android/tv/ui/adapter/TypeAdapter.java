@@ -54,6 +54,7 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
     }
 
     public void setSelected(int position) {
+        if (position < 0 || position >= mItems.size()) return;
         for (Class item : mItems) item.setSelected(false);
         mItems.get(position).setSelected(true);
         notifyItemRangeChanged(0, mItems.size());

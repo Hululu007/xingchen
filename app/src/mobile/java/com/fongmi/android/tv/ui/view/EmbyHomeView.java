@@ -122,6 +122,7 @@ public class EmbyHomeView extends FrameLayout {
     private String serverId;
     private EmbyApi api;
     private int gen;
+    private int searchGen;
     private boolean built;
     private ExecutorService pool;
     /** 本轮网络拉取是否遇到登录失效（P0-4 调用方引导侧，失败分支专用，不碰加载主逻辑）。 */
@@ -209,6 +210,7 @@ public class EmbyHomeView extends FrameLayout {
     public void bind(String serverId) {
         if (TextUtils.isEmpty(serverId)) return;
         if (serverId.equals(this.serverId) && built) return;
+        boolean serverChanged = !serverId.equals(this.serverId);
         gen++;
         this.serverId = serverId;
         sCurrent = new WeakReference<>(this);
@@ -221,6 +223,7 @@ public class EmbyHomeView extends FrameLayout {
             return;
         }
         pageEmpty.setVisibility(View.GONE);
+        if (serverChanged) clearSections();
         api = newApi();
         if (pool == null || pool.isShutdown()) pool = Executors.newFixedThreadPool(4);
         buildSections();
@@ -372,8 +375,13 @@ public class EmbyHomeView extends FrameLayout {
                 App.post(() -> {
                     if (myGen != gen || !sid.equals(serverId)) return;
                     for (Map.Entry<String, List<EmbyItem>> e : got.entrySet()) {
-                        libData.put(e.getKey(), e.getValue());
                         Section s = libSecs.get(e.getKey());
+                        if (e.getValue() == null) {
+                            // 拉取失败：不写空进 libData，栏目走报错＋重试
+                            if (s != null) s.setError();
+                            continue;
+                        }
+                        libData.put(e.getKey(), e.getValue());
                         if (s != null) s.setData(e.getValue(), null);
                     }
                     saveCacheBg(sid);
@@ -447,28 +455,56 @@ public class EmbyHomeView extends FrameLayout {
                 List<EmbyItem> nextup = get(fNext);
                 List<EmbyItem> views = get(fViews);
                 if (myGen != gen) return;
-                Set<String> checked = checkedViews(views);
-                Map<String, Future<List<EmbyItem>>> fLibs = new LinkedHashMap<>();
-                for (EmbyItem v : views) {
-                    if (v == null || TextUtils.isEmpty(v.id) || !checked.contains(v.id)) continue;
-                    final String vid = v.id;
-                    fLibs.put(vid, fp.submit(() -> quietLibItems(a, vid)));
-                }
-                Map<String, List<EmbyItem>> libs = new LinkedHashMap<>();
-                for (Map.Entry<String, Future<List<EmbyItem>>> e : fLibs.entrySet()) libs.put(e.getKey(), get(e.getValue()));
-                if (myGen != gen) return;
+                // 失败（null）与真空分开：失败的栏目沿用内存里的旧数据，
+                // 不把失败当空数据渲染、更不写进缓存覆掉上一份好缓存。
                 FreshData fd = new FreshData();
-                fd.resume = resume;
-                fd.fav = fav;
-                fd.latest = latest;
-                fd.nextup = nextup;
+                fd.resume = keepOnFail(resume, resumeItems, "resume", fd);
+                fd.fav = keepOnFail(fav, favItems, "fav", fd);
+                fd.latest = keepOnFail(latest, latestItems, "latest", fd);
+                fd.nextup = keepOnFail(nextup, nextupItems, "nextup", fd);
+                boolean viewsFailed = views == null;
+                if (viewsFailed) {
+                    fd.failed.add("views");
+                    views = viewsData;
+                }
                 fd.views = views;
+                Set<String> checked = checkedViews(views);
+                Map<String, List<EmbyItem>> libs = new LinkedHashMap<>();
+                if (viewsFailed) {
+                    for (EmbyItem v : views) {
+                        if (v == null || TextUtils.isEmpty(v.id) || !checked.contains(v.id)) continue;
+                        List<EmbyItem> oldLib = libData.get(v.id);
+                        if (oldLib != null) libs.put(v.id, oldLib);
+                    }
+                } else {
+                    Map<String, Future<List<EmbyItem>>> fLibs = new LinkedHashMap<>();
+                    for (EmbyItem v : views) {
+                        if (v == null || TextUtils.isEmpty(v.id) || !checked.contains(v.id)) continue;
+                        final String vid = v.id;
+                        fLibs.put(vid, fp.submit(() -> quietLibItems(a, vid)));
+                    }
+                    for (Map.Entry<String, Future<List<EmbyItem>>> e : fLibs.entrySet()) {
+                        List<EmbyItem> items = get(e.getValue());
+                        if (items == null) {
+                            fd.failed.add("lib:" + e.getKey());
+                            List<EmbyItem> oldLib = libData.get(e.getKey());
+                            // 有旧数据沿用旧数据；没旧数据不许把空表塞进 libs——
+                            // 否则 applyData 会把空表写进 libData、saveCacheBg 还会落缓存，
+                            // 栏目变静默空态。与增量路径同口径：不进 libs 的栏目由
+                            // rebuildLibRails 补拉，补拉再失败走 setError（报错＋重试）。
+                            if (oldLib == null) continue;
+                            items = oldLib;
+                        }
+                        libs.put(e.getKey(), items);
+                    }
+                }
+                if (myGen != gen) return;
                 fd.libs = libs;
                 // 3) Diff 在后台算好
-                fd.dResume = diff(resumeItems, resume);
-                fd.dFav = diff(favItems, fav);
-                fd.dLatest = diff(latestItems, latest);
-                fd.dNextup = diff(nextupItems, nextup);
+                fd.dResume = diff(resumeItems, fd.resume);
+                fd.dFav = diff(favItems, fd.fav);
+                fd.dLatest = diff(latestItems, fd.latest);
+                fd.dNextup = diff(nextupItems, fd.nextup);
                 fd.dLibs = new HashMap<>();
                 for (Map.Entry<String, List<EmbyItem>> e : libs.entrySet()) {
                     List<EmbyItem> old = libData.get(e.getKey());
@@ -485,24 +521,32 @@ public class EmbyHomeView extends FrameLayout {
         });
     }
 
+    /** 拉取失败返回 null（与「成功但为空」分开）：调用方据此沿用旧数据并给失败栏目留报错出口。 */
     private List<EmbyItem> quiet(Callable<List<EmbyItem>> c) {
         try {
-            List<EmbyItem> r = c.call();
-            return r == null ? new ArrayList<>() : r;
+            return c.call();
         } catch (Throwable t) {
             if (isAuthExpired(t)) authExpiredRun.set(true);
-            return new ArrayList<>();
+            return null;
         }
     }
 
     private List<EmbyItem> quietLibItems(EmbyApi a, String viewId) {
         try {
             EmbyApi.ItemPage p = a.items(viewId, 0, LIB_LIMIT);
-            return (p == null || p.items == null) ? new ArrayList<>() : p.items;
+            if (p == null) return null;
+            return p.items == null ? new ArrayList<>() : p.items;
         } catch (Throwable t) {
             if (isAuthExpired(t)) authExpiredRun.set(true);
-            return new ArrayList<>();
+            return null;
         }
+    }
+
+    /** 本轮失败的栏目沿用旧数据并登记失败标记（applyData 里对真无数据的失败栏走 setError）。 */
+    private List<EmbyItem> keepOnFail(List<EmbyItem> fresh, List<EmbyItem> old, String key, FreshData fd) {
+        if (fresh != null) return fresh;
+        fd.failed.add(key);
+        return old == null ? new ArrayList<>() : old;
     }
 
     /** 401 判定：文案来自 EmbyApi.throwIfAuthExpired，与全量页 isAuthExpired 同口径（只认这一种走引导）。 */
@@ -527,10 +571,9 @@ public class EmbyHomeView extends FrameLayout {
 
     private List<EmbyItem> get(Future<List<EmbyItem>> f) {
         try {
-            List<EmbyItem> r = f.get();
-            return r == null ? new ArrayList<>() : r;
+            return f.get();
         } catch (Throwable t) {
-            return new ArrayList<>();
+            return null;
         }
     }
 
@@ -560,10 +603,15 @@ public class EmbyHomeView extends FrameLayout {
         nextupItems = fd.nextup;
         viewsData = fd.views == null ? new ArrayList<>() : fd.views;
         for (Map.Entry<String, List<EmbyItem>> e : fd.libs.entrySet()) libData.put(e.getKey(), e.getValue());
-        resumeSec.setData(fd.resume, fromNet ? fd.dResume : null);
-        favSec.setData(fd.fav, fromNet ? fd.dFav : null);
-        latestSec.setData(fd.latest, fromNet ? fd.dLatest : null);
-        nextupSec.setData(fd.nextup, fromNet ? fd.dNextup : null);
+        // 失败且真无数据可显示的栏目走 setError（报错＋点重试），不再静默变空
+        if (fd.failed.contains("resume") && fd.resume.isEmpty()) resumeSec.setError();
+        else resumeSec.setData(fd.resume, fromNet ? fd.dResume : null);
+        if (fd.failed.contains("fav") && fd.fav.isEmpty()) favSec.setError();
+        else favSec.setData(fd.fav, fromNet ? fd.dFav : null);
+        if (fd.failed.contains("latest") && fd.latest.isEmpty()) latestSec.setError();
+        else latestSec.setData(fd.latest, fromNet ? fd.dLatest : null);
+        if (fd.failed.contains("nextup") && fd.nextup.isEmpty()) nextupSec.setError();
+        else nextupSec.setData(fd.nextup, fromNet ? fd.dNextup : null);
         Set<String> created = rebuildLibRails();
         // 补上 diff（缓存路径 diff 为 null，走全量刷新；本轮新建的 rail 已是新数据，跳过二次 dispatch）
         if (fromNet) {
@@ -617,6 +665,8 @@ public class EmbyHomeView extends FrameLayout {
         List<EmbyItem> nextup = new ArrayList<>();
         List<EmbyItem> views = new ArrayList<>();
         Map<String, List<EmbyItem>> libs = new LinkedHashMap<>();
+        /** 本轮拉取失败的栏目键（resume/fav/latest/nextup/views/lib:<id>），失败≠空。 */
+        final java.util.Set<String> failed = new java.util.HashSet<>();
         DiffUtil.DiffResult dResume, dFav, dLatest, dNextup;
         Map<String, DiffUtil.DiffResult> dLibs = new HashMap<>();
 
@@ -864,6 +914,7 @@ public class EmbyHomeView extends FrameLayout {
     /** 全局搜索：全部已登录服并查（EmbySearchHelper 现有链），结果按服分组展示。 */
     private void doSearch(String kw, RecyclerView rv, TextView tvEmpty) {
         Context ctx = getContext();
+        final int mySearch = ++searchGen;
         tvEmpty.setVisibility(View.VISIBLE);
         tvEmpty.setText(R.string.emby_searching);
         rv.setAdapter(null);
@@ -876,6 +927,8 @@ public class EmbyHomeView extends FrameLayout {
             }
             final List<EmbySearchHelper.ServerResult> results = rs;
             App.post(() -> {
+                // 代次守卫：只认最后一次搜索；弹窗已关（视图已脱落）也不再摸视图
+                if (mySearch != searchGen || !rv.isAttachedToWindow()) return;
                 int total = 0;
                 for (EmbySearchHelper.ServerResult r : results) total += r.items.size();
                 if (total == 0) {
@@ -1576,10 +1629,10 @@ public class EmbyHomeView extends FrameLayout {
                 it.played ? ctx.getString(R.string.emby_menu_unmark_played) : ctx.getString(R.string.emby_menu_mark_played),
                 it.favorite ? ctx.getString(R.string.emby_menu_unfavorite) : ctx.getString(R.string.emby_menu_favorite)
         };
-        new AlertDialog.Builder(ctx).setItems(titles, (d, which) -> {
+        showDialog(new AlertDialog.Builder(ctx).setItems(titles, (d, which) -> {
             if (which == 0) togglePlayed(it, section);
             else toggleFavorite(it, section);
-        }).show();
+        }).create());
     }
 
     private Section sectionOf(String key) {
@@ -1595,6 +1648,7 @@ public class EmbyHomeView extends FrameLayout {
             Notify.show(getContext().getString(R.string.emby_login_first));
             return;
         }
+        final int startGen = gen;
         final boolean toPlayed = !it.played;
         new Thread(() -> {
             boolean ok = false;
@@ -1606,6 +1660,8 @@ public class EmbyHomeView extends FrameLayout {
             }
             final boolean r = ok;
             App.post(() -> {
+                // 回调到达前切了服务器（代次已变）：结果属于旧服，当前页栏目不刷、不弹
+                if (startGen != gen) return;
                 if (!r) {
                     Notify.show(getContext().getString(R.string.emby_action_fail));
                     return;
@@ -1628,6 +1684,7 @@ public class EmbyHomeView extends FrameLayout {
             Notify.show(getContext().getString(R.string.emby_login_first));
             return;
         }
+        final int startGen = gen;
         final boolean toFav = !it.favorite;
         new Thread(() -> {
             boolean ok = false;
@@ -1639,6 +1696,8 @@ public class EmbyHomeView extends FrameLayout {
             }
             final boolean r = ok;
             App.post(() -> {
+                // 回调到达前切了服务器（代次已变）：结果属于旧服，当前页栏目不刷、不弹
+                if (startGen != gen) return;
                 if (!r) {
                     Notify.show(getContext().getString(R.string.emby_action_fail));
                     return;

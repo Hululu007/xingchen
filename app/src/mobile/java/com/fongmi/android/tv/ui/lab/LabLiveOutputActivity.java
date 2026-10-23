@@ -30,6 +30,8 @@ public class LabLiveOutputActivity extends AppCompatActivity {
     private String cmdId;
     /** 本页在总线上的订阅名（与 LabRunner 的进程键同口径：pkg/<id> 或 cmd/<id>/<cmd>），关页按它退订 */
     private String watchTag;
+    /** 本页自己的监听者实例：退订按实例，只退自己这一份，不误伤同看一条命令的别的页面 */
+    private LabRunner.Listener liveListener;
     private TextView output;
     private ScrollView scroll;
     private final StringBuilder buf = new StringBuilder();
@@ -61,8 +63,8 @@ public class LabLiveOutputActivity extends AppCompatActivity {
         watchTag = cmdId == null ? "pkg/" + pkgId : LabRunner.commandKey(pkgId, cmdId);
         String log = LabRunner.getLog(this, pkgId);
         if (log != null && !log.isEmpty()) append(log);
-        // 订阅后续输出（页关了自动断订，不影响进程）
-        LiveBus.watch(watchTag, new LabRunner.Listener() {
+        // 订阅后续输出（页关了按实例断订，不影响进程、也不影响同看这条命令的别的页面）
+        liveListener = new LabRunner.Listener() {
             @Override
             public void onOutput(String text) {
                 runOnUiThread(() -> append(text));
@@ -72,7 +74,8 @@ public class LabLiveOutputActivity extends AppCompatActivity {
             public void onExit(int code) {
                 runOnUiThread(() -> append("\n[进程退出，code=" + code + "]\n"));
             }
-        });
+        };
+        LiveBus.watch(watchTag, liveListener);
 
         // 页面进出统一渐入渐出（与 BaseActivity 一致）
         overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
@@ -87,7 +90,7 @@ public class LabLiveOutputActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        LiveBus.unwatch(watchTag);
+        LiveBus.unwatch(watchTag, liveListener);
         super.onDestroy();
     }
 
@@ -144,24 +147,35 @@ public class LabLiveOutputActivity extends AppCompatActivity {
      * LabRunner.pump 里已有 listener 直连；这里给「启动时已在跑」的页面补订阅。
      */
     public static final class LiveBus {
-        private static final Map<String, LabRunner.Listener> WATCHERS = new java.util.concurrent.ConcurrentHashMap<>();
+        // 一条命令可被多个页面同时看（列表页 + 输出页）：监听者按集合存，
+        // 后开的页面不再把先开的顶掉；退订按实例，只退自己的那一份
+        private static final Map<String, java.util.Set<LabRunner.Listener>> WATCHERS =
+                new java.util.concurrent.ConcurrentHashMap<>();
 
         public static void watch(String tag, LabRunner.Listener l) {
-            if (tag != null && l != null) WATCHERS.put(tag, l);
+            if (tag == null || l == null) return;
+            WATCHERS.computeIfAbsent(tag, k -> new java.util.concurrent.CopyOnWriteArraySet<>()).add(l);
         }
 
-        public static void unwatch(String tag) {
-            if (tag != null) WATCHERS.remove(tag);
+        public static void unwatch(String tag, LabRunner.Listener l) {
+            if (tag == null || l == null) return;
+            java.util.Set<LabRunner.Listener> set = WATCHERS.get(tag);
+            if (set != null) {
+                set.remove(l);
+                if (set.isEmpty()) WATCHERS.remove(tag, set);
+            }
         }
 
         public static void emit(String tag, String text) {
-            LabRunner.Listener l = WATCHERS.get(tag);
-            if (l != null) l.onOutput(text);
+            java.util.Set<LabRunner.Listener> set = WATCHERS.get(tag);
+            if (set == null) return;
+            for (LabRunner.Listener l : set) l.onOutput(text);
         }
 
         public static void emitExit(String tag, int code) {
-            LabRunner.Listener l = WATCHERS.get(tag);
-            if (l != null) l.onExit(code);
+            java.util.Set<LabRunner.Listener> set = WATCHERS.get(tag);
+            if (set == null) return;
+            for (LabRunner.Listener l : set) l.onExit(code);
         }
     }
 }

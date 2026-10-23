@@ -22,6 +22,9 @@ import okhttp3.ResponseBody;
  */
 public class LegadoHttpAndroid implements LegadoHttp {
 
+    /** 响应体上限 16MB（低-17）。 */
+    private static final int MAX_BODY_BYTES = 16 * 1024 * 1024;
+
     private static volatile LegadoHttp instance;
 
     public static void setInstance(LegadoHttp impl) {
@@ -98,7 +101,20 @@ public class LegadoHttpAndroid implements LegadoHttp {
                 if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
                 ResponseBody rb2 = resp.body();
                 if (rb2 == null) throw new IOException("空响应 " + url);
-                r.body = rb2.bytes();
+                // 流式读＋16MB 上限（低-17）：rb2.bytes() 整包进内存，对方回个超大包
+                // （或被劫持回流式垃圾）直接顶爆内存；书源正文/目录远小于此上限。
+                if (rb2.contentLength() > MAX_BODY_BYTES) {
+                    throw new IOException("响应过大: " + rb2.contentLength());
+                }
+                java.io.InputStream in = rb2.byteStream();
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    baos.write(buf, 0, n);
+                    if (baos.size() > MAX_BODY_BYTES) throw new IOException("响应过大（超 16MB）");
+                }
+                r.body = baos.toByteArray();
                 String ct = resp.header("Content-Type");
                 r.contentType = ct == null ? "" : ct;
                 List<String> setCookies = resp.headers("Set-Cookie");

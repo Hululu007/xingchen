@@ -30,6 +30,7 @@ public class DLNACastManager extends DefaultRegistryListener implements ServiceC
 
     private AndroidUpnpService upnpService;
     private DeviceListener deviceListener;
+    private boolean bound;
 
     public static DLNACastManager get() {
         return Loader.INSTANCE;
@@ -65,6 +66,10 @@ public class DLNACastManager extends DefaultRegistryListener implements ServiceC
         deviceListener = listener;
     }
 
+    public DeviceListener getDeviceListener() {
+        return deviceListener;
+    }
+
     private void notifyAdded(Device bean) {
         if (deviceListener != null) App.post(() -> deviceListener.onDeviceAdded(bean));
     }
@@ -74,7 +79,7 @@ public class DLNACastManager extends DefaultRegistryListener implements ServiceC
     }
 
     public void init(Context context) {
-        context.bindService(new Intent(context, DLNACastService.class), this, Context.BIND_AUTO_CREATE);
+        bound = context.bindService(new Intent(context, DLNACastService.class), this, Context.BIND_AUTO_CREATE);
     }
 
     public void search() {
@@ -101,10 +106,14 @@ public class DLNACastManager extends DefaultRegistryListener implements ServiceC
     }
 
     public void release(Context context) {
-        if (upnpService == null) return;
-        upnpService.getRegistry().removeListener(this);
-        context.unbindService(this);
-        upnpService = null;
+        if (upnpService != null) {
+            upnpService.getRegistry().removeListener(this);
+            upnpService = null;
+        }
+        if (bound) {
+            context.unbindService(this);
+            bound = false;
+        }
     }
 
     public interface DeviceListener {

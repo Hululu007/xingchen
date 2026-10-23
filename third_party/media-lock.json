@@ -7,7 +7,7 @@
     "patches": [
       {
         "path": "third_party/patches/media3-exo-avs3-r2.patch",
-        "sha256": "45fe2a83d70ed52e16fecde21eb2545a7153f9758d1bb89d55436363542f71aa"
+        "sha256": "0fa69a16167a569eb19688cf4ed37780883d19ccffb552f6e71baf4fe47fa429"
       },
       {
         "path": "third_party/patches/media3-danmaku-live-r2.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "third_party/patches/media3-deferred-cues-r2.patch",
-        "sha256": "a16892cde4cf444f5f92e0116d75f88876efec25d72d9d22e9bd4d56c82044d2"
+        "sha256": "22a401e8ce6e5f0c020858088ea32e07a71eee82d0affc2fdf2ad106ecfbc032"
       }
     ],
     "artifact_overrides": [

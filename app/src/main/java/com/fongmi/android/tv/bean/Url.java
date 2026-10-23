@@ -19,7 +19,8 @@ public class Url {
 
     public static Url objectFrom(JsonElement element) {
         try {
-            return App.gson().fromJson(element, Url.class);
+            Url url = App.gson().fromJson(element, Url.class);
+            return url == null ? create() : url;
         } catch (Exception e) {
             return create();
         }

@@ -104,6 +104,7 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     public void prepareTerminalRelease() {
+        if (released || player == null) return;
         player.prepareTerminalRelease();
     }
 

@@ -37,6 +37,7 @@ import java.util.HashMap;
 public class TypeFragment extends BaseFragment implements CustomScroller.Callback, VodAdapter.OnClickListener, SwipeRefreshLayout.OnRefreshListener {
 
     private HashMap<String, String> mExtends;
+    private long mCoverGen = -1;
     private FragmentTypeBinding mBinding;
     private CustomScroller mScroller;
     private SiteViewModel mViewModel;
@@ -144,6 +145,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mBinding.progressLayout.showProgress();
         mScroller = new CustomScroller(this);
         mExtends = getExtend();
+        mCoverGen = readCoverGen();
         setRecyclerView();
         setViewModel();
         getVideo();
@@ -175,14 +177,21 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
         mViewModel.getResult().observe(getViewLifecycleOwner(), this::setAdapter);
-        mViewModel.getAction().observe(getViewLifecycleOwner(), result -> Notify.show(result.getMsg()));
+        mViewModel.getAction().observe(getViewLifecycleOwner(), result -> {
+            if (result.hasMsg()) Notify.show(result.getMsg());
+        });
     }
 
     private void getVideo() {
         mScroller.reset();
         mAdapter.clear(() -> {
             if (!mBinding.swipeLayout.isRefreshing()) mBinding.progressLayout.showProgress();
-            if (isHome()) setAdapter(getParent().getResult());
+            if (isHome()) {
+                // 独立托管（父不是 VodFragment）时 getResult() 返 null：无数据可设就不设，
+                // 不许把 null 喂给 setAdapter（它会直解 getList() 崩）
+                Result result = getParent().getResult();
+                if (result != null) setAdapter(result);
+            }
             else getVideo(getTypeId(), "1");
         });
     }
@@ -272,11 +281,21 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         if (!hidden) checkCoverChanged();
     }
 
+    private long readCoverGen() {
+        try {
+            return requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE).getLong("cover_gen", 0);
+        } catch (Exception e) {
+            return mCoverGen;
+        }
+    }
+
     public void checkCoverChanged() {
         try {
-            android.content.SharedPreferences sp = requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE);
-            if (sp.getBoolean("cover_changed", false)) {
-                sp.edit().putBoolean("cover_changed", false).apply();
+            // 按代次比对而非消费一次性标志：每个碎片各自记住已应用的代次，
+            // 先 resume 的碎片不再把变更吞掉，其余页签也能各自刷新到新样式。
+            long gen = readCoverGen();
+            if (gen != mCoverGen) {
+                mCoverGen = gen;
                 refreshCoverStyle();
             }
         } catch (Exception e) { e.printStackTrace(); }

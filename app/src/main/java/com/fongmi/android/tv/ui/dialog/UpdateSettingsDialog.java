@@ -34,6 +34,8 @@ public final class UpdateSettingsDialog {
     }
 
     public static void show(FragmentActivity activity) {
+        // 裸 Dialog.show() 无守卫时，宿主正退出/已销毁会抛异常：先判活。
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         Dialog dialog = new Dialog(activity, R.style.Theme_WebHTV_LightDialog);
         DialogUpdateSettingsBinding binding = DialogUpdateSettingsBinding.inflate(LayoutInflater.from(dialog.getContext()));
         State state = State.load();

@@ -126,11 +126,41 @@ public class LocalRar {
             }
             if (hit == null) throw new Exception("entry missing");
             if (hit.isEncrypted()) throw new Exception("encrypted");
-            try (OutputStream os = new FileOutputStream(target)) {
+            // junrar 整条目直写没有上限（低-15）：套计数流，超 100MB 与 zip/7z 同口径抛错删半成品
+            CountingOutputStream cos = new CountingOutputStream(new FileOutputStream(target));
+            try (OutputStream os = cos) {
                 a.extractFile(hit, os);
+            } catch (Exception ex) {
+                if (cos.total > 100L * 1024 * 1024) {
+                    target.delete();
+                    throw new Exception("entry too large");
+                }
+                throw ex;
             }
         } finally {
             a.close();
+        }
+    }
+
+    /** 计数输出流：累计写入量，超限从 write 里抛 IOException 打断 junrar 的整条目直写。 */
+    private static class CountingOutputStream extends java.io.FilterOutputStream {
+        long total = 0;
+
+        CountingOutputStream(OutputStream out) {
+            super(out);
+        }
+
+        @Override
+        public void write(int b) throws java.io.IOException {
+            if (++total > 100L * 1024 * 1024) throw new java.io.IOException("entry too large");
+            super.write(b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws java.io.IOException {
+            total += len;
+            if (total > 100L * 1024 * 1024) throw new java.io.IOException("entry too large");
+            super.write(b, off, len);
         }
     }
 

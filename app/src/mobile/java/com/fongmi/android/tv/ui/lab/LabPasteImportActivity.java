@@ -228,17 +228,15 @@ public class LabPasteImportActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 String name = displayName(uri);
-                // 7z 离线包（整目录 Node 项目也走这条）按链接路的 30MB 上限读；
-                // 文本内容仍在下面按 2MB 拦，语义不变
-                byte[] data = readAll(getContentResolver().openInputStream(uri), 30 * 1024 * 1024);
+                // 先落盘再识别：7z 离线包（整目录 Node 项目也走这条）整包不进内存，
+                // 边读边数，上限仍是 30MB；文本内容仍在下面按 2MB 拦，语义不变
+                java.io.File spool = spoolToFile(getContentResolver().openInputStream(uri),
+                        30 * 1024 * 1024, "文件太大");
                 try {
-                    // 上游 .lab.7z 离线包：先看魔数/后缀
-                    if (LabImportCompat.isSevenZ(data, name)) {
-                        final LabImportCompat.ParseResult r = LabImportCompat.parseSevenZ(data);
-                        runOnUiThread(() -> showResult(r));
-                    } else {
-                        if (data.length > 2 * 1024 * 1024) throw new Exception("文件太大");
-                        String text = new String(data, StandardCharsets.UTF_8);
+                    if (!dispatchSevenZ(spool, name)) {
+                        if (spool.length() > 2 * 1024 * 1024) throw new Exception("文件太大");
+                        String text = new String(readAll(new java.io.FileInputStream(spool),
+                                2 * 1024 * 1024), StandardCharsets.UTF_8);
                         final String fn = name;
                         runOnUiThread(() -> recognize(text, fn));
                     }
@@ -248,6 +246,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
                         status.setVisibility(View.VISIBLE);
                         status.setText(msg);
                     });
+                } finally {
+                    spool.delete();
                 }
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -286,16 +286,18 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 String fn = fileName;
                 if (isSingleUrl(t)) {
                     showStatusOnUi("正在拉链接…");
-                    byte[] raw = downloadBytes(t, 30 * 1024 * 1024);
-                    // 链接也可能是 .lab.7z 离线包：先看魔数
-                    if (LabImportCompat.isSevenZ(raw, t)) {
-                        final LabImportCompat.ParseResult r = LabImportCompat.parseSevenZ(raw);
-                        runOnUiThread(() -> showResult(r));
-                        return;
+                    // 链接内容先落盘：.lab.7z 离线包整包不进内存（上限仍 30MB）
+                    java.io.File spool = downloadFile(t, 30 * 1024 * 1024);
+                    try {
+                        // 链接也可能是 .lab.7z 离线包：先看魔数/后缀
+                        if (dispatchSevenZ(spool, t)) return;
+                        if (spool.length() > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
+                        src = new String(readAll(new java.io.FileInputStream(spool),
+                                2 * 1024 * 1024), StandardCharsets.UTF_8);
+                        fn = null; // 链接内容按内容识别
+                    } finally {
+                        spool.delete();
                     }
-                    if (raw.length > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
-                    src = new String(raw, StandardCharsets.UTF_8);
-                    fn = null; // 链接内容按内容识别
                 }
                 final LabImportCompat.ParseResult r = LabImportCompat.parseText(src, fn);
                 runOnUiThread(() -> showResult(r));
@@ -306,20 +308,25 @@ public class LabPasteImportActivity extends AppCompatActivity {
         }).start();
     }
 
-    /** 报错只给人话：解析库的原始报错会把全文倒出来，一律换成短句 */
+    /**
+     * 报错给人话但不吞真因：自家异常本来就是人话，原样给；解析库的原始报错
+     * 只折成一行、截到 140 字，不再整段换成一句「认不出来」——出错位置、
+     * parseScript 的后缀提示这类真原因必须留得住（此前一律换短句，真因全吞）。
+     */
     private static String plainError(Exception e) {
         String msg = e.getMessage();
-        if (msg == null) return "认不出来，换一种试试";
-        if (msg.length() <= 60 && !msg.contains("character") && !msg.contains("Unterminated")) return msg;
-        return "认不出来：内容可能不完整，整段重新粘一次";
+        if (msg == null || msg.trim().isEmpty()) return "认不出来，换一种试试";
+        String one = msg.replaceAll("\\s+", " ").trim();
+        if (one.length() > 140) one = one.substring(0, 140) + "…";
+        return one;
     }
 
     private boolean isSingleUrl(String t) {
         return t.matches("(?i)https?://\\S+") && !t.contains("\n");
     }
 
-    /** 下载成字节：文本路 2MB 上限（语义不变），7z 包路放宽到 30MB */
-    private byte[] downloadBytes(String urlStr, int maxBytes) throws Exception {
+    /** 下载落盘：文本路 2MB 上限在读文本时拦（语义不变），7z 包路放宽到 30MB、整包不进内存 */
+    private java.io.File downloadFile(String urlStr, int maxBytes) throws Exception {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(urlStr);
@@ -329,20 +336,49 @@ public class LabPasteImportActivity extends AppCompatActivity {
             conn.setRequestProperty("User-Agent", "XingChenLab/1.0");
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) throw new Exception("这个链接拉不下来（" + code + "）");
-            try (InputStream in = conn.getInputStream();
-                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                byte[] buf = new byte[8192];
-                int n, total = 0;
-                while ((n = in.read(buf)) > 0) {
-                    total += n;
-                    if (total > maxBytes) throw new Exception("这个文件太大了，下不动");
-                    out.write(buf, 0, n);
-                }
-                return out.toByteArray();
-            }
+            return spoolToFile(conn.getInputStream(), maxBytes, "这个文件太大了，下不动");
         } finally {
             if (conn != null) conn.disconnect();
         }
+    }
+
+    /** 流边读边落缓存临时文件（边读边数上限），调用方负责删 */
+    private java.io.File spoolToFile(InputStream in, int maxBytes, String tooBigMsg) throws Exception {
+        if (in == null) throw new Exception("打不开");
+        java.io.File f = java.io.File.createTempFile("lab-import-", ".bin", getCacheDir());
+        boolean ok = false;
+        try (InputStream i = in;
+             java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+            byte[] buf = new byte[8192];
+            int n, total = 0;
+            while ((n = i.read(buf)) > 0) {
+                total += n;
+                if (total > maxBytes) throw new Exception(tooBigMsg);
+                out.write(buf, 0, n);
+            }
+            ok = true;
+            return f;
+        } finally {
+            if (!ok) f.delete();
+        }
+    }
+
+    /** 落盘文件先嗅 7z（魔数/后缀）：是就走离线包解析并展示，返回 true；不是返回 false 交回文本路 */
+    private boolean dispatchSevenZ(java.io.File spool, String sniffName) throws Exception {
+        byte[] head = new byte[6];
+        int hn = 0;
+        try (InputStream in = new java.io.FileInputStream(spool)) {
+            int r;
+            while (hn < head.length && (r = in.read(head, hn, head.length - hn)) > 0) hn += r;
+        }
+        byte[] magic = hn == head.length ? head : java.util.Arrays.copyOf(head, Math.max(hn, 0));
+        if (!LabImportCompat.isSevenZ(magic, sniffName)) return false;
+        final LabImportCompat.ParseResult r;
+        try (InputStream in = new java.io.FileInputStream(spool)) {
+            r = LabImportCompat.parseSevenZ(in);
+        }
+        runOnUiThread(() -> showResult(r));
+        return true;
     }
 
     private void showResult(LabImportCompat.ParseResult r) {

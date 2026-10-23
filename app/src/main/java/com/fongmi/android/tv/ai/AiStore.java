@@ -41,14 +41,37 @@ public class AiStore {
     }
 
     public static List<AiProvider> getProviders(Context context) {
-        String json = prefs(context).getString(KEY_PROVIDERS, null);
+        List<AiProvider> list = parseProviders(prefs(context).getString(KEY_PROVIDERS, null));
+        return list == null ? new ArrayList<>() : list;
+    }
+
+    /**
+     * 宽容解析（低-07）：整表 parse 失败时逐元素抢救，跳过坏元素保住好服务商；
+     * 一个都救不回且原文非空 → 返回 null 表「存储已损坏」，写路径据此中止，
+     * 不许拿空表回写把用户配置整表冲掉（此前解析失败回空表，增删一次全丢）。
+     */
+    private static List<AiProvider> parseProviders(String json) {
         if (TextUtils.isEmpty(json)) return new ArrayList<>();
         try {
             Type type = new TypeToken<List<AiProvider>>() {}.getType();
             List<AiProvider> list = GSON.fromJson(json, type);
-            return list == null ? new ArrayList<>() : list;
+            if (list != null) return list;
+        } catch (Exception ignored) {
+        }
+        try {
+            com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(json);
+            if (root == null || !root.isJsonArray()) return null;
+            List<AiProvider> out = new ArrayList<>();
+            for (com.google.gson.JsonElement el : root.getAsJsonArray()) {
+                try {
+                    AiProvider p = GSON.fromJson(el, AiProvider.class);
+                    if (p != null) out.add(p);
+                } catch (Exception ignored) {
+                }
+            }
+            return out.isEmpty() ? null : out;
         } catch (Exception e) {
-            return new ArrayList<>();
+            return null;
         }
     }
 
@@ -56,8 +79,10 @@ public class AiStore {
         prefs(context).edit().putString(KEY_PROVIDERS, GSON.toJson(list)).apply();
     }
 
-    public static void addOrUpdate(Context context, AiProvider provider) {
-        List<AiProvider> list = getProviders(context);
+    /** @return true=已保存；false=存储已损坏且救不回、未写入（低-05，调用方据此提示） */
+    public static boolean addOrUpdate(Context context, AiProvider provider) {
+        List<AiProvider> list = parseProviders(prefs(context).getString(KEY_PROVIDERS, null));
+        if (list == null) return false; // 存储已损坏且救不回：中止写入，别拿空表覆盖原配置
         boolean found = false;
         for (int i = 0; i < list.size(); i++) {
             if (TextUtils.equals(list.get(i).id, provider.id)) {
@@ -73,10 +98,13 @@ public class AiStore {
         if (TextUtils.isEmpty(getDefaultId(context))) {
             setDefaultId(context, provider.id);
         }
+        return true;
     }
 
-    public static void delete(Context context, String id) {
-        List<AiProvider> list = getProviders(context);
+    /** @return true=已删除；false=存储已损坏且救不回、未写入（低-05，调用方据此提示） */
+    public static boolean delete(Context context, String id) {
+        List<AiProvider> list = parseProviders(prefs(context).getString(KEY_PROVIDERS, null));
+        if (list == null) return false; // 同 addOrUpdate：损坏且救不回时不回写，保住原存储
         Iterator<AiProvider> it = list.iterator();
         while (it.hasNext()) {
             if (TextUtils.equals(it.next().id, id)) {
@@ -94,6 +122,7 @@ public class AiStore {
                 setFeatureProviderId(context, f, "");
             }
         }
+        return true;
     }
 
     public static AiProvider findById(Context context, String id) {

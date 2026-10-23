@@ -33,16 +33,22 @@ public class LocalBookOpenActivity extends AppCompatActivity {
         new Thread(() -> {
             LocalBook book = null;
             String err = "";
+            String warn = "";
             try {
                 LocalBookImporter.Result r = LocalBookImporter.importUri(getApplicationContext(), uri);
                 book = r.book;
+                if (r.warn != null) warn = r.warn;
             } catch (Exception e) {
                 err = e.getMessage();
             }
             final LocalBook fBook = book;
             final String fErr = err;
+            final String fWarn = warn;
             runOnUiThread(() -> {
                 if (fBook != null) {
+                    if (!fWarn.isEmpty()) {
+                        ToastUtil.show(this, fWarn, Toast.LENGTH_LONG);
+                    }
                     ReadingSession s = LocalBookSession.build(fBook, 0);
                     if (s != null) {
                         if (s.kind == ReadingSession.Kind.COMIC) {

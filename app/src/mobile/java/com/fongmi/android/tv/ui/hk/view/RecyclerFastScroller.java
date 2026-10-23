@@ -246,7 +246,12 @@ public class RecyclerFastScroller extends FrameLayout {
         if (scrollListener != null) scrollListener.scroll(offset);
         int range = mRecyclerView.computeVerticalScrollRange() + mRecyclerView.getPaddingBottom();
         int barHeight = mBar.getHeight();
-        float ratio = (float) offset / (float) (range - barHeight);
+        if (range <= 0 || barHeight <= 0) {
+            setTranslationX((float) mHiddenTranslationX);
+            mHideOverride = true;
+            return;
+        }
+        float ratio = range > barHeight ? (float) offset / (float) (range - barHeight) : 0f;
         int handleHeight = (int) ((float) barHeight / (float) range * (float) barHeight);
         if (handleHeight < mMinScrollHandleHeight) handleHeight = mMinScrollHandleHeight;
         if (handleHeight > mMaxScrollHandleHeight) handleHeight = mMaxScrollHandleHeight;
@@ -396,6 +401,7 @@ public class RecyclerFastScroller extends FrameLayout {
 
         @Override
         public boolean onTouch(View v, MotionEvent event) {
+            if (mRecyclerView == null) return false;
             if (mOnTouchListener != null) mOnTouchListener.onTouch(v, event);
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
@@ -407,6 +413,7 @@ public class RecyclerFastScroller extends FrameLayout {
                 mLastPressedYAdjustedToInitial = event.getY() + mHandle.getY() + mBar.getY();
                 mLastAppBarLayoutOffset = mAppBarLayoutOffset;
             } else if (action == MotionEvent.ACTION_MOVE) {
+                if (mInitialBarHeight <= 0) return true;
                 float y = event.getY() + mHandle.getY() + mBar.getY()
                         + (mInitialBarHeight - (float) mBar.getHeight());
                 int dy = (int) ((y - mLastPressedYAdjustedToInitial) / mInitialBarHeight

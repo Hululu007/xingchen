@@ -112,7 +112,11 @@ public class AiChatDialog extends BaseBottomSheetDialog {
             TextView tv = addAiMessage("执行中…");
             AiActionExecutor.executeLocal(requireContext(), local, feedback -> {
                 if (getActivity() == null) return;
-                getActivity().runOnUiThread(() -> tv.setText(feedback));
+                getActivity().runOnUiThread(() -> {
+                    // 同本文件其余回调口径：真正摸视图前再判 isAdded/binding，弹窗已拆不碰已拆的视图
+                    if (!isAdded() || binding == null) return;
+                    tv.setText(feedback);
+                });
             });
             return;
         }
@@ -122,6 +126,8 @@ public class AiChatDialog extends BaseBottomSheetDialog {
             com.fongmi.android.tv.ai.AiSearchParser.parse(requireContext(), text, intent -> {
                 if (getActivity() == null) return;
                 getActivity().runOnUiThread(() -> {
+                    // 同本文件其余回调口径：弹窗已拆时不摸视图、也不再多触发一次搜索跳转/dismiss
+                    if (!isAdded() || binding == null) return;
                     String keyword = (intent != null && intent.keyword != null && !intent.keyword.isEmpty()) ? intent.keyword : text;
                     tv.setText("正在搜索：" + keyword);
                     try {
@@ -153,6 +159,9 @@ public class AiChatDialog extends BaseBottomSheetDialog {
                 public void onToken(String token) {
                     if (getActivity() == null) return;
                     getActivity().runOnUiThread(() -> {
+                        // getActivity() 非空只说明检查那一刻还挂着：真正摸视图
+                        // 前再判 isAdded，弹窗已拆时不许碰已拆的视图。
+                        if (!isAdded() || binding == null) return;
                         tv.append(token);
                         binding.svMessages.post(() -> binding.svMessages.fullScroll(View.FOCUS_DOWN));
                     });
@@ -162,6 +171,7 @@ public class AiChatDialog extends BaseBottomSheetDialog {
                 public void onDone(String fullText) {
                     if (getActivity() == null) return;
                     getActivity().runOnUiThread(() -> {
+                        if (!isAdded() || binding == null) return;
                         String reply = TextUtils.isEmpty(fullText) ? "（空回复）" : fullText;
                         tv.setText(reply);
                         history.add(new AiClient.Message("assistant", reply));
@@ -172,6 +182,7 @@ public class AiChatDialog extends BaseBottomSheetDialog {
                 public void onError(String msg) {
                     if (getActivity() == null) return;
                     getActivity().runOnUiThread(() -> {
+                        if (!isAdded() || binding == null) return;
                         tv.setText("出错了：" + msg);
                         Notify.show("AI 调用失败：" + msg);
                     });
@@ -191,10 +202,14 @@ public class AiChatDialog extends BaseBottomSheetDialog {
                 String reply = r.text.isEmpty() ? "（空回复）" : r.text;
                 history.add(new AiClient.Message("assistant", reply));
                 if (getActivity() == null) return;
-                getActivity().runOnUiThread(() -> thinking.setText(reply));
+                getActivity().runOnUiThread(() -> {
+                    if (!isAdded() || binding == null) return;
+                    thinking.setText(reply);
+                });
             } catch (Exception e) {
                 if (getActivity() == null) return;
                 getActivity().runOnUiThread(() -> {
+                    if (!isAdded() || binding == null) return;
                     thinking.setText("出错了：" + e.getMessage());
                     Notify.show("AI 调用失败：" + e.getMessage());
                 });

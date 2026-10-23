@@ -89,9 +89,14 @@ public class LocalBook {
                 int si = i, sj = j;
                 while (i < la && Character.isDigit(a.charAt(i))) i++;
                 while (j < lb && Character.isDigit(b.charAt(j))) j++;
-                long na = Long.parseLong(a.substring(si, i));
-                long nb = Long.parseLong(b.substring(sj, j));
-                if (na != nb) return Long.compare(na, nb);
+                // 数字段比较改走「去前导零后先比长度、再字典序」（低-12）：
+                // Long.parseLong 遇到超 19 位数字段（如超长纯数字文件名）直接抛
+                // NumberFormatException，把整个排序/列表加载带崩。
+                String da = stripLeadingZeros(a.substring(si, i));
+                String db = stripLeadingZeros(b.substring(sj, j));
+                if (da.length() != db.length()) return Integer.compare(da.length(), db.length());
+                int cmp = da.compareTo(db);
+                if (cmp != 0) return cmp;
             } else {
                 if (ca != cb) return Character.compare(ca, cb);
                 i++;
@@ -99,6 +104,12 @@ public class LocalBook {
             }
         }
         return Integer.compare(la, lb);
+    }
+
+    private static String stripLeadingZeros(String s) {
+        int k = 0;
+        while (k < s.length() - 1 && s.charAt(k) == '0') k++;
+        return s.substring(k);
     }
 
     public static boolean isImageName(String name) {

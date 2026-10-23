@@ -22,6 +22,10 @@ public class MusicLyricCache {
 
     private static final int MEM_MAX = 200;
     private static final int DISK_MAX = 500;
+    /** 单字段长度上限（低-03）：按文件头 len 直接分配，缓存损坏时会大额分配；歌词字段远小于此。 */
+    private static final int MAX_FIELD_BYTES = 8 * 1024 * 1024;
+    /** 磁盘歌词有效期（低-03）：命中会刷新 lastModified，即「距上次使用 30 天」过期，冷数据自动失效。 */
+    private static final long DISK_TTL_MS = 30L * 24 * 3600 * 1000;
 
     private static final Map<String, MusicLyric> MEM = new LinkedHashMap<String, MusicLyric>(64, 0.75f, true) {
         @Override
@@ -109,6 +113,26 @@ public class MusicLyricCache {
         }
     }
 
+    /** 歌词缓存目录（MusicCache 统计/清理用）。 */
+    public static File diskDir() {
+        return dir();
+    }
+
+    /** 清全部歌词缓存（内存＋磁盘），「清音乐缓存」入口用。 */
+    public static void clearAll() {
+        synchronized (MEM) {
+            MEM.clear();
+        }
+        try {
+            File d = dir();
+            File[] fs = d == null ? null : d.listFiles();
+            if (fs != null) {
+                for (File f : fs) f.delete();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static String md5(String s) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -139,6 +163,7 @@ public class MusicLyricCache {
     private static String readString(DataInputStream in) throws Throwable {
         int len = in.readInt();
         if (len < 0) return null;
+        if (len > MAX_FIELD_BYTES) throw new java.io.IOException("lyric cache field too large: " + len);
         byte[] bytes = new byte[len];
         in.readFully(bytes);
         return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
@@ -167,6 +192,10 @@ public class MusicLyricCache {
         try {
             File f = diskFile(key);
             if (f == null || !f.isFile()) return null;
+            if (System.currentTimeMillis() - f.lastModified() > DISK_TTL_MS) {
+                f.delete();
+                return null;
+            }
             DataInputStream in = new DataInputStream(new FileInputStream(f));
             try {
                 MusicLyric lyric = new MusicLyric();

@@ -87,7 +87,36 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         this.keyWord = keyWord;
         this.searchEngine = engine;
         this.group = group;
+        // 同步落 arguments：框架无参重建（进程回收恢复）时实例字段全丢，靠 arguments 把三件找回来
+        Bundle args = new Bundle();
+        args.putString("hk_keyword", keyWord);
+        args.putString("hk_group", group);
+        if (engine != null) args.putString("hk_engine", new Gson().toJson(engine));
+        setArguments(args);
         return this;
+    }
+
+    @Override
+    public void onAttach(@NonNull android.content.Context context) {
+        super.onAttach(context);
+        if (context instanceof SearchHost) searchHost = (SearchHost) context;
+    }
+
+    /** 进程回收后框架无参重建时，从 arguments 恢复 keyword/group/searchEngine（字段已由 newInstance 赋值时不动）。 */
+    private void restoreFromArguments() {
+        if (searchEngine != null) return;
+        Bundle args = getArguments();
+        if (args == null) return;
+        keyWord = args.getString("hk_keyword");
+        group = args.getString("hk_group");
+        String engineJson = args.getString("hk_engine");
+        if (engineJson != null) {
+            try {
+                searchEngine = new Gson().fromJson(engineJson, HkSearchEngine.class);
+            } catch (Exception ignored) {
+                searchEngine = null;
+            }
+        }
     }
 
     public void setSearchHost(SearchHost host) {
@@ -108,6 +137,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        restoreFromArguments();
         initView(view);
         initData();
     }
@@ -418,7 +448,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         SearchResult result = adapter.getList().get(position);
         String title = result.getTitle();
         if (title != null && title.startsWith("没有找到你想要的噢-_-")) {
-            if (title.contains("精准") && getContext() != null) {
+            if (title.contains("精准") && getContext() != null && !HkDialogs.isHostGone(getContext())) {
                 new HkDialogs(getContext())
                         .setTitle("温馨提示")
                         .setMessage("当前为精准搜索模式，可能会过滤掉一些结果，可以改为默认搜索模式查看全部搜索结果")

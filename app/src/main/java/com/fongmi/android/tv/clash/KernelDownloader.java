@@ -109,14 +109,55 @@ public final class KernelDownloader {
             listener.onDone(bundled != null ? bundled : binaryFile(app));
             return;
         }
+        // 防重：旧形每次调用都起一条下载线程，两次齐调同写同一个 tmp/bin 互相踩踏。
+        // 改为单飞——登记与收单都在同一把锁内：在途时后来者只登记、由在途那发
+        // 统一回调；批次关单后到达的才另起一发，不漏回调也不双开下载。
+        synchronized (downloadLock) {
+            pendingListeners.add(listener);
+            if (downloading) return;
+            downloading = true;
+        }
         new Thread(() -> {
             try {
-                File bin = download(app, listener);
-                listener.onDone(bin);
+                File bin = download(app, progressBroadcaster);
+                for (Listener l : drainPending()) l.onDone(bin);
             } catch (Exception e) {
-                listener.onError(e.getMessage() == null ? "内核下载失败" : e.getMessage());
+                String msg = e.getMessage() == null ? "内核下载失败" : e.getMessage();
+                for (Listener l : drainPending()) l.onError(msg);
             }
         }, "clash-kernel-dl").start();
+    }
+
+    private static final Object downloadLock = new Object();
+
+    /** 在途下载标志（单飞闸门，只在 downloadLock 内读写） */
+    private static boolean downloading;
+
+    /** 在途期间登记的等待方，完成时一次性取走回调 */
+    private static final java.util.concurrent.CopyOnWriteArrayList<Listener> pendingListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private static final Listener progressBroadcaster = new Listener() {
+        @Override
+        public void onProgress(long downloaded, long total) {
+            for (Listener l : pendingListeners) l.onProgress(downloaded, total);
+        }
+
+        @Override
+        public void onDone(File binary) {
+        }
+
+        @Override
+        public void onError(String msg) {
+        }
+    };
+
+    private static java.util.List<Listener> drainPending() {
+        synchronized (downloadLock) {
+            downloading = false;
+            java.util.List<Listener> out = new java.util.ArrayList<>(pendingListeners);
+            pendingListeners.clear();
+            return out;
+        }
     }
 
     /**

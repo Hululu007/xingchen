@@ -37,10 +37,9 @@ public final class OciRegistryClient {
         this.client = client;
     }
 
-    public void pull(String endpoint, OciArtifact artifact, File file, Observer observer) throws Exception {
-        pull(endpoint, artifact, file, observer, null);
-    }
-
+    // 唯一入口：身份必须由调用方显式给出（生产恒传本次更新目标的身份串）。
+    // 旧的四参重载传 identity=null 会绕过续传的身份门，已删除——不许再有
+    // 「不带身份也能拉」的顺手入口，测试也要显式传 null 表明无意走身份门。
     public void pull(String endpoint, OciArtifact artifact, File file, Observer observer, String identity) throws Exception {
         if (artifact == null || !artifact.isValid()) throw new IOException("Invalid OCI artifact descriptor");
         HttpUrl manifestUrl = artifactUrl(endpoint, artifact.repository, "manifests", artifact.manifestDigest);
@@ -211,8 +210,12 @@ public final class OciRegistryClient {
     private void deleteQuietly(File file) {
         try {
             // 删失败不静默：留痕到文件日志，否则坏档留盘下次还会撞同一处。
+            // 身份旁车一并摘掉（与 Updater 校验失败处的口径对齐），不留孤旁车。
             if (file != null && file.exists() && !file.delete()) {
                 com.github.catvod.crawler.SpiderDebug.log("update", "oci delete failed path=%s", file.getAbsolutePath());
+            }
+            if (file != null && !UpdateIdentity.clearSidecar(file)) {
+                com.github.catvod.crawler.SpiderDebug.log("update", "oci sidecar delete failed path=%s", file.getAbsolutePath());
             }
         } catch (Exception ignored) {
         }

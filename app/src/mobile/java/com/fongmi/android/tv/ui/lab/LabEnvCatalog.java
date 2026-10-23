@@ -123,10 +123,20 @@ public final class LabEnvCatalog {
     public static Download chooseDownload(EnvEntry entry) {
         if (entry == null) return null;
         String[] abis = Build.SUPPORTED_ABIS;
+        // 第一趟只认精确相等（arch 为空＝通用包）：原写法 a.contains(arch) 会让
+        // "arm64-v8a" 命中 arch="arm"的 32 位包，先精确、再前缀，两趟都落空才返回 null
         for (String abi : abis) {
             String a = abi.toLowerCase();
             for (Download d : entry.downloads) {
-                if (d.arch.isEmpty() || a.contains(d.arch) || d.arch.contains(a)) return d;
+                if (d.arch.isEmpty() || a.equals(d.arch)) return d;
+            }
+        }
+        // 第二趟前缀匹配（abi 以 arch 开头，如 abi=arm64-v8a 对 arch=arm64），
+        // 不再用反向 contains（arch 把 abi 包住那种宽松命中已去掉）
+        for (String abi : abis) {
+            String a = abi.toLowerCase();
+            for (Download d : entry.downloads) {
+                if (!d.arch.isEmpty() && a.startsWith(d.arch)) return d;
             }
         }
         return null;

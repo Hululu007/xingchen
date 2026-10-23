@@ -18,6 +18,7 @@ import com.whl.quickjs.wrapper.JSObject;
 import com.whl.quickjs.wrapper.QuickJSContext;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;
@@ -67,6 +68,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
             unresponsive = true;
             future.cancel(true);
             throw e;
+        } catch (InterruptedException e) {
+            // 等待被自家取消机制打断＝本次调用被取消，不是执行失败：
+            // 恢复中断旗后原样抛，分类归上层（与 chaquo 侧同口径）。
+            Thread.currentThread().interrupt();
+            throw e;
         }
     }
 
@@ -78,65 +84,98 @@ public class Spider extends com.github.catvod.crawler.Spider {
             // JS 已同步返回、只是 Promise 永不 settle：执行线程还活着，
             // 只让本次调用按超时报错返回，不连坐整个蜘蛛。
             throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         }
+    }
+
+    // call 结果的类型兜底：JS 函数缺失时 Async 回 null、返回非约定类型时
+    // 裸强转会把 ClassCastException／拆箱 NPE 直接打穿调用方。字符串路
+    // 非 String 按其文本形态转，布尔路非 Boolean 一律按 false（与 chaquo
+    // 侧缺方法给 False 的定案口径一致）。
+    private static String asString(Object result) {
+        if (result == null || result instanceof String) return (String) result;
+        return String.valueOf(result);
+    }
+
+    private static boolean asBoolean(Object result) {
+        return result instanceof Boolean && (Boolean) result;
+    }
+
+    private static void releaseArg(Object arg) {
+        if (arg instanceof JSObject) ((JSObject) arg).release();
     }
 
     @Override
     public void init(Context context, String extend) throws Exception {
         initializeJS();
-        call("init", submitAndGet(() -> getExt(extend)));
+        Object ext = submitAndGet(() -> getExt(extend));
+        try {
+            call("init", ext);
+        } finally {
+            releaseArg(ext);
+        }
     }
 
     @Override
     public String homeContent(boolean filter) throws Exception {
-        return (String) call("home", filter);
+        return asString(call("home", filter));
     }
 
     @Override
     public String homeVideoContent() throws Exception {
-        return (String) call("homeVod");
+        return asString(call("homeVod"));
     }
 
     @Override
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) throws Exception {
         JSObject obj = submitAndGet(() -> JSUtil.toObject(ctx, extend));
-        return (String) call("category", tid, pg, filter, obj);
+        try {
+            return asString(call("category", tid, pg, filter, obj));
+        } finally {
+            releaseArg(obj);
+        }
     }
 
     @Override
     public String detailContent(List<String> ids) throws Exception {
-        return (String) call("detail", ids.get(0));
+        return asString(call("detail", ids.get(0)));
     }
 
     @Override
     public String searchContent(String key, boolean quick) throws Exception {
-        return (String) call("search", key, quick);
+        return asString(call("search", key, quick));
     }
 
     @Override
     public String searchContent(String key, boolean quick, String pg) throws Exception {
-        return (String) call("search", key, quick, pg);
+        return asString(call("search", key, quick, pg));
     }
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) throws Exception {
         JSArray array = submitAndGet(() -> JSUtil.toArray(ctx, vipFlags));
-        return (String) call("play", flag, id, array);
+        try {
+            return asString(call("play", flag, id, array));
+        } finally {
+            releaseArg(array);
+        }
     }
 
     @Override
     public String liveContent(String url) throws Exception {
-        return (String) call("live", url);
+        return asString(call("live", url));
     }
 
     @Override
     public boolean manualVideoCheck() throws Exception {
-        return (Boolean) call("sniffer");
+        return asBoolean(call("sniffer"));
     }
 
     @Override
     public boolean isVideoFormat(String url) throws Exception {
-        return (Boolean) call("isVideo", url);
+        return asBoolean(call("isVideo", url));
     }
 
     @Override
@@ -146,7 +185,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String action(String action) throws Exception {
-        return (String) call("action", action);
+        return asString(call("action", action));
     }
 
     @Override
@@ -221,23 +260,37 @@ public class Spider extends com.github.catvod.crawler.Spider {
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
         ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api));
-        jsObject = (JSObject) ctx.getProperty(ctx.getGlobalObject(), spider);
+        Object created = ctx.getProperty(ctx.getGlobalObject(), spider);
+        jsObject = created instanceof JSObject ? (JSObject) created : null;
     }
 
     private Object getExt(String ext) {
-        if (!cat) return Json.isObj(ext) ? ctx.parse(ext) : ext;
+        // 对象与数组两种形态都要转成真 JS 值再传 init：旧写法只认对象，
+        // 数组型 extend 会被当普通字符串传进去，期望数组的蜘蛛拿到的是
+        // 字符串原文（与 returnType 须转真形态的历史坑同族）。
+        boolean structured = Json.isObj(ext) || Json.isArray(ext);
+        if (!cat) return structured ? ctx.parse(ext) : ext;
         JSObject obj = ctx.createNewJSObject();
         obj.setProperty("stype", 3);
         obj.setProperty("skey", siteKey);
-        if (!Json.isObj(ext)) obj.setProperty("ext", ext);
-        else obj.setProperty("ext", (JSObject) ctx.parse(ext));
+        Object parsed = structured ? ctx.parse(ext) : null;
+        if (parsed instanceof JSObject) obj.setProperty("ext", (JSObject) parsed);
+        else obj.setProperty("ext", ext);
         return obj;
     }
 
     private Object[] proxy1(Map<String, String> params) throws Exception {
         JSObject obj = submitAndGet(() -> JSUtil.toObject(ctx, params));
-        JSArray proxy = (JSArray) call("proxy", obj);
+        Object called;
+        try {
+            called = call("proxy", obj);
+        } finally {
+            releaseArg(obj);
+        }
+        if (!(called instanceof JSArray)) return null;
+        JSArray proxy = (JSArray) called;
         String json = submitAndGet(proxy::stringify);
+        proxy.release();
         JSONArray array = new JSONArray(json);
         Map<String, String> headers = array.length() > 3 ? Json.toMap(array.optString(3)) : null;
         boolean base64 = array.length() > 4 && array.optInt(4) == 1;
@@ -252,9 +305,18 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private Object[] proxy2(Map<String, String> params) throws Exception {
         String url = params.get("url");
         String header = params.get("header");
+        // 入参缺失守卫：url 为 null 时旧写法在 split 先 NPE、header 为 null
+        // 时 ctx.parse(null) 无守卫。url 缺失属坏请求，按无代理结果返回。
+        if (url == null) return null;
         JSArray array = submitAndGet(() -> JSUtil.toArray(ctx, Arrays.asList(url.split("/"))));
-        Object object = submitAndGet(() -> ctx.parse(header));
-        String proxy = (String) call("proxy", array, object);
+        Object object = submitAndGet(() -> header == null ? ctx.createNewJSObject() : ctx.parse(header));
+        String proxy;
+        try {
+            proxy = asString(call("proxy", array, object));
+        } finally {
+            releaseArg(array);
+            releaseArg(object);
+        }
         Res res = Res.objectFrom(proxy);
         Object[] result = new Object[3];
         result[0] = res.getCode();
@@ -266,6 +328,10 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private ByteArrayInputStream getStream(Object o, boolean base64) {
         if (o instanceof byte[]) {
             return new ByteArrayInputStream((byte[]) o);
+        } else if (o == null || o == JSONObject.NULL) {
+            // 蜘蛛没给内容（opt(2) 取到 null/JSONObject.NULL）：回空流，
+            // 不许 o.toString() 先 NPE 或把字面 "null" 当内容交出去。
+            return new ByteArrayInputStream(new byte[0]);
         } else {
             String content = o.toString();
             if (base64 && content.contains("base64,")) content = content.split("base64,")[1];

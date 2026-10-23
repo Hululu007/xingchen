@@ -282,7 +282,8 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
                                 int w = Math.round(bmp.getWidth() * scale);
                                 int h = Math.round(bmp.getHeight() * scale);
                                 imageView.setImageBitmap(android.graphics.Bitmap.createScaledBitmap(
-                                        bmp, Math.min(w / 12, 512), Math.min(h / 12, 512), true));
+                                        bmp, Math.max(1, Math.min(w / 12, 512)),
+                                        Math.max(1, Math.min(h / 12, 512)), true));
                                 iconTextView.setVisibility(View.GONE);
                                 return;
                             }
@@ -883,13 +884,16 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
 
     /** 照抄原版 updateHeaderHolder（smali:11927）：不重建，只按条目当前 pic 逐个重刷已有子钮的选中态。 */
     private void updateHeaderHolder(HeaderHolder holder, HkItem item) {
-        if (holder == null || item == null) return;
+        if (holder == null || item == null || item.getTitle() == null) return;
         String[] titles = item.getTitle().split("&");
         String selected = item.getPic();
         if (android.text.TextUtils.isEmpty(selected)) selected = titles[0];
         for (int i = 0; i < titles.length; i++) {
-            TextView tv = (TextView) holder.linearLayout.getChildAt(i).findViewById(R.id.res_header_item_text);
-            applyHeaderTabStyle(tv, titles[i], selected, item);
+            View child = holder.linearLayout.getChildAt(i);
+            if (child == null) break;
+            View text = child.findViewById(R.id.res_header_item_text);
+            if (!(text instanceof TextView)) continue;
+            applyHeaderTabStyle((TextView) text, titles[i], selected, item);
         }
     }
 
@@ -1012,7 +1016,11 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
         int bgHeight = com.fongmi.android.tv.utils.ResUtil.dp2px(inputType == 0x20001 ? heightLines * 44 : 44);
         h.edit.setInputType(inputType);
-        LinearLayout.LayoutParams bgLp = (LinearLayout.LayoutParams) h.pop_input_edit_bg.getLayoutParams();
+        ViewGroup.LayoutParams bgRaw = h.pop_input_edit_bg.getLayoutParams();
+        LinearLayout.LayoutParams bgLp = bgRaw instanceof LinearLayout.LayoutParams
+                ? (LinearLayout.LayoutParams) bgRaw
+                : new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         if (inputType == 0x20001 && heightLines == -1) bgHeight = -2;
         bgLp.height = bgHeight;
         h.pop_input_edit_bg.setLayoutParams(bgLp);
@@ -1274,16 +1282,21 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
     protected void bindForX5WebViewHolder(RecyclerView.ViewHolder holder, int position) {
         X5WebViewHolder h = (X5WebViewHolder) holder;
         if (webViewHolder != null && webViewHolder.getMode() != HkWebViewHolder.Mode.FLOAT) {
+            ViewGroup.LayoutParams rawLp = h.resultBg.getLayoutParams();
             androidx.recyclerview.widget.GridLayoutManager.LayoutParams lp =
-                    (androidx.recyclerview.widget.GridLayoutManager.LayoutParams) h.resultBg.getLayoutParams();
+                    rawLp instanceof androidx.recyclerview.widget.GridLayoutManager.LayoutParams
+                            ? (androidx.recyclerview.widget.GridLayoutManager.LayoutParams) rawLp
+                            : new androidx.recyclerview.widget.GridLayoutManager.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             int heightDp = HkWebViewHolder.getHeightByExtra(context, webViewHolder.getUrl(),
                     list.get(position).getDesc());
             lp.height = dpToPx((float) heightDp);
             webViewHolder.setHeight(lp.height);
             h.resultBg.setLayoutParams(lp);
             if (webViewHolder.getWebView() != null && h.resultBg.getChildCount() <= 0) {
-                if (webViewHolder.getWebView().getParent() != null) {
-                    ((RelativeLayout) webViewHolder.getWebView().getParent()).removeAllViews();
+                if (webViewHolder.getWebView().getParent() instanceof ViewGroup) {
+                    ((ViewGroup) webViewHolder.getWebView().getParent())
+                            .removeView(webViewHolder.getWebView());
                 }
                 h.resultBg.addView(webViewHolder.getWebView());
             }
@@ -1536,7 +1549,11 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
     /** 照抄原版 bindForCardPic3Holder（smali:1817，java 2038-2053）：imgBg 线性布局定宽高，标题先纯文本再 SpanText 覆盖。 */
     protected void bindForCardPic3Holder(RecyclerView.ViewHolder holder, int position) {
         CardPic3Holder h = (CardPic3Holder) holder;
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) h.imgBg.getLayoutParams();
+        ViewGroup.LayoutParams cardRaw = h.imgBg.getLayoutParams();
+        LinearLayout.LayoutParams lp = cardRaw instanceof LinearLayout.LayoutParams
+                ? (LinearLayout.LayoutParams) cardRaw
+                : new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         int cols = 60 / (isLand() ? HkColType.CARD_PIC_3.landSpanCount : HkColType.CARD_PIC_3.spanCount);
         lp.width = (screenWidth() - com.fongmi.android.tv.utils.ResUtil.dp2px(15) * (cols + 1)) / cols;
         lp.height = lp.width;
@@ -1887,7 +1904,8 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
                         android.app.Activity act = activity();
                         if (act == null || act.isFinishing()) return;
                         android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(resource,
-                                Math.min(resource.getWidth() / 12, 512), Math.min(resource.getHeight() / 12, 512), false);
+                                Math.max(1, Math.min(resource.getWidth() / 12, 512)),
+                                Math.max(1, Math.min(resource.getHeight() / 12, 512)), false);
                         android.graphics.Bitmap blurred;
                         try {
                             blurred = jp.wasabeef.glide.transformations.internal.RSBlur.blur(context, scaled, radius);
@@ -2180,6 +2198,10 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
      */
     public void notifyChanged(int position) {
         updatePolyList();
+        if (position < 0 || position >= list.size()) {
+            notifyDataSetChanged();
+            return;
+        }
         String type = list.get(position).getType();
         if (HkColType.SCROLL_BUTTON.code.equals(type) || HkColType.FLEX_BUTTON.code.equals(type)) {
             notifyDataSetChanged();

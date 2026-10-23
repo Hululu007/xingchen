@@ -5,6 +5,8 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
+import com.fongmi.android.tv.gitcloud.secure.GitCloudTokenStore;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Prefers;
 
 import org.json.JSONArray;
@@ -116,13 +118,27 @@ public class EmbyStore {
 
     public static List<EmbyServer> servers() {
         List<EmbyServer> list = new ArrayList<>();
+        boolean[] migrated = new boolean[1];
         try {
             JSONArray arr = new JSONArray(Prefers.getString(K_SERVERS, "[]"));
             for (int i = 0; i < arr.length(); i++) {
                 EmbyServer s = EmbyServer.fromJson(arr.optJSONObject(i));
-                if (!TextUtils.isEmpty(s.id)) list.add(s);
+                if (!TextUtils.isEmpty(s.id)) {
+                    s.token = takeToken(s.id, s.token, migrated);
+                    list.add(s);
+                }
             }
         } catch (Exception ignored) {
+        }
+        // 读时真发生了迁移（内联明文已进加密仓）才顺手把剥离版回写一次，
+        // 不让老明文在 Prefers 里躺到下一次 persist；没迁移的读不写盘。
+        // 回写失败只留痕，不影响本次读结果。
+        if (migrated[0] && !list.isEmpty()) {
+            try {
+                persist(list);
+            } catch (Throwable e) {
+                SpiderDebug.log("emby", "rewrite stripped servers failed error=%s", e.getMessage());
+            }
         }
         if (list.isEmpty()) migrateLegacy(list);
         return list;
@@ -154,10 +170,63 @@ public class EmbyStore {
 
     private static void persist(List<EmbyServer> list) {
         JSONArray arr = new JSONArray();
-        for (EmbyServer s : list) arr.put(s.toJson());
+        for (EmbyServer s : list) {
+            // 访问令牌不进明文 JSON：同步进加密令牌仓（与 cloud/gitcloud 同口径），
+            // 落盘的服务器列表只留空位，读回时由 servers() 回填。
+            // 只有加密写回读校验通过才剥离；校验不过保留内联值落盘，不静默丢令牌。
+            boolean stored = tokenSync(s.id, s.token);
+            JSONObject o = s.toJson();
+            if (stored) o.remove("token");
+            arr.put(o);
+        }
         Prefers.put(K_SERVERS, arr.toString());
         // 服地址/走节点开关可能变了，按 host 认领表失效重建
         EmbyProxyGate.invalidate();
+    }
+
+    private static String tokenKey(String serverId) {
+        return TextUtils.isEmpty(serverId) ? "" : "emby_tok:" + serverId;
+    }
+
+    /**
+     * 令牌同步进加密仓；返回 true 才表示落盘副本可以剥离：
+     * 非空令牌写后必须回读校验（读回值等于刚写值），校验不过／写抛错都留痕并返回 false，
+     * 调用方保留内联值落盘，不许先剥离再丢令牌。空令牌＝清除，删仓即算完成。
+     */
+    private static boolean tokenSync(String serverId, String token) {
+        String key = tokenKey(serverId);
+        if (TextUtils.isEmpty(key)) return TextUtils.isEmpty(token);
+        try {
+            if (TextUtils.isEmpty(token)) {
+                GitCloudTokenStore.remove(key);
+                return true;
+            }
+            GitCloudTokenStore.put(key, token);
+            String back = GitCloudTokenStore.get(key);
+            if (token.equals(back)) return true;
+            SpiderDebug.log("emby", "secure token verify failed server=%s, keep inline", serverId);
+            return false;
+        } catch (Throwable e) {
+            SpiderDebug.log("emby", "secure token store failed server=%s error=%s, keep inline", serverId, e.getMessage());
+            return false;
+        }
+    }
+
+    /** 内联有值＝老明文，迁入加密仓后用它（migrated 置真供读路径回写剥离版）；内联为空＝从加密仓回填 */
+    private static String takeToken(String serverId, String inline, boolean[] migrated) {
+        String key = tokenKey(serverId);
+        if (TextUtils.isEmpty(key)) return inline == null ? "" : inline;
+        try {
+            if (!TextUtils.isEmpty(inline)) {
+                GitCloudTokenStore.put(key, inline);
+                if (migrated != null) migrated[0] = true;
+                return inline;
+            }
+            String stored = GitCloudTokenStore.get(key);
+            return stored == null ? "" : stored;
+        } catch (Throwable e) {
+            return inline == null ? "" : inline;
+        }
     }
 
     public static EmbyServer getServer(String id) {
@@ -232,6 +301,7 @@ public class EmbyStore {
         List<EmbyServer> list = servers();
         for (int i = list.size() - 1; i >= 0; i--) if (list.get(i).id.equals(id)) list.remove(i);
         persist(list);
+        tokenSync(id, "");
         if (id.equals(Prefers.getString(K_ACTIVE, ""))) Prefers.put(K_ACTIVE, "");
         Map<String, Map<String, Boolean>> map = sections();
         if (map.remove(id) != null) persistSections(map);

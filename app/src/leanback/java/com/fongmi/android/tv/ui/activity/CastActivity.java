@@ -248,7 +248,15 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
     }
 
     private void onTrack(View view) {
-        TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int type;
+        try {
+            type = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
 

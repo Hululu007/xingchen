@@ -36,6 +36,7 @@ public class Timer {
     }
 
     public void set(long t) {
+        cancel();
         timer = new CountDownTimer(t, 1000) {
             @Override
             public void onTick(long tick) {

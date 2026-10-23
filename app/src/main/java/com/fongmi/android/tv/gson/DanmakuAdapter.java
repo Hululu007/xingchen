@@ -18,10 +18,15 @@ public class DanmakuAdapter implements JsonDeserializer<List<Danmaku>> {
     @Override
     public List<Danmaku> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
         List<Danmaku> items = json.isJsonPrimitive() ? parsePrimitive(json.getAsString().trim(), typeOfT) : App.gson().fromJson(json, typeOfT);
-        return items.stream().filter(d -> !d.isEmpty()).collect(Collectors.toCollection(ArrayList::new));
+        // 畸形守卫：元素为 null 字面量时 fromJson 返回 null，直达 stream 必 NPE；
+        // 数组里混 null 元素同理，过滤时一并挡掉。
+        if (items == null) return new ArrayList<>();
+        return items.stream().filter(d -> d != null && !d.isEmpty()).collect(Collectors.toCollection(ArrayList::new));
     }
 
     private List<Danmaku> parsePrimitive(String text, Type type) {
-        return Json.isArray(text) ? App.gson().fromJson(text, type) : List.of(Danmaku.from(text));
+        if (!Json.isArray(text)) return List.of(Danmaku.from(text));
+        List<Danmaku> items = App.gson().fromJson(text, type);
+        return items == null ? new ArrayList<>() : items;
     }
 }

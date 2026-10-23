@@ -49,7 +49,11 @@ public class CookieStore {
         String key = keyword == null ? "" : keyword.toLowerCase(Locale.ROOT);
         StringBuilder builder = new StringBuilder();
         for (Map.Entry<String, String> entry : COOKIES.entrySet()) {
-            if (!entry.getKey().contains(key)) continue;
+            // 只按域名边界匹配：整域相等或子域名（以 .key 结尾）。旧写法
+            // 子串包含即可，查 qq.com 会撞上 xqq.com，把别站的 cookie
+            // 串过来一起带走。
+            String host = entry.getKey();
+            if (!host.equals(key) && !host.endsWith("." + key)) continue;
             if (builder.length() > 0) builder.append("; ");
             builder.append(entry.getValue());
         }

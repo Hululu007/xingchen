@@ -53,6 +53,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -350,6 +351,16 @@ public class SiteApi {
         }
     }
 
+    /**
+     * 配置切换时的在途首页作废（归属是配置重置本身，不是全局开关）：领一个新代次
+     * 并认领批次——在途旧加载登记的子任务被取消，其跑完后的写缓存条件
+     * （gen == homeLoadGen）也随代次推进失效，旧结果不会再按同 key 写进新配置的
+     * homeCache。VodConfig.clear 调用。
+     */
+    public static void invalidateHomeLoads() {
+        claimHomeLoadBatch(homeLoadGen.incrementAndGet());
+    }
+
     private static void trackHomeFuture(int gen, Future<?> future) {
         homeLoadFutures.computeIfAbsent(gen, k -> new CopyOnWriteArrayList<>()).add(future);
     }
@@ -376,6 +387,15 @@ public class SiteApi {
         if (spider instanceof com.fongmi.chaquo.Spider)
             return ((com.fongmi.chaquo.Spider) spider).homeVideoContent(gen);
         return spider.homeVideoContent();
+    }
+
+    /** 异常链里有没有 InterruptedException：有＝这一发是被中断掐掉的，按取消论，不按失败论。 */
+    private static boolean isInterruptedChain(Throwable t) {
+        while (t != null) {
+            if (t instanceof InterruptedException) return true;
+            t = t.getCause();
+        }
+        return false;
     }
 
     @NonNull
@@ -445,10 +465,15 @@ public class SiteApi {
             // 首次创建：子任务也给加长预算（外层 90 秒由调用方按 homeTimeoutFor 给）。
             long subTimeout = coldPy ? COLD_HOME_SUB_TIMEOUT_SECONDS : HOME_SUB_TIMEOUT_SECONDS;
             {
-                Future<String> fHome = spiderHomePool.submit(() -> marked(site, () -> pyHomeContent(spider, gen)));
+                // 先登记后提交：旧形 submit→track 之间有个小窗，并发的新批次认领
+                // 落在窗里会漏掉这一发子任务，它就逃过本轮作废。FutureTask 先入册
+                // 再 execute，作废表里永远先有它。
+                FutureTask<String> fHome = new FutureTask<>(() -> marked(site, () -> pyHomeContent(spider, gen)));
                 trackHomeFuture(gen, fHome);
-                Future<String> fVideo = spiderHomePool.submit(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));
+                spiderHomePool.execute(fHome);
+                FutureTask<String> fVideo = new FutureTask<>(() -> marked(site, () -> pyHomeVideoContent(spider, gen)));
                 trackHomeFuture(gen, fVideo);
+                spiderHomePool.execute(fVideo);
                 try {
                     home = fHome.get(subTimeout, TimeUnit.SECONDS);
                     video = fVideo.get(subTimeout, TimeUnit.SECONDS);
@@ -469,6 +494,16 @@ public class SiteApi {
                     throw e;
                 } catch (java.util.concurrent.ExecutionException e) {
                     Throwable cause = e.getCause();
+                    // 子任务是被中断掐掉的（批次作废 cancel 已先行、或池线程残留的
+                    // 中断旗让下一发一起步就自断；chaquo 有界等待把中断包成
+                    // RuntimeException 再经 ExecutionException 冒到这里）：这一发
+                    // 按取消出门，与上一 catch 的 CancellationException 同口径，
+                    // 不许解包成真错误上报；本批另一个子任务一并掐净，不留僵尸。
+                    if (isInterruptedChain(cause)) {
+                        fHome.cancel(true);
+                        fVideo.cancel(true);
+                        throw new CancellationException();
+                    }
                     if (cause instanceof Exception) throw (Exception) cause;
                     else throw new RuntimeException(cause);
                 } finally {

@@ -45,8 +45,14 @@ public class EmbyQualityDialog extends DialogFragment {
         show(activity, options, null, listener);
     }
 
+    private static boolean canShow(FragmentActivity activity) {
+        return activity != null && !activity.isFinishing() && !activity.isDestroyed()
+                && !activity.getSupportFragmentManager().isStateSaved();
+    }
+
     /** 直接给选项列表，可覆盖标题（多版本选择用）。 */
     public static void show(FragmentActivity activity, List<EmbyApi.PlayOption> options, String title, OnPickListener listener) {
+        if (!canShow(activity)) return;
         EmbyQualityDialog d = new EmbyQualityDialog();
         d.options = options;
         d.title = title;
@@ -56,6 +62,7 @@ public class EmbyQualityDialog extends DialogFragment {
 
     /** 给条目，弹窗自己问服务器要 playbackOptions。 */
     public static void showForItem(FragmentActivity activity, String serverId, String itemId, String name, OnPickListener listener) {
+        if (!canShow(activity)) return;
         EmbyQualityDialog d = new EmbyQualityDialog();
         d.serverId = serverId;
         d.itemId = itemId;

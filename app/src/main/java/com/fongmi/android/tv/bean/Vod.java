@@ -140,8 +140,13 @@ public class Vod implements Parcelable, Diffable<Vod> {
     }
 
     public static Vod objectFrom(String str) {
-        Vod vod = App.gson().fromJson(str, Vod.class);
-        return vod == null ? new Vod() : vod.trans().setFlags();
+        try {
+            Vod vod = App.gson().fromJson(str, Vod.class);
+            return vod == null ? new Vod() : vod.trans().setFlags();
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10，与 Result/Site 等已守卫口径统一）
+            return new Vod();
+        }
     }
 
     public static List<Vod> arrayFrom(String str) {

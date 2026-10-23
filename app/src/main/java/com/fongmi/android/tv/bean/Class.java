@@ -63,7 +63,13 @@ public class Class implements Parcelable, Diffable<Class> {
     }
 
     public static Class objectFrom(String json) {
-        return App.gson().fromJson(json, Class.class);
+        try {
+            Class item = App.gson().fromJson(json, Class.class);
+            return item == null ? new Class() : item;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10，与已守卫一组口径统一）
+            return new Class();
+        }
     }
 
     public String getTypeId() {

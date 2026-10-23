@@ -69,6 +69,10 @@ public final class HkHomeParser {
 
     public static void findList(String key, String url, HkRule rule, String findRule, String html,
                                 int page, Map<String, Object> options, Callback callback) {
+        if (findRule == null) {
+            callback.error("解析失败", "findRule 为空", "404", null);
+            return;
+        }
         if (findRule.startsWith("js:")) {
             Map<String, Object> opts = options == null ? new HashMap<>() : options;
             opts.put("MY_PAGE", page);

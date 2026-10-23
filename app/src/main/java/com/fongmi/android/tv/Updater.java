@@ -207,7 +207,9 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             if (updates.isEmpty()) return;
             App.post(() -> onModulesChecked(updates));
         } catch (IOException | RuntimeException e) {
-            e.printStackTrace();
+            // 后台自检不弹用户（冷启网络差时会误报），但不许只剩堆栈：
+            // 失败原因进更新文件日志，下次查更新慢/模块不提示时能对上。
+            ulog("modules check failed err=%s", String.valueOf(e));
         }
     }
 
@@ -273,7 +275,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             return future.get(remaining, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             future.cancel(true);
-            e.printStackTrace();
+            ulog("await fail channel=%s err=%s", channel, String.valueOf(e.getMessage()));
             Update update = Update.empty(channel);
             update.error = e.getMessage();
             return update;
@@ -289,7 +291,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             JSONObject release = new JSONObject(UpdateHttp.string(Github.getLatestReleaseApi(), GITHUB_API_HEADERS, GITHUB_REQUEST_TIMEOUT_MS));
             return readGithubReleaseUpdate(channel, release);
         } catch (Exception e) {
-            e.printStackTrace();
+            ulog("stable manifest fail channel=%s err=%s", channel, String.valueOf(e.getMessage()));
             return Update.empty(channel);
         }
     }
@@ -305,7 +307,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
                 return readGithubReleaseUpdate(channel, release);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            ulog("beta manifest fail channel=%s err=%s", channel, String.valueOf(e.getMessage()));
         }
         return Update.empty(channel);
     }
@@ -356,7 +358,6 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
                 if (!TextUtils.isEmpty(notes)) update.notes = normalizeText(notes);
             }
         } catch (Exception e) {
-            e.printStackTrace();
             update.error = e.getMessage();
             ulog("manifest fail channel=%s host=%s err=%s", channel, hostOf(manifestUrl), String.valueOf(e.getMessage()));
         }
@@ -622,8 +623,15 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         downloading = false;
         routes = null;
         resetProgress();
-        Notify.show(msg);
+        Notify.show(userFacingError(msg));
         dismiss();
+    }
+
+    /** 传输层回的错误原文（"Download failed: HTTP 404" 之类英文技术串）
+     * 只进 ulog 留痕，给用户看的是本地化文案——别拽英文口径。 */
+    private static String userFacingError(String msg) {
+        if (msg != null && (msg.contains("HTTP 404") || msg.contains("HTTP 410"))) return ResUtil.getString(R.string.update_download_not_found);
+        return ResUtil.getString(R.string.update_download_failed);
     }
 
     @Override

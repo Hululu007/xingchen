@@ -1,23 +1,51 @@
+# media3-exo-avs3-r2.patch（2026-10-23 按现行树重新生成，堵 W13 复核实证的漂移口）
+# 基线：third_party/sources/media @ 3c2cbe8（media-lock.json 的 fongmi_media commit）。
+# 旧版为零上下文（-U0）补丁、行号按「已打补丁的旧树」记录：在干净基线上 git apply
+# 直接失败（实测）；且内容与现行树漂移——Matroska 段混入了杜比补丁
+# （media3-dolby-vision-matroska.patch）的改动，Avs3Reader.java 有两处与树不一致
+# （少 start+3 越界守卫、多一行 sequenceLength 回退）。
+# 本版从现行树对基线的真实 diff 里只摘 AVS3 本份的 hunk（杜比/延迟线索/ALAC 的
+# hunk 一律不摘），改用带 3 行上下文的标准格式，新增代码与现行树逐行一致：
+# 基线＋本补丁的产物与「基线＋树内 AVS3 改动」逐字一致，与 alac、deferred 两份
+# 补丁任意先后顺序结果逐字一致，javac 纯 parse 通过。
 diff --git a/libraries/common/src/main/java/androidx/media3/common/MimeTypes.java b/libraries/common/src/main/java/androidx/media3/common/MimeTypes.java
 index af88340..aa03991 100644
 --- a/libraries/common/src/main/java/androidx/media3/common/MimeTypes.java
 +++ b/libraries/common/src/main/java/androidx/media3/common/MimeTypes.java
-@@ -54,0 +55 @@ public final class MimeTypes {
+@@ -52,6 +52,7 @@ public final class MimeTypes {
+   @UnstableApi public static final String VIDEO_VP8 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp8";
+   @UnstableApi public static final String VIDEO_VP9 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp9";
+   public static final String VIDEO_AV1 = BASE_TYPE_VIDEO + "/av01";
 +  public static final String VIDEO_AVS3 = BASE_TYPE_VIDEO + "/avs3";
-@@ -529,0 +531,2 @@ public final class MimeTypes {
+   public static final String VIDEO_MP2T = BASE_TYPE_VIDEO + "/mp2t";
+   @UnstableApi public static final String VIDEO_MMT_TLV = BASE_TYPE_VIDEO + "/mmt-tlv";
+   public static final String VIDEO_MP4V = BASE_TYPE_VIDEO + "/mp4v-es";
+@@ -527,6 +528,8 @@ public final class MimeTypes {
+         || codec.startsWith("dvh1")
+         || codec.startsWith("dav1")) {
+       return MimeTypes.VIDEO_DOLBY_VISION;
 +    } else if (codec.startsWith("avs3")) {
 +      return MimeTypes.VIDEO_AVS3;
+     } else if (codec.startsWith("av01")) {
+       return MimeTypes.VIDEO_AV1;
+     } else if (codec.startsWith("vp9") || codec.startsWith("vp09")) {
 diff --git a/libraries/container/src/main/java/androidx/media3/container/Mp4Box.java b/libraries/container/src/main/java/androidx/media3/container/Mp4Box.java
 index d6021c3..6bb6f82 100644
 --- a/libraries/container/src/main/java/androidx/media3/container/Mp4Box.java
 +++ b/libraries/container/src/main/java/androidx/media3/container/Mp4Box.java
-@@ -154,0 +155,6 @@ public abstract class Mp4Box {
+@@ -152,6 +152,12 @@ public abstract class Mp4Box {
+   @SuppressWarnings("ConstantCaseForConstants")
+   public static final int TYPE_av3a = 0x61763361;
+ 
 +  @SuppressWarnings("ConstantCaseForConstants")
 +  public static final int TYPE_avs3 = 0x61767333;
 +
 +  @SuppressWarnings("ConstantCaseForConstants")
 +  public static final int TYPE_av3c = 0x61763363;
 +
+   @SuppressWarnings("ConstantCaseForConstants")
+   public static final int TYPE__mp2 = 0x2e6d7032;
+ 
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/Avs3Config.java b/libraries/extractor/src/main/java/androidx/media3/extractor/Avs3Config.java
 new file mode 100644
 index 0000000..8236e88
@@ -120,129 +148,37 @@ index 0000000..8236e88
 +  }
 +}
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java b/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
-index 9cae8be..a381097 100644
+index 9cae8be..3bf4c89 100644
 --- a/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/mkv/MatroskaExtractor.java
-@@ -52,0 +53 @@ import androidx.media3.extractor.AvcConfig;
+@@ -50,6 +50,7 @@ import androidx.media3.extractor.AacUtil;
+ import androidx.media3.extractor.Ac3Util;
+ import androidx.media3.extractor.Av1Config;
+ import androidx.media3.extractor.AvcConfig;
 +import androidx.media3.extractor.Avs3Config;
-@@ -105,0 +107,19 @@ public class MatroskaExtractor implements Extractor {
-+  /**
-+   * Creates a factory that can expose Dolby Vision RPU data stored in Matroska BlockAdditional.
-+   *
-+   * <p>When enabled, the RPU is appended to the associated HEVC sample as an Annex-B NAL before
-+   * its metadata is committed. This lets downstream sample transformers handle Matroska DV in the
-+   * same way as in-band DV carried by MP4 or transport streams.
-+   */
-+  public static ExtractorsFactory newFactory(
-+      SubtitleParser.Factory subtitleParserFactory,
-+      boolean emitDolbyVisionBlockAdditionalData) {
-+    return () ->
-+        new Extractor[] {
-+          new MatroskaExtractor(
-+              subtitleParserFactory,
-+              /* flags= */ 0,
-+              emitDolbyVisionBlockAdditionalData)
-+        };
-+  }
-+
-@@ -155,0 +176 @@ public class MatroskaExtractor implements Extractor {
+ import androidx.media3.extractor.ChunkIndex;
+ import androidx.media3.extractor.ChunkIndexProvider;
+ import androidx.media3.extractor.DtsUtil;
+@@ -153,6 +154,7 @@ public class MatroskaExtractor implements Extractor {
+   private static final String DOC_TYPE_WEBM = "webm";
+   private static final String CODEC_ID_VP8 = "V_VP8";
+   private static final String CODEC_ID_VP9 = "V_VP9";
 +  private static final String CODEC_ID_AVS3 = "V_AVS3";
-@@ -463,0 +485 @@ public class MatroskaExtractor implements Extractor {
-+  private final boolean emitDolbyVisionBlockAdditionalData;
-@@ -556 +578,5 @@ public class MatroskaExtractor implements Extractor {
--    this(new DefaultEbmlReader(), FLAG_EMIT_RAW_SUBTITLE_DATA, SubtitleParser.Factory.UNSUPPORTED);
-+    this(
-+        new DefaultEbmlReader(),
-+        FLAG_EMIT_RAW_SUBTITLE_DATA,
-+        SubtitleParser.Factory.UNSUPPORTED,
-+        /* emitDolbyVisionBlockAdditionalData= */ false);
-@@ -567 +593,2 @@ public class MatroskaExtractor implements Extractor {
--        SubtitleParser.Factory.UNSUPPORTED);
-+        SubtitleParser.Factory.UNSUPPORTED,
-+        /* emitDolbyVisionBlockAdditionalData= */ false);
-@@ -577 +604,5 @@ public class MatroskaExtractor implements Extractor {
--    this(new DefaultEbmlReader(), /* flags= */ 0, subtitleParserFactory);
-+    this(
-+        new DefaultEbmlReader(),
-+        /* flags= */ 0,
-+        subtitleParserFactory,
-+        /* emitDolbyVisionBlockAdditionalData= */ false);
-@@ -588 +619,25 @@ public class MatroskaExtractor implements Extractor {
--    this(new DefaultEbmlReader(), flags, subtitleParserFactory);
-+    this(
-+        new DefaultEbmlReader(),
-+        flags,
-+        subtitleParserFactory,
-+        /* emitDolbyVisionBlockAdditionalData= */ false);
-+  }
-+
-+  /**
-+   * Constructs an instance with optional Dolby Vision BlockAdditional RPU emission.
-+   *
-+   * @param subtitleParserFactory The {@link SubtitleParser.Factory} for parsing subtitles during
-+   *     extraction.
-+   * @param flags Flags that control the extractor's behavior.
-+   * @param emitDolbyVisionBlockAdditionalData Whether Dolby Vision RPU BlockAdditional data should
-+   *     be appended to its HEVC sample as an Annex-B NAL.
-+   */
-+  public MatroskaExtractor(
-+      SubtitleParser.Factory subtitleParserFactory,
-+      @Flags int flags,
-+      boolean emitDolbyVisionBlockAdditionalData) {
-+    this(
-+        new DefaultEbmlReader(),
-+        flags,
-+        subtitleParserFactory,
-+        emitDolbyVisionBlockAdditionalData);
-@@ -592,0 +648,12 @@ public class MatroskaExtractor implements Extractor {
-+    this(
-+        reader,
-+        flags,
-+        subtitleParserFactory,
-+        /* emitDolbyVisionBlockAdditionalData= */ false);
-+  }
-+
-+  /* package */ MatroskaExtractor(
-+      EbmlReader reader,
-+      @Flags int flags,
-+      SubtitleParser.Factory subtitleParserFactory,
-+      boolean emitDolbyVisionBlockAdditionalData) {
-@@ -595,0 +663 @@ public class MatroskaExtractor implements Extractor {
-+    this.emitDolbyVisionBlockAdditionalData = emitDolbyVisionBlockAdditionalData;
-@@ -1031,0 +1100,2 @@ public class MatroskaExtractor implements Extractor {
-+        appendDolbyVisionBlockAdditionalData(track);
-+
-@@ -1735,0 +1806,6 @@ public class MatroskaExtractor implements Extractor {
-+    } else if (emitDolbyVisionBlockAdditionalData
-+        && CODEC_ID_H265.equals(track.codecId)
-+        && (track.blockAddIdType == BLOCK_ADD_ID_TYPE_DVVC
-+            || track.blockAddIdType == BLOCK_ADD_ID_TYPE_DVCC)) {
-+      track.pendingDolbyVisionBlockAdditionalData = new byte[contentSize];
-+      input.readFully(track.pendingDolbyVisionBlockAdditionalData, 0, contentSize);
-@@ -1741,0 +1818,18 @@ public class MatroskaExtractor implements Extractor {
-+  @RequiresNonNull("#1.output")
-+  private void appendDolbyVisionBlockAdditionalData(Track track) {
-+    byte[] blockAdditionalData = track.pendingDolbyVisionBlockAdditionalData;
-+    track.pendingDolbyVisionBlockAdditionalData = null;
-+    if (blockAdditionalData == null) {
-+      return;
-+    }
-+    if (blockSampleCount != 1) {
-+      Log.w(TAG, "Skipping Dolby Vision BlockAdditional data in a laced block.");
-+      return;
-+    }
-+    nalStartCode.setPosition(0);
-+    track.output.sampleData(nalStartCode, NalUnitUtil.NAL_START_CODE.length);
-+    ParsableByteArray rpuData = new ParsableByteArray(blockAdditionalData);
-+    track.output.sampleData(rpuData, blockAdditionalData.length);
-+    blockSampleSizes[0] += NalUnitUtil.NAL_START_CODE.length + blockAdditionalData.length;
-+  }
-+
-@@ -2284,0 +2379 @@ public class MatroskaExtractor implements Extractor {
+   private static final String CODEC_ID_AV1 = "V_AV1";
+   private static final String CODEC_ID_MPEG2 = "V_MPEG2";
+   private static final String CODEC_ID_MPEG4_SP = "V_MPEG4/ISO/SP";
+@@ -2282,6 +2284,7 @@ public class MatroskaExtractor implements Extractor {
+       case CODEC_ID_VP8:
+       case CODEC_ID_VP9:
+       case CODEC_ID_AV1:
 +      case CODEC_ID_AVS3:
-@@ -2494,0 +2590 @@ public class MatroskaExtractor implements Extractor {
-+    public byte @MonotonicNonNull [] pendingDolbyVisionBlockAdditionalData;
-@@ -2540,0 +2637,10 @@ public class MatroskaExtractor implements Extractor {
+       case CODEC_ID_MPEG2:
+       case CODEC_ID_MPEG4_SP:
+       case CODEC_ID_MPEG4_ASP:
+@@ -2538,6 +2541,16 @@ public class MatroskaExtractor implements Extractor {
+           mimeType = MimeTypes.VIDEO_VP9;
+           initializationData = codecPrivate == null ? null : ImmutableList.of(codecPrivate);
+           break;
 +        case CODEC_ID_AVS3:
 +          mimeType = MimeTypes.VIDEO_AVS3;
 +          if (codecPrivate != null) {
@@ -253,17 +189,33 @@ index 9cae8be..a381097 100644
 +            bitstreamChromaBitdepth = avs3Config.bitdepth;
 +          }
 +          break;
-@@ -2910,0 +3017 @@ public class MatroskaExtractor implements Extractor {
-+      pendingDolbyVisionBlockAdditionalData = null;
+         case CODEC_ID_AV1:
+           mimeType = MimeTypes.VIDEO_AV1;
+           if (codecPrivate == null) {
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/BoxParser.java b/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/BoxParser.java
 index f16d019..c2deb50 100644
 --- a/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/BoxParser.java
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/BoxParser.java
-@@ -56,0 +57 @@ import androidx.media3.extractor.AvcConfig;
+@@ -54,6 +54,7 @@ import androidx.media3.extractor.Ac4Util;
+ import androidx.media3.extractor.Av1Config;
+ import androidx.media3.extractor.Av3aUtil;
+ import androidx.media3.extractor.AvcConfig;
 +import androidx.media3.extractor.Avs3Config;
-@@ -1320,0 +1322 @@ public final class BoxParser {
+ import androidx.media3.extractor.ExtractorUtil;
+ import androidx.media3.extractor.GaplessInfoHolder;
+ import androidx.media3.extractor.HevcConfig;
+@@ -1318,6 +1319,7 @@ public final class BoxParser {
+           || childAtomType == Mp4Box.TYPE_vp08
+           || childAtomType == Mp4Box.TYPE_vp09
+           || childAtomType == Mp4Box.TYPE_av01
 +          || childAtomType == Mp4Box.TYPE_avs3
-@@ -1741,0 +1744,21 @@ public final class BoxParser {
+           || childAtomType == Mp4Box.TYPE_dvav
+           || childAtomType == Mp4Box.TYPE_dva1
+           || childAtomType == Mp4Box.TYPE_dvhe
+@@ -1739,6 +1741,27 @@ public final class BoxParser {
+         colorRange = fullRangeFlag ? C.COLOR_RANGE_FULL : C.COLOR_RANGE_LIMITED;
+         colorTransfer =
+             ColorInfo.isoTransferCharacteristicsToColorTransfer(transferCharacteristics);
 +      } else if (childAtomType == Mp4Box.TYPE_av3c) {
 +        ExtractorUtil.checkContainerInput(mimeType == null, /* message= */ null);
 +        ExtractorUtil.checkContainerInput(
@@ -285,12 +237,15 @@ index f16d019..c2deb50 100644
 +        if (!pixelWidthHeightRatioFromPasp) {
 +          pixelWidthHeightRatio = avs3Config.pixelWidthHeightRatio;
 +        }
+       } else if (childAtomType == Mp4Box.TYPE_av1C) {
+         mimeType = MimeTypes.VIDEO_AV1;
+ 
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/Avs3Reader.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/Avs3Reader.java
 new file mode 100644
-index 0000000..53e9d34
+index 0000000..ea7fc1f
 --- /dev/null
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/Avs3Reader.java
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,154 @@
 +/*
 + * Copyright (C) 2016 The Android Open Source Project
 + * Copyright 2026 WebHTV contributors
@@ -373,7 +328,7 @@ index 0000000..53e9d34
 +    output.sampleData(data, data.bytesLeft());
 +    while (true) {
 +      int start = NalUnitUtil.findNalUnit(bytes, offset, limit, prefixFlags);
-+      if (start == limit) {
++      if (start == limit || start + 3 >= limit) {
 +        appendSequence(bytes, offset, limit);
 +        return;
 +      }
@@ -382,7 +337,6 @@ index 0000000..53e9d34
 +      if (!hasFormat) {
 +        if (length > 0) appendSequence(bytes, offset, start);
 +        if (collectingSequence) {
-+          sequenceLength -= Math.max(0, -length);
 +          if (code == I_PICTURE || code == PB_PICTURE || code == SEQUENCE || code == 0xb1) {
 +            Avs3Config config = Avs3Config.parse(Arrays.copyOf(sequence, sequenceLength));
 +            output.format(new Format.Builder().setId(formatId)
@@ -450,12 +404,24 @@ diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/Defa
 index 54405ee..66de85a 100644
 --- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/DefaultTsPayloadReaderFactory.java
-@@ -181,0 +182,2 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
+@@ -179,6 +179,8 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
+       case TsExtractor.TS_STREAM_TYPE_H262:
+       case TsExtractor.TS_STREAM_TYPE_DC2_H262:
+         return new PesReader(new H262Reader(buildUserDataReader(esInfo), MimeTypes.VIDEO_MP2T));
 +      case TsExtractor.TS_STREAM_TYPE_AVS3:
 +        return new PesReader(new Avs3Reader());
+       case TsExtractor.TS_STREAM_TYPE_H263:
+         return new PesReader(new H263Reader(buildUserDataReader(esInfo), MimeTypes.VIDEO_MP2T));
+       case TsExtractor.TS_STREAM_TYPE_H264:
 diff --git a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
 index f46133c..c73c1e9 100644
 --- a/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
 +++ b/libraries/extractor/src/main/java/androidx/media3/extractor/ts/TsExtractor.java
-@@ -148,0 +149 @@ public final class TsExtractor implements Extractor {
+@@ -146,6 +146,7 @@ public final class TsExtractor implements Extractor {
+   public static final int TS_STREAM_TYPE_H263 = 0x10; // MPEG-4 Part 2 and H.263
+   public static final int TS_STREAM_TYPE_H264 = 0x1B;
+   public static final int TS_STREAM_TYPE_H265 = 0x24;
 +  public static final int TS_STREAM_TYPE_AVS3 = 0xD4;
+   public static final int TS_STREAM_TYPE_MHAS = 0x2D;
+   public static final int TS_STREAM_TYPE_ID3 = 0x15;
+   public static final int TS_STREAM_TYPE_SPLICE_INFO = 0x86;

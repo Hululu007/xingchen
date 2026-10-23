@@ -17,7 +17,7 @@ public class Util {
 
     public static String size(long size) {
         if (size <= 0) return "";
-        int group = (int) (Math.log10(size) / Math.log10(1024));
+        int group = Math.min((int) (Math.log10(size) / Math.log10(1024)), UNITS.length - 1);
         return "[" + new DecimalFormat("###0.#").format(size / Math.pow(1024, group)) + " " + UNITS[group] + "] ";
     }
 }

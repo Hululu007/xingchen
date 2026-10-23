@@ -50,6 +50,7 @@ public class SubtitleManager {
 
     /** 后台搜索全部可用源，按用户语言偏好排序 */
     public static void search(String query, SearchCallback callback) {
+        if (callback == null) return;
         EXECUTOR.execute(() -> {
             ShieldBypass.clearBlocked();
             List<SubtitleInfo> all = new ArrayList<>();
@@ -70,6 +71,7 @@ public class SubtitleManager {
 
     /** 后台下载字幕到缓存，处理压缩包解压 */
     public static void download(SubtitleInfo info, DownloadCallback callback) {
+        if (callback == null) return;
         EXECUTOR.execute(() -> {
             File file = downloadSync(info);
             MAIN.post(() -> callback.onDone(file));
@@ -80,7 +82,7 @@ public class SubtitleManager {
     public static void downloadAndApply(SubtitleInfo info, PlayerManager player, DownloadCallback callback) {
         download(info, file -> {
             if (file != null) applyToPlayer(player, file);
-            callback.onDone(file);
+            if (callback != null) callback.onDone(file);
         });
     }
 

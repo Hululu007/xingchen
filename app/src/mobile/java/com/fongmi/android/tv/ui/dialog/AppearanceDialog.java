@@ -32,6 +32,7 @@ public final class AppearanceDialog extends DialogFragment implements ThemeDialo
     private MaterialTextView languageValue;
 
     public static void show(Fragment fragment) {
+        if (fragment == null || !fragment.isAdded() || fragment.getChildFragmentManager().isStateSaved()) return;
         new AppearanceDialog().show(fragment.getChildFragmentManager(), AppearanceDialog.class.getSimpleName());
     }
 
@@ -44,13 +45,18 @@ public final class AppearanceDialog extends DialogFragment implements ThemeDialo
         return LightDialog.create(requireContext(), getString(R.string.setting_appearance), createContent(), getString(R.string.dialog_close), null, null, null);
     }
 
+    /** 偏好值直索引字符串数组的统一钳位：存储值损坏/越界时钳到最近项，不崩。 */
+    private static String at(String[] array, int index) {
+        return array[Math.max(0, Math.min(index, array.length - 1))];
+    }
+
     private View createContent() {
         LinearLayout content = new LinearLayout(requireContext());
         content.setOrientation(LinearLayout.VERTICAL);
-        uiScaleValue = addRow(content, R.string.setting_ui_scale, uiScales[Setting.getUiScaleIndex()], this::chooseUiScale);
+        uiScaleValue = addRow(content, R.string.setting_ui_scale, at(uiScales, Setting.getUiScaleIndex()), this::chooseUiScale);
         themeValue = addRow(content, R.string.setting_theme_color, getThemeText(), view -> ThemeDialog.show(this));
-        imageSizeValue = addRow(content, R.string.setting_size, imageSizes[PlayerSetting.getSize()], this::chooseImageSize);
-        languageValue = addRow(content, R.string.setting_language, languages[Setting.getLanguageIndex()], this::chooseLanguage);
+        imageSizeValue = addRow(content, R.string.setting_size, at(imageSizes, PlayerSetting.getSize()), this::chooseImageSize);
+        languageValue = addRow(content, R.string.setting_language, at(languages, Setting.getLanguageIndex()), this::chooseLanguage);
         return content;
     }
 

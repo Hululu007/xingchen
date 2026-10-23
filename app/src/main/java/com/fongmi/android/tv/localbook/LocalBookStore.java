@@ -87,6 +87,12 @@ public class LocalBookStore {
             deleteDir(new File(booksDir(), id));
         } catch (Throwable ignored) {
         }
+        try {
+            // 章节图缓存一并删（低-03）：目录口径与 LocalBookReader.chapterCache 实际
+            // 用的一致——cacheDir()/<bookId>（其下再按章分目录），只删书名目录会留孤儿。
+            deleteDir(new File(cacheDir(), id));
+        } catch (Throwable ignored) {
+        }
     }
 
     public static File booksDir() {

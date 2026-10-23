@@ -17,36 +17,21 @@ import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.FragmentSettingBinding;
-import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.impl.ConfigListener;
 import com.fongmi.android.tv.impl.LiveListener;
 import com.fongmi.android.tv.impl.SiteListener;
 import com.fongmi.android.tv.setting.Setting;
-import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.fongmi.android.tv.ui.base.BaseFragment;
-import com.fongmi.android.tv.ui.dialog.AppearanceDialog;
-import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
-import com.fongmi.android.tv.ui.dialog.ConfigDialog;
-import com.fongmi.android.tv.ui.dialog.HistoryDialog;
-import com.fongmi.android.tv.ui.dialog.LiveDialog;
-import com.fongmi.android.tv.ui.dialog.RestoreDialog;
-import com.fongmi.android.tv.ui.dialog.BackupProgressDialog;
-import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
-import com.github.catvod.bean.Doh;
-import com.github.catvod.net.OkHttp;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class SettingFragment extends BaseFragment implements ConfigListener, SiteListener, LiveListener {
 
@@ -54,24 +39,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
 
     public static SettingFragment newInstance() {
         return new SettingFragment();
-    }
-
-    private String getSwitch(boolean value) {
-        return getString(value ? R.string.setting_on : R.string.setting_off);
-    }
-
-    private int getDohIndex() {
-        return Math.max(0, VodConfig.get().getDoh().indexOf(Doh.objectFrom(Setting.getDoh())));
-    }
-
-    private String[] getDohList() {
-        List<String> list = new ArrayList<>();
-        for (Doh item : VodConfig.get().getDoh()) list.add(item.getName());
-        return list.toArray(new String[0]);
-    }
-
-    private HomeActivity getRoot() {
-        return (HomeActivity) requireActivity();
     }
 
     @Override
@@ -92,9 +59,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.cardHealth.setOnClickListener(v -> com.fongmi.android.tv.ui.lab.LabHomeActivity.start(getActivity()));
         mBinding.cardXingchen.setOnClickListener(v -> com.fongmi.android.tv.ui.activity.XingChenSettingsActivity.start(getActivity()));
         updateSubtitles();
-    }
-
-    private void setOtherText() {
     }
 
     private void setCacheText() {
@@ -164,143 +128,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     @Override
     public void setLive(Live item) {
         LiveConfig.get().setHome(item);
-    }
-
-    private void onVod(View view) {
-        ConfigDialog.create().vod().show(this);
-    }
-
-    private void onLive(View view) {
-        ConfigDialog.create().live().show(this);
-    }
-
-    private void onWall(View view) {
-        ConfigDialog.create().wall().show(this);
-    }
-
-    private boolean onVodEdit(View view) {
-        ConfigDialog.create().vod().edit().show(this);
-        return true;
-    }
-
-    private boolean onLiveEdit(View view) {
-        ConfigDialog.create().live().edit().show(this);
-        return true;
-    }
-
-    private boolean onWallEdit(View view) {
-        ConfigDialog.create().wall().edit().show(this);
-        return true;
-    }
-
-    private void onVodHome(View view) {
-        SiteDialog.create().search().change().show(this);
-    }
-
-    private void onLiveHome(View view) {
-        LiveDialog.show(this);
-    }
-
-    private void onVodHistory(View view) {
-        HistoryDialog.create().vod().show(this);
-    }
-
-    private void onLiveHistory(View view) {
-        HistoryDialog.create().live().show(this);
-    }
-
-    private void onPlayer(View view) {
-        getRoot().change(2);
-    }
-
-    private void onDanmaku(View view) {
-        getRoot().change(3);
-    }
-
-    private void onAppearance(View view) {
-        AppearanceDialog.show(this);
-    }
-
-
-    private void setWallDefault(View view) {
-        Setting.putWall(Setting.nextDefaultWall());
-        Setting.putWallType(0);
-        setWallText();
-        ConfigEvent.wall();
-    }
-
-    private void setWallRefresh(View view) {
-        Setting.putWall(0);
-        WallConfig.get().load(getCallback());
-    }
-
-    private boolean onWallHistory(View view) {
-        HistoryDialog.create().wall().show(this);
-        return true;
-    }
-
-    private void setIncognito(View view) {
-        Setting.putIncognito(!Setting.isIncognito());
-    }
-
-    private void setDoh(View view) {
-        ChoiceDialog.showSingle(this, R.string.setting_doh, getDohList(), getDohIndex(), which -> {
-            setDoh(VodConfig.get().getDoh().get(which));
-        });
-    }
-
-    private void setDoh(Doh doh) {
-        OkHttp.dns().setDoh(doh);
-        Setting.putDoh(doh.toString());
-    }
-
-    private void onCache(View view) {
-        FileUtil.clearCache(new Callback() {
-            @Override
-            public void success() {
-                setCacheText();
-            }
-        });
-    }
-
-    private void onBackup(View view) {
-        PermissionUtil.requestFile(this, allGranted -> {
-            BackupProgressDialog progress = BackupProgressDialog.open(getParentFragmentManager(), "备份应用数据");
-            AppDatabase.backup(new Callback() {
-            @Override
-            public void success() {
-                progress.finish();
-                Notify.show(R.string.backup_success);
-            }
-
-            @Override
-            public void error() {
-                progress.finish();
-                Notify.show(R.string.backup_fail);
-            }
-            }, progress::update);
-        });
-    }
-
-    private void onRestore(View view) {
-        PermissionUtil.requestFile(this, allGranted -> RestoreDialog.create().show(requireActivity(), new Callback() {
-            @Override
-            public void success() {
-                Notify.show(R.string.restore_success);
-                setOtherText();
-            }
-
-            @Override
-            public void error() {
-                Notify.show(R.string.restore_fail);
-            }
-        }));
-    }
-
-    private void initConfig() {
-        VodConfig.get().init().load(getCallback());
-        LiveConfig.get().init().load();
-        WallConfig.get().init().load();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -434,18 +261,6 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
                 mBinding.textHealthTime.setText("");
             }
         } catch (Exception e) { e.printStackTrace(); }
-    }
-
-    private String relativeHealthTime(long time) {
-        if (time <= 0) return "";
-        long diff = System.currentTimeMillis() - time;
-        long minutes = diff / 60000;
-        if (minutes < 1) return "刚刚";
-        if (minutes < 60) return minutes + " 分钟前";
-        long hours = minutes / 60;
-        if (hours < 24) return hours + " 小时前";
-        long days = hours / 24;
-        return days + " 天前";
     }
 
 }

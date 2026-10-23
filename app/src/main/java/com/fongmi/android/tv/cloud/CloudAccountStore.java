@@ -2,6 +2,7 @@ package com.fongmi.android.tv.cloud;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
@@ -12,6 +13,12 @@ import androidx.security.crypto.MasterKey;
 public class CloudAccountStore {
 
     private static final String PREF = "cloud_account";
+    private static final String KEY_PLAIN_FALLBACK = "plain_fallback";
+
+    /** 当前存储是否为降级后的明文存储（加密创建失败时打的标记） */
+    public static boolean isPlainFallback(Context context) {
+        return prefs(context).getBoolean(KEY_PLAIN_FALLBACK, false);
+    }
 
     /**
      * EncryptedSharedPreferences 单例：原来每次读写都 new MasterKey（走 Android Keystore）
@@ -36,7 +43,11 @@ public class CloudAccountStore {
                                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
                     } catch (Exception e) {
+                        // 降级不许静默：加密存储建不起来时 cookie/token 会明文落盘，
+                        // 必须留日志 + 在存储里打标记，排查时一眼能认出已降级。
+                        Log.e("CloudAccountStore", "加密存储创建失败，降级为明文存储", e);
                         p = app.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                        p.edit().putBoolean(KEY_PLAIN_FALLBACK, true).apply();
                     }
                     sPrefs = p;
                 }

@@ -622,9 +622,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private int getFullscreenOrient() {
-        // initView 期（pad 全屏模式）服务未绑回时 player() 为 null：按竖屏兜底，尺寸回调到后再纠正
+        if (ResUtil.isPad()) return ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
         PlayerManager manager = player();
-        return ResUtil.isPad() ? ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE : PlaybackOrientation.getEnterFullscreenOrientation(manager == null || manager.isPortrait());
+        // initView 期服务未绑回时 player() 为 null：按竖屏兜底，尺寸回调到后再纠正
+        if (manager == null) return PlaybackOrientation.getEnterFullscreenOrientation(true);
+        // 尺寸未知时 isPortrait() 恒 false 不可信（同 VideoActivity 口径）：先跟当前屏幕实际方向，
+        // 尺寸回调到后 onSizeChanged 会按真尺寸重新请求
+        if (manager.getVideoWidth() <= 0 || manager.getVideoHeight() <= 0) return PlaybackOrientation.getEnterFullscreenOrientation(!ResUtil.isLand(this));
+        return PlaybackOrientation.getEnterFullscreenOrientation(manager.isPortrait());
     }
 
     private int getEmbeddedOrient() {
@@ -666,7 +671,15 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void onTrack(View view) {
         if (player() == null) return;
-        TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int type;
+        try {
+            type = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
 

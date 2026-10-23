@@ -653,7 +653,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
             HkRouteBlocker.toastShortBottom(activity, "规则有误：" + url);
             return;
         }
-        if (activity == null) return;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         String js = HkParserKit.arrayToString(parts, 1, ".js:");
         new HkDialogs(activity)
                 .setTitle("小程序提示")
@@ -752,7 +752,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
      */
     private void showInput(Activity activity, View view, HkRule rule, HkItem item,
                            String hint, String value, String js, Consumer<String> resultConsumer) {
-        if (activity == null) return;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         EditText edit = new EditText(activity);
         if (hint != null) edit.setHint(hint);
         if (value != null) edit.setText(value);
@@ -969,7 +969,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
     private void showSelect(Activity activity, View view, HkRule rule, HkItem item,
                             SelectExtra extra, Consumer<String> resultConsumer) {
         SelectTwo two = (title, index) -> {
-            if (activity.isFinishing()) return;
+            if (activity == null || activity.isFinishing()) return;
             BG.execute(() -> {
                 String js = HkLazyRuleParser.generateMY("MY_INDEX", index) + (extra.js == null ? "" : extra.js);
                 String result = evalRuleJs(rule, js, title);

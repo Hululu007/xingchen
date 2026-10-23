@@ -32,6 +32,8 @@ public final class LabImportCompat {
         public String name = "";
         public String desc = "";
         public String version = "1.0";
+        /** 上游 Item.group（分组 id，如 network；上游 LabModels.Item 同名字段），无分组为空串 */
+        public String group = "";
         public String runtime = "none";      // python | nodejs | php | mihomo | frp | alist | aria2 | ubuntu | ffmpeg | none
         public String command = "";          // 含 {port}/{pkgDir}/{filesDir} 占位
         public boolean background = true;
@@ -272,6 +274,8 @@ public final class LabImportCompat {
         String stem = itemName.isEmpty() ? "item" : itemName;
         String info = o.optString("info", "").trim();
         String version = o.optString("version", "1.0").trim();
+        // 上游 Item.group：包级分组 id，套到每条命令（此前整段没读，分组信息静默丢失）
+        String group = o.optString("group", "").trim();
         boolean autoInstall = o.optBoolean("auto_install", false);
         // Item 级 downloads[]（靠下载落二进制的服务，如 lxserver/drpy-node）：解析一次套到每条命令。
         // 此前整段没读，装完没二进制还不吭声；读不通的也必须进 needsReview 明说
@@ -292,6 +296,7 @@ public final class LabImportCompat {
             it.desc = c.optString("description", c.optString("desc", "")).trim();
             if (it.desc.isEmpty()) it.desc = info;
             it.version = version.isEmpty() ? "1.0" : version;
+            it.group = group;
             String cmd = c.optString("command", "");
             it.runtime = runtimeFromCommand(cmd);
             it.command = translateWebhtvCommand(cmd, it);
@@ -397,11 +402,27 @@ public final class LabImportCompat {
         if (!varPath.isEmpty()) {
             out.notes.add("包声明了数据目录 var_path（" + varPath + "），星辰统一放包目录内，命令里写死了这个路径的话要改");
         }
-        JSONArray mkdir = o.optJSONArray("mkdir");
-        if (mkdir != null && mkdir.length() > 0) {
+        if (!mkdirListOf(o.opt("mkdir")).isEmpty()) {
             out.notes.add("包声明了预建目录（mkdir），星辰没有预建，命令依赖这些目录时会跑不起来");
         }
         return out;
+    }
+
+    /** 上游 mkdir 双形态（LabModels.mkdirList 口径）：字符串＝单个目录、数组＝字符串元素列表；
+     * 此前只认数组，frp/mihomo 的字符串形态连提示都不出、静默丢失 */
+    private static List<String> mkdirListOf(Object mkdir) {
+        List<String> list = new ArrayList<>();
+        if (mkdir instanceof String) {
+            String s = ((String) mkdir).trim();
+            if (!s.isEmpty()) list.add(s);
+        } else if (mkdir instanceof JSONArray) {
+            JSONArray arr = (JSONArray) mkdir;
+            for (int i = 0; i < arr.length(); i++) {
+                String s = arr.optString(i, "").trim();
+                if (!s.isEmpty()) list.add(s);
+            }
+        }
+        return list;
     }
 
     /** 下载条目里取直链：url 优先，其次 mirrors[0]、liburl；只有 pan（网盘）时返回空 */
@@ -450,7 +471,10 @@ public final class LabImportCompat {
             if (var.key.isEmpty()) continue;
             var.name = v.optString("name", var.key).trim();
             var.type = v.optString("type", "text").trim().toLowerCase();
-            var.defaultValue = v.has("default") ? v.optString("default", null) : null;
+            // 与 LabManifest.parseVars 同口径双吃："default"（手写）与 "defaultValue"（Gson 落盘名），
+            // 只读 default 时回读自家落盘的变量表会丢默认值
+            var.defaultValue = v.has("default") ? v.optString("default", null)
+                    : (v.has("defaultValue") ? v.optString("defaultValue", null) : null);
             var.hint = v.optString("hint", null);
             var.required = v.optBoolean("required", false);
             var.filter = v.has("filter") ? v.optString("filter", null) : null;
@@ -726,83 +750,106 @@ public final class LabImportCompat {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
                 fos.write(data);
             }
-            String pkgJson = null;
-            List<String> names = new ArrayList<>();
-            Map<String, byte[]> pkgJsonFiles = new LinkedHashMap<>();
-            Map<String, byte[]> bins = new LinkedHashMap<>();
-            boolean hasUserCmds = false;
-            // 第一遍只记条目名，只把 package.json 与 binary/ 的字节留内存——其余
-            // 条目不读入（此前全条目驻留，大包导入内存峰值白白翻倍）。确诊是
-            // npm 整目录项目后才第二遍整包读入（见下），普通离线包不付这个代价。
-            // 注：new SevenZFile(File) 在 1.27 标废弃，但 builder API 要拖 commons-io（App 没这个依赖），故沿用它
-            try (SevenZFile sz = new SevenZFile(tmp)) {
-                SevenZArchiveEntry e;
-                while ((e = sz.getNextEntry()) != null) {
-                    if (e.isDirectory()) continue;
-                    String name = e.getName().replace('\\', '/');
-                    names.add(name);
-                    if (name.equals("package.json") || name.endsWith("/package.json")) {
-                        byte[] b = readSzEntryBytes(sz);
-                        pkgJsonFiles.put(name, b);
-                        if (pkgJson == null) pkgJson = new String(b, java.nio.charset.StandardCharsets.UTF_8);
-                    } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
-                        hasUserCmds = true;
-                    } else {
-                        int bi = name.indexOf("binary/");
-                        if (bi >= 0) {
-                            String rel = name.substring(bi + 7);
-                            while (rel.startsWith("/")) rel = rel.substring(1);
-                            if (!rel.isEmpty() && !rel.contains("..")) {
-                                bins.put(rel, readSzEntryBytes(sz));
-                            }
-                        }
-                    }
-                }
-            }
-            // package.json 若是 npm 项目说明（整目录 Node 项目）：全部条目原样落进包目录，
-            // 命令按 package.json 生成，在项目根里跑（与 zip 项目路同一套口径）
-            String npmEntry = findNodePackageJson(names);
-            if (npmEntry != null && pkgJsonFiles.containsKey(npmEntry)) {
-                JSONObject pj = null;
-                try {
-                    pj = new JSONObject(new String(pkgJsonFiles.get(npmEntry), java.nio.charset.StandardCharsets.UTF_8));
-                } catch (Exception ignored) {
-                }
-                if (pj != null && isNpmPackageJson(pj)) {
-                    ImportItem it = fromNodeProject(pj, npmEntry, names);
-                    if (it.command == null || it.command.trim().isEmpty()) {
-                        throw new Exception("这个 Node 项目找不到入口：package.json 里没写 start/main，项目根也没有 index.js");
-                    }
-                    // 第二遍：整目录项目才需要全部条目落盘，这时才整包读入
-                    Map<String, byte[]> allFiles = new LinkedHashMap<>();
-                    try (SevenZFile sz2 = new SevenZFile(tmp)) {
-                        SevenZArchiveEntry e2;
-                        while ((e2 = sz2.getNextEntry()) != null) {
-                            if (e2.isDirectory()) continue;
-                            allFiles.put(e2.getName().replace('\\', '/'), readSzEntryBytes(sz2));
-                        }
-                    }
-                    it.extraFiles = new LinkedHashMap<>(allFiles);
-                    ParseResult r = new ParseResult();
-                    r.kind = Kind.NODE_PROJECT;
-                    r.note = "认出来了：Node 项目离线包（整个项目 1 个服务）";
-                    r.items.add(it);
-                    return r;
-                }
-            }
-            if (pkgJson == null) throw new Exception("无效的离线包：里面没有 package.json");
-            String nm = new JSONObject(pkgJson).optString("name", "");
-            if (nm.contains("/") || nm.contains("..")) throw new Exception("包名非法");
-            ParseResult r = parseJson(pkgJson);
-            for (ImportItem it : r.items) {
-                if (!bins.isEmpty()) it.extraFiles = new LinkedHashMap<>(bins);
-                if (hasUserCmds) it.needsReview = addLine(it.needsReview, "包里的自建命令（commands.json）没有导入");
-            }
-            r.note = "认出来了：默影视实验室离线包（" + r.items.size() + " 条命令）";
-            return r;
+            return parseSevenZFile(tmp);
         } finally {
             tmp.delete();
         }
+    }
+
+    /**
+     * 流式入口：归档边读边落临时文件再解析，整包字节不进内存——原先调用方先把
+     * 整个 .7z（上限 30MB）读成 byte[] 再传进来，大离线包内存峰值白白翻倍。
+     * binary/ 条目内容仍按条目留内存（安装器要逐个落盘，与 zip 路同口径）。
+     */
+    public static ParseResult parseSevenZ(java.io.InputStream in) throws Exception {
+        File tmp = File.createTempFile("labpkg", ".7z");
+        try {
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            }
+            return parseSevenZFile(tmp);
+        } finally {
+            tmp.delete();
+        }
+    }
+
+    private static ParseResult parseSevenZFile(File tmp) throws Exception {
+        String pkgJson = null;
+        List<String> names = new ArrayList<>();
+        Map<String, byte[]> pkgJsonFiles = new LinkedHashMap<>();
+        Map<String, byte[]> bins = new LinkedHashMap<>();
+        boolean hasUserCmds = false;
+        // 第一遍只记条目名，只把 package.json 与 binary/ 的字节留内存——其余
+        // 条目不读入（此前全条目驻留，大包导入内存峰值白白翻倍）。确诊是
+        // npm 整目录项目后才第二遍整包读入（见下），普通离线包不付这个代价。
+        // 注：new SevenZFile(File) 在 1.27 标废弃，但 builder API 要拖 commons-io（App 没这个依赖），故沿用它
+        try (SevenZFile sz = new SevenZFile(tmp)) {
+            SevenZArchiveEntry e;
+            while ((e = sz.getNextEntry()) != null) {
+                if (e.isDirectory()) continue;
+                String name = e.getName().replace('\\', '/');
+                names.add(name);
+                if (name.equals("package.json") || name.endsWith("/package.json")) {
+                    byte[] b = readSzEntryBytes(sz);
+                    pkgJsonFiles.put(name, b);
+                    if (pkgJson == null) pkgJson = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+                } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
+                    hasUserCmds = true;
+                } else {
+                    int bi = name.indexOf("binary/");
+                    if (bi >= 0) {
+                        String rel = name.substring(bi + 7);
+                        while (rel.startsWith("/")) rel = rel.substring(1);
+                        if (!rel.isEmpty() && !rel.contains("..")) {
+                            bins.put(rel, readSzEntryBytes(sz));
+                        }
+                    }
+                }
+            }
+        }
+        // package.json 若是 npm 项目说明（整目录 Node 项目）：全部条目原样落进包目录，
+        // 命令按 package.json 生成，在项目根里跑（与 zip 项目路同一套口径）
+        String npmEntry = findNodePackageJson(names);
+        if (npmEntry != null && pkgJsonFiles.containsKey(npmEntry)) {
+            JSONObject pj = null;
+            try {
+                pj = new JSONObject(new String(pkgJsonFiles.get(npmEntry), java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
+            }
+            if (pj != null && isNpmPackageJson(pj)) {
+                ImportItem it = fromNodeProject(pj, npmEntry, names);
+                if (it.command == null || it.command.trim().isEmpty()) {
+                    throw new Exception("这个 Node 项目找不到入口：package.json 里没写 start/main，项目根也没有 index.js");
+                }
+                // 第二遍：整目录项目才需要全部条目落盘，这时才整包读入
+                Map<String, byte[]> allFiles = new LinkedHashMap<>();
+                try (SevenZFile sz2 = new SevenZFile(tmp)) {
+                    SevenZArchiveEntry e2;
+                    while ((e2 = sz2.getNextEntry()) != null) {
+                        if (e2.isDirectory()) continue;
+                        allFiles.put(e2.getName().replace('\\', '/'), readSzEntryBytes(sz2));
+                    }
+                }
+                it.extraFiles = new LinkedHashMap<>(allFiles);
+                ParseResult r = new ParseResult();
+                r.kind = Kind.NODE_PROJECT;
+                r.note = "认出来了：Node 项目离线包（整个项目 1 个服务）";
+                r.items.add(it);
+                return r;
+            }
+        }
+        if (pkgJson == null) throw new Exception("无效的离线包：里面没有 package.json");
+        String nm = new JSONObject(pkgJson).optString("name", "");
+        if (nm.contains("/") || nm.contains("..")) throw new Exception("包名非法");
+        ParseResult r = parseJson(pkgJson);
+        for (ImportItem it : r.items) {
+            if (!bins.isEmpty()) it.extraFiles = new LinkedHashMap<>(bins);
+            if (hasUserCmds) it.needsReview = addLine(it.needsReview, "包里的自建命令（commands.json）没有导入");
+        }
+        r.note = "认出来了：默影视实验室离线包（" + r.items.size() + " 条命令）";
+        return r;
     }
 
     private static byte[] readSzEntryBytes(SevenZFile sz) throws Exception {
@@ -885,6 +932,7 @@ public final class LabImportCompat {
         m.desc = it.desc == null ? "" : it.desc;
         m.icon = "服";
         m.version = it.version == null || it.version.isEmpty() ? "1.0" : it.version;
+        m.group = it.group == null ? "" : it.group;
         m.runtime = it.runtime == null ? "none" : it.runtime;
         m.autoStart = it.autoStart;
         LabManifest.LabCommand c = new LabManifest.LabCommand();

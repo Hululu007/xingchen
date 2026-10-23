@@ -68,7 +68,7 @@ const LOGIN_TEXTAREA_LIMIT = 32 * 1024;
 const LOGIN_TEXTAREA_LINE_LIMIT = 1600;
 const LOGIN_PREVIEW_ROW_CHARS = 1200;
 
-function escPath(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function escPath(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n'); }
 function escHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function itemId(path) { return String(path || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function remoteManageActive() { return mode === 'remote' && currentView !== 'sync' && !!target; }

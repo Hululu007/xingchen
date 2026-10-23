@@ -11,17 +11,9 @@ from importlib.machinery import SourceFileLoader
 
 
 class Spider(metaclass=ABCMeta):
-    _instance = None
 
     def __init__(self):
             self.extend = ''
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance:
-            return cls._instance
-        else:
-            cls._instance = super().__new__(cls)
-            return cls._instance
 
     def init(self, extend=""):
         pass

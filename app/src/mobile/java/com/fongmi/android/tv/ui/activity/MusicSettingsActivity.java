@@ -760,10 +760,8 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
-    /** 第三波 S-A4 先行：行已改名“清除图片缓存”（只清 Glide 图片磁盘缓存，见 MusicCache 头注），
-     * 行已加副文“图片缓存与视频封面共用”。独立音乐图片目录未做：Glide 磁盘缓存目录全 App 共用，
-     * 音乐单独分目录需改 Glide 全局配置（影响视频封面缓存路径），改动面大，分目录列入交回清单，
-     * 不再让用户以为清的是歌曲缓存、也不再误清视频封面而不自知。 */
+    /** 清音乐缓存（低-02 修后）：只清音乐自有歌词缓存（内存＋磁盘，见 MusicCache 头注），
+     * 不动全 App 共用的 Glide 图片缓存，不会误清视频封面；行名、副文与完成提示已同步改成音乐缓存口径。 */
     private void clearCache() {
         MusicCache.clear(() -> {
             Notify.show(R.string.music_cache_cleared);

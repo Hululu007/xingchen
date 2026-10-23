@@ -1185,8 +1185,26 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         };
     }
 
+    // 播放器标题：单集时集名只是播放钮的标签（大量源就叫「播放」），不是标题，一律用片名；
+    // 多集时集名为空白或占位名（播放/正片）也回退片名；真集名（第01集等）保持「片名：集名」不动。
+    private String getWidgetTitle(Flag flag, Episode episode) {
+        String display = episode.getDisplayName();
+        int count = flag != null && flag.getEpisodes() != null ? flag.getEpisodes().size() : getEpisodeCount();
+        if (count > 1 && !isPlaceholderTitle(episode.getName()) && !isPlaceholderTitle(display)) return getString(R.string.detail_title, mBinding.name.getText(), display);
+        CharSequence nameText = mBinding.name.getText();
+        String vodName = nameText == null ? "" : nameText.toString();
+        if (TextUtils.isEmpty(vodName) && mHistory != null) vodName = Objects.toString(mHistory.getVodName(), "");
+        return TextUtils.isEmpty(vodName) ? getString(R.string.detail_title, mBinding.name.getText(), display) : vodName;
+    }
+
+    private boolean isPlaceholderTitle(String name) {
+        if (name == null) return true;
+        String trimmed = name.trim();
+        return trimmed.isEmpty() || "播放".equals(trimmed) || "正片".equals(trimmed);
+    }
+
     private void getPlayer(Flag flag, Episode episode) {
-        mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getDisplayName()));
+        mBinding.widget.title.setText(getWidgetTitle(flag, episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         String playFlag = getEpisodePlayFlag(flag, episode);
@@ -3449,7 +3467,15 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void onTrack(View view) {
-        TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int type;
+        try {
+            type = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
 
@@ -5955,6 +5981,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     @Override
     public boolean isControlAudioContent() {
         return isAudioOnly() || isMusicLike();
+    }
+
+    @Override
+    public boolean isControlMultiEpisode() {
+        return mEpisodeAdapter != null && getEpisodeCount() >= 2;
+    }
+
+    private int getEpisodeCount() {
+        Flag flag = getFlag();
+        return flag == null ? mEpisodeAdapter.getItemCount() : flag.getEpisodes() == null ? 0 : flag.getEpisodes().size();
     }
 
     public void onKaraokeModeChanged() {

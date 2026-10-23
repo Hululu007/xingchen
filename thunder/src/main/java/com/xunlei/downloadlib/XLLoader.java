@@ -13,8 +13,12 @@ import com.xunlei.downloadlib.parameter.XLTaskLocalUrl;
 class XLLoader {
 
     public XLLoader() {
-        System.loadLibrary("xl_stat");
-        System.loadLibrary("xl_thunder_sdk");
+        try {
+            System.loadLibrary("xl_stat");
+            System.loadLibrary("xl_thunder_sdk");
+        } catch (LinkageError e) {
+            throw new IllegalStateException("迅雷原生库加载失败", e);
+        }
     }
 
     public native int createBtMagnetTask(String str, String str2, String str3, GetTaskId getTaskId);

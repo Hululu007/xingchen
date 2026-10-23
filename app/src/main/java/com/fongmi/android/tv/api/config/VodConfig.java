@@ -100,6 +100,9 @@ public class VodConfig extends BaseConfig {
         dynamicSites.clear();
         WebHomeExtensionRegistry.get().setGlobalSources(null, "");
         BaseLoader.get().clear("vod-config-clear");
+        // 配置都没了，旧配置的在途首页加载整体作废：不推代次的话，它跑完会
+        // 按同 key 把旧结果写进新配置的首页缓存（新配置先吃一口旧数据）。
+        SiteApi.invalidateHomeLoads();
         SiteApi.clearHomeCache();
         SiteApi.clearDetailCache();
         // 解析缓存与上面两缓存是三张独立表：清解析缓存不重复清首页/详情缓存，

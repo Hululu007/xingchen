@@ -13,7 +13,10 @@ public record CastVideo(String name, String url, long position, Map<String, Stri
         name = name == null ? "" : name;
         url = url == null ? "" : url;
         headers = headers == null ? Collections.emptyMap() : headers;
-        if (url.startsWith("file")) url = Server.get().getAddress() + "/" + url.replace(Path.rootPath(), "").replace("://", "");
-        if (url.contains("127.0.0.1")) url = url.replace("127.0.0.1", Util.getIp());
+        String ip = Util.getIp();
+        if (ip != null) {
+            if (url.startsWith("file")) url = Server.get().getAddress() + "/" + url.replace(Path.rootPath(), "").replace("://", "");
+            if (url.contains("127.0.0.1")) url = url.replace("127.0.0.1", ip);
+        }
     }
 }

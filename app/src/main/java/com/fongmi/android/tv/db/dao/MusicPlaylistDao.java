@@ -18,4 +18,7 @@ public abstract class MusicPlaylistDao extends BaseDao<MusicPlaylist> {
 
     @Query("DELETE FROM MusicPlaylist WHERE id = :id")
     public abstract void delete(long id);
+
+    @Query("DELETE FROM MusicPlaylist")
+    public abstract void deleteAll();
 }

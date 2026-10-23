@@ -101,7 +101,9 @@ public class AiAsrPluginManager {
      */
     public static void ensurePlugin(Context context, Callback callback) {
         if (bridge != null) {
-            callback.onSuccess(bridge);
+            // 类注释承诺回调在主线程（低-04）：早退分支也要走主线程，别在调用线程直调
+            IAiAsrBridge loaded = bridge;
+            runOnMain(() -> callback.onSuccess(loaded));
             return;
         }
         if (loadFailed) {
@@ -109,7 +111,7 @@ public class AiAsrPluginManager {
             loadFailed = false;
         }
         if (!loading.compareAndSet(false, true)) {
-            callback.onError("插件正在加载中，请稍候");
+            runOnMain(() -> callback.onError("插件正在加载中，请稍候"));
             return;
         }
         new Thread(() -> {
@@ -269,7 +271,15 @@ public class AiAsrPluginManager {
 
     /** 删除插件（释放空间） */
     public static void deletePlugin(Context context) {
+        // 先释放桥再删文件（低-04）：只置空不 release，native 句柄要等进程退出才回收
+        IAiAsrBridge b = bridge;
         bridge = null;
+        if (b != null) {
+            try {
+                b.release();
+            } catch (Throwable ignored) {
+            }
+        }
         loadFailed = false;
         deleteRecursive(pluginDir(context));
     }

@@ -65,6 +65,7 @@ public class ApkPushDialog extends BaseBottomSheetDialog implements SyncDeviceAd
     private SyncDeviceAdapter adapter;
     private ScanTask scanTask = new ScanTask(this);
     private Call uploadCall;
+    private volatile boolean destroyed;
     private File apk;
     private String fileName;
     private String sha256;
@@ -199,13 +200,18 @@ public class ApkPushDialog extends BaseBottomSheetDialog implements SyncDeviceAd
 
     @Override
     public void onFind(Device device) {
-        if (device == null || !device.isApp() || Device.get().equals(device)) return;
-        adapter.sort(device, () -> binding.recycler.setVisibility(View.VISIBLE));
+        if (binding == null || device == null || !device.isApp() || Device.get().equals(device)) return;
+        adapter.sort(device, () -> {
+            if (binding != null) binding.recycler.setVisibility(View.VISIBLE);
+        });
     }
 
     @Override
     public void onLost(Device device) {
-        adapter.remove(device, () -> binding.recycler.setVisibility(adapter.getItemCount() == 0 ? View.GONE : View.VISIBLE));
+        if (binding == null) return;
+        adapter.remove(device, () -> {
+            if (binding != null) binding.recycler.setVisibility(adapter.getItemCount() == 0 ? View.GONE : View.VISIBLE);
+        });
     }
 
     @Override
@@ -222,6 +228,8 @@ public class ApkPushDialog extends BaseBottomSheetDialog implements SyncDeviceAd
     }
 
     private void upload(Device device, int retry) {
+        // 弹窗销毁后排程的重试到点直接放弃：待传文件已删，再跑必失败还会弹失败提示
+        if (destroyed || apk == null) return;
         RequestBody fileBody = new ProgressRequestBody(apk, APK, this::onProgress);
         MultipartBody body = new MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("device", Device.get().toString())
@@ -275,6 +283,7 @@ public class ApkPushDialog extends BaseBottomSheetDialog implements SyncDeviceAd
     }
 
     private void failed(String reason) {
+        if (destroyed) return;
         pushing = false;
         Notify.show(getString(R.string.apk_push_failed, reason));
         dismissAllowingStateLoss();
@@ -303,6 +312,7 @@ public class ApkPushDialog extends BaseBottomSheetDialog implements SyncDeviceAd
 
     @Override
     public void onDestroyView() {
+        destroyed = true;
         if (uploadCall != null) uploadCall.cancel();
         stopScan();
         if (apk != null) Path.clear(apk);

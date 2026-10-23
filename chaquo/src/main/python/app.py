@@ -1,4 +1,5 @@
 import hashlib
+import itertools
 import os
 import requests
 import json
@@ -9,10 +10,6 @@ try:
     from runner import Runner as _Runner
 except Exception:
     _Runner = None
-
-for _k in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY'):
-    os.environ.pop(_k, None)
-
 
 def _install_dns_bridge():
     try:
@@ -47,6 +44,7 @@ _install_dns_bridge()
 
 
 _file_hashes = {}
+_module_seq = itertools.count(1)
 
 
 # 首页加载代次（修 3）：Java 侧每次作废旧首页加载时代次 +1 并经 set_home_generation
@@ -120,7 +118,7 @@ def spider(cache, source, file_name=None):
     if _file_hashes.get(name) != digest:
         writeFile(path, data)
         _file_hashes[name] = digest
-    mod_name = name.split('.')[0]
+    mod_name = name.split('.')[0] + '_' + str(next(_module_seq))
     from importlib.machinery import SourceFileLoader
     raw = SourceFileLoader(mod_name, path).load_module().Spider()
     return _Runner(raw) if _Runner is not None else raw
@@ -248,8 +246,9 @@ def init(ru, extend):
 
 
 def homeContent(ru, filter, gen=None):
-    # 首页代次令牌（修 3）：Java 侧 SiteApi.cancelHomeLoads() 作废旧首页加载时把代次
-    # +1 并推送到 _home_generation。调用方携带的代次若已过期，直接返回空 JSON，
+    # 首页代次令牌（修 3）：Java 侧 SiteApi 批次认领（claimHomeLoadBatch）顶替旧
+    # 加载、配置切换作废（invalidateHomeLoads）时把代次 +1 并推送到
+    # _home_generation。调用方携带的代次若已过期，直接返回空 JSON，
     # 不再进脚本——防止被取消/排队中的旧任务在取消后仍打站点（僵尸加载止血）。
     # 只限首页两路；播放/详情/搜索/分类绝不受首页代次影响。
     if not _home_gen_ok(gen):
@@ -274,39 +273,9 @@ def categoryContent(ru, tid, pg, filter, extend):
 
 
 def detailContent(ru, array):
-    # TEMP-DIAG-REMOVE-AFTER
-    import traceback as _tb
-    import datetime as _dt
-    _log_path = '/sdcard/xingchen_py_error.log'
-    try:
-        from com.chaquo.python import Python as _qp
-        _qctx = _qp.getPlatform().getApplication().getApplicationContext()
-        _qdir = str(_qctx.getExternalFilesDir(None))
-        if _qdir and _qdir != 'None':
-            _log_path = _qdir + '/xingchen_py_error.log'
-    except Exception:
-        pass
-    def _dlog(_msg):
-        try:
-            with open(_log_path, 'a', encoding='utf-8') as _f:
-                _f.write(_msg + '\n')
-        except Exception:
-            pass
-    try:
-        _r = _fix_pics(ru, ru.detailContent(str2json(array)))
-        _jo = json.dumps(_r, ensure_ascii=False)
-        _flag = 'EMPTY_RESULT' if len(_jo) < 50 else ''
-        _dlog('[%s] detailContent OK ids=%s len=%d %s' % (_dt.datetime.now().isoformat(), array[:200], len(_jo), _flag))
-        return _jo
-    except Exception:
-        _sp = ''
-        try:
-            _sp = ru.getName()
-        except Exception:
-            pass
-        _dlog('[%s] detailContent EXCEPTION spider=%s ids=%s\n%s' % (_dt.datetime.now().isoformat(), _sp, array[:200], _tb.format_exc()))
-        raise
-    # TEMP-DIAG-REMOVE-AFTER-END
+    result = _fix_pics(ru, ru.detailContent(str2json(array)))
+    formatJo = json.dumps(result, ensure_ascii=False)
+    return formatJo
 
 
 def searchContent(ru, key, quick, pg="1"):

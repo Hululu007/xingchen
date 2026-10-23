@@ -28,10 +28,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 提前跑一遍写进预热缓存，用户切任何源都是秒出。
  *
  * 独立通道（与前台首页加载互不打架）：
- * - 不走 cancelHomeLoads / 代次（generation）作废体系：不用 spiderHomePool、
+ * - 不走前台首页加载的批次作废体系：不用 spiderHomePool、
  *   不登记 homeLoadFutures、不读不写 homeLoadGen；前台切源/进详情/搜索/刷新
  *   触发的任何作废都碰不到预热任务（射程外的独立池＋独立 future 表）。
- * - 绝不调用任何作废接口：不调 cancelHomeLoads、不递增前台代次。
+ * - 绝不调用任何作废接口、不递增前台代次。
  * - 慢源专用耐心（两遍）：第一遍每源最多等 25 秒，超时不算失败、不记 doneThisBoot，
  *   挪到队尾第二遍；第二遍按账自适应（历史耗时×1.5＋10 秒余量，60–300 秒钳制；
  *   无账新源默认 120 秒）。前台 30/35 秒口径一字不动；只有真挂死才跳过。

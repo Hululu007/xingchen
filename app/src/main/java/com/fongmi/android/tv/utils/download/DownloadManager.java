@@ -271,7 +271,8 @@ public class DownloadManager {
                 // 等确认停稳后才开工；多次点继续只挂一个等待者。
                 if (!resumePending.add(taskId)) return;
                 Notify.show("正在等待上一个下载停稳…");
-                new Thread(() -> {
+                // 一次性等待线程设守护：它有 10 秒上限自收尾，不许拖住进程退出
+                Thread resumeWaiter = new Thread(() -> {
                     try {
                         boolean stopped = barrier.awaitFinished(STOP_WAIT_TIMEOUT_MS);
                         stopping.remove(taskId, barrier);
@@ -292,7 +293,9 @@ public class DownloadManager {
                     } finally {
                         resumePending.remove(taskId);
                     }
-                }, "download-resume-wait").start();
+                }, "download-resume-wait");
+                resumeWaiter.setDaemon(true);
+                resumeWaiter.start();
                 return;
             }
         }
@@ -314,14 +317,17 @@ public class DownloadManager {
                 // C-25: 旧线程（尤其 m3u8 合并）可能还会写/重建目标文件，
                 // 等它停笔后再删；超时（上限同 STOP_WAIT_TIMEOUT_MS）也删，
                 // 删已摘除任务的文件句柄写的是已 unlink 的旧文件，不会污染新文件。
-                new Thread(() -> {
+                // 一次性等待线程设守护：有上限自收尾，不许拖住进程退出。
+                Thread deleteWaiter = new Thread(() -> {
                     try {
                         barrier.awaitFinished(STOP_WAIT_TIMEOUT_MS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
                     file.delete();
-                }, "download-delete-wait").start();
+                }, "download-delete-wait");
+                deleteWaiter.setDaemon(true);
+                deleteWaiter.start();
             } else {
                 file.delete();
             }

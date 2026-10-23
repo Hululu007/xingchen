@@ -3626,7 +3626,7 @@ public class HkPageActivity extends BaseActivity {
             h.itemView.setOnClickListener(v -> {
                 try {
                     int pos = h.getAdapterPosition();
-                    if (pos >= 0 && listener != null) {
+                    if (pos >= 0 && pos < pairs.size() && listener != null) {
                         listener.onPick(pairs.get(pos)[1]);
                     }
                 } catch (Exception e) {

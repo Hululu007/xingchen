@@ -36,7 +36,7 @@ public class Biometric {
 
             @Override
             public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
-                ((Callback) activity).onBiometricSuccess();
+                if (activity instanceof Callback callback) callback.onBiometricSuccess();
             }
         });
     }

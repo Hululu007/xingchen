@@ -26,12 +26,17 @@ public class Startup implements Initializer<Void> {
     @NonNull
     @Override
     public Void create(@NonNull Context context) {
-        if (PlaybackRecoveryMonitor.isRecoveryProcess(context)) return null;
+        // 进程守卫与 App 统一到主进程口径（S5-07）：此前只挡恢复进程，
+        // 崩溃页进程（:error_activity）里整套（崩溃配置/日志/DoH/代理/节点网关）照跑。
+        if (!PlaybackRecoveryMonitor.isMainProcess(context)) return null;
         CaocConfig.Builder.create().trackActivities(true).backgroundMode(CaocConfig.BACKGROUND_MODE_SILENT).errorActivity(CrashActivity.class).apply();
         Logger.addLogAdapter(new AndroidLogAdapter(PrettyFormatStrategy.newBuilder().methodCount(0).showThreadInfo(false).tag("TV").build()));
         try {
-            } catch (Throwable t) {
+            // 安装默认事件总线（S5-08）：此前 install 写在 catch 里、try 体为空，
+            // 安装永不执行，日后往 builder 加配置会静默不生效。放回 try 体真装，
+            // 失败（已安装等）保持 EventBus.getDefault() 惰性自建的原行为。
             EventBus.builder().installDefaultEventBus();
+        } catch (Throwable ignored) {
         }
         XingChenDoh.apply(context);
         XingChenProxy.apply(context);

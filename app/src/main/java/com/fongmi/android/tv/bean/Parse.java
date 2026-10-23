@@ -39,7 +39,13 @@ public class Parse implements Diffable<Parse> {
     private String click;
 
     public static Parse objectFrom(JsonElement element) {
-        return App.gson().fromJson(element, Parse.class);
+        try {
+            Parse parse = App.gson().fromJson(element, Parse.class);
+            return parse == null ? new Parse() : parse;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10，与已守卫一组口径统一）
+            return new Parse();
+        }
     }
 
     public static Parse get(Integer type, String url) {

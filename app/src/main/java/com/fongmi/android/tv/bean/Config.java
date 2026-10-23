@@ -56,7 +56,13 @@ public class Config {
     }
 
     public static Config objectFrom(String str) {
-        return App.gson().fromJson(str, Config.class);
+        try {
+            Config config = App.gson().fromJson(str, Config.class);
+            return config == null ? new Config() : config;
+        } catch (Exception e) {
+            // 畸形 JSON 不直穿调用方（S5-10）：Config.find(Config) 对 null 入参无守卫，给空对象
+            return new Config();
+        }
     }
 
     public static Config create(int type) {

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.server;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.player.PlaybackRouteRegistry;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.Proxy;
 import com.github.catvod.crawler.SpiderDebug;
@@ -20,6 +21,18 @@ public class Server {
     private volatile int startRetries;
     private static final int START_RETRY_MAX = 12;
     private static final long START_RETRY_DELAY_MS = 5000;
+    /** 是否已有一条重试链在排队：重试预算只由链本身按 5 秒一拍消耗，
+     * 外部入口（管理页 15 秒 checker、touch 等）的失败调用只负责确保链在跑，
+     * 不许再各自递增计数把播放路径的重试窗口提前耗尽。 */
+    private volatile boolean retryPending;
+    /** 预算耗尽的用户提示只发一次（成功起服后清旗，可再提示下一轮）。 */
+    private volatile boolean startFailureNotified;
+    /** 固定实例：App.post(runnable, delay) 按实例 removeCallbacks 去重，
+     * 每次新建 this::start 方法引用会让去重失效、重试链可叠多条。 */
+    private final Runnable retryStart = () -> {
+        retryPending = false;
+        start();
+    };
     private PlaybackRouteRegistry.Registration routeRegistration;
 
     private static class Loader {
@@ -74,6 +87,7 @@ public class Server {
         generation++;
         if (nano != null) {
             startRetries = 0;
+            startFailureNotified = false;
             return;
         }
         for (int i = 9978; i < 9999; i++) {
@@ -90,6 +104,7 @@ public class Server {
         }
         if (nano != null) {
             startRetries = 0;
+            startFailureNotified = false;
             return;
         }
         // 候选端口全被占（典型是崩后残留进程还占着本地服务端口）：此前这里静默
@@ -97,9 +112,19 @@ public class Server {
         // 任何日志。改成留痕＋限次重试：占位者被系统回收/退出后本进程能自愈，
         // 不必靠用户强退。重试有上限，长期被别家占满时不无限空转。
         SpiderDebug.log("server", "local server start failed: ports 9978-9998 busy, retry=%d/%d", startRetries, START_RETRY_MAX);
+        if (retryPending) {
+            // 已有重试链在排队：本次失败不另起链、不消耗预算。
+            return;
+        }
         if (startRetries < START_RETRY_MAX) {
             startRetries++;
-            App.post(this::start, START_RETRY_DELAY_MS);
+            retryPending = true;
+            App.post(retryStart, START_RETRY_DELAY_MS);
+        } else if (!startFailureNotified) {
+            // 预算耗尽：日志之外必须让用户看得见，否则管理页/局域网功能
+            // 打不开时用户只面对一个死页面、没有任何说明。
+            startFailureNotified = true;
+            App.post(() -> Notify.show("本地服务启动失败：端口被占用，局域网功能暂时不可用"));
         }
     }
 
@@ -114,6 +139,15 @@ public class Server {
                 nano = null;
                 if (routeRegistration != null) routeRegistration.close();
                 routeRegistration = null;
+                // W7-04：停服必须连已排队的重试链一并摘掉——否则起服失败的
+                // 重试期里 stop（nano 本为 null、无实事可做）后，5 秒一拍的
+                // retryStart 照常触发 start()，服务在用户已退出后自行复活、
+                // 甚至在退出后弹失败提示。清旗与计数后，下一轮 start 按全新
+                // 预算重新起链（start 路径既有语义不动）。
+                App.removeCallbacks(retryStart);
+                retryPending = false;
+                startRetries = 0;
+                startFailureNotified = false;
                 // 端口复位到未起态：catvod Proxy 的初始值就是 -1（set(-1) 即复位，
                 // 不是置 0）；引用方口径已核：NsdDeviceDiscovery 以 getPort() <= 0
                 // 守门、Server.getAddress／Proxy.getUrl 只拼字符串，与冷启未 start

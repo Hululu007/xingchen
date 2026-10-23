@@ -49,6 +49,7 @@ public class NextEpisodeDataPrefetcher {
     private State state = State.IDLE;
     private long bytesAdded;
     private long baselineBytes;
+    private String cacheKey;
     private long byteCapBytes;
     private long targetMs;
     private String url;
@@ -126,8 +127,9 @@ public class NextEpisodeDataPrefetcher {
             this.targetMs = wholeEpisode ? WHOLE_EPISODE_TARGET_MS : HEAD_TARGET_MS;
             this.byteCapBytes = byteCapFor(wholeEpisode);
             this.bytesAdded = 0;
+            this.cacheKey = item.localConfiguration == null || item.localConfiguration.uri == null ? url : item.localConfiguration.uri.toString();
             try {
-                this.baselineBytes = MediaSourceFactory.getCache().getCacheSpace();
+                this.baselineBytes = cachedBytesLocked();
                 worker = new HandlerThread("NextEpisodeDataPrefetch");
                 worker.start();
                 executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
@@ -177,6 +179,7 @@ public class NextEpisodeDataPrefetcher {
             url = null;
             headers = null;
             item = null;
+            cacheKey = null;
             bytesAdded = 0;
         }
     }
@@ -205,10 +208,20 @@ public class NextEpisodeDataPrefetcher {
     }
 
     private void refreshBytesLocked() {
+        // 只量本集缓存键名下的字节：整缓存增量会把前台当前集自身的缓存增长
+        // 也算进来，可误触 byteCap 提前停预下、回报也虚高。分段内容（HLS）的
+        // 分片各有键名、本键只量到清单本体，cap 对分段内容不生效——其下载量
+        // 由 PreCacheHelper 的 targetMs 天然封顶；单文件内容计量准确。
+        long now = cachedBytesLocked();
+        if (now >= baselineBytes) bytesAdded = now - baselineBytes;
+    }
+
+    private long cachedBytesLocked() {
+        if (cacheKey == null) return 0;
         try {
-            long now = MediaSourceFactory.getCache().getCacheSpace();
-            if (now >= baselineBytes) bytesAdded = now - baselineBytes;
+            return MediaSourceFactory.getCache().getCachedBytes(cacheKey, 0, Long.MAX_VALUE);
         } catch (Throwable ignored) {
+            return 0;
         }
     }
 

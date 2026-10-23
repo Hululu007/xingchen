@@ -11,7 +11,10 @@ import androidx.core.content.ContextCompat;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.service.MusicPlaybackService;
+import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
 
@@ -116,6 +119,9 @@ public class MusicController {
         @Override
         public void onPlayingChanged(boolean playing) {
             App.post(() -> {
+                // X-28 后半兜底：系统会话／通知等绕开控制器入口的起播也汇到
+                // 这里，音乐真出声就把视频停掉（入口钩子是同步主路，这里兜底）。
+                if (playing) pauseVideoForMusic();
                 listeners.forEach(l -> l.onPlayingChanged(playing));
                 syncMiniBar();
                 // 第三波 M2（选口径 a）：播放态变化时调策略 playingChanged，让暂停 10 秒
@@ -275,6 +281,24 @@ public class MusicController {
         return was;
     }
 
+    /**
+     * 音乐起播停视频（X-28 后半，与 PlayerManager.pauseMusicForVideo 对称）：
+     * 经 Server 登记表取当前视频服务（壳子内既有的跨组件取法，Web 桥与本地
+     * 服务同款）；服务没起来、播放器已释放、视频没在播，三种情况都直接返回，
+     * 无副作用、不抛。本类的每个出声起播入口都先调它。
+     */
+    public static void pauseVideoForMusic() {
+        try {
+            PlaybackService videoService = Server.get().getService();
+            if (videoService == null) return;
+            PlayerManager player = videoService.player();
+            if (player == null || player.isReleased()) return;
+            if (!player.isPlaying()) return;
+            player.pauseForMusic();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void play(List<MusicTrack> queue, int index) {
         play(queue, index, null, null, null);
     }
@@ -284,6 +308,7 @@ public class MusicController {
                      String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().playQueue(new ArrayList<>(queue), index, source, route, routeParams));
     }
 
@@ -295,6 +320,7 @@ public class MusicController {
                              String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().playQueueWithMode(new ArrayList<>(queue), index, mode, source, route, routeParams));
     }
 
@@ -308,11 +334,13 @@ public class MusicController {
                          String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().playQueueFrom(new ArrayList<>(queue), index, position, source, route, routeParams));
     }
 
     public void playAt(int index) {
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().playAt(index));
     }
 
@@ -335,11 +363,15 @@ public class MusicController {
 
     public void toggle() {
         pausedByVideo = false;
+        // toggle 是双向键：当前没在播时这一按是切向播放、才停视频；
+        // 正在播时这一按是暂停，只停音乐，不许连带把在播的视频停掉。
+        if (!isPlaying()) pauseVideoForMusic();
         runOnService(() -> service().toggle());
     }
 
     public void play() {
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().play());
     }
 
@@ -350,6 +382,7 @@ public class MusicController {
 
     public void next() {
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().next());
     }
 
@@ -371,6 +404,7 @@ public class MusicController {
 
     public void prev() {
         pausedByVideo = false;
+        pauseVideoForMusic();
         runOnService(() -> service().prev());
     }
 
@@ -444,6 +478,7 @@ public class MusicController {
 
     /** 音质切换后重载当前歌曲 */
     public void reloadQuality() {
+        pauseVideoForMusic();
         runOnService(() -> service().reloadCurrent());
     }
 
@@ -652,6 +687,8 @@ public class MusicController {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
         if (instance != null) instance.pausedByVideo = false;
+        // 同 toggle()：这一按是暂停时不许连带停掉在播的视频
+        if (!s.isPlaying()) pauseVideoForMusic();
         s.toggle();
         return true;
     }
@@ -660,6 +697,7 @@ public class MusicController {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
         if (instance != null) instance.pausedByVideo = false;
+        pauseVideoForMusic();
         s.next();
         return true;
     }
@@ -668,6 +706,7 @@ public class MusicController {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
         if (instance != null) instance.pausedByVideo = false;
+        pauseVideoForMusic();
         s.prev();
         return true;
     }

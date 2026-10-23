@@ -99,7 +99,9 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     }
 
     private FolderFragment getFragment() {
-        return (FolderFragment) mBinding.pager.getAdapter().instantiateItem(mBinding.pager, mBinding.pager.getCurrentItem());
+        if (mBinding == null || mBinding.pager.getAdapter() == null) return null;
+        Object item = mBinding.pager.getAdapter().instantiateItem(mBinding.pager, mBinding.pager.getCurrentItem());
+        return item instanceof FolderFragment folder ? folder : null;
     }
 
     private Site getHome() {
@@ -246,7 +248,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     }
 
     private void onTop(View view) {
-        getFragment().scrollToTop();
+        FolderFragment fragment = getFragment();
+        if (fragment != null) fragment.scrollToTop();
         mBinding.top.setVisibility(View.INVISIBLE);
         if (mBinding.filter.getVisibility() == View.INVISIBLE) mBinding.filter.show();
         else if (mBinding.link.getVisibility() == View.INVISIBLE) mBinding.link.show();
@@ -562,7 +565,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
             case CATEGORY:
                 if (mWeb != null && mWeb.isVisible()) return;
                 if (mBinding.pager.getAdapter() == null || mBinding.pager.getAdapter().getCount() == 0) return;
-                getFragment().onRefresh();
+                FolderFragment current = getFragment();
+                if (current != null) current.onRefresh();
                 break;
         }
     }
@@ -642,7 +646,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     @Override
     public void setFilter(String key, Value value) {
-        getFragment().setFilter(key, value);
+        FolderFragment fragment = getFragment();
+        if (fragment != null) fragment.setFilter(key, value);
     }
 
     @Override
@@ -653,8 +658,9 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
             return false;
         }
         if (mBinding.pager.getAdapter() == null || mBinding.pager.getAdapter().getCount() == 0) return true;
-        if (!getFragment().canBack()) return true;
-        getFragment().goBack();
+        FolderFragment fragment = getFragment();
+        if (fragment == null || !fragment.canBack()) return true;
+        fragment.goBack();
         return false;
     }
 

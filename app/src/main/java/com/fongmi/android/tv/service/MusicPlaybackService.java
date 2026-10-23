@@ -54,6 +54,7 @@ import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.api.music.PlaylistImporter;
 import com.fongmi.android.tv.music.MusicAudioInfo;
 import com.fongmi.android.tv.music.MusicBitDepthProbe;
+import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
@@ -83,10 +84,12 @@ public class MusicPlaybackService extends MediaSessionService {
     public static final String LOCAL_BIND_ACTION = BuildConfig.APPLICATION_ID.concat(".MUSIC_LOCAL_BIND");
 
     /**
-     * 占位前台通知 id：与 media3 默认媒体通知同 id（DefaultMediaNotification 的 1001），
-     * 占位先顶上、真媒体通知出来时原地替换，不会双份。
+     * 占位前台通知 id：必须与 media3 默认媒体通知的 1001 分家——同 id 时后写的
+     * 顶掉先写的，占位（只有标题、无控件）会把真媒体通知的内容/点击目标冲掉，
+     * 反之亦然。用独立 id 1004 顶前台，真媒体通知由 media3 随后接管前台槽；
+     * 占位摘除走 onIsPlayingChanged 的真起播点（见 cancelForegroundPlaceholder）。
      */
-    private static final int FG_NOTIFICATION_ID = 1001;
+    private static final int FG_NOTIFICATION_ID = 1004;
 
     /**
      * 失败停机通知 id：与媒体通知 1001、通用 Notify 9527 都不同，
@@ -244,6 +247,11 @@ public class MusicPlaybackService extends MediaSessionService {
     private String preloadKey;
     private String preloadUrl;
     private int preloadQuality = -1;
+    /** 预取链落槽时刻（墙钟）：签名直链有时效，超 TTL 的预取链一律作废回源重取，
+     * 不许拿陈旧链直播放（失败还会走跳歌、把好歌跳过去）。 */
+    private long preloadTime;
+    /** 预取链有效期：10 分钟（预取发生在本首起播后，正常在一首歌内就被消费）。 */
+    private static final long PRELOAD_TTL_MS = 10 * 60 * 1000L;
     private final Set<String> failedBlacklist = new HashSet<>();
     private int consecutiveFails;
     /** 最近一次失败的原因文案（onPlayFailed 收口发通知用，四个调用点先填好） */
@@ -354,7 +362,7 @@ public class MusicPlaybackService extends MediaSessionService {
         }
     }
 
-    /** 立刻把服务顶到前台（占位通知）；真媒体通知由 media3 provider 随后同 id 替换 */
+    /** 立刻把服务顶到前台（占位通知，独立 id 1004）；真媒体通知由 media3 provider 随后接管前台槽 */
     private void startForegroundNow() {
         startForegroundWithTrack(null);
     }
@@ -1646,9 +1654,13 @@ public class MusicPlaybackService extends MediaSessionService {
     private String takePreload(MusicTrack track, int quality) {
         if (track == null || !MusicQueue.trackKey(track).equals(preloadKey)) return null;
         String url = preloadUrl;
+        long at = preloadTime;
         preloadKey = null;
         preloadUrl = null;
+        preloadTime = 0;
         if (url == null || url.isEmpty() || preloadQuality != quality) return null;
+        // 陈旧签名链作废：返回 null 让 prepareTrack 走正常取链回源重取，不直播旧链
+        if (System.currentTimeMillis() - at > PRELOAD_TTL_MS) return null;
         return url;
     }
 
@@ -1687,7 +1699,10 @@ public class MusicPlaybackService extends MediaSessionService {
             }
             final String fUrl = url;
             App.post(() -> {
-                if (key.equals(preloadKey) && fUrl != null && !fUrl.isEmpty()) preloadUrl = fUrl;
+                if (key.equals(preloadKey) && fUrl != null && !fUrl.isEmpty()) {
+                    preloadUrl = fUrl;
+                    preloadTime = System.currentTimeMillis();
+                }
             });
         });
     }
@@ -2011,6 +2026,23 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     /**
+     * W7-03：摘掉占位前台通知（id 1004）。本树 media3 的
+     * DefaultMediaNotificationProvider 没有给服务侧注册的
+     * onNotificationPosted 一类回调口（MediaNotification.Provider.Callback
+     * 是框架传给 provider 的内部回调用途，不是服务侧订阅点），故退到既有
+     * 回调点：真播放开始（onIsPlayingChanged(true)）时真媒体通知（1001）
+     * 已由 media3 发出并接管前台，此时 cancel(1004) 把占位条摘掉，不留
+     * 双份。id 保持 1004 不回 1001（回 1001 会与视频通知撞 id，见字段注）。
+     * id 不存在时是空操作，重复调用无害。
+     */
+    private void cancelForegroundPlaceholder() {
+        try {
+            NotificationManagerCompat.from(this).cancel(FG_NOTIFICATION_ID);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 失败停机通知（用户原话：不在播放器里就看不见失败）：
      * 失败收口停机时在通知栏留一条看得见的通知——标题写停了、正文写失败歌名＋原因＋
      * 下一首是否存在，点通知回播放器；恢复播放（STATE_READY）时撤掉，不留过期通知。
@@ -2188,6 +2220,11 @@ public class MusicPlaybackService extends MediaSessionService {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             listeners.forEach(l -> l.onPlayingChanged(isPlaying));
+            // W7-03：播放真开始＝真媒体通知已接管，摘掉占位前台通知 1004
+            if (isPlaying) cancelForegroundPlaceholder();
+            // 双声兜底下沉服务侧：会话/通知/耳机起播绕开控制器入口时也停视频；
+            // 与控制器钩同轮重复调用无副作用（pauseVideoForMusic 内有「视频没在播就返回」守卫）。
+            if (isPlaying) MusicController.pauseVideoForMusic();
             if (!isPlaying) saveBreakpoint();
         }
     };

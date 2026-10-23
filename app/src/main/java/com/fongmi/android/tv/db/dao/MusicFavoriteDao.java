@@ -19,6 +19,9 @@ public abstract class MusicFavoriteDao extends BaseDao<MusicFavorite> {
     @Query("DELETE FROM MusicFavorite WHERE trackId = :trackId")
     public abstract void delete(String trackId);
 
+    @Query("DELETE FROM MusicFavorite")
+    public abstract void deleteAll();
+
     @Query("SELECT COUNT(*) FROM MusicFavorite")
     public abstract int count();
 }

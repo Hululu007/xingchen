@@ -31,7 +31,9 @@ public class Doh {
         List<Doh> items = new ArrayList<>();
         String[] urls = context.getResources().getStringArray(R.array.doh_url);
         String[] names = context.getResources().getStringArray(R.array.doh_name);
-        for (int i = 0; i < names.length; i++) items.add(new Doh().name(names[i]).url(urls[i]));
+        // 两数组以短的为准：资源改版后长度不一致时不许越界。
+        int count = Math.min(names.length, urls.length);
+        for (int i = 0; i < count; i++) items.add(new Doh().name(names[i]).url(urls[i]));
         return items;
     }
 

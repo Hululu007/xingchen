@@ -44,14 +44,18 @@ import java.util.List;
 @Database(entities = {Keep.class, Site.class, Live.class, Track.class, Config.class, Device.class, History.class, PlaybackDeleteTombstone.class, MusicFavorite.class, MusicPlaylist.class, MusicPlaylistItem.class, MusicDownload.class}, version = AppDatabase.VERSION)
 public abstract class AppDatabase extends RoomDatabase {
 
-    public static final int VERSION = 40;
+    public static final int VERSION = 41;
     public static final String NAME = "tv";
     public static final String SYMBOL = "@@@";
 
     private static volatile AppDatabase instance;
 
     public static synchronized AppDatabase get() {
-        if (instance == null) instance = create(App.get());
+        if (instance == null) {
+            // Application 未构造就取库是调用时序错误：给可诊断的异常，不裸 NPE 在 Room 内部
+            if (App.get() == null) throw new IllegalStateException("AppDatabase requested before Application is created");
+            instance = create(App.get());
+        }
         return instance;
     }
 
@@ -120,6 +124,7 @@ public abstract class AppDatabase extends RoomDatabase {
                 .addMigrations(Migrations.MIGRATION_37_38)
                 .addMigrations(Migrations.MIGRATION_38_39)
                 .addMigrations(Migrations.MIGRATION_39_40)
+                .addMigrations(Migrations.MIGRATION_40_41)
                 .fallbackToDestructiveMigration(true)
                 .allowMainThreadQueries().build();
     }

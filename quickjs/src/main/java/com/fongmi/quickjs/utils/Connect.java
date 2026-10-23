@@ -42,16 +42,24 @@ public class Connect {
             if (req.getBuffer() == 3) jsObject.setProperty("content", res.body().bytes());
             return jsObject;
         } catch (Exception e) {
-            return error(ctx);
+            return error(ctx, e);
         }
     }
 
     public static JSObject error(QuickJSContext ctx) {
+        return error(ctx, null);
+    }
+
+    public static JSObject error(QuickJSContext ctx, Throwable e) {
         JSObject jsObject = ctx.createNewJSObject();
         JSObject jsHeader = ctx.createNewJSObject();
         jsObject.setProperty("headers", jsHeader);
         jsObject.setProperty("content", "");
-        jsObject.setProperty("code", "");
+        // code 与 success 路同为数字（旧写法给空字符串，JS 侧按数字比较
+        // 永远对不上）；失败真因放 error 字段，蜘蛛能区分 DNS／TLS／超时
+        // 等失败类型，不再把一切异常折叠成同一个空形态。
+        jsObject.setProperty("code", 0);
+        if (e != null) jsObject.setProperty("error", e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage()));
         return jsObject;
     }
 

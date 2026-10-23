@@ -56,33 +56,46 @@ public class App extends Application implements Application.ActivityLifecycleCal
         return instance;
     }
 
+    // Application 构造前被触发的静态入口兜底（其他进程的 Provider 抢先、工具直调等）：
+    // 此前全是 get().xxx 直调，get() 为 null 即裸 NPE、无从诊断（S5-12）。
+    private static final Gson FALLBACK_GSON = new Gson();
+    private static final Handler FALLBACK_HANDLER = HandlerCompat.createAsync(Looper.getMainLooper());
+
+    private static Handler handler() {
+        App app = get();
+        return app == null ? FALLBACK_HANDLER : app.handler;
+    }
+
     public static Gson gson() {
-        return get().gson;
+        App app = get();
+        return app == null ? FALLBACK_GSON : app.gson;
     }
 
     public static long time() {
-        return get().time;
+        App app = get();
+        return app == null ? System.currentTimeMillis() : app.time;
     }
 
     public static Activity activity() {
-        return get().activity;
+        App app = get();
+        return app == null ? null : app.activity;
     }
 
     public static void post(Runnable runnable) {
-        get().handler.post(runnable);
+        handler().post(runnable);
     }
 
     public static void post(Runnable runnable, long delayMillis) {
-        get().handler.removeCallbacks(runnable);
-        if (delayMillis >= 0) get().handler.postDelayed(runnable, delayMillis);
+        handler().removeCallbacks(runnable);
+        if (delayMillis >= 0) handler().postDelayed(runnable, delayMillis);
     }
 
     public static void removeCallbacks(Runnable runnable) {
-        get().handler.removeCallbacks(runnable);
+        handler().removeCallbacks(runnable);
     }
 
     public static void removeCallbacks(Runnable... runnable) {
-        for (Runnable r : runnable) get().handler.removeCallbacks(r);
+        for (Runnable r : runnable) handler().removeCallbacks(r);
     }
 
     public void setHook(Hook hook) {
@@ -99,9 +112,14 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onCreate() {
         super.onCreate();
+        // 进程守卫一刀切落到全套（S5-07）：此前只有后台服务的投递点按主进程守，
+        // 守卫之前的监听/观察/设置一套（ThemeManager、AiActivityTracker、内存/系统
+        // 监控、插件目录 watch 等）在崩溃页进程（:error_activity）里照样全跑。
+        // 口径与 startBackgroundServices 的注释一致：非主进程什么都不起，
+        // 只留 Application 本体供系统在该进程拉起页面（崩溃页/恢复页）。
+        if (!PlaybackRecoveryMonitor.isMainProcess(this)) return;
         try { com.xingchen.tv.theme.ThemeManager.init(this); } catch (Exception e) {}
         try { com.fongmi.android.tv.ai.AiActivityTracker.init(this); } catch (Exception e) {}
-        if (PlaybackRecoveryMonitor.isRecoveryProcess(this)) return;
         PlaybackMemoryMonitor.process().initialize(this);
         PlaybackSystemConditionMonitor.process().initialize(this);
         Setting.applyLanguage();

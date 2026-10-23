@@ -213,7 +213,9 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             }
         });
         progressView1 = root.findViewById(R.id.progress_image_view1);
-        ((Animatable) progressView1.getDrawable()).start();
+        if (progressView1 != null && progressView1.getDrawable() instanceof Animatable) {
+            ((Animatable) progressView1.getDrawable()).start();
+        }
         webViewContainer = root.findViewById(R.id.webview_container);
         gridLayoutManager = new GridLayoutManager(getContext(), 60);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -264,10 +266,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         fastScroller.setPressedListener(pressed -> onFastScrollPressed(pressed));
         if (!EventBus.getDefault().isRegistered(this)) EventBus.getDefault().register(this);
         notify_bg = root.findViewById(R.id.notify_bg);
-        notify_text = notify_bg.findViewById(R.id.notify_text);
-        notify_bg.findViewById(R.id.notify_queue).setOnClickListener(v -> onNotifyQueueClick());
-        notify_bg.setOnClickListener(v -> onNotifyClick());
-        notify_bg.setOnLongClickListener(v -> onNotifyLongClick());
+        if (notify_bg != null) {
+            notify_text = notify_bg.findViewById(R.id.notify_text);
+            View notifyQueue = notify_bg.findViewById(R.id.notify_queue);
+            if (notifyQueue != null) notifyQueue.setOnClickListener(v -> onNotifyQueueClick());
+            notify_bg.setOnClickListener(v -> onNotifyClick());
+            notify_bg.setOnLongClickListener(v -> onNotifyLongClick());
+        }
         progress_bar = root.findViewById(R.id.progress_bar);
         progress_bar.setColor(androidx.core.content.ContextCompat.getColor(requireContext(),
                 R.color.progress_blue));
@@ -522,7 +527,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         updateReadLayout(list);
         try {
             runWaitUI(() -> applyListToView(isNew, isPre, isAfter, articlesIdStr, fromCache, list, key));
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            SpiderDebug.log("hk", "bindArrayToView runWaitUI failed key=%s err=%s", key, e.toString());
         }
     }
 
@@ -608,7 +614,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             }
             showLastClick();
             if (loadListener != null) loadListener.complete();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            // 落表失败不许静默吞：页面会空白无声。记真因并走与加载失败同一个真错误窗出口
+            SpiderDebug.log("hk", "applyListToView failed key=%s err=%s", key, e.toString());
+            showLoadError("列表加载失败", e);
         } finally {
             loading(false);
         }
@@ -1186,7 +1195,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     @Override
     public void bindObjectToView(String key, HkItem item) {
         if ("updatePage".equals(key)) {
-            page = Integer.parseInt(item.getTitle());
+            if (item != null) {
+                try {
+                    page = Integer.parseInt(item.getTitle());
+                } catch (NumberFormatException ignored) {
+                    // 规则侧给的页码标题不是数字时保持当前页，不许崩
+                }
+            }
             return;
         }
         loadingPage = -1;
@@ -1214,16 +1229,16 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         return base + "\n;\n" + js;
     }
 
-    /** 照抄原版 error：仅在宿主存在时把 (title, 异常) 投到 UI 线程呈现（msg 参数原版不用）。 */
+    /** 照抄原版 error：仅在宿主存在时把 (msg, 异常) 投到 UI 线程呈现（title/code 两参本链不用）。 */
     @Override
-    public void error(String key, String title, String msg, Exception e) {
+    public void error(String title, String msg, String code, Exception e) {
         if (getActivity() != null) {
-            getActivity().runOnUiThread(() -> showLoadError(title, e));
+            getActivity().runOnUiThread(() -> showLoadError(msg, e));
         }
     }
 
     /** 照抄原版 lambda$error$55：收刷新圈、页码回退到已加载的最大页，再弹原版错误窗（5 秒自动消失）。 */
-    private void showLoadError(String title, Exception e) {
+    private void showLoadError(String msg, Exception e) {
         try {
             if (hostListener != null) hostListener.hideLoading();
             if (smartRefreshLayout != null) smartRefreshLayout.finishRefresh(true);
@@ -1232,10 +1247,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             String ruleTitle = articleListRuleDTO == null ? "" : articleListRuleDTO.getTitle();
             // 诊断：新链空列表弹错处（旧 page empty 已不可达，字段口径与旧链对齐）
             SpiderDebug.log("hk", "page empty rule=%s err=%s fetch=%s",
-                    ruleTitle, title,
+                    ruleTitle, msg,
                     com.fongmi.android.tv.api.hk.HkJsRuntime.getLastFetchDiag());
             com.fongmi.android.tv.api.hk.HkErrorUtil.showErrorMsg(getActivity(),
-                    "规则执行过程中出现错误", "home@" + ruleTitle, title, e);
+                    "规则执行过程中出现错误", "home@" + ruleTitle, msg, e);
         } finally {
             loading(false);
         }
@@ -3192,13 +3207,38 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     private void onNotifyQueueClick() {
+        // 投屏队列页属未移植的 DLNA 投屏子系统（与 batchDlan 本体同欠账），暂无落点
     }
 
     private void onNotifyClick() {
+        finishBatchMode();
     }
 
     private boolean onNotifyLongClick() {
         return false;
+    }
+
+    /** 点「完成」退出批量模式：复位全部模式标志与计数、收起 notify 条，并经桥回调通知宿主收尾。 */
+    private void finishBatchMode() {
+        String mode = null;
+        int count = 0;
+        if (batchDownloadSelecting) {
+            mode = "batchDownload";
+            count = batchDownloadCount;
+        } else if (batchDlanSelecting) {
+            mode = "batchDlan";
+        } else if (continuousDlanMode != -1) {
+            mode = "continuousDlan";
+        }
+        batchDownloadSelecting = false;
+        batchDownloadAll = false;
+        batchDownloadCount = 0;
+        batchDlanSelecting = false;
+        continuousDlanMode = -1;
+        continuousDlanHis.clear();
+        if (notify_text != null) notify_text.setText("完 成");
+        if (notify_bg != null) notify_bg.setVisibility(View.GONE);
+        if (mode != null && detailBridge != null) detailBridge.onBatchModeFinish(mode, count);
     }
 
     private int dpToPx(int dp) {
@@ -3249,5 +3289,24 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     public void onDestroyView() {
         super.onDestroyView();
         if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
+        if (loadingPopup != null) {
+            if (loadingPopup.isShowing()) loadingPopup.dismiss();
+            loadingPopup = null;
+        }
+        if (webViewHolder != null) {
+            android.webkit.WebView wv = webViewHolder.getWebView();
+            if (wv != null && wv.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) wv.getParent()).removeView(wv);
+            }
+            HkWebkitHolder kh = webViewHolder.getWebkitHolder();
+            if (kh != null) {
+                kh.onDestroy();
+            } else if (wv != null) {
+                wv.stopLoading();
+                wv.onPause();
+                wv.destroy();
+            }
+            webViewHolder = null;
+        }
     }
 }

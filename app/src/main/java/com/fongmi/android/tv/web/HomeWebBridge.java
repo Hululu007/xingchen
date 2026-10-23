@@ -42,6 +42,7 @@ public class HomeWebBridge {
     private static final int INLINE_LIMIT = 12000;
     private static final int CHUNK_SIZE = 60000;
     private static final long INLINE_RESOLVE_TIMEOUT_SECONDS = 20;
+    private static final int MAX_RESULTS = 64;
 
     private final HomeWebController controller;
     private final Activity activity;
@@ -272,13 +273,21 @@ public class HomeWebBridge {
         String action = Json.safeString(payload, "action");
         if (service == null) return "{}";
         App.post(() -> {
-            if ("play".equals(action)) service.player().play();
-            else if ("pause".equals(action)) service.player().pause();
-            else if ("stop".equals(action)) service.dispatchStop();
-            else if ("prev".equals(action)) service.dispatchPrev();
-            else if ("next".equals(action)) service.dispatchNext();
-            else if ("loop".equals(action)) service.dispatchRepeat();
-            else if ("replay".equals(action)) service.dispatchReplay();
+            // 复核（同 Action.postPlayer 口径）：回帖执行时服务可能已销毁换代，
+            // 捕获的旧 service 的 player 已 release，必须复核同一实例且未释放。
+            PlaybackService current = Server.get().getService();
+            if (current == null || current != service) return;
+            if ("play".equals(action) || "pause".equals(action)) {
+                com.fongmi.android.tv.player.PlayerManager player = current.player();
+                if (player == null || player.isReleased()) return;
+                if ("play".equals(action)) player.play();
+                else player.pause();
+            }
+            else if ("stop".equals(action)) current.dispatchStop();
+            else if ("prev".equals(action)) current.dispatchPrev();
+            else if ("next".equals(action)) current.dispatchNext();
+            else if ("loop".equals(action)) current.dispatchRepeat();
+            else if ("replay".equals(action)) current.dispatchReplay();
         });
         return "{}";
     }
@@ -454,6 +463,10 @@ public class HomeWebBridge {
     private void resolve(String requestId, String data) {
         String payload = TextUtils.isEmpty(data) ? "null" : data;
         if (payload.length() > INLINE_LIMIT) {
+            // 大结果靠页面 JS 读完后 clearResult 回收；JS 不回收时这张表
+            // 会随控制器生命周期一直涨——超过上限整表清掉，旧 id 读到的
+            // 是空结果，与已被回收同义，不许无限累积。
+            if (results.size() >= MAX_RESULTS) results.clear();
             String resultId = requestId + "_" + System.nanoTime();
             results.put(resultId, payload);
             payload = "{\"__fmResultId\":" + quote(resultId) + "}";
@@ -466,7 +479,10 @@ public class HomeWebBridge {
     }
 
     private void eval(String script) {
-        App.post(() -> webView.evaluateJavascript(script, null));
+        // 控制器已销毁（WebView 已 destroy）时不再投递脚本。
+        App.post(() -> {
+            if (!controller.isDestroyed()) webView.evaluateJavascript(script, null);
+        });
     }
 
     private static String encode(String value) {

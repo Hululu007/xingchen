@@ -9,7 +9,7 @@ import java.util.zip.ZipFile;
 
 /**
  * 阅读器懒取面：小说取正文、漫画取图片，都只读当前章，不整本进内存。
- * 图包图片按章解到缓存目录（读前清空上一章），图片文件夹直接给 file://。
+ * 图包图片按章解到各自的缓存子目录（只清本章），图片文件夹直接给 file://。
  */
 public class LocalBookReader {
 
@@ -112,7 +112,7 @@ public class LocalBookReader {
     private static List<String> extractChapterImages(File zipFile, LocalBook book,
                                                      LocalBook.ChapterRef ref) throws Exception {
         List<String> out = new ArrayList<>();
-        File cache = chapterCache(book.id);
+        File cache = chapterCache(book.id, ref.entry);
         try (ZipFile zip = new ZipFile(zipFile)) {
             List<String> entries = LocalArchive.imagesOf(zip, ref);
             int i = 0;
@@ -131,7 +131,7 @@ public class LocalBookReader {
     private static List<String> extractEpubChapterImages(File epubFile, LocalBook book,
                                                          LocalBook.ChapterRef ref) throws Exception {
         List<String> out = new ArrayList<>();
-        File cache = chapterCache(book.id);
+        File cache = chapterCache(book.id, ref.entry);
         LocalEpub.Book eb = LocalEpub.parse(epubFile);
         LocalEpub.SpineItem hit = null;
         for (LocalEpub.SpineItem item : eb.spine) {
@@ -163,7 +163,7 @@ public class LocalBookReader {
     private static List<String> extractArchive2ChapterImages(File archFile, LocalBook book,
                                                             LocalBook.ChapterRef ref) throws Exception {
         List<String> out = new ArrayList<>();
-        File cache = chapterCache(book.id);
+        File cache = chapterCache(book.id, ref.entry);
         List<String> entries = LocalArchive2.imagesOf(archFile, ref, book.format);
         int i = 0;
         for (String name : entries) {
@@ -180,16 +180,21 @@ public class LocalBookReader {
     /** PDF：只渲染本章的页（30 页一组），不整本预渲。 */
     private static List<String> renderPdfChapter(File pdfFile, LocalBook book,
                                                  LocalBook.ChapterRef ref) throws Exception {
-        File cache = chapterCache(book.id);
+        File cache = chapterCache(book.id, "pdf_" + ref.startPage + "_" + ref.endPage);
         List<String> paths = LocalPdf.renderPages(pdfFile, ref.startPage, ref.endPage, cache);
         List<String> out = new ArrayList<>();
         for (String p : paths) out.add("file://" + p);
         return out;
     }
 
-    private static File chapterCache(String bookId) {
-        File cache = new File(LocalBookStore.cacheDir(), bookId);
-        // 读前清空上一章，保持缓存有界
+    /**
+     * 章节图片缓存：按「书＋章」分目录（低-14）。此前一本书共用一个目录、读任何一章
+     * 先全清，预读/并发读相邻章会把正在看的这章图片删掉（满屏空白）。现在只清
+     * 本章自己的目录，别的章互不影响；缓存总量仍按章数自然有界。
+     */
+    private static File chapterCache(String bookId, String chapterKey) {
+        File cache = new File(new File(LocalBookStore.cacheDir(), bookId), sanitizeKey(chapterKey));
+        // 只清本章目录（重进本章时刷掉旧图）
         File[] fs = cache.listFiles();
         if (fs != null) {
             for (File f : fs) f.delete();
@@ -197,5 +202,23 @@ public class LocalBookReader {
             cache.mkdirs();
         }
         return cache;
+    }
+
+    private static String sanitizeKey(String key) {
+        if (key == null || key.isEmpty()) return "chapter";
+        String s = key.replaceAll("[^a-zA-Z0-9._-]", "_");
+        // 纯点串（"."、".."、"..."）带路径导航语义（低-04）：原样当目录名会让章节
+        // 缓存目录逃到父级——".." 时 chapterCache 指向 localbook-cache 本身，清目录
+        // 会误伤他书、图也写进缓存根。映射成固定安全名，正常键行为不变。
+        boolean allDots = true;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) != '.') {
+                allDots = false;
+                break;
+            }
+        }
+        if (allDots) return "_";
+        if (s.length() > 80) s = s.substring(0, 60) + "_" + (key.hashCode() & 0x7fffffff);
+        return s;
     }
 }

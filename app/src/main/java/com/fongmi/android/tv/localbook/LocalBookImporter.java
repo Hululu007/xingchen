@@ -77,10 +77,12 @@ public class LocalBookImporter {
 
         String title = display.replaceAll("(?i)\\.(txt|epub|zip|cbz|pdf|mobi|azw3?|cbr|cb7)$", "");
         try {
-            LocalBook book = buildFromFile(id, dir, target, format, title);
+            StringBuilder warn = new StringBuilder();
+            LocalBook book = buildFromFile(id, dir, target, format, title, warn);
             LocalBookStore.save(book);
             Result r = new Result();
             r.book = book;
+            r.warn = warn.toString();
             return r;
         } catch (ImportException e) {
             LocalBookStore.remove(id);
@@ -124,7 +126,8 @@ public class LocalBookImporter {
     }
 
     private static LocalBook buildFromFile(String id, File dir, File target,
-                                           String format, String title) throws Exception {
+                                           String format, String title,
+                                           StringBuilder warn) throws Exception {
         LocalBook book = new LocalBook();
         book.id = id;
         book.format = format;
@@ -137,6 +140,7 @@ public class LocalBookImporter {
             book.charset = idx.charset;
             book.title = title;
             book.chapters = idx.chapters;
+            if (idx.truncated) warn.append("文件太大，后半部分未收录（只收了前 256MB）");
         } else if ("EPUB".equals(format)) {
             try (ZipFile zip = new ZipFile(target)) {
                 if (LocalEpub.hasDrm(zip)) {

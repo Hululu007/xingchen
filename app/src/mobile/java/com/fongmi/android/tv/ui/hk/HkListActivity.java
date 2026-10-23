@@ -1219,6 +1219,13 @@ public class HkListActivity extends AppCompatActivity
                     getSupportFragmentManager().findFragmentById(R.id.hk_list_container);
             if (restored instanceof HkArticleFragment) {
                 fragment = (HkArticleFragment) restored;
+                // 恢复出的 Fragment 实例字段（宿主接线四件）已随进程回收丢失，必须与新鲜分支同口径补齐，
+                // 否则子页点击被 null 守卫静默吞掉、续看记录失效
+                fragment.setHostListener(this);
+                fragment.setListHost(getIntent().getBooleanExtra("listHost", false));
+                fragment.setPageOpener(this);
+                fragment.setImmersiveTheme(false);
+                if (parentData != null) fragment.setAutoPageData(parentData);
                 return;
             }
         }
@@ -1261,6 +1268,8 @@ public class HkListActivity extends AppCompatActivity
     protected void onDestroy() {
         HkLoading.clearListener(hkLoadingListener);
         hideHkLoading();
+        HkWebkitParser.destroy0();
+        HkX5WebViewParser.destroy0();
         super.onDestroy();
     }
 

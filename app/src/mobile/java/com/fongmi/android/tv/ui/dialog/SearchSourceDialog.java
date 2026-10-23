@@ -31,6 +31,7 @@ public class SearchSourceDialog extends BaseAlertDialog {
     private List<String> vodKeys = new ArrayList<>();
 
     public static void show(Fragment fragment) {
+        if (fragment == null || !fragment.isAdded() || fragment.getChildFragmentManager().isStateSaved()) return;
         new SearchSourceDialog().show(fragment.getChildFragmentManager(), null);
     }
 
@@ -105,6 +106,10 @@ public class SearchSourceDialog extends BaseAlertDialog {
         }
         binding.jsRecycler.setLayoutManager(new LinearLayoutManager(getContext()));
         binding.jsRecycler.setAdapter(jsAdapter = new CheckableAdapter(names));
+        // 与点播/PY 列同口径恢复勾选态：JS 勾选照常记录，重开弹窗显示与上次一致
+        List<Integer> restore = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) if (selectedKeys.contains("js_" + names.get(i))) restore.add(i);
+        if (!restore.isEmpty()) jsAdapter.setSelectedIndices(restore);
         binding.jsSelectAll.setChecked(jsAdapter.isAllSelected());
         binding.jsSelectAll.setOnCheckedChangeListener((v, checked) -> jsAdapter.selectAll(checked));
     }
@@ -151,23 +156,30 @@ public class SearchSourceDialog extends BaseAlertDialog {
 
     private void onConfirm() {
         selectedKeys.clear();
-        hasSelection = true;
+        boolean effective = false;
         // VOD sources: map selected indices to site keys （按下标取 key，同名站不互相带入）
         if (vodAdapter != null) {
             for (int index : vodAdapter.getSelectedIndices()) {
-                if (index >= 0 && index < vodKeys.size()) selectedKeys.add(vodKeys.get(index));
+                if (index >= 0 && index < vodKeys.size()) {
+                    selectedKeys.add(vodKeys.get(index));
+                    effective = true;
+                }
             }
         }
         // PY scripts: build py_ keys
         if (pyAdapter != null) {
             for (String name : pyAdapter.getSelected()) {
                 selectedKeys.add("py_" + name);
+                effective = true;
             }
         }
-        // JS scripts: not supported yet
+        // JS scripts: 搜索链未接 JS，勾选只记录（供重开恢复显示），不产生过滤效力；
+        // 只勾 JS 时不能把 hasSelection 置真，否则消费方按空集过滤会把搜索结果清成空
         if (jsAdapter != null && !jsAdapter.getSelected().isEmpty()) {
+            for (String name : jsAdapter.getSelected()) selectedKeys.add("js_" + name);
             ToastUtil.show(requireContext(), "JS 暂未支持", Toast.LENGTH_SHORT);
         }
+        hasSelection = effective;
         dismiss();
     }
 

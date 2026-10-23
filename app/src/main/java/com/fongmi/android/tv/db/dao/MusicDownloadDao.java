@@ -19,6 +19,9 @@ public abstract class MusicDownloadDao extends BaseDao<MusicDownload> {
     @Query("DELETE FROM MusicDownload WHERE trackId = :trackId")
     public abstract void deleteByTrackId(String trackId);
 
+    @Query("DELETE FROM MusicDownload")
+    public abstract void deleteAll();
+
     @Query("SELECT COUNT(*) FROM MusicDownload")
     public abstract int count();
 }

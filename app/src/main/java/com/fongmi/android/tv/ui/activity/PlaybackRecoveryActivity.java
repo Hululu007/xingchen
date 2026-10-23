@@ -127,6 +127,12 @@ public final class PlaybackRecoveryActivity extends Activity {
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // onCreate 若因无有效请求提前 finish，description/exit 还没建：
+        // 销毁完成前新 intent 抵达时不许摸空字段，按无请求收尾。
+        if (description == null || exit == null) {
+            finishAndRemoveTask();
+            return;
+        }
         setIntent(intent);
         request = PlaybackRecoveryMonitor.requestForToken(this,
                 intent.getStringExtra(PlaybackRecoveryMonitor.EXTRA_TOKEN));

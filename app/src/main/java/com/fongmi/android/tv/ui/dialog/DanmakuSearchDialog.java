@@ -487,7 +487,12 @@ public final class DanmakuSearchDialog extends DialogFragment implements Callbac
 
     private void onError(Exception e) {
         if (!isAdded()) return;
-        String message = e == null || TextUtils.isEmpty(e.getMessage()) ? getString(R.string.error_empty) : e.getMessage();
+        // 给用户看的只留本地化文案：底层网络异常原文多为英文技术串，
+        // 换成统一的失败文案；原文只进调试日志，不直弹。
+        String raw = e == null ? null : e.getMessage();
+        String emptyText = getString(R.string.error_empty);
+        String message = TextUtils.isEmpty(raw) || emptyText.equals(raw) ? emptyText : getString(R.string.danmaku_search_failed);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "search dialog failed error=%s", String.valueOf(raw));
         empty.setText(message);
         hideProgress(true);
         Notify.show(message);

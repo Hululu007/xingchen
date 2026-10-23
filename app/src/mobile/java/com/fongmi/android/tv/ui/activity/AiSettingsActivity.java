@@ -118,7 +118,12 @@ public class AiSettingsActivity extends BaseActivity {
 
     private void toggleEnabled(AiProvider p) {
         p.enabled = !p.enabled;
-        AiStore.addOrUpdate(this, p);
+        if (!AiStore.addOrUpdate(this, p)) {
+            p.enabled = !p.enabled; // 没存上：内存里的状态也退回去，与存储保持一致
+            Notify.show("存储损坏，操作未保存");
+            refresh();
+            return;
+        }
         refresh();
         Notify.show(p.enabled ? "已启用" : "已禁用");
     }
@@ -140,7 +145,10 @@ public class AiSettingsActivity extends BaseActivity {
         ChoiceDialog.showSingle(getSupportFragmentManager(), "删除「" + p.name + "」？",
                 new CharSequence[]{"确认删除", "取消"}, 1, which -> {
                     if (which == 0) {
-                        AiStore.delete(this, p.id);
+                        if (!AiStore.delete(this, p.id)) {
+                            Notify.show("存储损坏，操作未保存");
+                            return;
+                        }
                         refresh();
                         Notify.show("已删除");
                     }

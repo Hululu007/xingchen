@@ -231,6 +231,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fongmi.android.tv.exception.ExtractException;
 import com.google.common.util.concurrent.FluentFuture;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.MoreExecutors;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener {
@@ -238,8 +241,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /**
      * 播放器是否存活（对齐海阔 8.83 PlayerChooser.hasPlayer）。
      * 为 true 时点播放走 EventBus 原地换源，不 startActivity，避免多跳转一个页面。
+     * 多实例交叠时以 sPlayerOwner 为准：只有属主实例的 onDestroy 才许清标志，
+     * 旧实例后销毁不许把新实例存活期的标志误清。
      */
     public static volatile boolean hasPlayer = false;
+
+    private static volatile VideoActivity sPlayerOwner;
 
     private static final String SIZE_TAG = "MPV_SIZE";
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
@@ -357,7 +364,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mPendingPlayUrl;
     private Result mPreparsedHistoryResult;
     private String mPreparsedHistorySpec;
-    private Future<Result> mPreparsedHistoryFuture; // 在途预解析：getPlayer 可等待复用，消灭双跑
+    private ListenableFuture<Result> mPreparsedHistoryFuture; // 在途预解析：getPlayer 可等待复用，消灭双跑
     private final NextEpisodePreloader mNextPreloader = new NextEpisodePreloader();
     private int mAudioArtworkColor = Color.rgb(55, 45, 68);
     private final Map<String, String> mAudioQueueFlags = new HashMap<>();
@@ -875,6 +882,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
+        sPlayerOwner = this;
         hasPlayer = true;
         mRestoringConfigurationPlayback = savedInstanceState != null;
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
@@ -2037,12 +2045,29 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         CustomMovement.bind(mBinding.meta);
     }
 
+    // 播放器标题：单集时集名只是播放钮的标签（大量源就叫「播放」），不是标题，一律用片名；
+    // 多集时集名为空白或占位名（播放/正片）也回退片名；真集名（第01集等）保持集名不动。
+    private String getControlTitle(Flag flag, Episode episode) {
+        String display = episode.getDisplayName();
+        int count = flag != null && flag.getEpisodes() != null ? flag.getEpisodes().size() : getEpisodeCount();
+        if (count > 1 && !isPlaceholderTitle(episode.getName()) && !isPlaceholderTitle(display)) return display;
+        String vodName = mHistory != null ? mHistory.getVodName() : "";
+        if (TextUtils.isEmpty(vodName)) vodName = getName();
+        return TextUtils.isEmpty(vodName) ? display : vodName;
+    }
+
+    private boolean isPlaceholderTitle(String name) {
+        if (name == null) return true;
+        String trimmed = name.trim();
+        return trimmed.isEmpty() || "播放".equals(trimmed) || "正片".equals(trimmed);
+    }
+
     private void getPlayer(Flag flag, Episode episode) {
         // 切集不盖图：滑动预览层在切集成立时立即撤下，下一集已由预下备好、切过来直接起播出画
         hideSwitchCover();
         // 起播：详情页的无海报背景门控解除，后续走播放页原有背景逻辑
         mDetailWallOff = false;
-        mBinding.control.title.setText(episode.getDisplayName());
+        mBinding.control.title.setText(getControlTitle(flag, episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         String playFlag = getEpisodePlayFlag(flag, episode);
@@ -2068,30 +2093,43 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             return;
         }
         // 在途预解析复用：同一集的预解析还在跑就等它，不另开一轮解析（消灭双跑）
-        Future<Result> inflight = pollInflightPreparse(playFlag, episode.getUrl());
+        ListenableFuture<Result> inflight = pollInflightPreparse(playFlag, episode.getUrl());
         if (inflight != null) {
             SpiderDebug.log("video-flow", "history preparse wait key=%s", getKey());
             beginParseUi(episode);
-            Task.execute(() -> {
-                try {
-                    Result r = inflight.get(PREPARSE_WAIT_MS, TimeUnit.MILLISECONDS);
-                    runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed()) return;
-                        if (isUsableParseResult(r)) {
-                            if (service() == null) {
-                                SpiderDebug.log("video-flow", "inflight preparse deferred until service ready key=%s", getKey());
-                                deferPlayRequest(getKey(), playFlag, episode.getUrl());
-                            } else setPlayer(r);
-                        } else startNormalParse(flag, episode, playFlag);
-                    });
-                } catch (Throwable t) {
-                    SpiderDebug.log("video-flow", "history preparse wait fail key=%s err=%s", getKey(), t.getClass().getSimpleName());
-                    runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed()) return;
-                        startNormalParse(flag, episode, playFlag);
-                    });
-                }
-            });
+            // 不再占共用池线程阻塞干等（旧形在 Task.execute 里 get(25 秒)，白占一条池线程）：
+            // 完成走回调、等满走调度器兜底，先到者赢；超时不取消在途预解析本体（与旧口径一致）。
+            AtomicBoolean settled = new AtomicBoolean(false);
+            Futures.addCallback(inflight, Task.callback(
+                    r -> {
+                        if (!settled.compareAndSet(false, true)) return;
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            if (isUsableParseResult(r)) {
+                                if (service() == null) {
+                                    SpiderDebug.log("video-flow", "inflight preparse deferred until service ready key=%s", getKey());
+                                    deferPlayRequest(getKey(), playFlag, episode.getUrl());
+                                } else setPlayer(r);
+                            } else startNormalParse(flag, episode, playFlag);
+                        });
+                    },
+                    t -> {
+                        if (!settled.compareAndSet(false, true)) return;
+                        SpiderDebug.log("video-flow", "history preparse wait fail key=%s err=%s", getKey(), t.getClass().getSimpleName());
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            startNormalParse(flag, episode, playFlag);
+                        });
+                    }
+            ), MoreExecutors.directExecutor());
+            Task.scheduler().schedule(() -> {
+                if (!settled.compareAndSet(false, true)) return;
+                SpiderDebug.log("video-flow", "history preparse wait timeout key=%s", getKey());
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    startNormalParse(flag, episode, playFlag);
+                });
+            }, PREPARSE_WAIT_MS, TimeUnit.MILLISECONDS);
             return;
         }
         startNormalParse(flag, episode, playFlag);
@@ -2128,8 +2166,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             deferPlayRequest(key, flag, url);
             return;
         }
-        FluentFuture<Result> future = FluentFuture.from(Task.executor().submit(() -> SiteApi.playerContent(key, flag, url))).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
-        future.addCallback(Task.callback(
+        // 超时从开跑算（同 SiteViewModel 口径）：先在池里占住线程，真正开跑那刻才建计时
+        // future 起表；旧形 submit 后立即 withTimeout，池排队时间也吃解析预算，忙时假超时。
+        Task.execute(() -> {
+            ListenableFutureTask<Result> task = ListenableFutureTask.create(() -> SiteApi.playerContent(key, flag, url));
+            FluentFuture<Result> future = FluentFuture.from(task).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+            future.addCallback(Task.callback(
                 result -> App.post(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     if (service() == null) {
@@ -2148,7 +2190,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     }
                     setPlayer(toErrorResult(error));
                 })
-        ), MoreExecutors.directExecutor());
+            ), MoreExecutors.directExecutor());
+            task.run();
+        });
     }
 
     private static Result toErrorResult(Throwable error) {
@@ -2180,8 +2224,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 在途预解析取用：只有同 spec、未完成才等；取用即摘除防重入。
      * 排除：雷磁类不复用（预解析内 Source.stop 会杀死在播引擎，真机实证）。
      */
-    private Future<Result> pollInflightPreparse(String playFlag, String episodeUrl) {
-        Future<Result> future = mPreparsedHistoryFuture;
+    private ListenableFuture<Result> pollInflightPreparse(String playFlag, String episodeUrl) {
+        ListenableFuture<Result> future = mPreparsedHistoryFuture;
         if (future == null || future.isDone()) return null;
         String spec = getKey() + "|" + playFlag + "|" + episodeUrl;
         if (!spec.equals(mPreparsedHistorySpec)) return null;
@@ -2730,21 +2774,33 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     if (o.direct && !TextUtils.isEmpty(o.url)) direct.add(o);
                 }
                 if (direct.size() <= 1) {
-                    App.post(() -> clickEpisode(item));
+                    App.post(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        clickEpisode(item);
+                    });
                     return;
                 }
                 EmbyApi.PlayOption best = EmbyApi.pickDefaultDirect(direct);
                 if (best == null || TextUtils.isEmpty(best.url)) {
-                    App.post(() -> clickEpisode(item));
+                    App.post(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        clickEpisode(item);
+                    });
                     return;
                 }
                 final EmbyApi.PlayOption pick = best;
-                App.post(() -> playPickedEmbyVersion(item, pick));
+                App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    playPickedEmbyVersion(item, pick);
+                });
             } catch (Exception e) {
                 // Emby 失败分支只弹提示、对齐普通源点播失败留详情页的行为：
                 // 不再调 clickEpisode(item)——它会走 shouldEnterFullscreen 把人扔进横屏全屏黑屏。
                 // 无收尾可清：本分支只发过一条 toast，未弹对话框、未改选集状态。
-                App.post(() -> Notify.show("Emby 播放失败：" + e.getMessage()));
+                App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    Notify.show("Emby 播放失败：" + e.getMessage());
+                });
             }
         });
         return true;
@@ -3167,7 +3223,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private int getEpisodeCount() {
         Flag flag = getFlag();
-        return flag == null ? mEpisodeAdapter.getItemCount() : flag.getEpisodes().size();
+        return flag == null ? mEpisodeAdapter.getItemCount() : flag.getEpisodes() == null ? 0 : flag.getEpisodes().size();
     }
 
     private void seamless(Flag flag) {
@@ -4391,9 +4447,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onTrack(View view) {
-        TrackDialog dialog = TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player());
-        attachEmbySubs(dialog, Integer.parseInt(view.getTag().toString()));
-        attachEmbyTracks(dialog, Integer.parseInt(view.getTag().toString()));
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int type;
+        try {
+            type = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        TrackDialog dialog = TrackDialog.create().type(type).player(player());
+        attachEmbySubs(dialog, type);
+        attachEmbyTracks(dialog, type);
         dialog.show(this);
         hideControl();
     }
@@ -7926,6 +7990,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     public void onPlaySourceUpdated(PlaySourceUpdateEvent event) {
         Intent intent = event.getIntent();
         if (intent == null) return;
+        // 多实例交叠时只有属主响应换源，正在销毁的旧实例不许抢着换
+        if (sPlayerOwner != null && sPlayerOwner != this) return;
         // 复用 onNewIntent 的换源逻辑：保存历史、合并 extras、重新 checkId 拉起播放
         onNewIntent(intent);
     }
@@ -8656,7 +8722,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkEnded(boolean notify) {
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("audio-auto-next", "checkEnded notify=%s audioStage=%s adapter=%d", notify, mAudioStageVisible, mEpisodeAdapter.getItemCount());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("audio-auto-next", "checkEnded notify=%s audioStage=%s adapter=%d", notify, mAudioStageVisible, mEpisodeAdapter == null ? -1 : mEpisodeAdapter.getItemCount());
         if (showKaraokeResultIfNeeded(notify ? KARAOKE_RESULT_ACTION_NEXT : KARAOKE_RESULT_ACTION_NEXT_SILENT)) return;
         if (mAudioStageVisible && playNextAudioPlaylistEntry()) return;
         checkNext(notify);
@@ -9621,7 +9687,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onDestroy() {
-        hasPlayer = false;
+        if (sPlayerOwner == this) {
+            sPlayerOwner = null;
+            hasPlayer = false;
+        }
         // Emby 画质行选择只活在本次详情会话，销毁时清掉
         try {
             EmbySpider.clearPreferredSources();

@@ -63,6 +63,7 @@ public class LiveProgramDialog extends BaseBottomSheetDialog implements LiveProg
     }
 
     public void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         for (Fragment fragment : activity.getSupportFragmentManager().getFragments()) if (fragment instanceof LiveProgramDialog) return;
         show(activity.getSupportFragmentManager(), null);
     }
@@ -116,6 +117,7 @@ public class LiveProgramDialog extends BaseBottomSheetDialog implements LiveProg
     }
 
     private void showProgram(Epg epg) {
+        if (epg == null) return;
         epg.selected();
         programAdapter.setEpg(epg);
         binding.program.post(() -> scrollToPosition(binding.program, Math.max(programAdapter.getSelected(), 0)));

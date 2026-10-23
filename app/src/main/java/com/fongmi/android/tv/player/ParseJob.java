@@ -115,10 +115,11 @@ public class ParseJob implements ParseCallback {
 
     private void jsonParse(Parse item, String webUrl, boolean fatal) throws Exception {
         try (Response res = OkHttp.newCall(item.getUrl() + webUrl, item.getHeader()).execute()) {
-            JsonObject object = Json.parse(res.body().string()).getAsJsonObject();
+            String body = res.body() == null ? "" : res.body().string();
+            JsonObject object = Json.parse(body).getAsJsonObject();
             String url = Json.safeString(object, "url");
             JsonObject data = object.getAsJsonObject("data");
-            if (url.isEmpty()) url = Json.safeString(data, "url");
+            if (url.isEmpty() && data != null) url = Json.safeString(data, "url");
             checkResult(getHeader(object), url, item.getName(), fatal);
         }
     }
@@ -142,7 +143,15 @@ public class ParseJob implements ParseCallback {
         CountDownLatch latch = new CountDownLatch(count);
         for (Parse item : json) infinite.execute(() -> jsonParse(latch, item, webUrl));
         if (!webs.isEmpty()) startWeb(webs, webUrl);
-        latch.await();
+        try {
+            // web 槽位（+1）不走 countDown：web 终局走 onParseSuccess/onParseError 回调
+            // 置 done 并 stop() 中断本线程（CustomWebView 自带 15 秒计时兜底必回调）。
+            // 故 await 必须自带上界，与本 job 的总解析预算同口径，防无界等待。
+            latch.await(Constant.TIMEOUT_PARSE_DEF, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         onParseError();
     }
 

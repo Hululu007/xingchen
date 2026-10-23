@@ -27,12 +27,22 @@ public class OkProxySelector extends ProxySelector {
         proxy = new CopyOnWriteArrayList<>();
         system = ProxySelector.getDefault();
         debugLogLimiter = new DebugEventLimiter(64);
-        Authenticator.setDefault(new ProxyAuthenticator(this));
+        ensureAuthenticator();
+    }
+
+    private void ensureAuthenticator() {
+        if (authSet) return;
+        authSet = true;
+        // JVM 全局认证器只装一次、装后永不摘除：旧写法构造装、clear 又
+        // setDefault(null)，会把进程里其它模块预期的默认认证器一并摘掉。
+        // 装着的认证器在无规则命中时返回 null，留着无副作用；认证器本体
+        // 经本选择器（OkHttp 单例持有）查规则，不依赖后续重装。
+        if (!(Authenticator.getDefault() instanceof ProxyAuthenticator)) Authenticator.setDefault(new ProxyAuthenticator(this));
     }
 
     public synchronized void addAll(List<Proxy> items) {
         if (items.isEmpty()) return;
-        Authenticator.setDefault(new ProxyAuthenticator(this));
+        ensureAuthenticator();
         items.forEach(Proxy::init);
         proxy.addAll(items);
         proxy.sort(null);
@@ -47,7 +57,8 @@ public class OkProxySelector extends ProxySelector {
     }
 
     public synchronized void clear() {
-        Authenticator.setDefault(null);
+        // 只清规则，不摘 JVM 全局认证器（见 ensureAuthenticator 注释）：
+        // 规则清空后认证器查不到凭据、自然返回 null。
         proxy.clear();
         SpiderDebug.log("proxy", "selector clear");
     }

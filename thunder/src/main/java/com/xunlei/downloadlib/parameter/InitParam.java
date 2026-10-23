@@ -25,9 +25,13 @@ public class InitParam {
     }
 
     public String getSoKey() {
-        String[] split = mAppKey.split("==");
-        String replace = split[0].replace('^', '=');
-        String str = new String(Base64.decode(replace.substring(2, replace.length() - 2), 0), StandardCharsets.UTF_8);
-        return XLUtil.generateAppKey("com.android.providers.downloads", Short.parseShort(str.split(";")[0]), (byte) 1);
+        try {
+            String[] split = mAppKey.split("==");
+            String replace = split[0].replace('^', '=');
+            String str = new String(Base64.decode(replace.substring(2, replace.length() - 2), 0), StandardCharsets.UTF_8);
+            return XLUtil.generateAppKey("com.android.providers.downloads", Short.parseShort(str.split(";")[0]), (byte) 1);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("迅雷 AppKey 格式异常，无法生成 soKey", e);
+        }
     }
 }

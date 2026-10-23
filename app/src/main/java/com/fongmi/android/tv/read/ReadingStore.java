@@ -98,13 +98,13 @@ public class ReadingStore {
     }
 
     /** 书架全部（按最近阅读倒序）。 */
-    public static List<Record> list() {
+    public static synchronized List<Record> list() {
         List<Record> list = readAll();
         list.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         return list;
     }
 
-    public static Record find(String kind, String sourceName, String bookTitle) {
+    public static synchronized Record find(String kind, String sourceName, String bookTitle) {
         if (kind == null || sourceName == null || bookTitle == null) return null;
         String k = kind + "|" + sourceName + "|" + bookTitle;
         for (Record r : readAll()) {
@@ -113,12 +113,12 @@ public class ReadingStore {
         return null;
     }
 
-    public static boolean contains(String kind, String sourceName, String bookTitle) {
+    public static synchronized boolean contains(String kind, String sourceName, String bookTitle) {
         return find(kind, sourceName, bookTitle) != null;
     }
 
     /** 按本地书 id 找记录。 */
-    public static Record findLocal(String localId) {
+    public static synchronized Record findLocal(String localId) {
         if (TextUtils.isEmpty(localId)) return null;
         for (Record r : readAll()) {
             if ("local".equals(r.origin) && localId.equals(r.localId)) return r;
@@ -127,7 +127,7 @@ public class ReadingStore {
     }
 
     /** 新增或更新进度（同键覆盖）。 */
-    public static void save(Record rec) {
+    public static synchronized void save(Record rec) {
         if (rec == null || TextUtils.isEmpty(rec.bookTitle)) return;
         rec.updatedAt = System.currentTimeMillis();
         List<Record> list = readAll();
@@ -143,7 +143,7 @@ public class ReadingStore {
         writeAll(list);
     }
 
-    public static void remove(String kind, String sourceName, String bookTitle) {
+    public static synchronized void remove(String kind, String sourceName, String bookTitle) {
         if (kind == null || sourceName == null || bookTitle == null) return;
         String k = kind + "|" + sourceName + "|" + bookTitle;
         List<Record> list = readAll();
@@ -158,7 +158,7 @@ public class ReadingStore {
     }
 
     /** 最近在读的一本（「继续读」用）。 */
-    public static Record latest() {
+    public static synchronized Record latest() {
         List<Record> list = list();
         return list.isEmpty() ? null : list.get(0);
     }

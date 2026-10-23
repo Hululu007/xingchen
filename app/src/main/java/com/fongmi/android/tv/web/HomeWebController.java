@@ -82,6 +82,7 @@ public class HomeWebController {
     private int loadTimeoutRecoveries;
     private boolean sdkReady;
     private boolean paused;
+    private volatile boolean destroyed;
 
     public HomeWebController(Activity activity, WebView webView, Listener listener) {
         this(activity, webView, listener, false);
@@ -214,8 +215,17 @@ public class HomeWebController {
         return "";
     }
 
+    boolean isDestroyed() {
+        return destroyed;
+    }
+
     public void evaluate(String script, ValueCallback<String> callback) {
-        webView.post(() -> webView.evaluateJavascript(script, callback));
+        // 销毁后不许再往已销毁的 WebView 投脚本：post 排队期间也可能
+        // 正好赶上 destroy，进队前后各查一次销毁旗。
+        if (destroyed) return;
+        webView.post(() -> {
+            if (!destroyed) webView.evaluateJavascript(script, callback);
+        });
     }
 
     public void dispatchDebugConsole(String level, String message) {
@@ -423,6 +433,7 @@ public class HomeWebController {
     }
 
     public void destroy() {
+        destroyed = true;
         removeDocumentStartScripts();
         rawAdapter = null;
         webView.stopLoading();
@@ -556,8 +567,11 @@ public class HomeWebController {
     }
 
     private void dispatchLifecycle(String event, String detail) {
+        if (destroyed) return;
         String script = "(function(){try{window.dispatchEvent(new CustomEvent('" + event + "',{detail:" + detail + "}));}catch(e){}})();";
-        webView.post(() -> webView.evaluateJavascript(script, null));
+        webView.post(() -> {
+            if (!destroyed) webView.evaluateJavascript(script, null);
+        });
     }
 
     private WebViewClient client() {
@@ -643,8 +657,10 @@ public class HomeWebController {
     }
 
     private void injectSdk() {
+        if (destroyed) return;
         injectViewport();
         webView.evaluateJavascript(getSdk(), value -> {
+            if (destroyed) return;
             sdkReady = true;
             injectExtensions(WebHomeExtension.RUN_AT_END);
             webView.postDelayed(() -> injectExtensions(WebHomeExtension.RUN_AT_IDLE), 600);
@@ -716,6 +732,7 @@ public class HomeWebController {
     }
 
     private void injectExtensions(String runAt) {
+        if (destroyed) return;
         if (!sdkReady || site == null || !isVisible()) return;
         for (WebHomeExtension extension : WebHomeExtensionRegistry.get().get(site.getKey())) {
             if (!extension.shouldInjectAt(runAt)) continue;
@@ -729,12 +746,15 @@ public class HomeWebController {
     }
 
     private void injectViewport() {
+        if (destroyed) return;
         if (webView.getWidth() <= 0 || webView.getHeight() <= 0) return;
         String key = viewport.key(density, webView.getWidth(), webView.getHeight());
         if (key.equals(lastViewportKey)) return;
         lastViewportKey = key;
         String script = viewport.script(density, webView.getWidth(), webView.getHeight());
-        webView.post(() -> webView.evaluateJavascript(script, null));
+        webView.post(() -> {
+            if (!destroyed) webView.evaluateJavascript(script, null);
+        });
     }
 
     private String reloadUrl(String url) {

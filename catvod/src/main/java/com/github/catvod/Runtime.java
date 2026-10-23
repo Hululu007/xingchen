@@ -46,7 +46,9 @@ public class Runtime {
     }
 
     public static void toast(String text) {
-        get().toast.accept(text);
+        // toast 消费方由壳子注入，未注入时静默跳过，不许 NPE。
+        Consumer<String> toast = get().toast;
+        if (toast != null) toast.accept(text);
     }
 
     private static class Loader {

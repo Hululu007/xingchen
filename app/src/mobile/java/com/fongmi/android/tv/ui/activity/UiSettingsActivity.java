@@ -45,7 +45,14 @@ public class UiSettingsActivity extends BaseActivity {
 
     private void setPref(String key, String value) {
         getSharedPreferences("xingchen", MODE_PRIVATE).edit().putString(key, value).apply();
-        if (key.startsWith("cover_")) getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("cover_changed", true).apply();
+        if (key.startsWith("cover_")) markCoverChanged();
+    }
+
+    /** 封面变更代次：只递增不清零，每个分类碎片各自比对自己已应用的代次，
+     * 避免旧的一次性布尔被先 resume 的碎片消费掉、其余页签永远收不到。 */
+    private void markCoverChanged() {
+        android.content.SharedPreferences sp = getSharedPreferences("xingchen", MODE_PRIVATE);
+        sp.edit().putLong("cover_gen", sp.getLong("cover_gen", 0) + 1).apply();
     }
 
     private void setPrefAndUpdate(String key, String value, Runnable update) {
@@ -248,7 +255,7 @@ public class UiSettingsActivity extends BaseActivity {
 
     private void setCoverSize(int size, Runnable updateUI) {
         com.fongmi.android.tv.setting.PlayerSetting.putSize(size);
-        getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("cover_changed", true).apply();
+        markCoverChanged();
         if (updateUI != null) updateUI.run();
     }
 

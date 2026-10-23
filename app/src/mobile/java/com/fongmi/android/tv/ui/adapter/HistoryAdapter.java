@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -69,7 +70,7 @@ public class HistoryAdapter extends BaseDiffAdapter<History, HistoryAdapter.View
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         History item = getItem(position);
-        boolean same = item.getVodName().equals(item.getVodRemarks());
+        boolean same = TextUtils.equals(item.getVodName(), item.getVodRemarks());
         holder.binding.name.setText(item.getVodName());
         holder.binding.site.setText(item.getSiteName());
         holder.binding.remark.setText(item.getVodRemarks());

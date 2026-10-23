@@ -16,6 +16,7 @@ import com.google.gson.JsonObject;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import fi.iki.elonen.NanoHTTPD.IHTTPSession;
 import fi.iki.elonen.NanoHTTPD.Response;
@@ -32,9 +33,19 @@ public class Media implements Process {
         PlaybackService service = Server.get().getService();
         if (service == null) return Nano.ok("{}");
         CompletableFuture<String> future = new CompletableFuture<>();
-        App.post(() -> future.complete(build(service.player()).toString()));
+        // 回帖任务内兜底 complete：build 里任一取值抛错也要让等待方收尾，
+        // 否则 future 永不完成、下面再等多久都是白等。
+        App.post(() -> {
+            try {
+                future.complete(build(service.player()).toString());
+            } catch (Throwable t) {
+                future.complete("{}");
+            }
+        });
         try {
-            return Nano.ok(future.get());
+            // 必须有界：无超时 get() 一旦回帖没执行/抛错就把 Nano 会话线程
+            // 永久占住，反复请求能耗尽全部会话线程、本地服务整片假死。
+            return Nano.ok(future.get(5, TimeUnit.SECONDS));
         } catch (Exception ignored) {
             return Nano.ok("{}");
         }

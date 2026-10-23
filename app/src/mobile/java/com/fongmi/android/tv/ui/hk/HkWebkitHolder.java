@@ -610,16 +610,28 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
     // —— $3 WebViewWrapper ——
 
+    /** WebView 方法只能在主线程调：已在主线程直接执行，否则投递主线队列；webView 未就绪时静默放弃。 */
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
+
+    private static void runOnMain(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) r.run();
+        else MAIN_HANDLER.post(r);
+    }
+
     private class Wrapper implements HkWebViewWrapper {
 
         @Override
         public void addJavascriptInterface(Object object, String name) {
-            webView.addJavascriptInterface(object, name);
+            WebView wv = webView;
+            if (wv == null) return;
+            runOnMain(() -> wv.addJavascriptInterface(object, name));
         }
 
         @Override
         public void evaluateJavascript(String js) {
-            webView.evaluateJavascript(js, null);
+            WebView wv = webView;
+            if (wv == null) return;
+            runOnMain(() -> wv.evaluateJavascript(js, null));
         }
 
         @Override
@@ -654,12 +666,16 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         @Override
         public String getTitle() {
-            return webView.getTitle();
+            WebView wv = webView;
+            if (wv == null) return null;
+            return getStrOnUiThread(holder -> holder.accept(wv.getTitle()));
         }
 
         @Override
         public String getUrl() {
-            return webView.getUrl();
+            WebView wv = webView;
+            if (wv == null) return null;
+            return getStrOnUiThread(holder -> holder.accept(wv.getUrl()));
         }
 
         @Override
@@ -681,7 +697,9 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         @Override
         public void loadUrl(String url) {
-            webView.loadUrl(url);
+            WebView wv = webView;
+            if (wv == null) return;
+            runOnMain(() -> wv.loadUrl(url));
         }
 
         @Override
@@ -690,7 +708,9 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         @Override
         public void reload() {
-            webView.reload();
+            WebView wv = webView;
+            if (wv == null) return;
+            runOnMain(() -> wv.reload());
         }
 
         @Override
@@ -699,7 +719,9 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
 
         @Override
         public void setUserAgentString(String ua) {
-            webView.getSettings().setUserAgentString(ua);
+            WebView wv = webView;
+            if (wv == null) return;
+            runOnMain(() -> wv.getSettings().setUserAgentString(ua));
         }
 
         @Override
@@ -725,16 +747,22 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             return box[0];
         }
         String[] box = new String[1];
+        boolean[] done = new boolean[1];
         Object lock = new Object();
-        new Handler(Looper.getMainLooper()).post(() -> {
-            task.accept(v -> box[0] = v);
-            synchronized (lock) {
-                lock.notifyAll();
+        MAIN_HANDLER.post(() -> {
+            try {
+                task.accept(v -> box[0] = v);
+            } finally {
+                synchronized (lock) {
+                    done[0] = true;
+                    lock.notifyAll();
+                }
             }
         });
         synchronized (lock) {
             try {
-                lock.wait(2000);
+                // 带完成旗等待：主线程先跑完时立刻返回，不再白等满 2 秒；只有主线程真卡住才等到超时
+                if (!done[0]) lock.wait(2000);
             } catch (InterruptedException ignored) {
             }
         }

@@ -12,6 +12,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 视频宽高缓存：后台预取的视频尺寸，供进入全屏前判断横竖屏，避免先横后竖闪一下。
@@ -34,6 +36,15 @@ public class VideoDimensionCache {
 
     private static volatile Properties diskProps;
     private static volatile boolean diskLoaded;
+
+    /** 写盘收口到一条进程级守护线程：原来每次 put 都新建一条无句柄非守护
+     * 线程，高频预取时线程成串起落；单线程执行器串行执行，saveDisk 本身
+     * 是 synchronized，语义不变。 */
+    private static final ExecutorService SAVE_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "video-dim-save");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private static String key(String url) {
         if (TextUtils.isEmpty(url)) return null;
@@ -123,7 +134,7 @@ public class VideoDimensionCache {
         MEMORY.put(k, wh);
         disk().setProperty(k, width + "x" + height);
         // 磁盘写入放后台，避免阻塞
-        new Thread(VideoDimensionCache::saveDisk, "video-dim-save").start();
+        SAVE_EXECUTOR.execute(VideoDimensionCache::saveDisk);
     }
 
     public static void clear() {

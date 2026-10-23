@@ -25,6 +25,8 @@ public class LocalTxtIndex {
     public static class Result {
         public List<LocalBook.ChapterRef> chapters = new ArrayList<>();
         public String charset = "UTF-8";
+        /** 字符模式文件超 256MB 上限被截断（低-13）：导入侧据此提示用户后半本缺失，别静默当全本。 */
+        public boolean truncated = false;
     }
 
     public static Result index(File file, String title) {
@@ -67,26 +69,32 @@ public class LocalTxtIndex {
             long pos = 0;
             java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
             boolean firstLine = true;
-            while (pos < fileLen) {
-                int b = raf.read();
-                pos++;
-                if (b == '\n' || pos >= fileLen) {
-                    if (pos >= fileLen && b != '\n' && b != '\r') line.write(b);
-                    byte[] raw = line.toByteArray();
-                    int end = raw.length;
-                    if (end > 0 && raw[end - 1] == '\r') end--;
-                    String text = new String(raw, 0, end, cs).trim();
-                    long lineStart = pos - raw.length - (b == '\n' ? 1 : 0);
-                    if (text.length() > 0 && text.length() <= 48 && isChapterTitle(text)) {
-                        starts.add(lineStart);
-                        names.add(text);
-                    } else if (firstLine && text.length() > 0) {
-                        // 卷首语：第一行不是标题时，从文件头起一章也记不上，先留着
+            // 分块读（低-13）：此前逐字节 raf.read()，大 txt 每字节一次系统调用，导入慢到像卡死。
+            // 分行/偏移语义与逐字节版逐字一致（pos 仍按字节累计、lineStart 公式不变）。
+            byte[] chunk = new byte[64 * 1024];
+            int got;
+            while ((got = raf.read(chunk)) != -1) {
+                for (int ci = 0; ci < got; ci++) {
+                    int b = chunk[ci] & 0xFF;
+                    pos++;
+                    if (b == '\n' || pos >= fileLen) {
+                        if (pos >= fileLen && b != '\n' && b != '\r') line.write(b);
+                        byte[] raw = line.toByteArray();
+                        int end = raw.length;
+                        if (end > 0 && raw[end - 1] == '\r') end--;
+                        String text = new String(raw, 0, end, cs).trim();
+                        long lineStart = pos - raw.length - (b == '\n' ? 1 : 0);
+                        if (text.length() > 0 && text.length() <= 48 && isChapterTitle(text)) {
+                            starts.add(lineStart);
+                            names.add(text);
+                        } else if (firstLine && text.length() > 0) {
+                            // 卷首语：第一行不是标题时，从文件头起一章也记不上，先留着
+                        }
+                        firstLine = false;
+                        line.reset();
+                    } else {
+                        line.write(b);
                     }
-                    firstLine = false;
-                    line.reset();
-                } else {
-                    line.write(b);
                 }
             }
             long fileEnd = fileLen;
@@ -111,6 +119,7 @@ public class LocalTxtIndex {
     /** 字符模式：UTF-16 类整串解码后按字符偏移分章（整本解码一次，异常直接整本一章）。 */
     private static void indexCharMode(File file, String charsetName, String title, Result res) throws Exception {
         Charset cs = LocalEncoding.charsetOf(charsetName);
+        if (file.length() > 256L * 1024 * 1024) res.truncated = true;
         byte[] all = new byte[(int) Math.min(file.length(), 256L * 1024 * 1024)];
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             raf.readFully(all, 0, (int) Math.min(file.length(), all.length));

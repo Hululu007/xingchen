@@ -15,6 +15,8 @@ public abstract class HkBaseDividerItem extends RecyclerView.ItemDecoration {
 
     @Override
     public void getItemOffsets(Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
+        if (!(parent.getLayoutManager() instanceof GridLayoutManager)) return;
+        if (!(view.getLayoutParams() instanceof GridLayoutManager.LayoutParams)) return;
         GridLayoutManager layoutManager = (GridLayoutManager) parent.getLayoutManager();
         GridLayoutManager.LayoutParams lp = (GridLayoutManager.LayoutParams) view.getLayoutParams();
         int position = parent.getChildAdapterPosition(view);

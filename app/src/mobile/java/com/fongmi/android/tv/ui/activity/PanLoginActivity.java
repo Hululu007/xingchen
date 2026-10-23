@@ -40,6 +40,8 @@ public class PanLoginActivity extends BaseActivity {
 
     private ActivityPanLoginBinding binding;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private volatile boolean destroyed;
+    private int qrLoginGen;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, PanLoginActivity.class));
@@ -222,13 +224,17 @@ public class PanLoginActivity extends BaseActivity {
         tvStatus.setLayoutParams(lp);
         layout.addView(tvStatus);
 
+        final int qrGen = ++qrLoginGen;
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("夸克扫码登录")
                 .setView(layout)
-                .setNegativeButton("取消", (d, w) -> handler.removeCallbacksAndMessages(null))
+                .setNegativeButton("取消", null)
                 .setCancelable(true)
                 .create();
-        dialog.setOnCancelListener(d -> handler.removeCallbacksAndMessages(null));
+        dialog.setOnDismissListener(d -> {
+            if (qrGen == qrLoginGen) qrLoginGen++;
+            handler.removeCallbacksAndMessages(null);
+        });
         dialog.show();
 
         DriveQuark drive = new DriveQuark();
@@ -237,18 +243,23 @@ public class PanLoginActivity extends BaseActivity {
                 DriveQuark.QrSession session = drive.qrStart();
                 Bitmap bmp = QRCode.getBitmap(session.qrUrl, 220, 1);
                 runOnUiThread(() -> {
+                    if (qrGen != qrLoginGen || destroyed) return;
                     if (bmp != null) qrView.setImageBitmap(bmp);
                     tvStatus.setText("请用夸克 App 内扫一扫（不要用系统相机/微信扫）");
                 });
                 Runnable poll = new Runnable() {
                     @Override
                     public void run() {
+                        if (qrGen != qrLoginGen || destroyed) return;
                         new Thread(() -> {
                             try {
                                 int r = drive.qrPoll(session);
+                                if (qrGen != qrLoginGen || destroyed) return;
                                 if (r == 2) {
                                     boolean ok = drive.qrLogin(session);
+                                    if (qrGen != qrLoginGen || destroyed) return;
                                     runOnUiThread(() -> {
+                                        if (qrGen != qrLoginGen || destroyed || isFinishing()) return;
                                         dialog.dismiss();
                                         if (ok) {
                                             PanAuth.putQuarkCookie(drive.getCookie());
@@ -259,22 +270,40 @@ public class PanLoginActivity extends BaseActivity {
                                         }
                                     });
                                 } else if (r == -1) {
-                                    runOnUiThread(() -> tvStatus.setText("二维码已失效，请关闭重试"));
+                                    runOnUiThread(() -> {
+                                        if (qrGen == qrLoginGen && !destroyed) tvStatus.setText("二维码已失效，请关闭重试");
+                                    });
                                 } else {
-                                    runOnUiThread(() -> tvStatus.setText("等待扫码…"));
+                                    runOnUiThread(() -> {
+                                        if (qrGen == qrLoginGen && !destroyed) tvStatus.setText("等待扫码…");
+                                    });
                                     handler.postDelayed(this, 2500);
                                 }
                             } catch (Exception e) {
-                                runOnUiThread(() -> tvStatus.setText("网络异常，稍后重试"));
+                                if (qrGen != qrLoginGen || destroyed) return;
+                                runOnUiThread(() -> {
+                                    if (qrGen == qrLoginGen && !destroyed) tvStatus.setText("网络异常，稍后重试");
+                                });
+                                handler.postDelayed(this, 2500);
                             }
                         }).start();
                     }
                 };
-                handler.postDelayed(poll, 2500);
+                if (qrGen == qrLoginGen && !destroyed) handler.postDelayed(poll, 2500);
             } catch (Exception e) {
-                runOnUiThread(() -> tvStatus.setText("获取二维码失败：" + e.getMessage()));
+                runOnUiThread(() -> {
+                    if (qrGen == qrLoginGen && !destroyed) tvStatus.setText("获取二维码失败：" + e.getMessage());
+                });
             }
         }).start();
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        qrLoginGen++;
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     // ================= PikPak =================

@@ -63,7 +63,10 @@ public class ResponseInterceptor implements Interceptor {
     }
 
     private Response redirect(Request request, Response response) {
-        return new Response.Builder().request(request).protocol(response.protocol()).code(302).message("Found").header(HttpHeaders.LOCATION, redirectMap.get(request.url().toString())).build();
+        Response synthetic = new Response.Builder().request(request).protocol(response.protocol()).code(302).message("Found").header(HttpHeaders.LOCATION, redirectMap.get(request.url().toString())).build();
+        // 合成响应不消费原响应体：必须显式关掉原响应，否则连接无法回池。
+        response.close();
+        return synthetic;
     }
 
     private Response deflate(Response response) {

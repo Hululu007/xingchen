@@ -441,11 +441,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     public Tracks getCurrentTracks() {
-        return engine.getCurrentTracks();
+        return engine == null ? Tracks.EMPTY : engine.getCurrentTracks();
     }
 
     public List<MediaEdition> getCurrentMediaEditions() {
-        return engine.getCurrentMediaEditions();
+        return engine == null ? Collections.emptyList() : engine.getCurrentMediaEditions();
     }
 
     public MediaItem getCurrentMediaItem() {
@@ -572,19 +572,19 @@ public class PlayerManager implements ParseCallback {
     }
 
     public boolean isLive() {
-        return engine.isLive();
+        return engine != null && engine.isLive();
     }
 
     public boolean isVod() {
-        return engine.isVod();
+        return engine != null && engine.isVod();
     }
 
     public boolean haveTrack(int type) {
-        return engine.haveTrack(type);
+        return engine != null && engine.haveTrack(type);
     }
 
     public boolean haveTitle() {
-        return engine.haveTitle();
+        return engine != null && engine.haveTitle();
     }
 
     public boolean haveDanmaku() {
@@ -650,7 +650,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public Format getVideoFormat() {
-        return engine.getVideoFormat();
+        return engine == null ? null : engine.getVideoFormat();
     }
 
     public PlayerCacheState getCacheState() {
@@ -735,11 +735,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     public String getDecodeText() {
-        return engine.getDecodeText();
+        return engine == null ? "" : engine.getDecodeText();
     }
 
     public boolean isHardDecode() {
-        return engine.isHard();
+        return engine != null && engine.isHard();
     }
 
     public String getPlayerText() {
@@ -1236,6 +1236,16 @@ public class PlayerManager implements ParseCallback {
         }
     }
 
+    /**
+     * 音乐专用暂停入口（X-28 后半，与 pauseMusicForVideo 对称）：音乐起播时由
+     * MusicController 在确认本播放器正在播后调用，只暂停。本半边不设所有权旗：
+     * 前半边的旗是给「视频退出续播音乐」消费的，本半边没有「音乐退出自动续
+     * 视频」的消费点，不留无消费者的状态。
+     */
+    public void pauseForMusic() {
+        pause();
+    }
+
     public void play() {
         pauseMusicForVideo();
         startNativeAudioSession(true);
@@ -1260,7 +1270,7 @@ public class PlayerManager implements ParseCallback {
         prepareSeq++;
         stopNativeAudioSession();
         clearDanmaku("stop");
-        engine.stop();
+        if (engine != null) engine.stop();
         stopParse();
     }
 
@@ -1290,11 +1300,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     public boolean isRepeatOne() {
-        return engine.isRepeatOne();
+        return engine != null && engine.isRepeatOne();
     }
 
     public void setRepeatOne(boolean repeat) {
-        engine.setRepeatOne(repeat);
+        if (engine != null) engine.setRepeatOne(repeat);
     }
 
     public void seekTo(long time) {
@@ -1371,7 +1381,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void resetTrack() {
-        engine.resetTrack();
+        if (engine != null) engine.resetTrack();
     }
 
     public void restoreVideoTrack() {
@@ -1379,6 +1389,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void toggleDecode() {
+        if (engine == null || player == null) return;
         int next = engine.isHard() ? PlayerEngine.SOFT : PlayerEngine.HARD;
         boolean resetVideoSurface = playerType == PlayerSetting.EXO && next == PlayerEngine.HARD;
         long position = Math.max(0, getPosition());
@@ -3626,9 +3637,10 @@ public class PlayerManager implements ParseCallback {
                 Result refreshed = SiteApi.playerContent(key, result.getFlag(), result.getUrl().v(), playerType);
                 App.post(() -> startRefreshedSwitchResult(refreshed, key, metadata));
             } catch (Throwable e) {
+                String msg = e.getMessage();
                 App.post(() -> {
                     clearPendingSwitchRestore();
-                    callback.onError(e.getMessage());
+                    callback.onError(msg == null || msg.isEmpty() ? ResUtil.getString(R.string.error_play_url) : msg);
                 });
             }
         });

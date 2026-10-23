@@ -181,6 +181,7 @@ public class ConfigHistoryDialog extends DialogFragment {
     }
 
     private void refreshList() {
+        if (binding == null) return;
         List<Config> items = AppDatabase.get().getConfigDao().findByType(type);
         binding.empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         binding.recycler.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
@@ -193,7 +194,7 @@ public class ConfigHistoryDialog extends DialogFragment {
      */
     private void onAdd() {
         try {
-            getChildFragmentManager().setFragmentResultListener("xsg_config_changed", this, (key, bundle) -> refreshList());
+            getChildFragmentManager().setFragmentResultListener("xsg_config_changed", getViewLifecycleOwner(), (key, bundle) -> refreshList());
             ConfigDialog.create().vod().show(this);
         } catch (Exception e) {
             e.printStackTrace();
@@ -205,7 +206,7 @@ public class ConfigHistoryDialog extends DialogFragment {
      */
     private void openEditor(Config config) {
         try {
-            getChildFragmentManager().setFragmentResultListener("xsg_config_changed", this, (key, bundle) -> refreshList());
+            getChildFragmentManager().setFragmentResultListener("xsg_config_changed", getViewLifecycleOwner(), (key, bundle) -> refreshList());
             ConfigDialog.create().vod().edit(config).show(this);
         } catch (Exception e) {
             e.printStackTrace();
@@ -302,20 +303,26 @@ public class ConfigHistoryDialog extends DialogFragment {
      * (HomeActivity listens and refreshes). Used by long-press title shortcut too.
      */
     public static void switchVodConfig(androidx.fragment.app.Fragment fragment, Config config) {
-        android.content.Context ctx = fragment.requireContext();
-        android.app.ProgressDialog progress = new android.app.ProgressDialog(ctx);
-        progress.setMessage("正在切换线路…");
-        progress.setCancelable(false);
-        progress.show();
+        android.content.Context ctx = fragment.getContext();
+        if (ctx == null) ctx = App.get();
+        android.app.Activity activity = fragment.getActivity();
+        android.app.ProgressDialog progress = null;
+        if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+            progress = new android.app.ProgressDialog(ctx);
+            progress.setMessage("正在切换线路…");
+            progress.setCancelable(false);
+            progress.show();
+        }
+        final android.app.ProgressDialog shown = progress;
         com.fongmi.android.tv.api.config.VodConfig.load(config, new com.fongmi.android.tv.impl.Callback() {
             @Override
             public void success() {
-                try { progress.dismiss(); } catch (Exception e) {}
+                try { if (shown != null) shown.dismiss(); } catch (Exception e) {}
                 Notify.show("已切换");
             }
             @Override
             public void error(String msg) {
-                try { progress.dismiss(); } catch (Exception e) {}
+                try { if (shown != null) shown.dismiss(); } catch (Exception e) {}
                 Notify.show(msg == null || msg.isEmpty() ? "切换失败" : msg);
             }
         });
@@ -342,6 +349,12 @@ public class ConfigHistoryDialog extends DialogFragment {
             .create();
         dialog.show();
         if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_glass);
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        binding = null;
     }
 
     @Override

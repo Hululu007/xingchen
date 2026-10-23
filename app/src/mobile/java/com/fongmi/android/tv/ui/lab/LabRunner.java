@@ -168,6 +168,9 @@ public final class LabRunner {
                 runShell(c, pkgId, key, command, pkgId, listener);
             } catch (Exception e) {
                 String m = e.getMessage();
+                // 失败原因进 ERRORS（lastError 的数据源）：与默认命令那条 startCommand 同口径，
+                // 此前这条路的失败只通知 listener、页面上查不到原因
+                ERRORS.put(key, m == null ? "未知原因" : m);
                 String fail = "启动失败：" + (m == null ? "未知原因" : m) + "\n";
                 // 正在看这条命令实时输出的页面也要拿到失败原因（总线另一半在 pump）
                 LabLiveOutputActivity.LiveBus.emit(key, fail);
@@ -197,7 +200,13 @@ public final class LabRunner {
     private static void ensureDependency(Context c, String pkgId, LabManifest.LabCommand cmd) throws Exception {
         if (cmd == null || cmd.download == null || TextUtils.isEmpty(cmd.download.url)) return;
         String rel = TextUtils.isEmpty(cmd.download.file) ? fileNameOf(cmd.download.url) : cmd.download.file;
-        File dest = new File(LabPaths.packageDir(c, pkgId), rel);
+        File pkgDir = LabPaths.packageDir(c, pkgId);
+        File dest = new File(pkgDir, rel);
+        // 落点收口（与安装器 zip-slip 守卫同口径）：download.file 由包作者控制，
+        // 写 ../ 能落到包目录外，先验 canonical 再碰盘，越界直接报错、不落盘。
+        if (!dest.getCanonicalPath().startsWith(pkgDir.getCanonicalPath() + File.separator)) {
+            throw new Exception("依赖下载的落点跑出包目录了：" + rel);
+        }
         if (dest.exists()) return;
         downloadFile(cmd.download.url, dest);
     }
@@ -413,50 +422,45 @@ public final class LabRunner {
         return expandVars(sb.toString(), vars, depth + 1);
     }
 
-    private static void runShell(Context c, String pkgId, String key, String command, String logName, Listener listener) {
-        try {
-            if (TextUtils.isEmpty(command)) throw new Exception("命令为空");
-            File cwd = LabPaths.packageDir(c, pkgId);
-            cwd.mkdirs();
-            File log = LabProc.logFile(c, logName);
-            // 相对路径兜底：接在 expand() 之后（命令已是最终形态，{pkgDir} 等已展开成绝对路径），
-            // ProcessBuilder 拼 shell 之前。包根下找不到、files/ 下有的相对路径补上 files/ 前缀。
-            String aligned = LabPathAlign.align(cwd, command);
-            if (!aligned.equals(command)) {
-                String pathNote = "命令路径自动对齐到 files/：原命令里的脚本在包根下找不到、files/ 下有，已补上 files/ 前缀";
-                appendLog(key, pathNote + "\n");
-                appendFile(log, pathNote + "\n");
-                command = aligned;
-            }
-            ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", command);
-            builder.directory(cwd);
-            builder.redirectErrorStream(true);
-            applyEnv(c, pkgId, builder.environment());
-            String nodeNote = applyNodeProxy(c, pkgId, builder.environment());
-            Process process = builder.start();
-            RUNNING.put(key, process);
-            try {
-                STDIN.put(key, process.getOutputStream());
-            } catch (Exception ignored) {
-            }
-            // 进程已确认起跑：通知 UI 把「启动中…」翻回「运行中」。
-            // （onExit 只在进程退出时才来，常驻服务等不到它。）
-            if (listener != null) listener.onStarted();
-            if (nodeNote != null) {
-                appendLog(key, nodeNote + "\n");
-                appendFile(log, nodeNote + "\n");
-            }
-            ERRORS.remove(key);
-            LabProc.track(c, key, LabProc.pidOf(process), log.getAbsolutePath());
-            LabKeepAlive.refresh(c);
-            pump(c, key, process, log, listener);
-        } catch (Exception e) {
-            if (listener != null) {
-                String m = e.getMessage();
-                listener.onOutput("启动失败：" + (m == null ? "未知原因" : m) + "\n");
-                listener.onExit(-1);
-            }
+    private static void runShell(Context c, String pkgId, String key, String command, String logName, Listener listener) throws Exception {
+        // 失败只从这一处往上抛：listener 通知归调用方（start/startCommand）唯一出口。
+        // 此前这里也通知一遍、还不进 ERRORS，与 start 的 catch 两头不一致、双回调。
+        // 进程退出后的 onExit 由 pump 负责，与启动失败分开。
+        if (TextUtils.isEmpty(command)) throw new Exception("命令为空");
+        File cwd = LabPaths.packageDir(c, pkgId);
+        cwd.mkdirs();
+        File log = LabProc.logFile(c, logName);
+        // 相对路径兜底：接在 expand() 之后（命令已是最终形态，{pkgDir} 等已展开成绝对路径），
+        // ProcessBuilder 拼 shell 之前。包根下找不到、files/ 下有的相对路径补上 files/ 前缀。
+        String aligned = LabPathAlign.align(cwd, command);
+        if (!aligned.equals(command)) {
+            String pathNote = "命令路径自动对齐到 files/：原命令里的脚本在包根下找不到、files/ 下有，已补上 files/ 前缀";
+            appendLog(key, pathNote + "\n");
+            appendFile(log, pathNote + "\n");
+            command = aligned;
         }
+        ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", command);
+        builder.directory(cwd);
+        builder.redirectErrorStream(true);
+        applyEnv(c, pkgId, builder.environment());
+        String nodeNote = applyNodeProxy(c, pkgId, builder.environment());
+        Process process = builder.start();
+        RUNNING.put(key, process);
+        try {
+            STDIN.put(key, process.getOutputStream());
+        } catch (Exception ignored) {
+        }
+        // 进程已确认起跑：通知 UI 把「启动中…」翻回「运行中」。
+        // （onExit 只在进程退出时才来，常驻服务等不到它。）
+        if (listener != null) listener.onStarted();
+        if (nodeNote != null) {
+            appendLog(key, nodeNote + "\n");
+            appendFile(log, nodeNote + "\n");
+        }
+        ERRORS.remove(key);
+        LabProc.track(c, key, LabProc.pidOf(process), log.getAbsolutePath());
+        LabKeepAlive.refresh(c);
+        pump(c, key, process, log, listener);
     }
 
     private static void applyEnv(Context c, String pkgId, Map<String, String> env) {

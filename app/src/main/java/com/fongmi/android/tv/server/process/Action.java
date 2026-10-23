@@ -17,6 +17,7 @@ import com.fongmi.android.tv.event.CastEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.impl.Callback;
+import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.remote.RemoteStore;
 import com.fongmi.android.tv.server.Nano;
 import com.fongmi.android.tv.server.Server;
@@ -153,13 +154,28 @@ public class Action implements Process {
         }
     }
 
+    /**
+     * 播放操作回主线程执行时的复核：入口判空只保证捕获那一刻服务在，
+     * 回帖真正执行时服务可能已销毁换代，捕获的旧 service 的 player 已
+     * release。执行前必须复核仍是同一实例且 player 未释放，否则跳过。
+     */
+    private void postPlayer(PlaybackService captured, java.util.function.Consumer<PlayerManager> action) {
+        App.post(() -> {
+            PlaybackService current = Server.get().getService();
+            if (current == null || current != captured) return;
+            PlayerManager player = current.player();
+            if (player == null || player.isReleased()) return;
+            action.accept(player);
+        });
+    }
+
     private void onControl(Map<String, String> params) {
         String type = params.get("type");
         PlaybackService service = Server.get().getService();
         if (service == null || TextUtils.isEmpty(type)) return;
         switch (type) {
-            case "play" -> App.post(() -> service.player().play());
-            case "pause" -> App.post(() -> service.player().pause());
+            case "play" -> postPlayer(service, player -> player.play());
+            case "pause" -> postPlayer(service, player -> player.pause());
             case "stop" -> App.post(service::dispatchStop);
             case "prev" -> App.post(service::dispatchPrev);
             case "next" -> App.post(service::dispatchNext);
@@ -172,7 +188,7 @@ public class Action implements Process {
         String text = params.get("text");
         PlaybackService service = Server.get().getService();
         if (service == null || TextUtils.isEmpty(text)) return;
-        App.post(() -> service.player().sendDanmaku(text));
+        postPlayer(service, player -> player.sendDanmaku(text));
     }
 
     private void onCast(Map<String, String> params) {

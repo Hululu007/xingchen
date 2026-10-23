@@ -17,7 +17,6 @@ MODULES = {
     "python": ("catvod-python-plugin-v2", "libchaquopy_java.so"),
     "nodejs": ("catvod-nodejs-plugin-v2", "libnode.so"),
     "quickjs": ("fongmi-quickjs-ng-0.17-v11", "libquickjs-wrapper.so"),
-    "thunder": ("catvod-thunder-plugin-v1", "libxl_thunder_sdk.so"),
     "bdj": ("libbluray-1.4.1-openjdk8-zero-v1", None),
     "mpv": ("mpv-jni-ffmpeg-shared-v1", "libplayer.so"),
 }
@@ -25,11 +24,10 @@ LIBRARIES = {
     "python": ("libcrypto_python.so", "libssl_python.so", "libsqlite3_python.so", "libcrypto_chaquopy.so", "libssl_chaquopy.so", "libsqlite3_chaquopy.so", "libpython3.10.so", "libpython3.so", "libchaquopy_java.so"),
     "nodejs": ("libnode.so", "libnodebridge.so"),
     "quickjs": ("libquickjs-wrapper.so",),
-    "thunder": ("libxl_stat.so", "libxl_thunder_sdk.so"),
     "mpv": ("libmpv.so", "libplayer.so"),
 }
 PYTHON_ASSETS = ("app.imy", "build.json", "bootstrap.imy", "stdlib-common.imy", "stdlib-{abi}.imy", "requirements-common.imy", "requirements-{abi}.imy", "cacert.pem")
-JAVA_ENTRIES = {"python": "com.fongmi.chaquo.RuntimeEntry", "nodejs": "com.fongmi.nodejs.RuntimeEntry", "quickjs": "com.fongmi.quickjs.RuntimeEntry", "thunder": "com.xunlei.downloadlib.RuntimeEntry"}
+JAVA_ENTRIES = {"python": "com.fongmi.chaquo.RuntimeEntry", "nodejs": "com.fongmi.nodejs.RuntimeEntry", "quickjs": "com.fongmi.quickjs.RuntimeEntry"}
 BDJ_ARCHIVE = "assets/bdj/runtime.zip"
 BDJ_LIBRARIES = ("libjava.so", "libverify.so", "libzip.so", "libnet.so", "libnio.so", "server/libjvm.so")
 DEFAULT_URL = "https://github.com/FongMi/Release/releases/download/module"
@@ -427,7 +425,7 @@ def publish(directory, output, aapt2="aapt2", url_base=DEFAULT_URL, base_catalog
 
 def main():
     parser = argparse.ArgumentParser(description="Create catalog.json and versioned APKs from finalized runtime modules.")
-    parser.add_argument("directory", type=Path, help="Twelve finalized runtime APKs, or complete changed module pairs with --base-catalog")
+    parser.add_argument("directory", type=Path, help=f"{len(MODULES) * len(ABIS)} finalized runtime APKs, or complete changed module pairs with --base-catalog")
     parser.add_argument("--output", type=Path, required=True, help="Catalog and versioned APK directory")
     parser.add_argument("--aapt2", default="aapt2", help="Android SDK aapt2 executable")
     parser.add_argument("--url-base", default=DEFAULT_URL, help="Release asset directory URL")

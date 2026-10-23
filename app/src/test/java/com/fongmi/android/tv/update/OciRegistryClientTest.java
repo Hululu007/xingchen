@@ -121,7 +121,7 @@ public class OciRegistryClientTest {
         }).followRedirects(false).build();
         File file = File.createTempFile("oci-update", ".apk");
         try {
-            new OciRegistryClient(client).pull("https://mirror.example", target, file, new Observer());
+            new OciRegistryClient(client).pull("https://mirror.example", target, file, new Observer(), null);
             assertArrayEquals(apk, Files.readAllBytes(file.toPath()));
             assertEquals(2, tokenCalls.get());
             assertEquals(2, manifestCalls.get());
@@ -139,7 +139,7 @@ public class OciRegistryClientTest {
         }).followRedirects(false).build();
 
         assertThrows(IOException.class, () -> new OciRegistryClient(client).pull(
-                "https://mirror.example", artifact, new File("unused.apk"), new Observer()));
+                "https://mirror.example", artifact, new File("unused.apk"), new Observer(), null));
     }
 
     private byte[] manifest(String layers) {

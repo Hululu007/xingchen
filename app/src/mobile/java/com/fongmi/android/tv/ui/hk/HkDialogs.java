@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.ui.hk;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.DialogInterface;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -25,6 +27,19 @@ public class HkDialogs extends AlertDialog.Builder {
 
     public HkDialogs(@NonNull Context context) {
         super(context, R.style.ThemeOverlay_XingChen_GlassDialog_Dark);
+    }
+
+    /** 宿主 Activity 已结束/已销毁时返回 true：此时再 show 弹窗会抛 BadToken/状态异常，调用方应直接放弃。 */
+    public static boolean isHostGone(Context context) {
+        Context ctx = context;
+        while (ctx instanceof ContextWrapper) {
+            if (ctx instanceof Activity) {
+                Activity activity = (Activity) ctx;
+                return activity.isFinishing() || activity.isDestroyed();
+            }
+            ctx = ((ContextWrapper) ctx).getBaseContext();
+        }
+        return false;
     }
 
     @NonNull
@@ -87,7 +102,7 @@ public class HkDialogs extends AlertDialog.Builder {
         }
         // 上下留白与现有手写选项弹窗一致
         scroll.setPadding(dp20, dp16, dp20, dp16);
-        dialog.show();
+        if (!isHostGone(context)) dialog.show();
         return dialog;
     }
 

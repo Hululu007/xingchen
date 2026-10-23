@@ -83,7 +83,9 @@ public class ReadingSession {
      * 正在显示的阅读器手里有会话对象直引用，淘汰只影响之后按 id 重建能否命中。
      */
     public static String put(ReadingSession s) {
-        if (s != null && s.bookTitle != null && !s.bookTitle.isEmpty()) {
+        // 入参判空（低-11）：塞 null 进 ConcurrentHashMap 直接 NPE，先挡掉。
+        if (s == null) return null;
+        if (s.bookTitle != null && !s.bookTitle.isEmpty()) {
             for (Map.Entry<String, ReadingSession> e : STORE.entrySet()) {
                 ReadingSession old = e.getValue();
                 if (old != null && old != s && old.kind == s.kind

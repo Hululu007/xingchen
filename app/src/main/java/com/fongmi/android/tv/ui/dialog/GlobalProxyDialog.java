@@ -21,6 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -36,6 +37,9 @@ import okhttp3.Response;
 public class GlobalProxyDialog extends BaseAlertDialog {
 
     private DialogGlobalProxyBinding binding;
+    // 与 ProxyDialog 同口径：测试线程池是成员、弹窗销毁时回收，
+    // 不许每次点「测试代理」新建一个永不关闭的池子漏常驻线程。
+    private final ExecutorService testExecutor = Executors.newSingleThreadExecutor();
     private int type = XingChenProxy.TYPE_OFF;
 
     public static GlobalProxyDialog create() {
@@ -162,7 +166,7 @@ public class GlobalProxyDialog extends BaseAlertDialog {
         }
         binding.btnTest.setText("测试中…");
         binding.btnTest.setEnabled(false);
-        Executors.newSingleThreadExecutor().execute(() -> {
+        testExecutor.execute(() -> {
             boolean ok = false;
             String msg;
             try {
@@ -196,5 +200,11 @@ public class GlobalProxyDialog extends BaseAlertDialog {
                 Notify.show(fok ? "代理可用（" + fmsg + "）" : "代理不可用：" + fmsg);
             });
         });
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        testExecutor.shutdownNow();
     }
 }

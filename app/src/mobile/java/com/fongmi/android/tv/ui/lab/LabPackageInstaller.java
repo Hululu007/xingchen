@@ -99,6 +99,12 @@ public final class LabPackageInstaller {
                                 try {
                                     if (hint != null) progress(listener, hint);
                                     manifest.runtime = runtime;
+                                    // 重装先停这个包的全部进程再解压覆盖（与卸载同口径）：
+                                    // 不停就删/覆盖，进程脚下文件被抽走
+                                    try {
+                                        LabRunner.stopPackage(ctx, manifest.id);
+                                    } catch (Exception ignored) {
+                                    }
                                     File dest = LabPaths.packageDir(ctx, manifest.id);
                                     progress(listener, "正在解压…");
                                     unzip(zip, dest, mergeFiles);
@@ -240,6 +246,11 @@ public final class LabPackageInstaller {
                 try {
                     if (hint != null) progress2(listener, hint);
                     m.runtime = runtime;
+                    // 同上：重装先停这个包的全部进程再删目录
+                    try {
+                        LabRunner.stopPackage(ctx, m.id);
+                    } catch (Exception ignored) {
+                    }
                     File dest = LabPaths.packageDir(ctx, m.id);
                     deleteDir(dest);
                     dest.mkdirs();

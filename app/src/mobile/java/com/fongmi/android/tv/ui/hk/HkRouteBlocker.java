@@ -410,10 +410,16 @@ public final class HkRouteBlocker {
         }
         if (route.startsWith("rulesGroup")) {
             String group = route.replace("rulesGroup@", "");
-            // 原版 HeavyTaskUtil.executeNewTask(lambda$isRoute$3)：后台查组内规则后回主线程展示
+            // 原版 HeavyTaskUtil.executeNewTask(lambda$isRoute$3)：后台查组内规则后回主线程展示；
+            // 展示必须回主线程且宿主还活着，不许在后台线程直接拉页面
             new Thread(() -> {
                 try {
-                    h.showRulesGroup(activity, group);
+                    if (activity == null) return;
+                    activity.runOnUiThread(() -> {
+                        if (!activity.isFinishing() && !activity.isDestroyed()) {
+                            h.showRulesGroup(activity, group);
+                        }
+                    });
                 } catch (Exception e) {
                     Log.e(TAG, "hk error", e);
                 }

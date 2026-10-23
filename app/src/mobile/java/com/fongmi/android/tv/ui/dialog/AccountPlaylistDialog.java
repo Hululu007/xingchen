@@ -36,8 +36,13 @@ public class AccountPlaylistDialog extends BaseBottomSheetDialog {
     private List<AccountPlaylistFetcher.Sheet> sheets;
     private Listener listener;
 
+    // 回调按令牌登记在进程内表里：令牌随 arguments 走，系统重建弹窗后凭令牌取回原回调；
+    // 弹窗真正销毁（非配置变化）时摘除防泄漏。
+    private static final java.util.Map<String, Listener> PENDING = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicInteger SEQ = new java.util.concurrent.atomic.AtomicInteger();
+
     public static void show(FragmentActivity activity, String title, List<AccountPlaylistFetcher.Sheet> sheets, Listener listener) {
-        if (activity == null || activity.isFinishing()) return;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         AccountPlaylistDialog d = new AccountPlaylistDialog();
         d.title = title;
         d.sheets = sheets;
@@ -69,8 +74,53 @@ public class AccountPlaylistDialog extends BaseBottomSheetDialog {
             args.putStringArrayList("sheet_creators", creators);
             args.putLongArray("sheet_counts", counts);
         }
+        String token = null;
+        if (listener != null) {
+            token = "ap_" + SEQ.incrementAndGet();
+            PENDING.put(token, listener);
+            args.putString("cb_token", token);
+        }
         d.setArguments(args);
-        d.show(activity.getSupportFragmentManager(), "music_account_playlist");
+        try {
+            d.show(activity.getSupportFragmentManager(), "music_account_playlist");
+        } catch (Throwable t) {
+            // show 没成：弹窗不会走 onDestroy 摘令牌，必须在这里摘，否则令牌只进不出
+            if (token != null) PENDING.remove(token);
+            throw t;
+        }
+    }
+
+    private Listener resolveListener() {
+        if (listener != null) return listener;
+        android.os.Bundle args = getArguments();
+        String token = args == null ? null : args.getString("cb_token");
+        return token == null ? null : PENDING.get(token);
+    }
+
+    // 失效自关判定：字段已丢（系统重建的新实例）＋arguments 里有令牌（原本登记过回调）
+    // ＋凭令牌回表取不到。三条全中只可能是进程死亡把静态表清空，原回调已不可恢复。
+    private boolean callbackLost() {
+        if (listener != null) return false;
+        android.os.Bundle args = getArguments();
+        String token = args == null ? null : args.getString("cb_token");
+        return token != null && PENDING.get(token) == null;
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // 显示后自检：不可恢复就立即自关，不留能看不能点的僵尸弹窗；用户从活页面重开即正常。
+        if (callbackLost()) dismissAllowingStateLoss();
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (getActivity() == null || !getActivity().isChangingConfigurations()) {
+            android.os.Bundle args = getArguments();
+            String token = args == null ? null : args.getString("cb_token");
+            if (token != null) PENDING.remove(token);
+        }
     }
 
     @Override
@@ -136,13 +186,12 @@ public class AccountPlaylistDialog extends BaseBottomSheetDialog {
             }
             h.sub.setText(sub.toString());
             h.sub.setVisibility(sub.length() == 0 ? View.GONE : View.VISIBLE);
-            if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
-                ImgUtil.loadRounded(name, s.coverUrl, h.cover);
-            } else {
-                h.cover.setImageDrawable(null);
-            }
+            // 无封面地址也走 ImgUtil：内部按素图口径给 CoverTextDrawable 并清掉上一行的在途请求，
+            // 不再手动置 null（既不合无封面口径，回收行还会被迟到图串图）。
+            ImgUtil.loadRounded(name, s.coverUrl, h.cover);
             h.itemView.setOnClickListener(v -> {
-                if (listener != null) listener.onPick(s);
+                Listener pick = resolveListener();
+                if (pick != null) pick.onPick(s);
                 dismissAllowingStateLoss();
             });
         }

@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.legado;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,7 +42,15 @@ public class LegadoAudio {
 
     // ================= 大数据静态仓（照 TtsJob.put/get/remove 模式） =================
 
-    private static final Map<String, AudioAlbum> HOLDER = new HashMap<>();
+    /** 静态仓上限（低-16）：专辑带整本目录表，无上限囤积会顶内存；与 ReadingSession 的 8 对齐。 */
+    private static final int HOLDER_MAX = 8;
+
+    private static final Map<String, AudioAlbum> HOLDER = new LinkedHashMap<String, AudioAlbum>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, AudioAlbum> eldest) {
+            return size() > HOLDER_MAX;
+        }
+    };
 
     public static String put(AudioAlbum a) {
         String id = UUID.randomUUID().toString();

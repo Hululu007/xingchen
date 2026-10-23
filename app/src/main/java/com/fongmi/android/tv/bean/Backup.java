@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.bean;
 
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -31,6 +32,8 @@ import java.util.Set;
 
 public class Backup {
 
+    private static final String TAG = "Backup";
+
     public static final String PREF_WEB_HOME_EXTENSION = "web_home_extension";
     public static final String PREF_WEB_HOME_EXTENSION_SOURCES = "web_home_extension_user_sources";
 
@@ -50,6 +53,16 @@ public class Backup {
     private List<Track> track;
     @SerializedName("device")
     private List<Device> device;
+    @SerializedName("musicFavorite")
+    private List<MusicFavorite> musicFavorite;
+    @SerializedName("musicPlaylist")
+    private List<MusicPlaylist> musicPlaylist;
+    @SerializedName("musicPlaylistItem")
+    private List<MusicPlaylistItem> musicPlaylistItem;
+    @SerializedName("musicDownload")
+    private List<MusicDownload> musicDownload;
+    @SerializedName("playbackDeleteTombstone")
+    private List<PlaybackDeleteTombstone> playbackDeleteTombstone;
     @SerializedName("prefers")
     private Map<String, ?> prefers;
 
@@ -63,7 +76,18 @@ public class Backup {
         backup.setHistory(AppDatabase.get().getHistoryDao().findAll());
         backup.setTrack(AppDatabase.get().getTrackDao().findAll());
         backup.setDevice(AppDatabase.get().getDeviceDao().findAll());
+        backup.setMusicTables();
         return backup;
+    }
+
+    // 音乐四表＋播放删除墓碑（FIX-H13）：1.4.14 已堵住「恢复不含这五表却清掉它们」，
+    // 这里把导出补齐，五表随全量备份一起走，恢复端按「备份含哪表才动哪表」回填。
+    private void setMusicTables() {
+        setMusicFavorite(AppDatabase.get().getMusicFavoriteDao().findAll());
+        setMusicPlaylist(AppDatabase.get().getMusicPlaylistDao().findAll());
+        setMusicPlaylistItem(AppDatabase.get().getMusicPlaylistItemDao().findAll());
+        setMusicDownload(AppDatabase.get().getMusicDownloadDao().findAll());
+        setPlaybackDeleteTombstone(AppDatabase.get().getPlaybackDeleteTombstoneDao().findAll());
     }
 
     public static Backup create(SyncOptions options) {
@@ -73,7 +97,11 @@ public class Backup {
             backup.setLive(AppDatabase.get().getLiveDao().findAll());
             backup.setConfig(AppDatabase.get().getConfigDao().findAll());
         }
-        if (options.isKeep()) backup.setKeep(AppDatabase.get().getKeepDao().findAll());
+        if (options.isKeep()) {
+            backup.setKeep(AppDatabase.get().getKeepDao().findAll());
+            // SyncOptions 没有音乐分项：音乐收藏/歌单/下载与墓碑归收藏族，跟 isKeep 同行
+            backup.setMusicTables();
+        }
         if (options.isHistory()) backup.setHistory(AppDatabase.get().getHistoryDao().findAll());
         backup.setPrefers(filter(Prefers.getPrefers().getAll(), options));
         return backup;
@@ -94,9 +122,9 @@ public class Backup {
     }
 
     public void restore(boolean preserveMissingWebHomePrefs) {
-        // 只清备份里实际包含的七表：备份不含音乐四表（MusicFavorite/MusicPlaylist/
-        // MusicPlaylistItem/MusicDownload）与 PlaybackDeleteTombstone，
-        // 用 clearAllTables 会把这五表数据不可逆清空且无数据可回填。
+        // 只清备份里实际包含的表：七表是 create 恒导出的，无条件先清后填；
+        // 音乐四表＋墓碑（FIX-H13 起才进备份）只在备份真的含该字段时才动——
+        // 旧备份没有这五个字段，恢复时现有音乐数据原样保留，不许清。
         AppDatabase.get().getSiteDao().delete();
         AppDatabase.get().getLiveDao().delete();
         AppDatabase.get().getKeepDao().deleteAll();
@@ -111,6 +139,26 @@ public class Backup {
         AppDatabase.get().getHistoryDao().insertOrUpdate(getHistory());
         AppDatabase.get().getTrackDao().insertOrUpdate(getTrack());
         AppDatabase.get().getDeviceDao().insertOrUpdate(getDevice());
+        if (musicFavorite != null) {
+            AppDatabase.get().getMusicFavoriteDao().deleteAll();
+            AppDatabase.get().getMusicFavoriteDao().insertOrUpdate(musicFavorite);
+        }
+        if (musicPlaylist != null) {
+            AppDatabase.get().getMusicPlaylistDao().deleteAll();
+            AppDatabase.get().getMusicPlaylistDao().insertOrUpdate(musicPlaylist);
+        }
+        if (musicPlaylistItem != null) {
+            AppDatabase.get().getMusicPlaylistItemDao().deleteAll();
+            AppDatabase.get().getMusicPlaylistItemDao().insertOrUpdate(musicPlaylistItem);
+        }
+        if (musicDownload != null) {
+            AppDatabase.get().getMusicDownloadDao().deleteAll();
+            AppDatabase.get().getMusicDownloadDao().insertOrUpdate(musicDownload);
+        }
+        if (playbackDeleteTombstone != null) {
+            AppDatabase.get().getPlaybackDeleteTombstoneDao().deleteAll();
+            AppDatabase.get().getPlaybackDeleteTombstoneDao().insertOrUpdate(playbackDeleteTombstone);
+        }
         restorePrefers(getPrefers(), true, preserveMissingWebHomePrefs);
     }
 
@@ -128,8 +176,21 @@ public class Backup {
         }
         if (options.isKeep()) {
             if (force) AppDatabase.get().getKeepDao().deleteAll();
-            for (Keep item : getKeep()) if (cids.containsKey(item.getCid())) item.setCid(cids.get(item.getCid()));
+            for (Keep item : getKeep()) {
+                if (!cids.containsKey(item.getCid())) continue;
+                int newCid = cids.get(item.getCid());
+                if (newCid == item.getCid()) continue;
+                // 复合主键 (key, cid, type) 下改 cid 是换行不是改行（照 Keep.sync 口径）：
+                // cid 真变了才先按 (key, 旧 cid, type) 删旧行再写新行，否则旧行残留成孤儿。
+                item.delete();
+                item.setCid(newCid);
+            }
             AppDatabase.get().getKeepDao().insertOrUpdate(getKeep());
+            // 音乐四表＋墓碑随收藏族回填：同步路不清表（force 只管 Keep 本表既有口径），
+            // 备份不含的字段（旧备份）跳过。音乐三表不能按源设备自增 id 直接 upsert，
+            // 走 restoreMusicSync 的身份重映射；墓碑是字符串键 REPLACE，仍直填。
+            restoreMusicSync();
+            if (playbackDeleteTombstone != null) AppDatabase.get().getPlaybackDeleteTombstoneDao().insertOrUpdate(playbackDeleteTombstone);
         }
         if (options.isHistory()) {
             if (force) AppDatabase.get().getHistoryDao().delete();
@@ -167,6 +228,87 @@ public class Backup {
             if (source > 0) cids.put(source, item.getId());
         }
         return cids;
+    }
+
+    // 同步恢复音乐三表（W5-01）：源设备的自增 id 在本地没有意义——歌单 id 撞号会整行
+    // 覆写本地歌单，收藏/下载的 unique trackId 撞号会静默丢行或抛约束异常打断整条同步。
+    // 身份口径照 restoreConfig 的 cids 重映射：歌单源 id 不进本地库、置零插入让本地自增
+    // 分配并建源 id→本地 id 映射，条目的 playlistId 走映射改写；收藏/下载按自然键
+    // trackId 找本地行，命中就保留本地 id 原地更新、没有才置零插入。全程逐行 try 兜住
+    // 并记日志，单行失败不许打断其后的 history/prefers。
+    private void restoreMusicSync() {
+        Map<Long, Long> playlistIds = new HashMap<>();
+        if (musicPlaylist != null) {
+            for (MusicPlaylist item : getMusicPlaylist()) {
+                try {
+                    long sourceId = item.getId();
+                    item.setId(0);
+                    long localId = AppDatabase.get().getMusicPlaylistDao().insert(item);
+                    if (localId == -1) {
+                        Log.w(TAG, "restoreMusicSync playlist insert ignored, sourceId=" + sourceId);
+                        continue;
+                    }
+                    item.setId(localId);
+                    if (sourceId > 0) playlistIds.put(sourceId, localId);
+                } catch (Exception e) {
+                    Log.w(TAG, "restoreMusicSync playlist failed", e);
+                }
+            }
+        }
+        if (musicPlaylistItem != null) {
+            for (MusicPlaylistItem item : getMusicPlaylistItem()) {
+                try {
+                    Long localPlaylistId = playlistIds.get(item.getPlaylistId());
+                    // 源歌单不在本次备份或未插入成功：挂到同号本地歌单就是串歌单，跳过
+                    if (localPlaylistId == null) continue;
+                    item.setPlaylistId(localPlaylistId);
+                    MusicPlaylistItem current = AppDatabase.get().getMusicPlaylistItemDao().find(localPlaylistId, item.getTrackId());
+                    if (current == null) {
+                        item.setId(0);
+                        AppDatabase.get().getMusicPlaylistItemDao().insert(item);
+                    } else {
+                        // 同 (playlistId, trackId) 已有行：保留本地 id 原地更新其余字段
+                        // （标题/歌手/排序跟源走），不重复插、不走会 ABORT 的批量 update。
+                        item.setId(current.getId());
+                        AppDatabase.get().getMusicPlaylistItemDao().update(item);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "restoreMusicSync playlistItem failed", e);
+                }
+            }
+        }
+        if (musicFavorite != null) {
+            for (MusicFavorite item : getMusicFavorite()) {
+                try {
+                    MusicFavorite current = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId());
+                    if (current == null) {
+                        item.setId(0);
+                        AppDatabase.get().getMusicFavoriteDao().insert(item);
+                    } else {
+                        item.setId(current.getId());
+                        AppDatabase.get().getMusicFavoriteDao().update(item);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "restoreMusicSync favorite failed", e);
+                }
+            }
+        }
+        if (musicDownload != null) {
+            for (MusicDownload item : getMusicDownload()) {
+                try {
+                    MusicDownload current = AppDatabase.get().getMusicDownloadDao().findByTrackId(item.getTrackId());
+                    if (current == null) {
+                        item.setId(0);
+                        AppDatabase.get().getMusicDownloadDao().insert(item);
+                    } else {
+                        item.setId(current.getId());
+                        AppDatabase.get().getMusicDownloadDao().update(item);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "restoreMusicSync download failed", e);
+                }
+            }
+        }
     }
 
     private static Map<String, ?> filter(Map<String, ?> source, SyncOptions options) {
@@ -253,10 +395,30 @@ public class Backup {
             else if (value instanceof Float) editor.putFloat(entry.getKey(), (Float) value);
             else if (value instanceof Integer) editor.putInt(entry.getKey(), (Integer) value);
             else if (value instanceof Long) editor.putLong(entry.getKey(), (Long) value);
-            else if (value instanceof Number) {
+            else if (value instanceof Set) {
+                // 字符串集合（性能覆盖集、登录态集在用）：此前无此分支，恢复时被静默跳过丢值
+                Set<String> set = new java.util.HashSet<>();
+                for (Object item : (Set<?>) value) if (item instanceof String) set.add((String) item);
+                editor.putStringSet(entry.getKey(), set);
+            } else if (value instanceof java.util.Collection) {
+                // 备份 JSON 往返后 Set 变数组（Gson 读回为 List）：元素全是字符串才按字符串集合回填
+                java.util.Collection<?> collection = (java.util.Collection<?>) value;
+                Set<String> set = new java.util.HashSet<>();
+                boolean strings = true;
+                for (Object item : collection) {
+                    if (item instanceof String) set.add((String) item);
+                    else strings = false;
+                }
+                if (strings) editor.putStringSet(entry.getKey(), set);
+            } else if (value instanceof Number) {
                 Number number = (Number) value;
                 if (number.toString().contains(".")) editor.putFloat(entry.getKey(), number.floatValue());
-                else editor.putInt(entry.getKey(), number.intValue());
+                else {
+                    // 长整数走 intValue 会截断改值：超出 int 范围的按 long 回填
+                    long longValue = number.longValue();
+                    if (longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) editor.putInt(entry.getKey(), (int) longValue);
+                    else editor.putLong(entry.getKey(), longValue);
+                }
             }
         }
     }
@@ -337,6 +499,46 @@ public class Backup {
 
     public void setDevice(List<Device> device) {
         this.device = device;
+    }
+
+    public List<MusicFavorite> getMusicFavorite() {
+        return musicFavorite == null ? Collections.emptyList() : musicFavorite;
+    }
+
+    public void setMusicFavorite(List<MusicFavorite> musicFavorite) {
+        this.musicFavorite = musicFavorite;
+    }
+
+    public List<MusicPlaylist> getMusicPlaylist() {
+        return musicPlaylist == null ? Collections.emptyList() : musicPlaylist;
+    }
+
+    public void setMusicPlaylist(List<MusicPlaylist> musicPlaylist) {
+        this.musicPlaylist = musicPlaylist;
+    }
+
+    public List<MusicPlaylistItem> getMusicPlaylistItem() {
+        return musicPlaylistItem == null ? Collections.emptyList() : musicPlaylistItem;
+    }
+
+    public void setMusicPlaylistItem(List<MusicPlaylistItem> musicPlaylistItem) {
+        this.musicPlaylistItem = musicPlaylistItem;
+    }
+
+    public List<MusicDownload> getMusicDownload() {
+        return musicDownload == null ? Collections.emptyList() : musicDownload;
+    }
+
+    public void setMusicDownload(List<MusicDownload> musicDownload) {
+        this.musicDownload = musicDownload;
+    }
+
+    public List<PlaybackDeleteTombstone> getPlaybackDeleteTombstone() {
+        return playbackDeleteTombstone == null ? Collections.emptyList() : playbackDeleteTombstone;
+    }
+
+    public void setPlaybackDeleteTombstone(List<PlaybackDeleteTombstone> playbackDeleteTombstone) {
+        this.playbackDeleteTombstone = playbackDeleteTombstone;
     }
 
     public Map<String, ?> getPrefers() {

@@ -1,25 +1,21 @@
 package com.fongmi.android.tv.music;
 
-import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.Task;
 
 import java.io.File;
 
 /**
- * 音乐缓存（2026-10-20）：
- * 播放服务不做媒体落盘缓存（直链流播），所以「音乐缓存」实际清的是
- * Glide 图片磁盘缓存——音乐封面/曲库图片走的就是这套缓存（和全 App
- * 的视频封面共用同一个 Glide 磁盘缓存目录，没有独立的音乐封面目录）。
- * 清的是真实缓存目录，但注意会顺带清掉视频封面缓存，详见设置页报告。
+ * 音乐缓存（2026-10-23 低-02 修）：
+ * 播放服务不做媒体落盘缓存（直链流播），音乐自有的磁盘缓存只有歌词缓存
+ * （MusicLyricCache 的 lyric_cache 目录）。此前「清音乐缓存」清的是全 App 共用
+ * 的 Glide 图片磁盘缓存，会连坐视频封面，与按钮字面承诺不符；现只清音乐自有
+ * 的歌词缓存（内存＋磁盘），不动 Glide 共用缓存。
  */
 public class MusicCache {
 
-    /** Glide 默认磁盘缓存目录名（InternalCacheDiskCacheFactory 默认值） */
-    private static final String GLIDE_DISK_CACHE = "image_manager_disk_cache";
-
     public static File cacheDir() {
-        return new File(App.get().getCacheDir(), GLIDE_DISK_CACHE);
+        return MusicLyricCache.diskDir();
     }
 
     public static long size() {
@@ -40,20 +36,14 @@ public class MusicCache {
         return sum;
     }
 
-    /** 清图片磁盘缓存（Glide 标准口，后台线程）＋内存缓存（主线程） */
+    /** 清音乐自有缓存（歌词内存＋磁盘，后台线程）；不动全 App 共用的 Glide 图片缓存 */
     public static void clear(Runnable done) {
         Task.execute(() -> {
             try {
-                Glide.get(App.get()).clearDiskCache();
+                MusicLyricCache.clearAll();
             } catch (Throwable ignored) {
             }
-            App.post(() -> {
-                try {
-                    Glide.get(App.get()).clearMemory();
-                } catch (Throwable ignored) {
-                }
-                if (done != null) done.run();
-            });
+            if (done != null) App.post(done);
         });
     }
 

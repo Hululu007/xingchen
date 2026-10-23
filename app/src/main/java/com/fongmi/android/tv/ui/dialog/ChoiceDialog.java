@@ -68,6 +68,15 @@ public final class ChoiceDialog extends DialogFragment {
         CharSequence onNeutral();
     }
 
+    // 全族 show* 的统一收口：状态已保存后再 show 必抛
+    // IllegalStateException。调用方多为活页点击，但也有异步链回调用法，
+    // 守卫放在这一处，全族一起生效——宁可不开窗，不许崩掉整条链。
+    @Override
+    public void show(@NonNull FragmentManager manager, @Nullable String tag) {
+        if (manager.isStateSaved()) return;
+        super.show(manager, tag);
+    }
+
     public static void showSingle(Fragment fragment, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
         showSingle(fragment.getChildFragmentManager(), fragment.getString(titleRes), items, selected, choice);
     }

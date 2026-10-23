@@ -137,16 +137,17 @@ public final class LabRuntimeManager {
             fail(listener, "下载地址还没准备好");
             return;
         }
+        final String rt = runtime;
         new Thread(() -> {
             try {
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
                 if (url.endsWith(".json")) {
                     downloadSharded(url, tmp, listener);
                 } else {
-                    downloadWhole(url, tmp, listener, runtime);
+                    downloadWhole(url, tmp, listener, rt);
                 }
-                installFromFile(ctx.getApplicationContext(), runtime, tmp,
-                        PKG_VERSION.get(pkgKey(runtime)), listener);
+                installFromFile(ctx.getApplicationContext(), rt, tmp,
+                        PKG_VERSION.get(pkgKey(rt)), listener);
                 tmp.delete();
             } catch (Exception ex) {
                 String m = ex.getMessage();
@@ -553,11 +554,12 @@ public final class LabRuntimeManager {
             fail(listener, "这个环境没有你手机架构的包");
             return;
         }
+        final String rt2 = runtime;
         new Thread(() -> {
             try {
                 // 文件名：目录给了 file 字段就用它（版本化新名），没给从 URL 尾段取
                 String fileName = !dl.file.isEmpty() ? dl.file : fileNameOf(dl.url);
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt2 + "-" + System.currentTimeMillis() + ".zip");
                 if (dl.url.endsWith(".json")) {
                     // 分片清单型：走分片拼接＋校验
                     downloadSharded(dl.url, tmp, listener);
@@ -584,7 +586,7 @@ public final class LabRuntimeManager {
                 if (!dl.sha256.isEmpty() && !sha256Of(tmp).equalsIgnoreCase(dl.sha256)) {
                     throw new Exception("包校验没过，重新下一次试试");
                 }
-                installFromFile(ctx.getApplicationContext(), runtime, tmp, entry.version, listener);
+                installFromFile(ctx.getApplicationContext(), rt2, tmp, entry.version, listener);
                 tmp.delete();
             } catch (Exception e) {
                 String m = e.getMessage();

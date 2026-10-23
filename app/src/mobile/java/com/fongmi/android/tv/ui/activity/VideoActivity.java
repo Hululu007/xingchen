@@ -1284,7 +1284,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private int getEpisodeSpanCount() {
-        return EpisodeGridLayoutPolicy.getMaxSpan(isLand(), ResUtil.isPad());
+        return EpisodeGridLayoutPolicy.getMaxSpan(isActualLand(), ResUtil.isPad());
     }
 
     private void setVideoView() {
@@ -5945,11 +5945,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showDanmaku() {
-        player().setDanmakuEnabled(DanmakuSetting.isShow());
+        PlayerManager manager = player();
+        if (manager != null) manager.setDanmakuEnabled(DanmakuSetting.isShow());
     }
 
     private void hideDanmaku() {
-        player().setDanmakuEnabled(false);
+        PlayerManager manager = player();
+        if (manager != null) manager.setDanmakuEnabled(false);
     }
 
     private void showControl() {
@@ -7644,13 +7646,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void onError(String msg) {
         recordPlayHealth(false, msg);
         mBinding.swipeLayout.setEnabled(true);
-        Track.delete(player().getKey());
+        PlayerManager manager = player();
+        if (manager != null) Track.delete(manager.getKey());
         mClock.setCallback(null);
         clearLyrics();
         clearKaraokeState();
-        player().resetTrack();
-        player().reset();
-        player().stop();
+        if (manager != null) {
+            manager.resetTrack();
+            manager.reset();
+            manager.stop();
+        }
         hideSwitchCover();
         showError(msg);
         startFlow();
@@ -9519,6 +9524,19 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         syncFullscreenForOrientation(newConfig.orientation);
         setupCustomActionButtons();
         if (isFullscreen()) Util.hideSystemUI(this);
+        refreshControlForOrientation();
+    }
+
+    // 旋转不重建页面，控件层没人重算会定格在旋转前的方向套上：底部行与右栏竖屏专属件（⚙/竖排选集/竖排投屏）按实际方向重判一次
+    // 只重算显隐，不走 showControl（它会重播渐入动画并重置自动隐藏计时）；控件没露面时跳过，下次 showControl 现算即是新方向
+    private void refreshControlForOrientation() {
+        if (service() == null || player() == null || isInPictureInPictureMode()) return;
+        if (mBinding.control.getRoot().getVisibility() != View.VISIBLE) return;
+        applyActionButtonVisibility();
+        boolean isVerticalFullscreen = isFullscreen() && !isActualLand();
+        mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() && mEpisodeAdapter != null && getEpisodeCount() >= 2 ? View.VISIBLE : View.GONE);
+        mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
     }
 
     private void syncFullscreenForOrientation(int orientation) {

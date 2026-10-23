@@ -56,17 +56,41 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
 
     public EpisodeListDialog shortDrama(boolean shortDrama) {
         this.shortDrama = shortDrama;
+        args().putBoolean("shortDrama", shortDrama);
         return this;
     }
 
     public EpisodeListDialog flags(List<Flag> flags) {
         this.flags = flags;
+        // 线路表走 arguments 存一份：系统重建弹窗时实例字段会丢，arguments 能原样恢复（Flag 是 Parcelable）。
+        args().putParcelableArrayList("flags", flags == null ? null : new ArrayList<>(flags));
         return this;
     }
 
     public EpisodeListDialog reverse(boolean reverse) {
         this.reverse = reverse;
+        args().putBoolean("reverse", reverse);
         return this;
+    }
+
+    private Bundle args() {
+        Bundle args = getArguments();
+        if (args == null) {
+            args = new Bundle();
+            setArguments(args);
+        }
+        return args;
+    }
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Bundle args = getArguments();
+        if (args != null) {
+            if (args.containsKey("flags")) flags = args.getParcelableArrayList("flags");
+            reverse = args.getBoolean("reverse", reverse);
+            shortDrama = args.getBoolean("shortDrama", shortDrama);
+        }
     }
 
     public void show(FragmentActivity activity) {

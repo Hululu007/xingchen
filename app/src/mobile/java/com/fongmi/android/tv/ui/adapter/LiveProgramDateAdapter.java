@@ -63,11 +63,13 @@ public class LiveProgramDateAdapter extends RecyclerView.Adapter<LiveProgramDate
         holder.binding.text.setText(label(item.getDate()));
         holder.binding.text.setSelected(position == selected);
         holder.binding.text.setOnClickListener(v -> {
+            int position = holder.getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION || position >= items.size()) return;
             int old = selected;
-            selected = holder.getBindingAdapterPosition();
+            selected = position;
             notifyItemChanged(old);
             notifyItemChanged(selected);
-            listener.onDateClick(item);
+            listener.onDateClick(items.get(position));
         });
     }
 

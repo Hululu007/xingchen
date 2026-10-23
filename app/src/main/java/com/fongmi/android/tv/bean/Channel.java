@@ -269,7 +269,10 @@ public class Channel {
     }
 
     public int getIndex() {
-        return index;
+        // 读侧钳上界：setIndex 只钳下界，且合并路换 urls 后旧 index 会大于新表长，
+        // getCurrent/getLine 直接 get(index) 必越界——在出口统一钳到 [0, size-1]。
+        int size = getUrls().size();
+        return size == 0 ? Math.max(index, 0) : Math.min(Math.max(index, 0), size - 1);
     }
 
     public void setIndex(int index) {

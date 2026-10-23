@@ -20,7 +20,10 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.FluentFuture;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,10 +31,12 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class SiteViewModel extends ViewModel {
@@ -43,6 +48,10 @@ public class SiteViewModel extends ViewModel {
 
     private final List<Future<?>> searchFuture;
     private final AtomicInteger searchEpoch;
+    private final AtomicInteger resultEpoch;
+    private final AtomicInteger actionEpoch;
+    private final AtomicReference<ExecHandle> resultTask;
+    private final AtomicReference<ExecHandle> actionTask;
     private KaraokeResult karaokeResult;
     private int karaokeResultAction;
 
@@ -53,6 +62,48 @@ public class SiteViewModel extends ViewModel {
         action = new MutableLiveData<>();
         searchEpoch = new AtomicInteger(0);
         searchFuture = new CopyOnWriteArrayList<>();
+        resultEpoch = new AtomicInteger(0);
+        actionEpoch = new AtomicInteger(0);
+        resultTask = new AtomicReference<>();
+        actionTask = new AtomicReference<>();
+    }
+
+    /**
+     * 一发 execute 的任务句柄：外层 future 先建好供回调挂载，真正的计时 future 等
+     * 任务在池里真正开跑那刻才建（超时从开跑算）。顶替/销毁时 cancel 先断外层、
+     * 再断计时 future，在途任务真停，不留超时后继续占池回压的僵尸。
+     */
+    private static final class ExecHandle {
+
+        private final SettableFuture<Result> outer = SettableFuture.create();
+        private final AtomicReference<Future<?>> timed = new AtomicReference<>();
+
+        SettableFuture<Result> future() {
+            return outer;
+        }
+
+        boolean isDone() {
+            return outer.isDone();
+        }
+
+        void success(Result result) {
+            outer.set(result);
+        }
+
+        void fail(Throwable error) {
+            outer.setException(error);
+        }
+
+        void attach(Future<?> future) {
+            timed.set(future);
+            if (outer.isCancelled()) future.cancel(true);
+        }
+
+        void cancel() {
+            outer.cancel(true);
+            Future<?> future = timed.get();
+            if (future != null) future.cancel(true);
+        }
     }
 
     public LiveData<Result> getResult() {
@@ -103,10 +154,10 @@ public class SiteViewModel extends ViewModel {
 
     public void homeContent(boolean forceRefresh) {
         com.fongmi.android.tv.bean.Site home = VodConfig.get().getHome();
-        // 作废旧首页任务只留给家页取数：进详情/分类/搜索不再掐首页加载。
-        // 否则慢网下进一次详情、返回首页就"打不开"（1.3.30 回归）；切源时新源的
-        // homeContent 同样会作废旧源任务，原"切源不等旧源"意图不受影响。
-        SiteApi.cancelHomeLoads();
+        // 作废旧首页加载的归属在 SiteApi：新加载真正开跑时认领新批次、只掐上一批
+        // 自己登记的子任务。提交侧（这里）与销毁侧（onCleared）都不再全局作废——
+        // 全局掐会连坐掐掉无关的在途加载，无 message 的 CancellationException
+        // 正是从这来；慢网下进一次详情、返回首页就"打不开"也是这个连坐。
         // 冷启动约 200ms 内 viewmodel execute failed type=RESULT site=（空）、URL 为空：
         // 未配置首页源时 home 是空 Site（getHome() 永不返回 null，空 Site 的 key/api 都是 ""），
         // SiteApi.homeContent 一路走到 OkHttp.newCall("") 才抛 no-scheme。execute 入口的空 key
@@ -116,18 +167,16 @@ public class SiteViewModel extends ViewModel {
         boolean homeBad = home == null || home.getKey().isEmpty() || home.getApi().isEmpty();
         // 冷启动第一次 py 首页加载：外层给 90 秒预算（冷链：蜘蛛首次加载＋依赖下载＋站点取数），
         // 热了之后一律 30 秒不动。预算由 SiteApi.homeTimeoutFor 按冷热判定。
-        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null,
-                // 超时/被取消：外层只给了空列表，子任务还在池里继续跑、继续打站点，
-                // 用户一重试就再叠一层——连带作废。正常慢加载（没超时没取消）不受影响。
-                error -> {
-                    if (error instanceof TimeoutException || error instanceof CancellationException)
-                        SiteApi.cancelHomeLoads();
-                },
-                SiteApi.homeTimeoutFor(home), homeBad ? "" : home.getKey());
+        // 超时/被取消时子任务的清理归 SiteApi 自己（它认得自己那一批，就地掐），
+        // 这里不再挂连带作废的错误回调。外层任务走大池：它要阻塞等两个子任务，
+        // 不许占共享 5 线程池把分类/详情/搜索堵在后面。
+        execute(TaskType.RESULT, result, () -> SiteApi.homeContent(home, forceRefresh), null, null,
+                SiteApi.homeTimeoutFor(home), homeBad ? "" : home.getKey(), Task.largeExecutor());
     }
 
     public void categoryContent(String key, String tid, String page, boolean filter, HashMap<String, String> extend) {
-        execute(TaskType.RESULT, result, () -> SiteApi.categoryContent(key, tid, page, filter, extend), null, null, Constant.TIMEOUT_VOD, key);
+        // 超时口径与首页对齐：冷 py 蜘蛛头一发给冷宽限，其余 30 秒（SiteApi.categoryTimeoutFor）。
+        execute(TaskType.RESULT, result, () -> SiteApi.categoryContent(key, tid, page, filter, extend), null, null, SiteApi.categoryTimeoutFor(key), key);
     }
 
     public void action(String key, String act) {
@@ -218,8 +267,10 @@ public class SiteViewModel extends ViewModel {
     }
 
     private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs, String siteKey) {
-        // 上游形（e5ec0c60f 对照）：没有 PLAYER 类型、没有 taskId／futures 取消环、
-        // 没有按 taskId 丢弃旧结果——任务只跑、结果只投递，错误只投 Result.error。
+        execute(type, liveData, callable, onSuccess, onError, timeoutMs, siteKey, Task.executor());
+    }
+
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, long timeoutMs, String siteKey, Executor pool) {
         // 播放结果不再走这里：VideoActivity 直接起播路（playDirect）跑 SiteApi.playerContent。
         // 空 key 执行前拦截是 fork 保留项（冷启动空源不进线程池）：key 为空＝没有可用的源，
         // 绝不把 lambda 交给线程池，否则 SiteApi 里空 Site 一路走到 OkHttp.newCall("") 才抛 no-scheme。
@@ -228,13 +279,34 @@ public class SiteViewModel extends ViewModel {
             liveData.postValue(Result.error("未配置首页源"));
             return;
         }
-        FluentFuture<Result> future = FluentFuture.from(Task.executor().submit(callable)).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
-        future.addCallback(Task.callback(
+        // 同一 ViewModel 同链新请求顶替旧请求：先停上一发自己的任务，其迟到的
+        // 结果/错误一律被代次挡下（与本文件搜索链的 searchEpoch 同款口径）。
+        // 以前 execute 不存句柄：旧任务只能跑完回来盖新结果，超时后还变僵尸占池。
+        AtomicInteger epoch = type == TaskType.RESULT ? resultEpoch : actionEpoch;
+        int mine = epoch.incrementAndGet();
+        AtomicReference<ExecHandle> slot = type == TaskType.RESULT ? resultTask : actionTask;
+        ExecHandle handle = new ExecHandle();
+        ExecHandle prev = slot.getAndSet(handle);
+        if (prev != null) prev.cancel();
+        // 超时从开跑算：先到池里占住线程，任务真正开始执行那刻才建计时 future 起表；
+        // 以前从提交那刻起表，池里排队的时间也算，任务没跑先被判超时（回压根源之一）。
+        pool.execute(() -> {
+            if (handle.isDone()) return;
+            ListenableFutureTask<Result> task = ListenableFutureTask.create(callable);
+            FluentFuture<Result> timed = FluentFuture.from(task).withTimeout(timeoutMs, TimeUnit.MILLISECONDS, Task.scheduler());
+            handle.attach(timed);
+            if (handle.isDone()) return;
+            Futures.addCallback(timed, Task.callback(handle::success, handle::fail), MoreExecutors.directExecutor());
+            task.run();
+        });
+        Futures.addCallback(handle.future(), Task.callback(
                 result -> {
+                    if (epoch.get() != mine) return;
                     if (onSuccess != null) onSuccess.accept(result);
                     liveData.postValue(result);
                 },
                 error -> {
+                    if (epoch.get() != mine) return;
                     if (onError != null) onError.accept(error);
                     SpiderDebug.log("viewmodel", "execute failed type=%s site=%s error=%s", type, siteKey, error);
                     // 上游形：所有错误都投 Result.error，不吞成空结果；RESULT 再补一条 Notify。
@@ -261,7 +333,16 @@ public class SiteViewModel extends ViewModel {
     protected void onCleared() {
         super.onCleared();
         stopSearch();
-        SiteApi.cancelHomeLoads();
+        // 只停自己名下的 execute 任务（详情页快速退页能停掉自己的详情任务）：
+        // 代次先行递增，迟到回调一律挡下；句柄 cancel 让在途任务真停。
+        // 不再全局作废首页加载——任意碎片销毁连坐掐掉正跑的首页加载，
+        // 抛出的无 message CancellationException 正是假报错弹窗的根。
+        resultEpoch.incrementAndGet();
+        actionEpoch.incrementAndGet();
+        ExecHandle running = resultTask.getAndSet(null);
+        if (running != null) running.cancel();
+        running = actionTask.getAndSet(null);
+        if (running != null) running.cancel();
     }
 
     private enum TaskType {RESULT, ACTION}

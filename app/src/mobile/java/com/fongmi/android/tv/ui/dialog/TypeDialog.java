@@ -38,6 +38,13 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
 
     public TypeDialog items(List<Class> items) {
         this.items = items;
+        // 列表走 arguments 存一份：系统重建弹窗时实例字段会丢，arguments 能原样恢复（Class 是 Parcelable）。
+        Bundle args = getArguments();
+        if (args == null) {
+            args = new Bundle();
+            setArguments(args);
+        }
+        args.putParcelableArrayList("items", items == null ? null : new java.util.ArrayList<>(items));
         return this;
     }
 
@@ -86,6 +93,8 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
 
     @Override
     protected void initView() {
+        if (items == null && getArguments() != null) items = getArguments().getParcelableArrayList("items");
+        if (items == null) items = new java.util.ArrayList<>();
         int ratio = ResUtil.isLand(requireContext()) ? 46 : 58;
         binding.recycler.setMaxHeight(ResUtil.getScreenHeight(requireContext()) * ratio / 100);
         binding.recycler.setHasFixedSize(false);
@@ -99,7 +108,10 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
     @Override
     public void onItemClick(int position, Class item) {
         dismiss();
-        listener.onItemClick(position, item);
+        // 重建后 listener 字段已丢，从父 Fragment 重新取（show 时就是从它拿的）。
+        TypeAdapter.OnClickListener target = listener;
+        if (target == null && getParentFragment() instanceof TypeAdapter.OnClickListener parent) target = parent;
+        if (target != null) target.onItemClick(position, item);
     }
 
     private void configureWindow(Window window) {

@@ -94,7 +94,16 @@ public class Backup {
     }
 
     public void restore(boolean preserveMissingWebHomePrefs) {
-        AppDatabase.get().clearAllTables();
+        // 只清备份里实际包含的七表：备份不含音乐四表（MusicFavorite/MusicPlaylist/
+        // MusicPlaylistItem/MusicDownload）与 PlaybackDeleteTombstone，
+        // 用 clearAllTables 会把这五表数据不可逆清空且无数据可回填。
+        AppDatabase.get().getSiteDao().delete();
+        AppDatabase.get().getLiveDao().delete();
+        AppDatabase.get().getKeepDao().deleteAll();
+        AppDatabase.get().getConfigDao().delete();
+        AppDatabase.get().getHistoryDao().delete();
+        AppDatabase.get().getTrackDao().deleteAll();
+        AppDatabase.get().getDeviceDao().delete();
         AppDatabase.get().getSiteDao().insertOrUpdate(getSite());
         AppDatabase.get().getLiveDao().insertOrUpdate(getLive());
         AppDatabase.get().getKeepDao().insertOrUpdate(getKeep());

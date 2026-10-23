@@ -203,6 +203,6 @@ public class Keep implements Diffable<Keep> {
 
     @Override
     public boolean isSameContent(Keep other) {
-        return getVodName().equals(other.getVodName()) && getVodPic().equals(other.getVodPic()) && getCreateTime() == other.getCreateTime();
+        return Objects.equals(getVodName(), other.getVodName()) && Objects.equals(getVodPic(), other.getVodPic()) && getCreateTime() == other.getCreateTime();
     }
 }

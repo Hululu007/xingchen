@@ -30,7 +30,33 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
 
     public ReceiveDialog event(CastEvent event) {
         this.event = event;
+        // 事件走 arguments 存一份（三个 bean 都能 Gson 往返）：系统重建弹窗时实例字段会丢，
+        // arguments 能原样恢复，否则 initView 对 null 的 event 解引用必崩。
+        android.os.Bundle args = getArguments();
+        if (args == null) {
+            args = new android.os.Bundle();
+            setArguments(args);
+        }
+        if (event != null) {
+            args.putString("config", com.fongmi.android.tv.App.gson().toJson(event.config()));
+            args.putString("device", com.fongmi.android.tv.App.gson().toJson(event.device()));
+            args.putString("history", com.fongmi.android.tv.App.gson().toJson(event.history()));
+        }
         return this;
+    }
+
+    private CastEvent event() {
+        if (event == null && getArguments() != null) {
+            android.os.Bundle args = getArguments();
+            try {
+                com.fongmi.android.tv.bean.Config config = com.fongmi.android.tv.bean.Config.objectFrom(args.getString("config"));
+                com.fongmi.android.tv.bean.Device device = com.fongmi.android.tv.bean.Device.objectFrom(args.getString("device"));
+                History history = History.objectFrom(args.getString("history"));
+                if (config != null && device != null && history != null) event = new CastEvent(config, device, history);
+            } catch (Exception ignored) {
+            }
+        }
+        return event;
     }
 
     public void show(FragmentActivity activity) {
@@ -50,9 +76,14 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        History item = event.history();
+        CastEvent e = event();
+        if (e == null) {
+            dismissAllowingStateLoss();
+            return;
+        }
+        History item = e.history();
         binding.name.setText(item.getVodName());
-        binding.from.setText(event.device().getName());
+        binding.from.setText(e.device().getName());
         ImgUtil.load(item.getVodName(), item.getVodPic(), binding.image);
     }
 
@@ -74,12 +105,17 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
     }
 
     private void onReceiveCast() {
-        if (VodConfig.get().getConfig().equals(event.config())) {
-            VideoActivity.cast(requireActivity(), event.history().save(VodConfig.getCid()));
+        CastEvent e = event();
+        if (e == null) {
+            dismissAllowingStateLoss();
+            return;
+        }
+        if (VodConfig.get().getConfig().equals(e.config())) {
+            VideoActivity.cast(requireActivity(), e.history().save(VodConfig.getCid()));
             dismiss();
         } else {
             showProgress();
-            VodConfig.load(event.config(), getCallback());
+            VodConfig.load(e.config(), getCallback());
         }
     }
 

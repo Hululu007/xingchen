@@ -820,6 +820,15 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         homeContent();
     }
 
+    /**
+     * 「首页」页签的刷新统一走这里：与首屏同一套取数（本碎片的 ViewModel），
+     * 页签不再用自己的 ViewModel 再全量拉一遍——同一页面两套首页取数既叠负载、
+     * 结果还互不更新（页签拉完新数据，页签栏/筛选仍停在首屏那一发）。
+     */
+    public void reloadHome() {
+        homeContent(true);
+    }
+
     private void setHomeWebTopMargin(int margin) {
         ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) mBinding.homeWeb.getLayoutParams();
         if (params.topMargin == margin) return;

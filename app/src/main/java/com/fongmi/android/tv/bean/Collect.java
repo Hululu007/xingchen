@@ -39,6 +39,8 @@ public class Collect implements Parcelable, Diffable<Collect> {
     }
 
     public static Collect create(List<Vod> list) {
+        // 空列表无首项可取站点：回空 Collect 兜底，调用点漏预检也不崩。
+        if (list == null || list.isEmpty()) return new Collect(new Site(), new ArrayList<>());
         return new Collect(list.get(0).getSite(), list);
     }
 

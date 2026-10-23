@@ -33,6 +33,10 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         d.platform = platform == null ? "" : platform;
         d.detail = detail == null ? "" : detail;
         d.onRetry = onRetry;
+        android.os.Bundle args = new android.os.Bundle();
+        args.putString("platform", d.platform);
+        args.putString("detail", d.detail);
+        d.setArguments(args);
         try {
             d.show(activity.getSupportFragmentManager(), "lx_key_issue");
         } catch (Throwable ignored) {
@@ -46,6 +50,14 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
 
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
+        // 系统重建（旋转／进程回收）后实例字段丢失，文案从 arguments 恢复，避免空指针。
+        android.os.Bundle args = getArguments();
+        if (args != null) {
+            platform = args.getString("platform", platform);
+            detail = args.getString("detail", detail);
+        }
+        if (platform == null) platform = "";
+        if (detail == null) detail = "";
         LinearLayout root = new LinearLayout(inflater.getContext());
         root.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);

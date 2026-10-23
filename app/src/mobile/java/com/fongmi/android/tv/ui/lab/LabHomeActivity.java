@@ -106,9 +106,10 @@ public class LabHomeActivity extends AppCompatActivity {
         controls.setPadding(dp(18), 0, dp(18), dp(14));
         TextView stopAll = pill("全部停止");
         stopAll.setOnClickListener(v -> {
-            LabRunner.stopAll(this);
+            int left = LabRunner.stopAll(this);
             reload();
-            com.fongmi.android.tv.utils.Notify.show("都停了");
+            // 按实际停止结果报：还有没停下来的如实说，不许无条件报「都停了」
+            com.fongmi.android.tv.utils.Notify.show(left <= 0 ? "都停了" : "还有 " + left + " 个没停下来");
         });
         controls.addView(stopAll);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(

@@ -3,6 +3,12 @@ import os
 import requests
 import json
 import textwrap
+from urllib.parse import urljoin
+
+try:
+    from runner import Runner as _Runner
+except Exception:
+    _Runner = None
 
 for _k in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY'):
     os.environ.pop(_k, None)
@@ -116,14 +122,15 @@ def spider(cache, source, file_name=None):
         _file_hashes[name] = digest
     mod_name = name.split('.')[0]
     from importlib.machinery import SourceFileLoader
-    return SourceFileLoader(mod_name, path).load_module().Spider()
+    raw = SourceFileLoader(mod_name, path).load_module().Spider()
+    return _Runner(raw) if _Runner is not None else raw
 
 
 def download(path, api):
     if api.startswith('http'):
         length = None
         try:
-            head = requests.head(api, allow_redirects=True, verify=False)
+            head = requests.head(api, allow_redirects=True, timeout=10)
             ok = head is not None and 200 <= head.status_code < 300
             raw = head.headers.get('Content-Length') if ok else None
             length = int(raw) if raw is not None else None
@@ -160,11 +167,14 @@ def writeFile(path, content):
 
 
 def redirect(url):
-    rsp = requests.get(url, allow_redirects=False, verify=False)
-    if 'Location' in rsp.headers:
-        return redirect(rsp.headers['Location'])
-    else:
-        return rsp
+    rsp = None
+    for _ in range(10):
+        rsp = requests.get(url, allow_redirects=False, timeout=30)
+        location = rsp.headers.get('Location')
+        if not location:
+            return rsp
+        url = urljoin(url, location)
+    raise Exception('too many redirects: ' + url)
 
 
 def str2json(content):
@@ -319,6 +329,16 @@ def liveContent(ru, url):
 def localProxy(ru, param):
     result = ru.localProxy(str2json(param))
     return result
+
+
+def manualVideoCheck(ru):
+    fn = getattr(ru, "manualVideoCheck", None)
+    return fn() if callable(fn) else False
+
+
+def isVideoFormat(ru, url):
+    fn = getattr(ru, "isVideoFormat", None)
+    return fn(url) if callable(fn) else False
 
 
 def action(ru, action):

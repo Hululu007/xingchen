@@ -174,6 +174,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         return mBinding = ActivityLiveBinding.inflate(getLayoutInflater());
     }
 
+    // LiveControlDialog 系统重建后实例字段（parent）丢失时，从宿主重新取当前 binding。
+    public ActivityLiveBinding liveBinding() {
+        return mBinding;
+    }
+
     @Override
     protected PlaybackService.NavigationCallback getNavigationCallback() {
         return mNavigationCallback;
@@ -371,11 +376,15 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setDecode() {
-        mBinding.control.action.decode.setText(player().getDecodeText());
+        PlayerManager manager = player();
+        if (manager == null) return;
+        mBinding.control.action.decode.setText(manager.getDecodeText());
     }
 
     private void setPlayerKernel() {
-        mBinding.control.action.player.setText(player().getPlayerText());
+        PlayerManager manager = player();
+        if (manager == null) return;
+        mBinding.control.action.player.setText(manager.getPlayerText());
     }
 
     private void setScale(int scale) {
@@ -557,11 +566,15 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onCast() {
-        CastDialog.create().video(new CastVideo(mBinding.control.title.getText().toString(), player().getUrl(), androidx.media3.common.C.TIME_UNSET, player().getHeaders())).fm(false).show(this);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        CastDialog.create().video(new CastVideo(mBinding.control.title.getText().toString(), manager.getUrl(), androidx.media3.common.C.TIME_UNSET, manager.getHeaders())).fm(false).show(this);
     }
 
     private void onInfo() {
-        InfoDialog.create().title(mBinding.control.title.getText()).headers(player().getHeaders()).url(player().getUrl()).show(this);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        InfoDialog.create().title(mBinding.control.title.getText()).headers(manager.getHeaders()).url(manager.getUrl()).show(this);
     }
 
     private void onLock() {
@@ -609,7 +622,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private int getFullscreenOrient() {
-        return ResUtil.isPad() ? ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE : PlaybackOrientation.getEnterFullscreenOrientation(player().isPortrait());
+        // initView 期（pad 全屏模式）服务未绑回时 player() 为 null：按竖屏兜底，尺寸回调到后再纠正
+        PlayerManager manager = player();
+        return ResUtil.isPad() ? ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE : PlaybackOrientation.getEnterFullscreenOrientation(manager == null || manager.isPortrait());
     }
 
     private int getEmbeddedOrient() {
@@ -697,16 +712,18 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onSpeed() {
-        if (!player().isVod()) return;
-        mBinding.control.action.speed.setText(player().addSpeed());
-        PlayerSetting.putDefaultSpeed(player().getSpeed());
+        PlayerManager manager = player();
+        if (manager == null || !manager.isVod()) return;
+        mBinding.control.action.speed.setText(manager.addSpeed());
+        PlayerSetting.putDefaultSpeed(manager.getSpeed());
         setR1Callback();
     }
 
     private boolean onSpeedLong() {
-        if (!player().isVod()) return true;
-        mBinding.control.action.speed.setText(player().toggleSpeed());
-        PlayerSetting.putDefaultSpeed(player().getSpeed());
+        PlayerManager manager = player();
+        if (manager == null || !manager.isVod()) return true;
+        mBinding.control.action.speed.setText(manager.toggleSpeed());
+        PlayerSetting.putDefaultSpeed(manager.getSpeed());
         setR1Callback();
         return true;
     }
@@ -749,13 +766,17 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onDecode() {
-        player().toggleDecode();
+        PlayerManager manager = player();
+        if (manager == null) return;
+        manager.toggleDecode();
         setR1Callback();
         setDecode();
     }
 
     private void onChoose() {
-        PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.control.title.getText());
+        PlayerManager manager = player();
+        if (manager == null) return;
+        PlayerHelper.choose(this, manager.getUrl(), manager.getHeaders(), manager.isVod(), manager.getPosition(), mBinding.control.title.getText());
         setRedirect(true);
     }
 
@@ -765,18 +786,23 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onPlayerKernel() {
-        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        PlayerKernelDialog.show(this, manager.getPlayerType(), this::switchPlayerKernel);
     }
 
     private void switchPlayerKernel(int type) {
-        player().switchPlayer(type);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        manager.switchPlayer(type);
         setPlayerKernel();
         setDecode();
         setR1Callback();
     }
 
     private boolean onTextLong() {
-        if (!player().haveTrack(C.TRACK_TYPE_TEXT)) return false;
+        PlayerManager manager = player();
+        if (manager == null || !manager.haveTrack(C.TRACK_TYPE_TEXT)) return false;
         onSubtitleClick();
         return true;
     }
@@ -1333,6 +1359,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onLiveTrackPanel(int type) {
+        if (player() == null) return;
         TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
@@ -1372,10 +1399,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onError(String msg) {
-        Track.delete(player().getKey());
-        player().resetTrack();
-        player().reset();
-        player().stop();
+        PlayerManager manager = player();
+        if (manager != null) {
+            Track.delete(manager.getKey());
+            manager.resetTrack();
+            manager.reset();
+            manager.stop();
+        }
         showError(msg);
         startFlow();
     }
@@ -1386,11 +1416,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             onError(msg);
             return;
         }
-        mPendingReloadUrl = mPlaybackKey != null ? mPlaybackKey : player().getUrl();
+        PlayerManager manager = player();
+        mPendingReloadUrl = mPlaybackKey != null ? mPlaybackKey : manager == null ? null : manager.getUrl();
         mPendingReloadMsg = msg;
-        player().resetTrack();
-        player().reset();
-        player().stop();
+        if (manager != null) {
+            manager.resetTrack();
+            manager.reset();
+            manager.stop();
+        }
         fetch();
     }
 
@@ -1406,11 +1439,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             case Player.STATE_BUFFERING:
                 showProgress();
                 break;
-            case Player.STATE_READY:
+            case Player.STATE_READY: {
                 hideProgress();
                 checkControl();
-                player().reset();
+                PlayerManager manager = player();
+                if (manager != null) manager.reset();
                 break;
+            }
             case Player.STATE_ENDED:
                 checkEnded();
                 updatePlayControl(false);
@@ -1445,6 +1480,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSubtitleClick() {
+        if (player() == null) return;
         SubtitleDialog.create().view(mBinding.exo.getSubtitleView()).player(player()).show(this);
         hideControl();
     }
@@ -1480,9 +1516,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     public void setLive(Live item) {
         if (item.isSelected()) item.getGroups().clear();
         LiveConfig.get().setHome(item);
-        player().reset();
-        player().clear();
-        player().stop();
+        PlayerManager manager = player();
+        if (manager != null) {
+            manager.reset();
+            manager.clear();
+            manager.stop();
+        }
         resetAdapter();
         hideControl();
         getLive();
@@ -1520,7 +1559,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void checkEnded() {
-        if (player().isLive()) {
+        PlayerManager manager = player();
+        if (manager == null) return;
+        if (manager.isLive()) {
             checkNext();
         } else {
             nextChannel();
@@ -1528,10 +1569,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setTrackVisible() {
-        mBinding.control.action.text.setVisibility(player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod() ? View.VISIBLE : View.GONE);
-        mBinding.control.action.audio.setVisibility(player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
-        mBinding.control.action.video.setVisibility(player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
-        mBinding.control.action.speed.setVisibility(player().isVod() ? View.VISIBLE : View.GONE);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        mBinding.control.action.text.setVisibility(manager.haveTrack(C.TRACK_TYPE_TEXT) || manager.isVod() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.audio.setVisibility(manager.haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
+        mBinding.control.action.video.setVisibility(manager.haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
+        mBinding.control.action.speed.setVisibility(manager.isVod() ? View.VISIBLE : View.GONE);
     }
 
     private MediaMetadata buildMetadata() {
@@ -1664,23 +1707,28 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onCasted() {
-        player().stop();
+        PlayerManager manager = player();
+        if (manager != null) manager.stop();
     }
 
     @Override
     public void onSpeedUp() {
-        if (player().isLive()) return;
-        if (!player().isPlaying()) return;
+        PlayerManager manager = player();
+        if (manager == null) return;
+        if (manager.isLive()) return;
+        if (!manager.isPlaying()) return;
         mBinding.widget.speed.setVisibility(View.VISIBLE);
         mBinding.widget.speed.startAnimation(ResUtil.getAnim(R.anim.forward));
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getSpeed()));
+        mBinding.control.action.speed.setText(manager.setSpeed(PlayerSetting.getSpeed()));
     }
 
     @Override
     public void onSpeedEnd() {
-        if (player().isLive()) return;
+        PlayerManager manager = player();
+        if (manager == null) return;
+        if (manager.isLive()) return;
         mBinding.widget.speed.clearAnimation();
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+        mBinding.control.action.speed.setText(manager.setSpeed(PlayerSetting.getDefaultSpeed()));
     }
 
     @Override
@@ -1715,16 +1763,20 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSeeking(long time) {
-        if (player().isLive()) return;
+        PlayerManager manager = player();
+        if (manager == null) return;
+        if (manager.isLive()) return;
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
-        mBinding.widget.time.setText(player().getPositionTime(time));
+        mBinding.widget.time.setText(manager.getPositionTime(time));
         mBinding.widget.seek.setVisibility(View.VISIBLE);
         hideProgress();
     }
 
     @Override
     public void onSeekEnd(long time) {
-        if (player().isLive()) return;
+        PlayerManager manager = player();
+        if (manager == null) return;
+        if (manager.isLive()) return;
         seekTo(time);
     }
 
@@ -1789,7 +1841,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onShare(CharSequence title) {
-        PlayerHelper.share(this, player().getUrl(), player().getHeaders(), title);
+        PlayerManager manager = player();
+        if (manager == null) return;
+        PlayerHelper.share(this, manager.getUrl(), manager.getHeaders(), title);
         setRedirect(true);
     }
 

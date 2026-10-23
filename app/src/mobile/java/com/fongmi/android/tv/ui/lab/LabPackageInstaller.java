@@ -135,10 +135,10 @@ public final class LabPackageInstaller {
         }).start();
     }
 
-    /** 卸载：先停服务，再删目录、注销 */
+    /** 卸载：先停这个包的全部进程（服务＋命令＋终端），再删目录、注销 */
     public static void uninstall(Context ctx, String id) {
         try {
-            LabRunner.stop(ctx, id);
+            LabRunner.stopPackage(ctx, id);
         } catch (Exception ignored) {
         }
         deleteDir(LabPaths.packageDir(ctx, id));
@@ -163,12 +163,15 @@ public final class LabPackageInstaller {
      */
     public static void ensureRuntime(Context ctx, String runtime, String defaultRuntime, RuntimeEnsure cb) {
         final Context app = ctx.getApplicationContext();
-        String rt = runtime;
+        // 入口先归一（node→nodejs，全仓唯一入口在 LabManifest）：不归一会被当未声明，
+        // 静默改投兜底环境——包明明写了 Node 却跑错环境
+        String rt = LabManifest.normalizeRuntime(runtime);
         String hint = null;
-        if (rt == null || rt.isEmpty() || "none".equals(rt) || !LabRuntimeManager.RUNTIMES.contains(rt)) {
-            if (defaultRuntime != null && LabRuntimeManager.RUNTIMES.contains(defaultRuntime)) {
-                hint = "包里没写要什么环境，先放在「" + LabRuntimeManager.label(defaultRuntime) + "」里";
-                rt = defaultRuntime;
+        if (rt.isEmpty() || "none".equals(rt) || !LabRuntimeManager.RUNTIMES.contains(rt)) {
+            String def = LabManifest.normalizeRuntime(defaultRuntime);
+            if (!"none".equals(def) && LabRuntimeManager.RUNTIMES.contains(def)) {
+                hint = "包里没写要什么环境，先放在「" + LabRuntimeManager.label(def) + "」里";
+                rt = def;
             } else {
                 cb.onReady("none", null);
                 return;

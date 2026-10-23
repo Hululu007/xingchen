@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
@@ -325,15 +326,21 @@ public class SiteApi {
         return isColdPyHomeLoad(site) ? COLD_HOME_TIMEOUT_MS : Constant.TIMEOUT_VOD;
     }
 
+    /** 分类加载的外层超时：与首页同口径——冷 py 蜘蛛头一发（还没创建过）给 90 秒冷宽限，其余 30 秒。 */
+    public static long categoryTimeoutFor(String key) {
+        Site site = VodConfig.get().getSite(key);
+        return isColdPyHomeLoad(site) ? COLD_HOME_TIMEOUT_MS : Constant.TIMEOUT_VOD;
+    }
+
     /**
-     * 作废所有在途的首页 spider 子任务，并开启一个新代次。
-     * 由 SiteViewModel 在发起新的 RESULT 任务前调用（切源/刷新/进分类/进详情）；
-     * ViewModel 侧已有代次校验，旧结果回来直接丢弃。
+     * 首页加载提交子任务前认领批次：把代次推给 Python 透传层（只进不退；过期代次的
+     * 首页调用在入口直接返回空 JSON，不再进脚本——僵尸加载止血），并作废登记表中
+     * 比本批更旧的子任务（只掐上一发首页加载自己的）。批次号由 homeContent 在真要
+     * 跑脚本前按到达顺序先领（见该处注释），顶替关系按领号顺序定、不按开跑顺序。
+     * 作废只从这里发起：以前是全局开关，任何 ViewModel 销毁/超时回调都能触发，
+     * 碎片销毁会连坐掐掉无关的在途加载、抛无 message 的 CancellationException。
      */
-    public static void cancelHomeLoads() {
-        int gen = homeLoadGen.incrementAndGet();
-        // 代次推送到 Python 透传层（修 3）：过期代次的首页调用在入口直接返回空 JSON，
-        // 不再进脚本——被取消/排队中的旧任务不再打站点（僵尸加载止血）。
+    private static void claimHomeLoadBatch(int gen) {
         com.fongmi.chaquo.Spider.setHomeGeneration(gen);
         for (Map.Entry<Integer, CopyOnWriteArrayList<Future<?>>> entry : homeLoadFutures.entrySet()) {
             if (entry.getKey() < gen) {
@@ -395,6 +402,10 @@ public class SiteApi {
                     if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
                 }
             }
+            // 批次号按到达顺序先领（只领号、零副作用，不掐不推）：顶替关系按领号
+            // 顺序定。一发若卡在下面的预热接上等待里、后到的新加载先开跑，新发号
+            // 更大，旧发提交子任务时掐不到新发——按开跑顺序领号则会反杀新加载。
+            int gen = homeLoadGen.incrementAndGet();
             // 首页预热 single-flight：预热缓存命中即晋升为普通缓存直接返回；
             // 切到在途预热源时接上等完（不另起一趟，更不掐了重跑）。
             {
@@ -427,7 +438,9 @@ public class SiteApi {
             }
             String home;
             String video;
-            int gen = homeLoadGen.get();
+            // 提交子任务前认领本批：推代次＋作废比本批更旧的在册子任务；本批两个
+            // 子任务登记在本代次名下。缓存命中/预热接上的路径走不到这里，不扰动在途加载。
+            claimHomeLoadBatch(gen);
             long loadStart = System.currentTimeMillis(); // 耗时记账：只统计真正跑了脚本的加载
             // 首次创建：子任务也给加长预算（外层 90 秒由调用方按 homeTimeoutFor 给）。
             long subTimeout = coldPy ? COLD_HOME_SUB_TIMEOUT_SECONDS : HOME_SUB_TIMEOUT_SECONDS;
@@ -446,6 +459,13 @@ public class SiteApi {
                     fVideo.cancel(true);
                     // 冷启动第一次超时：抛明确错误，不许再吞成空结果。
                     if (coldPy) throw new ColdHomeTimeoutException("首次加载超时，请重试");
+                    throw e;
+                } catch (InterruptedException | CancellationException e) {
+                    // 外层被超时掐断（等待线程被中断）或本批被新加载顶替（子任务已被
+                    // 批次作废取消）：就地把自己这一批的两个子任务掐净再抛，不留僵尸
+                    // 继续占 spiderHomePool 打站点。作废范围只限本批，不碰别的批次。
+                    fHome.cancel(true);
+                    fVideo.cancel(true);
                     throw e;
                 } catch (java.util.concurrent.ExecutionException e) {
                     Throwable cause = e.getCause();
@@ -490,7 +510,7 @@ public class SiteApi {
     @NonNull
     /**
      * 首页预热专用取数：独立通道，不套前台口径——
-     * ① 不读不写 homeLoadGen、不登记 homeLoadFutures、不调 cancelHomeLoads（前台作废射程外）；
+     * ① 不读不写 homeLoadGen、不登记 homeLoadFutures、不认领批次作废（前台作废射程外）；
      * ② Python 代次传 -1（透传层不校验），不受前台代次推送影响；
      * ③ 单源超时按账自适应（HomePrewarm.timeoutFor：历史×1.5＋10s 余量，60–300s 钳制，
      *    无账新源默认 120s）：慢但健康的源（带登记握手、第一次十几秒）正是预热要救的，

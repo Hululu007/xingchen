@@ -13,14 +13,16 @@ import java.util.List;
  * zip 根目录 lab.json，其余文件在 files/ 下（解开后合并到包根）。
  *
  * lab.json 字段：
- *   id            包唯一标识（必填）
+ *   id            包唯一标识（必填；直接决定包目录，纯点/带分隔的非法 id 进门就拒）
  *   name          显示名（必填）
- *   desc          一句人话简介
+ *   desc          一句人话简介（上游写法 description 同认）
  *   icon          图标字（1-2 个字，如 Py/Js/网/剧）
  *   version       包版本
  *   runtime       python | nodejs | php | mihomo | alist | frp | aria2 | ubuntu | java | bun | ffmpeg | none（必填）
- *   autoStart     默认是否自动启动
+ *                 上游常写 node，进门统一归一成 nodejs（normalizeRuntime，全仓唯一入口）
+ *   autoStart     默认是否自动启动（上游写法 auto_execute / auto_start 同认）
  *   commands[]    命令列表：{id,name,desc,command,background,autoExecute,showOutput}
+ *                 命令级同认上游蛇形：description、auto_execute
  *                 showOutput（上游 show_output 口径）：前台型命令运行后是否把输出端到眼前，缺省 true
  *                 command 支持占位：{port}（端口自动分配时替换）、{pkgDir}、{filesDir}
  *   output        产出声明：{kind: live|vod|pan|tool, target, port: auto|数字, actionLabel}
@@ -107,16 +109,36 @@ public class LabManifest {
         return "打开看看";
     }
 
+    /** 运行时名归一（全仓唯一入口，别在各调用点各补）：仓与清单常把 Node 写成 node，运行时只认 nodejs */
+    public static String normalizeRuntime(String runtime) {
+        if (runtime == null) return "none";
+        String rt = runtime.trim().toLowerCase();
+        return "node".equals(rt) ? "nodejs" : rt;
+    }
+
     public static LabManifest parse(String json) throws Exception {
         JSONObject o = new JSONObject(json);
         LabManifest m = new LabManifest();
         m.id = o.optString("id", "").trim();
+        // id 直接决定包目录：纯「..」这类 id 能让安装/卸载删到实验室根，进门就拒
+        //（路径层 LabPaths 还有一道 canonical 兜底，两层同口径）
+        if (!m.id.isEmpty()) {
+            try {
+                LabPaths.requireSafeId(m.id);
+            } catch (IllegalArgumentException e) {
+                throw new Exception("lab.json 的 id 不合法（不能是纯点、不能带路径符号）");
+            }
+        }
         m.name = o.optString("name", "").trim();
-        m.desc = o.optString("desc", "");
+        // 上游写法是 description，自家写法是 desc，两种都吃（与 LabImportCompat 对齐）
+        m.desc = o.has("description") ? o.optString("description", "") : o.optString("desc", "");
         m.icon = o.optString("icon", "包");
         m.version = o.optString("version", "1.0");
-        m.runtime = o.optString("runtime", "none").trim().toLowerCase();
-        m.autoStart = o.optBoolean("autoStart", false);
+        m.runtime = normalizeRuntime(o.optString("runtime", "none"));
+        // 上游写法 auto_execute / auto_start，自家写法 autoStart，两种都吃
+        m.autoStart = o.has("auto_execute") ? o.optBoolean("auto_execute", false)
+                : (o.has("auto_start") ? o.optBoolean("auto_start", false)
+                : o.optBoolean("autoStart", false));
         if (TextUtils.isEmpty(m.id)) throw new Exception("lab.json 缺 id");
         if (TextUtils.isEmpty(m.name)) throw new Exception("lab.json 缺 name");
         JSONArray cs = o.optJSONArray("commands");
@@ -126,10 +148,13 @@ public class LabManifest {
                 LabCommand cmd = new LabCommand();
                 cmd.id = c.optString("id", "cmd" + i);
                 cmd.name = c.optString("name", cmd.id);
-                cmd.desc = c.optString("desc", "");
+                // 命令级同样两种都吃：description（上游）/ desc（自家）
+                cmd.desc = c.has("description") ? c.optString("description", "") : c.optString("desc", "");
                 cmd.command = c.optString("command", "");
                 cmd.background = c.optBoolean("background", true);
-                cmd.autoExecute = c.optBoolean("autoExecute", false);
+                // 命令级自启：auto_execute（上游蛇形）/ autoExecute（自家驼峰）都吃
+                cmd.autoExecute = c.has("auto_execute") ? c.optBoolean("auto_execute", false)
+                        : c.optBoolean("autoExecute", false);
                 // 两种写法都吃："show_output"（上游原名）与 "showOutput"（Gson 落盘回读的字段名）
                 cmd.showOutput = c.has("show_output") ? c.optBoolean("show_output", true)
                         : c.optBoolean("showOutput", true);
@@ -138,7 +163,8 @@ public class LabManifest {
                 if (dl != null) {
                     LabDownload d = new LabDownload();
                     d.url = dl.optString("url", "");
-                    d.file = dl.optString("file", "");
+                    // 落盘键两种都吃：file（自家）/ save_to（上游与 LabImportCompat 口径），两路对齐
+                    d.file = dl.has("file") ? dl.optString("file", "") : dl.optString("save_to", "");
                     if (!TextUtils.isEmpty(d.url)) cmd.download = d;
                 }
                 cmd.variables.addAll(parseVars(c.optJSONArray("variables")));

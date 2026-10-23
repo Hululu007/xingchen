@@ -33,6 +33,13 @@ public class VideoContentDialog extends BaseBottomSheetDialog {
 
     public VideoContentDialog content(CharSequence content) {
         this.content = content;
+        // 正文走 arguments 存一份：系统重建弹窗时实例字段会丢，arguments 能原样恢复。
+        Bundle args = getArguments();
+        if (args == null) {
+            args = new Bundle();
+            setArguments(args);
+        }
+        args.putString("content", content == null ? null : content.toString());
         return this;
     }
 
@@ -63,6 +70,8 @@ public class VideoContentDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        Bundle args = getArguments();
+        if (args != null && args.containsKey("content")) content = args.getString("content");
         binding.content.setText(content);
         binding.scroll.post(() -> binding.scroll.scrollTo(0, 0));
     }

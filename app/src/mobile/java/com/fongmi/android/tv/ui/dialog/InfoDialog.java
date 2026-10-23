@@ -26,17 +26,30 @@ public class InfoDialog extends BaseAlertDialog {
 
     public InfoDialog title(CharSequence title) {
         this.title = TextUtils.isEmpty(title) ? "" : title.toString();
+        args().putString("title", this.title);
         return this;
     }
 
     public InfoDialog headers(Map<String, String> header) {
         this.header = buildHeader(header);
+        args().putString("header", this.header);
         return this;
     }
 
     public InfoDialog url(String url) {
         this.url = TextUtils.isEmpty(url) ? "" : url.startsWith("data") ? url.substring(0, Math.min(url.length(), 128)).concat("...") : url;
+        args().putString("url", this.url);
         return this;
+    }
+
+    // 文案走 arguments 存一份：系统重建弹窗时实例字段会丢，arguments 能原样恢复。
+    private android.os.Bundle args() {
+        android.os.Bundle args = getArguments();
+        if (args == null) {
+            args = new android.os.Bundle();
+            setArguments(args);
+        }
+        return args;
     }
 
     public void show(FragmentActivity activity) {
@@ -61,6 +74,12 @@ public class InfoDialog extends BaseAlertDialog {
 
     @Override
     protected void initView() {
+        android.os.Bundle args = getArguments();
+        if (args != null) {
+            header = args.getString("header", header);
+            title = args.getString("title", title);
+            url = args.getString("url", url);
+        }
         if (header == null) header = "";
         if (title == null) title = "";
         if (url == null) url = "";

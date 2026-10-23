@@ -12,10 +12,32 @@ import com.github.catvod.utils.Util;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import okhttp3.Response;
 
 public class Loader {
+
+    // 蜘蛛创建（模块加载＋Spider 构造）同样没有原生超时：模块顶层代码卡死时
+    // 创建调用会无限期挂住加载线程。创建走共享小池＋60 秒有界等待，卡死时
+    // 调用方拿到超时错误而不是假死；池线程是守护线程，单只蜘蛛的创建卡死
+    // 不占住后续创建（GIL 被 C 层攥死的情况除外，那种只有重启进程能救）。
+    private static final ExecutorService CREATE_EXECUTOR = createExecutor();
+
+    private static ExecutorService createExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(0, 4, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
+            Thread t = new Thread(r, "chaquo-loader");
+            t.setDaemon(true);
+            return t;
+        });
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
 
     private final PyObject app;
 
@@ -77,7 +99,19 @@ public class Loader {
     public Spider spider(String api) {
         String name = scriptName(api);
         String source = source(api, name);
-        PyObject obj = app.callAttr("spider", Path.py().getAbsolutePath(), source, name);
+        PyObject obj;
+        try {
+            obj = CREATE_EXECUTOR.submit(() -> app.callAttr("spider", Path.py().getAbsolutePath(), source, name)).get(60, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("python spider create timeout: " + name, e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            throw new RuntimeException(cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
         return new Spider(app, obj, api);
     }
 

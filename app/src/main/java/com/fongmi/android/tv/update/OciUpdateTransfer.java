@@ -12,15 +12,17 @@ public final class OciUpdateTransfer implements UpdateTransfer, OciRegistryClien
 
     private final UpdateTarget target;
     private final File file;
+    private final String expectedIdentity;
     private volatile boolean canceled;
     private volatile Call call;
     private Future<?> future;
     private Callback callback;
 
-    public OciUpdateTransfer(UpdateTarget target, File file) {
+    public OciUpdateTransfer(UpdateTarget target, File file, String expectedIdentity) {
         if (target == null || target.kind != UpdateTarget.Kind.OCI) throw new IllegalArgumentException("OCI target required");
         this.target = target;
         this.file = file;
+        this.expectedIdentity = expectedIdentity;
     }
 
     @Override
@@ -41,7 +43,7 @@ public final class OciUpdateTransfer implements UpdateTransfer, OciRegistryClien
 
     private void pull() {
         try {
-            new OciRegistryClient(UpdateHttp.ociClient()).pull(target.endpoint, target.artifact, file, this);
+            new OciRegistryClient(UpdateHttp.ociClient()).pull(target.endpoint, target.artifact, file, this, expectedIdentity);
             if (canceled) return;
             App.post(() -> {
                 if (!canceled) callback.success(file);

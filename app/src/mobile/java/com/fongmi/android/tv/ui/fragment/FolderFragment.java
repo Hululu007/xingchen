@@ -95,6 +95,13 @@ public class FolderFragment extends BaseFragment {
         Optional.ofNullable(getChild()).ifPresent(TypeFragment::onRefresh);
     }
 
+    /** 「首页」页签刷新回到列表页那一发取数，页签自己不另拉首页。
+     *  本碎片还被 FolderActivity 独立托管（父级不是 VodFragment），那条路没有
+     *  「首页」页签、走不到这里；守卫只是不给那条路新增崩点。 */
+    public void refreshHome() {
+        if (getParentFragment() instanceof VodFragment) getParent().reloadHome();
+    }
+
     public void scrollToTop() {
         Optional.ofNullable(getChild()).ifPresent(TypeFragment::scrollToTop);
     }

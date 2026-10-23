@@ -178,14 +178,6 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mViewModel.getAction().observe(getViewLifecycleOwner(), result -> Notify.show(result.getMsg()));
     }
 
-    private void getHome() {
-        getHome(false);
-    }
-
-    private void getHome(boolean forceRefresh) {
-        mAdapter.clear(() -> mViewModel.homeContent(forceRefresh));
-    }
-
     private void getVideo() {
         mScroller.reset();
         mAdapter.clear(() -> {
@@ -233,7 +225,9 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
 
     @Override
     public void onRefresh() {
-        if (isHome()) getHome(true);
+        // 「首页」页签不自己拉首页：回列表页那一发统一刷新（页签栏与列表同源更新），
+        // 本页随列表页重建pager被替换，刷新转圈随旧页一同结束。
+        if (isHome()) getParent().refreshHome();
         else getVideo();
     }
 

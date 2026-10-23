@@ -27,6 +27,13 @@ public class FilterDialog extends BaseBottomSheetDialog {
 
     public FilterDialog filter(List<Filter> filter) {
         this.filter = filter;
+        // 列表走 arguments 存一份：系统重建弹窗时实例字段会丢，arguments 能原样恢复（Filter 是 Parcelable）。
+        android.os.Bundle args = getArguments();
+        if (args == null) {
+            args = new android.os.Bundle();
+            setArguments(args);
+        }
+        args.putParcelableArrayList("filter", filter == null ? null : new java.util.ArrayList<>(filter));
         return this;
     }
 
@@ -43,6 +50,10 @@ public class FilterDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        if (filter == null && getArguments() != null) filter = getArguments().getParcelableArrayList("filter");
+        if (filter == null) filter = new java.util.ArrayList<>();
+        // 重建后 listener 字段已丢，从父 Fragment 重新取（show 时就是从它拿的）。
+        if (listener == null && getParentFragment() instanceof FilterListener parent) listener = parent;
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setAdapter(new FilterAdapter(listener, filter));
     }

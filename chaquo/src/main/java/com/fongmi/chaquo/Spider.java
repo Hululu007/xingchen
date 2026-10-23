@@ -14,13 +14,31 @@ import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class Spider extends com.github.catvod.crawler.Spider {
+
+    // 超时口径（S8-05）：Chaquopy 调用没有原生超时，运行中的 Python 调用无法
+    // 从 Java 侧抢占——GIL 被 C 层死循环攥住时只有重启进程能救，这一点不假装
+    // 能解。能落地的是把爆炸半径收住：每个蜘蛛的全部调用改走自己的一条
+    // 专用线程串行执行，调用方最多等 TIMEOUT_SECONDS 就拿到超时错误返回，
+    // 不再无限期占用壳子的加载/搜索/播放线程；卡住的只是这只蜘蛛自己的
+    // 队列（网络型挂死在 socket 上会释放 GIL，纯 Python 循环有 GIL 时间片，
+    // 其它蜘蛛仍能跑）。超时后任务不强杀：它可能稍后自己返回，队列随后恢复。
+    private static final long TIMEOUT_SECONDS = 60;
 
     private final PyObject app;
     private final PyObject obj;
     private final String api;
     private final Gson gson;
+    private final ExecutorService executor;
     private volatile boolean destroyed;
 
     public Spider(PyObject app, PyObject obj, String api) {
@@ -28,6 +46,35 @@ public class Spider extends com.github.catvod.crawler.Spider {
         this.app = app;
         this.obj = obj;
         this.api = api;
+        this.executor = newCallExecutor();
+    }
+
+    private static ExecutorService newCallExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
+            Thread t = new Thread(r, "chaquo-spider");
+            t.setDaemon(true);
+            return t;
+        });
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
+    private <T> T invoke(Callable<T> task) {
+        Future<T> future = executor.submit(task);
+        try {
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("python call timeout", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            if (cause instanceof Error) throw (Error) cause;
+            throw new RuntimeException(cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            throw new RuntimeException(e);
+        }
     }
 
     // Chaquopy 纪律（2026-10-21 修订）：先分清哪些 PyObject 能关、哪些不能。
@@ -65,6 +112,13 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public void init(Context context, String extend) {
+        invoke(() -> {
+            initInternal(extend);
+            return null;
+        });
+    }
+
+    private void initInternal(String extend) {
         PyObject dependence = app.callAttr("getDependence", obj);
         try {
             if (dependence != null) {
@@ -94,6 +148,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
      */
     public String homeContent(boolean filter, int homeGen) {
         if (destroyed) return null;
+        return invoke(() -> homeContentInternal(filter, homeGen));
+    }
+
+    private String homeContentInternal(boolean filter, int homeGen) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("homeContent", obj, filter, homeGen)) {
             return r == null ? null : r.toString();
         } catch (RuntimeException e) {
@@ -108,6 +167,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     }
 
     public String homeVideoContent(int homeGen) {
+        if (destroyed) return null;
+        return invoke(() -> homeVideoContentInternal(homeGen));
+    }
+
+    private String homeVideoContentInternal(int homeGen) {
         if (destroyed) return null;
         try (PyObject r = app.callAttr("homeVideoContent", obj, homeGen)) {
             return r == null ? null : r.toString();
@@ -134,6 +198,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
         if (destroyed) return null;
+        return invoke(() -> categoryContentInternal(tid, pg, filter, extend));
+    }
+
+    private String categoryContentInternal(String tid, String pg, boolean filter, HashMap<String, String> extend) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("categoryContent", obj, tid, pg, filter, gson.toJson(extend))) {
             return r == null ? null : r.toString();
         } catch (RuntimeException e) {
@@ -144,6 +213,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String detailContent(List<String> ids) {
+        if (destroyed) return null;
+        return invoke(() -> detailContentInternal(ids));
+    }
+
+    private String detailContentInternal(List<String> ids) {
         if (destroyed) return null;
         try (PyObject r = app.callAttr("detailContent", obj, gson.toJson(ids))) {
             return r == null ? null : r.toString();
@@ -156,6 +230,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public String searchContent(String key, boolean quick) {
         if (destroyed) return null;
+        return invoke(() -> searchContentInternal(key, quick));
+    }
+
+    private String searchContentInternal(String key, boolean quick) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("searchContent", obj, key, quick)) {
             return r == null ? null : r.toString();
         } catch (RuntimeException e) {
@@ -166,6 +245,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String searchContent(String key, boolean quick, String pg) {
+        if (destroyed) return null;
+        return invoke(() -> searchContentInternal(key, quick, pg));
+    }
+
+    private String searchContentInternal(String key, boolean quick, String pg) {
         if (destroyed) return null;
         try (PyObject r = app.callAttr("searchContent", obj, key, quick, pg)) {
             return r == null ? null : r.toString();
@@ -178,6 +262,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) {
         if (destroyed) return null;
+        return invoke(() -> playerContentInternal(flag, id, vipFlags));
+    }
+
+    private String playerContentInternal(String flag, String id, List<String> vipFlags) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("playerContent", obj, flag, id, gson.toJson(vipFlags))) {
             return r == null ? null : r.toString();
         } catch (RuntimeException e) {
@@ -188,6 +277,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String liveContent(String url) {
+        if (destroyed) return "";
+        return invoke(() -> liveContentInternal(url));
+    }
+
+    private String liveContentInternal(String url) {
         if (destroyed) return "";
         try {
             // 返回值由蜘蛛自备，可能是模块级常量字符串（共享包装），不关（见类头纪律）。
@@ -202,6 +296,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public boolean manualVideoCheck() {
         if (destroyed) return false;
+        return invoke(this::manualVideoCheckInternal);
+    }
+
+    private boolean manualVideoCheckInternal() {
+        if (destroyed) return false;
         try {
             // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
             return app.callAttr("manualVideoCheck", obj).toBoolean();
@@ -214,6 +313,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public boolean isVideoFormat(String url) {
         if (destroyed) return false;
+        return invoke(() -> isVideoFormatInternal(url));
+    }
+
+    private boolean isVideoFormatInternal(String url) {
+        if (destroyed) return false;
         try {
             // 返回值是 True/False 全局单例包装，不关（见类头纪律）。
             return app.callAttr("isVideoFormat", obj, url).toBoolean();
@@ -225,6 +329,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public Object[] proxy(Map<String, String> params) throws Exception {
+        if (destroyed) return null;
+        return invoke(() -> proxyInternal(params));
+    }
+
+    private Object[] proxyInternal(Map<String, String> params) throws Exception {
         if (destroyed) return null;
         PyObject result;
         try {
@@ -256,6 +365,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public String action(String action) {
         if (destroyed) return null;
+        return invoke(() -> actionInternal(action));
+    }
+
+    private String actionInternal(String action) {
+        if (destroyed) return null;
         try (PyObject r = app.callAttr("action", obj, action)) {
             return r == null ? null : r.toString();
         } catch (RuntimeException e) {
@@ -266,17 +380,27 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public void destroy() {
+        // 先立已销毁标志：排队中与后续的调用入口先看到标志直接返回，
+        // 不再拿将关的 obj 去调（与旧口径一致，只是提前到入口）。
+        destroyed = true;
         try {
             // destroy 返回 None，是全局单例包装，不关（见类头纪律）；obj 本人关。
-            app.callAttr("destroy", obj);
-        } catch (Exception ignored) {
+            // Python 侧 destroy 钩子走同一条专用队列与在途调用串行，但只等
+            // 3 秒：在途调用真卡死时不等它，关 obj 的动作不能被拖住——
+            // 卡死那次的 Python destroy 钩子会被跳过，属可接受代价。
+            executor.submit(() -> {
+                try {
+                    app.callAttr("destroy", obj);
+                } catch (Exception ignored) {
+                }
+                return null;
+            }).get(3, TimeUnit.SECONDS);
+        } catch (Throwable ignored) {
         } finally {
             // 蜘蛛被淘汰（文件变更/清缓存/删源）时确定性释放实例对象，
-            // 不再把引用计数释放留给 GC finalize。先立已销毁标志，
-            // 再关 obj：在途与后续的 proxy 调用先看到标志直接返回，
-            // 不再拿已关的 obj 去调。
-            destroyed = true;
+            // 不再把引用计数释放留给 GC finalize。
             closeQuietly(obj);
+            executor.shutdown();
         }
     }
 

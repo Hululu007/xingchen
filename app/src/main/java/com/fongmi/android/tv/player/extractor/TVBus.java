@@ -3,6 +3,7 @@ package com.fongmi.android.tv.player.extractor;
 import android.net.Uri;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.bean.Core;
@@ -20,6 +21,7 @@ import com.tvbus.engine.TVCore;
 
 import java.io.File;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class TVBus implements Source.Extractor, Listener {
 
@@ -57,9 +59,10 @@ public class TVBus implements Source.Extractor, Listener {
         Core c = LiveConfig.get().getHome().getCore();
         if (core != null && !core.equals(c)) change();
         if (tvcore == null) init(core = c);
+        if (tvcore == null) throw new ExtractException(ResUtil.getString(R.string.error_play_url));
         latch = new CountDownLatch(1);
         tvcore.start(url);
-        latch.await();
+        latch.await(Constant.TIMEOUT_LIVE, TimeUnit.MILLISECONDS);
         return check();
     }
 
@@ -79,29 +82,35 @@ public class TVBus implements Source.Extractor, Listener {
     public void stop() {
         if (tvcore != null) tvcore.stop();
         hls = null;
+        if (latch != null) latch.countDown();
     }
 
     @Override
     public void exit() {
         if (tvcore != null) tvcore.stop();
         hls = null;
+        if (latch != null) latch.countDown();
     }
 
     @Override
     public void onPrepared(String result) {
         Logger.t(TAG).d(result);
         JsonObject json = App.gson().fromJson(result, JsonObject.class);
-        if (json.get("hls") == null) return;
+        if (json == null || json.get("hls") == null) return;
         hls = json.get("hls").getAsString();
-        latch.countDown();
+        if (latch != null) latch.countDown();
     }
 
     @Override
     public void onStop(String result) {
         Logger.t(TAG).d(result);
         JsonObject json = App.gson().fromJson(result, JsonObject.class);
+        if (json == null || json.get("errno") == null) {
+            if (latch != null) latch.countDown();
+            return;
+        }
         hls = json.get("errno").getAsString();
-        if (hls.startsWith("-")) latch.countDown();
+        if (hls != null && hls.startsWith("-") && latch != null) latch.countDown();
     }
 
     @Override

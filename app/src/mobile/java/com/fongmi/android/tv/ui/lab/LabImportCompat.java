@@ -42,7 +42,7 @@ public final class LabImportCompat {
         public int minVersion = 0;
         /** 命令变量表（上游 variables/settings 口径） */
         public final List<LabManifest.LabVar> variables = new ArrayList<>();
-        /** 运行前依赖下载（上游 download 口径） */
+        /** 运行前依赖下载（上游 download 口径；Item 级 downloads[] 选中的那条也落这里） */
         public LabManifest.LabDownload download;
         public String portPolicy = "auto";   // auto 或固定端口数字
         public String outputKind = "";       // live | vod | pan | tool，空=未声明
@@ -273,6 +273,9 @@ public final class LabImportCompat {
         String info = o.optString("info", "").trim();
         String version = o.optString("version", "1.0").trim();
         boolean autoInstall = o.optBoolean("auto_install", false);
+        // Item 级 downloads[]（靠下载落二进制的服务，如 lxserver/drpy-node）：解析一次套到每条命令。
+        // 此前整段没读，装完没二进制还不吭声；读不通的也必须进 needsReview 明说
+        ItemDownloads itemDls = parseItemDownloads(o);
         // 包级 settings（上游按环境变量注入）：并入每条命令的变量表，语义差异如实提示
         List<LabManifest.LabVar> pkgVars = parseLabVarList(o.optJSONArray("settings"));
         JSONArray cmds = o.optJSONArray("commands");
@@ -308,13 +311,18 @@ public final class LabImportCompat {
                 if (!url.isEmpty()) {
                     LabManifest.LabDownload d = new LabManifest.LabDownload();
                     d.url = url;
-                    d.file = dl.optString("save_to", "").trim();
+                    // 落盘键两种都吃：save_to（上游）/ file（自家 LabManifest 口径），两路对齐
+                    d.file = dl.has("file") ? dl.optString("file", "").trim()
+                            : dl.optString("save_to", "").trim();
                     it.download = d;
                 } else {
                     it.needsReview = addLine(it.needsReview,
                             "这条命令声明了下载（" + dl.optString("title", "下载文件") + "），但没给下载地址");
                 }
             }
+            // 命令自己没声明下载时，套 Item 级 downloads[] 选中的那条；解析时的提示逐条带上
+            if (it.download == null && itemDls.download != null) it.download = itemDls.download;
+            for (String note : itemDls.notes) it.needsReview = addLine(it.needsReview, note);
             if (!pkgVars.isEmpty()) {
                 it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
             }
@@ -338,6 +346,96 @@ public final class LabImportCompat {
             out.add(it);
         }
         return out;
+    }
+
+    /** Item 级下载声明的解析结果：选中的一条下载＋要带给用户看的提示 */
+    private static class ItemDownloads {
+        LabManifest.LabDownload download;
+        final List<String> notes = new ArrayList<>();
+    }
+
+    /**
+     * 上游 Item 级 downloads[]：按本机架构挑一条直链，接成命令的运行前下载
+     *（落点按 binary_path，没写 binary_path 就用地址里的文件名，LabRunner 缺文件时才下）。
+     * 挑不到/只有网盘地址时不装哑巴——提示进 needsReview，装完跑不起来得让用户先知道。
+     */
+    private static ItemDownloads parseItemDownloads(JSONObject o) {
+        ItemDownloads out = new ItemDownloads();
+        JSONArray arr = o.optJSONArray("downloads");
+        if (arr == null || arr.length() == 0) return out;
+        String binaryPath = o.optString("binary_path", "").trim();
+        String myArch = archFamily(System.getProperty("os.arch", ""));
+        String chosenUrl = "";
+        boolean anyUrl = false;
+        boolean hasPan = false;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject d = arr.optJSONObject(i);
+            if (d == null) continue;
+            if (!d.optString("pan", "").trim().isEmpty()) hasPan = true;
+            String url = downloadUrlOf(d);
+            if (url.isEmpty()) continue;
+            anyUrl = true;
+            String fam = archFamily(d.optString("arch", ""));
+            if (chosenUrl.isEmpty() && (fam.isEmpty() || fam.equals(myArch))) chosenUrl = url;
+        }
+        if (!chosenUrl.isEmpty()) {
+            LabManifest.LabDownload dl = new LabManifest.LabDownload();
+            dl.url = chosenUrl;
+            if (!binaryPath.isEmpty()) {
+                dl.file = binaryPath.endsWith("/") ? binaryPath + urlFileName(chosenUrl) : binaryPath;
+                out.notes.add("包声明二进制放 binary_path（" + binaryPath + "），已按这个位置接上 downloads 的下载");
+            }
+            out.download = dl;
+        } else if (!anyUrl) {
+            out.notes.add(hasPan
+                    ? "这个包的二进制只给了网盘地址（downloads 里是 pan），星辰下不了网盘，装完没二进制、多半跑不起来"
+                    : "这个包声明了二进制下载（downloads）但没给能用的地址，没接上，装完可能跑不起来");
+        } else {
+            out.notes.add("这个包声明的二进制（downloads）没有你手机架构的版本，没接上，装完可能跑不起来");
+        }
+        String varPath = o.optString("var_path", "").trim();
+        if (!varPath.isEmpty()) {
+            out.notes.add("包声明了数据目录 var_path（" + varPath + "），星辰统一放包目录内，命令里写死了这个路径的话要改");
+        }
+        JSONArray mkdir = o.optJSONArray("mkdir");
+        if (mkdir != null && mkdir.length() > 0) {
+            out.notes.add("包声明了预建目录（mkdir），星辰没有预建，命令依赖这些目录时会跑不起来");
+        }
+        return out;
+    }
+
+    /** 下载条目里取直链：url 优先，其次 mirrors[0]、liburl；只有 pan（网盘）时返回空 */
+    private static String downloadUrlOf(JSONObject d) {
+        String url = d.optString("url", "").trim();
+        if (!url.isEmpty()) return url;
+        JSONArray mirrors = d.optJSONArray("mirrors");
+        if (mirrors != null) {
+            for (int i = 0; i < mirrors.length(); i++) {
+                Object mv = mirrors.opt(i);
+                String mu = mv instanceof JSONObject
+                        ? ((JSONObject) mv).optString("url", "").trim()
+                        : (mv == null ? "" : String.valueOf(mv).trim());
+                if (!mu.isEmpty() && !"null".equals(mu)) return mu;
+            }
+        }
+        return d.optString("liburl", "").trim();
+    }
+
+    /** 架构归一成家族名（arm64/arm/x64/x86），认不出返回空（视作通用条目） */
+    private static String archFamily(String arch) {
+        if (arch == null) return "";
+        String a = arch.toLowerCase();
+        if (a.contains("arm64") || a.contains("aarch64") || a.contains("armv8")) return "arm64";
+        if (a.contains("x86_64") || a.contains("amd64") || a.contains("x64")) return "x64";
+        if (a.contains("x86") || a.contains("i686") || a.contains("i386")) return "x86";
+        if (a.contains("arm")) return "arm";
+        return "";
+    }
+
+    private static String urlFileName(String url) {
+        String u = url.split("\\?")[0];
+        int i = u.lastIndexOf('/');
+        return i >= 0 && i < u.length() - 1 ? u.substring(i + 1) : "dep.bin";
     }
 
     /** 上游 variables/settings 口径 → LabVar（字段与 LabManifest.parseVars 对齐） */

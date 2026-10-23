@@ -109,9 +109,11 @@ public final class LabEnvCatalog {
     }
 
     public static EnvEntry entry(Context c, String id) {
-        // 运行时 id 是 nodejs、仓目录 id 是 node，进门先对齐，别让 Node 查无此包
-        if ("nodejs".equals(id)) id = "node";
-        return all(c).get(id);
+        // 运行时 id 是 nodejs、仓目录 id 是 node，进门先经全仓唯一归一入口对齐，
+        // node / nodejs 两种写法都落到仓侧键，别让 Node 查无此包
+        String rt = LabManifest.normalizeRuntime(id);
+        if ("nodejs".equals(rt)) rt = "node";
+        return all(c).get(rt);
     }
 
     /**

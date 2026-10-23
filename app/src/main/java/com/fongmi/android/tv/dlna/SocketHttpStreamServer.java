@@ -31,6 +31,9 @@ import java.util.Objects;
 
 public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServer.Configuration> {
 
+    private static final int MAX_BODY_BYTES = 1024 * 1024;
+    private static final int MAX_LINE_LENGTH = 8192;
+
     private final Configuration configuration;
     private ServerSocket serverSocket;
     private volatile boolean stopped;
@@ -104,6 +107,7 @@ public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServ
                     return sb.toString();
                 }
                 sb.append((char) b);
+                if (sb.length() > MAX_LINE_LENGTH) throw new RequestTooLargeException(431, "Request line/header too long");
                 prev = b;
             }
             return sb.toString();
@@ -139,6 +143,16 @@ public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServ
                 writeResponse(os, responseMessage);
                 os.flush();
                 responseSent(responseMessage);
+            } catch (RequestTooLargeException e) {
+                try {
+                    OutputStream os = socket.getOutputStream();
+                    writeStatusLine(os, e.statusCode, e.statusCode == 413 ? "Content Too Large" : "Request Header Fields Too Large");
+                    writeHeader(os, "Content-Length", "0");
+                    writeEndHeaders(os);
+                    os.flush();
+                } catch (Exception ignored) {
+                }
+                responseException(e);
             } catch (Exception e) {
                 responseException(e);
             } finally {
@@ -177,6 +191,7 @@ public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServ
                 return;
             }
             if (len <= 0) return;
+            if (len > MAX_BODY_BYTES) throw new RequestTooLargeException(413, "Request body too large: " + len);
             byte[] body = new byte[len];
             int offset = 0, read;
             while (offset < len && (read = is.read(body, offset, len - offset)) != -1) offset += read;
@@ -200,6 +215,16 @@ public class SocketHttpStreamServer implements StreamServer<SocketHttpStreamServ
             writeHeader(os, "Content-Length", String.valueOf(body != null ? body.length : 0));
             writeEndHeaders(os);
             if (body != null && body.length > 0) os.write(body);
+        }
+    }
+
+    private static class RequestTooLargeException extends IOException {
+
+        final int statusCode;
+
+        RequestTooLargeException(int statusCode, String message) {
+            super(message);
+            this.statusCode = statusCode;
         }
     }
 

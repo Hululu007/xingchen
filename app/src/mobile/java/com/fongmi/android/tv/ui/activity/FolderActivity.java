@@ -51,7 +51,12 @@ public class FolderActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         setSupportActionBar(mBinding.toolbar);
-        Class type = getResult().getTypes().get(0);
+        Result result = getResult();
+        if (result == null || result.getTypes().isEmpty()) {
+            finish();
+            return;
+        }
+        Class type = result.getTypes().get(0);
         setTitle(type.getTypeName());
         getSupportFragmentManager().beginTransaction().replace(R.id.container, FolderFragment.newInstance(getKey(), type, 8), "0").commit();
     }
@@ -68,7 +73,8 @@ public class FolderActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
-        if (getFragment().canBack()) getFragment().goBack();
+        FolderFragment fragment = getFragment();
+        if (fragment != null && fragment.canBack()) fragment.goBack();
         else super.onBackInvoked();
     }
 }

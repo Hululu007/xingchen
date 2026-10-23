@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TV 端模块页：ModuleActivity 的 binding 字段 bdj / python / nodejs / quickjs / thunder / mpv / check。
+<!-- TV 端模块页：ModuleActivity 的 binding 字段 bdj / python / nodejs / quickjs / mpv / check。
      include 必须带 android:id，ViewBinding 才会生成对应 ItemModuleBinding 字段。 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -34,10 +34,6 @@
 
         <include
             android:id="@+id/quickjs"
-            layout="@layout/item_module" />
-
-        <include
-            android:id="@+id/thunder"
             layout="@layout/item_module" />
 
         <include

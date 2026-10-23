@@ -21,6 +21,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityLiveBinding;
 import com.fongmi.android.tv.databinding.DialogLiveControlBinding;
 import com.fongmi.android.tv.setting.LiveSetting;
+import com.fongmi.android.tv.ui.activity.LiveActivity;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -46,6 +47,13 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     public LiveControlDialog parent(ActivityLiveBinding parent) {
         this.parent = parent;
         return this;
+    }
+
+    // parent 是宿主的视图 binding，没法走 arguments：系统重建后从宿主 LiveActivity 重新取
+    // （与 listener() 从 requireActivity 取的口径一致）；取不到说明宿主已不是直播页，返回 null 由调用方关窗。
+    private ActivityLiveBinding parent() {
+        if (parent == null && getActivity() instanceof LiveActivity live) parent = live.liveBinding();
+        return parent;
     }
 
     public LiveControlDialog show(FragmentActivity activity) {
@@ -77,6 +85,11 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        ActivityLiveBinding parent = parent();
+        if (parent == null) {
+            dismissAllowingStateLoss();
+            return;
+        }
         binding.sheetWall.setVisibility(View.GONE);
         binding.player.setText(parent.control.action.player.getText());
         binding.decode.setText(parent.control.action.decode.getText());
@@ -92,6 +105,8 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initEvent() {
+        ActivityLiveBinding parent = parent();
+        if (parent == null) return;
         binding.config.setOnClickListener(v -> {
             listener().onLiveConfigPanel();
             dismiss();
@@ -134,6 +149,8 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     private void setTrackVisible() {
+        ActivityLiveBinding parent = parent();
+        if (parent == null) return;
         binding.text.setVisibility(parent.control.action.text.getVisibility());
         binding.audio.setVisibility(parent.control.action.audio.getVisibility());
         binding.video.setVisibility(parent.control.action.video.getVisibility());
@@ -161,6 +178,7 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     public void setPlayer() {
+        ActivityLiveBinding parent = parent();
         if (binding == null || parent == null) return;
         binding.player.setText(parent.control.action.player.getText());
         binding.decode.setText(parent.control.action.decode.getText());

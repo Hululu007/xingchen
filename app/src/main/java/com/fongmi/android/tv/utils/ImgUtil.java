@@ -42,8 +42,6 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.Map;
 
-import jahirfiquitiva.libs.textdrawable.TextDrawable;
-
 public class ImgUtil {
 
     private static final String TAG = "ImgUtil";
@@ -113,7 +111,7 @@ public class ImgUtil {
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, vod));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, 0));
         else try {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
@@ -138,7 +136,7 @@ public class ImgUtil {
     /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer。 */
     public static void loadCircle(String text, String url, ImageView view, String ruleUrl) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, true, -1));
         else try {
             Glide.with(view).load(getUrl(url, ruleUrl)).listener(getListener(text, url, view, true)).circleCrop().into(view);
         } catch (Throwable e) {
@@ -152,7 +150,7 @@ public class ImgUtil {
      */
     public static void loadTopRounded(String text, String url, ImageView view, int width, int height) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(8)));
         else try {
             int r = ResUtil.dp2px(8);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -171,7 +169,7 @@ public class ImgUtil {
      */
     public static void loadRounded(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(8)));
         else try {
             int r = ResUtil.dp2px(8);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -186,7 +184,7 @@ public class ImgUtil {
     /** 第 9 项：猜你喜欢叠卡单张圆角 16dp（loadRounded 写死 8dp，不够用，单张照 GZ 16dp 另起一个） */
     public static void loadRounded16(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(16)));
         else try {
             int r = ResUtil.dp2px(16);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -201,7 +199,7 @@ public class ImgUtil {
     /** 第 3 项：榜单详情行封面圆角 10dp（loadRounded 写死 8dp，榜单详情行照 GZ 10dp 另起一个）。 */
     public static void loadRounded10(String text, String url, ImageView view) {
         view.setScaleType(CENTER_CROP);
-        if (TextUtils.isEmpty(url)) view.setImageDrawable(getTextDrawable(text, true));
+        if (TextUtils.isEmpty(url)) view.setImageDrawable(getEmptyCoverDrawable(text, false, ResUtil.dp2px(10)));
         else try {
             int r = ResUtil.dp2px(10);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
@@ -507,8 +505,19 @@ public class ImgUtil {
         return i < 0 ? s : s.substring(0, i) + to + s.substring(i + from.length());
     }
 
+    /**
+     * 判空分支专用素图（用户 2026-10-19 定案）：只有封面地址真为空才用——
+     * 素灰底＋剧名排字（CoverTextDrawable，口径与音乐侧一致）。只许各 load 变体在
+     * 判空分支调用；有地址的 placeholder 与加载失败回调按定案保持透明，走
+     * getTextDrawable，不许调这个。
+     */
+    private static Drawable getEmptyCoverDrawable(String text, boolean firstCharOnly, float cornerRadiusPx) {
+        return new CoverTextDrawable(text, firstCharOnly, cornerRadiusPx);
+    }
+
     private static Drawable getTextDrawable(String text, boolean vod) {
-        // 透明占位：不显示任何占位图，等图片加载完成直接显示
+        // 有地址专用透明占位：加载中（placeholder）与加载失败（onLoadFailed）都保持透明，
+        // 不显示任何占位图，等图片加载完成直接显示。判空分支不走这里，走素图。
         android.graphics.drawable.ColorDrawable drawable = new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
         return drawable;
     }

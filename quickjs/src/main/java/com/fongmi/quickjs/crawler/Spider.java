@@ -25,9 +25,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import dalvik.system.DexClassLoader;
 
@@ -37,10 +40,17 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private final DexClassLoader dex;
     private final String api;
 
+    // 单次调用的超时上限（同步执行段与 Promise 等待段各一份）。wrapper 没有
+    // 中断处理器，卡在原生 JS 里的执行线程无法从 Java 侧强杀，能做的是：
+    // 同步段超时即判定执行线程已死、标记 unresponsive，后续调用快速失败、
+    // 不再排进死线程后面；Promise 永不 settle 时执行线程还活着，只失败本次。
+    private static final long TIMEOUT_SECONDS = 60;
+
     private QuickJSContext ctx;
     private JSObject jsObject;
     private Global global;
     private boolean cat;
+    private volatile boolean unresponsive;
 
     public Spider(String api, DexClassLoader dex) {
         this.executor = Executors.newSingleThreadExecutor();
@@ -48,18 +58,33 @@ public class Spider extends com.github.catvod.crawler.Spider {
         this.dex = dex;
     }
 
-    private <T> Future<T> submit(Callable<T> callable) {
-        return executor.submit(callable);
+    private <T> T submitAndGet(Callable<T> callable) throws Exception {
+        if (unresponsive) throw new IllegalStateException("quickjs spider unresponsive");
+        Future<T> future = executor.submit(callable);
+        try {
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            unresponsive = true;
+            future.cancel(true);
+            throw e;
+        }
     }
 
     private Object call(String func, Object... args) throws Exception {
-        return submit(() -> Async.run(jsObject, func, args)).get().get();
+        CompletableFuture<Object> future = submitAndGet(() -> Async.run(jsObject, func, args));
+        try {
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            // JS 已同步返回、只是 Promise 永不 settle：执行线程还活着，
+            // 只让本次调用按超时报错返回，不连坐整个蜘蛛。
+            throw e;
+        }
     }
 
     @Override
     public void init(Context context, String extend) throws Exception {
         initializeJS();
-        call("init", submit(() -> getExt(extend)).get());
+        call("init", submitAndGet(() -> getExt(extend)));
     }
 
     @Override
@@ -74,7 +99,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) throws Exception {
-        JSObject obj = submit(() -> JSUtil.toObject(ctx, extend)).get();
+        JSObject obj = submitAndGet(() -> JSUtil.toObject(ctx, extend));
         return (String) call("category", tid, pg, filter, obj);
     }
 
@@ -95,7 +120,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) throws Exception {
-        JSArray array = submit(() -> JSUtil.toArray(ctx, vipFlags)).get();
+        JSArray array = submitAndGet(() -> JSUtil.toArray(ctx, vipFlags));
         return (String) call("play", flag, id, array);
     }
 
@@ -126,36 +151,40 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public void destroy() {
-        try {
-            call("destroy");
-        } catch (Throwable e) {
-            e.printStackTrace();
+        // 执行线程已卡死时不再碰 ctx：排队进去的 destroy 永远轮不到执行，
+        // 从别的线程 destroy 正在跑原生代码的上下文有崩溃风险，直接关执行器。
+        // 代价是这一个 ctx 的原生内存留到进程结束，换的是不崩、不挂死。
+        if (!unresponsive) {
+            try {
+                call("destroy");
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+            try {
+                releaseJS();
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
         }
-        try {
-            releaseJS();
-        } catch (Throwable e) {
-            e.printStackTrace();
-        } finally {
-            executor.shutdownNow();
-        }
+        executor.shutdownNow();
     }
 
     private void releaseJS() throws Exception {
-        submit(() -> {
+        submitAndGet(() -> {
             if (global != null) global.destroy();
             if (jsObject != null) jsObject.release();
             if (ctx != null) ctx.destroy();
             return null;
-        }).get();
+        });
     }
 
     private void initializeJS() throws Exception {
-        submit(() -> {
+        submitAndGet(() -> {
             createCtx();
             createFun();
             createObj();
             return null;
-        }).get();
+        });
     }
 
     private void createCtx() {
@@ -206,9 +235,9 @@ public class Spider extends com.github.catvod.crawler.Spider {
     }
 
     private Object[] proxy1(Map<String, String> params) throws Exception {
-        JSObject obj = submit(() -> JSUtil.toObject(ctx, params)).get();
+        JSObject obj = submitAndGet(() -> JSUtil.toObject(ctx, params));
         JSArray proxy = (JSArray) call("proxy", obj);
-        String json = submit(proxy::stringify).get();
+        String json = submitAndGet(proxy::stringify);
         JSONArray array = new JSONArray(json);
         Map<String, String> headers = array.length() > 3 ? Json.toMap(array.optString(3)) : null;
         boolean base64 = array.length() > 4 && array.optInt(4) == 1;
@@ -223,8 +252,8 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private Object[] proxy2(Map<String, String> params) throws Exception {
         String url = params.get("url");
         String header = params.get("header");
-        JSArray array = submit(() -> JSUtil.toArray(ctx, Arrays.asList(url.split("/")))).get();
-        Object object = submit(() -> ctx.parse(header)).get();
+        JSArray array = submitAndGet(() -> JSUtil.toArray(ctx, Arrays.asList(url.split("/"))));
+        Object object = submitAndGet(() -> ctx.parse(header));
         String proxy = (String) call("proxy", array, object);
         Res res = Res.objectFrom(proxy);
         Object[] result = new Object[3];

@@ -104,7 +104,11 @@ public class UpdateDialog extends BaseAlertDialog {
 
     private void toggle(String channel) {
         if (isExpanded(channel)) {
-            update(channel, getItem(channel));
+            // 已展开时点卡片只收起：点卡片任意处不等于点确认，
+            // 确认只走卡内「更新」钮与底部按钮。
+            if (Update.CHANNEL_BETA.equals(channel)) betaExpanded = false;
+            else stableExpanded = false;
+            render();
             return;
         }
         if (!hasBeta()) return;
@@ -204,8 +208,12 @@ public class UpdateDialog extends BaseAlertDialog {
 
     private void normalizeSelection() {
         if (hasBeta()) return;
-        selected = Update.CHANNEL_STABLE;
-        stableExpanded = true;
+        // 只纠正「选中的通道不存在」这一种：选中被纠回 stable 时才强制展开；
+        // 本来就选的 stable 时不碰展开态，否则 toggle 的收起会被这里顶回去。
+        if (!Update.CHANNEL_STABLE.equals(selected)) {
+            selected = Update.CHANNEL_STABLE;
+            stableExpanded = true;
+        }
         betaExpanded = false;
     }
 
@@ -215,10 +223,6 @@ public class UpdateDialog extends BaseAlertDialog {
 
     private boolean isExpanded(String channel) {
         return Update.CHANNEL_BETA.equals(channel) ? betaExpanded : stableExpanded;
-    }
-
-    private View getItem(String channel) {
-        return Update.CHANNEL_BETA.equals(channel) ? binding.betaItem : binding.stableItem;
     }
 
     private String getSelectedName() {

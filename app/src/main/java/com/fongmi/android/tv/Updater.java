@@ -32,6 +32,7 @@ import com.fongmi.android.tv.update.OciArtifact;
 import com.fongmi.android.tv.update.OciMirror;
 import com.fongmi.android.tv.update.OciUpdateTransfer;
 import com.fongmi.android.tv.update.UpdateHttp;
+import com.fongmi.android.tv.update.UpdateIdentity;
 import com.fongmi.android.tv.update.UpdateRoutePlanner;
 import com.fongmi.android.tv.update.UpdateTarget;
 import com.fongmi.android.tv.update.UpdateTransfer;
@@ -99,6 +100,47 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private File getFile() {
         return Path.cache("update.apk");
+    }
+
+    // 本次更新目标的身份串：进度回填与续传只认身份对得上的本地档。
+    private String getTargetIdentity() {
+        if (selected == null) return "";
+        return UpdateIdentity.of(selected.sha256, selected.name, selected.code, selected.size);
+    }
+
+    // 开下前先对身份：本地档与本次目标对不上（旧版整包跨版本留盘、无旁车
+    // 的来路不明档）就删档从 0 并落新旁车；对得上才留给传输层续传。
+    // 只凭长度认档是「一开弹窗就 99%」与新包尾巴拼旧包的根。
+    private void reconcileLocalFile() {
+        String identity = getTargetIdentity();
+        if (identity.isEmpty()) return;
+        File target = getFile();
+        if (!target.exists()) {
+            if (!UpdateIdentity.write(target, identity)) ulog("identity sidecar write failed path=%s", target.getAbsolutePath());
+            return;
+        }
+        if (UpdateIdentity.matches(target, identity)) return;
+        ulog("local file identity mismatch, discard stale file size=%d", target.length());
+        if (!UpdateIdentity.clear(target)) ulog("stale update file delete failed path=%s", target.getAbsolutePath());
+        if (!UpdateIdentity.write(target, identity)) ulog("identity sidecar write failed path=%s", target.getAbsolutePath());
+    }
+
+    // 检查更新时顺手清「档内版本＝已装版本」的留盘旧包：装完没清的整包
+    // 若留着，下次会被当半截误认（现已加身份门兜底，这里再从源头清掉）。
+    // 解析不出或版本对不上就不动档，别误伤可续传的半截。
+    private void clearInstalledLeftover() {
+        if (downloading) return;
+        File target = getFile();
+        if (!target.exists()) return;
+        try {
+            PackageInfo archive = App.get().getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(), 0);
+            if (archive == null) return;
+            long archiveCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? archive.getLongVersionCode() : archive.versionCode;
+            if (archiveCode != BuildConfig.VERSION_CODE) return;
+            ulog("clear leftover update file of installed version code=%d", archiveCode);
+            if (!UpdateIdentity.clear(target)) ulog("leftover update file delete failed path=%s", target.getAbsolutePath());
+        } catch (Exception ignored) {
+        }
     }
 
     /** 更新链留痕：走哪条路、哪步失败都记进文件日志，下次更新慢/失败一次查清。 */
@@ -198,6 +240,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     }
 
     private void doInBackground(FragmentActivity activity, boolean forceCheck) {
+        clearInstalledLeftover();
         long deadline = SystemClock.elapsedRealtime() + UPDATE_CHECK_TIMEOUT_MS;
         Future<Update> stableFuture = Task.executor().submit(() -> getUpdate(Update.CHANNEL_STABLE));
         Future<Update> betaFuture = Task.executor().submit(() -> getUpdate(Update.CHANNEL_BETA));
@@ -430,6 +473,9 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             Notify.show(R.string.update_download_source_unavailable);
             return;
         }
+        // 先对身份再谈续传与空间：身份对不上的留盘档先删掉，下面的空间
+        // 预检与进度回填才不会把旧包长度算进来。
+        reconcileLocalFile();
         // 空间预检（C-17）：真正开下前先按清单 size 查下载目录所在盘的可用
         // 空间，不足直接中文报错、不开下，不再等写失败冒英文系统串。
         if (!hasSpaceForUpdate()) {
@@ -440,8 +486,9 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             return;
         }
         resetProgress();
-        // 不清档：本地已有半截就交给传输层带 Range 续传（C-16）；进度先按
-        // 已有字节回填，弹窗一开就看得出是从哪接着下的。
+        // 不清档：本地已有半截且身份对得上（reconcileLocalFile 已核）就
+        // 交给传输层带 Range 续传（C-16）；进度先按已有字节回填，
+        // 弹窗一开就看得出是从哪接着下的。
         showExistingProgress();
         startNextDownload();
     }
@@ -467,7 +514,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private void showExistingProgress() {
         File target = getFile();
-        long existing = target.exists() ? target.length() : 0;
+        // 只认身份对得上的半截：旧版整包的长度回填进来就是「一开弹窗 99%」。
+        long existing = target.exists() && UpdateIdentity.matches(target, getTargetIdentity()) ? target.length() : 0;
         long size = selected == null ? 0 : selected.size;
         if (existing > size) existing = 0;
         int progress = size > 0 && existing > 0 ? (int) (existing * 100 / size) : 0;
@@ -489,7 +537,7 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         UpdateTarget target = routes.get(routeIndex++);
         ulog("route start %d/%d kind=%s host=%s", routeIndex, routes.size(), target.kind,
                 hostOf(target.kind == UpdateTarget.Kind.OCI ? target.endpoint : target.url));
-        transfer = target.kind == UpdateTarget.Kind.OCI ? new OciUpdateTransfer(target, getFile()) : new HttpUpdateTransfer(target.url, getFile(), selected == null ? 0 : selected.size);
+        transfer = target.kind == UpdateTarget.Kind.OCI ? new OciUpdateTransfer(target, getFile(), getTargetIdentity()) : new HttpUpdateTransfer(target.url, getFile(), selected == null ? 0 : selected.size, getTargetIdentity());
         transfer.start(this);
     }
 
@@ -499,6 +547,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         Notify.show(R.string.update_route_switch);
         // 不清档（C-16）：两条路下的是同一个包（OCI 层摘要与清单 sha256
         // 全等才采纳），半截可跨路续传；最终仍过 validate 才安装。
+        // 换路前同样先对身份，口径与 onConfirm 一致。
+        reconcileLocalFile();
         resetProgress();
         showExistingProgress();
         startNextDownload();
@@ -592,7 +642,9 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
                     // 全链只剩这一处删档：validate 四重验（大小／sha256／包名／
                     // 签名）已定案此档不可信，必须删——续传保留的只是未定案的
                     // 半截，验不过的坏档不许留给下次续传混入（C-16 口径）。
+                    // 身份旁车一并摘掉，不给坏档留下可被认领的身份。
                     Path.clear(file);
+                    if (!UpdateIdentity.clearSidecar(file)) ulog("identity sidecar delete failed path=%s", file.getAbsolutePath());
                     downloading = true;
                     if (retryFallback()) return;
                     downloading = false;
@@ -603,6 +655,13 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
                 }
                 routes = null;
                 FileUtil.openFile(file);
+                // 身份旁车拉起安装后立即摘掉：留下的整包从此无身份，进度
+                // 回填与续传都不再认它。包体本身不在这里删——安装器是经
+                // Intent 异步读这个文件的，同删包体有把安装读坏的风险；
+                // 它由下次检查更新时按「档内版本＝已装版本」清掉
+                // （clearInstalledLeftover），跨版本留盘也只是一份无身份的
+                // 死档，下次确认更新时 reconcileLocalFile 会先删再下。
+                if (!UpdateIdentity.clearSidecar(file)) ulog("identity sidecar delete failed path=%s", file.getAbsolutePath());
                 dismiss();
             });
         });

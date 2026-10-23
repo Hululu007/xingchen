@@ -37,6 +37,12 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
         d.options = options;
         d.checked = checked;
         d.callback = callback;
+        // 标题／选项／勾选位走 arguments：系统重建弹窗时实例字段会丢，arguments 能原样恢复（回调无法序列化，仍走字段）。
+        android.os.Bundle args = new android.os.Bundle();
+        args.putString("title", title);
+        args.putStringArrayList("options", options == null ? null : new java.util.ArrayList<>(options));
+        args.putInt("checked", checked);
+        d.setArguments(args);
         d.show(activity.getSupportFragmentManager(), "music_options");
     }
 
@@ -54,6 +60,12 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        android.os.Bundle args = getArguments();
+        if (args != null) {
+            if (args.containsKey("title")) title = args.getString("title");
+            if (args.containsKey("options")) options = args.getStringArrayList("options");
+            checked = args.getInt("checked", checked);
+        }
         binding.tvTitle.setText(title == null ? "" : title);
         binding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
         binding.recycler.setAdapter(new OptionsAdapter());

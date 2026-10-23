@@ -609,10 +609,41 @@ public final class LabRunner {
         stopKey(c, keyOf(pkgId));
     }
 
-    public static void stopAll(Context c) {
-        List<String> keys = new ArrayList<>(RUNNING.keySet());
-        for (String key : keys) stop(c, pkgIdOf(key));
+    /** 停一个包的全部进程：服务键＋终端键＋它名下的全部命令键（含 pid 恢复的）。
+     * 卸载/删包前用这个，只停服务键会把命令与终端进程留在被删的目录上继续跑。 */
+    public static void stopPackage(Context c, String pkgId) {
+        Set<String> keys = new LinkedHashSet<>(RUNNING.keySet());
+        keys.addAll(LabProc.recoveredAliveKeys(c));
+        String cmdPrefix = "cmd/" + pkgId + "/";
+        for (String key : keys) {
+            if (key.equals(keyOf(pkgId)) || key.equals("term/" + pkgId) || key.startsWith(cmdPrefix)) {
+                stopKey(c, key);
+            }
+        }
         LabKeepAlive.refresh(c);
+    }
+
+    /**
+     * 全部停止：按真实键逐个停（pkg/…、cmd/…、term/… 三类全停，外加靠 pid 文件
+     * 恢复的进程）。此前经 pkgIdOf＋keyOf 往返拼键，把 cmd/term 键拼成
+     * pkg/cmd/…、pkg/term/… 永远查不到，进程照跑、界面却报「都停了」。
+     * 返回停完后仍在跑的条数，界面据此如实提示，停不干净不许报「都停了」。
+     */
+    public static int stopAll(Context c) {
+        Set<String> keys = new LinkedHashSet<>(RUNNING.keySet());
+        keys.addAll(LabProc.recoveredAliveKeys(c));
+        for (String key : keys) stopKey(c, key);
+        LabKeepAlive.refresh(c);
+        return remainingRunningCount(c);
+    }
+
+    /** 还在跑的条数：内存表里真活着的＋pid 文件恢复后仍活着的（与 runningEntries 同口径） */
+    public static int remainingRunningCount(Context c) {
+        int n = 0;
+        for (Map.Entry<String, Process> e : RUNNING.entrySet()) {
+            if (LabProc.alive(e.getValue())) n++;
+        }
+        return n + LabProc.recoveredAliveKeys(c).size();
     }
 
     // ---------------- 日志 ----------------
@@ -644,10 +675,6 @@ public final class LabRunner {
 
     private static String keyOf(String pkgId) {
         return "pkg/" + pkgId;
-    }
-
-    private static String pkgIdOf(String key) {
-        return key.startsWith("pkg/") ? key.substring(4) : key;
     }
 
     private static LabManifest readManifestQuiet(Context c, String pkgId) {

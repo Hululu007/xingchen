@@ -38,6 +38,10 @@ public final class OciRegistryClient {
     }
 
     public void pull(String endpoint, OciArtifact artifact, File file, Observer observer) throws Exception {
+        pull(endpoint, artifact, file, observer, null);
+    }
+
+    public void pull(String endpoint, OciArtifact artifact, File file, Observer observer, String identity) throws Exception {
         if (artifact == null || !artifact.isValid()) throw new IOException("Invalid OCI artifact descriptor");
         HttpUrl manifestUrl = artifactUrl(endpoint, artifact.repository, "manifests", artifact.manifestDigest);
         Request manifestRequest = new Request.Builder()
@@ -54,15 +58,15 @@ public final class OciRegistryClient {
         }
         verifyDigest(manifest, artifact.manifestDigest, "OCI manifest");
         validateManifest(manifest, artifact);
-        downloadBlob(endpoint, artifact, file, observer);
+        downloadBlob(endpoint, artifact, file, observer, identity);
     }
 
     // OCI 续传：本链的形态与直链同理——清单校验过「恰好一层」且层摘要与
     // 更新清单 sha256 全等（Updater.parseDownloads），整包就是这一个 blob，
     // 不是多层拼接。故同法续传：本地半截带 Range 拉余下部分；摘要计算先把
     // 已有半截喂进 MessageDigest 再接着算，终值对层摘要即证明整档连续无缺。
-    private void downloadBlob(String endpoint, OciArtifact artifact, File file, Observer observer) throws Exception {
-        long existing = resumableLength(artifact, file, observer);
+    private void downloadBlob(String endpoint, OciArtifact artifact, File file, Observer observer, String identity) throws Exception {
+        long existing = resumableLength(artifact, file, observer, identity);
         if (existing == artifact.size) {
             // resumableLength 已对整档验过摘要：档已完整，直接交回。
             observer.onProgress(100, artifact.size, artifact.size, 0, 0);
@@ -104,10 +108,14 @@ public final class OciRegistryClient {
         }
     }
 
-    // 半截长度口径同直链路：长于层大小按 0（落盘截断重写）；恰好整档时先
-    // 本地验摘要，对上才认完整，对不上按 0 重拉——不把坏档当成品交回。
-    private long resumableLength(OciArtifact artifact, File file, Observer observer) throws Exception {
+    // 半截长度口径同直链路：先过身份门——带了身份（生产路恒带）时旁车
+    // （UpdateIdentity）对不上本次更新目标就不认这半截，哪怕长度恰好整档、
+    // 摘要恰好对得上别的包，也不当本次的前缀；身份缺省（测试直调）才跳过。
+    // 过门后再按长度定：长于层大小按 0（落盘截断重写）；恰好整档时先本地
+    // 验摘要，对上才认完整，对不上按 0 重拉——不把坏档当成品交回。
+    private long resumableLength(OciArtifact artifact, File file, Observer observer, String identity) throws Exception {
         if (file == null || !file.exists()) return 0;
+        if (identity != null && !identity.isEmpty() && !UpdateIdentity.matches(file, identity)) return 0;
         long length = file.length();
         if (length > artifact.size) return 0;
         if (length == artifact.size) {
@@ -202,7 +210,10 @@ public final class OciRegistryClient {
 
     private void deleteQuietly(File file) {
         try {
-            if (file != null && file.exists()) file.delete();
+            // 删失败不静默：留痕到文件日志，否则坏档留盘下次还会撞同一处。
+            if (file != null && file.exists() && !file.delete()) {
+                com.github.catvod.crawler.SpiderDebug.log("update", "oci delete failed path=%s", file.getAbsolutePath());
+            }
         } catch (Exception ignored) {
         }
     }

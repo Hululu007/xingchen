@@ -514,6 +514,100 @@ public class HkListActivity extends AppCompatActivity
                     android.util.Log.e(TAG, "openPictureList failed", t);
                 }
             }
+
+            // ---- 高-5 补绑（2026-10-23 全树重查）：以下 14 个钩子此前只有接口空默认，
+            // 海阔里点磁力/种子/ed2k/看图/分享/口令导入全无反应。逐个接到星辰既有能力上，
+            // 实现都在本类静态助手里，不另造平行实现。 ----
+
+            @Override
+            public boolean checkText(Activity activity, String text) {
+                return importRuleText(activity, text);
+            }
+
+            @Override
+            public boolean checkAutoText(Context context, String text) {
+                Activity activity = context instanceof Activity ? (Activity) context : currentActivity();
+                return importRuleText(activity, text);
+            }
+
+            @Override
+            public void shareFile(Context context, String absolutePath) {
+                shareLocalFile(context, absolutePath);
+            }
+
+            @Override
+            public void checkDownloadedFile(File file) {
+                checkDownloadedRuleFile(file);
+            }
+
+            @Override
+            public void showImageViewer(java.util.List<String> urls, int selectPos,
+                                        java.util.Map<Integer, Integer> posMap,
+                                        android.widget.ImageView srcView) {
+                // posMap 是原版图集页码映射，图集本身走 openPictureList 的阅读器，普通看图不消费；
+                // srcView 只用来取宿主页面（原版的小图→大图共享元素动画不搬）。
+                Activity activity = srcView != null && srcView.getContext() instanceof Activity
+                        ? (Activity) srcView.getContext() : currentActivity();
+                if (activity == null || urls == null || urls.isEmpty()) return;
+                showImageDialog(activity, urls, selectPos);
+            }
+
+            @Override
+            public void showSingleImage(String url, android.widget.ImageView srcView) {
+                Activity activity = srcView != null && srcView.getContext() instanceof Activity
+                        ? (Activity) srcView.getContext() : currentActivity();
+                if (activity == null || TextUtils.isEmpty(url)) return;
+                java.util.List<String> urls = new ArrayList<>();
+                urls.add(url);
+                showImageDialog(activity, urls, 0);
+            }
+
+            @Override
+            public void startDownloadMagnet(Context context, String url) {
+                playThunderLink(context, url, null);
+            }
+
+            @Override
+            public void startParseTorrent(Context context, String url) {
+                playThunderLink(context, url, null);
+            }
+
+            @Override
+            public void startParseFTPOrEd2k(Context context, String url,
+                                            java.util.function.Consumer<String> consumer) {
+                // 原版 consumer 是把迅雷解析出的本地地址回点进播放器；星辰的解析在播放器内
+                // 由 Source.fetch 的 Thunder.Parser 完成，没有播放链外的独立解析面，
+                // 故直达播放器、不回调用 consumer（回点只会把同一条 ed2k 再送回本分支）。
+                playThunderLink(context, url, null);
+            }
+
+            @Override
+            public void startDownloadMagnetList(Context context, String url,
+                                                java.util.List<HkArticleFragment.HkChapter> chapters) {
+                playThunderLink(context, url, chapters);
+            }
+
+            @Override
+            public void startParseTorrentList(Context context, String url,
+                                              java.util.List<HkArticleFragment.HkChapter> chapters) {
+                playThunderLink(context, url, chapters);
+            }
+
+            @Override
+            public void startParseFTPOrEd2kList(Context context, String url,
+                                                java.util.List<HkArticleFragment.HkChapter> chapters) {
+                playThunderLink(context, url, chapters);
+            }
+
+            @Override
+            public void shareRule(HkRule rule, boolean moreWays) {
+                shareHkRule(rule, moreWays);
+            }
+
+            @Override
+            public void showPosDetail(Activity activity, HkItem item, HkRule rule, int position) {
+                showItemDetail(activity, item, rule);
+            }
         };
         HkFuck.loadList();
         // hiker:// 目标页路由钩子（C1）：搜索 + 目标页全量装配，搜索页/列表页/小程序页共用
@@ -534,6 +628,395 @@ public class HkListActivity extends AppCompatActivity
             return ((HkSearchActivity) activity).currentEngineTitle();
         }
         return "";
+    }
+
+    // ------------------------------------------------------------------
+    // 高-5 补绑的宿主能力（2026-10-23）：全部复用既有入口——导入走 HkRuleManager 中央分发、
+    // 迅雷链走 VideoActivity.startHkPlay（播放器内 Source.fetch 的 Thunder.Parser 解析）、
+    // 分享走 HkRuleManager.buildShareCommand + 系统分享、看图走 HkDialogs + ImgUtil。
+    // ------------------------------------------------------------------
+
+    /**
+     * 口令/规则文本导入（原版 AutoImportHelper.checkText/checkAutoText 的星辰落点）：
+     * 识别与导入全走 HkRuleManager 中央分发（云口令/￥home_rule￥包装/base64 壳/裸 JSON/JS 规则），
+     * 真导入了才返回 true。云口令要联网拉取：命中即认领、后台导入（原版 RuleImporterManager.parse
+     * 命中即 true 同款），拉取失败由后台提示交代，不假报成功。
+     */
+    static boolean importRuleText(Activity activity, String text) {
+        if (activity == null || TextUtils.isEmpty(text)) return false;
+        String t = text.trim();
+        if (HkRuleManager.isCloudCode(t)) {
+            new Thread(() -> {
+                try {
+                    HkRule rule = HkRuleManager.get().importByCloudCode(t);
+                    App.post(() -> onRuleImported(activity, rule));
+                } catch (Exception e) {
+                    App.post(() -> HkRouteBlocker.toastShortBottom(activity,
+                            "口令导入失败：" + e.getMessage()));
+                }
+            }).start();
+            return true;
+        }
+        try {
+            HkRule imported;
+            if (HkRuleManager.isJsRuleText(t)) {
+                imported = HkRuleManager.get().importJsRule(t, "口令导入");
+            } else {
+                java.util.List<HkRule> list = HkRuleManager.get().importJsonList(t);
+                if (list == null || list.isEmpty()) return false;
+                imported = list.get(0);
+            }
+            if (imported == null) return false;
+            onRuleImported(activity, imported);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 导入成功交代：像海阔原版一样问「是否打开」，打开走本页的规则入口。 */
+    static void onRuleImported(Activity activity, HkRule rule) {
+        if (activity == null || activity.isFinishing() || rule == null) return;
+        String title = TextUtils.isEmpty(rule.getTitle()) ? "小程序" : rule.getTitle();
+        try {
+            new HkDialogs(activity)
+                    .setTitle("导入成功")
+                    .setMessage("已导入「" + title + "」，是否打开？")
+                    .setPositiveButton("打开", (d, w) -> startRule(activity, rule, title))
+                    .setNegativeButton("关闭", null)
+                    .show();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * openFile:// 的下载文件检查（原版 DownloadRecordsFragment.checkDownload 的口径）：
+     * 小于 4MB 的 .txt/.json/.hiker，内容像规则（find_rule 特征/分享口令/云口令/JS 规则）时
+     * 走导入并问是否打开；不是规则就静默放行——桥随后照原版用系统应用打开该文件。
+     */
+    static void checkDownloadedRuleFile(File file) {
+        if (file == null || !file.exists()) return;
+        String name = file.getName().toLowerCase(java.util.Locale.ROOT);
+        if (!(name.endsWith(".txt") || name.endsWith(".json") || name.endsWith(".hiker"))) return;
+        if (file.length() >= 4L * 1024 * 1024) return;
+        new Thread(() -> {
+            try {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                }
+                String text = bos.toString(StandardCharsets.UTF_8.name());
+                if (TextUtils.isEmpty(text)) return;
+                boolean ruleLike = text.contains("\"find_rule\"")
+                        || HkRuleManager.isShareCommandText(text)
+                        || HkRuleManager.isCloudCode(text)
+                        || HkRuleManager.isJsRuleText(text);
+                if (!ruleLike) return;
+                App.post(() -> {
+                    Activity activity = currentActivity();
+                    if (activity != null) importRuleText(activity, text);
+                });
+            } catch (Exception ignored) {
+            }
+        }).start();
+    }
+
+    /**
+     * 迅雷链播放（磁力/种子/ed2k/ftp，单条与带选集列表共用）：星辰没有独立的迅雷面板，
+     * 既有能力就是播放器——集地址进 VideoActivity 后由 Source.fetch 的 Thunder.Parser
+     * 解析出文件列表（多文件在播放器内成选集），与旧宿主 HkPageActivity.playP2pInApp 同路，
+     * 交接面与 startPlayerSingle/startPlayerChapters 相同，不碰迅雷模块内部。
+     */
+    static void playThunderLink(Context context, String url,
+                                java.util.List<HkArticleFragment.HkChapter> chapters) {
+        if (TextUtils.isEmpty(url)) {
+            HkRouteBlocker.toastShortBottom(context, "链接不能为空");
+            return;
+        }
+        Activity activity = context instanceof Activity ? (Activity) context : currentActivity();
+        if (activity == null) {
+            HkRouteBlocker.toastShortBottom(context, "无法打开播放器");
+            return;
+        }
+        String ruleTitle = hostRuleTitle(activity);
+        try {
+            if (chapters == null || chapters.isEmpty()) {
+                String name = thunderLinkName(url);
+                JSONArray arr = new JSONArray();
+                JSONObject o = new JSONObject();
+                o.put("name", name);
+                o.put("url", url);
+                o.put("pic", "");
+                arr.put(o);
+                VideoActivity.startHkPlay(activity, ruleTitle, "默认", url, name, name, "",
+                        arr.toString(), 0);
+                return;
+            }
+            JSONArray arr = new JSONArray();
+            int selIdx = -1;
+            for (int i = 0; i < chapters.size(); i++) {
+                HkArticleFragment.HkChapter ch = chapters.get(i);
+                String raw = playUrlForChapter(ch);
+                if (selIdx < 0 && (url.equals(raw) || url.equals(ch.url))) selIdx = i;
+                JSONObject o = new JSONObject();
+                o.put("name", !TextUtils.isEmpty(ch.title) ? ch.title
+                        : (ch.memoryTitle == null ? "" : ch.memoryTitle));
+                o.put("url", raw);
+                o.put("pic", ch.pic == null ? "" : ch.pic);
+                arr.put(o);
+            }
+            if (selIdx < 0) {
+                selIdx = 0;
+                for (int i = 0; i < chapters.size(); i++) {
+                    if (chapters.get(i).use) {
+                        selIdx = i;
+                        break;
+                    }
+                }
+            }
+            HkArticleFragment.HkChapter sel = chapters.get(selIdx);
+            String selName = !TextUtils.isEmpty(sel.title) ? sel.title
+                    : (sel.memoryTitle == null ? "" : sel.memoryTitle);
+            VideoActivity.startHkPlay(activity, ruleTitle, "默认", playUrlForChapter(sel),
+                    selName, selName, sel.pic == null ? "" : sel.pic, arr.toString(), selIdx);
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "hk thunder play failed", e);
+            HkRouteBlocker.toastShortBottom(activity, "无法播放此链接");
+        }
+    }
+
+    /** 迅雷链链接的显示名：磁力取 dn=、ed2k 取文件名段、其余取地址文件名，都没有回「播放」。 */
+    static String thunderLinkName(String url) {
+        try {
+            String u = url.split(";")[0];
+            if (u.startsWith("magnet:")) {
+                String dn = android.net.Uri.parse(u).getQueryParameter("dn");
+                return TextUtils.isEmpty(dn) ? "磁力链接" : dn;
+            }
+            if (u.startsWith("ed2k://")) {
+                String[] segs = u.split("\\|");
+                if (segs.length > 2 && !TextUtils.isEmpty(segs[2])) {
+                    return java.net.URLDecoder.decode(segs[2], "UTF-8");
+                }
+                return "ed2k 链接";
+            }
+            String path = android.net.Uri.parse(u).getLastPathSegment();
+            if (!TextUtils.isEmpty(path)) return path;
+        } catch (Exception ignored) {
+        }
+        return "播放";
+    }
+
+    /** share:// 分享本地文件（原版 ShareUtil.findChooserToSend）：系统分享，Uri 走 FileUtil 的 FileProvider 既有入口。 */
+    static void shareLocalFile(Context context, String absolutePath) {
+        if (context == null || TextUtils.isEmpty(absolutePath)) return;
+        File file = new File(absolutePath);
+        if (!file.exists()) {
+            HkRouteBlocker.toastShortBottom(context, "文件不存在" + absolutePath);
+            return;
+        }
+        try {
+            String mime = java.net.URLConnection.guessContentTypeFromName(file.getName());
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType(TextUtils.isEmpty(mime) ? "*/*" : mime);
+            intent.putExtra(Intent.EXTRA_STREAM,
+                    com.fongmi.android.tv.utils.FileUtil.getShareUri(file));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser = Intent.createChooser(intent, "分享文件");
+            if (!(context instanceof Activity)) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(chooser);
+        } catch (Exception e) {
+            HkRouteBlocker.toastShortBottom(context, "分享失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 分享规则（原版 ShareRuleUtil.shareRule/shareRuleByMoreWay 的星辰落点）：
+     * 普通分享＝明文口令（HkRuleManager.buildShareCommand 的 ￥home_rule￥ 格式，海阔官方可导入）
+     * 走系统分享；更多分享＝卡片菜单三项（明文口令/完整编码/云剪贴板），全走既有件。
+     * 原版菜单里的「提交到云仓库」依赖海阔官方服务端，星辰未实现（HkShareHelper 同注），不列。
+     */
+    static void shareHkRule(HkRule rule, boolean moreWays) {
+        if (rule == null) return;
+        Activity activity = currentActivity();
+        String ruleJson = new Gson().toJson(rule);
+        if (!moreWays) {
+            shareRuleCommand(activity, ruleJson);
+            return;
+        }
+        if (activity == null || activity.isFinishing()) return;
+        String[] options = {"明文口令分享", "完整编码分享", "云剪贴板分享"};
+        HkDialogs.cards(activity, "分享规则", options, "取消", (dialog, which) -> {
+            if (which == 0) shareRuleCommand(activity, ruleJson);
+            else if (which == 1) shareRuleEncoded(activity, ruleJson);
+            else if (which == 2) shareRuleToCloud(activity, rule);
+        });
+    }
+
+    static void shareRuleCommand(Activity activity, String ruleJson) {
+        String command = HkRuleManager.buildShareCommand(ruleJson);
+        if (TextUtils.isEmpty(command)) return;
+        if (activity == null) {
+            // 没有可用页面时退回既有剪贴板分享（与 HkShareHelper.shareAsCommand 同款口令）。
+            com.fongmi.android.tv.api.hk.HkShareHelper.shareAsCommand(App.get(), ruleJson);
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(Intent.EXTRA_TEXT, command);
+            activity.startActivity(Intent.createChooser(intent, "分享规则"));
+        } catch (Exception e) {
+            HkRouteBlocker.toastShortBottom(activity, "分享失败：" + e.getMessage());
+        }
+    }
+
+    /** 完整编码分享（原版同款）：明文口令整体 Base64 后以 rule:// 形式复制到剪贴板。 */
+    static void shareRuleEncoded(Activity activity, String ruleJson) {
+        String command = HkRuleManager.buildShareCommand(ruleJson);
+        if (activity == null || TextUtils.isEmpty(command)) return;
+        try {
+            String encoded = android.util.Base64.encodeToString(
+                    command.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("",
+                        "rule://" + encoded.replaceAll("\\s+", "")));
+            }
+            HkRouteBlocker.toastShortBottom(activity, "口令已复制到剪贴板");
+        } catch (Exception e) {
+            HkRouteBlocker.toastShortBottom(activity, "分享失败：" + e.getMessage());
+        }
+    }
+
+    /** 云剪贴板分享：走 HkRuleManager.exportAsCloudCode（云2 textdb 通道，海阔官方 App 可导入）。 */
+    static void shareRuleToCloud(Activity activity, HkRule rule) {
+        if (activity == null || rule == null || TextUtils.isEmpty(rule.getTitle())) return;
+        HkRouteBlocker.toastShortBottom(activity, "正在生成云口令…");
+        String title = rule.getTitle();
+        new Thread(() -> {
+            try {
+                String code = HkRuleManager.get().exportAsCloudCode(title);
+                App.post(() -> {
+                    if (activity.isFinishing()) return;
+                    try {
+                        new HkDialogs(activity)
+                                .setTitle("云口令")
+                                .setMessage(code)
+                                .setPositiveButton("复制", (d, w) -> {
+                                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                                            activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                                    if (cm != null) {
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText("", code));
+                                    }
+                                    HkRouteBlocker.toastShortBottom(activity, "口令已复制到剪贴板");
+                                })
+                                .setNegativeButton("关闭", null)
+                                .show();
+                    } catch (Exception ignored) {
+                    }
+                });
+            } catch (Exception e) {
+                App.post(() -> HkRouteBlocker.toastShortBottom(activity,
+                        "生成云口令失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /**
+     * 看图（原版 BigImageViewPager 的星辰落点）：全树没有独立图片浏览器，
+     * 照旧宿主 HkPageActivity 的 image 支同款——HkDialogs 承载 ImageView + ImgUtil 加载，
+     * 多图加上/下一张切换。无 Referer 信息可用（钩子签名不带页面地址），个别防盗链图可能加载不出，
+     * 按封面定案失败保持透明、不垫图。
+     */
+    static void showImageDialog(Activity activity, java.util.List<String> urls, int startPos) {
+        if (activity == null || activity.isFinishing() || urls == null || urls.isEmpty()) return;
+        final java.util.List<String> list = new ArrayList<>(urls);
+        final int[] pos = {Math.max(0, Math.min(startPos, list.size() - 1))};
+        float density = activity.getResources().getDisplayMetrics().density;
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        android.widget.ImageView iv = new android.widget.ImageView(activity);
+        iv.setAdjustViewBounds(true);
+        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        int screenH = activity.getResources().getDisplayMetrics().heightPixels;
+        root.addView(iv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (int) (screenH * 0.6f)));
+        if (list.size() > 1) {
+            LinearLayout bar = new LinearLayout(activity);
+            bar.setGravity(Gravity.CENTER);
+            bar.setPadding(0, (int) (8 * density), 0, 0);
+            TextView prev = new TextView(activity);
+            prev.setText("上一张");
+            prev.setTextSize(15);
+            prev.setPadding((int) (16 * density), (int) (8 * density), (int) (16 * density), (int) (8 * density));
+            final TextView indicator = new TextView(activity);
+            indicator.setTextSize(14);
+            indicator.setPadding((int) (12 * density), 0, (int) (12 * density), 0);
+            TextView next = new TextView(activity);
+            next.setText("下一张");
+            next.setTextSize(15);
+            next.setPadding((int) (16 * density), (int) (8 * density), (int) (16 * density), (int) (8 * density));
+            prev.setOnClickListener(v -> {
+                pos[0] = (pos[0] - 1 + list.size()) % list.size();
+                loadImageAt(iv, indicator, list, pos[0]);
+            });
+            next.setOnClickListener(v -> {
+                pos[0] = (pos[0] + 1) % list.size();
+                loadImageAt(iv, indicator, list, pos[0]);
+            });
+            bar.addView(prev);
+            bar.addView(indicator);
+            bar.addView(next);
+            root.addView(bar);
+            loadImageAt(iv, indicator, list, pos[0]);
+        } else {
+            loadImageAt(iv, null, list, pos[0]);
+        }
+        try {
+            new HkDialogs(activity)
+                    .setView(root)
+                    .setPositiveButton("关闭", null)
+                    .show();
+        } catch (Exception ignored) {
+        }
+    }
+
+    static void loadImageAt(android.widget.ImageView iv, TextView indicator,
+                            java.util.List<String> urls, int pos) {
+        com.fongmi.android.tv.utils.ImgUtil.load("", urls.get(pos), iv);
+        if (indicator != null) indicator.setText((pos + 1) + " / " + urls.size());
+    }
+
+    /** 调试数据（原版 FileDetailPopup + ArticleListFragment.getDetailData 七行）：卡片弹窗列行，点行复制整行。 */
+    static void showItemDetail(Activity activity, HkItem item, HkRule rule) {
+        if (activity == null || activity.isFinishing() || item == null) return;
+        String url = item.getUrl() == null ? "" : item.getUrl();
+        String link = url.length() > 200 ? url.substring(0, 200) + "..." : url;
+        final String[] data = {
+                "页面：" + (rule == null ? "" : hkEmptyIfNull(rule.getUrl())),
+                "标题：" + hkEmptyIfNull(item.getTitle()),
+                "描述：" + hkEmptyIfNull(item.getDesc()),
+                "类型：" + hkEmptyIfNull(item.getType()),
+                "链接：" + link,
+                "图片：" + hkEmptyIfNull(item.getPic()),
+                "附加：" + hkEmptyIfNull(item.getExtra()),
+        };
+        HkDialogs.cards(activity, "调试数据", data, "关闭", (dialog, which) -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("", data[which]));
+            }
+            HkRouteBlocker.toastShortBottom(activity, "已复制");
+        });
+    }
+
+    static String hkEmptyIfNull(String s) {
+        return s == null ? "" : s;
     }
 
     /**

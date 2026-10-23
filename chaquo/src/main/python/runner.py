@@ -48,6 +48,18 @@ class Runner():
     def __init__(self, spider):
         self.spider = spider
 
+    def __getattr__(self, name):
+        spider = self.__dict__.get("spider")
+        if spider is None:
+            raise AttributeError(name)
+        return getattr(spider, name)
+
+    def __setattr__(self, name, value):
+        if name == "spider" or name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.__dict__["spider"], name, value)
+
     def getDependence(self):
         fn = getattr(self.spider, "getDependence", None)
         return fn() if callable(fn) else []

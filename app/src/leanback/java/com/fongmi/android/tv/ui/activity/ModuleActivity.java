@@ -35,8 +35,9 @@ public class ModuleActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         models = new ModuleViewModel[]{ModuleViewModel.get(this, RuntimeModule.BDJ), ModuleViewModel.get(this, RuntimeModule.PYTHON), ModuleViewModel.get(this, RuntimeModule.NODEJS), ModuleViewModel.get(this, RuntimeModule.QUICKJS), ModuleViewModel.get(this, RuntimeModule.MPV)};
-        items = new ItemModuleBinding[]{mBinding.bdj, mBinding.python, mBinding.nodejs, mBinding.quickjs, mBinding.thunder, mBinding.mpv};
-        for (int i = 0; i < items.length; i++) bind(items[i], models[i], i);
+        items = new ItemModuleBinding[]{mBinding.bdj, mBinding.python, mBinding.nodejs, mBinding.quickjs, mBinding.mpv};
+        int count = Math.min(items.length, models.length);
+        for (int i = 0; i < count; i++) bind(items[i], models[i], i);
         mBinding.check.requestFocus();
     }
 

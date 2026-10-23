@@ -40,9 +40,11 @@ public final class LabRuntimeManager {
     /** 整包 sha256（下载后校验用） */
     private static final Map<String, String> PKG_SHA256 = new HashMap<>();
 
-    /** 仓侧包 id：运行时叫 nodejs、仓里叫 node，查表前先对齐 */
+    /** 仓侧包 id：运行时叫 nodejs、仓里叫 node。查表前先经全仓唯一归一入口对齐，
+     * 不管传进来的是 node 还是 nodejs 都落到仓侧键，别再出现两表键不一致查不到 */
     private static String pkgKey(String runtime) {
-        return "nodejs".equals(runtime) ? "node" : runtime;
+        String rt = LabManifest.normalizeRuntime(runtime);
+        return "nodejs".equals(rt) ? "node" : rt;
     }
 
     private static final String REPO_RAW = "https://raw.githubusercontent.com/XingChenApp/xingchen-lab-assets/main/env/";
@@ -124,6 +126,7 @@ public final class LabRuntimeManager {
      * （.json 结尾＝分片清单：拉清单→逐分片下→拼接→sha256 校验→安装）。
      */
     public static void installOnline(Context ctx, String runtime, Listener listener) {
+        runtime = LabManifest.normalizeRuntime(runtime);
         LabEnvCatalog.EnvEntry e = LabEnvCatalog.entry(ctx, runtime);
         if (e != null && !e.downloads.isEmpty()) {
             installFromCatalog(ctx, runtime, listener);
@@ -399,17 +402,18 @@ public final class LabRuntimeManager {
     }
 
     public static boolean isInstalled(Context c, String runtime) {
-        File bin = new File(LabPaths.runtimeDir(c, runtime), "bin");
+        File bin = new File(LabPaths.runtimeDir(c, LabManifest.normalizeRuntime(runtime)), "bin");
         return bin.isDirectory() && bin.list() != null && bin.list().length > 0;
     }
 
     /** 从本地 zip 导入环境包（在线下载落盘后也走同一条安装管线） */
     public static void importFromUri(Context ctx, String runtime, Uri uri, Listener listener) {
+        final String rt = LabManifest.normalizeRuntime(runtime);
         new Thread(() -> {
             try {
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
                 copyUri(ctx, uri, tmp);
-                installFromFile(ctx.getApplicationContext(), runtime, tmp, listener);
+                installFromFile(ctx.getApplicationContext(), rt, tmp, listener);
                 tmp.delete();
             } catch (Exception e) {
                 String m = e.getMessage();
@@ -420,13 +424,14 @@ public final class LabRuntimeManager {
 
     /** 在线安装：从下载地址拉包，落盘后走与本地安装同一条管线（跨源重试） */
     public static void importFromUrl(Context ctx, String runtime, String url, Listener listener) {
+        final String rt = LabManifest.normalizeRuntime(runtime);
         new Thread(() -> {
             try {
                 progress(listener, "正在下载环境包…");
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + runtime + "-" + System.currentTimeMillis() + ".zip");
-                downloadRetry(candidates(url, PKG_SIZE.get(pkgKey(runtime)) == null
-                        ? 0 : PKG_SIZE.get(pkgKey(runtime))), tmp, 2);
-                installFromFile(ctx.getApplicationContext(), runtime, tmp, listener);
+                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
+                downloadRetry(candidates(url, PKG_SIZE.get(pkgKey(rt)) == null
+                        ? 0 : PKG_SIZE.get(pkgKey(rt))), tmp, 2);
+                installFromFile(ctx.getApplicationContext(), rt, tmp, listener);
                 tmp.delete();
             } catch (Exception e) {
                 String m = e.getMessage();
@@ -515,12 +520,12 @@ public final class LabRuntimeManager {
 
     /** 环境 bin 目录：给服务进程拼 PATH 用 */
     public static File binDir(Context c, String runtime) {
-        return new File(LabPaths.runtimeDir(c, runtime), "bin");
+        return new File(LabPaths.runtimeDir(c, LabManifest.normalizeRuntime(runtime)), "bin");
     }
 
     /** 环境共享库目录（软链落点，供 LD_LIBRARY_PATH） */
     public static File libDir(Context c, String runtime) {
-        return new File(LabPaths.runtimeDir(c, runtime), "lib");
+        return new File(LabPaths.runtimeDir(c, LabManifest.normalizeRuntime(runtime)), "lib");
     }
 
     // ---------------- 目录制安装（架构/镜像/本地自动搜索/版本） ----------------
@@ -531,6 +536,7 @@ public final class LabRuntimeManager {
      * 目录没到或该环境没条目时，回退旧 downloadUrl 路径。
      */
     public static void installFromCatalog(Context ctx, String runtime, Listener listener) {
+        runtime = LabManifest.normalizeRuntime(runtime);
         LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(ctx, runtime);
         if (entry == null || entry.downloads.isEmpty()) {
             // 目录没到：走旧路（下载地址占位时如实说）
@@ -640,7 +646,7 @@ public final class LabRuntimeManager {
 
     /** 已装版本（版本更新检测用） */
     public static String installedVersion(Context c, String runtime) {
-        LabRegistry.Runtime r = LabRegistry.get(c).runtime(runtime);
+        LabRegistry.Runtime r = LabRegistry.get(c).runtime(LabManifest.normalizeRuntime(runtime));
         return r == null || r.version == null ? "" : r.version;
     }
 
@@ -660,9 +666,10 @@ public final class LabRuntimeManager {
 
     /** 卸载环境：先停掉依赖它的运行中服务，再删环境目录、注销登记 */
     public static void uninstall(Context ctx, String runtime) {
+        runtime = LabManifest.normalizeRuntime(runtime);
         for (LabRegistry.Svc s : LabRegistry.get(ctx).services(runtime)) {
             try {
-                LabRunner.stop(ctx, s.id);
+                LabRunner.stopPackage(ctx, s.id);
             } catch (Exception ignored) {
             }
         }

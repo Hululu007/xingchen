@@ -20,14 +20,16 @@ public final class HttpUpdateTransfer implements UpdateTransfer {
     private final String url;
     private final File file;
     private final long expectedSize;
+    private final String expectedIdentity;
     private volatile boolean canceled;
     private volatile Call call;
     private Future<?> future;
 
-    public HttpUpdateTransfer(String url, File file, long expectedSize) {
+    public HttpUpdateTransfer(String url, File file, long expectedSize, String expectedIdentity) {
         this.url = UpdateUrl.requireHttpsUrl(url);
         this.file = file;
         this.expectedSize = Math.max(0, expectedSize);
+        this.expectedIdentity = expectedIdentity;
     }
 
     @Override
@@ -45,12 +47,15 @@ public final class HttpUpdateTransfer implements UpdateTransfer {
         // 四重验（大小／sha256／包名／签名）把关，验不过由那边删档。
     }
 
-    // 可续传长度：只认「清单有总长、本地有半截、半截短于总长」；总长未知时
-    // 无法确认半截文件与本次内容的关系，按 0 处理（落盘时截断重写）；
-    // 半截长于总长同样按 0（截断重写）；恰好等于总长时原样返回，
-    // 由 download() 直接交回给 validate 定夺，不再重复下载。
+    // 可续传长度：先过身份门——旁车（UpdateIdentity）对不上本次目标就不认
+    // 这半截，只凭长度认档会把旧版整包当成本次前缀续传（新包尾巴拼旧包）
+    // 或当成品直接交回。身份过关后再认「清单有总长、本地有半截、半截短于
+    // 总长」；总长未知时无法确认半截与本次内容的关系，按 0 处理（落盘时
+    // 截断重写）；半截长于总长同样按 0（截断重写）；恰好等于总长时原样
+    // 返回，由 download() 直接交回给 validate 定夺，不再重复下载。
     private long resumableLength() {
         if (!file.exists() || expectedSize <= 0) return 0;
+        if (!UpdateIdentity.matches(file, expectedIdentity)) return 0;
         long length = file.length();
         return length > expectedSize ? 0 : length;
     }
@@ -180,7 +185,10 @@ public final class HttpUpdateTransfer implements UpdateTransfer {
 
     private void deleteQuietly() {
         try {
-            if (file.exists()) file.delete();
+            // 删失败不静默：留痕到文件日志，否则坏档留盘下次还会撞同一处。
+            if (file.exists() && !file.delete()) {
+                com.github.catvod.crawler.SpiderDebug.log("update", "http transfer delete failed path=%s", file.getAbsolutePath());
+            }
         } catch (Exception ignored) {
         }
     }

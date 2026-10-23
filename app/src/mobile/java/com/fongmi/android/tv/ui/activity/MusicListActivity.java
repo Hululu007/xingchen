@@ -3883,7 +3883,7 @@ public class MusicListActivity extends BaseActivity {
 
     /** 第 11 项②：单插件屏蔽平台弹层（GZ PlatformBlockSheet：标题 18sp、说明 12sp、平台行 15sp＋行尾已屏蔽态、
      * 自动屏蔽开关行 14sp；单插件屏蔽＝改该插件自身的 blockedPlatforms，不动其他插件；
-     * 平台全集＝全部站点 platform 去重（按站点顺序首次出现）＋该插件已屏蔽但站点已不在的平台（仍可见可恢复）；
+     * 平台全集＝内容平台五家（kw/tx/wy/kg/mg）＋该插件已屏蔽的存量项（仍可见可恢复）；
      * 行点按即切换并立即写 prefs，无单独保存钮；自动屏蔽开关复用全局偏好，与页级开关同一实现） */
     private void showPlatformBlockSheet(MusicSite site) {
         LinearLayout root = new LinearLayout(this);
@@ -3902,9 +3902,12 @@ public class MusicListActivity extends BaseActivity {
         desc.setTextColor(0xFF9AA7B8);
         desc.setPadding(0, dp(8), 0, dp(12));
         root.addView(desc);
+        // 平台全集＝内容平台五家（kw/tx/wy/kg/mg，与落雪/聚合插件的内容平台同层）＋
+        // 该插件已屏蔽但不在五家里的存量项（仍可见可取消）。旧口径摆的是源层 platform
+        // （freejs/lx/py…）：与消费端的内容平台判据对不上，屏蔽了也拦不住、拦住的又不是想屏的
         List<String> plats = new ArrayList<>();
-        for (MusicSite s : MusicRepository.sites()) {
-            if (s.platform != null && !s.platform.isEmpty() && !plats.contains(s.platform)) plats.add(s.platform);
+        for (String p : new String[]{LxPlatformSearch.KW, LxPlatformSearch.QQ, LxPlatformSearch.WY, LxPlatformSearch.KG, LxPlatformSearch.MG}) {
+            if (!plats.contains(p)) plats.add(p);
         }
         for (String p : MusicStore.getBlockedPlatforms(site.srcUrl)) {
             if (!plats.contains(p)) plats.add(p);
@@ -4355,7 +4358,7 @@ public class MusicListActivity extends BaseActivity {
         opts.add("播放");
         opts.add(getString(R.string.music_play_next));
         opts.add(getString(R.string.music_add_to_playlist));
-        MusicLibrary.isFavorite(track.id, fav -> {
+        MusicLibrary.isFavorite(track, fav -> {
             opts.add(fav ? getString(R.string.music_unfavorite) : getString(R.string.music_favorite));
             int downloadIdx = -1;
             int removeIdx = -1;
@@ -6294,7 +6297,7 @@ public class MusicListActivity extends BaseActivity {
 
     /** 第 1 项：歌单行内「更多」表（GZ 行表＋任务要求的移除／换源／刷新／改封面；同步到云端需账号，排除只列不建） */
     private void sheetRowMore(MusicTrack track, int position) {
-        MusicLibrary.isFavorite(track.id, fav -> {
+        MusicLibrary.isFavorite(track, fav -> {
             List<String> opts = new ArrayList<>();
             opts.add("播放");
             opts.add(getString(R.string.music_play_next));
@@ -6438,8 +6441,10 @@ public class MusicListActivity extends BaseActivity {
                             if (!sameSongName(track, c)) continue;
                             String plat = c.platform == null ? "" : c.platform;
                             if (seenPlatforms.contains(plat)) continue;
-                            // 第 11 项：单插件屏蔽平台＝该插件屏蔽掉的平台不进换源候选
-                            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(s.srcUrl, plat)) continue;
+                            // 第 11 项：单插件屏蔽平台＝该插件屏蔽掉的平台不进换源候选；
+                            // 判据用候选的内容平台（源层 platform 是 freejs/lx 这类，与屏蔽键不同层）
+                            String cp = com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(c);
+                            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(s.srcUrl, cp != null ? cp : plat)) continue;
                             seenPlatforms.add(plat);
                             found.add(c);
                         }

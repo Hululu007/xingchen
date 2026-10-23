@@ -269,6 +269,7 @@ public class Vod implements Parcelable, Diffable<Vod> {
 
     public void setFlags(List<Flag> vodFlags) {
         this.vodFlags = vodFlags;
+        applySingleEpisodeTitle();
     }
 
     public Site getSite() {
@@ -332,7 +333,27 @@ public class Vod implements Parcelable, Diffable<Vod> {
         String[] playFlags = getPlayFrom().split("\\$\\$\\$");
         if (!getFlags().isEmpty()) for (Flag item : getFlags()) item.setEpisodes(item.getUrls());
         else IntStream.range(0, playFlags.length).filter(i -> !playFlags[i].trim().isEmpty() && i < playUrls.length && !TextUtils.isEmpty(playUrls[i])).mapToObj(i -> Flag.create(playFlags[i].trim(), playUrls[i])).forEach(getFlags()::add);
+        applySingleEpisodeTitle();
         return this;
+    }
+
+    /**
+     * 单集线路且集名只是回退序号（源没给名，如磁力/推送）时，选集钮显示片名全名，
+     * 与播放器标题的单集口径一致（潇洒哥定案）。只写显示名：原名、序号、按名匹配都不动；
+     * 多集、源给了真名（哪怕「播放」「正片」）一律不碰。
+     * 片名为空、或片名本身就是链接串（磁力直推无 dn 时标题即整串磁力）时不套用，保持原样。
+     */
+    private void applySingleEpisodeTitle() {
+        String title = getName();
+        if (title.isEmpty() || title.startsWith("magnet:") || title.contains("://")) return;
+        for (Flag flag : getFlags()) {
+            if (flag.getEpisodes().size() != 1) continue;
+            Episode episode = flag.getEpisodes().get(0);
+            if (episode.isNumberName()) {
+                episode.setDisplayName(title);
+                episode.setSingleEpisodeTitle(true);
+            }
+        }
     }
 
     public Vod trans() {

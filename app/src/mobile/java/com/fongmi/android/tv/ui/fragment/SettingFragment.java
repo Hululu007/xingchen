@@ -168,12 +168,9 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     private void updateSubtitles() {
         // Player subtitles - isolated
         try {
-            android.content.SharedPreferences sp = requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE);
-            String kernelRaw = sp.getString("player_kernel", "exo");
-            String kernel = "mpv".equals(kernelRaw) ? "MPV" : "ExoPlayer";
-            String decodeRaw = sp.getString("player_decode", "hard");
-            String decode = "soft".equals(decodeRaw) ? "软解" : "硬解";
-            float speedVal = sp.getFloat("player_speed", 1.0f);
+            String kernel = com.fongmi.android.tv.setting.PlayerSetting.getPlayer() == com.fongmi.android.tv.setting.PlayerSetting.MPV ? "MPV" : "ExoPlayer";
+            String decode = com.fongmi.android.tv.setting.PlayerSetting.isVideoPrefer() ? "硬解" : "软解";
+            float speedVal = com.fongmi.android.tv.setting.PlayerSetting.getDefaultSpeed();
             String speedStr = speedVal + "x";
             if (mBinding.textPlayerSub != null) {
                 mBinding.textPlayerSub.setText(kernel + " · " + decode + " · " + speedStr);
@@ -184,7 +181,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
             android.content.SharedPreferences sp = requireActivity().getSharedPreferences("xingchen", android.content.Context.MODE_PRIVATE);
             int size = 2;
             try { size = com.fongmi.android.tv.setting.PlayerSetting.getSize(); } catch (Exception e) { e.printStackTrace(); }
-            String sizeStr = size == 1 ? "小" : size == 3 ? "大" : "中";
+            String sizeStr = size == 0 ? "小" : size == 3 ? "特大" : size == 2 ? "大" : "中";
             String orient = sp.getString("cover_orient", "portrait");
             String orientStr = "landscape".equals(orient) ? "横屏" : "竖屏";
             if (mBinding.textAppearanceSub != null) {

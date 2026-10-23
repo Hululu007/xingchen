@@ -1027,10 +1027,10 @@
     <string name="mpv_config_script_import_file_desc">從本機選擇 Lua/JS 指令碼檔案</string>
     <string name="player_libass">字幕渲染</string>
     <string name="player_caption">字幕樣式</string>
-    <string name="player_background">背景播放</string>
+    <string name="player_background">影片背景播放</string>
     <string name="player_audio_decode">音訊軟解</string>
     <string name="player_audio_passthrough">音訊直通</string>
-    <string name="player_video_decode">視訊軟解</string>
+    <string name="player_video_decode">視訊硬解優先</string>
     <string name="player_aac_track">AAC優先</string>
     <string name="player_adblock">智慧去廣</string>
     <string name="player_tunnel">隧道模式</string>

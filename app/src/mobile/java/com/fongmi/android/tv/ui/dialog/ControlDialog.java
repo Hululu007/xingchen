@@ -215,7 +215,29 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void onTrack(View view) {
-        ((Listener) requireActivity()).onTrackPanel(Integer.parseInt(view.getTag().toString()));
+        Integer type = parseTagInt(view);
+        if (type == null) return;
+        ((Listener) requireActivity()).onTrackPanel(type);
+    }
+
+    private Integer parseTagInt(View view) {
+        Object tag = view.getTag();
+        if (tag == null) return null;
+        try {
+            return Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Float parseTagFloat(View view) {
+        Object tag = view.getTag();
+        if (tag == null) return null;
+        try {
+            return Float.parseFloat(tag.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private void setSheetBackground() {
@@ -236,12 +258,17 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void setSpeedPreset(View view) {
-        applySpeed(Float.parseFloat(view.getTag().toString()));
+        Float value = parseTagFloat(view);
+        if (value == null) return;
+        applySpeed(value);
     }
 
     private void setSpeedPresets() {
         float speed = player.getSpeed();
-        for (TextView view : speeds) view.setSelected(Math.abs(Float.parseFloat(view.getTag().toString()) - speed) < 0.01f);
+        for (TextView view : speeds) {
+            Float tag = parseTagFloat(view);
+            view.setSelected(tag != null && Math.abs(tag - speed) < 0.01f);
+        }
     }
 
     private void setScaleText() {
@@ -265,8 +292,10 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void setScale(View view) {
+        Integer tag = parseTagInt(view);
+        if (tag == null) return;
         for (TextView textView : scales) textView.setSelected(false);
-        ((Listener) requireActivity()).onScale(Integer.parseInt(view.getTag().toString()));
+        ((Listener) requireActivity()).onScale(tag);
         view.setSelected(true);
     }
 

@@ -5,7 +5,7 @@ import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
 /** 歌单里的歌 */
-@Entity(indices = {@Index("playlistId"), @Index(value = {"playlistId", "trackId"}, unique = true)})
+@Entity(indices = {@Index("playlistId"), @Index(value = {"playlistId", "trackId", "platform"}, unique = true)})
 public class MusicPlaylistItem {
 
     @PrimaryKey(autoGenerate = true)
@@ -19,6 +19,8 @@ public class MusicPlaylistItem {
     private String cover;
     private String platform;
     private String rawJson;
+    /** 本地文件路径（已下载歌的取链只认它，缺了就是死条目）；在线歌为空 */
+    private String localPath;
     private int position;
     private long createTime;
 
@@ -100,6 +102,14 @@ public class MusicPlaylistItem {
 
     public void setRawJson(String rawJson) {
         this.rawJson = rawJson;
+    }
+
+    public String getLocalPath() {
+        return localPath;
+    }
+
+    public void setLocalPath(String localPath) {
+        this.localPath = localPath;
     }
 
     public int getPosition() {

@@ -109,4 +109,21 @@ public class Migrations {
             database.execSQL("ALTER TABLE `Keep_new` RENAME TO `Keep`");
         }
     };
+
+    public static final Migration MIGRATION_41_42 = new Migration(41, 42) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 音乐身份修复：①收藏/歌单补 localPath——已下载歌（platform=local）的取链只认
+            // localPath，旧行没有这列、收藏/进歌单后回读成死条目；②唯一索引从裸 trackId
+            // 扩成 (trackId, platform)——trackId 只是源内编号，跨来源同 id 互相顶掉。
+            // 旧表 trackId 本就全局唯一，复合键必然不冲突，存量行一行不丢、不改值；
+            // 旧行 localPath 留空（多为在线歌，在线取链不看这列）。
+            database.execSQL("ALTER TABLE MusicFavorite ADD COLUMN localPath TEXT");
+            database.execSQL("ALTER TABLE MusicPlaylistItem ADD COLUMN localPath TEXT");
+            database.execSQL("DROP INDEX IF EXISTS `index_MusicFavorite_trackId`");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicFavorite_trackId_platform` ON `MusicFavorite` (`trackId`, `platform`)");
+            database.execSQL("DROP INDEX IF EXISTS `index_MusicPlaylistItem_playlistId_trackId`");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId_trackId_platform` ON `MusicPlaylistItem` (`playlistId`, `trackId`, `platform`)");
+        }
+    };
 }

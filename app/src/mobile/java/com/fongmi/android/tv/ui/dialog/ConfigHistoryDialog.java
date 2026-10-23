@@ -28,6 +28,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.emby.EmbyMode;
 import com.fongmi.android.tv.emby.EmbyStore.EmbyServer;
 import com.fongmi.android.tv.emby.EmbyStore;
+import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.ui.adapter.ConfigHistoryAdapter;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -89,7 +90,7 @@ public class ConfigHistoryDialog extends DialogFragment {
 
             @Override
             public void onDelete(Config config) {
-                onDelete(config);
+                ConfigHistoryDialog.this.onDelete(config);
             }
         });
         return adapter;
@@ -215,7 +216,7 @@ public class ConfigHistoryDialog extends DialogFragment {
 
     /**
      * 删除指定线路（二次确认）。删的是当前线路时切到剩余第一条（走 switchVodConfig，
-     * 成功后 ConfigEvent → 首页刷新）；无剩余时保留原提示，让用户重新选择。
+     * 成功后 ConfigEvent → 首页刷新）；无剩余时把生效配置清回无配置状态，首页落空首页。
      * 注意：当前性按 VodConfig 的实际 url 判，不按 adapter.isActive（Emby 专属首页展示中
      * 点播行一律不标“使用中”，但底下点播配置仍是这条，删了照样要切）。
      */
@@ -257,7 +258,8 @@ public class ConfigHistoryDialog extends DialogFragment {
             return;
         }
         if (rest == null || rest.isEmpty()) {
-            Notify.show("已删除当前线路，请重新选择");
+            clearCurrentVodConfig();
+            Notify.show("已删除，暂无可用线路");
             return;
         }
         Config next = rest.get(0);
@@ -267,6 +269,17 @@ public class ConfigHistoryDialog extends DialogFragment {
             return;
         }
         switchVodConfig(next);
+    }
+
+    /**
+     * 删掉当前点播线路且一条不剩时的收尾：把 VodConfig 清回「无配置」状态
+     * （库里已零行，Config.vod() 即冷启未加线路时的 Config.create(0)，与冷启同一个状态），
+     * 再发与切线成功同一条 ConfigEvent 通路，首页据此落到空首页，
+     * 不许停在已删线路的旧内容上。确认删与左滑删共用本收尾。
+     */
+    private void clearCurrentVodConfig() {
+        VodConfig.get().clear().config(Config.vod());
+        ConfigEvent.vod();
     }
 
     private void onUse(Config config) {
@@ -338,7 +351,27 @@ public class ConfigHistoryDialog extends DialogFragment {
             .setMessage("确定要删除全部线路吗？")
             .setPositiveButton("确定", (d, w) -> {
                 java.util.List<Config> items = AppDatabase.get().getConfigDao().findByType(type);
+                // 删前先抓当前生效线路的 url：点播清空会把当前线路一并删掉，
+                // 它在被删之列时须同删到一条不剩的口径清回无配置，别留首页停在旧内容上。
+                // type!=0 的生效状态不在 VodConfig，不抓不碰。
+                String currentUrl = null;
+                if (type == 0) {
+                    try {
+                        currentUrl = VodConfig.get().getConfig().getUrl();
+                    } catch (Exception ignored) {
+                    }
+                }
+                boolean currentCleared = false;
+                if (currentUrl != null) {
+                    for (Config c : items) {
+                        if (currentUrl.equals(c.getUrl())) {
+                            currentCleared = true;
+                            break;
+                        }
+                    }
+                }
                 for (Config c : items) AppDatabase.get().getConfigDao().delete(c.getUrl(), type);
+                if (type == 0 && currentCleared) clearCurrentVodConfig();
                 adapter = createAdapter(new java.util.ArrayList<>());
                 binding.recycler.setAdapter(adapter);
                 binding.empty.setVisibility(View.VISIBLE);

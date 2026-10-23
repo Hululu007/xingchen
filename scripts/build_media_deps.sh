@@ -252,6 +252,7 @@ apply_media_patches() {
   local patches=(
     "$patch_dir/media3-exo-avs3-r2.patch"
     "$patch_dir/media3-danmaku-live-r2.patch"
+    "$patch_dir/media3-danmaku-scroll-area-r1.patch"
     "$patch_dir/media3-playback-diagnostics-r2.patch"
     "$patch_dir/media3-deferred-cues-r2.patch"
   )

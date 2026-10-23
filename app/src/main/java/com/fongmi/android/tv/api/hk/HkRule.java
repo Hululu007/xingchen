@@ -202,6 +202,39 @@ public class HkRule {
     }
 
     /**
+     * 版本比较（分段数值比，与 LabEnvCatalog.compareVersions 同口径）：去 v 前缀、
+     * 按 "."／"-" 分段逐段比数值。getVersion() 只认纯整数，带 v 前缀或小数的版本号
+     * 恒判 0——远端 v18 对本地 v17 比成 0&gt;0、手动/自动检查更新与导入更新判定整体失效，
+     * 所有版本新旧判定一律走本方法比原始串；纯数字版本与 getVersion() 整数比同结果。
+     */
+    public static int compareVersions(String a, String b) {
+        String[] pa = versionSegments(a);
+        String[] pb = versionSegments(b);
+        int n = Math.max(pa.length, pb.length);
+        for (int i = 0; i < n; i++) {
+            int va = i < pa.length ? segmentNumber(pa[i]) : 0;
+            int vb = i < pb.length ? segmentNumber(pb[i]) : 0;
+            if (va != vb) return va < vb ? -1 : 1;
+        }
+        return 0;
+    }
+
+    private static String[] versionSegments(String v) {
+        if (v == null) return new String[0];
+        String s = v.trim().toLowerCase();
+        if (s.startsWith("v")) s = s.substring(1);
+        return s.isEmpty() ? new String[0] : s.split("[.\\-]");
+    }
+
+    private static int segmentNumber(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
      * version 字段宽松反序列化：规则 JSON 里 version 可能是整数（"version": 1）、
      * 字符串（"version": "v17"）、布尔甚至空值，这里统一收敛为 String。
      * 数字按原文转字符串（1 → "1"，1.5 → "1.5"），非法结构直接跳过取 null。
@@ -237,6 +270,13 @@ public class HkRule {
     /** 原始版本号字符串（Gson 直接映射，兼容数字/字符串两种写法）。 */
     public String getVersionRaw() {
         return version == null ? "" : version;
+    }
+
+    /** 展示用版本号：原始串去掉自带的 v 前缀（界面统一拼 "v"＋本值，不会出现 vv17） */
+    public String getVersionLabel() {
+        String s = getVersionRaw().trim();
+        if (s.startsWith("v") || s.startsWith("V")) s = s.substring(1);
+        return s.isEmpty() ? "0" : s;
     }
 
     public void setVersionRaw(String version) {

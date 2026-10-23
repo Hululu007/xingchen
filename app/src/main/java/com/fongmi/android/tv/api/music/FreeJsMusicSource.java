@@ -75,7 +75,18 @@ public class FreeJsMusicSource implements MusicSource {
     public List<MusicTrack> searchBySite(MusicSite site, String keyword) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
         if (b == null) return Collections.emptyList();
-        return b.search(keyword, 1, "music").getTracks();
+        List<MusicTrack> tracks = b.search(keyword, 1, "music").getTracks();
+        // 单插件屏蔽平台：该插件屏蔽掉的内容平台不进单源结果（聚合搜索同口径在
+        // MusicSourceManager.searchAll；旧实现单源搜索完全不查，屏蔽只在聚合页生效一半）
+        if (tracks != null && site != null) {
+            List<MusicTrack> kept = new ArrayList<>();
+            for (MusicTrack t : tracks) {
+                String cp = t == null ? null : com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(t);
+                if (cp == null || !com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, cp)) kept.add(t);
+            }
+            return kept;
+        }
+        return tracks;
     }
 
     @Override
@@ -147,6 +158,13 @@ public class FreeJsMusicSource implements MusicSource {
     /** 探链口径：probe＝true 时只读地址、不记死（面板探链用），透传进桥的死检查处。 */
     @Override
     public String playUrl(MusicTrack track, int quality, boolean probe) throws Exception {
+        // 单插件屏蔽平台：归属插件屏蔽了本歌内容平台时不许它取链（弹层文案承诺的
+        // 「不再用于该插件的取链」此前没有任何代码兑现）；返回 null 走仓库失败收口，
+        // 换源在上层按既有链继续。内容平台取不到时不拦（无平台身份可判）。
+        String origin = pluginOf(track);
+        String cp = com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(track);
+        if (origin != null && cp != null
+                && com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(origin, cp)) return null;
         FreeJsBridge b = MusicSourceManager.get().bridgeForTrack(track);
         if (b == null) return null;
         long t0 = System.currentTimeMillis();
@@ -215,7 +233,7 @@ public class FreeJsMusicSource implements MusicSource {
                         if (!own.equals(site.srcUrl)) continue;
                     } else {
                         if (own != null && own.equals(site.srcUrl)) continue;
-                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(track))) continue;
                     }
                     FreeJsBridge b;
                     try {
@@ -278,7 +296,7 @@ public class FreeJsMusicSource implements MusicSource {
                         if (!own.equals(site.srcUrl)) continue;
                     } else {
                         if (own != null && own.equals(site.srcUrl)) continue;
-                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(track))) continue;
                     }
                     FreeJsBridge b;
                     try {
@@ -425,7 +443,7 @@ public class FreeJsMusicSource implements MusicSource {
                         if (!own.equals(site.srcUrl)) continue;
                     } else {
                         if (own != null && own.equals(site.srcUrl)) continue;
-                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, track.platform)) continue;
+                        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(track))) continue;
                     }
                     FreeJsBridge b;
                     try {

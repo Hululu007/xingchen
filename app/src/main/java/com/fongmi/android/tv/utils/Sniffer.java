@@ -35,11 +35,21 @@ public class Sniffer {
     public static boolean isVideoFormat(String url) {
         Rule rule = getRule(UrlUtil.uri(url));
         for (String exclude : rule.getExclude()) if (url.contains(exclude)) return false;
-        for (String exclude : rule.getExclude()) if (Pattern.compile(exclude).matcher(url).find()) return false;
+        for (String exclude : rule.getExclude()) if (matches(exclude, url)) return false;
         for (String regex : rule.getRegex()) if (url.contains(regex)) return true;
-        for (String regex : rule.getRegex()) if (Pattern.compile(regex).matcher(url).find()) return true;
+        for (String regex : rule.getRegex()) if (matches(regex, url)) return true;
         if (url.contains("url=http") || url.contains("v=http") || url.contains(".html")) return false;
         return SNIFFER.matcher(url).find();
+    }
+
+    /** 配置正则试编译兜底（照 HkWebkitFetcher.blocked 口径）：坏正则跳过这一条，不让 PatternSyntaxException 冒出嗅探。 */
+    private static boolean matches(String regex, String url) {
+        try {
+            return Pattern.compile(regex).matcher(url).find();
+        } catch (Throwable e) {
+            android.util.Log.w("Sniffer", "bad rule regex skipped: " + regex, e);
+            return false;
+        }
     }
 
     public static List<String> getScript(Uri uri) {

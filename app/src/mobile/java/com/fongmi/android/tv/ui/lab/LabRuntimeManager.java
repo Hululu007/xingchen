@@ -44,14 +44,62 @@ public final class LabRuntimeManager {
     private static final java.util.Set<String> INSTALLING =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
+    /** 取消令牌：beginInstall 时按环境新建一份，endInstall 时摘掉，天然与单次安装一一对应，
+     * 上一次安装迟到的取消点不到新令牌，不会误伤下一次安装 */
+    private static final java.util.Map<String, CancelToken> CANCEL_TOKENS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 取消信号：执行体在分块循环与段间检查点 check()，命中就以此异常 unwind 到收口处 */
+    private static final class InstallCancelledException extends Exception {
+    }
+
+    private static final class CancelToken {
+        private volatile boolean cancelled;
+
+        void cancel() {
+            cancelled = true;
+        }
+
+        boolean isCancelled() {
+            return cancelled;
+        }
+
+        void check() throws InstallCancelledException {
+            if (cancelled) throw new InstallCancelledException();
+        }
+    }
+
+    /** 取消某个正在装的环境：没在装（无令牌）就是空操作 */
+    public static void cancelInstall(String runtime) {
+        CancelToken t = CANCEL_TOKENS.get(LabManifest.normalizeRuntime(runtime));
+        if (t != null) t.cancel();
+    }
+
+    public static boolean isInstalling(String runtime) {
+        return INSTALLING.contains(LabManifest.normalizeRuntime(runtime));
+    }
+
     private static boolean beginInstall(String runtime, Listener listener) {
-        if (INSTALLING.add(runtime)) return true;
+        if (INSTALLING.add(runtime)) {
+            CANCEL_TOKENS.put(runtime, new CancelToken());
+            return true;
+        }
         fail(listener, "「" + label(runtime) + "」正在安装中，等它装完再试");
         return false;
     }
 
-    private static void endInstall(String runtime) {
+    private static void endInstall(String runtime, CancelToken token) {
+        // 按值条件摘令牌：只删自己登记的那一份。先摘令牌再摘在装标记——
+        // 新安装只能在标记摘掉后登记，旧收口的条件删删不掉新安装刚登记的令牌，
+        // 也不会在新安装登记后回头摘掉它的在装标记
+        if (token != null) CANCEL_TOKENS.remove(runtime, token);
         INSTALLING.remove(runtime);
+    }
+
+    /** 本次安装的令牌（beginInstall 已建）；防御性兜底：万一不在表里，给一份永不取消的 */
+    private static CancelToken token(String runtime) {
+        CancelToken t = CANCEL_TOKENS.get(runtime);
+        return t != null ? t : new CancelToken();
     }
 
     /** 没有在线地址时的真因（别再报「下载地址还没准备好」这种假原因：地址是故意留空的） */
@@ -162,32 +210,42 @@ public final class LabRuntimeManager {
         }
         final String rt = runtime;
         if (!beginInstall(rt, listener)) return;
+        final CancelToken token = token(rt);
         new Thread(() -> {
+            File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
             try {
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
                 if (url.endsWith(".json")) {
-                    downloadSharded(url, tmp, listener);
+                    downloadSharded(url, tmp, listener, token);
                 } else {
-                    downloadWhole(url, tmp, listener, rt);
+                    downloadWhole(url, tmp, listener, rt, token);
                 }
                 installFromFile(ctx.getApplicationContext(), rt, tmp,
-                        PKG_VERSION.get(pkgKey(rt)), listener);
-                tmp.delete();
+                        PKG_VERSION.get(pkgKey(rt)), listener, token);
+            } catch (InstallCancelledException cx) {
+                cancelled(listener);
             } catch (Exception ex) {
-                String m = ex.getMessage();
-                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                // 下载与取消同时出头时以取消为准：失败很可能就是取消掐断的那一下
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    String m = ex.getMessage();
+                    fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                }
             } finally {
-                endInstall(rt);
+                // 成功装完的 tmp 原本就删；取消/失败留下的半截包一并清，别占缓存
+                tmp.delete();
+                endInstall(rt, token);
             }
         }).start();
     }
 
     /** 整包下载：镜像↔直链换着重试（默认 2 轮），每路下完都验 sha256，不对就换下一路 */
-    private static void downloadWhole(String url, File dest, Listener listener, String runtime) throws Exception {
+    private static void downloadWhole(String url, File dest, Listener listener, String runtime,
+                                      CancelToken token) throws Exception {
         long size = PKG_SIZE.get(pkgKey(runtime)) == null ? 0 : PKG_SIZE.get(pkgKey(runtime));
         progress(listener, "正在下载环境包…");
         String sha = PKG_SHA256.get(pkgKey(runtime));
-        downloadVerified(candidates(url, size), dest, sha, 2, listener);
+        downloadVerified(candidates(url, size), dest, sha, 2, listener, token);
     }
 
     /**
@@ -196,14 +254,17 @@ public final class LabRuntimeManager {
      * 全路跑满 rounds 轮都没拿到对的包才抛。sha 为空时退化成纯下载重试。
      */
     private static void downloadVerified(List<String> urls, File dest, String sha256,
-                                         int rounds, Listener listener) throws Exception {
+                                         int rounds, Listener listener, CancelToken token) throws Exception {
         Exception last = null;
         boolean shaFailed = false;
         boolean needSha = sha256 != null && !sha256.isEmpty();
         for (int r = 0; r < rounds; r++) {
             for (String u : urls) {
+                token.check();
                 try {
-                    download(u, dest);
+                    download(u, dest, token);
+                } catch (InstallCancelledException cx) {
+                    throw cx;
                 } catch (Exception e) {
                     last = e;
                     continue;
@@ -211,7 +272,9 @@ public final class LabRuntimeManager {
                 if (!needSha) return;
                 boolean ok = false;
                 try {
-                    ok = sha256Of(dest).equalsIgnoreCase(sha256);
+                    ok = sha256Of(dest, token).equalsIgnoreCase(sha256);
+                } catch (InstallCancelledException cx) {
+                    throw cx;
                 } catch (Exception e) {
                     last = e;
                 }
@@ -237,13 +300,16 @@ public final class LabRuntimeManager {
      * 每轮内部按序换源，不在同一个源上死磕；轮间歇 400ms。
      * 全部用尽才抛最后一次的异常（调用方转人话＋报错弹窗）。
      */
-    private static void downloadRetry(List<String> urls, File dest, int rounds) throws Exception {
+    private static void downloadRetry(List<String> urls, File dest, int rounds, CancelToken token) throws Exception {
         Exception last = null;
         for (int r = 0; r < rounds; r++) {
             for (String u : urls) {
+                token.check();
                 try {
-                    download(u, dest);
+                    download(u, dest, token);
                     return;
+                } catch (InstallCancelledException cx) {
+                    throw cx;
                 } catch (Exception e) {
                     last = e;
                 }
@@ -260,13 +326,16 @@ public final class LabRuntimeManager {
     }
 
     /** 文本拉取（分片清单）：同样跨源重试 */
-    private static String downloadTextRetry(String url) throws Exception {
+    private static String downloadTextRetry(String url, CancelToken token) throws Exception {
         List<String> urls = candidates(url, 1024);
         Exception last = null;
         for (int r = 0; r < 2; r++) {
             for (String u : urls) {
+                token.check();
                 try {
-                    return downloadText(u);
+                    return downloadText(u, token);
+                } catch (InstallCancelledException cx) {
+                    throw cx;
                 } catch (Exception e) {
                     last = e;
                 }
@@ -285,11 +354,14 @@ public final class LabRuntimeManager {
      * 分片下载：拉清单 JSON → 按 parts 逐个下（每分片 8MB，镜像优先）→ 拼接 → sha256 校验。
      * 进度按分片走（「正在下载（3/8）…」），不断了干等。
      */
-    private static void downloadSharded(String manifestUrl, File dest, Listener listener) throws Exception {
+    private static void downloadSharded(String manifestUrl, File dest, Listener listener,
+                                        CancelToken token) throws Exception {
         // 清单本身也走镜像优先（JSON 很小），跨源重试
         String json;
         try {
-            json = downloadTextRetry(manifestUrl);
+            json = downloadTextRetry(manifestUrl, token);
+        } catch (InstallCancelledException cx) {
+            throw cx;
         } catch (Exception e) {
             throw new Exception("分片清单拉不到，换本地安装试试");
         }
@@ -302,13 +374,16 @@ public final class LabRuntimeManager {
         tmpDir.mkdirs();
         try {
             for (int i = 0; i < n; i++) {
+                token.check();
                 String partUrl = resolvePart(manifestUrl, parts.optString(i, ""));
                 if (partUrl.isEmpty()) throw new Exception("分片表第 " + (i + 1) + " 个地址是空的");
                 if (listener != null) listener.onShard(i + 1, n);
                 File partFile = new File(tmpDir, "p" + i);
                 try {
                     // 每片都在镜像/直链之间换着重试 2 轮，单片失败才算整包失败
-                    downloadRetry(candidates(partUrl, 8L * 1024 * 1024), partFile, 2);
+                    downloadRetry(candidates(partUrl, 8L * 1024 * 1024), partFile, 2, token);
+                } catch (InstallCancelledException cx) {
+                    throw cx;
                 } catch (Exception pe) {
                     throw new Exception("第 " + (i + 1) + "/" + n + " 片下不下来，重试一次试试");
                 }
@@ -317,14 +392,18 @@ public final class LabRuntimeManager {
             try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
                 byte[] buf = new byte[8192];
                 for (int i = 0; i < n; i++) {
+                    token.check();
                     File partFile = new File(tmpDir, "p" + i);
                     try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(partFile))) {
                         int r;
-                        while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                        while ((r = in.read(buf)) > 0) {
+                            token.check();
+                            out.write(buf, 0, r);
+                        }
                     }
                 }
             }
-            if (!sha.isEmpty() && !sha256Of(dest).equalsIgnoreCase(sha)) {
+            if (!sha.isEmpty() && !sha256Of(dest, token).equalsIgnoreCase(sha)) {
                 throw new Exception("包校验没过，重新下一次试试");
             }
         } finally {
@@ -349,7 +428,7 @@ public final class LabRuntimeManager {
         return s > 0 ? manifestUrl.substring(0, s + 1) + part : part;
     }
 
-    private static String downloadText(String url) throws Exception {
+    private static String downloadText(String url, CancelToken token) throws Exception {
         java.net.HttpURLConnection c = null;
         try {
             c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
@@ -362,7 +441,10 @@ public final class LabRuntimeManager {
                  java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
                 byte[] buf = new byte[8192];
                 int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                while ((n = in.read(buf)) > 0) {
+                    token.check();
+                    out.write(buf, 0, n);
+                }
                 return out.toString("UTF-8");
             }
         } finally {
@@ -370,12 +452,15 @@ public final class LabRuntimeManager {
         }
     }
 
-    private static String sha256Of(File f) throws Exception {
+    private static String sha256Of(File f, CancelToken token) throws Exception {
         java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
         try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(f))) {
             byte[] buf = new byte[8192];
             int n;
-            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            while ((n = in.read(buf)) > 0) {
+                token.check();
+                md.update(buf, 0, n);
+            }
         }
         byte[] d = md.digest();
         StringBuilder sb = new StringBuilder();
@@ -390,10 +475,18 @@ public final class LabRuntimeManager {
 
         void onFail(String reason);
 
+        /** 用户取消：半成品已清、守卫已释放，可直接再装。默认空实现，老实现方不覆写也不挂死 */
+        default void onCancelled() {
+        }
+
         /** 分片进度（默认实现转成人话，供安装中弹窗拼「第 N 片 / 共 M 片 · P%」） */
         default void onShard(int done, int total) {
             onProgress("正在下载（" + done + "/" + total + "）…");
         }
+    }
+
+    private static void cancelled(Listener l) {
+        if (l != null) l.onCancelled();
     }
 
     private LabRuntimeManager() {
@@ -437,17 +530,24 @@ public final class LabRuntimeManager {
     public static void importFromUri(Context ctx, String runtime, Uri uri, Listener listener) {
         final String rt = LabManifest.normalizeRuntime(runtime);
         if (!beginInstall(rt, listener)) return;
+        final CancelToken token = token(rt);
         new Thread(() -> {
+            File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
             try {
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
-                copyUri(ctx, uri, tmp);
-                installFromFile(ctx.getApplicationContext(), rt, tmp, listener);
-                tmp.delete();
+                copyUri(ctx, uri, tmp, token);
+                installFromFile(ctx.getApplicationContext(), rt, tmp, listener, token);
+            } catch (InstallCancelledException cx) {
+                cancelled(listener);
             } catch (Exception e) {
-                String m = e.getMessage();
-                fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    String m = e.getMessage();
+                    fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+                }
             } finally {
-                endInstall(rt);
+                tmp.delete();
+                endInstall(rt, token);
             }
         }).start();
     }
@@ -456,19 +556,26 @@ public final class LabRuntimeManager {
     public static void importFromUrl(Context ctx, String runtime, String url, Listener listener) {
         final String rt = LabManifest.normalizeRuntime(runtime);
         if (!beginInstall(rt, listener)) return;
+        final CancelToken token = token(rt);
         new Thread(() -> {
+            File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
             try {
                 progress(listener, "正在下载环境包…");
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
                 downloadRetry(candidates(url, PKG_SIZE.get(pkgKey(rt)) == null
-                        ? 0 : PKG_SIZE.get(pkgKey(rt))), tmp, 2);
-                installFromFile(ctx.getApplicationContext(), rt, tmp, listener);
-                tmp.delete();
+                        ? 0 : PKG_SIZE.get(pkgKey(rt))), tmp, 2, token);
+                installFromFile(ctx.getApplicationContext(), rt, tmp, listener, token);
+            } catch (InstallCancelledException cx) {
+                cancelled(listener);
             } catch (Exception e) {
-                String m = e.getMessage();
-                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    String m = e.getMessage();
+                    fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                }
             } finally {
-                endInstall(rt);
+                tmp.delete();
+                endInstall(rt, token);
             }
         }).start();
     }
@@ -479,32 +586,59 @@ public final class LabRuntimeManager {
     }
 
     /** 安装管线唯一入口：解压 → 755 → bin 校验 → 软链 → 登记注册表。在线/本地都走这里。 */
-    private static void installFromFile(Context ctx, String runtime, File zip, Listener listener) {
-        installFromFile(ctx, runtime, zip, "", listener);
+    private static void installFromFile(Context ctx, String runtime, File zip, Listener listener,
+                                        CancelToken token) {
+        installFromFile(ctx, runtime, zip, "", listener, token);
     }
 
-    private static void installFromFile(Context ctx, String runtime, File zip, String version, Listener listener) {
+    private static void installFromFile(Context ctx, String runtime, File zip, String version,
+                                        Listener listener, CancelToken token) {
+        File dest = LabPaths.runtimeDir(ctx, runtime);
+        // 旧目录动过没有：取消若踩在删旧目录之前，旧安装还是好的，收口时不许连它一起删
+        boolean destTouched = false;
+        // 提交点（登记落笔）过没过：过了就算装成，此后的失败不算半成品、不许删
+        boolean committed = false;
         try {
             progress(listener, "正在准备环境…");
+            token.check();
             // 重装先停靠这个环境跑着的服务再删目录（与卸载同口径）：
             // 不停就删，进程脚下的 bin/lib 被抽走，服务半死不活
             stopRuntimeUsers(ctx, runtime);
-            File dest = LabPaths.runtimeDir(ctx, runtime);
             LabPackageInstaller.deleteDir(dest);
+            destTouched = true;
             dest.mkdirs();
-            unzip(zip, dest, listener);
+            unzip(zip, dest, listener, token);
             chmod755(dest);
+            token.check();
             if (!isInstalled(ctx, runtime)) throw new Exception("环境包里没有 bin，换一个压缩包试试");
             symlinkShared(ctx, runtime, dest);
+            token.check();
             LabRegistry.Runtime r = new LabRegistry.Runtime();
             r.name = runtime;
             r.version = version == null ? "" : version;
             r.installTime = System.currentTimeMillis();
             LabRegistry.get(ctx).upsertRuntime(ctx, r);
+            committed = true;
+            // 登记落笔即算装成：此后不再查取消旗——取消踩在这个窗口就按装成收口，
+            // 否则会出现注册表有登记、目录却被取消清理删掉的半截状态
             ok(listener);
+        } catch (InstallCancelledException cx) {
+            // 取消收口：已经动手替换了才清——半解压目录整个删掉，bin 半成品留着
+            // 会被 isInstalled 误判成已装；登记在解压后才写，注册表还没动，无需回滚
+            if (destTouched && !committed) LabPackageInstaller.deleteDir(dest);
+            cancelled(listener);
         } catch (Exception e) {
-            String m = e.getMessage();
-            fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+            if (token.isCancelled()) {
+                if (destTouched && !committed) LabPackageInstaller.deleteDir(dest);
+                cancelled(listener);
+            } else {
+                // 失败收口与取消路径对齐：未过提交点的半成品同样整删，
+                // 否则残缺 bin 会被 isInstalled 误判已装、跳过重装往下跑；
+                // 已过提交点的失败不算半成品，目录留着
+                if (destTouched && !committed) LabPackageInstaller.deleteDir(dest);
+                String m = e.getMessage();
+                fail(listener, m == null || m.isEmpty() ? "环境装不上，换一个压缩包试试" : m);
+            }
         }
     }
 
@@ -545,12 +679,15 @@ public final class LabRuntimeManager {
         return i >= 0 ? u.substring(i + 1) : "env.zip";
     }
 
-    private static void copyFile(File src, File dest) throws Exception {
+    private static void copyFile(File src, File dest, CancelToken token) throws Exception {
         try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(src));
              BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
             byte[] buf = new byte[8192];
             int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            while ((n = in.read(buf)) > 0) {
+                token.check();
+                out.write(buf, 0, n);
+            }
         }
     }
 
@@ -591,19 +728,20 @@ public final class LabRuntimeManager {
         }
         final String rt2 = runtime;
         if (!beginInstall(rt2, listener)) return;
+        final CancelToken token = token(rt2);
         new Thread(() -> {
+            // 文件名：目录给了 file 字段就用它（版本化新名），没给从 URL 尾段取
+            String fileName = !dl.file.isEmpty() ? dl.file : fileNameOf(dl.url);
+            File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt2 + "-" + System.currentTimeMillis() + ".zip");
             try {
-                // 文件名：目录给了 file 字段就用它（版本化新名），没给从 URL 尾段取
-                String fileName = !dl.file.isEmpty() ? dl.file : fileNameOf(dl.url);
-                File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt2 + "-" + System.currentTimeMillis() + ".zip");
                 if (dl.url.endsWith(".json")) {
                     // 分片清单型：走分片拼接＋校验
-                    downloadSharded(dl.url, tmp, listener);
+                    downloadSharded(dl.url, tmp, listener, token);
                 } else {
-                    File local = verifyLocalArchive(ctx, fileName, dl.sha256, listener);
+                    File local = verifyLocalArchive(ctx, fileName, dl.sha256, listener, token);
                     if (local != null) {
                         progress(listener, "找到本地包，直接装…");
-                        copyFile(local, tmp);
+                        copyFile(local, tmp, token);
                     } else {
                         progress(listener, "正在下载环境包…");
                         // ≤20MB 镜像优先、直链兜底；大的只走直链；2 轮跨源重试；
@@ -615,20 +753,26 @@ public final class LabRuntimeManager {
                         }
                         urls.add(dl.url);
                         urls.addAll(dl.mirrors);
-                        downloadVerified(urls, tmp, dl.sha256, 2, listener);
+                        downloadVerified(urls, tmp, dl.sha256, 2, listener, token);
                     }
                 }
                 // 整包 sha 校验（目录里有就验，没有不硬拦；最后一道保险）
-                if (!dl.sha256.isEmpty() && !sha256Of(tmp).equalsIgnoreCase(dl.sha256)) {
+                if (!dl.sha256.isEmpty() && !sha256Of(tmp, token).equalsIgnoreCase(dl.sha256)) {
                     throw new Exception("包校验没过，重新下一次试试");
                 }
-                installFromFile(ctx.getApplicationContext(), rt2, tmp, entry.version, listener);
-                tmp.delete();
+                installFromFile(ctx.getApplicationContext(), rt2, tmp, entry.version, listener, token);
+            } catch (InstallCancelledException cx) {
+                cancelled(listener);
             } catch (Exception e) {
-                String m = e.getMessage();
-                fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    String m = e.getMessage();
+                    fail(listener, m == null || m.isEmpty() ? "环境包下不下来，换本地安装试试" : m);
+                }
             } finally {
-                endInstall(rt2);
+                tmp.delete();
+                endInstall(rt2, token);
             }
         }).start();
     }
@@ -656,13 +800,16 @@ public final class LabRuntimeManager {
      * 找到同名包后先比 sha256——对得上才用；对不上就删掉（旧包/错包留着只会再炸），
      * 返回 null 走下载。目录里没给 sha 时无法验，直接用。
      */
-    private static File verifyLocalArchive(Context ctx, String fileName, String sha256, Listener listener) {
+    private static File verifyLocalArchive(Context ctx, String fileName, String sha256, Listener listener,
+                                           CancelToken token) throws InstallCancelledException {
         File local = findLocalArchive(ctx, fileName);
         if (local == null) return null;
         if (sha256 != null && !sha256.isEmpty()) {
             boolean ok = false;
             try {
-                ok = sha256Of(local).equalsIgnoreCase(sha256);
+                ok = sha256Of(local, token).equalsIgnoreCase(sha256);
+            } catch (InstallCancelledException cx) {
+                throw cx;
             } catch (Exception ignored) {
             }
             if (!ok) {
@@ -722,7 +869,7 @@ public final class LabRuntimeManager {
         LabRegistry.get(ctx).removeRuntime(ctx, runtime);
     }
 
-    private static void download(String url, File dest) throws Exception {
+    private static void download(String url, File dest, CancelToken token) throws Exception {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(url).openConnection();
@@ -735,19 +882,23 @@ public final class LabRuntimeManager {
                  BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
                 byte[] buf = new byte[8192];
                 int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                while ((n = in.read(buf)) > 0) {
+                    token.check();
+                    out.write(buf, 0, n);
+                }
             }
         } finally {
             if (c != null) c.disconnect();
         }
     }
 
-    private static void unzip(File zip, File dest, Listener listener) throws Exception {
+    private static void unzip(File zip, File dest, Listener listener, CancelToken token) throws Exception {
         try (ZipInputStream zin = new ZipInputStream(new BufferedInputStream(new FileInputStream(zip)))) {
             ZipEntry entry;
             byte[] buf = new byte[8192];
             long total = 0;
             while ((entry = zin.getNextEntry()) != null) {
+                token.check();
                 if (entry.isDirectory()) continue;
                 File out = new File(dest, entry.getName());
                 if (!out.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) continue;
@@ -755,6 +906,7 @@ public final class LabRuntimeManager {
                 try (BufferedOutputStream bout = new BufferedOutputStream(new FileOutputStream(out))) {
                     int n;
                     while ((n = zin.read(buf)) > 0) {
+                        token.check();
                         bout.write(buf, 0, n);
                         total += n;
                     }
@@ -772,12 +924,15 @@ public final class LabRuntimeManager {
         }
     }
 
-    private static void copyUri(Context ctx, Uri uri, File dest) throws Exception {
+    private static void copyUri(Context ctx, Uri uri, File dest, CancelToken token) throws Exception {
         try (BufferedInputStream in = new BufferedInputStream(ctx.getContentResolver().openInputStream(uri));
              BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
             byte[] buf = new byte[8192];
             int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            while ((n = in.read(buf)) > 0) {
+                token.check();
+                out.write(buf, 0, n);
+            }
         }
     }
 

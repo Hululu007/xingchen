@@ -1608,27 +1608,51 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private boolean prevGroup() {
-        int position = mGroupAdapter.getPosition() - 1;
-        if (position < 0) position = mGroupAdapter.getItemCount() - 1;
-        if (mGroup.equals(mGroupAdapter.get(position))) return false;
-        mGroup = mGroupAdapter.get(position);
-        mGroupAdapter.setSelected(position);
-        if (mGroup.skip()) return prevGroup();
-        mGroup.setPosition(mGroup.getChannel().size() - 1);
-        mChannelAdapter.addAll(mGroup.getChannel(), mGroup.getPosition());
-        return true;
+        int count = mGroupAdapter.getItemCount();
+        if (count <= 0) return false;
+        Group origin = mGroup;
+        int originPosition = mGroupAdapter.getPosition();
+        for (int visited = 0; visited < count; visited++) {
+            int position = mGroupAdapter.getPosition() - 1;
+            if (position < 0) position = count - 1;
+            if (mGroup.equals(mGroupAdapter.get(position))) break;
+            mGroup = mGroupAdapter.get(position);
+            mGroupAdapter.setSelected(position);
+            if (!mGroup.skip()) {
+                mGroup.setPosition(mGroup.getChannel().size() - 1);
+                mChannelAdapter.addAll(mGroup.getChannel(), mGroup.getPosition());
+                return true;
+            }
+        }
+        if (mGroup != origin) {
+            mGroup = origin;
+            mGroupAdapter.setSelected(originPosition);
+        }
+        return false;
     }
 
     private boolean nextGroup() {
-        int position = mGroupAdapter.getPosition() + 1;
-        if (position > mGroupAdapter.getItemCount() - 1) position = 0;
-        if (mGroup.equals(mGroupAdapter.get(position))) return false;
-        mGroup = mGroupAdapter.get(position);
-        mGroupAdapter.setSelected(position);
-        if (mGroup.skip()) return nextGroup();
-        mGroup.setPosition(0);
-        mChannelAdapter.addAll(mGroup.getChannel(), mGroup.getPosition());
-        return true;
+        int count = mGroupAdapter.getItemCount();
+        if (count <= 0) return false;
+        Group origin = mGroup;
+        int originPosition = mGroupAdapter.getPosition();
+        for (int visited = 0; visited < count; visited++) {
+            int position = mGroupAdapter.getPosition() + 1;
+            if (position > count - 1) position = 0;
+            if (mGroup.equals(mGroupAdapter.get(position))) break;
+            mGroup = mGroupAdapter.get(position);
+            mGroupAdapter.setSelected(position);
+            if (!mGroup.skip()) {
+                mGroup.setPosition(0);
+                mChannelAdapter.addAll(mGroup.getChannel(), mGroup.getPosition());
+                return true;
+            }
+        }
+        if (mGroup != origin) {
+            mGroup = origin;
+            mGroupAdapter.setSelected(originPosition);
+        }
+        return false;
     }
 
     private void prevChannel() {

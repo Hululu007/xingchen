@@ -74,6 +74,7 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.RichLyrics;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
+import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.KaraokeLyricsView;
 import com.fongmi.android.tv.ui.custom.ShelfStageGeometry;
@@ -300,6 +301,9 @@ public class MusicPlayerActivity extends BaseActivity {
     private com.fongmi.android.tv.ui.custom.CdSweepView cdSweepView;
     private boolean cdBoundOnce;
     private boolean destroyed;
+    /** 后台播放分家：onStop 因「音乐后台播放关」暂停时置位，回页只续同一首（照视频侧口径）。 */
+    private boolean bgPausedMusic;
+    private String bgPausedTrackKey;
     /** 上一次跳歌方向（redo3 D8：瓜子 lastSkipDirection 口径，≤0 取 −1、否则 ＋1；CD 扫光方向用，默认 ＋1）。 */
     private int lastSkipDirection = 1;
     /** 流光 CD 歌词展开态（redo3 F4）与展开动画。 */
@@ -433,6 +437,22 @@ public class MusicPlayerActivity extends BaseActivity {
         // 回页重同步播放态：onPause 摘监听期间错过的暂停（如视频抢焦点停了歌）不会再回调，
         // 不在这里重读服务态，按钮就一直停在旧的播放态——这就是视频打断后歌停了按钮没变的根因。
         setPlaying(MusicController.get().isPlaying());
+        // 后台播放分家：只有 onStop 因音乐后台关亲手暂停的才续，且必须是同一首；
+        // 用户在外面已手动播/停（isPlaying 已变）或已切歌，都不抢。
+        if (bgPausedMusic) {
+            bgPausedMusic = false;
+            String key = bgPausedTrackKey;
+            bgPausedTrackKey = null;
+            try {
+                MusicTrack curBg = MusicController.get().current();
+                if (curBg != null && key != null
+                        && key.equals(String.valueOf(curBg.id) + "|" + String.valueOf(curBg.platform))
+                        && !MusicController.get().isPlaying()) {
+                    MusicController.get().play();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         // wave2：后台切过歌（监听摘掉期间错过的切歌）才重绑；同曲不重绑，但上次取词空了就重试
         // （首取失败／返回空后，再进页以前不重试，只有切歌或手动重搜才重试，是歌词有时不出的另一根因；进行中不重复取）。
         MusicTrack cur = MusicController.get().current();
@@ -490,6 +510,28 @@ public class MusicPlayerActivity extends BaseActivity {
         }
         if (cdAnimator != null && cdAnimator.isRunning()) cdAnimator.pause();
         super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // 后台播放分家：音乐只认音乐自己那份开关（PlayerSetting.isMusicBackgroundOff，
+        // 默认开＝常驻，离开照常播、通知照常在，行为与从前一字不变）。
+        // 关时才走视频侧同款口径：离开播放页就暂停；只有页面没在关（isFinishing 为假）
+        // 才记下是哪首歌，回页由 onResume 续同一首——关页离开不留假续播标记（同视频侧）。
+        bgPausedMusic = false;
+        bgPausedTrackKey = null;
+        try {
+            if (PlayerSetting.isMusicBackgroundOff() && MusicController.get().isPlaying()) {
+                MusicTrack curBg = MusicController.get().current();
+                if (curBg != null && !isFinishing()) {
+                    bgPausedTrackKey = String.valueOf(curBg.id) + "|" + String.valueOf(curBg.platform);
+                    bgPausedMusic = true;
+                }
+                MusicController.get().pause();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -2443,6 +2485,7 @@ public class MusicPlayerActivity extends BaseActivity {
 
     /** B4：密钥问题弹窗——只接 LxKeyIssue 事件；当前曲是落雪歌才弹（防过期事件）；只提示＋重试，不做密钥／登录入口 */
     private void showKeyIssue(String platform, String detail, Runnable onRetry) {
+        if (isFinishing() || isDestroyed()) return;
         MusicTrack cur = MusicController.get().current();
         if (cur == null || !"lx".equals(cur.platform)) return;
         LxKeyIssueDialog.show(this, platform, detail, onRetry);
@@ -5088,7 +5131,7 @@ public class MusicPlayerActivity extends BaseActivity {
             paintFavoriteIcons();
             return;
         }
-        MusicLibrary.isFavorite(track.id, fav -> {
+        MusicLibrary.isFavorite(track, fav -> {
             favorited = fav;
             paintFavoriteIcons();
         });
@@ -5226,6 +5269,7 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     private void showQualityDialog() {
+        if (isFinishing() || isDestroyed()) return;
         // 播放音质面板（GZ 面板形态）：点行即切档，行为与旧通用选项弹窗一致（只在变化时切档＋重载＋刷新音质格＋提示）
         MusicQualityPanelDialog.show(this, MusicController.get().current(), MusicController.get().getQuality(), quality -> {
             if (MusicController.get().getQuality() != quality) {
@@ -5248,6 +5292,7 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     private void showToolsSheet(boolean lyricPanel) {
+        if (isFinishing() || isDestroyed()) return;
         try {
             MusicToolsSheetDialog.Listener listener = toolsSheetListener();
             if (lyricPanel) MusicToolsSheetDialog.showLyricPanel(this, listener);
@@ -5258,6 +5303,7 @@ public class MusicPlayerActivity extends BaseActivity {
 
     /** 堵-2：左划直达歌曲信息子面板（主面板歌曲信息行的同一入口，不经过主面板）。 */
     private void showToolsSheetSongInfo() {
+        if (isFinishing() || isDestroyed()) return;
         try {
             MusicToolsSheetDialog.showSongInfoPanel(this, toolsSheetListener());
         } catch (Throwable ignored) {
@@ -5304,6 +5350,7 @@ public class MusicPlayerActivity extends BaseActivity {
 
     private void pickPlaylist(MusicTrack track) {
         MusicLibrary.playlists(list -> {
+            if (isFinishing() || isDestroyed()) return;
             List<String> names = new ArrayList<>();
             for (MusicPlaylist p : list) names.add(p.getName());
             names.add(getString(R.string.music_new_playlist));
@@ -5328,6 +5375,7 @@ public class MusicPlayerActivity extends BaseActivity {
     }
 
     private void inputPlaylistName(NameInput cb) {
+        if (isFinishing() || isDestroyed()) return;
         EditText et = new EditText(this);
         et.setHint(R.string.music_playlist_name_hint);
         et.setTextColor(0xFFFFFFFF);

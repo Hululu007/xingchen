@@ -62,7 +62,14 @@ public class TimerDialog extends BaseBottomSheetDialog implements Timer.Callback
     }
 
     private void setTimer(View view) {
-        int minutes = Integer.parseInt(view.getTag().toString());
+        Object tag = view.getTag();
+        if (tag == null) return;
+        int minutes;
+        try {
+            minutes = Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return;
+        }
         Timer.get().set(TimeUnit.MINUTES.toMillis(minutes));
         dismiss();
     }

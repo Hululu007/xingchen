@@ -61,9 +61,15 @@ public class HkDetailBridge {
                 flagMap.put(lineName, flag);
                 flags.add(flag);
             }
-            String epName = di.getTitle() == null || di.getTitle().isEmpty()
+            boolean fallbackName = di.getTitle() == null || di.getTitle().isEmpty();
+            String epName = fallbackName
                     ? ("第" + (flag.getEpisodes().size() + 1) + "集") : di.getTitle();
-            flag.getEpisodes().add(Episode.create(epName, url));
+            Episode episode = Episode.create(epName, url);
+            // 源没给集名的回退序号必须打标（与 Flag/VideoActivity 推送直建同口径）：
+            // Vod.setFlags 末尾 applySingleEpisodeTitle 据此把单集选集显示换成片名全名，
+            // 未打标时海阔单集内容选集只剩「第1集」（他 2026-10-23 单集显名定案）。
+            if (fallbackName) episode.setNumberName(true);
+            flag.getEpisodes().add(episode);
         }
         vod.setFlags(flags);
         return vod;

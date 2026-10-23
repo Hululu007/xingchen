@@ -30,16 +30,24 @@ import okhttp3.Response;
  * body = LM.api115("https://webapi.115.com/files?aid=1&cid=0")  # JSON 字符串
  * </pre>
  * <p>
- * 流程：自动带上 115 cookie 发请求 → 返回 401 或 115 报 state=false
+ * 流程：自动带上 115 cookie 发请求 → 返回 401 或 115 明确报登录失效
  * → 在 UI 线程弹壳子统一登录框并阻塞等待 → 登录成功后用新 cookie 自动重发一次
- * → 把结果原样返回。py 全程无感。
+ * → 把结果原样返回。业务错误（state=false 但非登录问题）不拦截、原样返回。py 全程无感。
  */
 public class AutoLogin115 {
 
     /** 登录等待超时（毫秒）：扫码框 4 分钟过期，这里多留 1 分钟 */
     private static final long LOGIN_WAIT_MS = 300_000L;
 
-    /** 115 接口未登录的典型标记 */
+    /**
+     * 115 接口未登录的典型标记。旧口径把 state:false 一律当未登录：115 的业务错误
+     * （文件不存在、参数不对、操作不允许……）也是 state:false＋error 文案，一律误判
+     * 就弹登录框、用户「已登录」时 blockingLogin 立即返回 true、原请求重发一次——
+     * GET 白跑一趟、POST 等于重复提交，py 最后拿到的还是「115 未登录」假错误，
+     * 真错误被盖掉。现在收紧：HTTP 401，或 state:false 且错误文案带登录类标记
+     * 才算未登录；其余 state:false 是业务错误，响应体原样回给调用方自己处理
+     * （与 Drive115 对 state:false 的口径一致：抛/回真实 error，不冒充未登录）。
+     */
     private static boolean isAuthFailure(int code, String body, String url) {
         if (code == 401) return true;
         if (TextUtils.isEmpty(body) || url == null) return false;
@@ -49,14 +57,25 @@ public class AutoLogin115 {
         if (!t.startsWith("{")) return false;
         try {
             JSONObject o = new JSONObject(t);
-            if (o.has("state")) {
-                Object s = o.get("state");
-                if (s instanceof Boolean) return !(Boolean) s;
-                if (s instanceof Number) return ((Number) s).intValue() == 0;
-            }
+            if (!o.has("state")) return false;
+            Object s = o.get("state");
+            boolean failed = (s instanceof Boolean && !(Boolean) s)
+                    || (s instanceof Number && ((Number) s).intValue() == 0);
+            if (!failed) return false;
+            String msg = o.optString("error", "") + " " + o.optString("message", "")
+                    + " " + o.optString("msg", "");
+            return hasLoginMarker(msg);
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    /** 错误文案是否带登录类标记（会话失效类）；业务文案（不存在/参数/权限不足以外的操作错误）不含这些词 */
+    private static boolean hasLoginMarker(String msg) {
+        if (msg == null || msg.isEmpty()) return false;
+        String m = msg.toLowerCase(java.util.Locale.ROOT);
+        return m.contains("登录") || m.contains("登陆") || m.contains("login")
+                || m.contains("unauthorized") || m.contains("会话") || m.contains("cookie");
     }
 
     private static boolean isMainThread() {

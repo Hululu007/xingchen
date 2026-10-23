@@ -57,6 +57,8 @@ public class LxMusicSource implements MusicSource {
     public List<MusicSite> searchableSites() {
         List<MusicSite> result = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
+        // 单插件屏蔽平台：某平台只有在至少一个声明它的插件没屏蔽它时才进搜索排——
+        // 全部插件都屏蔽了该平台还摆出来，点进去搜得到却永远取不了链（摆设第二张脸）
         for (MusicSite plugin : sites()) {
             try {
                 LxBridge b = MusicSourceManager.get().lxBridgeOf(plugin);
@@ -65,6 +67,7 @@ public class LxMusicSource implements MusicSource {
                     String key = e.getKey();
                     if (!LxPlatformSearch.supported(key)) continue;
                     if (!e.getValue().actions.contains("musicUrl")) continue;
+                    if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(plugin.srcUrl, key)) continue;
                     if (seen.add(key)) {
                         MusicSite s = new MusicSite(PLATFORM, LxPlatformSearch.platformName(key), "", SITE_PREFIX + key);
                         result.add(s);
@@ -193,6 +196,9 @@ public class LxMusicSource implements MusicSource {
             // P-3d：本曲已死过的插件不再重进（多档回落会多次进本循环）；探链只读不记死，
                 // 但仍尊重已死标记（不替真实取链翻案），见字段注释。
             if (isDeadPlugin(deadKey, plugin.srcUrl, want)) continue;
+            // 单插件屏蔽平台：该插件屏蔽了本歌内容平台（p.platform）就不许它取链——
+            // 旧实现落雪侧从头到尾不查，屏蔽对落雪插件完全是摆设
+            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(plugin.srcUrl, p.platform)) continue;
             LxBridge b;
             try {
                 b = MusicSourceManager.get().lxBridgeOf(plugin);
@@ -265,6 +271,8 @@ public class LxMusicSource implements MusicSource {
             }
         }
         if (target == null) return null;
+        // 单插件屏蔽平台：指派单试同口径，目标插件屏蔽了本歌内容平台直接判空走仓库回落
+        if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(srcUrl, p.platform)) return null;
         // P-3d：仓库指派单试失败后回落到源内遍历时，本步不再重进同一死插件。
         String deadKey = MusicQueue.trackKey(track);
         String want = lxQuality(MusicQuality.fromInt(quality));
@@ -329,6 +337,8 @@ public class LxMusicSource implements MusicSource {
             } catch (Throwable t) {
                 continue;
             }
+            // 单插件屏蔽平台：屏蔽了本歌内容平台的插件不许供词（取链同口径）
+            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(plugin.srcUrl, p.platform)) continue;
             if (b == null || !b.supports(p.platform, "lyric")) continue;
             try {
                 String r = b.request(p.platform, "lyric", musicInfo, "");
@@ -361,6 +371,8 @@ public class LxMusicSource implements MusicSource {
             } catch (Throwable t) {
                 continue;
             }
+            // 单插件屏蔽平台：屏蔽了本歌内容平台的插件不许供词（取链同口径）
+            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(plugin.srcUrl, p.platform)) continue;
             if (b == null || !b.supports(p.platform, "lyric")) continue;
             try {
                 String r = b.request(p.platform, "lyric", musicInfo, "");
@@ -389,6 +401,8 @@ public class LxMusicSource implements MusicSource {
             } catch (Throwable t) {
                 continue;
             }
+            // 单插件屏蔽平台：屏蔽了本歌内容平台的插件不许供词（取链同口径）
+            if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(plugin.srcUrl, p.platform)) continue;
             if (b == null || !b.supports(p.platform, "lyric")) continue;
             try {
                 String r = b.request(p.platform, "lyric", musicInfo, "");

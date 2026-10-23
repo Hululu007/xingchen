@@ -392,6 +392,9 @@ public class MusicRepository {
     /** 单插件取链：freejs 走指派桥 getMediaSource；lx 走单脚本 playUrlWithPlugin；probe 透传两处死检查 */
     private static String assignedPlayUrl(MusicTrack track, int quality, MusicSite site, boolean probe) throws Exception {
         if (FreeJsMusicSource.PLATFORM.equals(track.platform)) {
+            // 单插件屏蔽平台：指派插件屏蔽了本歌内容平台同样不许取链（与源内取链同口径）
+            String cp = MusicIdentity.contentPlatformOf(track);
+            if (cp != null && MusicStore.isPlatformBlocked(site.srcUrl, cp)) return null;
             FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
             if (b == null) return null;
             MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality), probe);

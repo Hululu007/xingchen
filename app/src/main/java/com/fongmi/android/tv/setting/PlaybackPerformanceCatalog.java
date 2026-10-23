@@ -107,7 +107,7 @@ public final class PlaybackPerformanceCatalog {
         options.add(option(AUDIO_PASSTHROUGH, AUDIO, "音频直通", "作用：把 Dolby/DTS 等压缩音频交给电视或功放解码，保留多声道。设备明确支持且要环绕声才开启；出现无声立即关闭。代价：输出链不支持时不会自动变成可播放音频。"));
         options.add(option(PREFER_AAC, AUDIO, "AAC 优先", "作用：有多条音轨时优先选兼容性更高的 AAC。电视无声、切换音轨失败时建议开启；追求原始多声道/高码率时关闭。代价：可能放弃质量更高的音轨。"));
         options.add(option(AUDIO_SOFT_PREFER, AUDIO, "音频软解优先", "作用：优先用 FFmpeg 解码冷门音频格式。硬解无声或格式不支持时开启；普通设备保持关闭。代价：增加 CPU、功耗，通常不影响视频画面流畅度。"));
-        options.add(option(VIDEO_SOFT_PREFER, AUDIO, "视频软解优先", "作用：绕过异常硬件解码器，改用 FFmpeg。仅在硬解花屏/崩溃且分辨率较低时尝试；4K电视不要开启。代价：CPU、发热和掉帧风险显著增加。"));
+        options.add(option(VIDEO_SOFT_PREFER, AUDIO, "视频硬解优先", "作用：优先使用硬件解码器（开启即硬解优先，与设置页同值）。保持开启（默认）流畅省电；仅在硬解花屏/崩溃时关闭，关闭后改走 FFmpeg 软解。代价：软解时 CPU、发热和掉帧风险显著增加，4K 尤其明显。"));
     }
 
     private static void addMpv(List<PlaybackPerformanceOption> options) {

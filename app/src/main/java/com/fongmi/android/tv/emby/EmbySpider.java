@@ -58,7 +58,12 @@ public class EmbySpider extends Spider {
         }
     }
 
-    private EmbyApi activeApi() throws Exception {
+    /**
+     * 当前可用服务器：优先「当前服务器」，它没登录时回落到任一已登录服。
+     * 首页与分类页必须走同一口径——旧实现分类页只认当前服，当前服掉登录时
+     * 首页（走回落）能开、点进分类却报「请先登录」，同一入口两副面孔。
+     */
+    private EmbyStore.EmbyServer activeServer() throws Exception {
         EmbyStore.EmbyServer s = EmbyStore.active();
         if (s == null || !s.isLogin()) {
             List<EmbyStore.EmbyServer> list = EmbyStore.servers();
@@ -69,6 +74,11 @@ public class EmbySpider extends Spider {
             }
         }
         if (s == null || !s.isLogin()) throw new Exception(NEED_LOGIN);
+        return s;
+    }
+
+    private EmbyApi activeApi() throws Exception {
+        EmbyStore.EmbyServer s = activeServer();
         return new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
     }
 
@@ -135,8 +145,8 @@ public class EmbySpider extends Spider {
 
     @Override
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) throws Exception {
-        EmbyStore.EmbyServer s = EmbyStore.active();
-        if (s == null || !s.isLogin()) throw new Exception(NEED_LOGIN);
+        // 选服与首页同口径（activeServer 含已登录服回落），不再只认当前服
+        EmbyStore.EmbyServer s = activeServer();
         EmbyApi api = new EmbyApi(s.baseUrl, s.token, s.userId, s.id);
         int page = 1;
         try {

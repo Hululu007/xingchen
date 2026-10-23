@@ -37,9 +37,31 @@ public class MusicDownloadStore {
         void onResult(T data);
     }
 
-    /** 本地曲目 id：local:原id */
+    /**
+     * 本地曲目 id：local:＋全局身份键（platform|插件来源|原id）。
+     * 旧口径只拼裸原 id：两个插件各有一首 id 相同的歌时登记键撞车，后下的顶掉先下的、
+     * 删歌连坐。身份键口径见 {@link MusicIdentity}；旧键存量行由 save／已下载检查处
+     * 命中后改键自愈。
+     */
     public static String localId(MusicTrack track) {
-        return LocalMusicSource.PLATFORM + ":" + (track == null || track.id == null ? "" : track.id);
+        if (track == null) return LocalMusicSource.PLATFORM + ":";
+        String identity = MusicIdentity.keyOf(track);
+        if (identity != null) return LocalMusicSource.PLATFORM + ":" + identity;
+        return LocalMusicSource.PLATFORM + ":" + (track.id == null ? "" : track.id);
+    }
+
+    /** 旧版登记键（local:裸原id）命中的存量行改键到当前身份键；找不到返回 null */
+    private static MusicDownload healLegacyRecord(MusicDownloadDao dao, String currentKey, String rawId) {
+        try {
+            if (rawId == null || rawId.isEmpty() || rawId.startsWith(LocalMusicSource.PLATFORM + ":")) return null;
+            MusicDownload legacy = dao.findByTrackId(LocalMusicSource.PLATFORM + ":" + rawId);
+            if (legacy == null) return null;
+            legacy.setTrackId(currentKey);
+            dao.update(legacy);
+            return legacy;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     public static boolean isLocal(MusicTrack track) {
@@ -458,6 +480,7 @@ public class MusicDownloadStore {
             try {
                 MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
                 MusicDownload d = dao.findByTrackId(localId(track));
+                if (d == null) d = healLegacyRecord(dao, localId(track), track.id);
                 if (d != null && d.getFilePath() != null && new File(d.getFilePath()).exists()) {
                     post(() -> Notify.show(R.string.music_download_exists));
                     return;
@@ -517,6 +540,11 @@ public class MusicDownloadStore {
             try {
                 MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
                 MusicDownload d = dao.findByTrackId(track.id);
+                // track 是本地快照（id=local:身份键）；旧键存量行改键自愈，免得同曲两行
+                if (d == null) {
+                    int cut = track.id == null ? -1 : track.id.lastIndexOf('|');
+                    if (cut > 0) d = healLegacyRecord(dao, track.id, track.id.substring(cut + 1));
+                }
                 if (d == null) {
                     d = new MusicDownload();
                     d.setTrackId(track.id);

@@ -659,10 +659,10 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             });
             // 收藏态（异步查库回填图标＋染色：已收藏实心红、未收藏线框灰，GZ QueueRowActionButton）
             paintFav(h, false);
-            MusicLibrary.isFavorite(t.id, fav -> {
+            MusicLibrary.isFavorite(t, fav -> {
                 if (h.getBindingAdapterPosition() == position) paintFav(h, fav);
             });
-            h.btnFav.setOnClickListener(v -> MusicLibrary.isFavorite(t.id, fav ->
+            h.btnFav.setOnClickListener(v -> MusicLibrary.isFavorite(t, fav ->
                     MusicLibrary.setFavorite(t, !fav, () -> {
                         Notify.show(!fav ? R.string.music_favorited : R.string.music_unfavorited);
                         notifyDataSetChanged();

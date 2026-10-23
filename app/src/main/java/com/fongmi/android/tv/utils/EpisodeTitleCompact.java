@@ -82,13 +82,13 @@ public final class EpisodeTitleCompact {
     public static void apply(List<Episode> episodes) {
         if (episodes == null || episodes.isEmpty()) return;
         if (!Setting.isCompactEpisodeTitle()) {
-            for (Episode episode : episodes) episode.setDisplayName(null);
+            for (Episode episode : episodes) if (!episode.isSingleEpisodeTitle()) episode.setDisplayName(null);
             return;
         }
         List<String> rawNames = new ArrayList<>();
         for (Episode episode : episodes) rawNames.add(episode.getRawDisplayName());
         List<String> displayNames = compact(rawNames);
-        for (int i = 0; i < episodes.size(); i++) episodes.get(i).setDisplayName(displayNames.get(i));
+        for (int i = 0; i < episodes.size(); i++) if (!episodes.get(i).isSingleEpisodeTitle()) episodes.get(i).setDisplayName(displayNames.get(i));
     }
 
     static List<String> compact(List<String> rawNames) {

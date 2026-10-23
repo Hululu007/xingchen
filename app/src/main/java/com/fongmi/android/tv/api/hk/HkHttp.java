@@ -310,11 +310,10 @@ public class HkHttp {
      */
     public static void applyDoh(Context context) {
         try {
-            int idx = XingChenDoh.getIndex(context);
-            if (idx == 0) {
+            Doh d = XingChenDoh.currentDoh(context);
+            if (d == null) {
                 hkDoh = null;
             } else {
-                Doh d = XingChenDoh.toDoh(context);
                 HttpUrl url = HttpUrl.parse(d.getUrl());
                 hkDoh = url == null ? null : new DnsOverHttps.Builder().client(new OkHttpClient()).url(url).bootstrapDnsHosts(d.getHosts()).build();
             }

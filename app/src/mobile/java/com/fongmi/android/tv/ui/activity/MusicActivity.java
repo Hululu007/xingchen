@@ -1,12 +1,17 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -15,6 +20,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
@@ -323,6 +329,8 @@ public class MusicActivity extends BaseActivity {
         // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
         binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
         binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
+        // 通知权限提示条的「去开启」钮（显隐由 onResume 的 refreshNotifPermStrip 按实读权限定）
+        binding.notifPermGo.setOnClickListener(v -> openAppNotificationSettings());
         // ② 五快捷真跳
         binding.homeQuickFavorite.setOnClickListener(v -> MusicListActivity.startFavorite(this));
         binding.homeQuickSheets.setOnClickListener(v -> MusicListActivity.startSheets(this));
@@ -394,6 +402,7 @@ public class MusicActivity extends BaseActivity {
         refreshCounts();
         refreshShuffleSubtitle();
         refreshMoodState();
+        refreshNotifPermStrip();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
@@ -412,6 +421,36 @@ public class MusicActivity extends BaseActivity {
     protected void onDestroy() {
         MusicController.get().unbind();
         super.onDestroy();
+    }
+
+    /**
+     * 通知权限明示（2026-10-23 令：查问题不推给用户，App 自己摆明面）：
+     * POST_NOTIFICATIONS 未授权时，失败/定时通知在服务侧直接 return、前台通知被系统藏起，
+     * 用户只会觉得「通知没了」。这里在音乐首页实读权限：没授权就挂提示条（深底白字＋去开启钮），
+     * 已授权（或安卓 13 以下无此运行时权限）永远不出现、不占位。从系统设置页回来
+     * onResume 会再实读一次，开好即自动撤下。
+     */
+    private void refreshNotifPermStrip() {
+        boolean granted = Build.VERSION.SDK_INT < 33
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+        binding.notifPermStrip.setVisibility(granted ? View.GONE : View.VISIBLE);
+    }
+
+    /** 跳系统「应用通知」设置页（本应用那页）；个别系统打不开时退到应用详情页。 */
+    private void openAppNotificationSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(intent);
+        } catch (Throwable ignored) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            } catch (Throwable ignored2) {
+            }
+        }
     }
 
     // ================= 榜单卡（数据只用酷我＋QQ 真榜） =================
@@ -792,6 +831,7 @@ public class MusicActivity extends BaseActivity {
     // 插件行右字不抄瓜子「LX 音源插件」（星辰还有 FreeJS）：显示实际插件数。
 
     private void showMoreMenu(View anchor) {
+        if (isFinishing() || isDestroyed()) return;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         if (dialog.getWindow() != null) {
@@ -957,13 +997,13 @@ public class MusicActivity extends BaseActivity {
     private void refreshCounts() {
         if (binding == null) return;
         MusicLibrary.favoriteCount(n -> {
-            if (binding != null) binding.homeCountFavorite.setText(n + "首");
+            if (binding != null && !isFinishing() && !isDestroyed()) binding.homeCountFavorite.setText(n + "首");
         });
         MusicLibrary.playlists(list -> {
-            if (binding != null) binding.homeCountSheets.setText((list == null ? 0 : list.size()) + "个歌单");
+            if (binding != null && !isFinishing() && !isDestroyed()) binding.homeCountSheets.setText((list == null ? 0 : list.size()) + "个歌单");
         });
         MusicDownloadStore.count(n -> {
-            if (binding != null) binding.homeCountDownload.setText(n + "首");
+            if (binding != null && !isFinishing() && !isDestroyed()) binding.homeCountDownload.setText(n + "首");
         });
         // 历史数：loadRecent 同步读（上限 50 条的小 JSON）；满 50 只标“近50条”，不冒充总数
         try {
@@ -1035,7 +1075,7 @@ public class MusicActivity extends BaseActivity {
         final int recentN = recent.size();
         final String topArtist = top;
         MusicLibrary.favoriteCount(n -> {
-            if (binding == null) return;
+            if (binding == null || isFinishing() || isDestroyed()) return;
             // 建议项：照快捷口径，满 50 才加“近50条”限定；未满 50 时 recentN 就是实数，不加限定。
             binding.homeReportStats.setText("最近播放 " + recentN + " 首"
                     + (recentN >= 50 ? "（近50条内）" : "") + " · 收藏 " + n + " 首");

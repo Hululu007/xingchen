@@ -157,7 +157,8 @@ public class DownloadTaskAdapter extends RecyclerView.Adapter<DownloadTaskAdapte
         }
     }
 
-    /** 已完成：用应用内播放器打开本地文件 */
+    /** 已完成：APK 交系统安装器安装（下载器要支持下 APK 装应用，送进视频播放器装不上）；
+     * 其余文件仍用应用内播放器打开本地文件 */
     private void openCompletedFile(View view, DownloadTask task) {
         String filePath = task.getFilePath();
         if (filePath == null || filePath.isEmpty()) {
@@ -170,6 +171,19 @@ public class DownloadTaskAdapter extends RecyclerView.Adapter<DownloadTaskAdapte
             return;
         }
         Context context = view.getContext();
+        if (filePath.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+            try {
+                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                intent.setDataAndType(com.fongmi.android.tv.utils.FileUtil.getShareUri(file),
+                        "application/vnd.android.package-archive");
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                context.startActivity(intent);
+            } catch (Throwable t) {
+                Notify.show("打开安装器失败");
+            }
+            return;
+        }
         if (context instanceof FragmentActivity) {
             VideoActivity.file((FragmentActivity) context, filePath);
         } else {

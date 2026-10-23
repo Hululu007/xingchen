@@ -41,11 +41,17 @@ public class MusicLyricCache {
      * 同名同歌手不同版本（现场／翻唱／重录／不同专辑）会贴错词，现加专辑与时长区分。
      * 注意：回退键格式变了，旧回退键的磁盘文件命中不上（只会重取一次、按新键重写，
      * 旧文件由 500 条上限自然淘汰），在线 platform:id 键不变。
+     * 三堵：FreeJS 曲目的 platform 是内容平台（多插件共用）、id 只是插件内编号，
+     * 两家插件同平台同 id 会撞键串词——rawJson 带 _plugin 戳时把来源并入键
+     * （落雪 id 自带 lx:平台: 命名空间、py 的 id 带 siteKey，都已自含来源，不加）。
+     * 带戳曲目的旧键同样只会重取一次。
      */
     public static String key(MusicTrack track) {
         if (track == null) return null;
         if (track.id != null && !track.id.isEmpty()
                 && track.platform != null && !track.platform.isEmpty()) {
+            String plugin = MusicIdentity.pluginOf(track.rawJson);
+            if (plugin != null && !plugin.isEmpty()) return safe(track.platform) + ":" + safe(plugin) + ":" + track.id;
             return safe(track.platform) + ":" + track.id;
         }
         if (track.localPath != null && !track.localPath.isEmpty()) return "file:" + track.localPath;

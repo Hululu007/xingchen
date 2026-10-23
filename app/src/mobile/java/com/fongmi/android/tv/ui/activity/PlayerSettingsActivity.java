@@ -29,9 +29,9 @@ public class PlayerSettingsActivity extends BaseActivity {
         binding.kernelMpv.setOnClickListener(v -> { setKernel("mpv"); updateKernelUI(); });
         binding.decodeHard.setOnClickListener(v -> { setDecode("hard"); updateDecodeUI(); });
         binding.decodeSoft.setOnClickListener(v -> { setDecode("soft"); updateDecodeUI(); });
-        binding.switchAutonext.setChecked(getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("auto_next", true));
-        binding.switchAutonext.setOnCheckedChangeListener((b, c) -> { getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("auto_next", c).apply(); PlayerSetting.putAutoPlay(c); });
-        binding.switchSkip.setChecked(getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_intro", false));
+        binding.switchAutonext.setChecked(PlayerSetting.isAutoPlay());
+        binding.switchAutonext.setOnCheckedChangeListener((b, c) -> PlayerSetting.putAutoPlay(c));
+        binding.switchSkip.setChecked(getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_intro", true));
         binding.switchSkip.setOnCheckedChangeListener((b, c) -> getSharedPreferences("xingchen", MODE_PRIVATE).edit().putBoolean("skip_intro", c).apply());
         boolean skipOpening = getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_opening_show", true);
         PlayerButtonSetting.putVisible(PlayerButtonSetting.OPENING, skipOpening);
@@ -72,7 +72,7 @@ public class PlayerSettingsActivity extends BaseActivity {
         binding.tvSubtitleStatus.setText(SubtitleSetting.isEnabled() ? "已开启" : "已关闭");
     }
     private void updateSpeedUI() {
-        float s = getSharedPreferences("xingchen", MODE_PRIVATE).getFloat("player_speed", 1.0f);
+        float s = PlayerSetting.getDefaultSpeed();
         binding.speed075.setBackgroundResource(s == 0.75f ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
         binding.speed100.setBackgroundResource(s == 1.0f ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
         binding.speed125.setBackgroundResource(s == 1.25f ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
@@ -80,12 +80,10 @@ public class PlayerSettingsActivity extends BaseActivity {
         binding.speed200.setBackgroundResource(s == 2.0f ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
     }
     private void setSpeed(float s) {
-        getSharedPreferences("xingchen", MODE_PRIVATE).edit().putFloat("player_speed", s).apply();
         PlayerSetting.putDefaultSpeed(s);
     }
     private void updateKernelUI() {
-        String k = getSharedPreferences("xingchen", MODE_PRIVATE).getString("player_kernel", "exo");
-        if ("ijk".equals(k)) k = "exo";
+        String k = PlayerSetting.getPlayer() == PlayerSetting.MPV ? "mpv" : "exo";
         binding.kernelExo.setBackgroundResource("exo".equals(k) ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
         binding.kernelMpv.setBackgroundResource("mpv".equals(k) ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
     }
@@ -95,7 +93,6 @@ public class PlayerSettingsActivity extends BaseActivity {
         binding.decodeSoft.setBackgroundResource("soft".equals(d) ? com.fongmi.android.tv.R.drawable.xc_seg_selected : 0);
     }
     private void setKernel(String k) {
-        getSharedPreferences("xingchen", MODE_PRIVATE).edit().putString("player_kernel", k).apply();
         int p = "mpv".equals(k) ? PlayerSetting.MPV : PlayerSetting.EXO;
         PlayerSetting.putPlayer(p);
     }

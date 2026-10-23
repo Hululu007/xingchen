@@ -281,14 +281,6 @@ public class Setting {
         Prefers.put("reset", reset);
     }
 
-    public static int getSiteMode() {
-        return Prefers.getInt("site_mode");
-    }
-
-    public static void putSiteMode(int mode) {
-        Prefers.put("site_mode", mode);
-    }
-
     public static int getSiteColumn() {
         return Prefers.getInt("site_column", 1);
     }

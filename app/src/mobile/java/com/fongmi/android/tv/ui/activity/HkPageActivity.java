@@ -1871,12 +1871,12 @@ public class HkPageActivity extends BaseActivity {
         final StringBuilder sb = new StringBuilder();
         for (PickEntry e : picked) {
             HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
-            if (installed != null && e.parsed.rule.getVersion() <= installed.getVersion()) {
+            if (installed != null && HkRule.compareVersions(e.parsed.rule.getVersionRaw(), installed.getVersionRaw()) <= 0) {
                 downgrade.add(e);
                 if (sb.length() > 0) sb.append('\n');
                 sb.append(e.parsed.rule.getTitle())
-                        .append("（已安装 v").append(installed.getVersion())
-                        .append("，导入 v").append(e.parsed.rule.getVersion()).append("）");
+                        .append("（已安装 v").append(installed.getVersionLabel())
+                        .append("，导入 v").append(e.parsed.rule.getVersionLabel()).append("）");
             }
         }
         if (!downgrade.isEmpty()) {
@@ -1921,12 +1921,12 @@ public class HkPageActivity extends BaseActivity {
                 Map<HkRuleManager.HkZipData, List<HkRule>> assets = new HashMap<>();
                 for (PickEntry e : picked) {
                     HkRule installed = HkRuleManager.get().getInstalledRule(e.parsed.rule.getTitle());
-                    boolean isUpdate = installed != null && e.parsed.rule.getVersion() > installed.getVersion();
+                    boolean isUpdate = installed != null && HkRule.compareVersions(e.parsed.rule.getVersionRaw(), installed.getVersionRaw()) > 0;
                     isNewList.add(installed == null);
                     HkRuleManager.get().saveRule(e.parsed.rule, e.parsed.json);
                     rules.add(e.parsed.rule);
                     if (isUpdate) {
-                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersion() + "→v" + e.parsed.rule.getVersion());
+                        updatedVer.add(e.parsed.rule.getTitle() + " v" + installed.getVersionLabel() + "→v" + e.parsed.rule.getVersionLabel());
                     }
                     if (e.hkZipData != null) {
                         List<HkRule> g = assets.get(e.hkZipData);
@@ -2007,7 +2007,7 @@ public class HkPageActivity extends BaseActivity {
     // （ui/search 与 ui/home/model 等文件不在该快照内），以下按口径用现树件接：
     // 来源地址＝云口令导入时落盘的口令，或规则 raw JSON 自带的 updateUrl/update_url；
     // 拉取复用 HkRuleManager.parseByCloudCode / parseJsonList 与 HkHttp.get；
-    // 比对复用导入链同款 version 口径（getVersion() 整数比）；
+    // 比对复用导入链同款 version 口径（HkRule.compareVersions 分段比原始串，兼容 v 前缀/小数）；
     // 提示与成功后「是否打开」复用 HkDialogs（深色毛玻璃、非白底）+ Notify + showOpenAfterImportDialog。
 
     /** 规则的在线更新来源：落盘的云口令优先，其次 raw JSON 自带的 updateUrl/update_url；无来源返回 ""。 */
@@ -2065,10 +2065,10 @@ public class HkPageActivity extends BaseActivity {
                     if (isFinishing() || isDestroyed()) return;
                     if (remote == null || remote.rule == null) {
                         Notify.show("检查更新失败：没拉到规则");
-                    } else if (remote.rule.getVersion() > rule.getVersion()) {
+                    } else if (HkRule.compareVersions(remote.rule.getVersionRaw(), rule.getVersionRaw()) > 0) {
                         showRuleUpdateDialog(Collections.singletonList(remote));
                     } else {
-                        Notify.show("已是最新版（v" + rule.getVersion() + "）");
+                        Notify.show("已是最新版（v" + rule.getVersionLabel() + "）");
                     }
                 });
             } catch (Exception e) {
@@ -2093,7 +2093,7 @@ public class HkPageActivity extends BaseActivity {
                     if (TextUtils.isEmpty(source)) continue;
                     HkRuleManager.ParsedRule remote = fetchRemoteRule(r, source);
                     if (remote != null && remote.rule != null
-                            && remote.rule.getVersion() > r.getVersion()) {
+                            && HkRule.compareVersions(remote.rule.getVersionRaw(), r.getVersionRaw()) > 0) {
                         updates.add(remote);
                     }
                 } catch (Throwable ignored) {
@@ -2115,10 +2115,10 @@ public class HkPageActivity extends BaseActivity {
         StringBuilder sb = new StringBuilder();
         for (HkRuleManager.ParsedRule p : remotes) {
             HkRule installed = HkRuleManager.get().getInstalledRule(p.rule.getTitle());
-            int oldV = installed == null ? 0 : installed.getVersion();
+            String oldV = installed == null ? "0" : installed.getVersionLabel();
             if (sb.length() > 0) sb.append('\n');
             sb.append(p.rule.getTitle()).append("（v").append(oldV)
-                    .append(" → v").append(p.rule.getVersion()).append("）");
+                    .append(" → v").append(p.rule.getVersionLabel()).append("）");
         }
         new HkDialogs(this)
                 .setTitle("发现新版")

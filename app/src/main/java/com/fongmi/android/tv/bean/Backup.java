@@ -37,7 +37,7 @@ public class Backup {
     public static final String PREF_WEB_HOME_EXTENSION = "web_home_extension";
     public static final String PREF_WEB_HOME_EXTENSION_SOURCES = "web_home_extension_user_sources";
 
-    private static final Set<String> APP_PREFS = Set.of("doh", "ua", "wall", "wall_type", "reset", "site_mode", "site_block_keys", "search_column", "sync_mode", "sync_paths", "incognito", "drive_check", "drive_check_cache", "compact_episode_title", "web_home_fullscreen", "viewing_record_sync_enabled", "viewing_record_sync_local_write", "playback_remote_sync_config", "playback_webhook_config", "playback_webhook_privacy_accepted", "shell_proxy", "shell_proxy_rules", "shell_proxy_url", "shell_proxy_hosts", "update", "update_source", "update_github_proxy", "update_github_proxy_url", "update_github_proxy_mode", "update_oci_mirror", "update_oci_mirror_url", "adblock", "zhuyin", "theme_color", "wall_color", "crash", "render", "pad_live_mode", "size", "scale", "buffer", "buffer_bytes", "back_buffer", "play_cache", "preload", "preload_threads", "preload_size", "preload_time", "player_auto_change", "background", "speed", "play_speed", "caption", "tunnel", "exo_4k_compat", "playback_bluray_menu", "playback_performance_profile", "playback_performance_initialized", "perf_codec_async_queueing", "perf_dynamic_scheduling", "perf_video_duration_progress", "perf_late_drop_input", "perf_track_limit", "perf_adaptive_downgrade", "perf_load_only_selected_tracks", "perf_surface_fixed_size", "perf_decoder_fallback", "perf_soft_video_tune", "perf_high_buffer", "perf_bandwidth_meter", "perf_exo_network_protection_mode", "player_button_order", "player_button_hidden", "audio_prefer", "video_prefer", "prefer_aac", "subtitle_text_size", "subtitle_position", "player_osd_title", "player_osd_resolution", "player_osd_time", "player_osd_progress", "player_osd_traffic", "player_osd_mini", "player_osd_diagnostics", "boot_live", "across", "change", "invert", "scale_live", "live_epg_url", "live_epg_history");
+    private static final Set<String> APP_PREFS = Set.of("doh", "ua", "wall", "wall_type", "reset", "site_block_keys", "search_column", "sync_mode", "sync_paths", "incognito", "drive_check", "drive_check_cache", "compact_episode_title", "web_home_fullscreen", "viewing_record_sync_enabled", "viewing_record_sync_local_write", "playback_remote_sync_config", "playback_webhook_config", "playback_webhook_privacy_accepted", "shell_proxy", "shell_proxy_rules", "shell_proxy_url", "shell_proxy_hosts", "update", "update_source", "update_github_proxy", "update_github_proxy_url", "update_github_proxy_mode", "update_oci_mirror", "update_oci_mirror_url", "adblock", "zhuyin", "theme_color", "wall_color", "crash", "render", "pad_live_mode", "size", "scale", "buffer", "buffer_bytes", "back_buffer", "play_cache", "preload", "preload_threads", "preload_size", "preload_time", "player_auto_change", "background", "music_background", "speed", "play_speed", "caption", "tunnel", "exo_4k_compat", "playback_bluray_menu", "playback_performance_profile", "playback_performance_initialized", "perf_codec_async_queueing", "perf_dynamic_scheduling", "perf_video_duration_progress", "perf_late_drop_input", "perf_track_limit", "perf_adaptive_downgrade", "perf_load_only_selected_tracks", "perf_surface_fixed_size", "perf_decoder_fallback", "perf_soft_video_tune", "perf_high_buffer", "perf_bandwidth_meter", "perf_exo_network_protection_mode", "player_button_order", "player_button_hidden", "audio_prefer", "video_prefer", "prefer_aac", "subtitle_text_size", "subtitle_position", "player_osd_title", "player_osd_resolution", "player_osd_time", "player_osd_progress", "player_osd_traffic", "player_osd_mini", "player_osd_diagnostics", "boot_live", "across", "change", "invert", "scale_live", "live_epg_url", "live_epg_history", "player_auto_play", "language", "ui_scale", "player", "perf_dv7_handling", "episode_column", "mpv_render", "immersive_audio_mode", "github_proxy", "github_proxy_enabled", "site_health_sort", "site_health_dialog_sort", "site_column", "adblock_keywords", "player_brightness", "live_list_style");
 
     @SerializedName("site")
     private List<Site> site;
@@ -262,7 +262,13 @@ public class Backup {
                     // 源歌单不在本次备份或未插入成功：挂到同号本地歌单就是串歌单，跳过
                     if (localPlaylistId == null) continue;
                     item.setPlaylistId(localPlaylistId);
-                    MusicPlaylistItem current = AppDatabase.get().getMusicPlaylistItemDao().find(localPlaylistId, item.getTrackId());
+                    // 复合身份找行：唯一键已扩成 (playlistId, trackId, platform)，裸 (playlistId, trackId)
+                    // 找行会把同 id 异来源的那行当成本行原地覆盖；复合找不到再裸找、platform 对不上不认
+                    MusicPlaylistItem current = AppDatabase.get().getMusicPlaylistItemDao().find(localPlaylistId, item.getTrackId(), item.getPlatform());
+                    if (current == null) {
+                        MusicPlaylistItem any = AppDatabase.get().getMusicPlaylistItemDao().find(localPlaylistId, item.getTrackId());
+                        if (any != null && (any.getPlatform() == null ? "" : any.getPlatform()).equals(item.getPlatform() == null ? "" : item.getPlatform())) current = any;
+                    }
                     if (current == null) {
                         item.setId(0);
                         AppDatabase.get().getMusicPlaylistItemDao().insert(item);
@@ -280,7 +286,12 @@ public class Backup {
         if (musicFavorite != null) {
             for (MusicFavorite item : getMusicFavorite()) {
                 try {
-                    MusicFavorite current = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId());
+                    // 复合身份找行（同歌单条目口径）：裸 trackId 找行会覆盖同 id 异来源的收藏
+                    MusicFavorite current = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId(), item.getPlatform());
+                    if (current == null) {
+                        MusicFavorite any = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId());
+                        if (any != null && (any.getPlatform() == null ? "" : any.getPlatform()).equals(item.getPlatform() == null ? "" : item.getPlatform())) current = any;
+                    }
                     if (current == null) {
                         item.setId(0);
                         AppDatabase.get().getMusicFavoriteDao().insert(item);
@@ -347,7 +358,10 @@ public class Backup {
     }
 
     private static boolean isAppPref(String key) {
-        return APP_PREFS.contains(key) || key.startsWith("danmaku_") || key.startsWith("playback_performance_") || key.startsWith("perf_exo_") || key.startsWith("perf_mpv_") || key.startsWith("perf_kernel_");
+        // 前缀族补收（逻辑审查实证：这些键此前一概落进「蜘蛛」兜底，只勾设置不同步时全丢）：
+        // music_ 音乐设置与插件状态、subtitle_ 字幕细项、csp_warmup 预热、audio_background
+        // 后台音频、desktop_lyrics 桌面歌词、karaoke_ 卡拉OK、lyrics_ 歌词细项
+        return APP_PREFS.contains(key) || key.startsWith("danmaku_") || key.startsWith("playback_performance_") || key.startsWith("perf_exo_") || key.startsWith("perf_mpv_") || key.startsWith("perf_kernel_") || key.startsWith("music_") || key.startsWith("subtitle_") || key.startsWith("csp_warmup") || key.startsWith("audio_background") || key.startsWith("desktop_lyrics") || key.startsWith("karaoke_") || key.startsWith("lyrics_");
     }
 
     private static void restorePrefers(Map<String, ?> values, boolean clear, boolean preserveMissingWebHomePrefs) {

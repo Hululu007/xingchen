@@ -14,6 +14,7 @@ import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.runtime.ThunderRuntime;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
+import com.xunlei.downloadlib.ThunderFetchPolicy;
 
 import java.io.File;
 import java.util.Arrays;
@@ -104,8 +105,10 @@ public class Thunder implements Source.Extractor {
         synchronized (this) {
             // 入口复用（照基线）：只复用已有字节的活任务；0 字节不复用，落到
             // fetchInternal 清洗重建。有字节口径与交地址门禁对齐：父计数 >0
-            // 或落盘文件长度 >0 任一成立即算有字节。
-            if (sameContent(url, lastKey) && lastLocal != null && isTaskAlive() && !zeroMark(url).exists() && hasDownloadedBytes()) {
+            // 或落盘文件长度 >0 任一成立即算有字节。判定本体在策略类
+            // ThunderFetchPolicy.shouldReuseAtEntry（与原条件逐字等价）；入参
+            // 按原条件操作数顺序取齐，均为只读查询（网关状态/标记/计数）。
+            if (ThunderFetchPolicy.shouldReuseAtEntry(sameContent(url, lastKey), lastLocal != null, taskId != null, nativeStatus(), zeroMark(url).exists(), hasDownloadedBytes())) {
                 SpiderDebug.log("thunder", "reuse live task, skip duplicate fetch");
                 return lastLocal;
             }
@@ -116,7 +119,7 @@ public class Thunder implements Source.Extractor {
         String inflightKey = contentKey(url);
         CompletableFuture<String> mine = new CompletableFuture<>();
         CompletableFuture<String> first = inflight.putIfAbsent(inflightKey, mine);
-        if (first != null) {
+        if (ThunderFetchPolicy.shouldJoinInflight(first != null)) {
             SpiderDebug.log("thunder", "join in-flight fetch, wait for first result");
             try {
                 return first.get(70, TimeUnit.SECONDS);
@@ -161,26 +164,30 @@ public class Thunder implements Source.Extractor {
         // 已删任务的地址永远 0 字节（基线 1.3.8 日志实证）。
         int ns = nativeStatus();
         // 状态单次读数偶发误报 3（出错）：任务已下出字节且没被零字节监控记账
-        // 时，以字节为准（字节口径与复用条件一致）。
-        if (ns == 3 && hasDownloadedBytes() && !zeroMark(url).exists()) ns = 1;
-        if (sameContent(url, lastKey) && lastLocal != null && taskId != null && (ns == 0 || ns == 1 || ns == 2)) {
-            if (hasDownloadedBytes()) {
-                SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
-                lastKey = url;
-                return lastLocal;
-            }
+        // 时，以字节为准（字节口径与复用条件一致）。判定本体在策略类
+        // ThunderFetchPolicy.correctErrorStatus（与原条件逐字等价）。
+        ns = ThunderFetchPolicy.correctErrorStatus(ns, hasDownloadedBytes(), zeroMark(url).exists());
+        // 同链接复用裁决在策略类 ThunderFetchPolicy.internalAction（与原块逐字等价）。
+        ThunderFetchPolicy.InternalAction internalAction = ThunderFetchPolicy.internalAction(sameContent(url, lastKey), lastLocal != null, taskId != null, ns, hasDownloadedBytes());
+        if (internalAction == ThunderFetchPolicy.InternalAction.REUSE) {
+            SpiderDebug.log("thunder", "reuse same-url task, no rebuild status=%d", ns);
+            lastKey = url;
+            return lastLocal;
+        }
+        if (internalAction == ThunderFetchPolicy.InternalAction.CLEANUP_REBUILD) {
             // 同链接任务 0 字节：不复用死地址，先停删再由下面流程重建，
             // 重建后仍 0 字节由交址门禁裁决。
             SpiderDebug.log("thunder", "reuse blocked: same-url task zero bytes status=%d, cleanup and rebuild", ns);
             cleanupStaleTask();
         }
         // 串行重试卫生（照基线）：仅当原生状态明确为 3（出错）才停删旧任务。
-        if (taskId != null && ns == 3) cleanupStaleTask();
+        // 判定本体在策略类 ThunderFetchPolicy.shouldCleanupOnError。
+        if (ThunderFetchPolicy.shouldCleanupOnError(taskId != null, ns)) cleanupStaleTask();
         // 换链接（照基线）：旧任务先停删再建新的，避免多任务并存抢带宽与目录。
         // 换不换只认内容身份（磁力认 btih 指纹）：同磁力不同字符串写法不算换
         // 链接，否则正在下载的任务会被第二路 fetch 当「旧链接」停删
         // （基线 1.3.12 真机实证）。
-        if (taskId != null && !sameContent(url, lastKey)) cleanupStaleTask();
+        if (ThunderFetchPolicy.shouldCleanupOnLinkChange(taskId != null, sameContent(url, lastKey))) cleanupStaleTask();
         String local = dispatch(url);
         if (local != null && local.contains("127.0.0.1")) {
             lastKey = url;
@@ -204,14 +211,10 @@ public class Thunder implements Source.Extractor {
         }
     }
 
-    // 复用判断的活任务：只认原生状态 0/1/2；-1（读不到）不算活——读不到就
-    // 重建，不许把死任务的地址递给播放器。这里只管复用，不管删任务
-    // （删任务走 cleanupStaleTask），不存在误杀在用任务。
-    private boolean isTaskAlive() {
-        if (taskId == null) return false;
-        int status = nativeStatus();
-        return status == 0 || status == 1 || status == 2;
-    }
+    // 复用判断的活任务口径已随判定搬入策略类 ThunderFetchPolicy.isAliveStatus：
+    // 只认原生状态 0/1/2；-1（读不到）不算活——读不到就重建，不许把死任务
+    // 的地址递给播放器。该口径只管复用，不管删任务（删任务走
+    // cleanupStaleTask），不存在误杀在用任务。
 
     // 清理死任务（照基线）：stop + delete，不释放引擎（重建任务走热引擎）。
     private void cleanupStaleTask() {
@@ -251,7 +254,7 @@ public class Thunder implements Source.Extractor {
      * 双口径并联，本批原样保留，不谎称父计数已闭环。
      */
     private boolean hasDownloadedBytes() {
-        return downloadedSize() > 0 || onDiskSize() > 0;
+        return ThunderFetchPolicy.hasBytes(downloadedSize(), onDiskSize());
     }
 
     // 分流：裸磁力先经 Parser 展开（fork 保留路，上游 fetch 只认已解析选集地址）；
@@ -344,33 +347,34 @@ public class Thunder implements Source.Extractor {
                 lastStatus = info.taskStatus();
                 lastSpeed = info.downloadSpeed();
                 lastSize = info.downloadSize();
-                if (info.taskStatus() == 3) {
-                    String err = info.errorMessage();
-                    if (err == null || err.isEmpty()) err = "迅雷任务出错，请重试";
-                    throw new ExtractException(err);
+            }
+            // 单轮裁决在策略类 ThunderFetchPolicy.directRound（与原轮内判定逐字
+            // 等价）：信息缺席（info == null，lastStatus/lastSize 是旧值）裁决先
+            // 看 infoPresent、不会用到旧值；交址动作本体（取本地地址/记账）留此。
+            ThunderFetchPolicy.DirectRound directRound = ThunderFetchPolicy.directRound(info != null, lastStatus, ThunderFetchPolicy.hasBytes(lastSize, saveFile == null ? 0 : saveFile.length()));
+            if (directRound == ThunderFetchPolicy.DirectRound.FAIL_ERROR) {
+                String err = info.errorMessage();
+                if (err == null || err.isEmpty()) err = "迅雷任务出错，请重试";
+                throw new ExtractException(err);
+            }
+            if (directRound == ThunderFetchPolicy.DirectRound.HAND_OFF) {
+                String local = null;
+                boolean localReadFailed = false;
+                try {
+                    local = runtime().getLocalUrl(saveFile);
+                } catch (Exception ignored) {
+                    localReadFailed = true;
                 }
-                if (info.taskStatus() != 0) {
-                    long onDisk = saveFile == null ? 0 : saveFile.length();
-                    if (info.downloadSize() > 0 || onDisk > 0) {
-                        String local = null;
-                        boolean localReadFailed = false;
-                        try {
-                            local = runtime().getLocalUrl(saveFile);
-                        } catch (Exception ignored) {
-                            localReadFailed = true;
-                        }
-                        if (!localReadFailed) {
-                            SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info.taskStatus(), info.downloadSpeed(), info.downloadSize());
-                            if (local == null || local.isEmpty()) {
-                                throw new ExtractException("迅雷本地地址为空，请重试");
-                            }
-                            lastDownloadFile = saveFile;
-                            startProgressLog(task, url, -1);
-                            return local;
-                        }
+                if (!localReadFailed) {
+                    SpiderDebug.log("thunder", "task handed local=%s status=%d speed=%d size=%d", local, info.taskStatus(), info.downloadSpeed(), info.downloadSize());
+                    if (local == null || local.isEmpty()) {
+                        throw new ExtractException("迅雷本地地址为空，请重试");
                     }
-                    // 0 字节：不交地址，继续循环等首字节。
+                    lastDownloadFile = saveFile;
+                    startProgressLog(task, url, -1);
+                    return local;
                 }
+                // 取地址失败或 0 字节：不交地址，继续循环等首字节。
             }
             if (i % 50 == 49) SpiderDebug.log("thunder", "thunder waiting status=%d speed=%d size=%d", lastStatus, lastSpeed, lastSize);
             SystemClock.sleep(100);
@@ -436,10 +440,6 @@ public class Thunder implements Source.Extractor {
                     parentInfo = gateway.taskStatus(task);
                 } catch (Exception ignored) {
                 }
-                if (parentInfo != null && parentInfo.taskStatus() == 3) {
-                    String err = parentInfo.errorMessage();
-                    throw new ExtractException(err == null || err.isEmpty() ? "迅雷任务出错，请重试" : err);
-                }
                 ThunderGateway.StatusEx info = null;
                 boolean btReadFailed = false;
                 try {
@@ -447,34 +447,41 @@ public class Thunder implements Source.Extractor {
                 } catch (Exception ignored) {
                     btReadFailed = true;
                 }
-                if (!btReadFailed) {
-                    if (info == null) throw new ExtractException("迅雷子任务信息为空，请重试");
+                if (!btReadFailed && info != null) {
                     lastStatus = info.taskStatus();
                     lastSpeed = info.downloadSpeed();
                     lastSize = info.downloadSize();
-                    if (info.taskStatus() == 3) {
-                        String err = info.errorMessage();
-                        throw new ExtractException(err == null || err.isEmpty() ? "迅雷任务出错，请重试" : err);
+                }
+                // 单轮裁决在策略类 ThunderFetchPolicy.btRound（与原轮内判定顺序
+                // 逐字等价）：父状态读不到传 -1；交址动作本体留此。
+                ThunderFetchPolicy.BtRound btRound = ThunderFetchPolicy.btRound(parentInfo == null ? -1 : parentInfo.taskStatus(), btReadFailed, info != null, info == null ? 0 : info.taskStatus());
+                if (btRound == ThunderFetchPolicy.BtRound.FAIL_PARENT) {
+                    String err = parentInfo.errorMessage();
+                    throw new ExtractException(err == null || err.isEmpty() ? "迅雷任务出错，请重试" : err);
+                }
+                if (btRound == ThunderFetchPolicy.BtRound.FAIL_SUB_EMPTY) throw new ExtractException("迅雷子任务信息为空，请重试");
+                if (btRound == ThunderFetchPolicy.BtRound.FAIL_SUB) {
+                    String err = info.errorMessage();
+                    throw new ExtractException(err == null || err.isEmpty() ? "迅雷任务出错，请重试" : err);
+                }
+                if (btRound == ThunderFetchPolicy.BtRound.HAND_OFF) {
+                    String local = null;
+                    boolean localReadFailed = false;
+                    try {
+                        local = runtime().getLocalUrl(selection.media());
+                    } catch (Exception ignored) {
+                        localReadFailed = true;
                     }
-                    if (info.taskStatus() != 0) {
-                        String local = null;
-                        boolean localReadFailed = false;
-                        try {
-                            local = runtime().getLocalUrl(selection.media());
-                        } catch (Exception ignored) {
-                            localReadFailed = true;
-                        }
-                        if (!localReadFailed) {
-                            if (local == null || local.isEmpty()) throw new ExtractException("迅雷本地地址为空，请重试");
-                            // 定位日志（只记日志）：状态非 0 交地址即记，含当时速度／已下字节，
-                            // 真机查磁力靠“有 created 无 handed”定绞杀／字节门禁。
-                            SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.taskStatus(), info.downloadSpeed(), info.downloadSize());
-                            // 落盘文件配对记录（供 fetch 复用的落盘字节口径）＋交址后
-                            // 进度监控/零字节记账（照基线 addTorrentTask 的交址点）。
-                            lastDownloadFile = selection.media();
-                            startProgressLog(task, markUrl, selection.index());
-                            return local;
-                        }
+                    if (!localReadFailed) {
+                        if (local == null || local.isEmpty()) throw new ExtractException("迅雷本地地址为空，请重试");
+                        // 定位日志（只记日志）：状态非 0 交地址即记，含当时速度／已下字节，
+                        // 真机查磁力靠“有 created 无 handed”定绞杀／字节门禁。
+                        SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.taskStatus(), info.downloadSpeed(), info.downloadSize());
+                        // 落盘文件配对记录（供 fetch 复用的落盘字节口径）＋交址后
+                        // 进度监控/零字节记账（照基线 addTorrentTask 的交址点）。
+                        lastDownloadFile = selection.media();
+                        startProgressLog(task, markUrl, selection.index());
+                        return local;
                     }
                 }
             }
@@ -705,7 +712,8 @@ public class Thunder implements Source.Extractor {
     @Override
     public synchronized void stop() {
         int ns = nativeStatus();
-        if (taskId != null && lastLocal != null && (ns == 0 || ns == 1 || ns == 2)) {
+        // 活任务保护判定在策略类 ThunderFetchPolicy.shouldProtectOnStop（与原条件逐字等价）。
+        if (ThunderFetchPolicy.shouldProtectOnStop(taskId != null, lastLocal != null, ns)) {
             SpiderDebug.log("thunder", "stop skipped: task alive status=%d", ns);
             return;
         }

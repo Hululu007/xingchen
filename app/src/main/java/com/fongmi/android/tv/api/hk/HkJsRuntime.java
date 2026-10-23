@@ -43,10 +43,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -756,30 +758,47 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
      * 用 JDK 的 LinkedHashMap/ArrayList 等价替代（getString 只判断 instanceof String，行为一致）。
      */
     private static Object argsNativeObjectAdjust(Object o, boolean skipParam) {
+        return argsNativeObjectAdjust(o, skipParam, 0, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    private static final int ARGS_ADJUST_MAX_DEPTH = 32;
+
+    private static Object argsNativeObjectAdjust(Object o, boolean skipParam, int depth, Set<Object> visiting) {
         if (isUndefined(o)) return o;
+        if (depth > ARGS_ADJUST_MAX_DEPTH) return o;
         if (o instanceof NativeObject) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            NativeObject no = (NativeObject) o;
-            for (Object key : no.keySet()) {
-                Object val = no.get(key);
-                if (!skipParam || !"param".equals(key)) {
-                    val = argsNativeObjectAdjust(val, skipParam);
+            if (!visiting.add(o)) return o;
+            try {
+                Map<String, Object> map = new LinkedHashMap<>();
+                NativeObject no = (NativeObject) o;
+                for (Object key : no.keySet()) {
+                    Object val = no.get(key);
+                    if (!skipParam || !"param".equals(key)) {
+                        val = argsNativeObjectAdjust(val, skipParam, depth + 1, visiting);
+                    }
+                    try {
+                        map.put(key + "", val);
+                    } catch (Throwable e) {
+                        Logger.t(TAG).e(e, "argsNativeObjectAdjust put failed");
+                    }
                 }
-                try {
-                    map.put(key + "", val);
-                } catch (Throwable e) {
-                    Logger.t(TAG).e(e, "argsNativeObjectAdjust put failed");
-                }
+                return map;
+            } finally {
+                visiting.remove(o);
             }
-            return map;
         }
         if (o instanceof NativeArray) {
-            List<Object> list = new ArrayList<>();
-            NativeArray na = (NativeArray) o;
-            for (int i = 0; i < na.size(); i++) {
-                list.add(argsNativeObjectAdjust(na.get(i), skipParam));
+            if (!visiting.add(o)) return o;
+            try {
+                List<Object> list = new ArrayList<>();
+                NativeArray na = (NativeArray) o;
+                for (int i = 0; i < na.size(); i++) {
+                    list.add(argsNativeObjectAdjust(na.get(i), skipParam, depth + 1, visiting));
+                }
+                return list;
+            } finally {
+                visiting.remove(o);
             }
-            return list;
         }
         if (o instanceof ConsString) return o.toString();
         if (o instanceof NativeJavaObject) o = ((NativeJavaObject) o).unwrap();

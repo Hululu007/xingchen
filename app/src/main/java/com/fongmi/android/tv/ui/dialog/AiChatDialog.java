@@ -22,6 +22,7 @@ import androidx.fragment.app.FragmentManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.ai.AiActionExecutor;
+import com.fongmi.android.tv.ai.AiVolumeDuck;
 import com.fongmi.android.tv.ai.AiClient;
 import com.fongmi.android.tv.ai.AiProvider;
 import com.fongmi.android.tv.ai.AiQaHelper;
@@ -72,6 +73,8 @@ public class AiChatDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
+        // AI 对话定案：对话期间压低视频声音，弹窗关闭（onDestroyView）恢复
+        AiVolumeDuck.duck(requireContext());
         provider = AiStore.getDefault(requireContext());
         if (provider != null) {
             binding.tvModel.setText(provider.name + " · " + provider.displayModel());
@@ -364,6 +367,7 @@ public class AiChatDialog extends BaseBottomSheetDialog {
         } catch (Exception ignored) {
         }
         recognizer = null;
+        AiVolumeDuck.restore(getContext());
         super.onDestroyView();
     }
 }

@@ -68,10 +68,16 @@ public class FileUtil {
 
     public static void zipDecompress(File target, File path) {
         try (ZipFile zip = new ZipFile(target)) {
+            // 路径穿越校验（与 AppBackup.restore 的 safe/inside 同口径）：条目名带 ../
+            // 能逃出目标目录——本函数被本地服务 /upload 的 zip 解压直调，局域网递来的
+            // 压缩包不可信，越界条目一律跳过不写
+            String base = path.getCanonicalPath();
             Enumeration<?> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = (ZipEntry) entries.nextElement();
                 File out = new File(path, entry.getName());
+                String outPath = out.getCanonicalPath();
+                if (!outPath.equals(base) && !outPath.startsWith(base + File.separator)) continue;
                 if (entry.isDirectory()) out.mkdirs();
                 else Path.copy(zip.getInputStream(entry), out);
             }

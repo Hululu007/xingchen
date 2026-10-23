@@ -61,18 +61,18 @@ public class UiSettingsActivity extends BaseActivity {
     }
 
     private void initCoverSizeSection() {
-        binding.segCoverSmall.setOnClickListener(v -> setCoverSize(1, this::updateCoverSizeUI));
-        binding.segCoverMedium.setOnClickListener(v -> setCoverSize(2, this::updateCoverSizeUI));
-        binding.segCoverLarge.setOnClickListener(v -> setCoverSize(3, this::updateCoverSizeUI));
+        binding.segCoverSmall.setOnClickListener(v -> setCoverSize(0, this::updateCoverSizeUI));
+        binding.segCoverMedium.setOnClickListener(v -> setCoverSize(1, this::updateCoverSizeUI));
+        binding.segCoverLarge.setOnClickListener(v -> setCoverSize(2, this::updateCoverSizeUI));
         updateCoverSizeUI();
     }
 
     private void updateCoverSizeUI() {
         int size = com.fongmi.android.tv.setting.PlayerSetting.getSize();
-        setSegSelected(binding.segCoverSmall, size == 1);
-        setSegSelected(binding.segCoverMedium, size == 2);
-        setSegSelected(binding.segCoverLarge, size == 3);
-        String name = size == 1 ? "小" : (size == 3 ? "大" : "中");
+        setSegSelected(binding.segCoverSmall, size == 0);
+        setSegSelected(binding.segCoverMedium, size == 1);
+        setSegSelected(binding.segCoverLarge, size == 2);
+        String name = size == 0 ? "小" : (size == 3 ? "特大" : (size == 2 ? "大" : "中"));
         int column = com.fongmi.android.tv.Product.getColumn(this);
         binding.tvCoverDesc.setText(name + "封面：一行显示 " + column + " 个海报");
     }

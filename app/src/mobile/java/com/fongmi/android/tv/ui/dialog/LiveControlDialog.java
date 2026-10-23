@@ -145,7 +145,19 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     private void onTrack(View view) {
-        listener().onLiveTrackPanel(Integer.parseInt(view.getTag().toString()));
+        Integer type = parseTagInt(view);
+        if (type == null) return;
+        listener().onLiveTrackPanel(type);
+    }
+
+    private Integer parseTagInt(View view) {
+        Object tag = view.getTag();
+        if (tag == null) return null;
+        try {
+            return Integer.parseInt(tag.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private void setTrackVisible() {
@@ -187,8 +199,10 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     private void setScale(View view) {
+        Integer tag = parseTagInt(view);
+        if (tag == null) return;
         for (TextView textView : scales) textView.setSelected(false);
-        listener().onLiveScalePanel(Integer.parseInt(view.getTag().toString()));
+        listener().onLiveScalePanel(tag);
         view.setSelected(true);
     }
 

@@ -291,6 +291,7 @@ public class AiFloatManager {
                     if (!voiceRecording) return;
                     voiceRecording = false;
                     hideRecordingUI();
+                    AiVolumeDuck.restore(ctx);
                     if (error == SpeechRecognizer.ERROR_NO_MATCH
                             || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         toast(ctx, "没听清，请重试");
@@ -302,6 +303,7 @@ public class AiFloatManager {
                     if (!voiceRecording) return;
                     voiceRecording = false;
                     hideRecordingUI();
+                    AiVolumeDuck.restore(ctx);
                     ArrayList<String> list = results.getStringArrayList(
                             SpeechRecognizer.RESULTS_RECOGNITION);
                     String text = (list != null && !list.isEmpty()) ? list.get(0).trim() : "";
@@ -316,6 +318,8 @@ public class AiFloatManager {
             });
             voiceRecognizer.startListening(intent);
             voiceRecording = true;
+            // AI 对话定案：录音（对话）期间压低视频声音，识别结束/出错/超时恢复
+            AiVolumeDuck.duck(ctx);
             showRecordingUI(activity);
         } catch (Exception e) {
             voiceRecording = false;
@@ -336,6 +340,7 @@ public class AiFloatManager {
             if (voiceRecording) {
                 voiceRecording = false;
                 hideRecordingUI();
+                AiVolumeDuck.restore(activityRef.get());
                 try {
                     if (voiceRecognizer != null) voiceRecognizer.cancel();
                 } catch (Exception ignored) {
@@ -352,6 +357,7 @@ public class AiFloatManager {
         if (!voiceRecording) return;
         voiceRecording = false;
         hideRecordingUI();
+        AiVolumeDuck.restore(activityRef.get());
         try {
             if (voiceRecognizer != null) voiceRecognizer.cancel();
         } catch (Exception ignored) {

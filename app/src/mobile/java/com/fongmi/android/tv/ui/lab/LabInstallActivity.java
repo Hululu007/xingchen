@@ -217,8 +217,12 @@ public class LabInstallActivity extends AppCompatActivity {
         installBtn.setText("安装中…");
         String defaultEnv = getIntent().getStringExtra(EXTRA_DEFAULT_ENV);
         LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(this, "正在安装服务");
+        final LabPackageInstaller.InstallHandle[] handle = new LabPackageInstaller.InstallHandle[1];
+        dlg.setOnCancel(() -> {
+            if (handle[0] != null) handle[0].cancel();
+        });
         Runnable[] retry = new Runnable[1];
-        retry[0] = () -> LabPackageInstaller.installFromUri(this, uri, defaultEnv,
+        retry[0] = () -> handle[0] = LabPackageInstaller.installFromUri(this, uri, defaultEnv,
                 new LabPackageInstaller.Listener() {
                     @Override
                     public void onProgress(String text) {
@@ -243,6 +247,16 @@ public class LabInstallActivity extends AppCompatActivity {
                             installBtn.setEnabled(true);
                             installBtn.setText("安装");
                             dlg.error(reason, retry[0]);
+                        });
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        runOnUiThread(() -> {
+                            dlg.cancelled();
+                            installBtn.setEnabled(true);
+                            installBtn.setText("安装");
+                            Notify.show("已取消安装");
                         });
                     }
                 });

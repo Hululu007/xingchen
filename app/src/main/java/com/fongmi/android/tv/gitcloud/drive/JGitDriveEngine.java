@@ -133,6 +133,19 @@ public class JGitDriveEngine implements GitDriveEngine {
             }
             Status status = git.status().call();
             if (status.isClean()) {
+                // 工作区干净不等于已同步：上次 commit 成功、push 失败时本地提交留盘，
+                // 此后同内容再调会被这里判「无变化」直接返回，那批提交永远补推不出去。
+                // 先查本地分支相对远端跟踪分支是否 ahead，有未推送提交先补推再报无变化。
+                if (hasUnpushedCommits(git)) {
+                    git.push().setProgressMonitor(monitor).setCredentialsProvider(credentials(config)).call();
+                    if (monitor.isCancelled()) throw new GitCloudException("上传已取消");
+                    CommitResult result = new CommitResult();
+                    ObjectId head = git.getRepository().resolve("HEAD");
+                    result.commitSha = head == null ? "" : head.name();
+                    result.pushed = true;
+                    result.message = "已补推此前未推送的提交";
+                    return result;
+                }
                 CommitResult result = new CommitResult();
                 result.message = "没有文件变化";
                 return result;
@@ -171,6 +184,20 @@ public class JGitDriveEngine implements GitDriveEngine {
         // 引擎的操作不带 taskId 入参，在途操作就登记在 active 里：
         // 取消直接触发全部在途监视器（JGit 传输轮询到即中止，本地段在检查点停）。
         for (CancelMonitor monitor : active) monitor.trip();
+    }
+
+    /** 本地分支是否有未推送到远端的提交（跟踪分支口径；跟踪信息缺失时退到与 origin/<分支> 的引用直比，引用也没有＝远端从未同步过，有 HEAD 即未推送） */
+    private boolean hasUnpushedCommits(Git git) throws Exception {
+        org.eclipse.jgit.lib.Repository repo = git.getRepository();
+        ObjectId head = repo.resolve("HEAD");
+        if (head == null) return false;
+        // 分支取仓库当前检出分支（push 推的正是它），不依赖 config 里的 repo 描述
+        String branch = repo.getBranch();
+        if (branch == null) return false;
+        org.eclipse.jgit.lib.BranchTrackingStatus tracking = org.eclipse.jgit.lib.BranchTrackingStatus.of(repo, branch);
+        if (tracking != null) return tracking.getAheadCount() > 0;
+        ObjectId remoteHead = repo.resolve("refs/remotes/origin/" + branch);
+        return remoteHead == null || !remoteHead.equals(head);
     }
 
     private Git openOrBind(GitDriveConfig config) throws Exception {

@@ -385,6 +385,7 @@ public class LabEnvActivity extends AppCompatActivity {
     private void installOnline() {
         LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(
                 this, "正在安装「" + LabRegistry.envLabel(env) + "」");
+        dlg.setOnCancel(() -> LabRuntimeManager.cancelInstall(env));
         Runnable[] retry = new Runnable[1];
         retry[0] = () -> LabRuntimeManager.installOnline(this, env, installListener(dlg, retry[0]));
         retry[0].run();
@@ -394,6 +395,7 @@ public class LabEnvActivity extends AppCompatActivity {
     private void importLocalZip(Uri uri) {
         LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(
                 this, "正在安装「" + LabRegistry.envLabel(env) + "」");
+        dlg.setOnCancel(() -> LabRuntimeManager.cancelInstall(env));
         Runnable[] retry = new Runnable[1];
         retry[0] = () -> LabRuntimeManager.importFromUri(this, env, uri, installListener(dlg, retry[0]));
         retry[0].run();
@@ -427,6 +429,15 @@ public class LabEnvActivity extends AppCompatActivity {
             @Override
             public void onFail(String reason) {
                 runOnUiThread(() -> dlg.error(reason, retry));
+            }
+
+            @Override
+            public void onCancelled() {
+                runOnUiThread(() -> {
+                    dlg.cancelled();
+                    Notify.show("已取消安装");
+                    reload();
+                });
             }
         };
     }

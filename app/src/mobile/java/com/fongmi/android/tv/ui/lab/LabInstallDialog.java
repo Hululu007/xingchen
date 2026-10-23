@@ -254,6 +254,9 @@ public final class LabInstallDialog {
         private View fill;
         private TextView pct;
         private TextView status;
+        private TextView cancelBtn;
+        private Runnable onCancel;
+        private boolean cancelling;
         private boolean dead;
 
         private Installing(Activity a, Dialog d, LinearLayout p) {
@@ -262,9 +265,33 @@ public final class LabInstallDialog {
             this.p = p;
         }
 
+        /**
+         * 挂取消钮：不挂就不露钮（没有取消去处的弹窗不许摆死钮）。
+         * 点钮后冻结进度刷新、状态行转「正在取消…」，真正关弹窗等取消收口回调用 cancelled()。
+         */
+        public void setOnCancel(Runnable r) {
+            onCancel = r;
+            a.runOnUiThread(() -> {
+                if (cancelBtn != null) {
+                    cancelBtn.setVisibility(r == null ? View.GONE : View.VISIBLE);
+                }
+            });
+        }
+
+        /** 取消已收口：直接关弹窗（与 ok() 同形），后续提示由调用方 Notify */
+        public void cancelled() {
+            dead = true;
+            a.runOnUiThread(() -> {
+                try {
+                    d.dismiss();
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
         /** 进度：pctLine 如「第 5 片 / 共 7 片 · 63%」，statusLine 如「正在下载第 5 片…」 */
         public void progress(String pctLine, String statusLine) {
-            if (dead) return;
+            if (dead || cancelling) return;
             a.runOnUiThread(() -> {
                 if (pct != null && pctLine != null) pct.setText(pctLine);
                 if (status != null && statusLine != null) status.setText(statusLine);
@@ -309,6 +336,9 @@ public final class LabInstallDialog {
         public void error(String reason, Runnable retry) {
             if (dead) return;
             a.runOnUiThread(() -> {
+                // 失败已是终态：恢复可关（返回键/点外），不再锁着弹窗
+                d.setCancelable(true);
+                d.setCanceledOnTouchOutside(true);
                 p.removeAllViews();
                 TextView err = new TextView(a);
                 err.setText(reason == null || reason.isEmpty() ? "没装上" : reason);
@@ -328,6 +358,9 @@ public final class LabInstallDialog {
                 again.setLayoutParams(new LinearLayout.LayoutParams(
                         0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
                 again.setOnClickListener(v -> {
+                    // 重跑即回到安装中：重新锁住，关窗只能走「取消安装」钮
+                    d.setCancelable(false);
+                    d.setCanceledOnTouchOutside(false);
                     buildProgress(a, p, this);
                     if (retry != null) retry.run();
                 });
@@ -385,11 +418,32 @@ public final class LabInstallDialog {
         status.setLayoutParams(slp);
         p.addView(status);
         h.status = status;
+
+        // 取消钮：照「算了」的中性钮样式；没挂取消处理就不露面
+        TextView cancel = neutralBtn(a, "取消安装");
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(a, 20);
+        cancel.setLayoutParams(clp);
+        cancel.setVisibility(h.onCancel == null ? View.GONE : View.VISIBLE);
+        cancel.setOnClickListener(v -> {
+            if (h.cancelling || h.dead) return;
+            h.cancelling = true;
+            cancel.setEnabled(false);
+            if (h.status != null) h.status.setText("正在取消…");
+            if (h.onCancel != null) h.onCancel.run();
+        });
+        p.addView(cancel);
+        h.cancelBtn = cancel;
     }
 
     /** 安装中弹窗：title 如「正在安装 Node 环境」。进度百分比由调用方在回调里算好传进来。 */
     public static Installing showInstalling(Activity a, String title) {
         Dialog d = base(a);
+        // 安装进行中不可取消：返回键/点外都关不掉，要停只能点「取消安装」走取消链，
+        // 免得弹窗关了任务还在后台跑、关后无取消入口、失败终态也没处显示；
+        // 失败终态在 error() 里恢复可关，成功/取消终态直接关窗
+        d.setCancelable(false);
         d.setCanceledOnTouchOutside(false);
         LinearLayout p = panel(a);
         p.setTag(title);

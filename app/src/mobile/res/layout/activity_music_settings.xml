@@ -187,6 +187,28 @@
                             android:id="@+id/swStopOnSwipe"
                             style="@style/MusicSettingSwitch" />
                     </LinearLayout>
+
+                    <View style="@style/MusicSettingDivider" />
+
+                    <!-- 后台播放（音乐自己一份，与视频分家：默认开＝常驻；存 music_background） -->
+                    <LinearLayout
+                        android:id="@+id/rowMusicBackground"
+                        style="@style/MusicSettingRow">
+
+                        <ImageView
+                            style="@style/MusicSettingIcon"
+                            android:backgroundTint="#B39DDB"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_music_play" />
+
+                        <TextView
+                            style="@style/MusicSettingName"
+                            android:text="后台播放" />
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/swMusicBackground"
+                            style="@style/MusicSettingSwitch" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 音质选择 -->

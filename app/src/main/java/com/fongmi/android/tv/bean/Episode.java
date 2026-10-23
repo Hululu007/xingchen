@@ -26,6 +26,8 @@ public class Episode implements Parcelable, Diffable<Episode> {
     private int number;
     private boolean selected;
     private transient String displayName;
+    private transient boolean numberName;
+    private transient boolean singleEpisodeTitle;
 
     private Episode(String name, String desc, String url) {
         this.number = Util.getNumber(name);
@@ -75,6 +77,24 @@ public class Episode implements Parcelable, Diffable<Episode> {
 
     public void setDisplayName(String displayName) {
         this.displayName = displayName;
+    }
+
+    /** 集名是不是组装时回退出来的序号（源没给名）：只作标记，不参与 parcel/序列化/匹配。 */
+    public boolean isNumberName() {
+        return numberName;
+    }
+
+    public void setNumberName(boolean numberName) {
+        this.numberName = numberName;
+    }
+
+    /** 显示名是不是单集定案写死的片名全名：选集渲染链（紧凑标题/剥片名前缀）不许覆盖。 */
+    public boolean isSingleEpisodeTitle() {
+        return singleEpisodeTitle;
+    }
+
+    public void setSingleEpisodeTitle(boolean singleEpisodeTitle) {
+        this.singleEpisodeTitle = singleEpisodeTitle;
     }
 
     public String getUrl() {

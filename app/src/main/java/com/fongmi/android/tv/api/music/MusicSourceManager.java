@@ -396,6 +396,7 @@ public class MusicSourceManager {
     public FreeJsBridge bridgeOf(MusicSite site) throws Exception {
         if (site == null || TextUtils.isEmpty(site.srcUrl) || isLx(site)) return null;
         checkQuarantine(site);
+        checkBlocked(site);
         FreeJsBridge b = bridges.get(site.srcUrl);
         if (b != null) return b;
         synchronized (bridges) {
@@ -421,6 +422,7 @@ public class MusicSourceManager {
     public LxBridge lxBridgeOf(MusicSite site) throws Exception {
         if (site == null || TextUtils.isEmpty(site.srcUrl) || !isLx(site)) return null;
         checkQuarantine(site);
+        checkBlocked(site);
         LxBridge b = lxBridges.get(site.srcUrl);
         if (b != null) return b;
         synchronized (lxBridges) {
@@ -534,9 +536,14 @@ public class MusicSourceManager {
                 if (b == null) continue;
                 MusicSearchResult r = b.search(keyword, page, type);
                 if (r != null && !r.isEmpty()) {
-                    // 单插件屏蔽平台：该插件屏蔽掉的平台的歌不进聚合结果（GZ：屏蔽的平台不再用于该插件的内容）
+                    // 单插件屏蔽平台：按内容平台判（GZ：屏蔽的平台不再用于该插件的内容）。
+                    // 旧口径拿 t.platform 比——FreeJS 歌恒 "freejs"（源层），用户在面板屏蔽
+                    // "freejs" 等于整插件自屏蔽、屏蔽 kw/tx 等内容平台又永远匹配不上；
+                    // 内容平台取不到（单平台插件条目不带 platform 字段）时不按平台过滤。
                     for (MusicTrack t : r.getTracks()) {
-                        if (t != null && !MusicStore.isPlatformBlocked(site.srcUrl, t.platform)) tracks.add(t);
+                        if (t == null) continue;
+                        String cp = com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(t);
+                        if (cp == null || !MusicStore.isPlatformBlocked(site.srcUrl, cp)) tracks.add(t);
                     }
                 }
                 if (r != null && !r.isEnd()) end = false;
@@ -683,6 +690,18 @@ public class MusicSourceManager {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 桥级拦截检测屏蔽（BLOCKED）：旧口径 isBlocked 只在 orderCandidates（聚合搜索／主源）
+     * 消费，单源搜索与取链经 bridgeOf/lxBridgeOf 直达、拦不住——与隔离同位补在这里，
+     * 所有建桥路径一律生效。检测中豁免：testPlugin 先把 srcUrl 记进 testing 才建桥
+     * 检测，被屏蔽插件必须能靠重新检测通过来解封，桥都建不了就永远解不了。
+     */
+    private void checkBlocked(MusicSite site) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl)) return;
+        if (testing.contains(site.srcUrl)) return;
+        if (isBlocked(site.srcUrl)) throw new IllegalStateException("插件已被自动屏蔽（检测未通过）：" + site.srcUrl);
     }
 
     /** 是否在检测屏蔽列表里（C4：检测失败／超时且自动屏蔽开启时进表，检测通过自动解除） */

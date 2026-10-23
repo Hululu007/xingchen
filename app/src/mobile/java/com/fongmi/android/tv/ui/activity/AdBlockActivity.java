@@ -30,10 +30,6 @@ import java.util.Set;
 
 public class AdBlockActivity extends BaseActivity {
 
-    private static final String PREFS = "xingchen";
-    private static final String KEY_ENABLED = "xingchen.adblock_enabled";
-    private static final String KEY_KEYWORDS = "xingchen.adblock_keywords";
-
     private ActivityAdblockBinding binding;
     private KeywordAdapter adapter;
 
@@ -41,12 +37,14 @@ public class AdBlockActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, AdBlockActivity.class));
     }
 
+    /** 开关只有一套：与播放器设置页共用 Setting 的 adblock（默认开）。 */
     public static boolean isEnabled(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false);
+        return com.fongmi.android.tv.setting.Setting.isAdblock();
     }
 
+    /** 关键词只有一份：Setting 的 adblock_keywords（与弹幕/流内去广告共用）。 */
     public static Set<String> getKeywords(Context context) {
-        return new HashSet<>(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(KEY_KEYWORDS, new HashSet<>()));
+        return new HashSet<>(com.fongmi.android.tv.setting.Setting.getAdblockKeywords());
     }
 
     @Override
@@ -59,7 +57,7 @@ public class AdBlockActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         binding.swAdblock.setChecked(isEnabled(this));
         binding.swAdblock.setOnCheckedChangeListener((btn, checked) -> {
-            getPrefs().edit().putBoolean(KEY_ENABLED, checked).apply();
+            com.fongmi.android.tv.setting.Setting.putAdblock(checked);
             AdBlock.refresh(this);
             Notify.show(checked ? "去广告已启用" : "去广告已关闭");
         });
@@ -68,10 +66,6 @@ public class AdBlockActivity extends BaseActivity {
         binding.rvKeywords.setAdapter(adapter);
         binding.btnAddKeyword.setOnClickListener(v -> showAddKeyword());
         refreshList();
-    }
-
-    private SharedPreferences getPrefs() {
-        return getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
     private void refreshList() {
@@ -94,9 +88,7 @@ public class AdBlockActivity extends BaseActivity {
                 .setPositiveButton("添加", (d, w) -> {
                     String keyword = input.getText().toString().trim();
                     if (!keyword.isEmpty()) {
-                        Set<String> keywords = getKeywords(this);
-                        keywords.add(keyword);
-                        getPrefs().edit().putStringSet(KEY_KEYWORDS, keywords).apply();
+                        com.fongmi.android.tv.setting.Setting.addAdblockKeyword(keyword);
                         AdBlock.refresh(this);
                         refreshList();
                         Notify.show("已添加");
@@ -128,9 +120,7 @@ public class AdBlockActivity extends BaseActivity {
             String keyword = data.get(position);
             holder.tvKeyword.setText(keyword);
             holder.tvDelete.setOnClickListener(v -> {
-                Set<String> keywords = getKeywords(AdBlockActivity.this);
-                keywords.remove(keyword);
-                getPrefs().edit().putStringSet(KEY_KEYWORDS, keywords).apply();
+                com.fongmi.android.tv.setting.Setting.removeAdblockKeyword(keyword);
                 AdBlock.refresh(AdBlockActivity.this);
                 refreshList();
             });

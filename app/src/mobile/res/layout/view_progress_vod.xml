@@ -4,22 +4,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/loading"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:fadingEdgeLength="5dp"
-        android:padding="5dp"
-        android:shadowColor="#ff000000"
-        android:shadowDx="2"
-        android:shadowDy="2"
-        android:shadowRadius="8"
-        android:text="@string/player_loading_hint"
-        android:textColor="@color/white"
-        android:visibility="gone"
-        android:textSize="18sp" />
-
     <!-- 网速：中央圆钮下方独立一行，不压播放图标。圆钮 76dp（下沿在圆心下 38dp）。
          注意：FrameLayout 里 layout_gravity=center 时 marginTop 是全量叠加的
          （childTop = (容器高-文字高)/2 + marginTop），文字中心 = 容器中心 + marginTop。

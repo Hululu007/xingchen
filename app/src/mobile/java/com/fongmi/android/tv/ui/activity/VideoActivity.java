@@ -101,6 +101,7 @@ import com.fongmi.android.tv.bean.Keep;
 import com.fongmi.android.tv.bean.Parse;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.bean.SkipSegment;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.bean.Vod;
@@ -1670,8 +1671,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                             String url = o.optString("url", "");
                             if (TextUtils.isEmpty(url)) continue;
                             String nm = o.optString("name", "");
-                            if (TextUtils.isEmpty(nm)) nm = "第" + (flag.getEpisodes().size() + 1) + "集";
+                            boolean fallbackName = TextUtils.isEmpty(nm);
+                            if (fallbackName) nm = String.format(java.util.Locale.getDefault(), "%02d", flag.getEpisodes().size() + 1);
                             Episode ep = Episode.create(nm, url);
+                            if (fallbackName) ep.setNumberName(true);
                             if (fi == 0 && i == selIdx) ep.setSelected(true);
                             flag.getEpisodes().add(ep);
                         }
@@ -1692,8 +1695,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 String url = o.optString("url", "");
                 if (TextUtils.isEmpty(url)) continue;
                 String nm = o.optString("name", "");
-                if (TextUtils.isEmpty(nm)) nm = "第" + (flag.getEpisodes().size() + 1) + "集";
+                boolean fallbackName = TextUtils.isEmpty(nm);
+                if (fallbackName) nm = String.format(java.util.Locale.getDefault(), "%02d", flag.getEpisodes().size() + 1);
                 Episode ep = Episode.create(nm, url);
+                if (fallbackName) ep.setNumberName(true);
                 if (i == selIdx) ep.setSelected(true);
                 flag.getEpisodes().add(ep);
             }
@@ -3103,7 +3108,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (TextUtils.isEmpty(anchor)) return;
         boolean changed = false;
         for (Episode item : items) {
-            if (item == null) continue;
+            if (item == null || item.isSingleEpisodeTitle()) continue;
             String name = normTitle(item.getDisplayName());
             if (TextUtils.isEmpty(name) || !name.startsWith(anchor)) continue;
             String rest = name.substring(anchor.length()).replaceAll("^[\\s\\-–—▶:：]+", "").trim();
@@ -6099,13 +6104,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setTraffic() {
         Traffic.setSpeed(mBinding.progress.traffic);
-        try {
-            int percent = player().getBufferedPercentage();
-            // loading 文字行布局默认 gone 且此前只有 setText 没人置可见，百分比白写（深挖网速残留）
-            mBinding.progress.loading.setVisibility(View.VISIBLE);
-            mBinding.progress.loading.setText(getString(R.string.player_loading_hint) + (percent > 0 && percent < 100 ? " " + percent + "%" : ""));
-        } catch (Throwable ignored) {
-        }
         App.post(mR2, 1000);
     }
 
@@ -7944,9 +7942,35 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
         embyOnTick();
-        if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
+        if (isAutoSkipIntro() && mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
             checkEnded(false);
+        } else {
+            SkipSegment segment = activeSkipSegment(position);
+            if (segment != null) {
+                if (segment.isEnding()) checkEnded(false);
+                else if (segment.getEnd() > position) controller().seekTo(segment.getEnd());
+            }
         }
+    }
+
+    /** 设置页「自动跳过片头片尾」开关（skip_intro）：默认开＝保持打点自动跳的现行行为，关掉后已标记片段也不自动跳。 */
+    private boolean isAutoSkipIntro() {
+        return getSharedPreferences("xingchen", MODE_PRIVATE).getBoolean("skip_intro", true);
+    }
+
+    /**
+     * 源在播放结果里自带的跳过片段：当前播放位置命中的那段（与 VodSkipPolicy 同口径）。
+     * 片中段恒生效；片头/片尾段只在用户没打过对应点（History 值为 AUTO_SKIP 语义）时生效，打点优先。
+     */
+    private SkipSegment activeSkipSegment(long position) {
+        if (!isAutoSkipIntro() || mLastPlayerResult == null || mHistory == null || position < 0) return null;
+        for (SkipSegment segment : mLastPlayerResult.getSkipSegments()) {
+            if (segment == null || !segment.contains(position)) continue;
+            if (segment.isMiddle()) return segment;
+            if (segment.isOpening() && History.isAutoSkip(mHistory.getOpening())) return segment;
+            if (segment.isEnding() && History.isAutoSkip(mHistory.getEnding())) return segment;
+        }
+        return null;
     }
 
     private void updatePlaybackHistoryPosition() {
@@ -8009,7 +8033,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mHistory.resetPlaybackPosition();
             syncHistory();
         }
-        long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
+        long position = Math.max(isAutoSkipIntro() ? mHistory.getOpening() : 0, mHistory.getPosition());
+        if (isAutoSkipIntro() && History.isAutoSkip(mHistory.getOpening()) && mLastPlayerResult != null) {
+            for (SkipSegment segment : mLastPlayerResult.getSkipSegments()) {
+                if (segment != null && segment.isOpening() && segment.isValid() && segment.getStart() == 0) position = Math.max(position, segment.getEnd());
+            }
+        }
         if (position > 0) player().seekTo(position);
     }
 
@@ -8840,7 +8869,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkFlag() {
-        int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
+        // 当前线路位只认适配器选中项，不认线路栏可见性：音频态下线路栏是隐藏的但线路还在，
+        // 按可见性取 -1 会撞上「-1≠末位→nextFlag(-1)→第 1 条已选中早退」，自动换线/换源整链断掉。
+        // 无线路（适配器为空）时维持 -1＝末位口径，直接走换源。
+        int position = mFlagAdapter.getItemCount() == 0 ? -1 : mFlagAdapter.getPosition();
         if (position == mFlagAdapter.getItemCount() - 1) checkSearch(false);
         else nextFlag(position);
     }

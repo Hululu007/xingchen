@@ -716,7 +716,7 @@ public class MusicRandomActivity extends BaseActivity {
             binding.btnFav.setTextColor(0xFFFFFFFF);
             return;
         }
-        MusicLibrary.isFavorite(cur.id, fav -> {
+        MusicLibrary.isFavorite(cur, fav -> {
             if (!pageAlive) return;
             binding.btnFav.setText(fav ? "已收藏这首" : "收藏这首");
             binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFFFFFFFF);
@@ -731,7 +731,7 @@ public class MusicRandomActivity extends BaseActivity {
             Notify.show(R.string.random_no_id_fav);
             return;
         }
-        MusicLibrary.isFavorite(cur.id, fav -> {
+        MusicLibrary.isFavorite(cur, fav -> {
             if (!pageAlive) return;
             MusicLibrary.setFavorite(cur, !fav, () -> {
                 if (!pageAlive) return;

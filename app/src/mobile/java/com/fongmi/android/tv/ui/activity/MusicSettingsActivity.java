@@ -24,6 +24,8 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
+import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
+import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicFxDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
@@ -106,6 +108,11 @@ public class MusicSettingsActivity extends BaseActivity {
         // 瓜子划掉后台停止播放：从后台划掉 App 即停播（服务侧 onTaskRemoved 读偏好，默认关＝现行行为）
         initSwitch(binding.swStopOnSwipe, MusicStore.isStopOnTaskRemoved(), MusicStore::setStopOnTaskRemoved);
         binding.rowStopOnSwipe.setOnClickListener(v -> binding.swStopOnSwipe.toggle());
+        // 后台播放分家（2026-10-23 定案）：音乐自己一份、默认开＝常驻；只写 music_background，
+        // 不碰视频的 bg_pip_mode/background——视频关成什么样都不带走音乐。
+        initSwitch(binding.swMusicBackground, PlayerSetting.isMusicBackgroundOn(),
+                on -> PlayerSetting.putMusicBackground(on ? BackgroundPlaybackPolicy.ON : BackgroundPlaybackPolicy.OFF));
+        binding.rowMusicBackground.setOnClickListener(v -> binding.swMusicBackground.toggle());
         // S1：电池优化白名单行（动作行，跳系统电池优化设置；副文二态按系统实读）
         refreshBatteryText();
         binding.rowBatteryOpt.setOnClickListener(v -> {

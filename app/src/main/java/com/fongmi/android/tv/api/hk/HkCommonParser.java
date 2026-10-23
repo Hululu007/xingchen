@@ -422,14 +422,22 @@ public class HkCommonParser {
             int p = page;
             for (int i = 0; i < expr.length - 1; i++) {
                 String t = expr[i];
-                if (t.startsWith("-")) {
-                    p -= Integer.parseInt(t.replace("-", ""));
-                } else if (t.startsWith("+")) {
-                    p += Integer.parseInt(t.replace("+", ""));
-                } else if (t.startsWith("*")) {
-                    p *= Integer.parseInt(t.replace("*", ""));
-                } else if (t.startsWith("/")) {
-                    p /= Integer.parseInt(t.replace("/", ""));
+                // 规则作者文本裸 parseInt 兜底（同文件 selectElementsWithoutOr 口径）：
+                // 解析失败记日志并跳过这一项运算，p 保持原值，不让 NumberFormatException 冒出本方法；
+                // 除数为 0 同样跳过，避免 ArithmeticException。
+                try {
+                    if (t.startsWith("-")) {
+                        p -= Integer.parseInt(t.replace("-", ""));
+                    } else if (t.startsWith("+")) {
+                        p += Integer.parseInt(t.replace("+", ""));
+                    } else if (t.startsWith("*")) {
+                        p *= Integer.parseInt(t.replace("*", ""));
+                    } else if (t.startsWith("/")) {
+                        int divisor = Integer.parseInt(t.replace("/", ""));
+                        if (divisor != 0) p /= divisor;
+                    }
+                } catch (NumberFormatException e) {
+                    Log.e(TAG, "parsePageClassUrl", e);
                 }
             }
             result = parts[0] + p + expr[expr.length - 1];

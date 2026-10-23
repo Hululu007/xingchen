@@ -28,25 +28,93 @@ public final class LabPackageInstaller {
         void onOk(LabRegistry.Svc pkg);
 
         void onFail(String reason);
+
+        /** 用户取消：半成品已清，可直接再装。默认转一句失败提示兜底防挂死，弹窗调用方覆写走取消收口 */
+        default void onCancelled() {
+            onFail("安装已取消");
+        }
+    }
+
+    /** 取消信号：执行体在分块循环与段间检查点 check()，命中就以此异常 unwind 到收口处（与 LabRuntimeManager 同口径） */
+    private static final class InstallCancelledException extends Exception {
+    }
+
+    private static final class CancelToken {
+        private volatile boolean cancelled;
+
+        void cancel() {
+            cancelled = true;
+        }
+
+        boolean isCancelled() {
+            return cancelled;
+        }
+
+        void check() throws InstallCancelledException {
+            if (cancelled) throw new InstallCancelledException();
+        }
+    }
+
+    /**
+     * 一次装包的取消句柄：入口方法按次新建并返回，弹窗取消钮拿着它点取消。
+     * 与该次安装一一对应：重试是新句柄，上一次迟到的取消点不到新令牌，不会误伤下一次安装。
+     * 本次安装正在自动装环境时，取消连环境那条腿一起收（经 LabRuntimeManager 的令牌）。
+     */
+    public static final class InstallHandle {
+        private final CancelToken token = new CancelToken();
+        /** 正在飞的环境腿运行时（ensureRuntime 记上、收口时清掉）；空表示当前不在装环境 */
+        private volatile String envRuntime;
+
+        public void cancel() {
+            token.cancel();
+            String rt = envRuntime;
+            if (rt != null) LabRuntimeManager.cancelInstall(rt);
+        }
+    }
+
+    /** 正在安装中的包（防重复：同包从两个入口同时装，同一 dest 并发删/解/写会装出
+     *  半成品、注册表互相覆盖；照 LabRuntimeManager 环境侧 INSTALLING 的既有口径，
+     *  包侧按包 id 守一手：同包已有安装在飞时，后到者直接走失败终态） */
+    private static final java.util.Set<String> INSTALLING =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    private static boolean beginPackageInstall(String id) {
+        // id 为空的包本来就过不了说明校验、走不到写 dest，这里放行不拦，口径不另变
+        return id == null || id.isEmpty() || INSTALLING.add(id);
+    }
+
+    /** 释放本次安装的守卫（按持有者只放一次）：已放过的再调是空操作，
+     *  不会误删随后同包新安装刚登记的守卫 */
+    private static void releasePackageInstall(String[] guard) {
+        if (guard == null) return;
+        String id;
+        synchronized (guard) {
+            id = guard[0];
+            if (id == null) return;
+            guard[0] = null;
+        }
+        INSTALLING.remove(id);
     }
 
     private LabPackageInstaller() {
     }
 
     /** 从 content/file Uri 安装 */
-    public static void installFromUri(Context ctx, Uri uri, Listener listener) {
-        installFromUri(ctx, uri, null, listener);
+    public static InstallHandle installFromUri(Context ctx, Uri uri, Listener listener) {
+        return installFromUri(ctx, uri, null, listener);
     }
 
     /**
      * 从 content/file Uri 安装：defaultRuntime（环境页「＋」进来时传当前环境）只在
      * 包自己没声明运行时（runtime 为 none）时用，声明了的听声明。
      */
-    public static void installFromUri(Context ctx, Uri uri, String defaultRuntime, Listener listener) {
+    public static InstallHandle installFromUri(Context ctx, Uri uri, String defaultRuntime, Listener listener) {
+        final InstallHandle handle = new InstallHandle();
+        final CancelToken token = handle.token;
         new Thread(() -> {
+            File tmp = new File(ctx.getCacheDir(), "lab-install-" + System.currentTimeMillis() + ".lab");
             try {
-                File tmp = new File(ctx.getCacheDir(), "lab-install-" + System.currentTimeMillis() + ".lab");
-                copyStream(ctx.getContentResolver().openInputStream(uri), tmp, null);
+                copyStream(ctx.getContentResolver().openInputStream(uri), tmp, token);
                 // installFromFile 是另起线程异步跑的，临时文件只能在终态回调里删，
                 // 当场删会跟安装线程抢跑，安装那边打开就是 ENOENT。
                 Listener wrapped = new Listener() {
@@ -66,27 +134,59 @@ public final class LabPackageInstaller {
                         tmp.delete();
                         listener.onFail(reason);
                     }
+
+                    @Override
+                    public void onCancelled() {
+                        tmp.delete();
+                        listener.onCancelled();
+                    }
                 };
-                installFromFile(ctx.getApplicationContext(), tmp, defaultRuntime, wrapped);
+                doInstallFromFile(ctx.getApplicationContext(), tmp, defaultRuntime, wrapped, handle);
+            } catch (InstallCancelledException cx) {
+                tmp.delete();
+                cancelled(listener);
             } catch (Exception e) {
-                fail(listener, "读不到这个包文件：" + human(e));
+                tmp.delete();
+                // 拷贝与取消同时出头时以取消为准：失败很可能就是取消掐断的那一下
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    fail(listener, "读不到这个包文件：" + human(e));
+                }
             }
         }).start();
+        return handle;
     }
 
     /** 从本地 zip 文件安装（.lab） */
-    public static void installFromFile(Context ctx, File zip, Listener listener) {
-        installFromFile(ctx, zip, null, listener);
+    public static InstallHandle installFromFile(Context ctx, File zip, Listener listener) {
+        return installFromFile(ctx, zip, null, listener);
     }
 
     /** 同上，带默认运行时（包没声明时才用）；声明的环境没装会自动先装环境 */
-    public static void installFromFile(Context ctx, File zip, String defaultRuntime, Listener listener) {
+    public static InstallHandle installFromFile(Context ctx, File zip, String defaultRuntime, Listener listener) {
+        InstallHandle handle = new InstallHandle();
+        doInstallFromFile(ctx, zip, defaultRuntime, listener, handle);
+        return handle;
+    }
+
+    private static void doInstallFromFile(Context ctx, File zip, String defaultRuntime,
+                                          Listener listener, InstallHandle handle) {
+        final CancelToken token = handle.token;
         new Thread(() -> {
+            final String[] guard = new String[1];
             try {
                 progress(listener, "正在读包说明…");
                 LabManifest manifest = loadManifest(zip);
+                token.check();
+                if (!beginPackageInstall(manifest.id)) {
+                    fail(listener, "「" + (manifest.name == null || manifest.name.isEmpty()
+                            ? manifest.id : manifest.name) + "」正在安装中，等它装完再试");
+                    return;
+                }
+                guard[0] = manifest.id;
                 final boolean mergeFiles = hasLabJson(zip);
-                ensureRuntime(ctx.getApplicationContext(), manifest.runtime, defaultRuntime,
+                ensureRuntime(ctx.getApplicationContext(), manifest.runtime, defaultRuntime, handle,
                         new RuntimeEnsure() {
                             @Override
                             public void onEnvProgress(String runtime, String text) {
@@ -96,24 +196,35 @@ public final class LabPackageInstaller {
 
                             @Override
                             public void onReady(String runtime, String hint) {
+                                File dest = LabPaths.packageDir(ctx, manifest.id);
+                                // 暂存安装：全程只写同级暂存目录，失败/取消只删暂存——
+                                // 旧包目录与注册表登记都不动，重装失败旧包原样可用；
+                                // 全部落盘＋检查点过完才在提交点停进程、换目录、登记。
+                                // （旧实现 unzip 进门先删旧目录：重装一失败，旧包已毁、
+                                // 新包半截、注册表还留旧登记显示已装，点开是残缺文件。）
+                                File staging = stagingDir(dest);
                                 try {
+                                    token.check();
                                     if (hint != null) progress(listener, hint);
                                     manifest.runtime = runtime;
-                                    // 重装先停这个包的全部进程再解压覆盖（与卸载同口径）：
-                                    // 不停就删/覆盖，进程脚下文件被抽走
+                                    progress(listener, "正在解压…");
+                                    unzip(zip, staging, mergeFiles, token);
+                                    // 生成型说明（如整目录 Node 项目按 package.json 生成）包里没有
+                                    // lab.json：把说明落进包根，运行链读包说明才找得到
+                                    if (!new File(staging, "lab.json").exists()) {
+                                        writeJson(new File(staging, "lab.json"), manifest);
+                                    }
+                                    token.check();
+                                    chmod755(staging);
+                                    token.check();
+                                    // 提交点：先停这个包的全部进程（与卸载同口径，不停就换
+                                    // 目录等于抽走进程脚下文件），再换目录、登记落笔；
+                                    // 登记落笔即算装成，此后不再查取消旗
                                     try {
                                         LabRunner.stopPackage(ctx, manifest.id);
                                     } catch (Exception ignored) {
                                     }
-                                    File dest = LabPaths.packageDir(ctx, manifest.id);
-                                    progress(listener, "正在解压…");
-                                    unzip(zip, dest, mergeFiles);
-                                    // 生成型说明（如整目录 Node 项目按 package.json 生成）包里没有
-                                    // lab.json：把说明落进包根，运行链读包说明才找得到
-                                    if (!new File(dest, "lab.json").exists()) {
-                                        writeJson(new File(dest, "lab.json"), manifest);
-                                    }
-                                    chmod755(dest);
+                                    swapIntoPlace(staging, dest);
                                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                                     pkg.id = manifest.id;
                                     pkg.name = manifest.name;
@@ -124,19 +235,46 @@ public final class LabPackageInstaller {
                                     pkg.autoStartDefault = manifest.autoStart;
                                     pkg.installTime = System.currentTimeMillis();
                                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                                    releasePackageInstall(guard);
                                     ok(listener, pkg);
+                                } catch (InstallCancelledException cx) {
+                                    deleteDir(staging);
+                                    releasePackageInstall(guard);
+                                    cancelled(listener);
                                 } catch (Exception e) {
-                                    fail(listener, human(e));
+                                    releasePackageInstall(guard);
+                                    if (token.isCancelled()) {
+                                        deleteDir(staging);
+                                        cancelled(listener);
+                                    } else {
+                                        fail(listener, human(e));
+                                    }
                                 }
                             }
 
                             @Override
                             public void onFail(String reason) {
+                                releasePackageInstall(guard);
                                 fail(listener, reason);
                             }
+
+                            @Override
+                            public void onCancelled() {
+                                // 环境腿被取消 = 本次装包取消，收口到取消终态
+                                releasePackageInstall(guard);
+                                cancelled(listener);
+                            }
                         });
+            } catch (InstallCancelledException cx) {
+                releasePackageInstall(guard);
+                cancelled(listener);
             } catch (Exception e) {
-                fail(listener, human(e));
+                releasePackageInstall(guard);
+                if (token.isCancelled()) {
+                    cancelled(listener);
+                } else {
+                    fail(listener, human(e));
+                }
             }
         }).start();
     }
@@ -160,6 +298,11 @@ public final class LabPackageInstaller {
         void onReady(String runtime, String hint);
 
         void onFail(String reason);
+
+        /** 环境腿被用户取消：整次装包按取消收口（不是失败）。默认转 onFail 兜底，老实现方不覆写也不挂死 */
+        default void onCancelled() {
+            onFail("安装已取消");
+        }
     }
 
     /**
@@ -168,6 +311,11 @@ public final class LabPackageInstaller {
      * 并给一句人话提示；连兜底都没有就按 "none" 走老路。
      */
     public static void ensureRuntime(Context ctx, String runtime, String defaultRuntime, RuntimeEnsure cb) {
+        ensureRuntime(ctx, runtime, defaultRuntime, new InstallHandle(), cb);
+    }
+
+    private static void ensureRuntime(Context ctx, String runtime, String defaultRuntime,
+                                      InstallHandle handle, RuntimeEnsure cb) {
         final Context app = ctx.getApplicationContext();
         // 入口先归一（node→nodejs，全仓唯一入口在 LabManifest）：不归一会被当未声明，
         // 静默改投兜底环境——包明明写了 Node 却跑错环境
@@ -189,6 +337,9 @@ public final class LabPackageInstaller {
             cb.onReady(need, readyHint);
             return;
         }
+        // 环境腿在飞期间把运行时记到句柄上：装包侧点取消时连这条腿一起收；
+        // 收口回调先清掉再往下传，腿一落地句柄就不再指着它（防误伤随后无关的同名环境安装）
+        handle.envRuntime = need;
         LabRuntimeManager.installOnline(app, need, new LabRuntimeManager.Listener() {
             @Override
             public void onProgress(String text) {
@@ -197,14 +348,26 @@ public final class LabPackageInstaller {
 
             @Override
             public void onOk() {
+                handle.envRuntime = null;
                 cb.onReady(need, readyHint);
             }
 
             @Override
             public void onFail(String reason) {
+                handle.envRuntime = null;
                 cb.onFail("「" + LabRuntimeManager.label(need) + "」没装上：" + reason);
             }
+
+            @Override
+            public void onCancelled() {
+                handle.envRuntime = null;
+                // 环境腿被取消必须收口到这里，否则装包链永远等不到 onReady/onFail
+                cb.onCancelled();
+            }
         });
+        // 取消若赶在环境腿开跑之前就点了：那会儿环境令牌还不存在、点不到，
+        // 这时它已经建好，补点一次，别让这条腿白装一整场（装完也会在就绪检查点收口）
+        if (handle.token.isCancelled()) LabRuntimeManager.cancelInstall(need);
     }
 
     /** 兼容导入（默影视命令 / Termux 清单 / 裸脚本 / lab.json 粘贴）：归一后的条目直接落盘 */
@@ -214,28 +377,48 @@ public final class LabPackageInstaller {
         void onDone(int count);
 
         void onFail(String reason);
+
+        /** 用户取消：已装成的条目照算，正在装的那条半成品已清。默认转一句失败提示兜底防挂死 */
+        default void onCancelled() {
+            onFail("安装已取消");
+        }
     }
 
-    public static void installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, CompatListener listener) {
-        installCompat(ctx, items, null, listener);
+    public static InstallHandle installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, CompatListener listener) {
+        return installCompat(ctx, items, null, listener);
     }
 
     /** 同上，带默认运行时（条目没声明时才用）；每条先保证环境就绪再落盘 */
-    public static void installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, String defaultRuntime, CompatListener listener) {
-        new Thread(() -> installCompatNext(ctx.getApplicationContext(), items, 0, defaultRuntime, listener, 0)).start();
+    public static InstallHandle installCompat(Context ctx, java.util.List<LabImportCompat.ImportItem> items, String defaultRuntime, CompatListener listener) {
+        InstallHandle handle = new InstallHandle();
+        new Thread(() -> installCompatNext(ctx.getApplicationContext(), items, 0, defaultRuntime, listener, 0, handle)).start();
+        return handle;
     }
 
     /** 逐条链式安装：前一条的环境没装就先自动装好，再装下一条 */
     private static void installCompatNext(Context ctx, java.util.List<LabImportCompat.ImportItem> items,
-                                          int idx, String defaultRuntime, CompatListener listener, int okCount) {
+                                          int idx, String defaultRuntime, CompatListener listener, int okCount,
+                                          InstallHandle handle) {
         if (idx >= items.size()) {
             if (listener != null) listener.onDone(okCount);
+            return;
+        }
+        // 条目之间查旗：上一条登记落笔后取消赶到，已装成的照算（提交点已过），剩下的不再装
+        if (handle.token.isCancelled()) {
+            cancelled2(listener);
             return;
         }
         LabImportCompat.ImportItem it = items.get(idx);
         progress2(listener, "正在装：" + it.name + "…");
         final LabManifest m = LabImportCompat.toManifest(it);
-        ensureRuntime(ctx, m.runtime, defaultRuntime, new RuntimeEnsure() {
+        final String[] guard = new String[1];
+        if (!beginPackageInstall(m.id)) {
+            if (listener != null) listener.onFail("「" + it.name + "」正在安装中，等它装完再试");
+            return;
+        }
+        guard[0] = m.id;
+        try {
+        ensureRuntime(ctx, m.runtime, defaultRuntime, handle, new RuntimeEnsure() {
             @Override
             public void onEnvProgress(String runtime, String text) {
                 progress2(listener, "正在装「" + LabRuntimeManager.label(runtime) + "」：" + text);
@@ -243,35 +426,37 @@ public final class LabPackageInstaller {
 
             @Override
             public void onReady(String runtime, String hint) {
+                File dest = LabPaths.packageDir(ctx, m.id);
+                // 暂存安装（与 .lab 链同口径）：本条全程只写同级暂存目录，
+                // 失败/取消只删暂存，旧包目录与登记不动；提交点才停进程、换目录、登记
+                File staging = stagingDir(dest);
                 try {
+                    handle.token.check();
                     if (hint != null) progress2(listener, hint);
                     m.runtime = runtime;
-                    // 同上：重装先停这个包的全部进程再删目录
-                    try {
-                        LabRunner.stopPackage(ctx, m.id);
-                    } catch (Exception ignored) {
-                    }
-                    File dest = LabPaths.packageDir(ctx, m.id);
-                    deleteDir(dest);
-                    dest.mkdirs();
-                    writeJson(new File(dest, "lab.json"), m);
+                    deleteDir(staging);
+                    staging.mkdirs();
+                    writeJson(new File(staging, "lab.json"), m);
+                    handle.token.check();
                     if (it.assetBytes != null && it.assetBytes.length > 0
                             && it.assetName != null && !it.assetName.isEmpty()) {
-                        File f = new File(dest, it.assetName);
-                        if (f.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) {
+                        File f = new File(staging, it.assetName);
+                        if (f.getCanonicalPath().startsWith(staging.getCanonicalPath() + File.separator)) {
                             try (FileOutputStream out = new FileOutputStream(f)) {
                                 out.write(it.assetBytes);
                             }
                         }
                     }
+                    handle.token.check();
                     // 7z 离线包 binary/ 条目：相对路径落进包目录（同上，canonical 越界拒绝）
                     if (it.extraFiles != null && !it.extraFiles.isEmpty()) {
                         for (java.util.Map.Entry<String, byte[]> fe : it.extraFiles.entrySet()) {
+                            handle.token.check();
                             String rel = fe.getKey().replace('\\', '/');
                             while (rel.startsWith("/")) rel = rel.substring(1);
                             if (rel.isEmpty() || rel.contains("..")) continue;
-                            File f2 = new File(dest, rel);
-                            if (!f2.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator))
+                            File f2 = new File(staging, rel);
+                            if (!f2.getCanonicalPath().startsWith(staging.getCanonicalPath() + File.separator))
                                 continue;
                             if (f2.getParentFile() != null) f2.getParentFile().mkdirs();
                             try (FileOutputStream out = new FileOutputStream(f2)) {
@@ -279,7 +464,15 @@ public final class LabPackageInstaller {
                             }
                         }
                     }
-                    chmod755(dest);
+                    chmod755(staging);
+                    handle.token.check();
+                    // 提交点：停旧包进程→换目录→登记落笔；落笔即算这条装成，
+                    // 此后取消只停剩下的条目，不回滚这一条
+                    try {
+                        LabRunner.stopPackage(ctx, m.id);
+                    } catch (Exception ignored) {
+                    }
+                    swapIntoPlace(staging, dest);
                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                     pkg.id = m.id;
                     pkg.name = m.name;
@@ -291,21 +484,46 @@ public final class LabPackageInstaller {
                     pkg.installTime = System.currentTimeMillis();
                     pkg.needsReview = it.needsReview;
                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                    releasePackageInstall(guard);
                     // 安装流程中不直接拉起服务：自启标记已随 manifest/注册表落盘，
                     // 由 LabBoot（开机/进实验室）与用户手动启动消费。曾在这里逐条
                     // upsert 后立即 LabRunner.start 并吞掉失败——服务可能在包还没
                     // 装完时就起来、失败也无任何提示，已恢复改前时序。
-                    installCompatNext(ctx, items, idx + 1, defaultRuntime, listener, okCount + 1);
+                    installCompatNext(ctx, items, idx + 1, defaultRuntime, listener, okCount + 1, handle);
+                } catch (InstallCancelledException cx) {
+                    // 只删暂存：dest 从头到尾没被碰过，旧包与登记原样
+                    deleteDir(staging);
+                    releasePackageInstall(guard);
+                    cancelled2(listener);
                 } catch (Exception e) {
-                    if (listener != null) listener.onFail(human(e));
+                    releasePackageInstall(guard);
+                    if (handle.token.isCancelled()) {
+                        deleteDir(staging);
+                        cancelled2(listener);
+                    } else if (listener != null) {
+                        listener.onFail(human(e));
+                    }
                 }
             }
 
             @Override
             public void onFail(String reason) {
+                releasePackageInstall(guard);
                 if (listener != null) listener.onFail(reason);
             }
+
+            @Override
+            public void onCancelled() {
+                // 本条的环境腿被取消 = 整次导入取消，链到此收口，不再装下一条
+                releasePackageInstall(guard);
+                cancelled2(listener);
+            }
         });
+        } catch (RuntimeException setupEx) {
+            // ensureRuntime 同步抛错（还没走到任何回调）时守卫也要放，并给明确终态
+            releasePackageInstall(guard);
+            if (listener != null) listener.onFail(human(setupEx));
+        }
     }
 
     private static void writeJson(File f, LabManifest m) throws Exception {
@@ -391,11 +609,33 @@ public final class LabPackageInstaller {
         }
     }
 
+    /** 暂存目录：与目标包目录同级（同文件系统内改名才可靠），包 id 后缀 .staging */
+    private static File stagingDir(File dest) {
+        return new File(dest.getParentFile(), dest.getName() + ".staging");
+    }
+
+    /**
+     * 提交点换目录：旧目录先改名到 .old 备份，新目录改名就位后删备份；
+     * 新目录就位失败时把备份改回原位并抛错——调用方按失败收口（此时注册表
+     * 还没落笔、旧包原样可用）。两个目录同级，改名是同盘操作。
+     */
+    private static void swapIntoPlace(File staging, File dest) throws Exception {
+        File backup = new File(dest.getParentFile(), dest.getName() + ".old");
+        deleteDir(backup);
+        boolean hadOld = dest.exists();
+        if (hadOld && !dest.renameTo(backup)) throw new Exception("旧包目录挪不开，装不了");
+        if (!staging.renameTo(dest)) {
+            if (hadOld && !dest.exists()) backup.renameTo(dest);
+            throw new Exception("新包目录就位失败，已还原旧包");
+        }
+        deleteDir(backup);
+    }
+
     /**
      * 解压全部条目到包目录。mergeFiles=true（.lab 包）时按格式约定把 files/ 前缀去掉、
      * 内容合并到包根；整目录 Node 项目不合并，项目结构原样保留。
      */
-    private static void unzip(File zip, File dest, boolean mergeFiles) throws Exception {
+    private static void unzip(File zip, File dest, boolean mergeFiles, CancelToken token) throws Exception {
         deleteDir(dest);
         dest.mkdirs();
         String destPrefix = dest.getCanonicalPath() + File.separator;
@@ -407,6 +647,7 @@ public final class LabPackageInstaller {
                 java.util.Enumeration<? extends ZipEntry> en = zf.entries();
                 while (en.hasMoreElements()) {
                     ZipEntry entry = en.nextElement();
+                    token.check();
                     if (entry.isDirectory()) continue;
                     String raw = entry.getName();
                     boolean fromFiles = mergeFiles && raw.startsWith("files/");
@@ -425,7 +666,10 @@ public final class LabPackageInstaller {
                          BufferedOutputStream bout = new BufferedOutputStream(new FileOutputStream(out))) {
                         byte[] buf = new byte[8192];
                         int n;
-                        while ((n = in.read(buf)) > 0) bout.write(buf, 0, n);
+                        while ((n = in.read(buf)) > 0) {
+                            token.check();
+                            bout.write(buf, 0, n);
+                        }
                     }
                 }
                 if (!mergeFiles) break;
@@ -458,13 +702,16 @@ public final class LabPackageInstaller {
         return out.toString(StandardCharsets.UTF_8.name());
     }
 
-    private static void copyStream(InputStream in, File dest, Listener listener) throws Exception {
+    private static void copyStream(InputStream in, File dest, CancelToken token) throws Exception {
         if (in == null) throw new Exception("打不开这个文件");
         try (BufferedInputStream bin = new BufferedInputStream(in);
              BufferedOutputStream bout = new BufferedOutputStream(new FileOutputStream(dest))) {
             byte[] buf = new byte[8192];
             int n;
-            while ((n = bin.read(buf)) > 0) bout.write(buf, 0, n);
+            while ((n = bin.read(buf)) > 0) {
+                token.check();
+                bout.write(buf, 0, n);
+            }
         }
     }
 
@@ -484,6 +731,14 @@ public final class LabPackageInstaller {
 
     private static void fail(Listener l, String s) {
         if (l != null) l.onFail(s);
+    }
+
+    private static void cancelled(Listener l) {
+        if (l != null) l.onCancelled();
+    }
+
+    private static void cancelled2(CompatListener l) {
+        if (l != null) l.onCancelled();
     }
 
     /** 导出回调：fileName 为下载目录里的文件名 */

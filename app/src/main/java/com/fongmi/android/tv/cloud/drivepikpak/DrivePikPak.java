@@ -206,7 +206,15 @@ public class DrivePikPak implements CloudDrive {
         lastReqTime = System.currentTimeMillis();
     }
 
+    // 401 刷新后重试上限：对齐网盘同类口径——Proxy115 的 MAX_RETRY_403＝3、
+    // DriveQuark.getPlayUrl 的 attempt<=3（均为首发＋最多重试 3 次，超限抛既有失败异常）。
+    private static final int MAX_AUTH_RETRY = 3;
+
     private JSONObject api(String method, String path, JSONObject query, JSONObject body, boolean auth) throws Exception {
+        return api(method, path, query, body, auth, 0);
+    }
+
+    private JSONObject api(String method, String path, JSONObject query, JSONObject body, boolean auth, int authRetry) throws Exception {
         rateLimit();
         HttpUrl.Builder ub = HttpUrl.parse(API_HOST + path).newBuilder();
         if (query != null) {
@@ -240,10 +248,11 @@ public class DrivePikPak implements CloudDrive {
         }
         try (Response resp = client.newCall(rb.build()).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
-            if (resp.code() == 401 && auth) {
-                // token 过期，刷新一次重试（来源：pikpak-sdk 单次刷新语义）
+            if (resp.code() == 401 && auth && authRetry < MAX_AUTH_RETRY) {
+                // token 过期，刷新后重试（上限 MAX_AUTH_RETRY 次）；超限不再刷新/递归，
+                // 落到下面既有的接口错误出口，避免服务端持续 401 时无限递归刷令牌。
                 refresh();
-                return api(method, path, query, body, true);
+                return api(method, path, query, body, true, authRetry + 1);
             }
             if (!resp.isSuccessful()) {
                 throw new Exception("PikPak 接口错误 " + resp.code() + ": " + txt);

@@ -1046,10 +1046,10 @@
     <string name="mpv_config_close">Close</string>
     <string name="player_libass">libass</string>
     <string name="player_caption">Caption style</string>
-    <string name="player_background">Background play</string>
+    <string name="player_background">Video background play</string>
     <string name="player_audio_decode">Audio software decode</string>
     <string name="player_audio_passthrough">Audio passthrough</string>
-    <string name="player_video_decode">Video software decode</string>
+    <string name="player_video_decode">Prefer hardware decode</string>
     <string name="player_aac_track">Prefer aac track</string>
     <string name="player_adblock">Remove ads</string>
     <string name="player_tunnel">Tunnel mode</string>

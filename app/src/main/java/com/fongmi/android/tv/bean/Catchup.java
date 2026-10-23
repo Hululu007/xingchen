@@ -89,7 +89,14 @@ public class Catchup {
     }
 
     public boolean match(String url) {
-        return url.contains(getRegex()) || Pattern.compile(getRegex()).matcher(url).find();
+        if (url.contains(getRegex())) return true;
+        try {
+            return Pattern.compile(getRegex()).matcher(url).find();
+        } catch (Throwable e) {
+            // 直播配置的正则写坏时试编译失败：照 HkWebkitFetcher.blocked 口径退化为包含匹配
+            //（上面已判过 contains，此处即不命中），不让 PatternSyntaxException 冒出频道判定。
+            return false;
+        }
     }
 
     public boolean isEmpty() {
@@ -102,7 +109,15 @@ public class Catchup {
 
     private String append(String url, String result) {
         String[] splits = getReplace().split(",", 2);
-        if (splits.length == 2) url = url.replaceAll(splits[0], splits[1]);
+        if (splits.length == 2) {
+            try {
+                url = url.replaceAll(splits[0], splits[1]);
+            } catch (Throwable e) {
+                // 直播配置的 replace 写坏时（正则非法 PatternSyntaxException、替换串含坏 $ 引用
+                // IllegalArgumentException）照 match() 兜底口径：不替换、保留原 url，让 append 的
+                // 其余拼接继续走完，不让一条坏配置打断整个追加流程。
+            }
+        }
         if (!TextUtils.isEmpty(URI.create(url).getQuery())) result = result.replace("?", "&");
         return url + result;
     }

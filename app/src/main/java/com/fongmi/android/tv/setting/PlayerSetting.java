@@ -314,6 +314,30 @@ public class PlayerSetting {
         return BackgroundPlaybackPolicy.isEnabled(getBackground());
     }
 
+    /**
+     * 音乐自己的后台播放（与视频分家，2026-10-23 定案）：独立键 "music_background"，
+     * 同口径走 BackgroundPlaybackPolicy 归一；从没存过＝默认开（音乐常驻）。
+     * 不读视频的 bg_pip_mode/background 老值，两份互不串味，视频侧行为一字不变。
+     */
+    public static int getMusicBackground() {
+        int stored = Prefers.getInt("music_background", BackgroundPlaybackPolicy.ON);
+        int normalized = BackgroundPlaybackPolicy.normalize(stored);
+        if (stored != normalized) Prefers.put("music_background", normalized);
+        return normalized;
+    }
+
+    public static void putMusicBackground(int background) {
+        Prefers.put("music_background", BackgroundPlaybackPolicy.normalize(background));
+    }
+
+    public static boolean isMusicBackgroundOn() {
+        return BackgroundPlaybackPolicy.isEnabled(getMusicBackground());
+    }
+
+    public static boolean isMusicBackgroundOff() {
+        return !isMusicBackgroundOn();
+    }
+
     public static float getSpeed() {
         return Math.min(Math.max(Prefers.getFloat("speed", 3), 2), 5);
     }

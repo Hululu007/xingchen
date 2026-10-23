@@ -1464,7 +1464,14 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     private int batchDownloadCount;
     private boolean batchDlanSelecting;
     private int continuousDlanMode = -1;
-    private final java.util.List<String> continuousDlanHis = new ArrayList<>();
+    private final java.util.List<Integer> continuousDlanHis = new ArrayList<>();
+    private final java.util.SortedSet<HkRemotePlaySource> batchDlanParamsSet = new java.util.TreeSet<>();
+    private final java.util.SortedMap<Integer, HkRemotePlaySource> batchDlanParamsMapHistory = new java.util.TreeMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger batchDlanParseCount = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger batchDlanParseSize = new java.util.concurrent.atomic.AtomicInteger();
+    /** 1.4.16 修复（扫查高2）：投屏批次代号——每开新批次/取消/完成收尾时递增；懒解析回调出发时捕获、回来先核对，代号不符的迟到回调直接丢弃，不复活已取消条目、不污染下一批计数。 */
+    private final java.util.concurrent.atomic.AtomicInteger dlanGeneration = new java.util.concurrent.atomic.AtomicInteger();
+    private com.fongmi.android.tv.ui.hk.view.HkParseStatusPopup parseStatusListPopup;
     private android.app.Dialog loadingPopup;
 
     /** 照抄原版 clickItem(View, int)：青豆光影特例、input 条目（EditText 回填/高亮编辑/js 求值回灌）、余者转三参版。 */
@@ -1956,7 +1963,8 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
      * 结果为空 toast「链接为空」；仍带 @lazyRule= 时以新 lazySplit 递归；
      * 不可处理 scheme/.torrent 交系统选择器；非视频且非系统下载格式 toast「{标题}非视频格式，不支持下载」；
      * 余 clearTag + getRealUrlFilterHeaders 后走下载对话框（DetailBridge 钩子承接本体）。
-     * 注：原版尾段的 getSwitchPlayUrl(PlayData) 线路切换在星辰无 PlayData 对应物，沿本模块 download:// 支的既有口径直达对话框（欠账）。
+     * 注：原版尾段的 getSwitchPlayUrl(PlayData) 线路切换已随投屏本体移植（见 getSwitchPlayUrl），
+     * 但 downloadSource 尾段仍沿本模块 download:// 支的既有口径直达对话框，未接线路切换（欠账保留）。
      */
     private void downloadSource(int position, String[] lazySplit) {
         parseLazyRuleForUrl(position, lazySplit, new HkArticleListModel.LazyCallback() {
@@ -2036,12 +2044,216 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         });
     }
 
-    // —— 批量投屏模式：原版 $10 依赖 DLNA 投屏子系统，星辰未移植该子系统，模式分发先行空转（欠账）——
+    // —— 批量投屏/连续投屏本体（照原版 batchDlan/$10、continuousDlan/$8、getSwitchPlayUrl 移植）——
 
-    private void batchDlan(int position, String[] lazySplit) {
+    /** 照抄原版 getSwitchPlayUrl(String, boolean)：转三参版（PlayData 为空时现解析）。 */
+    private String getSwitchPlayUrl(String url, boolean withHeaders) {
+        return getSwitchPlayUrl(null, url, withHeaders);
     }
 
+    /**
+     * 照抄原版 getSwitchPlayUrl(PlayData, String, boolean)：PlayData 有多线路时取「线路切换记忆」序号那条
+     * （withHeaders 时拼上该线路请求头串，或原地址分号后的头串）；无多线路时带头返回原地址、不带头只取分号前第一段。
+     * 线路切换记忆原版查 ViewCollection 的 switchIndex，本树无该记忆，恒 0（原版无记录时亦为 0）。
+     */
+    private String getSwitchPlayUrl(com.fongmi.android.tv.api.hk.HkPlayData playData, String url, boolean withHeaders) {
+        if (playData == null) {
+            playData = com.fongmi.android.tv.api.hk.HkHttpParser.getPlayData(
+                    com.fongmi.android.tv.api.hk.HkHttpParser.getRealUrlFilterHeaders(url));
+        }
+        if (playData != null && playData.getUrls() != null && !playData.getUrls().isEmpty()) {
+            int index = 0;
+            if (index < playData.getUrls().size()) {
+                String switched = playData.getUrls().get(index);
+                if (!withHeaders) return switched;
+                if (playData.getHeaders() != null && !playData.getHeaders().isEmpty()
+                        && playData.getHeaders().size() > index) {
+                    return switched + ";" + com.fongmi.android.tv.api.hk.HkHttpParser.getHeadersStr(playData.getHeaders().get(index));
+                }
+                String[] parts = url.split(";");
+                if (parts.length <= 1) return switched;
+                StringBuilder sb = new StringBuilder(switched);
+                for (int i = 1; i < parts.length; i++) sb.append(";").append(parts[i]);
+                return sb.toString();
+            }
+        }
+        String[] parts = url.split(";");
+        if (withHeaders) {
+            if (parts.length <= 1) return parts[0];
+            return url;
+        }
+        return parts[0];
+    }
+
+    /** 照抄原版 batchDlan：懒解析取址，结果走 $10 回调收集进投屏队列（batchDlanParamsSet/MapHistory）。 */
+    private void batchDlan(int position, String[] lazySplit) {
+        final int generation = dlanGeneration.get();
+        parseLazyRuleForUrl(position, lazySplit, new HkArticleListModel.LazyCallback() {
+            private final HkRemotePlaySource httpParams = new HkRemotePlaySource();
+
+            @Override
+            public void start() {
+                if (generation != dlanGeneration.get()) return;
+                batchDlanParseCount.incrementAndGet();
+                // 1.4.16 修复（扫查高1）：直接用 incrementAndGet() 的返回值赋 sort，不再隔行 .get()——
+                // 两路懒解析并发时 .get() 可读到同一 sort，导致 mapHistory 互相覆盖、TreeSet 按 sort 判重丢条
+                int sort = batchDlanParseSize.incrementAndGet();
+                httpParams.setTitle(com.fongmi.android.tv.api.hk.HkHttpParser.encodeUrl(
+                        getItemTitle(position).replace(",", "_")));
+                httpParams.setSort(sort);
+                httpParams.setParseFinish(false);
+                synchronized (batchDlanParamsMapHistory) {
+                    batchDlanParamsMapHistory.put(httpParams.getSort(), httpParams);
+                }
+                // 原版此处刷 CompleteToolBar 状态文「队列状态 (n)」；本树完成条无状态文面，计数在队列页内可见
+            }
+
+            @Override
+            public void success(String url) {
+                // 1.4.16 修复（扫查高2）：批次已取消/完成/换新批的迟到回调直接丢弃——不写集合、不改计数、不弹 UI
+                if (generation != dlanGeneration.get()) return;
+                batchDlanParseCount.decrementAndGet();
+                httpParams.setParseFinish(true);
+                if (HkUrlDetector.isVideoOrMusic(url)) {
+                    String playUrl = com.fongmi.android.tv.api.hk.HkHttpParser.encodeUrl(
+                            getSwitchPlayUrl(HkUrlDetector.clearTag(url), true));
+                    httpParams.setUrl(playUrl);
+                    runUi(() -> {
+                        synchronized (batchDlanParamsMapHistory) {
+                            // 1.4.16 收尾修复：compareTo/equals 已对齐为 sort+url（扫查中3）后，原靠
+                            // TreeSet.contains 按 url 短路的判重失效——同一 url 每次解析 sort 都不同，
+                            // 不再判重。此处在入队路径上显式按 url 判重：命中则移出队列里那条同 url 的
+                            // 旧条目、本条只标「重复添加」不入队，保持原行为；未命中才入队。
+                            HkRemotePlaySource duplicate = null;
+                            for (HkRemotePlaySource queued : batchDlanParamsSet) {
+                                if (java.util.Objects.equals(queued.getUrl(), httpParams.getUrl())) {
+                                    duplicate = queued;
+                                    break;
+                                }
+                            }
+                            if (duplicate != null) {
+                                batchDlanParamsSet.remove(duplicate);
+                                httpParams.setParseResult("重复添加，已移出投屏队列");
+                            } else {
+                                batchDlanParamsSet.add(httpParams);
+                                httpParams.setParseResult("已加入投屏队列");
+                            }
+                            batchDlanParamsMapHistory.put(httpParams.getSort(), httpParams);
+                        }
+                        notifyParseStatusChanged();
+                        if (notify_text != null) {
+                            notify_text.setText("完成 (" + batchDlanParamsSet.size() + ")");
+                        }
+                        // 原版同处还刷 CompleteToolBar 状态文「队列状态 (n)」，本树无此面
+                        memoryPosition(position);
+                    });
+                } else {
+                    httpParams.setParseResult("非视频格式，不支持投屏");
+                    synchronized (batchDlanParamsMapHistory) {
+                        batchDlanParamsMapHistory.put(httpParams.getSort(), httpParams);
+                    }
+                    runUi(() -> notifyParseStatusChanged());
+                }
+            }
+
+            @Override
+            public void error(String msg) {
+                // 1.4.16 修复（扫查高2）：迟到 error 同 success 口径，代号不符直接丢弃
+                if (generation != dlanGeneration.get()) return;
+                if (batchDlanParseCount.get() > 0) batchDlanParseCount.decrementAndGet();
+                // 1.4.16 修复（扫查中1）：失败也要落终态 parseFinish=true——状态页（HkParseStatusAdapter）
+                // 以 isParseFinish 判定：false 永远显示「正在获取地址...」+转圈，错误文案露不出来；置 true 后显示 parseResult(msg) 并停转圈
+                httpParams.setParseFinish(true);
+                httpParams.setParseResult(msg);
+                synchronized (batchDlanParamsMapHistory) {
+                    batchDlanParamsMapHistory.put(httpParams.getSort(), httpParams);
+                }
+                runUi(() -> notifyParseStatusChanged());
+            }
+        });
+    }
+
+    /** 照抄原版 continuousDlan：懒解析取址，结果走 $8 回调按 continuousDlanMode 分发投屏。 */
     private void continuousDlan(int position, String[] lazySplit) {
+        final int generation = dlanGeneration.get();
+        parseLazyRuleForUrl(position, lazySplit, new HkArticleListModel.LazyCallback() {
+            @Override
+            public void start() {
+            }
+
+            @Override
+            public void success(String url) {
+                // 1.4.16 修复（扫查高2/中2）：批次已结束的迟到回调直接丢弃；其余全段经 runUi 归置主线程——
+                // 原版 success 在引擎后台线程直接 toast/弹 CastDialog/投屏，且 continuousDlanHis 裸 ArrayList
+                // 跨线程 add 与主线程遍历/clear 无同步，可 ConcurrentModificationException；现 add 走同步块、UI 操作全在主线程
+                if (generation != dlanGeneration.get()) return;
+                runUi(() -> {
+                    if (generation != dlanGeneration.get()) return;
+                    memoryPosition(position);
+                    String title = getItemTitle(position);
+                    if (!HkUrlDetector.isVideoOrMusic(url)) {
+                        toastCenter("非音视频格式，不支持投屏");
+                        return;
+                    }
+                    synchronized (continuousDlanHis) {
+                        continuousDlanHis.add(position);
+                    }
+                    String real = com.fongmi.android.tv.api.hk.HkHttpParser.getRealUrlFilterHeaders(
+                            HkUrlDetector.clearTag(url));
+                    com.fongmi.android.tv.api.hk.HkPlayData playData =
+                            com.fongmi.android.tv.api.hk.HkHttpParser.getPlayData(real);
+                    String playUrl = getSwitchPlayUrl(playData, real, true);
+                    // 原版此处发 LoadingEvent 关解析加载框；本树懒解析无该加载框，无对应动作
+                    if (continuousDlanMode == 4) {
+                        if (getActivity() != null) {
+                            HkLivePlayerHelper.playWithLiveTv(getActivity(), title, playUrl);
+                        }
+                    } else if (continuousDlanMode == 2 || continuousDlanMode == 3) {
+                        webCast();
+                    } else {
+                        // mode1 DLNA（及兜底）：地址只取分号前第一段，请求头单独携带
+                        java.util.Map<String, String> headers =
+                                com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(playUrl);
+                        dlnaCast(title, playUrl.split(";")[0], headers);
+                    }
+                });
+            }
+
+            @Override
+            public void error(String msg) {
+            }
+        });
+    }
+
+    /**
+     * 连续投屏 mode1（DLNA）的本树落点：原版经 DlanPlayEvent 常驻会话或 DlanListPopUtil 开 MediaPlayActivity，
+     * 本树无该常驻投屏页，接到既有 DLNA 投屏链（CastDialog 选设备 + DLNACast 投放，与播放页投屏钮同一条链）。
+     * 请求头原版经 DlanListPop.genHeaderString 拼进地址串，本树以 CastVideo 的 headers 字段分开携带，投放端等价。
+     */
+    private void dlnaCast(String title, String playUrl, java.util.Map<String, String> headers) {
+        if (getActivity() == null) return;
+        com.fongmi.android.tv.bean.CastVideo video =
+                new com.fongmi.android.tv.bean.CastVideo(title, playUrl, 0L, headers);
+        com.fongmi.android.tv.ui.dialog.CastDialog.create().video(video).show(getActivity());
+    }
+
+    /**
+     * 连续投屏 mode2/3（网页投屏/投屏直链）的原版执行端是 WebPlayerHelper + webdlan 子系统
+     * （RemoteServerManager 本地服务 + dplayer/webs 网页资产），本树未移植该子系统（欠账，单独立项）。
+     */
+    private void webCast() {
+        toastCenter("网页投屏暂未支持");
+    }
+
+    private void notifyParseStatusChanged() {
+        if (parseStatusListPopup != null && parseStatusListPopup.getAdapter() != null) {
+            parseStatusListPopup.getAdapter().notifyDataSetChanged();
+        }
+    }
+
+    private void runUi(Runnable runnable) {
+        android.app.Activity act = getActivity();
+        if (act != null) act.runOnUiThread(runnable);
     }
 
     /**
@@ -2760,6 +2972,7 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                         .setTitle("批量投屏")
                         .setMessage("点击确定后，点击页面中要投屏的内容即可快速添加到投屏队列，注意是投屏到世界直播，不是DLNA投屏！添加完成后请点击右下角的完成按钮结束批量投屏模式")
                         .setPositiveButton("确定", (dialog, which) -> {
+                            dlanGeneration.incrementAndGet();
                             batchDlanSelecting = true;
                             showComplete(true);
                             toastBottom("已开启批量投屏模式");
@@ -2834,8 +3047,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                         new HkCenterListPopup.ClickListener() {
                             @Override
                             public void click(String text, int index) {
+                                dlanGeneration.incrementAndGet();
                                 continuousDlanMode = index + 1;
-                                continuousDlanHis.clear();
+                                synchronized (continuousDlanHis) {
+                                    continuousDlanHis.clear();
+                                }
                                 toastBottom("已投屏所选内容，接下来点哪个投哪个哦~");
                                 showComplete(false);
                                 HkItem item = adapter.getList().get(position);
@@ -3207,19 +3423,85 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     private void onNotifyQueueClick() {
-        // 投屏队列页属未移植的 DLNA 投屏子系统（与 batchDlan 本体同欠账），暂无落点
+        // 照原版 CompleteToolBar 的 onStatus（$4）：批量投屏中开队列页（mapHistory 全量，含解析中/失败条目）；
+        // 连续投屏中开「投屏历史」页（continuousDlanHis 逐条，状态「已投屏」）
+        if (getActivity() == null) return;
+        if (batchDlanSelecting) {
+            List<HkRemotePlaySource> sources;
+            synchronized (batchDlanParamsMapHistory) {
+                sources = new ArrayList<>(batchDlanParamsMapHistory.values());
+            }
+            parseStatusListPopup = new com.fongmi.android.tv.ui.hk.view.HkParseStatusPopup(getActivity(), sources);
+            parseStatusListPopup.show();
+        } else if (continuousDlanMode != -1) {
+            List<HkRemotePlaySource> his = new ArrayList<>();
+            List<Integer> hisSnapshot;
+            synchronized (continuousDlanHis) {
+                hisSnapshot = new ArrayList<>(continuousDlanHis);
+            }
+            for (int pos : hisSnapshot) {
+                HkRemotePlaySource source = new HkRemotePlaySource();
+                source.setTitle(getItemTitle(pos));
+                source.setParseFinish(true);
+                source.setParseResult("已投屏");
+                his.add(source);
+            }
+            parseStatusListPopup = new com.fongmi.android.tv.ui.hk.view.HkParseStatusPopup(getActivity(), his, "投屏历史");
+            parseStatusListPopup.show();
+        }
     }
 
     private void onNotifyClick() {
-        finishBatchMode();
+        completeDlan();
     }
 
     private boolean onNotifyLongClick() {
+        // 原版 CompleteToolBar 另有 onCancel 入口，本树完成条无独立取消钮，长按完成条承接 cancelDlan
+        if (batchDownloadSelecting || batchDlanSelecting || continuousDlanMode != -1) {
+            cancelDlan();
+            return true;
+        }
         return false;
+    }
+
+    /**
+     * 照抄原版 completeDlan（点「完成」）：批量下载→走 finishBatchMode 收尾；
+     * 批量投屏→有剧集在动态解析中则 toast「有剧集在动态解析中，请稍候」且不退出，
+     * 队列非空则 toast「已开始批量投屏并播放」并整队交世界直播批量投屏，随后清队列收尾；
+     * 连续投屏→toast「已结束连续投屏模式」后收尾。
+     */
+    private void completeDlan() {
+        if (batchDlanSelecting) {
+            if (batchDlanParseCount.get() > 0) {
+                toastCenter("有剧集在动态解析中，请稍候");
+                return;
+            }
+            if (!batchDlanParamsSet.isEmpty()) {
+                toastCenter("已开始批量投屏并播放");
+                if (getActivity() != null) {
+                    HkLivePlayerHelper.finishBatchDlan(getActivity(), new ArrayList<>(batchDlanParamsSet));
+                }
+            }
+            finishBatchMode();
+            return;
+        }
+        if (continuousDlanMode != -1) {
+            toastCenter("已结束连续投屏模式");
+            finishBatchMode();
+            return;
+        }
+        finishBatchMode();
+    }
+
+    /** 照抄原版 cancelDlan：清计数/队列/历史、复位文案、收完成条，不执行投屏（收尾与 finishBatchMode 同口径）。 */
+    private void cancelDlan() {
+        finishBatchMode();
     }
 
     /** 点「完成」退出批量模式：复位全部模式标志与计数、收起 notify 条，并经桥回调通知宿主收尾。 */
     private void finishBatchMode() {
+        // 1.4.16 修复（扫查高2）：取消/完成统一在此递增批次代号，使全部在飞懒解析回调失效
+        dlanGeneration.incrementAndGet();
         String mode = null;
         int count = 0;
         if (batchDownloadSelecting) {
@@ -3235,7 +3517,15 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         batchDownloadCount = 0;
         batchDlanSelecting = false;
         continuousDlanMode = -1;
-        continuousDlanHis.clear();
+        synchronized (continuousDlanHis) {
+            continuousDlanHis.clear();
+        }
+        batchDlanParamsSet.clear();
+        synchronized (batchDlanParamsMapHistory) {
+            batchDlanParamsMapHistory.clear();
+        }
+        batchDlanParseCount.set(0);
+        batchDlanParseSize.set(0);
         if (notify_text != null) notify_text.setText("完 成");
         if (notify_bg != null) notify_bg.setVisibility(View.GONE);
         if (mode != null && detailBridge != null) detailBridge.onBatchModeFinish(mode, count);

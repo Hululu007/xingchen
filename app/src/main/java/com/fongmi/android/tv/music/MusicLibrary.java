@@ -43,6 +43,8 @@ public class MusicLibrary {
         t.cover = f.getCover();
         t.platform = f.getPlatform();
         t.rawJson = f.getRawJson();
+        // 已下载歌取链只认 localPath：不回读就是收藏里的死条目（点开解析必失败）
+        t.localPath = f.getLocalPath();
         t.favoriteAddedTime = f.getCreateTime();
         return t;
     }
@@ -57,6 +59,8 @@ public class MusicLibrary {
         t.cover = i.getCover();
         t.platform = i.getPlatform();
         t.rawJson = i.getRawJson();
+        // 同收藏：已下载歌不回读 localPath 就是歌单里的死条目
+        t.localPath = i.getLocalPath();
         t.playlistAddedTime = i.getCreateTime();
         return t;
     }
@@ -72,6 +76,7 @@ public class MusicLibrary {
         i.setCover(track.cover);
         i.setPlatform(track.platform);
         i.setRawJson(track.rawJson);
+        i.setLocalPath(track.localPath);
         i.setPosition(position);
         i.setCreateTime(now);
         return i;
@@ -95,6 +100,38 @@ public class MusicLibrary {
         });
     }
 
+    /** 平台归一：null 与空串同义（存量旧行 platform 可能为空） */
+    private static String normPlatform(String platform) {
+        return platform == null ? "" : platform;
+    }
+
+    /**
+     * 按复合身份找收藏行：先 (trackId, platform) 精确找；找不到再按裸 id 找一行、
+     * 仅当其 platform 与给定值归一后相等才认（同 id 异来源的那行是另一首歌，不许认错）。
+     */
+    private static MusicFavorite findFavoriteRow(String trackId, String platform) {
+        if (trackId == null) return null;
+        com.fongmi.android.tv.db.dao.MusicFavoriteDao dao = AppDatabase.get().getMusicFavoriteDao();
+        MusicFavorite row = dao.find(trackId, platform);
+        if (row != null) return row;
+        MusicFavorite any = dao.find(trackId);
+        if (any != null && normPlatform(any.getPlatform()).equals(normPlatform(platform))) return any;
+        return null;
+    }
+
+    /** 复合身份版：调用方手里有整首歌时用它，裸 id 版会把同 id 异来源的歌误判已收藏 */
+    public static void isFavorite(MusicTrack track, DataCallback<Boolean> cb) {
+        Task.execute(() -> {
+            boolean fav = false;
+            try {
+                fav = track != null && findFavoriteRow(track.id, track.platform) != null;
+            } catch (Throwable ignored) {
+            }
+            boolean f = fav;
+            post(() -> cb.onResult(f));
+        });
+    }
+
     public static void setFavorite(MusicTrack track, boolean fav, Runnable done) {
         Task.execute(() -> {
             boolean ok = true;
@@ -110,10 +147,15 @@ public class MusicLibrary {
                         f.setCover(track.cover);
                         f.setPlatform(track.platform);
                         f.setRawJson(track.rawJson);
+                        // 已下载歌必须落 localPath，回读时 LocalMusicSource 只认它取链
+                        f.setLocalPath(track.localPath);
                         f.setCreateTime(System.currentTimeMillis());
                         AppDatabase.get().getMusicFavoriteDao().insert(f);
                     } else {
-                        AppDatabase.get().getMusicFavoriteDao().delete(track.id);
+                        // 复合身份删：先按 (trackId, platform) 找到本人的那一行、按主键删；
+                        // 裸 id 删会连坐同 id 的别家歌，按主键删也不会被 NULL platform 卡住
+                        MusicFavorite row = findFavoriteRow(track.id, track.platform);
+                        if (row != null) AppDatabase.get().getMusicFavoriteDao().deleteById(row.getId());
                     }
                 }
             } catch (Throwable t) {
@@ -307,7 +349,8 @@ public class MusicLibrary {
                         }
                     }
                     if (found != null) {
-                        AppDatabase.get().getMusicPlaylistItemDao().delete(playlistId, oldTrackId);
+                        // 按行主键删：同歌单里同 trackId 异来源可并存，按 (playlistId, trackId) 删会误删别家那行
+                        AppDatabase.get().getMusicPlaylistItemDao().deleteById(found.getId());
                         AppDatabase.get().getMusicPlaylistItemDao().insert(
                                 toItem(playlistId, replacement, found.getPosition(), found.getCreateTime()));
                         MusicPlaylist p = AppDatabase.get().getMusicPlaylistDao().find(playlistId);

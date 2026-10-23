@@ -22,8 +22,10 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 书源存储与管理底座：导入（文本/文件/链接）· 列表 · 启用停用 · 删除。
@@ -116,7 +118,29 @@ public class LegadoStore {
     /** 逐个解析的结果：进了的＋坏项跳过的计数。 */
     public static class ParseResult {
         public final List<LegadoSource> ok = new ArrayList<>();
+        /**
+         * 与 ok 平行的原始 JSON 对象（导入存库用）：LegadoSource 只建模子集字段，
+         * ruleExplore/loginUrl/loginUi 等未建模的标准字段经「解析→重序列化」会整批
+         * 丢失，存原文才保得住。header 按 SourceDeserializer 同口径归一（字符串
+         * JSON→对象、非 JSON 字符串→去掉），其余字段一字不动。
+         */
+        public final List<JsonObject> raw = new ArrayList<>();
         public int skipped = 0;
+    }
+
+    /** 原始对象的 header 归一（与 SourceDeserializer 对已建模字段的处理同口径） */
+    private static JsonObject normalizedRaw(JsonObject o, LegadoSource parsed) {
+        if (o == null) return null;
+        JsonObject copy = o.deepCopy();
+        JsonElement h = copy.get("header");
+        // 对象形态的 header 原样保留；字符串形态在解析时已被反序列化器摘掉并转成
+        // parsed.header 表——转出表就以对象形态写回原文，转不出（非 JSON 字符串）
+        // 就去掉，与反序列化器的最终结果保持一致，不把两种形态混存
+        if (h == null || !h.isJsonObject()) {
+            if (parsed != null && parsed.header != null) copy.add("header", GSON.toJsonTree(parsed.header));
+            else if (h != null) copy.remove("header");
+        }
+        return copy;
     }
 
     /**
@@ -139,16 +163,19 @@ public class LegadoStore {
                             throw new LegadoException("缺少 bookSourceUrl");
                         }
                         r.ok.add(s);
+                        r.raw.add(arr.get(i).isJsonObject() ? normalizedRaw(arr.get(i).getAsJsonObject(), s) : null);
                     } catch (Throwable ignored) {
                         r.skipped++;
                     }
                 }
             } else {
-                LegadoSource s = SOURCE_GSON.fromJson(JsonParser.parseString(t), LegadoSource.class);
+                JsonElement single = JsonParser.parseString(t);
+                LegadoSource s = SOURCE_GSON.fromJson(single, LegadoSource.class);
                 if (s == null || s.bookSourceUrl == null || s.bookSourceUrl.trim().isEmpty()) {
                     throw new LegadoException("不是合法书源：缺少 bookSourceUrl");
                 }
                 r.ok.add(s);
+                r.raw.add(single.isJsonObject() ? normalizedRaw(single.getAsJsonObject(), s) : null);
             }
         } catch (LegadoException e) {
             throw e;
@@ -200,8 +227,12 @@ public class LegadoStore {
             }
         }
         int added = 0, replaced = 0;
-        for (LegadoSource s : srcs) {
-            String one = GSON.toJson(s);
+        for (int i = 0; i < srcs.size(); i++) {
+            LegadoSource s = srcs.get(i);
+            // 存原始 JSON 而非子集类重序列化：未建模字段（ruleExplore/loginUrl 等）原样保全；
+            // 原文缺失（异常形态）才退回旧口径
+            JsonObject rawObj = i < pr.raw.size() ? pr.raw.get(i) : null;
+            String one = rawObj != null ? GSON.toJson(rawObj) : GSON.toJson(s);
             Entry hit = s.bookSourceUrl == null ? null : index.get(s.bookSourceUrl);
             if (hit != null) {
                 hit.json = one;
@@ -244,8 +275,17 @@ public class LegadoStore {
      * 逐个拉取导入；普通 JSON 走 importText。
      */
     public static String importUrl(String url) {
+        return importUrl(url, new HashSet<>(), 0);
+    }
+
+    private static final int IMPORT_URL_MAX_DEPTH = 10;
+
+    private static String importUrl(String url, Set<String> visited, int depth) {
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new LegadoException("链接格式不对");
+        }
+        if (depth > IMPORT_URL_MAX_DEPTH || !visited.add(url)) {
+            throw new LegadoException("订阅链接重复或层级过深，已跳过");
         }
         String text;
         try {
@@ -262,7 +302,7 @@ public class LegadoStore {
             StringBuilder fails = new StringBuilder();
             for (String u : subs) {
                 try {
-                    importUrl(u);
+                    importUrl(u, visited, depth + 1);
                     ok++;
                 } catch (Throwable t) {
                     if (fails.length() > 0) fails.append("；");

@@ -81,6 +81,48 @@
             android:src="@drawable/home_ic_more_vert" />
     </LinearLayout>
 
+    <!-- ⓪½ 通知权限提示条：没授权时才出现（默认 gone，MusicActivity.onResume 按权限实读切换）；
+         深底白字＋黄钮，不用白底；已授权永远不出现、不占位 -->
+    <LinearLayout
+        android:id="@+id/notifPermStrip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/home_bg_notif_strip"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="通知权限未开启，后台放歌时通知栏不会显示播放条"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/notifPermGo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/home_bg_notif_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:text="去开启"
+            android:textColor="#1C1C1E"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
     <!-- ② 五快捷白卡：收藏／歌单／本地（正中）／历史／下载，图标＋名字＋数量
          （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰；上距 32dp＝往下移＋拉开，见表 H7） -->
     <LinearLayout

@@ -6,7 +6,7 @@ import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
 /** 音乐收藏（红心） */
-@Entity(indices = {@Index(value = "trackId", unique = true)})
+@Entity(indices = {@Index(value = {"trackId", "platform"}, unique = true)})
 public class MusicFavorite {
 
     @PrimaryKey(autoGenerate = true)
@@ -20,6 +20,8 @@ public class MusicFavorite {
     private String cover;
     private String platform;
     private String rawJson;
+    /** 本地文件路径（已下载歌的取链只认它，缺了就是死条目）；在线歌为空 */
+    private String localPath;
     private long createTime;
 
     public long getId() {
@@ -93,6 +95,14 @@ public class MusicFavorite {
 
     public void setRawJson(String rawJson) {
         this.rawJson = rawJson;
+    }
+
+    public String getLocalPath() {
+        return localPath;
+    }
+
+    public void setLocalPath(String localPath) {
+        this.localPath = localPath;
     }
 
     public long getCreateTime() {

@@ -543,7 +543,7 @@ public class PlaybackPerformanceSetting {
                 + "\n只加载选中轨道：" + onOff(isLoadOnlySelectedTracksEnabled()) + "，Surface固定尺寸：" + onOff(isSurfaceFixedSizeEnabled())
                 + "\n动态网络保护：" + ExoPerformanceSetting.getNetworkProtectionText()
                 + "\n音频直通：" + onOff(PlayerSetting.isAudioPassThrough()) + "，AAC优先：" + onOff(PlayerSetting.isPreferAAC())
-                + "\n视频软解优先：" + onOff(PlayerSetting.isVideoPrefer()) + "，音频软解优先：" + onOff(PlayerSetting.isAudioPrefer())
+                + "\n视频硬解优先：" + onOff(PlayerSetting.isVideoPrefer()) + "，音频软解优先：" + onOff(PlayerSetting.isAudioPrefer())
                 + "\n软解降负载：" + onOff(isSoftVideoTuneEnabled());
     }
 

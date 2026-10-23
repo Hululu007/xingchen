@@ -14,6 +14,10 @@
         "sha256": "20e5749f98a06edea0513bf8a3cd6e1dd93c5e6a1939d7aa8f3f405c8bb1d25d"
       },
       {
+        "path": "third_party/patches/media3-danmaku-scroll-area-r1.patch",
+        "sha256": "382d91022c6d84a790606fec341d9e9e7b59a65d70df66f833030a94c764ff59"
+      },
+      {
         "path": "third_party/patches/media3-playback-diagnostics-r2.patch",
         "sha256": "460465ff49b30b9767e1694a85ab2cdfc8347785e256743a57393b197f11628b"
       },

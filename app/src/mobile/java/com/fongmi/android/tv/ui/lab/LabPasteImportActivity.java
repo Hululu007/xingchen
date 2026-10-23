@@ -434,8 +434,12 @@ public class LabPasteImportActivity extends AppCompatActivity {
         String defaultEnv = getIntent().getStringExtra(EXTRA_DEFAULT_ENV);
         // 照稿弹安装中弹窗：条目声明的环境没装会自动先装（进度同样进这个弹窗）
         LabInstallDialog.Installing dlg = LabInstallDialog.showInstalling(this, "正在导入服务");
+        final LabPackageInstaller.InstallHandle[] handle = new LabPackageInstaller.InstallHandle[1];
+        dlg.setOnCancel(() -> {
+            if (handle[0] != null) handle[0].cancel();
+        });
         Runnable[] retry = new Runnable[1];
-        retry[0] = () -> LabPackageInstaller.installCompat(this, items, defaultEnv,
+        retry[0] = () -> handle[0] = LabPackageInstaller.installCompat(this, items, defaultEnv,
                 new LabPackageInstaller.CompatListener() {
                     @Override
                     public void onProgress(String text) {
@@ -459,6 +463,16 @@ public class LabPasteImportActivity extends AppCompatActivity {
                             importBtn.setEnabled(true);
                             importBtn.setText("导入这 " + items.size() + " 个服务");
                             dlg.error(reason, retry[0]);
+                        });
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        runOnUiThread(() -> {
+                            dlg.cancelled();
+                            importBtn.setEnabled(true);
+                            importBtn.setText("导入这 " + items.size() + " 个服务");
+                            Notify.show("已取消安装");
                         });
                     }
                 });

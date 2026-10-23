@@ -13,8 +13,10 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -252,15 +254,25 @@ public class HkM3u8ClearUtil {
      */
     public static String getProxyContent(String url, Map<String, String> headers,
                                          List<HkM3u8ClearAdRule> ruleList) {
+        return getProxyContent(url, headers, ruleList, new HashSet<>(), 0);
+    }
+
+    private static final int PROXY_CONTENT_MAX_DEPTH = 10;
+
+    private static String getProxyContent(String url, Map<String, String> headers,
+                                          List<HkM3u8ClearAdRule> ruleList,
+                                          Set<String> visited, int depth) {
         try {
             if (TextUtils.isEmpty(url)) return "";
+            if (depth > PROXY_CONTENT_MAX_DEPTH) return "";
+            if (!visited.add(url)) return "";
             if (ruleList == null) ruleList = getRules();
 
             // 1. ?url=xxx.m3u8 内层递归（smali:258-264）
             Uri uri = Uri.parse(url);
             String urlParam = uri.getQueryParameter("url");
             if (!TextUtils.isEmpty(urlParam) && urlParam.contains(".m3u8")) {
-                String inner = getProxyContent(urlParam, headers, ruleList);
+                String inner = getProxyContent(urlParam, headers, ruleList, visited, depth + 1);
                 if (!TextUtils.isEmpty(inner) && inner.contains("#EXTM3U")) return inner;
             }
 
@@ -288,7 +300,7 @@ public class HkM3u8ClearUtil {
                         for (int i = 0; i < lines.length; i++) {
                             if (lines[i].startsWith("#EXT-X-STREAM-INF") && i < lines.length - 1) {
                                 String sub = resolveUrl(url, lines[i + 1]);
-                                return getProxyContent(sub, headers, ruleList);
+                                return getProxyContent(sub, headers, ruleList, visited, depth + 1);
                             }
                         }
 

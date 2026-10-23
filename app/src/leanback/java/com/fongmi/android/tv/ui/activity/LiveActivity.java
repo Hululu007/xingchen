@@ -1012,27 +1012,51 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private boolean nextGroup() {
-        int position = mBinding.group.getSelectedPosition() + 1;
-        if (position > mGroupAdapter.getItemCount() - 1) position = 0;
-        if (mGroup.equals(mGroupAdapter.get(position))) return false;
-        mGroup = mGroupAdapter.get(position);
-        mBinding.group.setSelectedPosition(position);
-        if (mGroup.skip()) return nextGroup();
-        mChannelAdapter.addAll(mGroup.getChannel());
-        mGroup.setPosition(0);
-        return true;
+        int count = mGroupAdapter.getItemCount();
+        if (count <= 0) return false;
+        Group origin = mGroup;
+        int originPosition = mBinding.group.getSelectedPosition();
+        for (int visited = 0; visited < count; visited++) {
+            int position = mBinding.group.getSelectedPosition() + 1;
+            if (position > count - 1) position = 0;
+            if (mGroup.equals(mGroupAdapter.get(position))) break;
+            mGroup = mGroupAdapter.get(position);
+            mBinding.group.setSelectedPosition(position);
+            if (!mGroup.skip()) {
+                mChannelAdapter.addAll(mGroup.getChannel());
+                mGroup.setPosition(0);
+                return true;
+            }
+        }
+        if (mGroup != origin) {
+            mGroup = origin;
+            mBinding.group.setSelectedPosition(originPosition);
+        }
+        return false;
     }
 
     private boolean prevGroup() {
-        int position = mBinding.group.getSelectedPosition() - 1;
-        if (position < 0) position = mGroupAdapter.getItemCount() - 1;
-        if (mGroup.equals(mGroupAdapter.get(position))) return false;
-        mGroup = mGroupAdapter.get(position);
-        mBinding.group.setSelectedPosition(position);
-        if (mGroup.skip()) return prevGroup();
-        mChannelAdapter.addAll(mGroup.getChannel());
-        mGroup.setPosition(mGroup.getChannel().size() - 1);
-        return true;
+        int count = mGroupAdapter.getItemCount();
+        if (count <= 0) return false;
+        Group origin = mGroup;
+        int originPosition = mBinding.group.getSelectedPosition();
+        for (int visited = 0; visited < count; visited++) {
+            int position = mBinding.group.getSelectedPosition() - 1;
+            if (position < 0) position = count - 1;
+            if (mGroup.equals(mGroupAdapter.get(position))) break;
+            mGroup = mGroupAdapter.get(position);
+            mBinding.group.setSelectedPosition(position);
+            if (!mGroup.skip()) {
+                mChannelAdapter.addAll(mGroup.getChannel());
+                mGroup.setPosition(mGroup.getChannel().size() - 1);
+                return true;
+            }
+        }
+        if (mGroup != origin) {
+            mGroup = origin;
+            mBinding.group.setSelectedPosition(originPosition);
+        }
+        return false;
     }
 
     private void checkNext() {

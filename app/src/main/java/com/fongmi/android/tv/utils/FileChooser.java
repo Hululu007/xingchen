@@ -108,7 +108,13 @@ public class FileChooser {
         if (DocumentsContract.isDocumentUri(context, uri)) path = getPathFromDocumentUri(context, uri);
         else if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) path = getDataColumn(context, uri);
         else if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(uri.getScheme())) path = uri.getPath();
-        return path != null ? URLDecoder.decode(path, StandardCharsets.UTF_8) : createFileFromUri(context, uri);
+        if (path == null) return createFileFromUri(context, uri);
+        try {
+            return URLDecoder.decode(path, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            // 文件名含非法 % 转义时 decode 会抛 IllegalArgumentException：用未解码的原名继续，不让选文件失败。
+            return path;
+        }
     }
 
     private static String getPathFromDocumentUri(Context context, Uri uri) {

@@ -2284,6 +2284,52 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         } catch (Throwable ignored) {}
     }
 
+    /** 地址剥标记后只留真实页面部分：#标记、@rule=/@lazyRule= 尾巴、# 片段全剥，非 http(s) 回空。 */
+    private static String cleanPageUrl(String raw) {
+        if (TextUtils.isEmpty(raw)) return "";
+        String s = HkUrlDetector.clearTag(raw);
+        int at = s.indexOf("@rule=");
+        if (at >= 0) s = s.substring(0, at);
+        int lz = s.indexOf("@lazyRule=");
+        if (lz >= 0) s = s.substring(0, lz);
+        int h = s.indexOf('#');
+        if (h >= 0) s = s.substring(0, h);
+        s = s.trim();
+        return (s.startsWith("http://") || s.startsWith("https://")) ? s : "";
+    }
+
+    private static String hostOfUrl(String u) {
+        try {
+            String host = android.net.Uri.parse(u == null ? "" : u).getHost();
+            return host == null ? "" : host;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /**
+     * pics 入口的真实页面地址：产出 pics 的那一页＝被点条目地址剥标记后的 http 地址
+     * （懒规则 fetch 的就是它）；取不到时回退规则地址，但规则 host 须与至少一张图
+     * 同域相关才认（与 HkPageActivity.hkComicPageUrl 同口径），否则留空走自动判定。
+     * 改前 req.url 恒为 articleListRule.getUrl()（列表规则地址），被下游当
+     * pageUrl/Referer 用、算出假域（漫小肆法医 §四）。
+     */
+    private String chapterPageUrl(HkItem item, java.util.List<String> pics) {
+        String page = cleanPageUrl(item == null ? "" : item.getUrl());
+        if (!page.isEmpty()) return page;
+        String ruleUrl = articleListRule == null ? "" : articleListRule.getUrl();
+        if (TextUtils.isEmpty(ruleUrl)) return "";
+        String ruleHost = hostOfUrl(ruleUrl);
+        if (ruleHost.isEmpty() || pics == null) return "";
+        for (String p : pics) {
+            String h = hostOfUrl(p);
+            if (!h.isEmpty() && (ruleHost.equals(h) || ruleHost.contains(h) || h.contains(ruleHost))) {
+                return ruleUrl;
+            }
+        }
+        return "";
+    }
+
     private void dealWithUrl(View view, String url, int position, String codeAndHeader) {
         if (position < 0 || adapter == null || position >= adapter.getList().size()) return;
         if (getContext() == null) return;
@@ -2379,11 +2425,25 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             dealBranchMark("pics", url);
             boolean fromLast = isClickLastPageBtn(articleListRule.getUrl(), actTitle, position);
             memoryPosition(position);
-            String body = url.replaceFirst("(?i)pics://", "");
+            // 拆分收口共用 HkRouter.parsePics（清标记、按行再按 "&&" 拆、trim
+            // 滤空段，与 SiteApi/HkPageActivity 同口径）；旧写法裸 split("&&")
+            // 不滤空不判空，空体（"pics://"）也直组会话、开空阅读器还没记录。
+            java.util.ArrayList<String> pics =
+                    new java.util.ArrayList<>(com.fongmi.android.tv.api.hk.HkRouter.parsePics(url));
+            // 真实页面地址（产出 pics 的章节页），不再拿列表规则地址冒充：
+            // req.url 下游当 pageUrl/Referer 用，假地址算出假域、图必死。
+            String pageUrl = chapterPageUrl(item, pics);
+            if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(pics)) {
+                SpiderDebug.forceLog("hk", "pics empty at article entry rule=%s pics=%d page=%s",
+                        articleListRule == null ? "" : articleListRule.getTitle(),
+                        pics.size(), pageUrl);
+                toastCenter("无图片");
+                return;
+            }
             PictureListRequest req = new PictureListRequest();
-            req.pics = new ArrayList<>(java.util.Arrays.asList(body.split("&&")));
+            req.pics = pics;
             req.ruleJson = new com.google.gson.Gson().toJson(articleListRule);
-            req.url = articleListRule.getUrl();
+            req.url = pageUrl;
             req.title = detailBridge == null ? item.getTitle() : detailBridge.getTitleText(item.getTitle());
             req.chapters = getChapters(url, position, titlePrefix, codeAndHeader);
             if (listHost) {

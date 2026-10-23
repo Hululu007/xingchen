@@ -531,6 +531,7 @@ public class HkRouter {
      * @param picsUrl 以 {@code pics://} 开头的完整串
      */
     private static void parsePicsInto(String picsUrl, HkPlay out) {
+        out.setPicsAttempted(true);
         String rest = HkParserKit.clearTag(picsUrl.substring(7).trim());
         for (String line : rest.split("\\n")) {
             for (String p : line.split("&&")) {
@@ -538,6 +539,37 @@ public class HkRouter {
                 if (!t.isEmpty()) out.addPic(t);
             }
         }
+    }
+
+    /**
+     * pics:// 串拆分的共用出口（列表页/搜索页/详情页各入口一律走这里，
+     * 不许再各自裸 split("&&")）：内部就是 {@link #parsePicsInto} 同一口径
+     * （清标记、先按行拆、再按字面 "&&" 拆、trim 滤空段）。
+     *
+     * @param picsUrl 以 {@code pics://} 开头的完整串（大小写不敏感，调用方已判）
+     * @return 拆出的图片条目（可空表，绝不为 null）
+     */
+    public static java.util.List<String> parsePics(String picsUrl) {
+        HkPlay tmp = new HkPlay();
+        if (picsUrl != null && picsUrl.length() >= 7) parsePicsInto(picsUrl, tmp);
+        return tmp.getPics();
+    }
+
+    /**
+     * 拆完是否有可加载的图：至少一条以 http:// 或 https:// 开头
+     * （条目可带 {@code @Referer=} 等后缀，不影响前缀判定）。
+     * 空体（"pics://" 后无内容）与全是非 http 条目都算无图——
+     * 各入口据此守卫：不许开空阅读器，须给可见提示＋强制留底。
+     */
+    public static boolean hasLoadablePic(java.util.List<String> pics) {
+        if (pics == null) return false;
+        for (String p : pics) {
+            if (p == null) continue;
+            String t = p.trim();
+            if (t.regionMatches(true, 0, "http://", 0, 7)
+                    || t.regionMatches(true, 0, "https://", 0, 8)) return true;
+        }
+        return false;
     }
 
     /**

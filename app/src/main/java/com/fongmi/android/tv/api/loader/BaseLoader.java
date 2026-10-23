@@ -101,6 +101,20 @@ public class BaseLoader {
         jsLoader.remove(key);
     }
 
+    /**
+     * 统一驱逐分发：类型谓词与顺序严格复用 getSpider（Py → JS → CSP），
+     * 调用方不许再自维护近似判型（详情空驱逐旧写法只判 .js、其余皆 Py，
+     * jar 蜘蛛全误落 PyLoader 空转、.wv 也误分）。jar 必须传 Site 的原串：
+     * JarLoader 创建键是对完整原串取 md5，驱逐端任何拆解/归一都会算错键。
+     * api 为空或未知类型为 no-op，不误伤任何一张表。
+     */
+    public void removeSpider(String key, String api, String jar, String reason) {
+        if (api == null) return;
+        if (isPy(api)) pyLoader.remove(key, reason);
+        else if (isJs(api)) jsLoader.remove(key);
+        else if (isCsp(api)) jarLoader.removeSpider(key, api, jar, reason);
+    }
+
     public void watchPyPlugins(java.io.File dir) {
         pyLoader.watchPlugins(dir);
     }

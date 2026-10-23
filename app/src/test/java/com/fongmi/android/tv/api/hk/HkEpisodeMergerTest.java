@@ -215,6 +215,84 @@ public class HkEpisodeMergerTest {
         assertFalse(plan(0, mags, Arrays.asList("a", "b")).merge);
     }
 
+    /**
+     * 调用点判定输入归一化（与 HkListActivity.mergeJudgeUrlForChapter 同口径）：
+     * 每章 originalUrl 优先、为空回退现行地址。混形态样本用它组装判定输入。
+     */
+    private static java.util.List<String> judgeUrls(java.util.List<String> originals,
+                                                    java.util.List<String> currents) {
+        java.util.List<String> out = new java.util.ArrayList<>(currents.size());
+        for (int i = 0; i < currents.size(); i++) {
+            String o = originals.get(i);
+            out.add(o != null && !o.isEmpty() ? o : currents.get(i));
+        }
+        return out;
+    }
+
+    private static java.util.List<String> xoTitles() {
+        return Arrays.asList(
+                "▶ 播放地址1 · 高清加速节点", "▶ 播放地址2 · 刷新加速节点",
+                "▶ 播放地址3 · 电信加速节点", "▶ 播放地址4 · 极速加速节点");
+    }
+
+    private static java.util.List<String> xoOriginals() {
+        return Arrays.asList(xoUrl(0, "fnA"), xoUrl(1, "fnB"), xoUrl(2, "fnC"), xoUrl(3, "fnD"));
+    }
+
+    /**
+     * 混形态（1.4.18 真机案，A 型）：被点条（地址1/高清）已被懒解析换成异 host 的
+     * 干净 m3u8 纯地址，其余三条仍是原始包装地址。混形态直喂判定件＝倒置签名
+     * （2 集：被点条单例＋其余三条折成一集挂 3 线）；经 originalUrl 归一化后
+     * 恢复原始形态，应并成 1 集 × 4 线、默认线＝被点的高清节点。
+     * 收缩为 1 集后，下游按既有单集口径显片名全名（与 xoNodesMerge 同前提）。
+     */
+    @Test
+    public void mixedResolvedTypeA_mergesAfterNormalization() {
+        java.util.List<String> originals = xoOriginals();
+        java.util.List<String> currents = Arrays.asList(
+                "https://cdn9.example.net/v/987654/index.m3u8",
+                originals.get(1), originals.get(2), originals.get(3));
+        // 污染形态的倒置签名（法医第三节纸面执行结果）：2 集、高清缺位
+        HkEpisodeMerger.Plan polluted = plan(0, currents, xoTitles());
+        assertTrue(polluted.merge);
+        assertArrayEquals(new int[]{0, 1, 1, 1}, polluted.episodeIndexOf);
+        assertArrayEquals(new String[]{"刷新加速节点", "电信加速节点", "极速加速节点"}, polluted.lineNames);
+        // 归一化后：1 集 × 4 线，被点节点居默认线
+        HkEpisodeMerger.Plan p = plan(0, judgeUrls(originals, currents), xoTitles());
+        assertTrue(p.merge);
+        assertEquals(1, p.groups.length);
+        assertArrayEquals(new int[]{0, 1, 2, 3}, p.groups[0].members);
+        assertArrayEquals(new String[]{"高清加速节点", "刷新加速节点", "电信加速节点", "极速加速节点"}, p.lineNames);
+        assertArrayEquals(new int[]{0, 0, 0, 0}, p.episodeIndexOf);
+    }
+
+    /**
+     * 混形态（兜底型）：被点条的懒解析回的是同 host 同路径的干净地址（?zk= 已剥、
+     * 无 @lazyRule=），键集合为空与兄弟条 {zk} 不同桶，同样劈成 2 集；
+     * 归一化后并成 1 集 × 4 线。样本同时让第 4 章 originalUrl 为空，验回退
+     * 现行地址（其现行值本就是包装形态）不崩、不影响归并。
+     */
+    @Test
+    public void mixedResolvedFallback_mergesAfterNormalization() {
+        java.util.List<String> originals = xoOriginals();
+        java.util.List<String> currents = Arrays.asList(
+                "https://xozwdq9916450.xyz/video/play/987654.html",
+                originals.get(1), originals.get(2), originals.get(3));
+        HkEpisodeMerger.Plan polluted = plan(0, currents, xoTitles());
+        assertTrue(polluted.merge);
+        assertArrayEquals(new int[]{0, 1, 1, 1}, polluted.episodeIndexOf);
+        java.util.List<String> stored = Arrays.asList(
+                originals.get(0), originals.get(1), originals.get(2), "");
+        java.util.List<String> judge = judgeUrls(stored, currents);
+        assertEquals(currents.get(3), judge.get(3)); // originalUrl 为空 → 回退现行值
+        HkEpisodeMerger.Plan p = plan(0, judge, xoTitles());
+        assertTrue(p.merge);
+        assertEquals(1, p.groups.length);
+        assertArrayEquals(new int[]{0, 1, 2, 3}, p.groups[0].members);
+        assertArrayEquals(new String[]{"高清加速节点", "刷新加速节点", "电信加速节点", "极速加速节点"}, p.lineNames);
+        assertArrayEquals(new int[]{0, 0, 0, 0}, p.episodeIndexOf);
+    }
+
     /** 无查询的直链同址重复（两条一模一样的 http 地址、无 lazyRule）：名可提取时并。 */
     @Test
     public void plainDuplicateUrlsMerged() {

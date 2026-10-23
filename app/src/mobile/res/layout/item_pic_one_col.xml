@@ -8,5 +8,5 @@
         <TextView android:textSize="18.0sp" android:textStyle="bold" android:textColor="@color/blackText" android:ellipsize="end" android:gravity="center_vertical" android:id="@id/reult_tools_title" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:maxLines="2" android:lineSpacingMultiplier="1.2" />
         <TextView android:ellipsize="end" android:gravity="center_vertical" android:id="@id/reult_tools_desc" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:maxLines="3" />
     </LinearLayout>
-    <TextView android:background="@color/chapter_bottom" android:layout_width="fill_parent" android:layout_height="12.0dip" />
+    <TextView android:background="@android:color/transparent" android:layout_width="fill_parent" android:layout_height="12.0dip" />
 </LinearLayout>

@@ -169,23 +169,11 @@ public final class HomePrewarm {
     }
 
     /**
-     * App 冷启动且主页首屏加载发起后调用；门闩只在真正跑过一轮后落下，
-     * 一轮都没跑成（配置等不到等）不烧进程级机会，后续 kick 可重新驱动。
+     * 全量首页预热已关闭：保留入口供既有调用方使用，但不启动队列，
+     * 避免后台提前跑遍各源首页与前台加载争抢资源。
      */
     public static void kick() {
-        if (!state.compareAndSet(STATE_IDLE, STATE_STARTING)) return;
-        int cfg = -1, pf = -1;
-        try {
-            List<Site> s = VodConfig.get().getSites();
-            cfg = s == null ? -1 : s.size();
-        } catch (Throwable ignored) {
-        }
-        try {
-            pf = collectPluginSites().size();
-        } catch (Throwable ignored) {
-        }
-        com.github.catvod.crawler.SpiderDebug.log("prewarm", "kick: configSites=" + cfg + " pluginFiles=" + pf);
-        driver.submit(HomePrewarm::runQueue);
+        com.github.catvod.crawler.SpiderDebug.log("prewarm", "kick ignored: full home prewarm disabled");
     }
 
     /**

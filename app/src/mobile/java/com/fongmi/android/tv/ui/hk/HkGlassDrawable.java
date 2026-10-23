@@ -59,7 +59,7 @@ public class HkGlassDrawable extends Drawable {
         mDensity = context.getResources().getDisplayMetrics().density;
         mRadius = cornerRadiusDp * mDensity;
         if (overlayColors != null && overlayColors.length == 3) mOverlayColors = overlayColors;
-        mFallbackPaint.setColor(0xE8FFFFFF);
+        mFallbackPaint.setColor(0x00000000); // 兜底改透明：裁剪失败时透出页底，不再整片刷白
         mStrokePaint.setStyle(Paint.Style.STROKE);
         mStrokePaint.setStrokeWidth(1f * mDensity);
         mStrokePaint.setColor(strokeColor);

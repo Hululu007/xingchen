@@ -453,7 +453,7 @@ public class HkHttp {
             // FromFile：本地文件在就先重置名单并加载它（原版 clearAutoDomain + fileToString + loadAutoDNS）
             if (file != null && file.exists()) {
                 reseedAutoDomain();
-                loadAutoDNS(readTextFile(file));
+                loadEffectiveAutoDns(readTextFile(file));
             }
             // FromRemote：文件缺失或已满 24 小时才刷新。8.83 出厂构建在这一步并未
             // 真发请求，而是把内置快照写回文件再加载（autoDNSCheckUrl 只声明、
@@ -466,7 +466,7 @@ public class HkHttp {
                 if (text == null || !hasParsableAutoDnsLine(text)) text = AUTO_DNS_BUNDLED;
                 if (file != null) writeTextFile(file, text);
                 reseedAutoDomain();
-                loadAutoDNS(text);
+                loadEffectiveAutoDns(text);
             }
         } catch (Throwable ignored) {
         }
@@ -486,6 +486,29 @@ public class HkHttp {
     private static void reseedAutoDomain() {
         AUTO_DOMAIN.clear();
         AUTO_DOMAIN.put("pasteme.tyrantg.com", "https://dns.alidns.com/dns-query");
+    }
+
+    /**
+     * 名单生效合并入口（并集恒生效，维护链两个加载点共用——文件分支与
+     * 远程分支都必须走这里，只改一处等于没改）：reseed 之后先垫内置快照
+     * AUTO_DNS_BUNDLED，再加载文件/下发正文。loadAutoDNS 是逐行 put 覆盖，
+     * 后加载者赢同名键，故：快照独有键恒在（图床等星辰自补域名不再被一次
+     * 远程成功整表盖掉——此前维护是「三选一替换」，远程全文仅 3 行、健康
+     * 网络设备上快照 14 条整表休眠）；下发独有键恒在；同名冲突下发赢
+     * （下发是上游现行维护值，如 raw.githubusercontent.com 的静态 IP 表）。
+     * 两步各自吞异常：名单文本损坏/为空只跳过该步，不许把已生效名单清空，
+     * 也不许异常打穿到图片请求链。拉取失败分支 text 本就是快照，重复加载
+     * 一遍是幂等 put，无副作用。
+     */
+    static void loadEffectiveAutoDns(String text) {
+        try {
+            loadAutoDNS(AUTO_DNS_BUNDLED);
+        } catch (Throwable ignored) {
+        }
+        try {
+            loadAutoDNS(text);
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

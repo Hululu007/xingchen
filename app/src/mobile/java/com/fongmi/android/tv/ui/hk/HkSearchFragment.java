@@ -636,6 +636,20 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         });
     }
 
+    /** 地址剥标记后只留真实页面部分：#标记、@rule=/@lazyRule= 尾巴、# 片段全剥，非 http(s) 回空。 */
+    private static String cleanSearchPageUrl(String raw) {
+        if (TextUtils.isEmpty(raw)) return "";
+        String s = HkUrlDetector.clearTag(raw);
+        int at = s.indexOf("@rule=");
+        if (at >= 0) s = s.substring(0, at);
+        int lz = s.indexOf("@lazyRule=");
+        if (lz >= 0) s = s.substring(0, lz);
+        int h = s.indexOf('#');
+        if (h >= 0) s = s.substring(0, h);
+        s = s.trim();
+        return (s.startsWith("http://") || s.startsWith("https://")) ? s : "";
+    }
+
     /** 照原版 dealWithUrl 的主分支集（与文章页同构，条目为 SearchResult）。 */
     private void dealWithUrl(View view, String url, int position, String codeAndHeader) {
         if (position < 0 || adapter == null || position >= adapter.getList().size()) return;
@@ -679,15 +693,28 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             return;
         }
         if (lower.startsWith("pics://")) {
-            String body = url.substring("pics://".length());
-            String[] parts = body.split("&&");
-            List<String> pics = new ArrayList<>();
-            for (String part : parts) {
-                if (!part.isEmpty()) pics.add(part);
+            // 拆分收口共用 HkRouter.parsePics（清标记、按行再按 "&&" 拆、trim
+            // 滤空段，与其余 pics 入口同口径）；旧写法裸 split 只滤全空段、
+            // 不判空，空体也直组会话。
+            java.util.ArrayList<String> pics =
+                    new java.util.ArrayList<>(com.fongmi.android.tv.api.hk.HkRouter.parsePics(url));
+            // 真实页面地址：被点条目地址剥标记后的 http 地址（懒规则 fetch 的
+            // 就是它）；取不到才回退当前页 myUrl（须为 http），再不行留空——
+            // 不拿非页面地址冒充 pageUrl/Referer（与文章页入口同口径）。
+            String pageUrl = cleanSearchPageUrl(result == null ? "" : result.getUrl());
+            if (pageUrl.isEmpty()) pageUrl = cleanSearchPageUrl(myUrl);
+            if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(pics)) {
+                com.github.catvod.crawler.SpiderDebug.forceLog("hk",
+                        "pics empty at search entry pics=%d page=%s", pics.size(), pageUrl);
+                if (getContext() != null) {
+                    com.fongmi.android.tv.utils.ToastUtil.show(getContext(), "无图片",
+                            android.widget.Toast.LENGTH_SHORT);
+                }
+                return;
             }
             HkArticleFragment.PictureListRequest req = new HkArticleFragment.PictureListRequest();
-            req.pics = new ArrayList<>(pics);
-            req.url = myUrl;
+            req.pics = pics;
+            req.url = pageUrl;
             req.title = getItemTitle(position);
             req.chapters = getChapters(url, position, "", codeAndHeader);
             req.cUrl = searchEngine.getUrl();

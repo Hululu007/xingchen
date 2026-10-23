@@ -3998,13 +3998,16 @@ public class HkPageActivity extends BaseActivity {
             switch (kind) {
                 case "pics": {
                     // pics://url1&&url2... → 直接进漫画阅读器（阶段二：不再只弹第一张图）
-                    String raw = url.replaceFirst("(?i)^pics://", "");
-                    String[] parts = raw.split("&&");
-                    java.util.ArrayList<String> urls = new java.util.ArrayList<>();
-                    for (String p : parts) {
-                        if (!TextUtils.isEmpty(p.trim())) urls.add(p.trim());
-                    }
-                    if (urls.isEmpty()) {
+                    // 拆分收口共用 HkRouter.parsePics（清标记、按行再按 "&&" 拆、
+                    // trim 滤空段，与 SiteApi 链同口径，不许再各自裸 split）。
+                    java.util.ArrayList<String> urls =
+                            new java.util.ArrayList<>(HkRouter.parsePics(url));
+                    if (!HkRouter.hasLoadablePic(urls)) {
+                        // 空体/无可加载 http 图：不开空阅读器，可见提示＋强制留底。
+                        com.github.catvod.crawler.SpiderDebug.forceLog("hk",
+                                "pics empty at page entry rule=%s pics=%d page=%s",
+                                currentRule == null ? "" : currentRule.getTitle(),
+                                urls.size(), hkPageUrl);
                         ToastUtil.show(this, "无图片", android.widget.Toast.LENGTH_SHORT);
                         return;
                     }

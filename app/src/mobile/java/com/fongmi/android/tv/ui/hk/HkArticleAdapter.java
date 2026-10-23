@@ -1706,7 +1706,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         com.bumptech.glide.Glide.with(context).asDrawable()
                 .load(HkGlideUtil.getGlideUrl(pageUrl, item.getPic()))
                 .apply(options2.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                        context.getResources().getColor(R.color.gray_rice))))
+                        android.graphics.Color.TRANSPARENT)))
                 .into(h.img);
         bindBgClick(holder, h.img);
     }
@@ -1741,12 +1741,12 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         com.bumptech.glide.Glide.with(context).asDrawable()
                 .load(HkGlideUtil.getGlideUrl(pageUrl, item.getPic()))
                 .apply(options2.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                        context.getResources().getColor(R.color.gray_rice))))
+                        android.graphics.Color.TRANSPARENT)))
                 .into(h.img);
         bindBgClick(holder, h.resultBg);
     }
 
-    /** 照抄原版 bindForPicThreeHolder（smali:6165，java 2337-2354）：直载 options2+gray_rice 色占位。 */
+    /** 照抄原版 bindForPicThreeHolder（smali:6165，java 2337-2354）：直载 options2＋占位（原版 gray_rice 色占位，按用户令改透明）。 */
     protected void bindForPicThreeHolder(RecyclerView.ViewHolder holder, int position) {
         PicThreeHolder h = (PicThreeHolder) holder;
         androidx.recyclerview.widget.GridLayoutManager.LayoutParams lp =
@@ -1764,7 +1764,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         com.bumptech.glide.Glide.with(context).asDrawable()
                 .load(HkGlideUtil.getGlideUrl(pageUrl, item.getPic()))
                 .apply(options2.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                        context.getResources().getColor(R.color.gray_rice))))
+                        android.graphics.Color.TRANSPARENT)))
                 .into(h.img);
         bindBgClick(holder, h.resultBg);
     }
@@ -1897,7 +1897,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
                                java.util.function.Consumer<android.graphics.drawable.Drawable> drawableConsumer) {
         com.bumptech.glide.Glide.with(context).asBitmap().load(model)
                 .apply(options2.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                        context.getResources().getColor(R.color.gray_rice))))
+                        android.graphics.Color.TRANSPARENT)))
                 .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                     @Override
                     public void onResourceReady(android.graphics.Bitmap resource, com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
@@ -1920,7 +1920,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
                         android.app.Activity act = activity();
                         if (act != null && !act.isFinishing()) {
                             drawableConsumer.accept(new android.graphics.drawable.ColorDrawable(
-                                    context.getResources().getColor(R.color.gray_rice)));
+                                    android.graphics.Color.TRANSPARENT));
                         }
                         super.onLoadFailed(errorDrawable);
                     }
@@ -1967,7 +1967,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         } else {
             com.bumptech.glide.Glide.with(context).asDrawable().load(Integer.valueOf(R.drawable.nothing))
                     .apply(options.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                            context.getResources().getColor(R.color.gray_rice))))
+                            android.graphics.Color.TRANSPARENT)))
                     .into(h.img);
             bindBlurImg(25, (Object) Integer.valueOf(R.drawable.nothing), bmpConsumer, d -> {
             });
@@ -1986,7 +1986,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         } else {
             com.bumptech.glide.Glide.with(context).asDrawable().load(Integer.valueOf(R.drawable.nothing))
                     .apply(options.clone().placeholder(new android.graphics.drawable.ColorDrawable(
-                            context.getResources().getColor(R.color.gray_rice))))
+                            android.graphics.Color.TRANSPARENT)))
                     .into(h.img);
         }
         HkTextViewUtils.setSpanText(h.title, item.getTitle(), buildUrlListener(holder));

@@ -75,6 +75,12 @@ public class HkPlay {
     private int threads;
     /** P1：{urls:[], audioUrls:[]} 音视频分离时的音频地址。 */
     private String audioUrl = "";
+    /**
+     * 本结果是否经过 pics:// 解析（parsePicsInto 跑过）：消费方据此区分
+     * 「不是漫画」与「是漫画但拆完无图」——后者不许静默落进视频装配，
+     * 须强制留底＋给可见错（SiteApi hkPlayerContent 空 pics 守卫）。
+     */
+    private boolean picsAttempted;
     /** P1：pics:// 漫画多图模式的图片列表（非视频，UI 提示不支持）。 */
     private final java.util.List<String> pics = new java.util.ArrayList<>();
     /**
@@ -166,6 +172,14 @@ public class HkPlay {
 
     public void addPic(String pic) {
         if (pic != null && !pic.isEmpty()) pics.add(pic);
+    }
+
+    public boolean isPicsAttempted() {
+        return picsAttempted;
+    }
+
+    public void setPicsAttempted(boolean picsAttempted) {
+        this.picsAttempted = picsAttempted;
     }
 
     public String getPlayType() {

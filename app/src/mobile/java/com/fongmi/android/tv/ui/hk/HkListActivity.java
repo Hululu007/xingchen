@@ -254,6 +254,33 @@ public class HkListActivity extends AppCompatActivity
         context.startActivity(intent);
     }
 
+    /** pics 会话的页面地址判定：只认 http(s) 全地址（与 ReadingGate.isHttpPage 同口径）。 */
+    private static boolean isHttpPage(String u) {
+        return u != null && (u.startsWith("http://") || u.startsWith("https://"));
+    }
+
+    private static String hostOf(String u) {
+        try {
+            String h = android.net.Uri.parse(u == null ? "" : u).getHost();
+            return h == null ? "" : h;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** 页面地址归一化（章节匹配用）：剥 #标记、@rule=/@lazyRule= 尾巴与 # 片段后比对。 */
+    private static String pageKeyOf(String u) {
+        if (u == null) return "";
+        String s = HkUrlDetector.clearTag(u);
+        int at = s.indexOf("@rule=");
+        if (at >= 0) s = s.substring(0, at);
+        int lz = s.indexOf("@lazyRule=");
+        if (lz >= 0) s = s.substring(0, lz);
+        int h = s.indexOf('#');
+        if (h >= 0) s = s.substring(0, h);
+        return s.trim();
+    }
+
     /** 全套静态接线一次性初始化（引擎单例桥 + DetailBridge + 活动供给 + Fuck 名单）。 */
     /** 桥与静态接线（搜索宿主同包共用，故包内可见）。 */
     static void ensureStatics() {
@@ -378,12 +405,18 @@ public class HkListActivity extends AppCompatActivity
                 // 交接前折成一集、组内地址合成多线路播放数据，走下面既有的多线路展开。
                 // 判定窄口径、拿不准不并；不并时下面一切原样。
                 java.util.List<String> rawUrls = new java.util.ArrayList<>();
+                java.util.List<String> judgeUrls = new java.util.ArrayList<>();
                 java.util.List<String> chapterTitles = new java.util.ArrayList<>();
                 for (HkArticleFragment.HkChapter ch : chapters) {
                     rawUrls.add(playUrlForChapter(ch));
+                    // 判定输入归一化（法医定案，hk-episode-1418-forensics）：判定件
+                    // 只收原始形态地址，被点章的现行地址已被懒解析换成纯地址、与
+                    // 兄弟章的原始包装地址不同桶，会把同组劈成「一集＋多线」倒置。
+                    // judgeUrls 只喂判定，归并产出的播放地址与下游仍用 rawUrls 原样。
+                    judgeUrls.add(mergeJudgeUrlForChapter(ch));
                     chapterTitles.add(ch.memoryTitle == null ? "" : ch.memoryTitle);
                 }
-                HkEpisodeMerger.Plan mergePlan = HkEpisodeMerger.plan(rawUrls, chapterTitles, selIdx);
+                HkEpisodeMerger.Plan mergePlan = HkEpisodeMerger.plan(judgeUrls, chapterTitles, selIdx);
                 java.util.Map<Integer, HkPlayData> mergedPlayData = new java.util.HashMap<>();
                 if (mergePlan.merge) {
                     int episodeCount = 0;
@@ -513,6 +546,17 @@ public class HkListActivity extends AppCompatActivity
                                         HkArticleFragment.PictureListRequest request) {
                 if (activity == null || request == null) return;
                 try {
+                    // 空体守卫（全入口最后一道）：拆完无可加载 http 图不许开空阅读器，
+                    // 可见提示＋强制留底——旧口径裸组会话、失败只写 Log.e 静默吞。
+                    if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(request.pics)) {
+                        com.github.catvod.crawler.SpiderDebug.forceLog("hk",
+                                "pics empty at openPictureList pics=%d reqUrl=%s",
+                                request.pics == null ? 0 : request.pics.size(),
+                                request.url == null ? "" : request.url);
+                        com.fongmi.android.tv.utils.ToastUtil.show(activity, "无图片",
+                                android.widget.Toast.LENGTH_SHORT);
+                        return;
+                    }
                     ReadingSession s = new ReadingSession();
                     s.kind = ReadingSession.Kind.COMIC;
                     String ruleTitle = hostRuleTitle(activity);
@@ -528,13 +572,18 @@ public class HkListActivity extends AppCompatActivity
                     s.bookTitle = !TextUtils.isEmpty(request.mTitle) ? request.mTitle
                             : (!TextUtils.isEmpty(request.title) ? request.title : "");
                     if (request.pics != null) s.images = new ArrayList<>(request.pics);
-                    s.referer = request.url == null ? "" : request.url;
-                    // request.url 就是本章真实页地址：另存 pageUrl 供阅读器组图（与 referer 分开）
-                    s.pageUrl = request.url == null ? "" : request.url;
+                    // req.url 口径：只认真实 http 页面地址（产出 pics 的那一页）。
+                    // 改前无条件拿 req.url 当 pageUrl/Referer——生产方曾塞列表规则
+                    // 地址，组装层据此算出假域、自动 Referer 恒不成立（漫小肆法医）；
+                    // 不合格宁可留空走自动判定。referer 与 pageUrl 同值同口径。
+                    String pageUrl = isHttpPage(request.url) ? request.url : "";
+                    s.referer = pageUrl;
+                    s.pageUrl = pageUrl;
                     // 本入口没有 play 解析，实际有的请求头只有本章页地址作 Referer：
                     // 喂进 playHeaders，让阅读器组图的整套头补缺对跨域防盗链图也有
                     // 数据可补（此前三入口 playHeaders 恒为空集，复核报告 §4）。
                     if (!TextUtils.isEmpty(s.pageUrl)) s.playHeaders.put("Referer", s.pageUrl);
+                    int useIdx = -1;
                     if (request.chapters != null) {
                         for (HkArticleFragment.HkChapter ch : request.chapters) {
                             ReadingSession.Chapter c = new ReadingSession.Chapter(
@@ -543,15 +592,23 @@ public class HkListActivity extends AppCompatActivity
                                     ch.url == null ? "" : ch.url);
                             c.pic = ch.pic == null ? "" : ch.pic;
                             s.chapters.add(c);
+                            if (ch.use) useIdx = s.chapters.size() - 1;
                         }
                     }
-                    // 当前章：按 url 匹配章节表，匹配不上则单章模式
+                    // 当前章：生产方 use 标记优先（被点那一章）；没有标记时按归一化
+                    // 页地址匹配章节表（剥标记后比对，旧口径拿原始串全等恒不命中）；
+                    // 都匹配不上则单章模式（idx=0，会话图就是被点章的图）。
                     int idx = 0;
-                    if (!TextUtils.isEmpty(request.url) && !s.chapters.isEmpty()) {
-                        for (int i = 0; i < s.chapters.size(); i++) {
-                            if (request.url.equals(s.chapters.get(i).url)) {
-                                idx = i;
-                                break;
+                    if (useIdx >= 0) {
+                        idx = useIdx;
+                    } else if (!pageUrl.isEmpty() && !s.chapters.isEmpty()) {
+                        String key = pageKeyOf(pageUrl);
+                        if (!key.isEmpty()) {
+                            for (int i = 0; i < s.chapters.size(); i++) {
+                                if (key.equals(pageKeyOf(s.chapters.get(i).url))) {
+                                    idx = i;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -564,9 +621,17 @@ public class HkListActivity extends AppCompatActivity
                     }
                     ReadingStore.Record prog = ReadingStore.find("COMIC", ruleTitle, s.bookTitle);
                     if (prog != null && prog.position > 0) startPage = prog.position;
+                    // 组会话打点闭环：出问题时凭这一行就能判 pics 是否为空、
+                    // pageUrl 是否合格，不再靠下游零记录反推（漫小肆法医 §四缺口）。
+                    com.github.catvod.crawler.SpiderDebug.forceLog("hk",
+                            "openPictureList pics=%d firstHost=%s pageUrl=%s chapters=%d idx=%d",
+                            s.images.size(),
+                            s.images.isEmpty() ? "" : hostOf(s.images.get(0)),
+                            s.pageUrl, s.chapters.size(), s.chapterIndex);
                     ReadingRouter.openReadingWithStartPage(activity, s, startPage);
                 } catch (Throwable t) {
-                    android.util.Log.e(TAG, "openPictureList failed", t);
+                    // 不许再只写 Log.e（调试日志里永远看不到）：强制留底。
+                    com.github.catvod.crawler.SpiderDebug.forceLog("hk", t);
                 }
             }
 
@@ -1086,6 +1151,21 @@ public class HkListActivity extends AppCompatActivity
             url = url.substring(0, lr) + cah + url.substring(lr);
         }
         return url;
+    }
+
+    /**
+     * 归并判定专用地址（只作 HkEpisodeMerger.plan 的比对输入，绝不用于起播）：
+     * 判定件只收原始形态地址（见 HkEpisodeMerger 类头入参契约）。被点章的 url
+     * 已被点击流程的懒解析换成干净纯地址，与兄弟章的原始包装地址不同桶；收集层
+     * 已为每章另存原始地址 originalUrl（codeAndHeader 非空时赋值，见
+     * HkArticleFragment.getChapters/buildChapter），故此处 originalUrl 优先、
+     * 为空回退现行地址 playUrlForChapter。归并产出的播放地址与下游起播仍走
+     * playUrlForChapter 的现行形态，一字不动。
+     */
+    static String mergeJudgeUrlForChapter(HkArticleFragment.HkChapter chapter) {
+        if (chapter == null) return "";
+        if (chapter.originalUrl != null && !chapter.originalUrl.isEmpty()) return chapter.originalUrl;
+        return playUrlForChapter(chapter);
     }
 
     /** 地址是 8.83 播放数据（{urls,...} 的 JSON 串）时返回解析结果（走已移植的 HttpParser.getPlayData），否则返回空。 */

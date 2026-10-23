@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.loader;
 import android.content.Context;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.utils.Download;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.UrlUtil;
@@ -17,8 +18,10 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
@@ -329,6 +332,47 @@ public class JarLoader {
             }
             return created == null ? new SpiderNull() : created;
         }
+    }
+
+    /**
+     * 单只驱逐（详情空阈值满后经 BaseLoader 统一分发进来）：只摘本条目对应的蜘蛛
+     * 实例并 destroy，不许拿 clear() 顶替——那会把全部 jar 蜘蛛一锅端。
+     * 键公式与创建端逐字同式：普通路 spiders[md5(完整 jar 原串) + siteKey]；
+     * csp_Emby 另有内置兜底 spiders["emby:" + siteKey]，两候选键一并处理。
+     * 共享载体一概不动：loaders/methods（同 jar 共用，删了会连带兄弟站）、
+     * recent（存的是 jar 键不是站点键）、locks 条目（删锁会让另一线程新建
+     * 第二把锁，破坏同 spKey 创建/驱逐的串行关系）。
+     * 摘除在与创建相同的 "spider:" + spKey 锁内完成：同一蜘蛛正在创建时，
+     * 驱逐等创建把实例写入后再摘，不会驱逐先跑完、创建又把坏实例塞回。
+     * destroy 吞异常，不打穿调用方（详情链）。
+     */
+    public boolean removeSpider(String key, String api, String jar, String reason) {
+        if (key == null || key.isEmpty()) return false;
+        String jaKey = Util.md5(jar);
+        List<String> targets = new ArrayList<>();
+        targets.add(jaKey + key);
+        if ("csp_Emby".equals(api)) targets.add("emby:" + key);
+        boolean removedAny = false;
+        for (String spKey : targets) {
+            Object lock = locks.computeIfAbsent("spider:" + spKey, ignored -> new Object());
+            synchronized (lock) {
+                Spider removed = spiders.remove(spKey);
+                if (removed != null) {
+                    removedAny = true;
+                    try {
+                        removed.destroy();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+        // 与 Py/Js 两家 remove 同口径：无论摘没摘到，都按站点 key 清一次玩家解析缓存。
+        try {
+            SiteApi.clearPlayerCache(key);
+        } catch (Throwable ignored) {
+        }
+        SpiderDebug.log("jar-loader", "remove site=%s api=%s jar=%s reason=%s hadSpider=%s", key, api, jaKey, reason, removedAny);
+        return removedAny;
     }
 
     private static boolean isInterrupted(Throwable e) {

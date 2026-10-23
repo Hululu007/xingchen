@@ -20,11 +20,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PyLoader {
 
     private final ConcurrentHashMap<String, Spider> spiders;
     private final ConcurrentHashMap<String, Long> fileStamps;
+    /** key → 连续创建失败标记（次数＋最近失败时刻）：给静默路径的失败退避用，内存态、不落盘。 */
+    private final ConcurrentHashMap<String, FailMark> failMarks;
     /** 脚本绝对路径 → 用它创建过的源 key（给目录监听单清用：只清该文件对应的蜘蛛）。 */
     private final ConcurrentHashMap<String, Set<String>> pathKeys;
     private final Loader loader;
@@ -72,9 +75,47 @@ public class PyLoader {
         return false;
     }
 
+    /** 连续创建失败标记：次数随每次真失败 +1，成功／驱逐／全清时整条摘除（＝清零）。 */
+    private static class FailMark {
+        final AtomicInteger count = new AtomicInteger();
+        volatile long lastFailMs;
+    }
+
+    /**
+     * 静默路径退避窗（毫秒），随连续失败次数涨、30 分钟封顶：
+     * 第 1 次失败 5 分钟——先短，一次网络抖动不该把源在后台晾太久；
+     * 第 2 次 15 分钟；第 3 次起 30 分钟——反复撞不活的源（死域名扫描型
+     * init 一撞就是满额超时）必须把后台重试拉到半小时一级，堵住每趟预热
+     * 重烧一遍。封顶保证源恢复后后台最迟半小时自动复活；且前台点开不受
+     * 退避影响、成功即清零，实际恢复感知远快于窗长。
+     */
+    private static long backoffWindowMs(int failCount) {
+        if (failCount <= 1) return 5 * 60 * 1000L;
+        if (failCount == 2) return 15 * 60 * 1000L;
+        return 30 * 60 * 1000L;
+    }
+
+    /** 记一次真失败（被取消不算，见 createSpider 的分类）。前台后台共用同一本账。 */
+    private void noteLoadFailure(String key) {
+        if (key == null) return;
+        FailMark mark = failMarks.computeIfAbsent(key, k -> new FailMark());
+        int n = mark.count.incrementAndGet();
+        mark.lastFailMs = System.currentTimeMillis();
+        SpiderDebug.log("pyloader", "load failure noted key=%s consecutive=%d backoffMs=%d", key, n, backoffWindowMs(n));
+    }
+
+    /** 该 key 是否还在退避窗内（只给静默路径查；前台 getSpider 永不调用）。 */
+    private boolean isBackedOff(String key) {
+        if (key == null) return false;
+        FailMark mark = failMarks.get(key);
+        if (mark == null) return false;
+        return System.currentTimeMillis() - mark.lastFailMs < backoffWindowMs(mark.count.get());
+    }
+
     public PyLoader() {
         spiders = new ConcurrentHashMap<>();
         fileStamps = new ConcurrentHashMap<>();
+        failMarks = new ConcurrentHashMap<>();
         pathKeys = new ConcurrentHashMap<>();
         loader = new Loader();
     }
@@ -90,6 +131,7 @@ public class PyLoader {
         spiders.values().forEach(Spider::destroy);
         spiders.clear();
         createdKeys.clear();
+        failMarks.clear();
         fileStamps.clear();
         pathKeys.clear();
         recent = null;
@@ -109,6 +151,7 @@ public class PyLoader {
     public void remove(String key, String reason) {
         Spider spider = spiders.remove(key);
         createdKeys.remove(key);
+        if (key != null) failMarks.remove(key);
         fileStamps.remove(key);
         removeKeyFromPaths(key);
         if (key != null && key.equals(recent)) recent = null;
@@ -253,6 +296,15 @@ public class PyLoader {
                 remove(key, "stamp-changed");
             }
         }
+        if (isBackedOff(key)) {
+            // 后台退避：该源连续创建失败且还在退避窗内（窗长见 backoffWindowMs），
+            // 静默路径直接跳过，不再每趟预热/检测都重撞一次满额超时（慢 init 源
+            // 一撞就是 60 秒起步、还留僵尸扫描）。只拦静默路径：前台 getSpider
+            // 不查退避，用户亲手点开永远真试、成功即清零。前面的 stamp-changed
+            // 分支经 remove 已清标记——脚本被替换过照样立即重试，不被旧账拖住。
+            SpiderDebug.log("pyloader", "quiet skip backoff key=%s", key);
+            return new SpiderNull();
+        }
         try {
             return spiders.computeIfAbsent(key, k -> createSpider(k, resolvedApi, ext, localFile));
         } catch (SpiderLoadCancelled e) {
@@ -291,6 +343,7 @@ public class PyLoader {
             }
             SpiderDebug.log("pyloader", "create failed key=%s cost=%dms error=%s", key, System.currentTimeMillis() - spiderStart, t);
             t.printStackTrace();
+            noteLoadFailure(key);
             throw new SpiderLoadFailed(t);
         }
         long spiderCost = System.currentTimeMillis() - spiderStart;
@@ -307,6 +360,7 @@ public class PyLoader {
             }
             anySpider.set(true);
             createdKeys.add(key);
+            failMarks.remove(key);
             boolean pycache = false;
             try {
                 pycache = new File(Path.py(), "__pycache__").exists();
@@ -329,6 +383,7 @@ public class PyLoader {
             } catch (Throwable ignored) {
             }
             if (cancelled) throw new SpiderLoadCancelled(t);
+            noteLoadFailure(key);
             throw new SpiderLoadFailed(t);
         }
     }

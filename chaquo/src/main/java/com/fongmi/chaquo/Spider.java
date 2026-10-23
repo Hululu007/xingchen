@@ -34,6 +34,14 @@ public class Spider extends com.github.catvod.crawler.Spider {
     // 其它蜘蛛仍能跑）。超时后任务不强杀：它可能稍后自己返回，队列随后恢复。
     private static final long TIMEOUT_SECONDS = 60;
 
+    // init 单独放宽（与普通调用分闸）：市面源有把「拉域名列表＋逐个域名试活＋
+    // 注册」全塞进 init 的（如萝莉岛：现行列表 25 个域名串行试活，实测合法
+    // init 就要约 50-60 秒），与普通调用共用 60 秒闸时用户亲手点开也必然
+    // 超时、源永远开不出来。创建期 init 这一路单独放宽到 120 秒，普通调用
+    // 维持 60 秒一字不动。代价只是真死的源在创建时多等一倍才报错；后台
+    // 预热反复重试的烧时靠 PyLoader 的失败退避堵，不靠收紧这里解决。
+    private static final long INIT_TIMEOUT_SECONDS = 120;
+
     // setHomeGeneration 是静态模块调用，没有单只蜘蛛的队列可借（FIX-H23
     // 收尾）：单独一条守护线程串行执行＋有界等待，与 invoke 同口径，不许
     // 调用方（壳子的加载/作废线程）被一次卡死的 Python 调用无限期挂住。
@@ -78,9 +86,13 @@ public class Spider extends com.github.catvod.crawler.Spider {
     }
 
     private <T> T invoke(Callable<T> task) {
+        return invoke(task, TIMEOUT_SECONDS);
+    }
+
+    private <T> T invoke(Callable<T> task, long timeoutSeconds) {
         Future<T> future = executor.submit(task);
         try {
-            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             throw new RuntimeException("python call timeout", e);
         } catch (ExecutionException e) {
@@ -130,10 +142,11 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public void init(Context context, String extend) {
+        // 全树唯一走 120 秒闸的调用点：精确圈定创建期 init 这一次调用。
         invoke(() -> {
             initInternal(extend);
             return null;
-        });
+        }, INIT_TIMEOUT_SECONDS);
     }
 
     private void initInternal(String extend) {

@@ -709,12 +709,11 @@ public class SiteApi {
                 SpiderDebug.log("detail", "empty key=%s id=%s strikes=%d", key, id, strikes);
                 if (strikes >= DETAIL_EMPTY_EVICT_STRIKES) {
                     detailEmptyStrikes.remove(strikeKey);
-                    if (site.getApi() != null && site.getApi().contains(".js")) {
-                        BaseLoader.get().removeJsSpider(key);
-                        // JS 路：JsLoader.remove 已按 key 清解析缓存，此处显式再清一次，
-                        // 与 py 路（PyLoader.remove 内清）对齐；驱逐后旧解析 URL 不再命中。
-                        clearPlayerCache(key);
-                    } else BaseLoader.get().removePySpider(key, "detail-empty");
+                    // 统一分发（与 getSpider 同口径：Py → JS（含 .wv）→ CSP jar）：
+                    // 三家 remove 各自按 key 清玩家解析缓存，本处不再自维护类型二分
+                    // ——旧写法 jar 蜘蛛全误落 PyLoader 空转（hadSpider=false）、
+                    // .wv 蜘蛛同样误分，本次一并消除。
+                    BaseLoader.get().removeSpider(key, site.getApi(), site.getJar(), "detail-empty");
                     SpiderDebug.log("detail", "evict key=%s id=%s after %d consecutive empties", key, id, strikes);
                 }
             } else {
@@ -1140,6 +1139,14 @@ public class SiteApi {
             comicResult.setFlag(flag);
             SpiderDebug.log("player", "hk reading diverted kind=COMIC rule=%s pics=%d", title, play.getPics().size());
             return comicResult;
+        }
+        if (play.isPicsAttempted()) {
+            // 是 pics:// 漫画但拆完无有效图（规则产出空体等）：不许静默落进
+            // 下面的视频装配（空地址只剩 00:00、无报错），强制留底＋抛可见错，
+            // 与懒解析空结果同口径（HkRouter play 步骤 4）。
+            SpiderDebug.forceLog("hk", "pics empty no-divert rule=%s pics=%d page=%s",
+                    title, play.getPics().size(), play.getPageUrl());
+            throw new IllegalStateException("无图片");
         }
         // P2 多线路：按 (规则名,剧集) 记忆的线路下标取线（默认首线），
         // 该线路的地址+请求头按下标取、不跨线路合并（8.83 getPlayData/getHeaders 语义）

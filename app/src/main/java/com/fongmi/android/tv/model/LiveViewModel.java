@@ -84,7 +84,24 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void getEpg(Channel item) {
-        execute(TaskType.EPG, () -> LiveApi.getEpg(item, zoneId), epg::postValue, error -> epg.postValue(new Epg()));
+        execute(TaskType.EPG, () -> {
+            awaitLiveParse();
+            return LiveApi.getEpg(item, zoneId);
+        }, epg::postValue, error -> epg.postValue(new Epg()));
+    }
+
+    // F-06b：parse（LIVE）与 getEpg（EPG）是两条独立异步任务，频道先点开时 getEpg 可能
+    // 抢在 setTimeZone 之前用上一个源的时区取数。这里让 EPG 任务先等在飞的 LIVE 任务落定
+    // （setTimeZone 在 parse 的 callable 内、postValue 之前执行），等完再读 volatile zoneId 即为新源时区。
+    // LIVE 任务本身带超时（TaskType.LIVE.timeout），等待不会无限挂起；线程池 5 条，占用一条等待可接受。
+    private void awaitLiveParse() {
+        ListenableFuture<?> liveFuture = futures.get(TaskType.LIVE);
+        if (liveFuture == null || liveFuture.isDone()) return;
+        try {
+            liveFuture.get(TaskType.LIVE.timeout, TimeUnit.MILLISECONDS);
+        } catch (Exception ignored) {
+            // parse 失败/超时/被取消：zoneId 已由 setTimeZone 的失败口径复位或保留当前值，按现状取数，不阻断节目单
+        }
     }
 
     public void getUrl(Channel item) {
@@ -104,6 +121,8 @@ public class LiveViewModel extends ViewModel {
         try {
             this.zoneId = live.getTimeZone().isEmpty() ? ZoneId.systemDefault() : ZoneId.of(live.getTimeZone());
         } catch (Exception ignored) {
+            // F-06a：源 timeZone 非法时不能静默保留上一个源的时区，复位为系统默认时区
+            this.zoneId = ZoneId.systemDefault();
         }
     }
 

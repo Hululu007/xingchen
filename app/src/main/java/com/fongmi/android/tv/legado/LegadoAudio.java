@@ -40,7 +40,7 @@ public class LegadoAudio {
         }
     }
 
-    // ================= 大数据静态仓（照 ReadingSession.put/take 模式） =================
+    // ================= 大数据静态仓（照 TtsJob.put/get/remove 模式） =================
 
     private static final Map<String, AudioAlbum> HOLDER = new HashMap<>();
 
@@ -52,10 +52,19 @@ public class LegadoAudio {
         return id;
     }
 
-    public static AudioAlbum take(String id) {
+    /** 取专辑（不删除；旋转/后台回来重建页面时还能拿到，照 TtsJob.get 口径）。 */
+    public static AudioAlbum get(String id) {
         if (id == null) return null;
         synchronized (HOLDER) {
-            return HOLDER.remove(id);
+            return HOLDER.get(id);
+        }
+    }
+
+    /** 用户真关闭听书时删（显式清理点，不靠读取顺手删）。 */
+    public static void remove(String id) {
+        if (id == null) return;
+        synchronized (HOLDER) {
+            HOLDER.remove(id);
         }
     }
 

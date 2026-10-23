@@ -140,14 +140,44 @@ public final class ReadingChangeSource {
                 } else {
                     s.startPage = Math.max(0, oldPage);
                 }
-                // 覆盖书架记录里的进度（同书同键，换源不丢书）
+                // 书架键＝kind|源名|书名（ReadingStore.Record.key），键里含源名：
+                // 换源前后根本不是同键——buildSession 已按新源名存了一条新记录，
+                // 旧源名下还留着一条旧记录。这里把进度迁到新条、再删旧条，只留一条。
+                // 章节位置：章节下标用对位后的 aligned；章内进度小说按万分比、
+                // 漫画按页号，都从旧页带过来的值走，不把用户进度弄丢。
                 String kind = s.kind == ReadingSession.Kind.NOVEL ? "NOVEL" : "COMIC";
+                String oldKind = old.kind == ReadingSession.Kind.NOVEL ? "NOVEL" : "COMIC";
+                String oldSource = old.sourceName == null ? "" : old.sourceName;
+                String oldTitle = old.bookTitle == null ? "" : old.bookTitle;
+                // 先给旧会话打标：旧阅读器 finish 时 onPause 还会存一次进度，
+                // 不打标它会按旧源键把刚删掉的旧记录重新写回书架（见两阅读器 saveProgress 守卫）
+                old.shelfSuperseded = true;
                 ReadingStore.Record r = ReadingStore.find(kind, s.sourceName, s.bookTitle);
-                if (r != null) {
-                    r.chapterIndex = aligned;
-                    if (s.kind == ReadingSession.Kind.NOVEL) r.position = s.startFraction;
-                    ReadingStore.save(r);
+                if (r == null) {
+                    // buildSession 存书架是吞异常的，万一没存上，这里按新会话补建一条，
+                    // 保证删旧之后书架里至少还有新条、书不丢
+                    r = new ReadingStore.Record();
+                    r.kind = kind;
+                    r.sourceName = s.sourceName;
+                    r.bookTitle = s.bookTitle;
+                    r.coverUrl = s.coverUrl;
+                    ReadingSession.Chapter ch = s.currentChapter();
+                    if (ch != null) {
+                        r.chapterName = ch.name;
+                        r.chapterUrl = ch.url;
+                    }
+                    r.legadoKey = s.legadoKey;
+                    r.bookUrl = info.bookUrl == null ? "" : info.bookUrl;
                 }
+                r.chapterIndex = aligned;
+                if (s.kind == ReadingSession.Kind.NOVEL) r.position = s.startFraction;
+                else r.position = s.startPage;
+                ReadingStore.save(r);
+                // 删旧条：新旧键真相同（同名源）时就是同一条，不删（进度已在上面迁好）
+                boolean sameKey = kind.equals(oldKind)
+                        && (s.sourceName == null ? "" : s.sourceName).equals(oldSource)
+                        && (s.bookTitle == null ? "" : s.bookTitle).equals(oldTitle);
+                if (!sameKey) ReadingStore.remove(oldKind, oldSource, oldTitle);
                 act.runOnUiThread(() -> {
                     ToastUtil.show(act, "已换到「" + c.source.tag() + "」", Toast.LENGTH_SHORT);
                     ReadingRouter.openReading(act, s);

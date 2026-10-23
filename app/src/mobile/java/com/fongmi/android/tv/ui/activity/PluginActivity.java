@@ -61,8 +61,16 @@ public class PluginActivity extends BaseActivity {
         binding.rvPlugins.setLayoutManager(new LinearLayoutManager(this));
         adapter = new PluginAdapter(plugins, this::onPluginChanged);
         binding.rvPlugins.setAdapter(adapter);
-        
+
         switchTab(true);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // L-15：从子页/外部文件管理器回来重拉当前页签列表（照 EmbyServerActivity 等页的 onResume 口径）。
+        // 未加载过（adapter 未建）不刷；健康检测进行中不刷，防列表被换打断逐行回刷。
+        if (adapter != null && !testing) loadPlugins();
     }
 
     private void switchTab(boolean py) {

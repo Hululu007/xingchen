@@ -15,7 +15,6 @@ import androidx.fragment.app.FragmentTransaction;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
-import static androidx.fragment.app.FragmentTransaction.TRANSIT_FRAGMENT_OPEN;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
@@ -147,6 +146,14 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
         mRecordAdapter.clear();
     }
 
+    @Override
+    public void onDestroy() {
+        // 搜索源选择只在本搜索页会话内有效：离页清掉，避免旧选择静默限制之后从
+        // 历史/收藏/语音等其它入口进来的搜索（进程级静态量从不清理是深挖 F-01）。
+        SearchSourceDialog.clearSelection();
+        super.onDestroy();
+    }
+
     private void checkKeyword() {
         boolean visible = requireActivity().getSupportFragmentManager().findFragmentByTag(CollectFragment.class.getSimpleName()) != null;
         if (TextUtils.isEmpty(getKeyword()) && !visible) Util.showKeyboard(mBinding.keyword);
@@ -212,7 +219,7 @@ public class SearchFragment extends BaseFragment implements WordAdapter.OnClickL
         String collectTag = CollectFragment.class.getSimpleName();
         if (fm.findFragmentByTag(collectTag) != null) return;
         String searchTag = SearchFragment.class.getSimpleName();
-        FragmentTransaction ft = fm.beginTransaction().setTransition(TRANSIT_FRAGMENT_OPEN);
+        FragmentTransaction ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out, R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         ft.add(R.id.container, CollectFragment.newInstance(keyword, getSiteKey(), getPic(), getWallPic()), collectTag);
         Optional.ofNullable(fm.findFragmentByTag(searchTag)).ifPresent(ft::hide);
         ft.setReorderingAllowed(true).addToBackStack(null).commit();

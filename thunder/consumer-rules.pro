@@ -1,1 +1,0 @@
--keep class com.xunlei.downloadlib.** { *; }

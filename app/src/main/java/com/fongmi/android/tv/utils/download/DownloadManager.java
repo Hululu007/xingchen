@@ -14,7 +14,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 下载管理器：任务队列 + 调度
@@ -30,6 +32,45 @@ public class DownloadManager {
     private final Map<String, HttpDownloader> httpDownloaders = new HashMap<>();
     private final Map<String, M3u8Downloader> m3u8Downloaders = new HashMap<>();
     private final List<Listener> listeners = new ArrayList<>();
+
+    // C-25: 暂停屏障。pause() 的现树调用方全在主线程（DownloadTaskAdapter /
+    // MusicListActivity 的点按、pauseAllLive），同步等旧线程会卡界面，所以
+    // pause 只摘除+cancel 并在此登记屏障；resume 时先查屏障：已收尾才放行，
+    // 没收尾就转到后台线程有界等待（上限 STOP_WAIT_TIMEOUT_MS），等到了
+    // 才真正 start，超时则保持暂停并给中文提示，绝不让新旧两个下载器
+    // 同时写同一个文件。
+    private static final long STOP_WAIT_TIMEOUT_MS = 10_000L;
+    private final Map<String, StopBarrier> stopping = new ConcurrentHashMap<>();
+    private final Set<String> resumePending = ConcurrentHashMap.newKeySet();
+
+    /** 被 pause 摘除的一组下载器（同一任务至多一种），等它们全部收尾才算停稳。 */
+    private static class StopBarrier {
+        private final HttpDownloader http;
+        private final M3u8Downloader m3u8;
+
+        StopBarrier(HttpDownloader http, M3u8Downloader m3u8) {
+            this.http = http;
+            this.m3u8 = m3u8;
+        }
+
+        boolean isFinished() {
+            return (http == null || http.isFinished()) && (m3u8 == null || m3u8.isFinished());
+        }
+
+        /** 在总预算 timeoutMs 内依次等每个下载器收尾；任一超时即整体超时。 */
+        boolean awaitFinished(long timeoutMs) throws InterruptedException {
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            if (http != null) {
+                long remain = deadline - System.currentTimeMillis();
+                if (remain <= 0 || !http.awaitFinished(remain, TimeUnit.MILLISECONDS)) return false;
+            }
+            if (m3u8 != null) {
+                long remain = deadline - System.currentTimeMillis();
+                if (remain <= 0 || !m3u8.awaitFinished(remain, TimeUnit.MILLISECONDS)) return false;
+            }
+            return true;
+        }
+    }
 
     public interface Listener {
         void onTaskChanged(DownloadTask task);
@@ -208,6 +249,9 @@ public class DownloadManager {
         if (h != null) h.cancel();
         M3u8Downloader m = m3u8Downloaders.remove(taskId);
         if (m != null) m.cancel();
+        // C-25: 登记屏障（主线程不等待）。resume/delete 见屏障未收尾时，
+        // 先在后台等旧线程停笔，不许立即开新下载器/删文件与旧线程抢同一文件。
+        if (h != null || m != null) stopping.put(taskId, new StopBarrier(h, m));
         task.setStatus(DownloadTask.STATUS_PAUSED);
         notifyChanged(task);
     }
@@ -216,6 +260,42 @@ public class DownloadManager {
         DownloadTask task = tasks.get(taskId);
         if (task == null) return;
         if (task.getStatus() == DownloadTask.STATUS_COMPLETED) return;
+        // 已有在跑的下载器时不重复开第二个写同一文件
+        if (httpDownloaders.containsKey(taskId) || m3u8Downloaders.containsKey(taskId)) return;
+        StopBarrier barrier = stopping.get(taskId);
+        if (barrier != null) {
+            if (barrier.isFinished()) {
+                stopping.remove(taskId, barrier);
+            } else {
+                // C-25: 旧线程还没停笔——主线程立即返回，后台有界等待，
+                // 等确认停稳后才开工；多次点继续只挂一个等待者。
+                if (!resumePending.add(taskId)) return;
+                Notify.show("正在等待上一个下载停稳…");
+                new Thread(() -> {
+                    try {
+                        boolean stopped = barrier.awaitFinished(STOP_WAIT_TIMEOUT_MS);
+                        stopping.remove(taskId, barrier);
+                        if (!stopped) {
+                            DownloadTask t = tasks.get(taskId);
+                            if (t != null && t.getStatus() == DownloadTask.STATUS_PAUSED) {
+                                Notify.show("上一个下载还没停稳，请稍后再点继续");
+                            }
+                            return;
+                        }
+                        DownloadTask t = tasks.get(taskId);
+                        if (t == null) return; // 等待期间被删除
+                        if (t.getStatus() == DownloadTask.STATUS_COMPLETED) return;
+                        if (httpDownloaders.containsKey(taskId) || m3u8Downloaders.containsKey(taskId)) return;
+                        start(t, headers);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        resumePending.remove(taskId);
+                    }
+                }, "download-resume-wait").start();
+                return;
+            }
+        }
         start(task, headers);
     }
 
@@ -226,8 +306,25 @@ public class DownloadManager {
     public void delete(String taskId) {
         pause(taskId);
         DownloadTask task = tasks.remove(taskId);
+        // 先取走屏障再清表（顺序反了快照永远为空、延期删除永不触发）
+        StopBarrier barrier = stopping.remove(taskId);
         if (task != null && task.getFilePath() != null) {
-            new File(task.getFilePath()).delete();
+            File file = new File(task.getFilePath());
+            if (barrier != null && !barrier.isFinished()) {
+                // C-25: 旧线程（尤其 m3u8 合并）可能还会写/重建目标文件，
+                // 等它停笔后再删；超时（上限同 STOP_WAIT_TIMEOUT_MS）也删，
+                // 删已摘除任务的文件句柄写的是已 unlink 的旧文件，不会污染新文件。
+                new Thread(() -> {
+                    try {
+                        barrier.awaitFinished(STOP_WAIT_TIMEOUT_MS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    file.delete();
+                }, "download-delete-wait").start();
+            } else {
+                file.delete();
+            }
         }
         if (task != null) notifyChanged(task);
     }

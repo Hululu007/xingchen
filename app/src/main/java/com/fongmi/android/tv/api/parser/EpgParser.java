@@ -23,7 +23,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,7 +45,13 @@ public class EpgParser {
         }
     }
 
+    // 解析失败返回 null（不再回 EPOCH 假时间）：调用方据此把该节目计入 skipped 丢弃，
+    // 不许让坏时间戳的节目静默落进 1970-01-01 日期桶。
     private static OffsetDateTime parseFull(String source, ZoneId zoneId) {
+        if (source == null) {
+            Log.w(TAG, "parseFull failed: null source");
+            return null;
+        }
         String s = source.trim();
         int len = s.length();
         try {
@@ -54,14 +59,14 @@ public class EpgParser {
             return LocalDateTime.parse(len > 14 ? s.substring(0, 14) : s, Formatters.EPG_FULL_NO_TZ).atZone(zoneId).toOffsetDateTime();
         } catch (Exception e) {
             Log.w(TAG, "parseFull failed: " + s + " -> " + e.getMessage());
-            return OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
+            return null;
         }
     }
 
     public static void start(Live live, String url) throws Exception {
         long t0 = System.currentTimeMillis();
         File file = Path.epg(cacheFileName(url));
-        String reason = refreshReason(file);
+        String reason = refreshReason(file, zoneIdOf(live.getTimeZone()));
         boolean refresh = reason != null;
         Log.i(TAG, "start url=" + url + " file=" + file.getName() + " refresh=" + refresh + (refresh ? " reason=" + reason : ""));
         if (refresh) Download.create(url, file).get();
@@ -83,9 +88,16 @@ public class EpgParser {
         try {
             Tv tv = new Persister().read(Tv.class, xml, false);
             String rawDate = tv.getDate();
-            String date = rawDate.isEmpty() ? LocalDate.now(zoneId).format(Formatters.DATE) : parseFull(rawDate, zoneId).atZoneSameInstant(zoneId).format(Formatters.DATE);
+            OffsetDateTime rawDateTime = rawDate.isEmpty() ? null : parseFull(rawDate, zoneId);
+            String date = rawDateTime == null ? LocalDate.now(zoneId).format(Formatters.DATE) : rawDateTime.atZoneSameInstant(zoneId).format(Formatters.DATE);
             Epg epg = Epg.create(key, date);
-            tv.getProgramme().forEach(programme -> epg.getList().add(getEpgData(programme, zoneId)));
+            int[] skipped = {0};
+            tv.getProgramme().forEach(programme -> {
+                EpgData data = getEpgData(programme, zoneId);
+                if (data == null) skipped[0]++;
+                else epg.getList().add(data);
+            });
+            if (skipped[0] > 0) Log.w(TAG, "getEpg skipped(parse failed)=" + skipped[0] + " key=" + key);
             return epg;
         } catch (Exception e) {
             Log.w(TAG, "getEpg parse failed key=" + key + ": " + e.getMessage());
@@ -93,9 +105,9 @@ public class EpgParser {
         }
     }
 
-    private static String refreshReason(File file) {
+    private static String refreshReason(File file, ZoneId zoneId) {
         if (!Path.exists(file)) return "file-missing";
-        if (!isToday(file.lastModified())) return "not-today";
+        if (!isToday(file.lastModified(), zoneId)) return "not-today";
         if (System.currentTimeMillis() - file.lastModified() > TimeUnit.HOURS.toMillis(6)) return "older-than-6h";
         return null;
     }
@@ -108,8 +120,9 @@ public class EpgParser {
         }
     }
 
-    private static boolean isToday(long millis) {
-        return LocalDate.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault()).equals(LocalDate.now());
+    // 缓存新旧与节目分桶统一用源时区判定，不再混系统默认时区（跨时区源在零点附近会多刷/少刷）
+    private static boolean isToday(long millis, ZoneId zoneId) {
+        return LocalDate.ofInstant(Instant.ofEpochMilli(millis), zoneId).equals(LocalDate.now(zoneId));
     }
 
     private static void readGzip(Live live, File file, boolean refresh) throws Exception {
@@ -150,6 +163,7 @@ public class EpgParser {
         Map<String, Channel> channelCache = new HashMap<>();
         Set<String> channelMiss = new HashSet<>();
         int skipped = 0;
+        int parseSkipped = 0;
         for (Tv.Programme programme : data.tv.getProgramme()) {
             String xmlChannelId = programme.getChannel();
             Channel targetChannel;
@@ -168,6 +182,10 @@ public class EpgParser {
             }
             OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
             OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+            if (startDate == null || endDate == null) {
+                parseSkipped++;
+                continue;
+            }
             String liveTvgId = targetChannel.getTvgId();
             String programmeDate = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
             epgMap.computeIfAbsent(liveTvgId, k -> new HashMap<>())
@@ -185,7 +203,7 @@ public class EpgParser {
                 }
             }
         }
-        Log.i(TAG, "processProgramme skipped(no match)=" + skipped + " matched channels=" + epgMap.size());
+        Log.i(TAG, "processProgramme skipped(no match)=" + skipped + " skipped(parse failed)=" + parseSkipped + " matched channels=" + epgMap.size());
         return new ProgrammeResult(epgMap, srcMap);
     }
 
@@ -221,6 +239,7 @@ public class EpgParser {
     private static EpgData getEpgData(Tv.Programme programme, ZoneId zoneId) {
         OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
         OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+        if (startDate == null || endDate == null) return null;
         return getEpgData(startDate, endDate, zoneId, programme);
     }
 

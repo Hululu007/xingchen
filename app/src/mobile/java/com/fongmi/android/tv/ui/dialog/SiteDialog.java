@@ -25,6 +25,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogSiteBinding;
+import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.impl.SiteListener;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteBlockSetting;
@@ -35,6 +36,10 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,6 +56,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private boolean search;
     private boolean change;
     private boolean block;
+    private boolean waitingConfig;
     private int columnCount = 1;
 
     public static SiteDialog create() {
@@ -281,8 +287,58 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     public void onStart() {
         super.onStart();
-        if (adapter.getItemCount() == 0 && SiteBlockSetting.filter(VodConfig.get().getSites(), true).isEmpty()) dismiss();
-        else configureWindow();
+        if (!EventBus.getDefault().isRegistered(this)) EventBus.getDefault().register(this);
+        if (adapter.getItemCount() == 0 && SiteBlockSetting.filter(VodConfig.get().getSites(), true).isEmpty()) {
+            // D-10：区分「配置还没回来」与「真无源」。配置地址已在、源列表为空 = 冷启加载中，
+            // 不能当无源秒关：显示等待态，等 ConfigEvent 回来再刷新（照 SourceSelectDialog 的订阅口径）。
+            // 配置地址本身为空才是真无配置，按原口径直接关。
+            if (VodConfig.get().getConfig().isEmpty()) {
+                dismiss();
+                return;
+            }
+            waitingConfig = true;
+            showStatus(R.string.site_loading);
+        } else {
+            configureWindow();
+        }
+    }
+
+    @Override
+    public void onStop() {
+        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
+        super.onStop();
+    }
+
+    private void showStatus(int textRes) {
+        if (binding == null) return;
+        binding.status.setText(textRes);
+        binding.status.setVisibility(View.VISIBLE);
+        configureWindow();
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onConfigEvent(ConfigEvent event) {
+        if (event == null || !event.isVod() || !waitingConfig) return;
+        refreshSites();
+    }
+
+    // 配置回来后重建列表（adapter 的数据源在构造时一次性读 VodConfig，须重建）；
+    // 回来后仍无源才是真无源，改显无源提示而不是继续等。
+    private void refreshSites() {
+        waitingConfig = false;
+        adapter = new SiteAdapter(this);
+        adapter.search(search).change(change);
+        binding.recycler.setAdapter(adapter);
+        setColumnCount(columnCount);
+        groups = getGroups();
+        setGroupView();
+        filter();
+        if (adapter.getItemCount() == 0 && SiteBlockSetting.filter(VodConfig.get().getSites(), true).isEmpty()) {
+            showStatus(R.string.site_empty);
+        } else {
+            binding.status.setVisibility(View.GONE);
+            configureWindow();
+        }
     }
 
     private void configureWindow() {

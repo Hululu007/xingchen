@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.utils.download;
 
 import java.io.File;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 下载任务模型
@@ -25,12 +26,19 @@ public class DownloadTask {
     private boolean isM3u8;
     private long createTime;
 
+    // C-24: 进程内单调递增序号。只用毫秒当 id 时，同毫秒连下两个任务会同 id，
+    // 在 DownloadManager 与两个下载器的 Map 里互相覆盖（批量连下可达）。
+    private static final AtomicLong ID_SEQUENCE = new AtomicLong(0);
+
     public DownloadTask(String url, String name) {
-        this.id = String.valueOf(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        // id 仍以毫秒开头（排序/可读性不变），尾巴拼进程内唯一序号保证不撞；
+        // id 在全仓只作不透明 Map 键使用，无任何按纯数字解析的地方。
+        this.id = now + "-" + ID_SEQUENCE.incrementAndGet();
         this.url = url;
         this.name = name;
         this.isM3u8 = url != null && (url.contains(".m3u8") || url.contains("m3u8"));
-        this.createTime = System.currentTimeMillis();
+        this.createTime = now;
     }
 
     public String getId() { return id; }

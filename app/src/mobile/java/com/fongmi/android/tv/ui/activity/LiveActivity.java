@@ -88,6 +88,7 @@ import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.utils.Biometric;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PiP;
@@ -130,6 +131,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean rotate;
     private int count;
     private PiP mPiP;
+    private boolean mListVisibleBeforePiP;
     private boolean liveMenuRendered;
     private Boolean embeddedUiMode;
     private Channel lastLineClickChannel;
@@ -641,11 +643,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void checkPlay() {
+        // 服务被回收未绑回时 player() 为 null：点播放直接吞掉，不许裸解崩溃（深挖 S1）
+        if (player() == null) return;
         if (player().isPlaying()) onPaused();
         else onPlay();
     }
 
     private void onTrack(View view) {
+        if (player() == null) return;
         TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
         hideControl();
     }
@@ -872,7 +877,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.action.getRoot().setVisibility(embedded ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
-        mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        View controlRoot = mBinding.control.getRoot();
+        if (controlRoot.getVisibility() != View.VISIBLE || controlRoot.getAlpha() < 1f) XcFadeTransition.fadeIn(controlRoot);
         if (mOsd != null) mOsd.setControlsVisible(true);
         setR1Callback();
         hideInfo();
@@ -880,7 +886,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void hideControl() {
-        mBinding.control.getRoot().setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(mBinding.control.getRoot());
         if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
     }
@@ -1062,7 +1068,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         Keep keep = new Keep();
         keep.setKey(item.getName());
         keep.setType(1);
-        keep.save();
+        // 带当前直播配置 cid 落库：直播收藏按 cid＋频道名双键，同名跨源不顶替（深挖 F-05）
+        keep.save(LiveConfig.get().getConfig().getId());
     }
 
     private void delKeep(Channel item) {
@@ -1807,7 +1814,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private boolean preparePiP(String reason) {
         if (isRedirect() || isPlaybackExiting()) return false;
-        if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (service() == null || player() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
         mPiP.update(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
         return true;
     }
@@ -1822,18 +1829,22 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (isInPictureInPictureMode) {
+            mListVisibleBeforePiP = isVisible(mBinding.recycler);
             dismissLiveControlDialog();
             hideControl();
             hideInfo();
             hideUI();
         } else {
             hideInfo();
+            // 退出画中画恢复进小窗前的频道列表显隐（深挖 L-13：hideUI 置 GONE 后从不回）
+            if (mListVisibleBeforePiP) showUI();
+            mListVisibleBeforePiP = false;
             if (isStop()) finish();
         }
     }
 
     private boolean enterPiP(String reason) {
-        if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (service() == null || player() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
         dismissLiveControlDialog();
         return mPiP.enter(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
     }
@@ -2074,7 +2085,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     protected void onDestroy() {
         clearArtworkTarget();
-        Source.get().exit();
+        // 提取器是全 App 共享单例：配置变更 recreate 也走 onDestroy，无条件 exit 会把
+        // 别人正在用的提取器（迅雷任务/运行时/TVBus）连锅端（深挖 S6）。照 HomeActivity
+        // 口径：只有真 finish 才拆。
+        if (isFinishing()) Source.get().exit();
         App.removeCallbacks(mR1, mR2, mR3);
         if (mOsd != null) mOsd.release();
         mViewModel.url().removeObserver(mObserveUrl);

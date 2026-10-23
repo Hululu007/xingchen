@@ -774,6 +774,21 @@ public class SiteApi {
         return playerContent(key, flag, id, PlayerSetting.getPlayer());
     }
 
+    /**
+     * 纯解析入口（音乐取址、阅读按章取文、预解析）：这些调用不经过视频 PlayerManager，
+     * playerContent 入口置的预热让路旗不会有人复位、会整进程泄漏。此入口进前存旗、
+     * 出后还原（播放中被后台解析调用时还原成 true，不误放预热），解析语义与 playerContent 完全一致。
+     */
+    @NonNull
+    public static Result playerContentParseOnly(@NonNull String key, @NonNull String flag, @NonNull String id) throws Exception {
+        boolean previous = HomePrewarm.playbackActive;
+        try {
+            return playerContent(key, flag, id);
+        } finally {
+            HomePrewarm.playbackActive = previous;
+        }
+    }
+
     @NonNull
     public static Result playerContent(@NonNull String key, @NonNull String flag, @NonNull String id, int playerType) throws Exception {
         SpiderDebug.log("player", "key=%s,flag=%s,id=%s", key, flag, id);

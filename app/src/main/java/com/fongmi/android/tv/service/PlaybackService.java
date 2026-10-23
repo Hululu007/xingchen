@@ -349,6 +349,17 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     }
 
     public void setNavigationCallback(NavigationCallback navigationCallback, String key) {
+        if (navigationCallback == null) {
+            // 清除只认 key：只有传入 key 与当前槽位 key 一致才清，别家传 null
+            //（含不带 key 的 null）清不掉本家的回调——四家共用单槽时互清就是
+            // 这么来的。key 为 null 时也只清同样以 null 占槽的回调。
+            if (key == null ? navigationKey != null : !key.equals(navigationKey)) return;
+            this.navigationCallback = null;
+            this.navigationKey = null;
+            return;
+        }
+        // 注册／覆写口径保留：后注册者直接顶掉旧 owner（回调与 key 一起换），
+        // 归属判定仍走 isNavigationOwner() 对 player key 的比对，覆写不另做拦截。
         this.navigationCallback = navigationCallback;
         this.navigationKey = key;
     }

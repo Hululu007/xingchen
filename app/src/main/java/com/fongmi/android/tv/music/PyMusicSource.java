@@ -179,7 +179,7 @@ public class PyMusicSource implements MusicSource {
         String url = episodes.get(ep).getUrl();
         if (url == null || url.isEmpty()) throw new Exception("播放地址为空");
         if (url.startsWith("http://") || url.startsWith("https://")) return url;
-        Result play = SiteApi.playerContent(siteKey, flag.getFlag(), url);
+        Result play = SiteApi.playerContentParseOnly(siteKey, flag.getFlag(), url);
         if (play.getReadingSession() != null) throw new Exception("这个源给的是阅读内容，不是歌曲");
         String resolved = play.getUrl() == null ? "" : play.getUrl().v();
         if (resolved == null || resolved.isEmpty()) throw new Exception("解析不到播放地址");

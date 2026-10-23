@@ -1020,6 +1020,7 @@ public class HkDetailBridge implements HkArticleFragment.DetailBridge {
         PopupWindow popup = new PopupWindow(recyclerView,
                 anchor.getWidth() > 0 ? anchor.getWidth() : (int) (200 * activity.getResources().getDisplayMetrics().density),
                 WindowManager.LayoutParams.WRAP_CONTENT, true);
+        popup.setAnimationStyle(R.style.XcPopupFade);
         HkCenterListAdapter adapter = new HkCenterListAdapter(activity, options,
                 new HkCenterListAdapter.OnItemClickListener() {
                     @Override

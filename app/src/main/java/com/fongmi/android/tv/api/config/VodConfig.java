@@ -97,6 +97,7 @@ public class VodConfig extends BaseConfig {
         flags = null;
         rules = null;
         parses = null;
+        dynamicSites.clear();
         WebHomeExtensionRegistry.get().setGlobalSources(null, "");
         BaseLoader.get().clear("vod-config-clear");
         SiteApi.clearHomeCache();

@@ -159,7 +159,12 @@ public enum RuntimeModule {
         if (name.startsWith("com.fongmi.chaquo.") || name.startsWith("com.chaquo.python.")) return PYTHON;
         if (name.startsWith("com.fongmi.nodejs.")) return NODEJS;
         if (name.startsWith("com.fongmi.quickjs.") && !name.startsWith("com.fongmi.quickjs.host.")) return QUICKJS;
-        if (name.startsWith("com.xunlei.downloadlib.")) return THUNDER;
+        // 迅雷已改回内置（2026-10-23 定案）：com.xunlei.downloadlib.* 就在宿主
+        // dex 里，不再判给 THUNDER 外置模块。摘掉映射后两个 loader 对 null 的
+        // 处理都落回宿主类加载器——SPIDER_LOADER 走 super.loadClass（父加载器
+        // 即宿主），PluginLoader 走 owner==null 分支的 super.loadClass
+        // （DexClassLoader 父优先，同样回到宿主）；若仍判 THUNDER，未装外置包
+        // 时 entry() 会抛 MissingException，内置类反而加载不到（C-10）。
         return null;
     }
 

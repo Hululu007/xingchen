@@ -86,7 +86,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected PlayerManager player() {
-        return mService.player();
+        // 服务未绑/已解绑时返 null（深挖 S1）：子类所有 player() 消费点必须判空，
+        // 不许再裸解——服务被系统回收后点播放即 NPE 闪退的根就在这。
+        return mService == null ? null : mService.player();
     }
 
     protected boolean isRedirect() {
@@ -172,19 +174,21 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected boolean isOwner() {
         String key = getPlaybackKey();
-        return key == null || (mService != null && key.equals(player().getKey()));
+        if (key == null) return true;
+        PlayerManager manager = player();
+        return manager != null && key.equals(manager.getKey());
     }
 
     protected boolean isIdle() {
-        return mController.getPlaybackState() == Player.STATE_IDLE;
+        return mController == null || mController.getPlaybackState() == Player.STATE_IDLE;
     }
 
     protected boolean isEnded() {
-        return mController.getPlaybackState() == Player.STATE_ENDED;
+        return mController != null && mController.getPlaybackState() == Player.STATE_ENDED;
     }
 
     protected boolean isBuffering() {
-        return mController.getPlaybackState() == Player.STATE_BUFFERING;
+        return mController != null && mController.getPlaybackState() == Player.STATE_BUFFERING;
     }
 
     protected boolean isPaused() {
@@ -273,6 +277,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (progress != null) progress.setVisibility(View.GONE);
     }
 
+    /**
+     * 首帧真正上屏的统一钩子：Exo 走首帧回调、原生 MPV 走输出就绪（与原生遮罩
+     * 放行同一时机）。子类可据此撤除切集盖图等过渡层，不许用定时器猜。
+     */
+    protected void onVideoFirstFrame() {
+    }
+
     protected void onTracksChanged() {
     }
 
@@ -325,7 +336,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private int effectiveResizeMode(int resizeMode) {
-        if (mService != null && player().isMpv() && !player().isMpvSurfaceDirect() && resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) {
+        PlayerManager manager = player();
+        if (manager != null && manager.isMpv() && !manager.isMpvSurfaceDirect() && resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) {
             return AspectRatioFrameLayout.RESIZE_MODE_FILL;
         }
         return resizeMode;
@@ -335,8 +347,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected boolean seekTo(long deltaMs) {
-        long targetMs = Math.max(0, player().getPosition() + deltaMs);
-        long durationMs = player().getDuration();
+        PlayerManager manager = player();
+        if (manager == null || mController == null) return false;
+        long targetMs = Math.max(0, manager.getPosition() + deltaMs);
+        long durationMs = manager.getDuration();
         boolean seekToEnd = durationMs > 0 && targetMs >= durationMs;
         mController.seekTo(seekToEnd ? durationMs : targetMs);
         if (!seekToEnd) mController.play();
@@ -444,7 +458,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (mService == null) return;
         int targetRender = getRender();
         logSurfaceState("attach start target=" + targetRender);
-        syncShutter(true);
+        // 切集重挂面时播放器与渲染方式都没变：不强制拉黑遮罩，旧集画面留到新集
+        // 首帧顶上，避免每次切集先黑一下；换渲染方式/播放器未挂时仍照旧拉黑恢复。
+        boolean steadySurface = !player().isNativePlayer() && getExoView().getPlayer() != null && render == targetRender;
+        if (!steadySurface) syncShutter(true);
         if (render != targetRender) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "switch render from=%d to=%d", render, targetRender);
             if (getExoView().getPlayer() != null) getExoView().setPlayer(null);
@@ -613,7 +630,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private void releaseService(boolean owner) {
         mService.removePlayerCallback(mPlayerCallback);
-        if (owner) mService.setNavigationCallback(null, null);
+        if (owner) mService.setNavigationCallback(null, getPlaybackKey());
         if (mService.hasExternalClient() || mService.hasPlayerCallback()) {
             if (owner) mService.suspend();
             mService.resetSessionActivity();
@@ -721,6 +738,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (!isOwner()) return;
             nativeOutputPending = false;
             syncShutter();
+            PlaybackActivity.this.onVideoFirstFrame();
         }
 
         @Override
@@ -730,6 +748,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (shutter != null) shutter.setVisibility(View.INVISIBLE);
             getExoView().setShutterBackgroundColor(Color.TRANSPARENT);
             PlaybackActivity.this.onExoFirstFrame();
+            PlaybackActivity.this.onVideoFirstFrame();
         }
 
         @Override

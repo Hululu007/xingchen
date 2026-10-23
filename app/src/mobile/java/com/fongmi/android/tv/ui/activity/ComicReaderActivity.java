@@ -75,7 +75,7 @@ public class ComicReaderActivity extends AppCompatActivity {
         // fitWindowBackground 已废弃（窗口底恒被 ThemeManager.doApply 重设为壁纸）：
         // 透明状态栏与图标明暗由下一行的 ReadingSkin.enableEdgeToEdge 负责（深色页固定浅图标）
         ReadingSkin.enableEdgeToEdge(this, true);
-        session = ReadingSession.take(getIntent().getStringExtra("session"));
+        session = ReadingSession.get(getIntent().getStringExtra("session"));
         if (session == null) {
             ToastUtil.show(this, "阅读会话已失效", Toast.LENGTH_SHORT);
             finish();
@@ -751,6 +751,8 @@ public class ComicReaderActivity extends AppCompatActivity {
     }
 
     private void saveProgress() {
+        // 换源已把本书交给新源：旧页退出存进度会按旧源键把旧书架记录写回来，不存
+        if (session != null && session.shelfSuperseded) return;
         long now = System.currentTimeMillis();
         if (now - lastSaveAt < 2000) return;
         lastSaveAt = now;

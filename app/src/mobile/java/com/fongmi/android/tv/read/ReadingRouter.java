@@ -37,7 +37,7 @@ public class ReadingRouter {
         try {
             context.startActivity(intent);
         } catch (Throwable t) {
-            ReadingSession.take(id);
+            ReadingSession.remove(id);
         }
     }
 
@@ -233,7 +233,7 @@ public class ReadingRouter {
                 try {
                     context.startActivity(intent);
                 } catch (Throwable t) {
-                    LegadoAudio.take(id);
+                    LegadoAudio.remove(id);
                 }
             }
         } catch (Throwable t) {

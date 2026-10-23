@@ -26,6 +26,7 @@ import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.databinding.DialogConfigBinding;
 import com.fongmi.android.tv.impl.ConfigListener;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.custom.CustomTextListener;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
@@ -220,21 +221,7 @@ public class ConfigDialog extends BaseAlertDialog {
             binding.url.requestFocus();
             return;
         }
-        if (type == 1) {
-            com.fongmi.android.tv.api.config.LiveConfig.load(config, new com.fongmi.android.tv.impl.Callback() {
-            @Override
-            public void error(String msg) {
-                Notify.show(getFriendlyError(msg));
-            }
-        });
-        } else {
-            com.fongmi.android.tv.api.config.VodConfig.load(config, new com.fongmi.android.tv.impl.Callback() {
-            @Override
-            public void error(String msg) {
-                Notify.show(getFriendlyError(msg));
-            }
-        });
-        }
+        loadConfig(config);
         if (getActivity() instanceof com.fongmi.android.tv.ui.activity.ConfigSourceActivity) {
             ((com.fongmi.android.tv.ui.activity.ConfigSourceActivity) getActivity()).updateCards();
         }
@@ -277,23 +264,28 @@ public class ConfigDialog extends BaseAlertDialog {
         String path = FileChooser.getPathFromUri(result.getData().getData());
         if (TextUtils.isEmpty(path)) return;
         String url = "file:/" + path.replace(Path.rootPath(), "");
-        if (type == 1) {
-            com.fongmi.android.tv.api.config.LiveConfig.load(saveConfig(url, name), new com.fongmi.android.tv.impl.Callback() {
-            @Override
-            public void error(String msg) {
-                Notify.show(getFriendlyError(msg));
-            }
-        });
-        } else {
-            com.fongmi.android.tv.api.config.VodConfig.load(saveConfig(url, name), new com.fongmi.android.tv.impl.Callback() {
-            @Override
-            public void error(String msg) {
-                Notify.show(getFriendlyError(msg));
-            }
-        });
-        }
+        loadConfig(saveConfig(url, name));
         dismiss();
     });
+
+    // D-09：按 type 分发加载，原先只有 type==1 走 Live、其余全走 Vod，
+    // wall(type=2) 被误送 VodConfig.load。wall 走 SettingFragment/leanback 同款口径：先复位壁纸序号再 WallConfig.load。
+    private void loadConfig(Config config) {
+        com.fongmi.android.tv.impl.Callback callback = new com.fongmi.android.tv.impl.Callback() {
+            @Override
+            public void error(String msg) {
+                Notify.show(getFriendlyError(msg));
+            }
+        };
+        if (type == 1) {
+            LiveConfig.load(config, callback);
+        } else if (type == 2) {
+            Setting.putWall(0);
+            WallConfig.load(config, callback);
+        } else {
+            VodConfig.load(config, callback);
+        }
+    }
 
 
 

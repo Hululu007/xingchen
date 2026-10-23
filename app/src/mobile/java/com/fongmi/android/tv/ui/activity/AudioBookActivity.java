@@ -51,6 +51,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     private static final float[] SPEEDS = {0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
 
     private LegadoAudio.AudioAlbum album;
+    /** 静态仓 id（get 不删除，重建可复读；真关闭时按此 id remove）。 */
+    private String sessionId;
     private PlaybackService mService;
     private boolean bound;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -82,7 +84,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ReadingSkin.enableEdgeToEdge(this, true);
-        album = LegadoAudio.take(getIntent().getStringExtra("session"));
+        sessionId = getIntent().getStringExtra("session");
+        album = LegadoAudio.get(sessionId);
         if (album == null || album.chapters.isEmpty()) {
             ToastUtil.show(this, "专辑数据丢失", Toast.LENGTH_SHORT);
             finish();
@@ -136,6 +139,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         miniSession.setMeta(album.title, miniSub(), album.coverUrl);
         miniSession.setReopenIntent(new Intent(this, AudioBookActivity.class));
         final LegadoAudio.AudioAlbum snap = album;
+        final String sid = sessionId;
         miniSession.setControl(new ListenSession.Control() {
             @Override public boolean isPlaying() {
                 return mService != null && player().isPlaying();
@@ -174,6 +178,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
 
             @Override public void onClosed() {
                 unregisterNav();
+                // 真关闭：静态仓显式删（照 TtsJob.remove 口径），不靠读取删
+                LegadoAudio.remove(sessionId);
             }
         });
         miniSession.setDetached(new ListenSession.DetachedOps() {
@@ -208,17 +214,22 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                 } catch (Throwable ignored) {
                 }
                 try {
-                    svc.setNavigationCallback(null,
-                            "audiobook:" + snap.legadoKey.hashCode()
-                                    + ":" + snap.title.hashCode());
+                    svc.setNavigationCallback(null, navKeyFor(snap));
                 } catch (Throwable ignored) {
                 }
+                // 真关闭：静态仓显式删（快照 id，不碰已销毁的页）
+                LegadoAudio.remove(sid);
             }
 
             @Override public void reopen(Context ctx) {
                 try {
-                    String id = LegadoAudio.put(snap);
-                    AudioBookActivity.start((Activity) ctx, id);
+                    // get 不删除：原 id 还在就复用重开（照 TtsDetached.reopen 口径），
+                    // 不再重复 put 攒新 id；真没了才按快照补存一份。
+                    if (LegadoAudio.get(sid) != null) {
+                        AudioBookActivity.start((Activity) ctx, sid);
+                    } else {
+                        AudioBookActivity.start((Activity) ctx, LegadoAudio.put(snap));
+                    }
                 } catch (Throwable ignored) {
                 }
             }
@@ -740,8 +751,14 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         mService = null;
     }
 
+    /** 导航回调的 key 单一出处：注册、页面清除、迷你条 detached 真关闭清除都用它，
+     * 与服务侧「清除只有 key 与槽位一致才生效」的口径对齐，拼法不许各处手写一份。 */
+    private static String navKeyFor(LegadoAudio.AudioAlbum a) {
+        return "audiobook:" + a.legadoKey.hashCode() + ":" + a.title.hashCode();
+    }
+
     private String playbackKey() {
-        return "audiobook:" + album.legadoKey.hashCode() + ":" + album.title.hashCode();
+        return navKeyFor(album);
     }
 
     private final PlaybackService.NavigationCallback navCallback = new PlaybackService.NavigationCallback() {
@@ -955,6 +972,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         try {
             ListenMiniBar.get(this).closeSession(MINI_ID);
         } catch (Throwable t) {
+            LegadoAudio.remove(sessionId);
             saveProgress();
             try {
                 if (mService != null) player().stop();

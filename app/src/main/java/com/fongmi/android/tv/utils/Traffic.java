@@ -20,13 +20,23 @@ public class Traffic {
 
     public static void setSpeed(TextView view) {
         if (TrafficStats.getUidRxBytes(UID) == TrafficStats.UNSUPPORTED) return;
+        String speed = getSpeed();
+        if (speed == null) {
+            view.setVisibility(View.GONE);
+            return;
+        }
         view.setVisibility(View.VISIBLE);
-        view.setText(getSpeed());
+        view.setText(speed);
     }
 
     private static String getSpeed() {
         long nowTimeStamp = System.currentTimeMillis();
         long nowTotalRxBytes = TrafficStats.getUidRxBytes(UID) / 1024;
+        if (lastTimeStamp == 0) {
+            lastTimeStamp = nowTimeStamp;
+            lastTotalRxBytes = nowTotalRxBytes;
+            return null;
+        }
         long speed = (nowTotalRxBytes - lastTotalRxBytes) * 1000 / Math.max(nowTimeStamp - lastTimeStamp, 1);
         lastTimeStamp = nowTimeStamp;
         lastTotalRxBytes = nowTotalRxBytes;

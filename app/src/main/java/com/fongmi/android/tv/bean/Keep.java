@@ -6,6 +6,7 @@ import androidx.room.Entity;
 import androidx.room.PrimaryKey;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.impl.Diffable;
@@ -52,7 +53,15 @@ public class Keep implements Diffable<Keep> {
     }
 
     public static boolean exist(String key) {
-        return AppDatabase.get().getKeepDao().find(key) != null;
+        return exist(LiveConfig.get().getConfig().getId(), key);
+    }
+
+    public static boolean exist(int cid, String key) {
+        return AppDatabase.get().getKeepDao().findLive(cid, key) != null;
+    }
+
+    public static Keep findLive(int cid, String key) {
+        return AppDatabase.get().getKeepDao().findLive(cid, key);
     }
 
     public static void deleteAll() {
@@ -64,7 +73,11 @@ public class Keep implements Diffable<Keep> {
     }
 
     public static void delete(String key) {
-        AppDatabase.get().getKeepDao().delete(key);
+        delete(LiveConfig.get().getConfig().getId(), key);
+    }
+
+    public static void delete(int cid, String key) {
+        AppDatabase.get().getKeepDao().deleteLive(cid, key);
     }
 
     public static void replace(String oldKey, String newKey) {
@@ -165,7 +178,8 @@ public class Keep implements Diffable<Keep> {
     }
 
     public Keep delete() {
-        AppDatabase.get().getKeepDao().delete(getCid(), getKey());
+        if (getType() == 1) AppDatabase.get().getKeepDao().deleteLive(getCid(), getKey());
+        else AppDatabase.get().getKeepDao().delete(getCid(), getKey());
         return this;
     }
 

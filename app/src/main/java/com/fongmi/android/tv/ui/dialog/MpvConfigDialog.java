@@ -196,6 +196,7 @@ public class MpvConfigDialog extends BaseAlertDialog implements MpvConfigProfile
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundResource(R.drawable.shape_mpv_action_menu);
         PopupWindow popup = new PopupWindow(content, ResUtil.dp2px(176), WindowManager.LayoutParams.WRAP_CONTENT, true);
+        popup.setAnimationStyle(R.style.XcPopupFade);
         content.addView(actionItem(R.string.mpv_config_edit, R.drawable.ic_git_cloud_edit, false, () -> {
             popup.dismiss();
             openEditor(profile);

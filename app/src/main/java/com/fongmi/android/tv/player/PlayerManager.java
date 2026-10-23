@@ -238,9 +238,6 @@ public class PlayerManager implements ParseCallback {
     private boolean mpvAutoVulkanDisabledForItem;
     private boolean mpvSurfaceFallbackTried;
     private boolean mpvVulkanFallbackTried;
-    private volatile boolean musicPausedByVideo;
-    private volatile long musicPausedByVideoAtMs;
-    private volatile boolean musicPausedByVideoListenerRegistered;
     private com.fongmi.android.tv.bean.Track lastSecondarySubtitleTrack;
     private boolean mpvHlsManagedReload;
     private boolean playbackForeground;
@@ -336,11 +333,6 @@ public class PlayerManager implements ParseCallback {
         playbackExperimentRegistration.close();
         stopNativeAudioSession();
         resumeMusicPausedByVideo();
-        try {
-            if (musicPausedByVideoListenerRegistered) MusicController.get().removeListener(musicPausedByVideoListener);
-        } catch (Throwable ignored) {
-        }
-        musicPausedByVideoListenerRegistered = false;
         clearDanmaku("release");
         releaseLiveDanmakuSession();
         liveDanmakuBatcher.release();
@@ -353,6 +345,7 @@ public class PlayerManager implements ParseCallback {
         mpvAutoVulkanPinnedForItem = false;
         mpvAutoVulkanDisabledForItem = false;
         if (engine == null) return;
+        if (engine instanceof ExoPlayerEngine exoEngine) exoEngine.setTunnelingWatchdogCallback(null);
         engine.release();
         engine = null;
         player = null;
@@ -403,6 +396,7 @@ public class PlayerManager implements ParseCallback {
     private void onPlaybackTimeout() {
         if (retryLutWarmupByRefresh("timeout")) return;
         if (retryMpvDv7P81FirstFrameTimeout()) return;
+        if (retryMpvDv7NativeFirstFrameTimeout()) return;
         if (retryMpvVulkanBackendTimeout()) return;
         if (retryMpvAutoVulkanToOpenGl("auto-vulkan-first-frame-timeout")) return;
         if (retryExoDv7FirstFrameTimeout()) return;
@@ -1218,49 +1212,25 @@ public class PlayerManager implements ParseCallback {
     }
 
     /**
-     * X-28 续播标记：只有音乐当时正在播、且是被视频起播暂停的，才记 flag。
-     * 音乐本来就已手动暂停时 pause() 是空转，不记 flag，视频退出时不续播。
-     * 视频播放中用户手动暂停音乐时，音乐侧 onPlayingChanged(false) 会在
-     * 本次暂停 1500ms 后才到（本方法已记时间戳），届时清 flag，避免退出时
-     * 把用户手动停掉的音乐又续起来。音乐文件本段不动，故只做 PM 侧时间戳
-     * 区分，属近似区分，真机仍需核手动暂停时序。
+     * X-28 续播标记（显式所有权口径，取代旧 1500ms 时间窗近似）：只有音乐当时
+     * 正在播、且是被视频起播暂停的，才走 MusicController.pauseForVideo() 并由
+     * 它置所有权旗。音乐侧任何其它 play/pause 路径（用户手动、语音、切歌等经
+     * MusicController 公共入口的）都会清掉该旗，故视频退出时只认旗续播：
+     * 旗在才续，旗被清了绝不把用户手动停掉的音乐擅自续起来。不再靠暂停事件
+     * 时间戳猜来源。
      */
     private void pauseMusicForVideo() {
         try {
             if (!MusicController.get().isPlaying()) return;
-            MusicController.get().pause();
-            musicPausedByVideo = true;
-            musicPausedByVideoAtMs = android.os.SystemClock.elapsedRealtime();
-            registerMusicPausedByVideoListener();
+            MusicController.get().pauseForVideo();
         } catch (Throwable ignored) {
         }
     }
-
-    private void registerMusicPausedByVideoListener() {
-        if (musicPausedByVideoListenerRegistered) return;
-        try {
-            MusicController.get().addListener(musicPausedByVideoListener);
-            musicPausedByVideoListenerRegistered = true;
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private final MusicController.Listener musicPausedByVideoListener = new MusicController.Listener() {
-        @Override
-        public void onPlayingChanged(boolean playing) {
-            if (playing) return;
-            if (!musicPausedByVideo) return;
-            if (android.os.SystemClock.elapsedRealtime() - musicPausedByVideoAtMs > 1500) {
-                musicPausedByVideo = false;
-            }
-        }
-    };
 
     /** 视频会话真正退出（release / 服务 suspend / shutdown）时才续播。 */
     public void resumeMusicPausedByVideo() {
-        if (!musicPausedByVideo) return;
-        musicPausedByVideo = false;
         try {
+            if (!MusicController.get().consumePausedByVideo()) return;
             MusicController.get().play();
         } catch (Throwable ignored) {
         }
@@ -3446,9 +3416,19 @@ public class PlayerManager implements ParseCallback {
         return rebuildAndRestartMpv(null, "dv7-p81-first-frame-timeout");
     }
 
+    private boolean retryMpvDv7NativeFirstFrameTimeout() {
+        if (player == null || !isDv7NativeAttemptRequested() || mpvSurfaceFallbackTried) return false;
+        if (playbackTrace.hasStage(PlaybackTrace.Stage.FIRST_FRAME)) return false;
+        mpvSurfaceFallbackTried = true;
+        mpvOutputEvaluationSeq++;
+        PlaybackTrace.log("mpv-output", playbackTrace.current(), "dv7 native produced no first frame before startup timeout; fallback gpu once");
+        return rebuildAndRestartMpv(false, "dv7-native-first-frame-timeout");
+    }
+
     private boolean retryMpvSurfaceDirectFailure(PlaybackException error) {
         if (!isMpvSurfaceDirect() || mpvSurfaceFallbackTried || error == null) return false;
-        if (isDv7NativeAttemptRequested()) return false;
+        // DV7 原生档不再在门口堵死：与其它档同走后段 GPU 回落，一次性旗
+        // mpvSurfaceFallbackTried 防循环回落（函数首行已查）。
         String message = error.getMessage();
         boolean outputFailure = error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                 || error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
@@ -3541,7 +3521,13 @@ public class PlayerManager implements ParseCallback {
     private PlayerEngine buildEngine(int type, int decode) {
         return switch (type) {
             case PlayerSetting.MPV -> new MpvPlayerEngine(decode, listener, this::onMpvVideoSizeProbed);
-            default -> new ExoPlayerEngine(decode, listener);
+            default -> {
+                ExoPlayerEngine exo = new ExoPlayerEngine(decode, listener);
+                // 隧道看门狗回调注入：引擎超时只上报，重启由 PM 走隧道失败重试同款路。
+                // 引擎 release() 时自清回调，PM release() 时也先清，防循环引用残留。
+                exo.setTunnelingWatchdogCallback(() -> onExoTunnelingWatchdogTimeout(exo));
+                yield exo;
+            }
         };
     }
 
@@ -4319,6 +4305,11 @@ public class PlayerManager implements ParseCallback {
         setRepeatOne(repeat);
         setTextOffsetMs(textOffsetMs);
         setAudioOffsetMs(audioOffsetMs);
+        // restart 直启路不经 rebuildPlayer，副字幕重放照 rebuildPlayer 口径补上。
+        try {
+            if (lastSecondarySubtitleTrack != null) engine.setSecondarySubtitleTrack(lastSecondarySubtitleTrack);
+        } catch (Throwable ignored) {
+        }
         lutPipelinePrepareInProgress = false;
         return false;
     }
@@ -5248,6 +5239,11 @@ public class PlayerManager implements ParseCallback {
             setRepeatOne(repeat);
             setTextOffsetMs(textOffsetMs);
             setAudioOffsetMs(audioOffsetMs);
+            // restart 直启路不经 rebuildPlayer，副字幕重放照 rebuildPlayer 口径补上。
+            try {
+                if (lastSecondarySubtitleTrack != null) engine.setSecondarySubtitleTrack(lastSecondarySubtitleTrack);
+            } catch (Throwable ignored) {
+            }
             App.post(runnable, Constant.TIMEOUT_PLAY);
             return true;
         } catch (Throwable error) {
@@ -5560,6 +5556,8 @@ public class PlayerManager implements ParseCallback {
         boolean wasPlayWhenReady = player.getPlayWhenReady();
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         prepareSeq++;
         App.removeCallbacks(runnable);
         App.removeCallbacks(networkProtectionRunnable);
@@ -5582,6 +5580,13 @@ public class PlayerManager implements ParseCallback {
         engine.restart(spec.checkUa(), C.TIME_UNSET, wasPlayWhenReady);
         if (speed != 1f) setSpeed(speed);
         setRepeatOne(repeat);
+        setTextOffsetMs(textOffsetMs);
+        setAudioOffsetMs(audioOffsetMs);
+        // restart 直启路不经 rebuildPlayer，副字幕重放照 rebuildPlayer 口径补上。
+        try {
+            if (lastSecondarySubtitleTrack != null) engine.setSecondarySubtitleTrack(lastSecondarySubtitleTrack);
+        } catch (Throwable ignored) {
+        }
         App.post(runnable, Constant.TIMEOUT_PLAY);
         callback.onPrepare();
         return true;
@@ -6463,6 +6468,8 @@ public class PlayerManager implements ParseCallback {
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         App.removeCallbacks(runnable);
         resetLutRuntimeState("hard_decode_switch_retry", true);
         // R-D4：旧路名叫 switch 实际仍建 HARD，且新引擎构造会把隧道回落
@@ -6497,6 +6504,8 @@ public class PlayerManager implements ParseCallback {
             scheduleMpvAutoOutputEvaluation();
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
+            setTextOffsetMs(textOffsetMs);
+            setAudioOffsetMs(audioOffsetMs);
             App.post(runnable, Constant.TIMEOUT_PLAY);
             callback.onPrepare();
         }, HARD_DECODE_SWITCH_RETRY_DELAY_MS);
@@ -6508,17 +6517,36 @@ public class PlayerManager implements ParseCallback {
         if (e.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED
                 && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED && e.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES) return false;
         if (!exo.disableTunnelingForSession()) return false;
+        return scheduleExoTunnelingFallback(exo);
+    }
+
+    /**
+     * 隧道看门狗超时入口（引擎侧只上报、不再自行 stop/start，见
+     * ExoPlayerEngine.TunnelingWatchdogCallback）：与报错路同款回落——关隧道、
+     * 重建、延迟起播，存恢复全套（位置/倍速/循环/偏移）在
+     * scheduleExoTunnelingFallback 里统一做。source 必须是当前引擎，
+     * 旧引擎的迟到上报直接丢弃。
+     */
+    private void onExoTunnelingWatchdogTimeout(ExoPlayerEngine source) {
+        if (engine != source || player == null || spec == null) return;
+        if (!source.disableTunnelingForSession()) return;
+        scheduleExoTunnelingFallback(source);
+    }
+
+    private boolean scheduleExoTunnelingFallback(ExoPlayerEngine exo) {
         int seq = ++prepareSeq;
         PlaySpec target = spec;
         long position = Math.max(0, getPosition());
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         App.removeCallbacks(runnable);
         rebuildPlayer(true);
         this.playWhenReady = wasPlayWhenReady;
         initTrack = false;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("exo-tunnel", "fallback scheduled delay=%d position=%d errorType=%s", EXO_TUNNELING_RETRY_DELAY_MS, position, e.getClass().getSimpleName());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("exo-tunnel", "fallback scheduled delay=%d position=%d", EXO_TUNNELING_RETRY_DELAY_MS, position);
         App.post(() -> {
             if (seq != prepareSeq || spec != target || engine != exo || player == null) return;
             if (SpiderDebug.isEnabled()) SpiderDebug.log("exo-tunnel", "fallback start position=%d", position);
@@ -6536,6 +6564,8 @@ public class PlayerManager implements ParseCallback {
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
+            setTextOffsetMs(textOffsetMs);
+            setAudioOffsetMs(audioOffsetMs);
             App.post(runnable, Constant.TIMEOUT_PLAY);
             callback.onPrepare();
         }, EXO_TUNNELING_RETRY_DELAY_MS);
@@ -6565,6 +6595,8 @@ public class PlayerManager implements ParseCallback {
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         App.removeCallbacks(runnable);
         rebuildPlayer(true);
         this.playWhenReady = wasPlayWhenReady;
@@ -6599,6 +6631,8 @@ public class PlayerManager implements ParseCallback {
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
+            setTextOffsetMs(textOffsetMs);
+            setAudioOffsetMs(audioOffsetMs);
             App.post(runnable, Constant.TIMEOUT_PLAY);
             callback.onPrepare();
         }, EXO_DECODER_RUNTIME_RETRY_DELAY_MS);
@@ -6618,6 +6652,8 @@ public class PlayerManager implements ParseCallback {
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        long textOffsetMs = getTextOffsetMs();
+        long audioOffsetMs = getAudioOffsetMs();
         App.removeCallbacks(runnable);
         rebuildPlayer(true);
         this.playWhenReady = wasPlayWhenReady;
@@ -6645,6 +6681,8 @@ public class PlayerManager implements ParseCallback {
             engine.start(target.checkUa(), position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
+            setTextOffsetMs(textOffsetMs);
+            setAudioOffsetMs(audioOffsetMs);
             App.post(runnable, Constant.TIMEOUT_PLAY);
             callback.onPrepare();
             if (SpiderDebug.isEnabled()) {

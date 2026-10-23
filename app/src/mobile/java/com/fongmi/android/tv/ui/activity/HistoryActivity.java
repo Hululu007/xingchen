@@ -68,6 +68,17 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
         });
     }
 
+    private boolean resumedOnce;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 兜底（深挖 L-14）：刷新只有 RefreshEvent 单通路，退回本页时补拉一次，
+        // 避免事件丢失后列表陈旧；首启 initView 已拉过，跳过第一次。
+        if (resumedOnce) getHistory();
+        resumedOnce = true;
+    }
+
     private void onSync() {
         SyncDialog.create().history().show(this);
     }

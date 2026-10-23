@@ -48,6 +48,11 @@ public final class WebHomeChromeOptions {
         return from(object, mode);
     }
 
+    /** 按存档的逐字段样式重建（WebHomeChromeController.save 存下的 scrim 色／栏样式）。 */
+    public static WebHomeChromeOptions fromSaved(String mode, String statusBarStyle, String navigationBarStyle, String restoreAffordance, int topScrim, int bottomScrim) {
+        return new WebHomeChromeOptions(WebHomeChrome.normalize(mode, WebHomeChrome.NORMAL), statusBarStyle, navigationBarStyle, restoreAffordance, topScrim, bottomScrim);
+    }
+
     public static WebHomeChromeOptions from(JsonObject object, String fallbackMode) {
         String mode = WebHomeChrome.normalize(Json.safeString(object, "mode"), fallbackMode);
         String status = Json.safeString(object, "statusBarStyle");

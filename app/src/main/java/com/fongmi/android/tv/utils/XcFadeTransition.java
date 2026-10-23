@@ -23,6 +23,43 @@ public final class XcFadeTransition {
     private XcFadeTransition() {
     }
 
+    // 动画代次（深挖渐入渐出②③）：fadeOut 的结束回调必须确认自己仍是该视图
+    // 最新一代动画才许置 GONE，否则淡出途中被 fadeIn 打断后旧回调会把刚唤出的
+    // 视图打回 GONE；fadeIn 重入也不许把 alpha 清零重升（闪烁根源）。
+    private static final java.util.WeakHashMap<View, Integer> GENERATIONS = new java.util.WeakHashMap<>();
+
+    private static int bumpGeneration(View v) {
+        synchronized (GENERATIONS) {
+            int gen = GENERATIONS.getOrDefault(v, 0) + 1;
+            GENERATIONS.put(v, gen);
+            return gen;
+        }
+    }
+
+    private static boolean isCurrentGeneration(View v, int gen) {
+        synchronized (GENERATIONS) {
+            return GENERATIONS.getOrDefault(v, 0) == gen;
+        }
+    }
+
+    private static final java.util.WeakHashMap<View, Boolean> FADING_OUT = new java.util.WeakHashMap<>();
+
+    /** 该视图是否正在淡出途中：显隐判定（如点屏唤栏）应把淡出中的视图当作「未显示」，
+     * 否则 200ms 窗口内的点击会走隐藏分支被吞（深挖渐入渐出①）。 */
+    public static boolean isFadingOut(View v) {
+        if (v == null) return false;
+        synchronized (GENERATIONS) {
+            return Boolean.TRUE.equals(FADING_OUT.get(v));
+        }
+    }
+
+    private static void setFadingOut(View v, boolean fadingOut) {
+        synchronized (GENERATIONS) {
+            if (fadingOut) FADING_OUT.put(v, Boolean.TRUE);
+            else FADING_OUT.remove(v);
+        }
+    }
+
     /** 系统动画开关是否允许动画（任一缩放为 0 即视为关闭）。 */
     public static boolean isAnimEnabled(Context context) {
         if (context == null) return false;
@@ -40,10 +77,22 @@ public final class XcFadeTransition {
     /** 视图淡入（关闭动画时直接显示）。 */
     public static void fadeIn(View v) {
         if (v == null) return;
+        bumpGeneration(v);
+        setFadingOut(v, false);
+        boolean inFlight = v.getVisibility() == View.VISIBLE && v.getAlpha() > 0f && v.getAlpha() < 1f;
+        if (v.getVisibility() == View.VISIBLE && v.getAlpha() >= 1f) return;
         v.animate().cancel();
         if (!isAnimEnabled(v.getContext())) {
             v.setAlpha(1f);
             v.setVisibility(View.VISIBLE);
+            return;
+        }
+        if (inFlight) {
+            // 淡入/淡出进行中被重入：从当前 alpha 续升，不清零、不重来
+            float current = v.getAlpha();
+            long duration = Math.max(1L, (long) (DURATION_MS * (1f - current)));
+            v.animate().alpha(1f).setDuration(duration)
+                    .setInterpolator(new AccelerateDecelerateInterpolator()).start();
             return;
         }
         v.setAlpha(0f);
@@ -55,14 +104,22 @@ public final class XcFadeTransition {
     /** 视图淡出后 GONE（关闭动画时直接 GONE）。 */
     public static void fadeOutThenGone(View v) {
         if (v == null) return;
+        int generation = bumpGeneration(v);
         v.animate().cancel();
         if (v.getVisibility() == View.GONE || !isAnimEnabled(v.getContext())) {
+            setFadingOut(v, false);
             v.setVisibility(View.GONE);
             return;
         }
+        setFadingOut(v, true);
         v.animate().alpha(0f).setDuration(DURATION_MS)
                 .setInterpolator(new AccelerateDecelerateInterpolator())
-                .withEndAction(() -> v.setVisibility(View.GONE)).start();
+                .withEndAction(() -> {
+                    if (isCurrentGeneration(v, generation)) {
+                        setFadingOut(v, false);
+                        v.setVisibility(View.GONE);
+                    }
+                }).start();
     }
 
     /** 内页切换：新页淡入、旧页淡出（并行，不互相等待）。 */

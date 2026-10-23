@@ -378,7 +378,7 @@
         <activity
             android:name=".ui.activity.AudioBookActivity"
             android:theme="@style/Theme.XingChen.HkPage"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.activity.TtsReadActivity"

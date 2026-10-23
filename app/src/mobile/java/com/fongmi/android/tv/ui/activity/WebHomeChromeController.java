@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -27,6 +28,11 @@ final class WebHomeChromeController {
 
     private static final String STATE_MODE = "webHomeChromeMode";
     private static final String STATE_PREVIOUS_MODE = "webHomeChromePreviousMode";
+    private static final String STATE_STATUS_BAR_STYLE = "webHomeChromeStatusBarStyle";
+    private static final String STATE_NAVIGATION_BAR_STYLE = "webHomeChromeNavigationBarStyle";
+    private static final String STATE_RESTORE_AFFORDANCE = "webHomeChromeRestoreAffordance";
+    private static final String STATE_TOP_SCRIM = "webHomeChromeTopScrim";
+    private static final String STATE_BOTTOM_SCRIM = "webHomeChromeBottomScrim";
 
     interface Host {
 
@@ -64,7 +70,15 @@ final class WebHomeChromeController {
         } else {
             this.mode = savedInstanceState == null ? WebHomeChrome.NORMAL : WebHomeChrome.normalize(savedInstanceState.getString(STATE_MODE), WebHomeChrome.NORMAL);
             this.previousMode = savedInstanceState == null ? WebHomeChrome.NORMAL : WebHomeChrome.normalize(savedInstanceState.getString(STATE_PREVIOUS_MODE), WebHomeChrome.NORMAL);
-            this.options = WebHomeChromeOptions.from(null, mode);
+            // 重建恢复：按 save() 存下的样式逐字段重建，不再 from(null, mode) 丢回默认
+            //（站点给的 scrim 色／状态栏与导航栏样式／恢复入口样式都得跟回来）。
+            // 无存档（savedInstanceState 为 null）才走原来的默认构建。
+            this.options = savedInstanceState == null ? WebHomeChromeOptions.from(null, mode) : WebHomeChromeOptions.fromSaved(mode,
+                    savedInstanceState.getString(STATE_STATUS_BAR_STYLE),
+                    savedInstanceState.getString(STATE_NAVIGATION_BAR_STYLE),
+                    savedInstanceState.getString(STATE_RESTORE_AFFORDANCE),
+                    savedInstanceState.getInt(STATE_TOP_SCRIM, Color.TRANSPARENT),
+                    savedInstanceState.getInt(STATE_BOTTOM_SCRIM, Color.TRANSPARENT));
         }
         this.viewport = WebHomeViewport.EMPTY.withChrome(mode, isImmersive());
         init();
@@ -85,6 +99,14 @@ final class WebHomeChromeController {
     void save(Bundle outState) {
         outState.putString(STATE_MODE, mode);
         outState.putString(STATE_PREVIOUS_MODE, previousMode);
+        // 样式一并存档：只存 mode 的话重建后 scrim 色／栏样式全丢回默认（F-18）。
+        if (options != null) {
+            outState.putString(STATE_STATUS_BAR_STYLE, options.statusBarStyle);
+            outState.putString(STATE_NAVIGATION_BAR_STYLE, options.navigationBarStyle);
+            outState.putString(STATE_RESTORE_AFFORDANCE, options.restoreAffordance);
+            outState.putInt(STATE_TOP_SCRIM, options.topScrim);
+            outState.putInt(STATE_BOTTOM_SCRIM, options.bottomScrim);
+        }
     }
 
     void applyDefault(Site site) {

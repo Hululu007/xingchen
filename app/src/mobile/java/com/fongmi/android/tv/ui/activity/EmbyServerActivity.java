@@ -214,6 +214,7 @@ public class EmbyServerActivity extends BaseActivity {
         root.setPadding(pad, pad, pad, pad);
         PopupWindow pw = new PopupWindow(root,
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true);
+        pw.setAnimationStyle(R.style.XcPopupFade);
         pw.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         addMenuRow(root, pw, getString(R.string.emby_btn_edit), false, () -> showForm(s, true, false));
         addMenuRow(root, pw, getString(R.string.emby_menu_change_pass), false, () -> showForm(s, false, true));

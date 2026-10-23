@@ -525,8 +525,14 @@ public class TtsReadActivity extends Activity
         mService = null;
     }
 
+    /** 导航回调的 key 单一出处：注册、页面清除、detached 真关闭清除（构造时传入的
+     * navKey）都用它，与服务侧「清除只有 key 与槽位一致才生效」的口径对齐。 */
+    private static String navKeyFor(String bookKey) {
+        return "tts:" + bookKey.hashCode();
+    }
+
     private String playbackKey() {
-        return "tts:" + job.bookKey().hashCode();
+        return navKeyFor(job.bookKey());
     }
 
     private final PlaybackService.NavigationCallback navCallback =

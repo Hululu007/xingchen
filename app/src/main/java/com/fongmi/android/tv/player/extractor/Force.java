@@ -28,15 +28,21 @@ public class Force implements Source.Extractor, ServiceConnection {
         return PATTERN.matcher(UrlUtil.scheme(uri)).find();
     }
 
-    private void init(String scheme) {
-        App.get().bindService(Util.intent(App.get(), scheme), this, Context.BIND_AUTO_CREATE);
+    private boolean init(String scheme) {
+        return App.get().bindService(Util.intent(App.get(), scheme), this, Context.BIND_AUTO_CREATE);
     }
 
     @Override
     public String fetch(String url) throws Exception {
         String scheme = Util.scheme(url);
-        if (!set.contains(scheme)) init(scheme);
-        while (!set.contains(scheme)) SystemClock.sleep(10);
+        if (!set.contains(scheme)) {
+            if (!init(scheme)) throw new Exception("Force 服务绑定失败：" + scheme);
+            long deadline = SystemClock.uptimeMillis() + 10_000;
+            while (!set.contains(scheme)) {
+                if (SystemClock.uptimeMillis() >= deadline) throw new Exception("Force 服务连接超时：" + scheme);
+                SystemClock.sleep(10);
+            }
+        }
         Uri uri = Uri.parse(url);
         int port = Util.port(scheme);
         String id = uri.getLastPathSegment();

@@ -2,8 +2,11 @@ package com.fongmi.android.tv.read;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 阅读会话载荷：判别层（{@link ReadingGate}）产出、阅读器消费。
@@ -61,29 +64,69 @@ public class ReadingSession {
     public int startPage = 0;
     /** 起始进度万分比（小说换源对位后带入，阅读器恢复用）。 */
     public int startFraction = -1;
+    /**
+     * 换源成功后由换源链在旧会话上置真：旧阅读器已把书交给新源，
+     * 它退出时的 onPause 存进度必须跳过，否则会按旧源键把已删的旧书架记录写回来。
+     */
+    public boolean shelfSuperseded = false;
 
     // ---- 进程内静态仓：大数据不走 Intent ----
+    private static final int STORE_MAX = 8;
     private static final ConcurrentHashMap<String, ReadingSession> STORE = new ConcurrentHashMap<>();
+    /** 入仓顺序（淘汰按先进先出；ConcurrentHashMap 自身无序，不能拿它的首键当最老）。 */
+    private static final Queue<String> STORE_ORDER = new ConcurrentLinkedQueue<>();
 
-    /** 存入并返回 id。 */
+    /**
+     * 存入并返回 id。
+     * 残留清理放在建新会话这一侧，不靠读取时顺手删：同书同源的旧会话先清掉
+     * （重开同本书不攒两份）；总量超过上限时按入仓顺序淘汰最老的一条。
+     * 正在显示的阅读器手里有会话对象直引用，淘汰只影响之后按 id 重建能否命中。
+     */
     public static String put(ReadingSession s) {
+        if (s != null && s.bookTitle != null && !s.bookTitle.isEmpty()) {
+            for (Map.Entry<String, ReadingSession> e : STORE.entrySet()) {
+                ReadingSession old = e.getValue();
+                if (old != null && old != s && old.kind == s.kind
+                        && s.bookTitle.equals(old.bookTitle)
+                        && (s.sourceName == null ? "" : s.sourceName)
+                                .equals(old.sourceName == null ? "" : old.sourceName)) {
+                    STORE.remove(e.getKey());
+                    STORE_ORDER.remove(e.getKey());
+                }
+            }
+        }
         String id = UUID.randomUUID().toString();
         STORE.put(id, s);
-        if (STORE.size() > 8) {
-            String first = STORE.keys().nextElement();
-            STORE.remove(first);
+        STORE_ORDER.add(id);
+        while (STORE.size() > STORE_MAX) {
+            String eldest = STORE_ORDER.poll();
+            if (eldest == null) break;
+            STORE.remove(eldest);
         }
         return id;
     }
 
-    public static ReadingSession take(String id) {
+    /**
+     * 取会话（不删除，照 TtsJob.get 口径）：阅读器被重建（主题切换、系统回收后
+     * 在同进程内恢复等）时会二次进 onCreate 按同一 id 取，必须还能拿到；
+     * 从未建过会话（id 为空或进程已死、仓里确实没有）才返回 null，阅读器据此退出。
+     * 同一 id 因此可被重复取——无重复消费问题：每个 id 只由一次 openReading 生成、
+     * 只指向它打开的那一个阅读器，再取的只会是该阅读器自己的重建。
+     */
+    public static ReadingSession get(String id) {
         if (id == null) return null;
-        return STORE.remove(id);
+        return STORE.get(id);
     }
 
     public static ReadingSession peek(String id) {
-        if (id == null) return null;
-        return STORE.get(id);
+        return get(id);
+    }
+
+    /** 显式清理（打开失败等真不要了的场合）；不靠读取顺手删。 */
+    public static void remove(String id) {
+        if (id == null) return;
+        STORE.remove(id);
+        STORE_ORDER.remove(id);
     }
 
     public Chapter currentChapter() {

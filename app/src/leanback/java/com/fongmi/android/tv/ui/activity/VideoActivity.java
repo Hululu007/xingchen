@@ -1822,6 +1822,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void checkPlay() {
         setR1Callback();
+        // 服务被回收未绑回时 player() 为 null：点播放直接吞掉，不许裸解崩溃（深挖 S1）
+        if (player() == null) return;
         if (player().isPlaying()) onPaused();
         else if (player().isEmpty()) onRefresh();
         else onPlay();

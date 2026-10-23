@@ -28,6 +28,7 @@ public class SearchSourceDialog extends BaseAlertDialog {
     private CheckableAdapter vodAdapter;
     private CheckableAdapter pyAdapter;
     private CheckableAdapter jsAdapter;
+    private List<String> vodKeys = new ArrayList<>();
 
     public static void show(Fragment fragment) {
         new SearchSourceDialog().show(fragment.getChildFragmentManager(), null);
@@ -58,9 +59,20 @@ public class SearchSourceDialog extends BaseAlertDialog {
             return;
         }
         List<String> names = new ArrayList<>();
-        for (Site site : sites) names.add(site.getName());
+        vodKeys = new ArrayList<>();
+        for (Site site : sites) {
+            names.add(site.getName());
+            vodKeys.add(site.getKey());
+        }
         binding.vodRecycler.setLayoutManager(new LinearLayoutManager(getContext()));
         binding.vodRecycler.setAdapter(vodAdapter = new CheckableAdapter(names));
+        // 有现行选择时按 key 还原勾选（按下标，不按名：同名站不互相带入），显示与实际生效一致
+        if (hasSelection) {
+            List<Integer> restore = new ArrayList<>();
+            for (int i = 0; i < vodKeys.size(); i++) if (selectedKeys.contains(vodKeys.get(i))) restore.add(i);
+            vodAdapter.setSelectedIndices(restore);
+        }
+        binding.vodSelectAll.setChecked(vodAdapter.isAllSelected());
         binding.vodSelectAll.setOnCheckedChangeListener((v, checked) -> vodAdapter.selectAll(checked));
     }
 
@@ -76,6 +88,12 @@ public class SearchSourceDialog extends BaseAlertDialog {
         }
         binding.pyRecycler.setLayoutManager(new LinearLayoutManager(getContext()));
         binding.pyRecycler.setAdapter(pyAdapter = new CheckableAdapter(names));
+        if (hasSelection) {
+            List<Integer> restore = new ArrayList<>();
+            for (int i = 0; i < names.size(); i++) if (selectedKeys.contains("py_" + names.get(i))) restore.add(i);
+            pyAdapter.setSelectedIndices(restore);
+        }
+        binding.pySelectAll.setChecked(pyAdapter.isAllSelected());
         binding.pySelectAll.setOnCheckedChangeListener((v, checked) -> pyAdapter.selectAll(checked));
     }
 
@@ -87,6 +105,7 @@ public class SearchSourceDialog extends BaseAlertDialog {
         }
         binding.jsRecycler.setLayoutManager(new LinearLayoutManager(getContext()));
         binding.jsRecycler.setAdapter(jsAdapter = new CheckableAdapter(names));
+        binding.jsSelectAll.setChecked(jsAdapter.isAllSelected());
         binding.jsSelectAll.setOnCheckedChangeListener((v, checked) -> jsAdapter.selectAll(checked));
     }
 
@@ -133,11 +152,10 @@ public class SearchSourceDialog extends BaseAlertDialog {
     private void onConfirm() {
         selectedKeys.clear();
         hasSelection = true;
-        // VOD sources: map names to site keys
+        // VOD sources: map selected indices to site keys （按下标取 key，同名站不互相带入）
         if (vodAdapter != null) {
-            List<String> names = vodAdapter.getSelected();
-            for (Site site : VodConfig.get().getSites()) {
-                if (names.contains(site.getName())) selectedKeys.add(site.getKey());
+            for (int index : vodAdapter.getSelectedIndices()) {
+                if (index >= 0 && index < vodKeys.size()) selectedKeys.add(vodKeys.get(index));
             }
         }
         // PY scripts: build py_ keys

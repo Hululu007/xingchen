@@ -320,6 +320,10 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     public void onHiddenChanged(boolean hidden) {
         if (hidden) return;
         setCacheText();
+        // F-20：壳内 tab 切回不走 onResume，下载卡/插件数等副文案只靠 onResume 刷会停在旧值；
+        // 照 SettingPlayerFragment/SettingDanmakuFragment 的 onHiddenChanged(!hidden) 回读口径一并刷。
+        // setCacheText 的回调仍是空实现（存量空转，与本次刷新无关，按现状保留）。
+        if (mBinding != null) updateSubtitles();
     }
 
     @Override

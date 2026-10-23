@@ -5,6 +5,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.os.Build;
 import android.os.CancellationSignal;
+import android.os.StatFs;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.View;
@@ -170,7 +171,8 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private List<RuntimeModule> getInstalledModules() {
         RuntimeModule.refresh();
-        return Arrays.stream(RuntimeModule.values()).filter(RuntimeModule::isInstalled).toList();
+        // 迅雷已改回内置：即使用户机上还留着旧外置包，也不提示模块更新（宿主不再消费它）。
+        return Arrays.stream(RuntimeModule.values()).filter(RuntimeModule::isInstalled).filter(module -> module != RuntimeModule.THUNDER).toList();
     }
 
     private List<String> getModuleUpdates(List<RuntimeModule> installed, JSONObject catalog) throws IOException {
@@ -428,10 +430,48 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             Notify.show(R.string.update_download_source_unavailable);
             return;
         }
+        // 空间预检（C-17）：真正开下前先按清单 size 查下载目录所在盘的可用
+        // 空间，不足直接中文报错、不开下，不再等写失败冒英文系统串。
+        if (!hasSpaceForUpdate()) {
+            downloading = false;
+            view.setEnabled(true);
+            ulog("confirm blocked: insufficient space size=%d", selected.size);
+            Notify.show(R.string.update_no_space);
+            return;
+        }
         resetProgress();
-        Path.clear(getFile());
-        setDialogProgress(0, 0, selected.size, 0, 0);
+        // 不清档：本地已有半截就交给传输层带 Range 续传（C-16）；进度先按
+        // 已有字节回填，弹窗一开就看得出是从哪接着下的。
+        showExistingProgress();
         startNextDownload();
+    }
+
+    // StatFs 对下载目录（getFile() 的父目录）取可用字节；清单无 size 时
+    // 无从预检、照旧放行（落盘后仍有 validate 兜底）。已有半截可续传时
+    // 只查还差的字节——那部分空间已经占在档上了，不重复要求整包空间。
+    // StatFs 本身取不到（目录异常等）不拦下载，让传输层照旧报错。
+    private boolean hasSpaceForUpdate() {
+        if (selected == null || selected.size <= 0) return true;
+        File target = getFile();
+        File dir = target.getParentFile();
+        if (dir == null) return true;
+        try {
+            long available = new StatFs(dir.getAbsolutePath()).getAvailableBytes();
+            long existing = target.exists() ? target.length() : 0;
+            long required = existing < selected.size ? selected.size - existing : 0;
+            return available >= required;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private void showExistingProgress() {
+        File target = getFile();
+        long existing = target.exists() ? target.length() : 0;
+        long size = selected == null ? 0 : selected.size;
+        if (existing > size) existing = 0;
+        int progress = size > 0 && existing > 0 ? (int) (existing * 100 / size) : 0;
+        setDialogProgress(progress, existing, size, 0, 0);
     }
 
     private List<UpdateTarget> getRoutes(Update update) {
@@ -457,9 +497,10 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
         if (canceled || selected == null || routes == null || routeIndex >= routes.size()) return false;
         ulog("route failed, switch to %d/%d", routeIndex + 1, routes.size());
         Notify.show(R.string.update_route_switch);
-        Path.clear(getFile());
+        // 不清档（C-16）：两条路下的是同一个包（OCI 层摘要与清单 sha256
+        // 全等才采纳），半截可跨路续传；最终仍过 validate 才安装。
         resetProgress();
-        setDialogProgress(0, 0, selected.size, 0, 0);
+        showExistingProgress();
         startNextDownload();
         return true;
     }
@@ -548,6 +589,9 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
                 downloading = false;
                 resetProgress();
                 if (!TextUtils.isEmpty(error)) {
+                    // 全链只剩这一处删档：validate 四重验（大小／sha256／包名／
+                    // 签名）已定案此档不可信，必须删——续传保留的只是未定案的
+                    // 半截，验不过的坏档不许留给下次续传混入（C-16 口径）。
                     Path.clear(file);
                     downloading = true;
                     if (retryFallback()) return;

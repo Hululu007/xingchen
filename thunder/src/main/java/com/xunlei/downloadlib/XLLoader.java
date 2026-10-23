@@ -1,6 +1,5 @@
 package com.xunlei.downloadlib;
 
-import com.github.catvod.utils.RuntimeModule;
 import com.xunlei.downloadlib.parameter.BtIndexSet;
 import com.xunlei.downloadlib.parameter.BtSubTaskDetail;
 import com.xunlei.downloadlib.parameter.GetDownloadLibVersion;
@@ -13,20 +12,9 @@ import com.xunlei.downloadlib.parameter.XLTaskLocalUrl;
 
 class XLLoader {
 
-    // 双形态过渡桥（只动构造，不动 native 声明）：
-    // 外置包里被 PluginLoader 载入时，走上游原文 RuntimeModule.THUNDER.load(path -> System.load(path))，
-    // 从插件 APK 内 "…!/lib/<abi>/*.so" 直载——loadLibrary 在这种类加载器下找不到插件的库；
-    // 宿主内置的过渡编包里没有外置包，require() 抛 MissingException，立刻回落
-    // System.loadLibrary（宿主 APK 自带的库）。外置接通且直连删除后，构造里
-    // 只剩 RuntimeModule.load 一行，回落段删掉，不留双形态当永久口径。
     public XLLoader() {
-        try {
-            RuntimeModule.THUNDER.load(path -> System.load(path));
-        } catch (RuntimeException | LinkageError e) {
-            // ExceptionInInitializerError 是 LinkageError 子类，多重 catch 不能并列，已由 LinkageError 覆盖。
-            System.loadLibrary("xl_stat");
-            System.loadLibrary("xl_thunder_sdk");
-        }
+        System.loadLibrary("xl_stat");
+        System.loadLibrary("xl_thunder_sdk");
     }
 
     public native int createBtMagnetTask(String str, String str2, String str3, GetTaskId getTaskId);

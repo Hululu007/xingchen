@@ -2,34 +2,20 @@ package com.fongmi.android.tv.player.extractor;
 
 import com.fongmi.android.tv.exception.ExtractException;
 import com.github.catvod.runtime.ThunderRuntime;
-import com.github.catvod.utils.RuntimeModule;
+import com.xunlei.downloadlib.RuntimeEntry;
+import com.xunlei.downloadlib.XLTaskHelper;
+import com.xunlei.downloadlib.parameter.BtSubTaskDetail;
+import com.xunlei.downloadlib.parameter.GetTaskId;
+import com.xunlei.downloadlib.parameter.XLTaskInfo;
 
-import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-
-// 迅雷运行时网关：Thunder.java 唯一入口，不再直接 import 迅雷类。
-// 顺序固定：先试外置包（RuntimeModule.THUNDER.entry → ThunderRuntime，
-// 含 verifyPackage 签名校验与已编进宿主拒绝），接通后全程走它；
-// 未接通（未安装／校验不过／加载失败）时回落直连——直连类只用反射调，
-// 宿主编译期不依赖 :thunder，App 构建可以不把迅雷代码编进去。
-// 直连是过渡：外置包接通且直连删除后，本类的 DirectRuntime 整段删掉，
-// runtime() 里只剩 entry 一路；不要把回落写成与外置平行的永久口径。
-// 注意 entry() 的失败缓存是上游行为：已安装后首次 entry 失败（如加载错）
-// 会被 RuntimeModule 记下来、要重启才重进；未安装时的 MissingException
-// 不进缓存，装好后下次 runtime() 能直接接通，不用重启。
+// 迅雷运行时网关：Thunder.java 取运行时的唯一入口。
+// 内置形态（2026-10-23 用户定案改回内置，外置包形态作废）：迅雷代码与两个
+// 原生库随 :thunder 编进主包，运行时就是本进程里的 RuntimeEntry
+// （com.xunlei.downloadlib.RuntimeEntry，转发 XLTaskHelper），网关直接
+// 构造它——不查外置包、不走反射、没有「模块未安装」一态，点磁力直接解析起播。
+// 状态取值走 XLTaskHelper 原生信息（getNativeTaskInfo／BT 子任务详情），
+// 绕开 getTaskInfo 的“存档存在即报 2”合成，速度与字节都是真值。
 public final class ThunderGateway {
-
-    // 模块未安装时的可见错文案，同时是播放页识别「缺模块」的标记：
-    // 播放页据它弹安装框（点磁力直接装），不许再在文案里指去设置页找入口。
-    public static final String MODULE_MISSING = "迅雷模块未安装";
-
-    public static boolean isModuleMissing(String message) {
-        return message != null && message.startsWith(MODULE_MISSING);
-    }
 
     private static final ThunderGateway INSTANCE = new ThunderGateway();
 
@@ -37,48 +23,17 @@ public final class ThunderGateway {
         return INSTANCE;
     }
 
-    // 状态取值：外置接口只有 taskStatus / errorMessage，没有速度与字节；
-    // 直连侧 XLTaskInfo 有 mDownloadSpeed / mDownloadSize，定位日志要它们。
-    // 外置路统一填 -1（未知），不编假数。
     public record StatusEx(int taskStatus, String errorMessage, long downloadSpeed, long downloadSize) {
     }
 
     private ThunderRuntime active;
-    private boolean activeExternal;
-    private DirectRuntime direct;
-    private boolean directTried;
 
     private ThunderGateway() {
     }
 
     public synchronized ThunderRuntime runtime() throws ExtractException {
-        if (active != null) return active;
-        try {
-            ThunderRuntime external = RuntimeModule.THUNDER.entry(ThunderRuntime.class);
-            external.check();
-            active = external;
-            activeExternal = true;
-            return active;
-        } catch (Exception | LinkageError ignored) {
-            // 口径：外置接通的任何失败（entry 的运行时异常、check() 的受检异常、
-            // 初始化/链接错误）都算未接通，一律往下走直连回落。ExceptionInInitializerError
-            // 是 LinkageError 子类、不能与之并列多重 catch，故只列 Exception 与 LinkageError 两项。
-            // 未接通：往下走直连回落；直连也没有才报模块未安装。
-        }
-        if (!directTried) {
-            directTried = true;
-            direct = DirectRuntime.tryCreate();
-        }
-        if (direct != null) {
-            active = direct;
-            activeExternal = false;
-            return active;
-        }
-        throw new ExtractException(MODULE_MISSING);
-    }
-
-    public synchronized boolean isExternal() {
-        return active != null && activeExternal;
+        if (active == null) active = new RuntimeEntry();
+        return active;
     }
 
     // 只放已接通的运行时，不为 release 专门去接通一次。
@@ -91,204 +46,16 @@ public final class ThunderGateway {
     }
 
     public synchronized StatusEx taskStatus(ThunderRuntime.Task task) throws ExtractException {
-        ThunderRuntime runtime = runtime();
-        if (activeExternal) {
-            ThunderRuntime.Status status = runtime.getTaskInfo(task);
-            return new StatusEx(status.taskStatus(), status.errorMessage(), -1L, -1L);
-        }
-        return ((DirectRuntime) runtime).rawTaskInfo(task);
+        XLTaskInfo info = XLTaskHelper.get().getNativeTaskInfo((GetTaskId) task);
+        return info == null ? null : toStatusEx(info);
     }
 
     public synchronized StatusEx btSubTaskStatus(ThunderRuntime.Task task, int index) throws ExtractException {
-        ThunderRuntime runtime = runtime();
-        if (activeExternal) {
-            ThunderRuntime.Status status = runtime.getBtSubTaskInfo(task, index);
-            return new StatusEx(status.taskStatus(), status.errorMessage(), -1L, -1L);
-        }
-        return ((DirectRuntime) runtime).rawBtSubTaskInfo(task, index);
+        BtSubTaskDetail detail = XLTaskHelper.get().getBtSubTaskInfo((GetTaskId) task, index);
+        return detail == null || detail.mTaskInfo == null ? null : toStatusEx(detail.mTaskInfo);
     }
 
-    // 直连适配：把宿主里已有的 XLTaskHelper（过渡编包才有）包成 ThunderRuntime。
-    // 全部方法名与签名按 :thunder 现有 XLTaskHelper / 参数类取，类找不到
-    // （已切外置的编包）时 tryCreate 回空，不抛，由网关报模块未安装。
-    private static final class DirectRuntime implements ThunderRuntime {
-
-        private final Object helper;
-        private final Method parseMethod;
-        private final Method addThunderTaskMethod;
-        private final Method addTorrentTaskMethod;
-        private final Method getTorrentInfoMethod;
-        private final Method getLocalUrlMethod;
-        private final Method deleteTaskMethod;
-        private final Method stopTaskMethod;
-        private final Method getTaskInfoMethod;
-        private final Method getNativeTaskInfoMethod;
-        private final Method getBtSubTaskInfoMethod;
-        private final Method releaseMethod;
-        private final Method checkMethod;
-        private final Class<?> taskClass;
-        private final Class<?> torrentInfoClass;
-
-        static DirectRuntime tryCreate() {
-            try {
-                Class<?> helperClass = Class.forName("com.xunlei.downloadlib.XLTaskHelper");
-                Object helper = helperClass.getMethod("get").invoke(null);
-                Class<?> taskClass = Class.forName("com.xunlei.downloadlib.parameter.GetTaskId");
-                return new DirectRuntime(helper, taskClass);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                return null;
-            }
-        }
-
-        private DirectRuntime(Object helper, Class<?> taskClass) throws ReflectiveOperationException {
-            Class<?> helperClass = helper.getClass();
-            this.helper = helper;
-            this.taskClass = taskClass;
-            this.torrentInfoClass = Class.forName("com.xunlei.downloadlib.parameter.TorrentInfo");
-            parseMethod = helperClass.getMethod("parse", String.class, File.class);
-            addThunderTaskMethod = helperClass.getMethod("addThunderTask", String.class, File.class);
-            addTorrentTaskMethod = helperClass.getMethod("addTorrentTask", File.class, File.class, int.class);
-            getTorrentInfoMethod = helperClass.getMethod("getTorrentInfo", File.class);
-            getLocalUrlMethod = helperClass.getMethod("getLocalUrl", File.class);
-            deleteTaskMethod = helperClass.getMethod("deleteTask", taskClass);
-            stopTaskMethod = helperClass.getMethod("stopTask", taskClass);
-            getTaskInfoMethod = helperClass.getMethod("getTaskInfo", taskClass);
-            Method nativeMethod;
-            try {
-                nativeMethod = helperClass.getMethod("getNativeTaskInfo", taskClass);
-            } catch (NoSuchMethodException e) {
-                nativeMethod = null;
-            }
-            getNativeTaskInfoMethod = nativeMethod;
-            getBtSubTaskInfoMethod = helperClass.getMethod("getBtSubTaskInfo", taskClass, int.class);
-            releaseMethod = helperClass.getMethod("release");
-            checkMethod = helperClass.getMethod("check");
-        }
-
-        @Override
-        public void check() {
-            invoke(checkMethod);
-        }
-
-        @Override
-        public void release() {
-            invoke(releaseMethod);
-        }
-
-        @Override
-        public Task parse(String url, File savePath) {
-            return (Task) invoke(parseMethod, url, savePath);
-        }
-
-        @Override
-        public Task addThunderTask(String url, File savePath) {
-            return (Task) invoke(addThunderTaskMethod, url, savePath);
-        }
-
-        @Override
-        public Task addTorrentTask(File torrent, File savePath, int index) {
-            return (Task) invoke(addTorrentTaskMethod, torrent, savePath, index);
-        }
-
-        @Override
-        public List<Media> getTorrentInfo(File torrent) {
-            try {
-                Object info = invoke(getTorrentInfoMethod, torrent);
-                Method medias = torrentInfoClass.getMethod("getMedias");
-                List<?> list = (List<?>) medias.invoke(info);
-                List<Media> result = new ArrayList<>();
-                for (Object item : list) {
-                    Class<?> itemClass = item.getClass();
-                    String fileName = (String) itemClass.getMethod("getFileName").invoke(item);
-                    String size = (String) itemClass.getMethod("getSize").invoke(item);
-                    String playUrl = (String) itemClass.getMethod("getPlayUrl").invoke(item);
-                    result.add(new Media(fileName, size, playUrl));
-                }
-                return result;
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Thunder direct getTorrentInfo failed", e);
-            }
-        }
-
-        @Override
-        public String getLocalUrl(File file) {
-            return (String) invoke(getLocalUrlMethod, file);
-        }
-
-        @Override
-        public void deleteTask(Task task) {
-            invoke(deleteTaskMethod, task);
-        }
-
-        @Override
-        public void stopTask(Task task) {
-            invoke(stopTaskMethod, task);
-        }
-
-        @Override
-        public Status getTaskInfo(Task task) {
-            return toStatus(invoke(getTaskInfoMethod, task));
-        }
-
-        @Override
-        public Status getBtSubTaskInfo(Task task, int index) {
-            return toStatus(taskInfoOf(invoke(getBtSubTaskInfoMethod, task, index)));
-        }
-
-        StatusEx rawTaskInfo(Task task) {
-            if (getNativeTaskInfoMethod != null) return toStatusEx(invoke(getNativeTaskInfoMethod, task));
-            Status status = getTaskInfo(task);
-            return new StatusEx(status.taskStatus(), status.errorMessage(), -1L, -1L);
-        }
-
-        StatusEx rawBtSubTaskInfo(Task task, int index) {
-            return toStatusEx(taskInfoOf(invoke(getBtSubTaskInfoMethod, task, index)));
-        }
-
-        private Object taskInfoOf(Object subDetail) {
-            try {
-                Field field = subDetail.getClass().getField("mTaskInfo");
-                return field.get(subDetail);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Thunder direct BtSubTaskDetail failed", e);
-            }
-        }
-
-        private Status toStatus(Object taskInfo) {
-            try {
-                Class<?> infoClass = taskInfo.getClass();
-                int status = (int) infoClass.getMethod("getTaskStatus").invoke(taskInfo);
-                String error = (String) infoClass.getMethod("getErrorMsg").invoke(taskInfo);
-                return new Status(status, error);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Thunder direct task info failed", e);
-            }
-        }
-
-        private StatusEx toStatusEx(Object taskInfo) {
-            try {
-                Class<?> infoClass = taskInfo.getClass();
-                int status = (int) infoClass.getMethod("getTaskStatus").invoke(taskInfo);
-                String error = (String) infoClass.getMethod("getErrorMsg").invoke(taskInfo);
-                long speed = (long) infoClass.getField("mDownloadSpeed").get(taskInfo);
-                long size = (long) infoClass.getField("mDownloadSize").get(taskInfo);
-                return new StatusEx(status, error, speed, size);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Thunder direct task info failed", e);
-            }
-        }
-
-        private Object invoke(Method method, Object... args) {
-            try {
-                return method.invoke(helper, args);
-            } catch (InvocationTargetException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof RuntimeException runtime) throw runtime;
-                if (cause instanceof Error error) throw error;
-                throw new IllegalStateException("Thunder direct call failed", cause);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Thunder direct call failed", e);
-            }
-        }
+    private StatusEx toStatusEx(XLTaskInfo info) {
+        return new StatusEx(info.getTaskStatus(), info.getErrorMsg(), info.mDownloadSpeed, info.mDownloadSize);
     }
 }

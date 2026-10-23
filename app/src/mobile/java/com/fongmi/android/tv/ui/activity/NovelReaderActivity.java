@@ -91,7 +91,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         // isNightPref(theme()) 导致 getInt 掉空指针，阅读页每次起屏必崩。
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         ReadingSkin.enableEdgeToEdge(this, isNightPref(theme()));
-        session = ReadingSession.take(getIntent().getStringExtra("session"));
+        session = ReadingSession.get(getIntent().getStringExtra("session"));
         if (session == null) {
             ToastUtil.show(this, "阅读会话已失效", Toast.LENGTH_SHORT);
             finish();
@@ -1049,7 +1049,7 @@ public class NovelReaderActivity extends AppCompatActivity {
         if (!TextUtils.isEmpty(session.siteKey) && !TextUtils.isEmpty(ch.url)) {
             try {
                 com.fongmi.android.tv.bean.Result r =
-                        com.fongmi.android.tv.api.SiteApi.playerContent(session.siteKey, "", ch.url);
+                        com.fongmi.android.tv.api.SiteApi.playerContentParseOnly(session.siteKey, "", ch.url);
                 ReadingSession rs = com.fongmi.android.tv.read.ReadingGate.extract(r);
                 if (rs != null && rs.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(rs.text)) {
                     return rs.text;
@@ -1203,11 +1203,15 @@ public class NovelReaderActivity extends AppCompatActivity {
      * 不许在主线程做——记录里带正文快照时 blob 可达数 MB。
      */
     private void saveProgress() {
+        // 换源已把本书交给新源：旧页退出存进度会按旧源键把旧书架记录写回来，不存
+        if (session != null && session.shelfSuperseded) return;
         final float frac = currentFraction();
         Task.scheduler().execute(() -> saveProgressAt(frac));
     }
 
     private void saveProgressAt(float fraction) {
+        // 异步落盘再查一次：排队期间刚换源成功的，同样不许写回旧记录
+        if (session != null && session.shelfSuperseded) return;
         long now = System.currentTimeMillis();
         if (now - lastSaveAt < 2000) return;
         lastSaveAt = now;

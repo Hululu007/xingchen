@@ -38,6 +38,22 @@ public class CheckableAdapter extends RecyclerView.Adapter<CheckableAdapter.View
         return result;
     }
 
+    public List<Integer> getSelectedIndices() {
+        return new ArrayList<>(selected);
+    }
+
+    public void setSelectedIndices(java.util.Collection<Integer> indices) {
+        selected.clear();
+        if (indices != null) {
+            for (int i : indices) if (i >= 0 && i < items.size()) selected.add(i);
+        }
+        notifyDataSetChanged();
+    }
+
+    public boolean isAllSelected() {
+        return selected.size() == items.size();
+    }
+
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

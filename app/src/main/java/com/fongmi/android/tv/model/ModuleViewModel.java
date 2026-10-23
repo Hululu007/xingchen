@@ -453,6 +453,16 @@ public final class ModuleViewModel extends AndroidViewModel {
             pendingCancellation = RuntimeInstaller.cancelInstallation(module, this::onInstallationCancelled);
             return;
         }
+        if (current.phase() == Phase.REMOVAL_READY) {
+            // 待确认卸载此前没有取消分支、cancellation 又已被 finishWork 清空，
+            // 点取消毫无效果。现在与 READY 同路走安装器的取消链：有待确认的
+            // 安装会话就弃掉；卸载本身没有安装器会话可弃（待删标记是安装器
+            // 私有口径、没有公开取消口），回调回来后干净复位到 IDLE，
+            // 弹窗那边随即关窗，不再卡在 REMOVAL_READY 死局。
+            state.setValue(new State(Phase.CANCELLING, current.runtime(), -1, -1, null));
+            pendingCancellation = RuntimeInstaller.cancelInstallation(module, this::onRemovalCancelled);
+            return;
+        }
         if (cancellation == null) return;
         state.setValue(new State(Phase.CANCELLING, current.runtime(), current.downloaded(), current.total(), null));
         Task.execute(cancellation::cancel);
@@ -464,6 +474,24 @@ public final class ModuleViewModel extends AndroidViewModel {
         if (installResult != null) finishInstallation();
         else finishInstallation(success ? Phase.IDLE : error == null ? Phase.CANCELLED : Phase.FAILED, error);
         if (error != null) Notify.show(error);
+    }
+
+    private void onRemovalCancelled(boolean success, String error) {
+        pendingCancellation = null;
+        if (cleared) return;
+        if (installResult != null) {
+            finishInstallation();
+            return;
+        }
+        if (error != null) {
+            finishInstallation(Phase.FAILED, error);
+            Notify.show(error);
+            return;
+        }
+        // 卸载待确认被取消：没有安装结果要结算，直接干净复位到 IDLE，
+        // 运行态沿用当前快照（模块仍装着，canTest/canRemove 随之恢复）。
+        health.setValue(new Health(HealthPhase.UNKNOWN, null));
+        state.setValue(new State(Phase.IDLE, state.getValue().runtime(), -1, -1, null));
     }
 
     @Override

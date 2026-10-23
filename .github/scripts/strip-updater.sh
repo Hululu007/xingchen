@@ -22,6 +22,16 @@ grep -q "Updater.create().force().start(this)" "$SETA" || fail "设置页的检�
 sed -i "/import com\.fongmi\.android\.tv\.Updater;/d" "$SETA"
 sed -i "s/AboutDialog\.show(this, () -> Updater\.create()\.force()\.start(this))/AboutDialog.show(this, null)/" "$SETA"
 
+# 朋友版死设置收口（C-18）：Updater 整删后，设置页「更新方式」卡
+# （cardUpdateSource）照常可点、能改 OCI/GitHub 与代理/镜像设置，但消费方
+# 只剩已删的 Updater.getRoutes——是张能操作却无效的死卡。照既有手法收口：
+# 先 grep 对准点击行，再把这一行换成整卡不可见（正式版源码不动，本脚本
+# 只在 CI 的临时检出上跑）。卡内的子文案刷新（updateUpdateSourceSub）留着
+# 无害：它只给已隐藏卡的子 TextView 赋值，不构成入口。
+grep -qF "binding.cardUpdateSource.setOnClickListener(v -> UpdateSettingsDialog.show(this));" "$SETA" || fail "设置页的更新方式卡点击行对不上"
+sed -i "s|binding\.cardUpdateSource\.setOnClickListener(v -> UpdateSettingsDialog\.show(this));|binding.cardUpdateSource.setVisibility(android.view.View.GONE);|" "$SETA"
+grep -qF "binding.cardUpdateSource.setVisibility(android.view.View.GONE);" "$SETA" || fail "设置页的更新方式卡改不可见后复查对不上"
+
 APP=app/src/main/java/com/fongmi/android/tv/App.java
 grep -q "Updater.create().notifyModules();" "$APP" || fail "App 的模块更新提示调用对不上"
 sed -i "/Updater\\.create()\\.notifyModules();/d" "$APP"
@@ -39,7 +49,15 @@ sed -i "/Updater\\.create()\\.notifyModules();/d" "$APP"
 if grep -rn "com\.fongmi\.android\.tv\.Updater\|Updater\.create()" app/src/main/java app/src/mobile/java --include=*.java; then
   fail "删完后仍有 Updater 引用残留"
 fi
+# 终检扩到更新方式卡（C-18）：朋友版 mobile 里不许再有这张卡的点击入口、
+# 不许再有 UpdateSettingsDialog 的调用方，且卡必须已置不可见，三样缺一即失败。
+# （UpdateSettingsDialog 与 update/* 传输类本体在 main 源集照常编入、无入口
+# 触达即可，那是 C-18 记的既定边界，不在本脚本剥离范围。）
+if grep -rn "cardUpdateSource\.setOnClickListener\|UpdateSettingsDialog\.show" app/src/mobile/java --include=*.java; then
+  fail "朋友版设置页仍有更新方式入口残留"
+fi
+grep -qF "binding.cardUpdateSource.setVisibility(android.view.View.GONE);" "$SETA" || fail "朋友版设置页更新方式卡未置不可见"
 if grep -rn "com\.fongmi\.android\.tv\.Updater\|Updater\.create()" app/src/leanback/java --include=*.java; then
   echo "::warning title=朋友版 leanback 仍有 Updater 引用::leanback 源集不在 mobile 构建内，本次不失败；编 leanback 朋友版前须先剥离"
 fi
-echo "朋友版：检测更新已删除（Updater 类与两个入口）"
+echo "朋友版：检测更新已删除（Updater 类与入口、更新方式卡已隐藏）"

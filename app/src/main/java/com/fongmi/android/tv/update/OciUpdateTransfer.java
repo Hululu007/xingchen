@@ -2,7 +2,6 @@ package com.fongmi.android.tv.update;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.Task;
-import com.github.catvod.utils.Path;
 
 import java.io.File;
 import java.util.concurrent.Future;
@@ -36,7 +35,8 @@ public final class OciUpdateTransfer implements UpdateTransfer, OciRegistryClien
         canceled = true;
         if (call != null) call.cancel();
         if (future != null) future.cancel(true);
-        Path.clear(file);
+        // 不删档：已下拉取的部分留给下次续传（续传实现在 OciRegistryClient），
+        // 好坏最终由 Updater.validate 把关，验不过由那边删档。
     }
 
     private void pull() {
@@ -47,7 +47,8 @@ public final class OciUpdateTransfer implements UpdateTransfer, OciRegistryClien
                 if (!canceled) callback.success(file);
             });
         } catch (Exception e) {
-            Path.clear(file);
+            // 不删档：失败留下的半截由 OciRegistryClient 下次带 Range 续拉；
+            // 摘要对不上的整档会在客户端内当场删（那已是校验定案，不是半截）。
             if (canceled || "Canceled".equals(e.getMessage())) return;
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             App.post(() -> callback.error(message));

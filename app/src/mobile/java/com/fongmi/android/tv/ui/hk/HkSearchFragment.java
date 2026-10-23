@@ -125,6 +125,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         smartRefreshLayout.setOnRefreshListener(layout -> {
             page = 1;
             isRefresh = true;
+            // F-13：新一轮搜索先清到底态，否则刷新后仍被 noMore 拦住翻页
+            layout.resetNoMoreData();
             initData();
         });
         orginalUrl = searchEngine.getSearch_url();
@@ -166,6 +168,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
     }
 
     protected void initData() {
+        // F-13：第一页重搜时清到底态（长按「刷新页面」等不走 OnRefreshListener 的入口同样生效）
+        if (page == 1 && smartRefreshLayout != null) smartRefreshLayout.resetNoMoreData();
         searchEngine.setStatus(1);
         EventBus.getDefault().post(new HkSearchStatusEvent(searchEngine, group));
         loading(true);
@@ -211,7 +215,9 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         }
     }
 
-    /** 照 lambda$bindArrayToView$13：指纹去重、空态伪条目、状态 2/4、唯一结果自动打开。 */
+    /** 照 lambda$bindArrayToView$13：指纹去重、空态伪条目、状态 2/4、唯一结果自动打开。
+     * F-13 到底态：空页，或整页指纹与首/末页相同（源站超页恒回末页）→ 置 noMore，
+     * 后续上拉由 SmartRefreshLayout 直接拦截、不再发请求；刷新（page=1）时先 resetNoMoreData。 */
     private void bindArrayOnUi(List<SearchResult> list, String json, int smode) {
         loading(false);
         if (smartRefreshLayout != null) smartRefreshLayout.finishRefresh(true);
@@ -221,16 +227,21 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             results.clear();
             isRefresh = false;
         }
+        boolean noMore = false;
         if (list.size() < 1) {
-            if (smartRefreshLayout != null) smartRefreshLayout.finishLoadMore();
+            noMore = true;
         } else if (results.size() > 0) {
-            if (smartRefreshLayout != null) smartRefreshLayout.finishLoadMore();
             if (!json.equals(firstPageData) && !json.equals(lastPageData)) {
                 results.addAll(list);
+            } else {
+                noMore = true;
             }
         } else {
-            if (smartRefreshLayout != null) smartRefreshLayout.finishLoadMore();
             results.addAll(list);
+        }
+        if (smartRefreshLayout != null) {
+            if (noMore) smartRefreshLayout.finishLoadMoreWithNoMoreData();
+            else smartRefreshLayout.finishLoadMore();
         }
         boolean autoOpen = false;
         if (results.size() < 1) {

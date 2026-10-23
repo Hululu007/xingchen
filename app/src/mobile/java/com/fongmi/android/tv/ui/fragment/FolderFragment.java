@@ -80,7 +80,7 @@ public class FolderFragment extends BaseFragment {
 
     public void openFolder(String typeId, HashMap<String, String> extend) {
         TypeFragment next = TypeFragment.newInstance(getKey(), typeId, mType.getStyle(), extend, mType.isFolder(), getY());
-        FragmentTransaction ft = getChildFragmentManager().beginTransaction();
+        FragmentTransaction ft = getChildFragmentManager().beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out, R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         Optional.ofNullable(getChild()).ifPresent(ft::hide);
         ft.add(R.id.container, next);
         ft.addToBackStack(null);

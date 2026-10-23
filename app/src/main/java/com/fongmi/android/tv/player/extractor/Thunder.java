@@ -27,7 +27,7 @@ public class Thunder implements Source.Extractor {
     private ThunderRuntime.Task taskId;
     private final ThunderGateway gateway = ThunderGateway.get();
 
-    // 运行时只经网关取：外置优先、直连回落（见 ThunderGateway）。
+    // 运行时只经网关取：内置 RuntimeEntry（见 ThunderGateway）。
     // Parser 是 record（静态成员），拿不到外层实例字段，一律用 ThunderGateway.get()。
     private ThunderRuntime runtime() throws ExtractException {
         return gateway.runtime();
@@ -44,16 +44,13 @@ public class Thunder implements Source.Extractor {
     // fetch 不复用、不合流、不清洗——每一次 fetch 都经 createTask 重新建任务；
     // 清理层（零字节标记清洗、同链接 0 字节停删重建、状态 3 停删、换链接停删、
     // 入口有字节复用、双路合流 70 秒等待）全部拆掉，上游没有这些。
-    // 接线（外置包形态）：本文件不再直接碰迅雷类，一律经 ThunderGateway 取
-    // ThunderRuntime——先试 RuntimeModule.THUNDER.entry(ThunderRuntime.class)
-    // （外置包 com.fongmi.runtime.thunder，兼容 id catvod-thunder-plugin-v1，
-    // verifyPackage 与宿主签名比对，createEntry 拒绝已编进宿主的实现），
-    // 未接通时回落反射直连（过渡编包里宿主仍含 :thunder 时才成立）。
+    // 接线（内置形态）：本文件不直接碰迅雷类，一律经 ThunderGateway 取
+    // ThunderRuntime——网关直接构造 :thunder 里的 RuntimeEntry（转发
+    // XLTaskHelper），迅雷代码与原生库随主包在，不查外置包、无缺模块态。
     // 结构（fetch／先停旧再建新 createTask／getSelection containment／
     // stopFailedTask taskId==task 第二道闸／Parser.match ^ 锚定）与上游原文一一对应；
-    // 只有状态取值经网关：直连父状态仍走 getNativeTaskInfo 原生值（绕开
-    // getTaskInfo 的“存档存在即报 2”合成），外置路只有接口 Status，父状态
-    // 取 getTaskInfo、速度与字节填 -1（未知，不编假数）。
+    // 只有状态取值经网关：父状态走 getNativeTaskInfo 原生值（绕开
+    // getTaskInfo 的“存档存在即报 2”合成），速度与字节是真值。
     // 定位日志（上游 Thunder.java 本无日志；上一批按上游删过，本批为真机查磁力
     // 加回，只记日志、不改行为）：① createTask 内 "bt task created ..."；
     // ② waitTorrentTask 内 "bt task handed local=%s status=%d speed=%d size=%d"。
@@ -176,8 +173,8 @@ public class Thunder implements Source.Extractor {
 
     // 上游 waitTorrentTask 原文结构：100 轮 × 100ms；父任务状态 3 抛错、子任务状态 3 抛错、
     // 子任务状态非 0 立即交 getLocalUrl（不等字节；已完成且 0 字节也立即交，不另抛）。
-    // 父状态直连走 getNativeTaskInfo（绕开 getTaskInfo 的“存档存在即报 2”合成，否则父状态 3 永不可见），
-    // 外置路没有这个口子，取接口 getTaskInfo（见网关 StatusEx 注释）。
+    // 父状态走 getNativeTaskInfo（绕开 getTaskInfo 的“存档存在即报 2”合成，否则父状态 3 永不可见），
+    // 经网关 StatusEx 取（见网关注释）。
     // 每轮先核 taskId == task：任务已被新 fetch／stop() 顶掉时立即抛可见错，不对着旧任务交地址。
     private String waitTorrentTask(ThunderRuntime.Task task, Selection selection) throws Exception {
         for (int i = 0; i < 100; i++) {
@@ -203,7 +200,6 @@ public class Thunder implements Source.Extractor {
                     if (local == null || local.isEmpty()) throw new ExtractException("迅雷本地地址为空，请重试");
                     // 定位日志（只记日志）：状态非 0 交地址即记，含当时速度／已下字节，
                     // 真机查磁力靠“有 created 无 handed”定绞杀／字节门禁。
-                    // 外置路速度与字节未知，记 -1，不编假数。
                     SpiderDebug.log("thunder", "bt task handed local=%s status=%d speed=%d size=%d", local, info.taskStatus(), info.downloadSpeed(), info.downloadSize());
                     return local;
                 }
@@ -297,8 +293,8 @@ public class Thunder implements Source.Extractor {
     // 注意：stop() 会删等待中的任务——这是上游行为；绞杀不再静默的原因是取链窗口
     // 已缩到“状态非 0 即交”（磁力最多 10 秒、直建零等待），且被顶掉的旧路在
     // wait／直建分支里因 taskId != task 抛可见错，不再被静默吞掉。
-    // 唯一偏离：运行时已不在（外置包被卸、直连已切）时删不掉任务，只清字段、
-    // 不把缺模块错抛给 Source.stop() 的切换链，否则切集会跟着崩。
+    // 保险：删任务失败时只清字段，不把错抛给 Source.stop() 的切换链，
+    // 否则切集会跟着崩（内置后运行时恒在，此 catch 只兜引擎侧异常）。
     @Override
     public synchronized void stop() {
         if (taskId == null) return;
@@ -371,8 +367,8 @@ public class Thunder implements Source.Extractor {
                 taskId = ThunderGateway.get().runtime().parse(u, Path.thunder(Util.md5(u)));
             } catch (Exception e) {
                 SpiderDebug.log("thunder", "parse failed url=%s error=%s", u, e);
-                // 网关的缺模块错（ExtractException）原样上抛，不被下面通用文案盖掉，
-                // 否则“去运行模块安装”的指引会丢成一句含糊的解析失败。
+                // ExtractException 原样上抛，不被下面通用文案盖掉，
+                // 否则具体错因会丢成一句含糊的解析失败。
                 if (e instanceof ExtractException) throw e;
                 if (e instanceof InterruptedException || e instanceof java.util.concurrent.TimeoutException) {
                     throw new ExtractException("磁力解析超时，请检查网络后重试");
@@ -416,15 +412,18 @@ public class Thunder implements Source.Extractor {
             // 照上游 waitDone：状态 3 抛真错；状态 2 返回；100 轮 × 100ms 超时抛 error_play_timeout，
             // 不许超时后悄悄落到取种子信息（fork 旧 waitDone 超时无抛错、直接落到取种子信息）。
             // 上游用 Thread.sleep，此处沿用 fork 的 SystemClock.sleep（不改睡眠语义，只补抛错口径）。
-            // 状态经网关取：直连走 getTaskInfo 合成值（与改前一致），外置走接口 getTaskInfo。
+            // 状态经网关取（网关 taskStatus 走 getNativeTaskInfo 原生值）。
             for (int i = 0; i < 100; i++) {
                 ThunderGateway.StatusEx info = ThunderGateway.get().taskStatus(taskId);
-                if (info.taskStatus() == 3) {
+                // 网关签名上可返 null（现行 native 路恒非 null，此为契约防线）：
+                // 照相邻 waitTorrentTask 父状态的口径——null 本轮跳过、继续等，
+                // 不直接解引用炸 NPE；真等不到仍由下面超时抛可见错收口。
+                if (info != null && info.taskStatus() == 3) {
                     String err = info.errorMessage();
                     if (err == null || err.isEmpty()) err = "迅雷任务出错，请重试";
                     throw new ExtractException(err);
                 }
-                if (info.taskStatus() == 2) return;
+                if (info != null && info.taskStatus() == 2) return;
                 SystemClock.sleep(100);
             }
             throw new ExtractException(ResUtil.getString(R.string.error_play_timeout));

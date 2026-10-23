@@ -217,7 +217,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         // Emby 聚合搜索·层1：按已登录服逐个注册虚拟源（key "emby:<serverId>"，api "csp_Emby"，名 "Emby·服别名"）。
         // 失败静默降级：EmbySpider.searchContent 未登录抛中文异常，被搜索框架按单源失败隔离，
         // 不影响其它源；结果分组名即 "Emby·服别名"，点击走既有详情入口。
-        addEmbySearchSites(siteKey);
+        addEmbySearchSites(siteKey, selected);
         SiteHealthStore.sortSites(mSites);
     }
 
@@ -226,7 +226,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
      * 走主搜索页既有多源并发框架，一服一组同屏。EmbySpider.searchContent 按 siteKey 选服。
      * 失败静默降级：未登录的服不注册；蜘蛛内异常按单源失败隔离，不影响其它源。
      */
-    private void addEmbySearchSites(String siteKey) {
+    private void addEmbySearchSites(String siteKey, java.util.Set<String> selected) {
         try {
             // 限定单源搜索时：siteKey 是某个 emby 服 key 或老口径 csp_Emby 才挂 Emby 源
             boolean wantAll = TextUtils.isEmpty(siteKey);
@@ -235,6 +235,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
             if (!wantEmby) return;
             for (Site emby : com.fongmi.android.tv.emby.EmbyNavigator.getSearchSites()) {
                 if (emby == null || !emby.isSearchable()) continue;
+                // 搜索源选择对 Emby 同样生效：有选择时只挂被选中的（弹窗从不产出 emby key，
+                // 即有选择时 Emby 不混入，与 VOD/PY 的过滤口径一致，深挖 F-03a）
+                if (selected != null && !selected.contains(emby.getKey())) continue;
                 if (!wantAll && !siteKey.equals(emby.getKey())
                         && !com.fongmi.android.tv.emby.EmbyNavigator.SITE_KEY.equals(siteKey)) continue;
                 boolean exists = false;
@@ -289,7 +292,11 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     private void search() {
-        if (mSites.isEmpty()) return;
+        if (mSites.isEmpty()) {
+            // 无源可搜必须可见，不许静默空白（深挖 F-03b：只勾 JS 等情形会走到这）
+            ToastUtil.show(requireContext(), "没有可搜索的源", android.widget.Toast.LENGTH_SHORT);
+            return;
+        }
         mCollects.clear();
         mAllResults.clear();
         mCollects.add(Collect.all());

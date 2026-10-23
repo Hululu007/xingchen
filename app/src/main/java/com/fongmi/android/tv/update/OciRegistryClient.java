@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,31 +57,95 @@ public final class OciRegistryClient {
         downloadBlob(endpoint, artifact, file, observer);
     }
 
+    // OCI 续传：本链的形态与直链同理——清单校验过「恰好一层」且层摘要与
+    // 更新清单 sha256 全等（Updater.parseDownloads），整包就是这一个 blob，
+    // 不是多层拼接。故同法续传：本地半截带 Range 拉余下部分；摘要计算先把
+    // 已有半截喂进 MessageDigest 再接着算，终值对层摘要即证明整档连续无缺。
     private void downloadBlob(String endpoint, OciArtifact artifact, File file, Observer observer) throws Exception {
+        long existing = resumableLength(artifact, file, observer);
+        if (existing == artifact.size) {
+            // resumableLength 已对整档验过摘要：档已完整，直接交回。
+            observer.onProgress(100, artifact.size, artifact.size, 0, 0);
+            return;
+        }
         HttpUrl blobUrl = artifactUrl(endpoint, artifact.repository, "blobs", artifact.layerDigest);
-        Request request = new Request.Builder().url(blobUrl).header("Accept-Encoding", "identity").build();
-        try (Response response = executeAuthorized(request, artifact, observer)) {
+        Request.Builder builder = new Request.Builder().url(blobUrl).header("Accept-Encoding", "identity");
+        if (existing > 0) builder.header("Range", "bytes=" + existing + "-");
+        try (Response response = executeAuthorized(builder.build(), artifact, observer)) {
+            int code = response.code();
+            if (code == 416 && existing > 0) {
+                // 偏移不可续：半截已不是可续前缀，删档报错，下次从零拉
+                // （与直链路同口径：协商证明不可用才删，不是失败即删）。
+                deleteQuietly(file);
+                throw new IOException("OCI blob range not satisfiable");
+            }
             requireSuccess(response, "OCI blob");
             ResponseBody body = response.body();
             if (body == null) throw new IOException("OCI blob is empty");
             long responseLength = body.contentLength();
-            if (responseLength > 0 && responseLength != artifact.size) throw new IOException("OCI blob size mismatch");
-            streamBlob(body.byteStream(), artifact, file, observer);
+            boolean append;
+            long start;
+            if (code == 206) {
+                String contentRange = response.header("Content-Range");
+                long rangeStart = parseRangeStart(contentRange);
+                long rangeTotal = parseRangeTotal(contentRange);
+                if (rangeStart >= 0 && rangeStart != existing) throw new IOException("OCI blob range mismatch");
+                if (rangeTotal > 0 && rangeTotal != artifact.size) throw new IOException("OCI blob size mismatch");
+                if (responseLength > 0 && existing + responseLength != artifact.size) throw new IOException("OCI blob size mismatch");
+                append = existing > 0;
+                start = existing;
+            } else {
+                // 回 200＝注册表／回源无视 Range 发全量：截断重写，不拼接。
+                if (responseLength > 0 && responseLength != artifact.size) throw new IOException("OCI blob size mismatch");
+                append = false;
+                start = 0;
+            }
+            streamBlob(body.byteStream(), artifact, file, observer, start, append);
         }
     }
 
-    private void streamBlob(InputStream source, OciArtifact artifact, File file, Observer observer) throws Exception {
+    // 半截长度口径同直链路：长于层大小按 0（落盘截断重写）；恰好整档时先
+    // 本地验摘要，对上才认完整，对不上按 0 重拉——不把坏档当成品交回。
+    private long resumableLength(OciArtifact artifact, File file, Observer observer) throws Exception {
+        if (file == null || !file.exists()) return 0;
+        long length = file.length();
+        if (length > artifact.size) return 0;
+        if (length == artifact.size) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            feedFile(digest, file, length, observer);
+            return ("sha256:" + hex(digest.digest())).equals(artifact.layerDigest) ? length : 0;
+        }
+        return length;
+    }
+
+    private void feedFile(MessageDigest digest, File file, long bytes, Observer observer) throws Exception {
+        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file))) {
+            byte[] buffer = new byte[16384];
+            long fed = 0;
+            int count;
+            while (fed < bytes && (count = input.read(buffer, 0, (int) Math.min(buffer.length, bytes - fed))) != -1) {
+                checkCanceled(observer);
+                digest.update(buffer, 0, count);
+                fed += count;
+            }
+            if (fed != bytes) throw new IOException("OCI blob partial file changed while resuming");
+        }
+    }
+
+    private void streamBlob(InputStream source, OciArtifact artifact, File file, Observer observer, long start, boolean append) throws Exception {
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Unable to create update directory");
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (BufferedInputStream input = new BufferedInputStream(source); FileOutputStream output = new FileOutputStream(file)) {
+        // 续传时摘要从半截开头算起：先把已有部分喂进去，再接网络流。
+        if (append && start > 0) feedFile(digest, file, start, observer);
+        try (BufferedInputStream input = new BufferedInputStream(source); FileOutputStream output = new FileOutputStream(file, append)) {
             byte[] buffer = new byte[16384];
-            long bytes = 0;
-            long start = System.currentTimeMillis();
-            long lastTime = start;
-            long lastBytes = 0;
+            long bytes = start;
+            long runStart = System.currentTimeMillis();
+            long lastTime = runStart;
+            long lastBytes = bytes;
             int lastProgress = -1;
-            observer.onProgress(0, 0, artifact.size, 0, 0);
+            observer.onProgress(artifact.size > 0 ? (int) (bytes * 100 / artifact.size) : 0, bytes, artifact.size, 0, 0);
             int count;
             while ((count = input.read(buffer)) != -1) {
                 checkCanceled(observer);
@@ -92,14 +157,53 @@ public final class OciRegistryClient {
                 int progress = (int) (bytes * 100 / artifact.size);
                 if (progress == lastProgress && now - lastTime < 1000) continue;
                 long speed = (bytes - lastBytes) * 1000 / Math.max(1, now - lastTime);
-                observer.onProgress(progress, bytes, artifact.size, speed, now - start);
+                observer.onProgress(progress, bytes, artifact.size, speed, now - runStart);
                 lastProgress = progress;
                 lastTime = now;
                 lastBytes = bytes;
             }
             if (bytes != artifact.size) throw new IOException("OCI blob download is incomplete");
             String actual = "sha256:" + hex(digest.digest());
-            if (!actual.equals(artifact.layerDigest)) throw new IOException("OCI blob digest mismatch");
+            if (!actual.equals(artifact.layerDigest)) {
+                // 整档已下满但摘要定案对不上：这不是半截、续传救不回来，
+                // 当场删档，防它被下次当「已完整」或被直链路接去续传。
+                deleteQuietly(file);
+                throw new IOException("OCI blob digest mismatch");
+            }
+        }
+    }
+
+    // Content-Range: bytes <start>-<end>/<total|*>；解析失败返回 -1。
+    private long parseRangeStart(String header) {
+        if (header == null) return -1;
+        String value = header.trim();
+        if (value.startsWith("bytes")) value = value.substring(5).trim();
+        int dash = value.indexOf('-');
+        if (dash <= 0) return -1;
+        try {
+            return Long.parseLong(value.substring(0, dash).trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private long parseRangeTotal(String header) {
+        if (header == null) return -1;
+        int slash = header.lastIndexOf('/');
+        if (slash < 0) return -1;
+        String tail = header.substring(slash + 1).trim();
+        if (tail.isEmpty() || "*".equals(tail)) return -1;
+        try {
+            return Long.parseLong(tail);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private void deleteQuietly(File file) {
+        try {
+            if (file != null && file.exists()) file.delete();
+        } catch (Exception ignored) {
         }
     }
 

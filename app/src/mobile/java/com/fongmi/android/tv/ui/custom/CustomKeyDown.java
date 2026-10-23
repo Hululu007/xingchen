@@ -1,5 +1,8 @@
 package com.fongmi.android.tv.ui.custom;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.Context;
 import android.media.AudioManager;
@@ -8,6 +11,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 
 import androidx.annotation.NonNull;
 
@@ -32,8 +36,14 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
     private boolean changeSpeed;
     private boolean changeScale;
     private boolean changeTime;
+    private boolean changePage;
+    private boolean pageSettling;
+    private boolean pageFlingHandled;
     private boolean multiTouch;
     private boolean animating;
+    private float pageDy;
+    private float pageVelocity;
+    private long pageLastTime;
     private boolean touch;
     private boolean lock;
     private float bright;
@@ -59,8 +69,16 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
 
     public boolean onTouchEvent(MotionEvent e) {
         int action = e.getActionMasked();
-        if (action == MotionEvent.ACTION_DOWN) multiTouch = false;
+        if (action == MotionEvent.ACTION_DOWN) {
+            multiTouch = false;
+            pageFlingHandled = false;
+        }
         if (action == MotionEvent.ACTION_POINTER_DOWN) multiTouch = true;
+        if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && changePage) {
+            changePage = false;
+            pageFlingHandled = true;
+            settlePage(action == MotionEvent.ACTION_UP && shouldCommitPage());
+        }
         if (action == MotionEvent.ACTION_UP) listener.onTouchEnd();
         if (changeBright && action == MotionEvent.ACTION_UP) PlayerSetting.putBrightness(currentBright);
         if (changeSpeed && action == MotionEvent.ACTION_UP) listener.onSpeedEnd();
@@ -114,6 +132,10 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         changeSpeed = false;
         changeBright = false;
         changeVolume = false;
+        changePage = false;
+        pageDy = 0;
+        pageVelocity = 0;
+        pageLastTime = 0;
         bright = Util.getBrightness(activity);
         currentBright = bright;
         volume = manager.getStreamVolume(AudioManager.STREAM_MUSIC);
@@ -135,13 +157,14 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
 
     @Override
     public boolean onScroll(MotionEvent e1, @NonNull MotionEvent e2, float distanceX, float distanceY) {
-        if (isMultiple(e1) || isEdge(e1) || changeScale || lock || changeSpeed) return true;
+        if (isMultiple(e1) || isEdge(e1) || changeScale || lock || changeSpeed || pageSettling) return true;
         float deltaX = e2.getX() - e1.getX();
         float deltaY = e1.getY() - e2.getY();
         if (touch) checkFunc(Math.abs(deltaX), Math.abs(deltaY), e2);
         if (changeTime) listener.onSeeking(time = (long) (deltaX * 50));
         if (changeBright) setBright(deltaY);
         if (changeVolume) setVolume(deltaY);
+        if (changePage) dragPage(e1, e2);
         return true;
     }
 
@@ -161,7 +184,7 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
 
     @Override
     public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float velocityX, float velocityY) {
-        if (isMultiple(e1) || isEdge(e1) || isSide(e1) || changeScale || lock || animating) return true;
+        if (isMultiple(e1) || isEdge(e1) || isSide(e1) || changeScale || lock || animating || pageSettling || pageFlingHandled) return true;
         checkFunc(e1, e2);
         return true;
     }
@@ -170,7 +193,56 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         if ((float) Math.sqrt(distanceX * distanceX + distanceY * distanceY) < ResUtil.dp2px(20)) return;
         if (distanceX >= distanceY) changeTime = true;
         else if (isSide(e2)) checkSide(e2);
+        else if (listener.isPageSwipeEnabled()) changePage = true;
         touch = false;
+    }
+
+    // 短剧滑动：手指跟随位移，无相邻集的方向加阻尼，松手按位移/速度决定切集或回弹
+    private void dragPage(MotionEvent e1, MotionEvent e2) {
+        float dy = e2.getY() - e1.getY();
+        boolean can = dy < 0 ? listener.canPageUp() : listener.canPageDown();
+        long now = e2.getEventTime();
+        if (pageLastTime > 0 && now > pageLastTime) {
+            float velocity = (dy - pageDy) / (now - pageLastTime) * 1000f;
+            pageVelocity = pageVelocity * 0.5f + velocity * 0.5f;
+        }
+        pageLastTime = now;
+        pageDy = dy;
+        float applied = can ? dy : dy * 0.35f;
+        videoView.setTranslationY(applied);
+        listener.onPageDrag(applied);
+    }
+
+    private boolean shouldCommitPage() {
+        boolean can = pageDy < 0 ? listener.canPageUp() : listener.canPageDown();
+        if (!can) return false;
+        int height = videoView.getHeight();
+        if (height > 0 && Math.abs(pageDy) >= height * 0.25f) return true;
+        return Math.abs(pageDy) > DISTANCE && Math.abs(pageVelocity) > 800 && (pageVelocity < 0) == (pageDy < 0);
+    }
+
+    private void settlePage(boolean commit) {
+        pageSettling = true;
+        boolean up = pageDy < 0;
+        int height = videoView.getHeight();
+        float target = commit ? (up ? -height : height) : 0f;
+        ValueAnimator animator = ValueAnimator.ofFloat(videoView.getTranslationY(), target);
+        animator.setDuration(commit ? 220 : 200);
+        animator.setInterpolator(new DecelerateInterpolator());
+        animator.addUpdateListener(animation -> {
+            float value = (float) animation.getAnimatedValue();
+            videoView.setTranslationY(value);
+            listener.onPageDrag(value);
+        });
+        animator.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                pageSettling = false;
+                if (commit) listener.onPageCommit(up);
+                listener.onPageDragEnd(commit);
+            }
+        });
+        animator.start();
     }
 
     private void checkFunc(MotionEvent e1, MotionEvent e2) {
@@ -252,6 +324,34 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         void onFlingUp();
 
         void onFlingDown();
+
+        /** 是否启用竖滑翻页（短剧全屏）：默认关，其余页面沿用原 fling 弹跳切集。 */
+        default boolean isPageSwipeEnabled() {
+            return false;
+        }
+
+        /** 该方向是否有相邻集可切（决定跟随位移是否加阻尼、松手是否允许切集）。 */
+        default boolean canPageUp() {
+            return true;
+        }
+
+        default boolean canPageDown() {
+            return true;
+        }
+
+        /** 翻页位移回调（拖动与松手动画逐帧）：宿主据此摆放相邻集预览层。 */
+        default void onPageDrag(float dy) {
+        }
+
+        /** 松手吸附成立、动画到位：走原切集链。 */
+        default void onPageCommit(boolean up) {
+            if (up) onFlingUp();
+            else onFlingDown();
+        }
+
+        /** 翻页手势收尾：未切集时宿主撤除预览层。 */
+        default void onPageDragEnd(boolean committed) {
+        }
 
         void onSingleTap();
 

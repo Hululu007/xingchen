@@ -9,6 +9,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -68,6 +69,9 @@ public class CloudDriveActivity extends BaseActivity {
     private boolean loadingMore;
     private boolean hasMore = true;
     private int fetchGen;
+    /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
+    private boolean viewReady;
+    private boolean firstResume = true;
 
     @Override
     protected ViewBinding getBinding() {
@@ -113,6 +117,22 @@ public class CloudDriveActivity extends BaseActivity {
         binding.fab.setOnClickListener(v -> showFabMenu());
         if (fabActions().isEmpty()) binding.fab.setVisibility(View.GONE);
         crumbs.add(new Crumb(rootCid, "根目录"));
+        viewReady = true;
+        fetchFiles();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (firstResume) {
+            firstResume = false;
+            return;
+        }
+        // L-15：从播放/子页回来刷新目录与会员信息。
+        // 未登录那条路在 initView 里已 start PanLogin＋finish，viewReady 不会置真，走不到这里；
+        // 已 finish 的实例也不会再有 onResume，不搅乱现行登录跳转。
+        if (!viewReady || drive == null || isFinishing()) return;
+        updateDriveInfo();
         fetchFiles();
     }
 
@@ -335,29 +355,54 @@ public class CloudDriveActivity extends BaseActivity {
                 .show();
     }
 
-    /** 最小离线任务列表：看进度（名＋百分比＋状态文案）、点一项确认后删任务。只取第 1 页，不自动轮询。 */
+    /** 离线任务弹窗的会话状态：已拼接的全部任务、已拉页数、第 1 页条数（满页判定基准）、是否还有下一页。 */
+    private static class TaskListState {
+        final List<CloudTask> tasks = new ArrayList<>();
+        final List<String> labels = new ArrayList<>();
+        int loadedPages;
+        int pageSize;
+        boolean hasMore;
+        boolean loading;
+    }
+
+    private static String taskLabel(CloudTask t) {
+        String st = t.getStatusText();
+        return t.getName() + "  " + t.getPercent() + "%"
+                + (TextUtils.isEmpty(st) ? "" : "  " + st);
+    }
+
+    /** 离线任务列表入口（FAB）：从第 1 页拉起，弹窗内可继续翻页拼接。不自动轮询。 */
     private void showTaskListDialog() {
+        showTaskListDialog(1);
+    }
+
+    /**
+     * 拉够 targetPages 页（或到尾页为止）再开弹窗。
+     * 删任务后按已拉页数走这里重拉，已翻到的页不丢（旧口径只重拉第 1 页，第 2 页起的任务删完就看不见）。
+     * 满页判定与文件列表同口径：第 1 页条数作页大小，某页取满＝可能还有下一页、不满＝已到尾页；
+     * 恰好整页数倍数时靠下一次取到空页收尾，不丢任务。
+     */
+    private void showTaskListDialog(int targetPages) {
         Notify.show("正在加载离线任务…");
         new Thread(() -> {
             try {
-                List<CloudTask> tasks = drive.taskList(1);
+                TaskListState st = new TaskListState();
+                for (int p = 1; p <= Math.max(1, targetPages); p++) {
+                    List<CloudTask> pageTasks = drive.taskList(p);
+                    if (pageTasks == null || pageTasks.isEmpty()) break;
+                    if (p == 1) st.pageSize = pageTasks.size();
+                    st.tasks.addAll(pageTasks);
+                    st.loadedPages = p;
+                    st.hasMore = st.pageSize > 0 && pageTasks.size() >= st.pageSize;
+                    if (!st.hasMore) break;
+                }
                 runOnUiThread(() -> {
-                    if (tasks == null || tasks.isEmpty()) {
+                    if (isFinishing()) return;
+                    if (st.tasks.isEmpty()) {
                         Notify.show("暂无离线任务");
                         return;
                     }
-                    String[] items = new String[tasks.size()];
-                    for (int i = 0; i < tasks.size(); i++) {
-                        CloudTask t = tasks.get(i);
-                        String st = t.getStatusText();
-                        items[i] = t.getName() + "  " + t.getPercent() + "%"
-                                + (TextUtils.isEmpty(st) ? "" : "  " + st);
-                    }
-                    new AlertDialog.Builder(this)
-                            .setTitle("离线任务")
-                            .setItems(items, (d, which) -> confirmDeleteTask(tasks.get(which)))
-                            .setNegativeButton("关闭", null)
-                            .show();
+                    openTaskListDialog(st);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> Notify.show("加载离线任务失败：" + msg(e)));
@@ -365,7 +410,65 @@ public class CloudDriveActivity extends BaseActivity {
         }).start();
     }
 
-    private void confirmDeleteTask(CloudTask task) {
+    private void openTaskListDialog(TaskListState st) {
+        for (CloudTask t : st.tasks) st.labels.add(taskLabel(t));
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, st.labels);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle("离线任务")
+                .setAdapter(adapter, (d, which) -> confirmDeleteTask(st.tasks.get(which), st.loadedPages))
+                .setNegativeButton("关闭", null);
+        if (st.hasMore) builder.setNeutralButton("加载更多", null);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+        if (st.hasMore) {
+            // 覆盖按钮的默认点击（默认会关弹窗）：改成不关弹窗、就地续拉下一页往后拼接。
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                    .setOnClickListener(v -> loadMoreTasks(dialog, adapter, st));
+        }
+    }
+
+    private void loadMoreTasks(AlertDialog dialog, ArrayAdapter<String> adapter, TaskListState st) {
+        if (st.loading || !st.hasMore) return;
+        st.loading = true;
+        int next = st.loadedPages + 1;
+        new Thread(() -> {
+            try {
+                List<CloudTask> pageTasks = drive.taskList(next);
+                runOnUiThread(() -> {
+                    st.loading = false;
+                    if (!dialog.isShowing()) return;
+                    if (pageTasks == null || pageTasks.isEmpty()) {
+                        st.hasMore = false;
+                        markNoMoreTasks(dialog);
+                        Notify.show("没有更多了");
+                        return;
+                    }
+                    for (CloudTask t : pageTasks) {
+                        st.tasks.add(t);
+                        st.labels.add(taskLabel(t));
+                    }
+                    st.loadedPages = next;
+                    st.hasMore = st.pageSize > 0 && pageTasks.size() >= st.pageSize;
+                    adapter.notifyDataSetChanged();
+                    if (!st.hasMore) markNoMoreTasks(dialog);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    st.loading = false;
+                    Notify.show("加载更多失败：" + msg(e));
+                });
+            }
+        }).start();
+    }
+
+    private void markNoMoreTasks(AlertDialog dialog) {
+        android.widget.Button btn = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        if (btn == null) return;
+        btn.setText("没有更多了");
+        btn.setEnabled(false);
+    }
+
+    private void confirmDeleteTask(CloudTask task, int loadedPages) {
         new AlertDialog.Builder(this)
                 .setTitle("删除离线任务")
                 .setMessage("确定删除「" + task.getName() + "」吗？")
@@ -373,10 +476,10 @@ public class CloudDriveActivity extends BaseActivity {
                     new Thread(() -> {
                         try {
                             boolean ok = drive.taskDelete(Collections.singletonList(task.getHash()));
-                            // A8：删成功当场重拉第 1 页刷新对话框列表，不要求关闭重进；删失败不刷新。
+                            // A8＋F-14：删成功当场按已拉页数重拉刷新对话框列表，不要求关闭重进；删失败不刷新。
                             runOnUiThread(() -> {
                                 Notify.show(ok ? "已删除离线任务" : "删除离线任务失败");
-                                if (ok) showTaskListDialog();
+                                if (ok) showTaskListDialog(loadedPages);
                             });
                         } catch (Exception e) {
                             runOnUiThread(() -> Notify.show("删除离线任务失败：" + msg(e)));

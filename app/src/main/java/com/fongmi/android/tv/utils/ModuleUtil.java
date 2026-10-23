@@ -9,11 +9,13 @@ import com.github.catvod.utils.RuntimeModule;
 // 不声称上游原文：isBusy(models)、render(binding, model, state)。
 // MODULES 顺序必须与 ModuleActivity / ModuleFragment 的 models 数组一致，
 // ModuleDialog.create(index) 也按同一顺序取模块，改一处就要三处一起改。
+// 迅雷已改回内置主包，不再走外置模块链，此列不含 THUNDER（见 Updater 对
+// checkModules 的同口径排除）。
 public final class ModuleUtil {
 
     public static final RuntimeModule[] MODULES = {
             RuntimeModule.BDJ, RuntimeModule.PYTHON, RuntimeModule.NODEJS,
-            RuntimeModule.QUICKJS, RuntimeModule.THUNDER, RuntimeModule.MPV
+            RuntimeModule.QUICKJS, RuntimeModule.MPV
     };
 
     private ModuleUtil() {

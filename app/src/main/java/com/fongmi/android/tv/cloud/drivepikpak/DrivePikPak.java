@@ -672,14 +672,30 @@ public class DrivePikPak implements CloudDrive {
     }
 
     /**
+     * 离线任务列表的 page_token 链状态（与文件列表 listDir 同口径）：
+     * taskList(1) 重置链、从空 token 起；后续页用上一页响应存下的 token 续拉；
+     * 响应里没有 next_page_token ＝已翻完，置空。链未起/已翻完时再调后续页返回空表，不回第一页冒充。
+     */
+    private String taskNextPageToken = "";
+
+    /**
      * 离线任务列表（来源：pikpak-sdk/offline.go List）
-     * GET /drive/v1/tasks?type=offline&filters=
+     * GET /drive/v1/tasks?type=offline&limit=100&page_token=&filters=
      */
     @Override
     public List<CloudTask> taskList(int page) throws Exception {
+        String pageToken;
+        if (page <= 1) {
+            taskNextPageToken = "";
+            pageToken = "";
+        } else {
+            pageToken = taskNextPageToken;
+            if (TextUtils.isEmpty(pageToken)) return new ArrayList<>();
+        }
         JSONObject query = new JSONObject()
                 .put("type", "offline")
                 .put("limit", "100")
+                .put("page_token", pageToken)
                 .put("thumbnail_size", "SIZE_SMALL")
                 .put("with", "reference_resource")
                 .put("filters", new JSONObject()
@@ -687,6 +703,8 @@ public class DrivePikPak implements CloudDrive {
                                 "PHASE_TYPE_RUNNING,PHASE_TYPE_ERROR,PHASE_TYPE_PENDING,PHASE_TYPE_COMPLETE"))
                         .toString());
         JSONObject d = api("GET", "/drive/v1/tasks", query, null, true);
+        // 存下一页 token 供续页用；响应没有＝已翻完，置空
+        taskNextPageToken = d.optString("next_page_token", "");
         List<CloudTask> tasks = new ArrayList<>();
         JSONArray arr = d.optJSONArray("tasks");
         if (arr == null) return tasks;

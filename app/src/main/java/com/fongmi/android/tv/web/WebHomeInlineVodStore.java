@@ -26,6 +26,10 @@ public class WebHomeInlineVodStore {
     private static final Map<String, Entry> ITEMS = new ConcurrentHashMap<>();
     private static final Map<String, HeaderSpec> URL_HEADERS = new ConcurrentHashMap<>();
     private static final Map<String, EpisodeSpec> URL_EPISODES = new ConcurrentHashMap<>();
+    // 三表只进不出会随浏览无限涨（深挖 L-06）：按放入顺序给 ITEMS 设上限，
+    // 淘汰最旧条目时连带清掉它在另两表按剧集地址登记的项。
+    private static final int MAX_ITEMS = 64;
+    private static final java.util.Deque<String> ORDER = new java.util.concurrent.ConcurrentLinkedDeque<>();
 
     public static String put(JsonObject payload) {
         return put(payload, null);
@@ -37,19 +41,36 @@ public class WebHomeInlineVodStore {
         String id = first(vod.getId(), Json.safeString(payload, "vodId"), Json.safeString(payload, "id"), "webhome-" + UUID.randomUUID());
         Map<String, String> headers = HeaderPolicy.withDefaultUa(HeaderPolicy.parse(payload.get("headers")));
         HeaderSpec headerSpec = new HeaderSpec(headers, "include".equals(Json.safeString(payload, "credentials")));
-        String playUrl = playUrl(payload.get("episodes"), headerSpec, resolver);
+        java.util.List<String> episodeUrls = new java.util.ArrayList<>();
+        String playUrl = playUrl(payload.get("episodes"), headerSpec, resolver, episodeUrls);
         vod.setId(id);
         if (vod.getName().isEmpty()) vod.setName(first(Json.safeString(payload, "vodName"), Json.safeString(payload, "title"), id));
         if (vod.getPic().isEmpty()) vod.setPic(first(Json.safeString(payload, "vodPic"), Json.safeString(payload, "pic")));
         if (vod.getPlayFrom().isEmpty()) vod.setPlayFrom(first(Json.safeString(payload, "vodPlayFrom"), Json.safeString(payload, "playFrom"), "WebHome"));
         if (vod.getPlayUrl().isEmpty()) vod.setPlayUrl(playUrl);
-        ITEMS.put(id, new Entry(App.gson().toJson(vod), headerSpec, resolver));
+        Entry previous = ITEMS.put(id, new Entry(App.gson().toJson(vod), headerSpec, resolver, episodeUrls));
+        if (previous != null) evictUrls(previous);
+        ORDER.remove(id);
+        ORDER.addLast(id);
+        while (ITEMS.size() > MAX_ITEMS) {
+            String eldest = ORDER.pollFirst();
+            if (eldest == null) break;
+            Entry old = ITEMS.remove(eldest);
+            if (old != null) evictUrls(old);
+        }
         return id;
+    }
+
+    private static void evictUrls(Entry entry) {
+        for (String url : entry.episodeUrls) {
+            URL_HEADERS.remove(url);
+            URL_EPISODES.remove(url);
+        }
     }
 
     public static Result detail(String id) {
         Entry entry = ITEMS.get(id);
-        if (entry == null || TextUtils.isEmpty(entry.vod)) return Result.error("WebHome inline VOD not found");
+        if (entry == null || TextUtils.isEmpty(entry.vod)) return Result.error("网页内嵌剧已失效，请回到来源网页重新打开");
         SpiderDebug.log("webhome-inline", "detail id=%s found=%s", id, true);
         return Result.vod(Vod.objectFrom(entry.vod));
     }
@@ -58,6 +79,8 @@ public class WebHomeInlineVodStore {
         Entry entry = ITEMS.get(id);
         HeaderSpec headerSpec = URL_HEADERS.get(id);
         EpisodeSpec episodeSpec = URL_EPISODES.get(id);
+        // 进程重启后三表全空：别拿裸 id 当地址硬取，给中文可见错（深挖 L-06）
+        if (entry == null && episodeSpec == null) return Result.error("网页内嵌剧已失效，请回到来源网页重新打开");
         String url = id;
         String format = "";
         long start = System.currentTimeMillis();
@@ -94,7 +117,7 @@ public class WebHomeInlineVodStore {
         return result;
     }
 
-    private static String playUrl(JsonElement element, HeaderSpec defaultSpec, Resolver resolver) {
+    private static String playUrl(JsonElement element, HeaderSpec defaultSpec, Resolver resolver, java.util.List<String> collect) {
         if (element == null || !element.isJsonArray()) return "";
         StringBuilder builder = new StringBuilder();
         JsonArray array = element.getAsJsonArray();
@@ -108,11 +131,15 @@ public class WebHomeInlineVodStore {
             if (TextUtils.isEmpty(url)) continue;
             HeaderSpec episodeHeaders = episodeHeaders(object, defaultSpec);
             URL_HEADERS.put(url, episodeHeaders);
+            collect.add(url);
             if (child != null && child.isJsonObject()) {
                 boolean resolve = bool(object, "resolve") || (!TextUtils.isEmpty(pageUrl) && TextUtils.isEmpty(mediaUrl));
                 String format = first(Json.safeString(object, "format"), isHls(mediaUrl) ? HLS_FORMAT : "");
                 URL_EPISODES.put(url, new EpisodeSpec(object.deepCopy(), episodeHeaders, resolver, resolve, mediaUrl, format));
-                if (!TextUtils.isEmpty(mediaUrl)) URL_HEADERS.put(mediaUrl, episodeHeaders);
+                if (!TextUtils.isEmpty(mediaUrl)) {
+                    URL_HEADERS.put(mediaUrl, episodeHeaders);
+                    collect.add(mediaUrl);
+                }
             }
             String name = first(Json.safeString(object, "name"), Json.safeString(object, "label"), Json.safeString(object, "title"), String.format("%02d", i + 1));
             if (builder.length() > 0) builder.append("#");
@@ -145,7 +172,7 @@ public class WebHomeInlineVodStore {
         SpiderDebug.log("webhome-inline", "resolve episode start id=%s page=%s", id, Json.safeString(episodeSpec.payload, "pageUrl"));
         JsonObject resolved = resolver.resolve(episodeSpec.payload.deepCopy());
         String url = Json.safeString(resolved, "url");
-        if (TextUtils.isEmpty(url)) throw new IllegalStateException("WebHome inline episode resolve failed");
+        if (TextUtils.isEmpty(url)) throw new IllegalStateException("网页内嵌剧集解析失败");
         HeaderSpec headerSpec = resolvedHeaders(resolved, episodeSpec.headerSpec);
         String format = first(Json.safeString(resolved, "format"), isHls(url) ? HLS_FORMAT : episodeSpec.format);
         URL_HEADERS.put(url, headerSpec);
@@ -206,7 +233,7 @@ public class WebHomeInlineVodStore {
         JsonObject resolve(JsonObject payload) throws Exception;
     }
 
-    private record Entry(String vod, HeaderSpec headerSpec, Resolver resolver) {
+    private record Entry(String vod, HeaderSpec headerSpec, Resolver resolver, java.util.List<String> episodeUrls) {
     }
 
     private record HeaderSpec(Map<String, String> headers, boolean includeCookies) {

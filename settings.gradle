@@ -26,5 +26,4 @@ include ':catvod'
 include ':chaquo'
 include ':quickjs'
 include ':thunder'
-include ':thunder-runtime'
 rootProject.name = "TV"

@@ -80,7 +80,9 @@ public abstract class BaseActivity extends AppCompatActivity {
     }
 
     protected boolean isVisible(View view) {
-        return view.getVisibility() == View.VISIBLE;
+        // 淡出途中（200ms 内 alpha 在降、visibility 仍 VISIBLE）视为未显示：
+        // 点屏唤栏的判定走 visibility 老口径会把唤栏点击吞进隐藏分支（深挖渐入渐出①）
+        return view.getVisibility() == View.VISIBLE && !com.fongmi.android.tv.utils.XcFadeTransition.isFadingOut(view);
     }
 
     protected boolean isGone(View view) {

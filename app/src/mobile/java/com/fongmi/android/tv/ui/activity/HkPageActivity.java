@@ -107,6 +107,7 @@ import com.fongmi.android.tv.ui.hk.HkDialogs;
 import com.fongmi.android.tv.ui.hk.HkDynamicBgView;
 import com.fongmi.android.tv.ui.hk.HkGlassDrawable;
 import com.fongmi.android.tv.ui.hk.HkPressFeedback;
+import com.fongmi.android.tv.ui.hk.HkSearchActivity;
 import java.util.Arrays;
 
 /**
@@ -125,6 +126,10 @@ public class HkPageActivity extends BaseActivity {
     private static final String PREFS = "xingchen";
     private static final String KEY_HIST = "hk_search_history";
     private static final String KEY_LAST_CLIP = "hk_last_clip_prompt";
+    /** F-12 在线更新：规则来源地址（云口令）按标题落盘，供日后按来源拉新版比 version。 */
+    private static final String KEY_RULE_SRC_PREFIX = "hk_rule_source_";
+    private static final String KEY_UPDATE_LAST_CHECK = "hk_rule_update_last_check";
+    private boolean ruleUpdateChecking = false;
     private static final String KEY_RULE_SPAN = "hk_rule_span_count";
     /** 自定义分组：有序分组名列表 / 规则标题→自定义分组（""=显式无分组）/ 自定义顺序（规则标题有序列表） */
     private static final String KEY_CUSTOM_GROUPS = "hk_custom_groups";
@@ -458,19 +463,25 @@ public class HkPageActivity extends BaseActivity {
         return null;
     }
 
-    // 精修 P4：内页切换只做渐入（alpha 180ms）；隐藏的直接 GONE 不做渐出，
-    // 避免返回连点时 alpha 卡在半透明
-    private void fadeInView(android.view.View v) {
-        // 渐入渐出统一收口：带系统动画开关降级，时长 200ms
-        XcFadeTransition.fadeIn(v);
-    }
-
     private void showView(int v) {
         // 内页切换统一走渐入渐出：新页淡入、旧页淡出（并行，不阻塞加载）
         android.view.View show = v == V_RULES ? binding.viewRules
                 : v == V_CONTENT ? binding.viewContent
                 : v == V_SEARCH ? binding.viewSearch
                 : v == V_DETAIL ? binding.viewDetail : null;
+        // 同页守门：目标已是当前可见页时直接返回，避免 swapViews 把它 fadeIn 清零重升闪一次
+        if (show != null && show.getVisibility() == View.VISIBLE) {
+            boolean othersHidden = true;
+            android.view.View[] all = {binding.viewRules, binding.viewContent,
+                    binding.viewSearch, binding.viewDetail};
+            for (android.view.View o : all) {
+                if (o != null && o != show && o.getVisibility() == View.VISIBLE) {
+                    othersHidden = false;
+                    break;
+                }
+            }
+            if (othersHidden) return;
+        }
         XcFadeTransition.swapViews(show, binding.viewRules, binding.viewContent,
                 binding.viewSearch, binding.viewDetail);
     }
@@ -1420,6 +1431,8 @@ public class HkPageActivity extends BaseActivity {
                 boolean empty = ruleAdapter.getItemCount() == 0;
                 binding.emptyRules.setVisibility(empty ? View.VISIBLE : View.GONE);
                 binding.rvRules.setVisibility(empty ? View.GONE : View.VISIBLE);
+                // F-12：列表加载后顺带做一次在线更新检查（24 小时节流、无来源/无新版时静默）
+                maybeCheckRuleUpdates();
             });
         }).start();
     }
@@ -1511,7 +1524,7 @@ public class HkPageActivity extends BaseActivity {
         new Thread(() -> {
             try {
                 HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code, password);
-                App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group)));
+                App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group, code)));
             } catch (Exception e) {
                 // 没带密码、还没问过、开关开着：多半是分享设了密码，再问一次
                 if (TextUtils.isEmpty(password) && !prompted && importPwdPromptEnabled()) {
@@ -1540,12 +1553,15 @@ public class HkPageActivity extends BaseActivity {
                 .show();
     }
 
-    /** 云口令导入：分组选择后的落盘（后台线程）。 */
-    private void finishCloudImport(HkRuleManager.ParsedRule p, String group) {
+    /** 云口令导入：分组选择后的落盘（后台线程）。sourceCode 为来源云口令，落盘供 F-12 在线更新按来源重拉。 */
+    private void finishCloudImport(HkRuleManager.ParsedRule p, String group, String sourceCode) {
         new Thread(() -> {
             try {
                 boolean isNew = HkRuleManager.get().getInstalledRule(p.rule.getTitle()) == null;
                 HkRuleManager.get().saveRule(p.rule, p.json);
+                if (!TextUtils.isEmpty(sourceCode)) {
+                    getPrefs().edit().putString(KEY_RULE_SRC_PREFIX + p.rule.getTitle(), sourceCode).apply();
+                }
                 List<HkRule> one = Collections.singletonList(p.rule);
                 App.post(() -> {
                     applyImportGroup(one, Collections.singletonList(isNew), group);
@@ -1980,6 +1996,170 @@ public class HkPageActivity extends BaseActivity {
             HkDialogs.cards(this, "是否打开小程序？", titles, "取消",
                     (d, which) -> openRule(rules.get(which)));
         }
+    }
+
+    // ================= F-12 规则在线更新 =================
+    // 行为口径（他定，MEMORY 明文）：规则有版本号时提示更新（像海阔原版）。
+    // 8.83 源码快照（~/workspace/hikerView-source）无整块可搬的规则在线更新实现
+    // （ui/search 与 ui/home/model 等文件不在该快照内），以下按口径用现树件接：
+    // 来源地址＝云口令导入时落盘的口令，或规则 raw JSON 自带的 updateUrl/update_url；
+    // 拉取复用 HkRuleManager.parseByCloudCode / parseJsonList 与 HkHttp.get；
+    // 比对复用导入链同款 version 口径（getVersion() 整数比）；
+    // 提示与成功后「是否打开」复用 HkDialogs（深色毛玻璃、非白底）+ Notify + showOpenAfterImportDialog。
+
+    /** 规则的在线更新来源：落盘的云口令优先，其次 raw JSON 自带的 updateUrl/update_url；无来源返回 ""。 */
+    private String ruleSourceOf(HkRule rule) {
+        if (rule == null || TextUtils.isEmpty(rule.getTitle())) return "";
+        String code = getPrefs().getString(KEY_RULE_SRC_PREFIX + rule.getTitle(), "");
+        if (!TextUtils.isEmpty(code)) return code;
+        try {
+            String raw = HkRuleManager.get().loadRuleJson(rule.getTitle());
+            if (!TextUtils.isEmpty(raw)) {
+                JSONObject obj = new JSONObject(raw);
+                String u = obj.optString("updateUrl", "");
+                if (TextUtils.isEmpty(u)) u = obj.optString("update_url", "");
+                if (!TextUtils.isEmpty(u)) return u;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    /** 按来源拉远程规则（须在后台线程调用）：http(s) 地址拉 JSON（数组按标题取同名条）；其余按云口令解析。 */
+    private HkRuleManager.ParsedRule fetchRemoteRule(HkRule installed, String source) throws Exception {
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+            String text = com.fongmi.android.tv.api.hk.HkHttp.get(
+                    source, installed == null ? null : installed.resolvedUa(), 15000);
+            if (TextUtils.isEmpty(text)) throw new IllegalArgumentException("更新地址返回为空");
+            if (HkRuleManager.isJsRuleText(text)) {
+                return HkRuleManager.get().parseJsRule(text, installed == null ? null : installed.getTitle());
+            }
+            List<HkRuleManager.ParsedRule> list = HkRuleManager.get().parseJsonList(text);
+            if (list.isEmpty()) throw new IllegalArgumentException("更新地址未解析到规则");
+            if (installed != null) {
+                for (HkRuleManager.ParsedRule p : list) {
+                    if (installed.getTitle().equals(p.rule.getTitle())) return p;
+                }
+            }
+            return list.get(0);
+        }
+        return HkRuleManager.get().parseByCloudCode(source, "");
+    }
+
+    /** 手动检查单个规则更新（卡片长按菜单「检查更新」）：无来源/失败/已最新都给人话提示。 */
+    private void checkRuleUpdate(HkRule rule) {
+        if (rule == null) return;
+        String source = ruleSourceOf(rule);
+        if (TextUtils.isEmpty(source)) {
+            Notify.show("该小程序没有可更新的来源（不是云口令导入的，也没有自带更新地址）");
+            return;
+        }
+        Notify.show("正在检查更新…");
+        new Thread(() -> {
+            try {
+                HkRuleManager.ParsedRule remote = fetchRemoteRule(rule, source);
+                App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (remote == null || remote.rule == null) {
+                        Notify.show("检查更新失败：没拉到规则");
+                    } else if (remote.rule.getVersion() > rule.getVersion()) {
+                        showRuleUpdateDialog(Collections.singletonList(remote));
+                    } else {
+                        Notify.show("已是最新版（v" + rule.getVersion() + "）");
+                    }
+                });
+            } catch (Exception e) {
+                App.post(() -> Notify.show("检查更新失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 自动检查（列表加载后调，24 小时节流）：有来源的规则逐个拉新版比 version，有新版合并成一个提示弹窗。 */
+    private void maybeCheckRuleUpdates() {
+        if (ruleUpdateChecking || rules.isEmpty()) return;
+        long last = getPrefs().getLong(KEY_UPDATE_LAST_CHECK, 0);
+        if (System.currentTimeMillis() - last < 24L * 60 * 60 * 1000) return;
+        getPrefs().edit().putLong(KEY_UPDATE_LAST_CHECK, System.currentTimeMillis()).apply();
+        ruleUpdateChecking = true;
+        final List<HkRule> snapshot = new ArrayList<>(rules);
+        new Thread(() -> {
+            List<HkRuleManager.ParsedRule> updates = new ArrayList<>();
+            for (HkRule r : snapshot) {
+                try {
+                    String source = ruleSourceOf(r);
+                    if (TextUtils.isEmpty(source)) continue;
+                    HkRuleManager.ParsedRule remote = fetchRemoteRule(r, source);
+                    if (remote != null && remote.rule != null
+                            && remote.rule.getVersion() > r.getVersion()) {
+                        updates.add(remote);
+                    }
+                } catch (Throwable ignored) {
+                    // 单条拉取失败静默跳过，不打扰列表使用
+                }
+            }
+            App.post(() -> {
+                ruleUpdateChecking = false;
+                if (!updates.isEmpty() && !isFinishing() && !isDestroyed()) {
+                    showRuleUpdateDialog(updates);
+                }
+            });
+        }).start();
+    }
+
+    /** 发现新版提示（深色毛玻璃弹窗、字看得清）：列出 v旧→v新，确认后统一落盘更新。 */
+    private void showRuleUpdateDialog(List<HkRuleManager.ParsedRule> remotes) {
+        if (remotes == null || remotes.isEmpty() || isFinishing() || isDestroyed()) return;
+        StringBuilder sb = new StringBuilder();
+        for (HkRuleManager.ParsedRule p : remotes) {
+            HkRule installed = HkRuleManager.get().getInstalledRule(p.rule.getTitle());
+            int oldV = installed == null ? 0 : installed.getVersion();
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(p.rule.getTitle()).append("（v").append(oldV)
+                    .append(" → v").append(p.rule.getVersion()).append("）");
+        }
+        new HkDialogs(this)
+                .setTitle("发现新版")
+                .setMessage("以下小程序有新版：\n" + sb + "\n\n是否更新？")
+                .setPositiveButton("更新", (d, w) -> applyRuleUpdates(remotes))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 落盘更新（后台线程）：saveRule 后合并进内存列表刷新，并按原版口径问「是否打开」。 */
+    private void applyRuleUpdates(List<HkRuleManager.ParsedRule> remotes) {
+        new Thread(() -> {
+            try {
+                List<HkRule> updated = new ArrayList<>();
+                for (HkRuleManager.ParsedRule p : remotes) {
+                    HkRuleManager.get().saveRule(p.rule, p.json);
+                    updated.add(p.rule);
+                }
+                App.post(() -> {
+                    for (HkRule r : updated) {
+                        boolean replaced = false;
+                        for (int i = 0; i < rules.size(); i++) {
+                            if (r.getTitle().equals(rules.get(i).getTitle())) {
+                                rules.set(i, r);
+                                replaced = true;
+                                break;
+                            }
+                        }
+                        if (!replaced) rules.add(r);
+                    }
+                    syncCustomOrder();
+                    ruleAdapter.rebuildSections();
+                    ruleAdapter.notifyDataSetChanged();
+                    buildGroupFilterRow();
+                    String msg = updated.size() == 1
+                            ? "更新成功：" + updated.get(0).getTitle()
+                            : "更新成功 " + updated.size() + " 个小程序";
+                    Notify.show(msg);
+                    showOpenAfterImportDialog(updated);
+                });
+            } catch (Exception e) {
+                App.post(() -> Notify.show("更新失败：" + e.getMessage()));
+            }
+        }).start();
     }
 
     /**
@@ -2501,7 +2681,7 @@ public class HkPageActivity extends BaseActivity {
         }
     }
 
-    /** 卡片 ⋮ 菜单：编辑 / 分享 / 删除（选项独立卡片框、有间距）。 */
+    /** 卡片 ⋮ 菜单：编辑 / 检查更新 / 分享 / 删除（选项独立卡片框、有间距）。 */
     private void showRuleCardMenu(HkRule rule) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2514,7 +2694,7 @@ public class HkPageActivity extends BaseActivity {
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        String[] labels = {"编辑", "分享", "删除"};
+        String[] labels = {"编辑", "检查更新", "分享", "删除"};
         AlertDialog dialog = new HkDialogs(this).setView(root).create();
         for (int i = 0; i < labels.length; i++) {
             TextView tv = new TextView(this);
@@ -2531,7 +2711,8 @@ public class HkPageActivity extends BaseActivity {
             tv.setOnClickListener(v -> {
                 dialog.dismiss();
                 if (which == 0) showRuleFormEditor(rule);
-                else if (which == 1) showRuleShareOptions(rule);
+                else if (which == 1) checkRuleUpdate(rule);
+                else if (which == 2) showRuleShareOptions(rule);
                 else showDeleteRuleConfirm(rule);
             });
             root.addView(tv, lp);
@@ -3272,8 +3453,8 @@ public class HkPageActivity extends BaseActivity {
         searchNoMore = false;
         searchResults.clear();
         searchSrcRules.clear();
-        // 旧视图已迁入 Fragment：只设状态，UI 由 HkSearchFragment 经 host 读取
-        pushView(V_SEARCH);
+        // 搜索 UI 已迁入 HkSearchActivity：带词直接进单规则搜索并执行（见 doSearch）
+        doSearch(keyword);
     }
 
     /**
@@ -3512,6 +3693,9 @@ public class HkPageActivity extends BaseActivity {
 
 
     private void updateFooter() {
+        // 搬不动：8.83 的页脚视图在本页布局里已随内容页迁出（现树内容页为 HkListActivity/
+        // HkArticleFragment，页脚由其自身管理），本宿主无对应 View 可刷；唯一调用方
+        // mergeActionItems 同属已迁出的旧内容页链（contentAdapter 恒为 null，实际不可达）。
     }
 
     // ================= V3 搜索 =================
@@ -3524,8 +3708,13 @@ public class HkPageActivity extends BaseActivity {
         searchNoMore = false;
         searchResults.clear();
         searchSrcRules.clear();
-        // 旧视图已迁入 Fragment：只设状态，UI 由 HkSearchFragment 经 host 读取
-        pushView(V_SEARCH);
+        // 搜索 UI 已迁入 HkSearchActivity（8.83 SearchActivity/SearchInOneRuleActivity 等价）：
+        // 单规则模式进单规则搜索页，不再 push 本页的空 V_SEARCH 容器。
+        if (currentRule != null) {
+            HkSearchActivity.startSearchInOneRule(this, currentRule, "");
+        } else {
+            HkSearchActivity.startGlobalSearch(this, "");
+        }
     }
 
     /** 小程序内搜索的输入框 hint：带上规则名，如"搜索一个APP"。 */
@@ -3538,6 +3727,8 @@ public class HkPageActivity extends BaseActivity {
 
     /** V_SEARCH 作用域标识：单规则模式显示"在「X」内搜索"，跨搜模式隐藏。 */
     private void updateSearchScopeLabel() {
+        // 搬不动：作用域标识视图已随搜索页迁入 HkSearchActivity（其分组/模式标识即等价物），
+        // 本宿主布局无此 View；searchHint()/histKey() 仍按 searchDualMode + currentRule 计算。
     }
 
     /** 搜索历史按作用域隔离：小程序内搜索用各规则独立的 key，跨搜用全局 key。 */
@@ -3583,8 +3774,21 @@ public class HkPageActivity extends BaseActivity {
 
     /**
      * 长按 🔍：跨小程序内容搜索（只留"搜内容"模式）。
+     * 8.83 口径：跨搜即打开聚合搜索页（SearchActivity）——全部带 search_url 的规则各成一个
+     * 发动机（HkSearchEngine.fromRule）、每发动机一个结果页（HkSearchFragment 经
+     * HkSearchModel 按页拉取聚合）、分组筛选与精准/默认模式在搜索页内切换。
+     * 现树该页已由 HkSearchActivity 整块承接，本宿主只负责以跨搜模式打开它，
+     * 不再在本页 push 空的 V_SEARCH 容器（旧 doCrossSearch 的本页并发聚合实现随之作废，
+     * 其结果分组/来源标注/分页语义在 HkSearchActivity + HkSearchFragment 内等价实现）。
      */
     private void openContentSearch() {
+        searchDualMode = true;
+        keyword = "";
+        searchPage = 1;
+        searchNoMore = false;
+        searchResults.clear();
+        searchSrcRules.clear();
+        HkSearchActivity.startGlobalSearch(this, "");
     }
 
     /** H3: 长按搜索按钮弹出选择：搜内容 / 搜规则（已安装小程序） */
@@ -3599,16 +3803,50 @@ public class HkPageActivity extends BaseActivity {
     }
 
     /**
-     * 搜内容：跨小程序内容搜索。对所有启用的小程序并发调用 search(keyword, 1)，
-     * 结果按小程序分组展示（来源标注在条目 desc 前缀），点击条目自动切到对应小程序再进详情。
+     * 搜内容：跨小程序内容搜索（8.83 聚合搜索口径）。
+     * 并发聚合、按小程序分组、来源标注、点条目切来源规则进详情，全部由 HkSearchActivity
+     * 的多发动机 ViewPager 承接（每发动机一个 HkSearchFragment，状态条标注发动机名即来源，
+     * 条目点击经 SearchHost.openSearchRulePage 以来源规则开页）；本宿主只递交关键词。
      */
     private void doCrossSearch(String kw) {
+        searchDualMode = true;
+        keyword = kw != null ? kw : "";
+        searchPage = 1;
+        searchNoMore = false;
+        searchLoading = false;
+        searchResults.clear();
+        searchSrcRules.clear();
+        crossSearchGen.incrementAndGet();
+        if (!keyword.isEmpty()) saveHistory(keyword);
+        HkSearchActivity.startGlobalSearch(this, keyword);
     }
 
+    /** 执行搜索：跨搜走 doCrossSearch；单规则走单规则搜索页（当前规则为唯一发动机）。 */
     private void doSearch(String kw) {
+        if (searchDualMode) {
+            doCrossSearch(kw);
+            return;
+        }
+        keyword = kw != null ? kw : "";
+        searchPage = 1;
+        searchNoMore = false;
+        searchLoading = false;
+        searchResults.clear();
+        searchSrcRules.clear();
+        if (!keyword.isEmpty()) saveHistory(keyword);
+        if (currentRule != null) {
+            HkSearchActivity.startSearchInOneRule(this, currentRule, keyword);
+        } else {
+            HkSearchActivity.startGlobalSearch(this, keyword);
+        }
     }
 
     private void doSearchPage() {
+        // 搬不动（宿主侧）：分页已随搜索页迁入 HkSearchFragment——search_url 含 fypage 才挂
+        // loadMore、页码自增后经 HkSearchModel 拉下一页、到底态见 F-13；
+        // 本宿主无结果列表与滚动容器，不存在可翻的页。保留方法仅为旧调用链签名兼容。
+        if (searchNoMore || searchLoading) return;
+        searchPage++;
     }
 
     private SharedPreferences getPrefs() {
@@ -3636,6 +3874,8 @@ public class HkPageActivity extends BaseActivity {
     }
 
     private void refreshHistory() {
+        // 搬不动：历史词 UI 已随搜索页迁出本宿主（本页布局无历史列表视图）；
+        // 历史的存/取仍由 saveHistory/loadHistory 按 histKey() 作用域落盘，本方法无视图可刷。
     }
 
     // ================= V4 详情 =================

@@ -45,6 +45,10 @@ public class LiveConfig extends BaseConfig {
         return Loader.INSTANCE;
     }
 
+    public static int getCid() {
+        return get().getConfig().getId();
+    }
+
     public static String getUrl() {
         return get().getConfig().getUrl();
     }
@@ -214,7 +218,9 @@ public class LiveConfig extends BaseConfig {
     }
 
     public void applyKeepsToGroups(List<Group> items) {
-        Set<String> key = Keep.getLive().stream().map(Keep::getKey).collect(Collectors.toSet());
+        int cid = getConfig().getId();
+        // 只认当前直播配置名下的收藏（cid=0 为旧版未写 cid 的存量，按未归属一并认，避免升级后收藏分组变空）
+        Set<String> key = Keep.getLive().stream().filter(keep -> keep.getCid() == cid || keep.getCid() == 0).map(Keep::getKey).collect(Collectors.toSet());
         items.stream().filter(group -> !group.isKeep())
                 .flatMap(group -> group.getChannel().stream())
                 .filter(channel -> key.contains(channel.getName()))

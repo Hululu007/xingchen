@@ -60,6 +60,47 @@ public class EmbyMode {
         }
     }
 
+    /**
+     * 首页重挂盖子：进程重启／主题 recreate 后 HomeActivity 是新实例、根布局里没有
+     * 盖子视图，但 active 持久标志还在。initView/onResume 调这里，若仍在 Emby 模式
+     * 且当前首页根布局里没有正在展示的盖子，就走与 enter 同一条 attach 路重挂；
+     * attach 最终仍失败时由 attach 内的回滚清掉 active，不留半吊子状态。
+     * 注意不能只看 EmbyHomeView.isShowing() 的静态旗：旧视图随旧 Activity 销毁后
+     * 该旗可能残留 true，必须以当前 Activity 根布局里实际有没有盖子为准。
+     */
+    public static void reattachIfActive(Activity activity) {
+        if (activity == null || !isActive()) return;
+        String serverId = activeServerId();
+        if (TextUtils.isEmpty(serverId)) return;
+        try {
+            ViewGroup root = findHomeRoot(activity);
+            View v = root == null ? null : root.findViewWithTag(TAG_VIEW);
+            if (v instanceof EmbyHomeView && EmbyHomeView.isShowing()
+                    && v.getVisibility() == View.VISIBLE) return;
+        } catch (Throwable ignored) {
+        }
+        App.post(() -> {
+            EmbyHomeView.bindCurrent(serverId);
+            attach(true, serverId);
+        });
+    }
+
+    /**
+     * enter 已写 active／上次进入记录、但盖子最终没挂上时的回滚：只清仍指向
+     * 本次 serverId 的记录（期间用户已切到别的服／已退出时不动别人的状态），
+     * 保证不出现「模式开着、盖子没了、悬浮球还被 isActive() 压住」的状态。
+     */
+    private static void rollbackEnter(String serverId) {
+        try {
+            if (TextUtils.isEmpty(serverId)) return;
+            EmbyStore.EmbyServer active = EmbyStore.active();
+            if (active != null && serverId.equals(active.id)) EmbyStore.setActive(null);
+            EmbyStore.EmbyServer last = EmbyStore.lastEntered();
+            if (last != null && serverId.equals(last.id)) EmbyStore.clearLastEntered();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static String activeServerId() {
         try {
             EmbyStore.EmbyServer s = EmbyStore.active();
@@ -82,6 +123,9 @@ public class EmbyMode {
             if (root == null) {
                 // 时序保护：AI 可能先跳首页再挂载，根布局还没就绪时延时重试
                 if (show && retry < 3) App.post(() -> attach(true, serverId, retry + 1), 500);
+                // 重试到底仍找不到首页根布局＝盖子没盖上：回滚 enter 先写的
+                // active／上次进入记录，模式干净退出，不许留半吊子状态。
+                else if (show) rollbackEnter(serverId);
                 return;
             }
             View nav = findNavigation(act);

@@ -124,6 +124,9 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
         initConfig();
+        // Emby 盖子重挂：进程重启/recreate 后 active 标志还在但盖子视图随旧实例没了，
+        // 按 isActive 走 EmbyMode 同一条 attach 路重挂（失败会回滚标志，见 EmbyMode）。
+        EmbyMode.reattachIfActive(this);
         // 实验室自启恢复：App 启动后延迟拉起（后台线程，不影响首页行为）
         try {
             com.fongmi.android.tv.ui.lab.LabBoot.schedule(this);
@@ -142,6 +145,8 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     protected void onResume() {
         super.onResume();
         setNavigation();
+        // 同 initView 的 Emby 盖子重挂兜底：盖子已在展示时内部直接返回。
+        EmbyMode.reattachIfActive(this);
     }
 
     @Override
@@ -463,7 +468,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     public void showModuleFragment() {
         Fragment module = getSupportFragmentManager().findFragmentByTag("module");
         if (module != null && module.isVisible()) return;
-        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         Fragment primary = getSupportFragmentManager().getPrimaryNavigationFragment();
         if (primary != null && primary != module) ft.hide(primary);
         if (module == null) {
@@ -489,7 +494,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             mManager.change(currentPosition);
             return;
         }
-        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+        androidx.fragment.app.FragmentTransaction ft = getSupportFragmentManager().beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
         ft.hide(module);
         if (primary != null) ft.show(primary).setPrimaryNavigationFragment(primary);
         ft.setReorderingAllowed(true).commit();

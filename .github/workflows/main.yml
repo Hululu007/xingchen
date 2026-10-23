@@ -77,10 +77,6 @@ jobs:
           chmod +x gradlew
           if [ "${{ inputs.variant }}" = "noupdate" ]; then bash .github/scripts/strip-updater.sh && bash .github/scripts/strip-friend-seed.sh; fi
           ./gradlew :app:assembleMobileArm64_v8aRelease --no-daemon
-          # 外置迅雷运行时包：与宿主同钥签名，两个 ABI 各一包；
-          # 产物在 thunder-runtime/build/outputs/apk/<flavor>/release/，
-          # 目录发布（runtime-catalog.py）时改名 runtime-thunder-<abi>.apk 再入目录。
-          ./gradlew :thunder-runtime:assembleArm64_v8aRelease :thunder-runtime:assembleArmeabi_v7aRelease --no-daemon
       - name: Find APK
         run: |
           find app/build/outputs -name "*.apk" 2>/dev/null | head -20
@@ -102,11 +98,6 @@ jobs:
         with:
           name: XingChen-APK
           path: app/build/outputs/apk/**/*.apk
-      - name: Upload runtime APK artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: XingChen-Runtime
-          path: thunder-runtime/build/outputs/apk/**/*.apk
       - name: Collect dist for OCI
         if: ${{ inputs.variant != 'noupdate' }}
         run: |

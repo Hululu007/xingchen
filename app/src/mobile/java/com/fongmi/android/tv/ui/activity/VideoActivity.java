@@ -27,6 +27,7 @@ import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -124,7 +125,6 @@ import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
-import com.fongmi.android.tv.player.extractor.ThunderGateway;
 import com.fongmi.android.tv.player.karaoke.KaraokeController;
 import com.fongmi.android.tv.player.karaoke.KaraokePitchTrackGenerator;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
@@ -176,7 +176,6 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
-import com.fongmi.android.tv.ui.dialog.ModuleDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
@@ -186,12 +185,12 @@ import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
 import com.fongmi.android.tv.utils.Clock;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.CoverRatioCache;
-import com.fongmi.android.tv.utils.ModuleUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -202,7 +201,6 @@ import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.github.catvod.crawler.SpiderDebug;
-import com.github.catvod.utils.RuntimeModule;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -300,6 +298,20 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private AlertDialog mKaraokeResultDialog;
     private static final java.util.Map<String, String> HK_EPISODES_STORE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger HK_EPISODES_SEQ = new java.util.concurrent.atomic.AtomicInteger();
+    // 选集仓只进不出会无限涨（深挖 L-05）：按放入顺序保留最近 16 条，淘汰最旧
+    private static final java.util.Deque<String> HK_EPISODES_ORDER = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private static final int HK_EPISODES_MAX = 16;
+
+    private static void parkHkEpisodes(String ref, String episodesJson) {
+        HK_EPISODES_STORE.put(ref, episodesJson);
+        HK_EPISODES_ORDER.remove(ref);
+        HK_EPISODES_ORDER.addLast(ref);
+        while (HK_EPISODES_STORE.size() > HK_EPISODES_MAX) {
+            String eldest = HK_EPISODES_ORDER.pollFirst();
+            if (eldest == null) break;
+            HK_EPISODES_STORE.remove(eldest);
+        }
+    }
     private boolean mSuppressKaraokeResultAction;
     private boolean mRestoringConfigurationPlayback;
     /** 阶段二自动播点火期间为真：点火只负责起播，抑制 shouldEnterFullscreen 的进全屏副作用（finally 复位，手动点集路径不受影响）。 */
@@ -366,6 +378,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private FlagAdapter mFlagAdapter;
     private PlayerOsdController mOsd;
     private CustomKeyDown mKeyDown;
+    // 切集盖图层：盖在视频面上（控件/进度层之下），切集装载期盖住黑屏，首帧到达才撤
+    private ViewGroup mSwitchCover;
+    private ImageView mSwitchCoverImage;
+    private TextView mSwitchCoverLabel;
+    private Bitmap mSwitchCoverBitmap;
+    private Bitmap mPendingCoverFrame;
+    private boolean mSwitchCoverHold;
+    private int mSwitchCoverDir;
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
@@ -553,7 +573,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 与原版 putTempRule 同思路。
         if (episodesJson != null && episodesJson.length() > 100_000) {
             String ref = "e" + HK_EPISODES_SEQ.incrementAndGet();
-            HK_EPISODES_STORE.put(ref, episodesJson);
+            parkHkEpisodes(ref, episodesJson);
             intent.putExtra("hk_episodes", "");
             intent.putExtra("hk_episodes_ref", ref);
         } else {
@@ -855,6 +875,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mRestoringConfigurationPlayback = savedInstanceState != null;
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
+        createSwitchCover();
         mFrameParams = mBinding.video.getLayoutParams();
         mFrameHeight = mFrameParams.height;
         mBinding.swipeLayout.setEnabled(false);
@@ -1585,6 +1606,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (ref != null && !ref.isEmpty()) {
                 String parked = HK_EPISODES_STORE.get(ref);
                 if (parked != null) json = parked;
+                else if (TextUtils.isEmpty(json)) {
+                    // 仓里取不到（进程重启/已被淘汰）不许静默无集：给可见提示（深挖 L-05）
+                    Notify.show("选集数据已失效，请返回重新打开");
+                    return;
+                }
             }
             if (TextUtils.isEmpty(json)) return;
             int selIdx = getIntent().getIntExtra(idxKey, 0);
@@ -1986,6 +2012,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
+        // 切集盖图：新内容装载到首帧之间先盖住视频区，不让黑屏裸露（撤除只认首帧回调）
+        showSwitchCover();
         // 起播：详情页的无海报背景门控解除，后续走播放页原有背景逻辑
         mDetailWallOff = false;
         mBinding.control.title.setText(episode.getDisplayName());
@@ -2492,6 +2520,44 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             // 的本地地址瞬间死亡（真机实证：推送磁力开播约 80KB/s 后流量归零直至失败）
             if (isThunderUrl(next.getUrl()) || (current != null && isThunderUrl(current.getUrl()))) return;
             String playFlag = getEpisodePlayFlag(getFlag(), next);
+            // 数据预下要的探针与上下文：当前集进度（闸门/过半复查）、短剧标记、画质档位
+            mNextPreloader.configureDataPrefetch(new NextEpisodePreloader.PlaybackProbe() {
+                @Override
+                public long positionMs() {
+                    try {
+                        return player().getPosition();
+                    } catch (Throwable e) {
+                        return -1;
+                    }
+                }
+
+                @Override
+                public long durationMs() {
+                    try {
+                        return player().getDuration();
+                    } catch (Throwable e) {
+                        return -1;
+                    }
+                }
+
+                @Override
+                public int bufferedPercent() {
+                    try {
+                        return player().getBufferedPercentage();
+                    } catch (Throwable e) {
+                        return -1;
+                    }
+                }
+
+                @Override
+                public boolean loading() {
+                    try {
+                        return player().isLoading();
+                    } catch (Throwable e) {
+                        return false;
+                    }
+                }
+            }, mShortDramaMode, mQualityAdapter.getPosition());
             mNextPreloader.preload(getKey(), playFlag, next);
         } catch (Throwable ignored) {
         }
@@ -2894,8 +2960,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     public void onItemClick(Vod item) {
         setAutoMode(false);
+        // 与其它入口同口径：音乐先走音乐分流，不许直达视频详情页（深挖 F-04，违音乐直通口径）
+        if (MusicVodRouter.routeVod(this, item.getSiteKey(), item.getId(), item.getName(), item.getPic())) return;
         applySearchArtwork(item);
-        mShortDramaMode = CoverRatioCache.isShortDramaCover(item.getPic());
+        // 短剧判定三路并集：插件/站点标记优先于封面比例，不许用封面一路直接赋值冲掉标记（深挖 F-04）
+        mShortDramaMode = com.fongmi.android.tv.utils.ShortDramaHelper.shouldDirectPlay(item.getSiteKey(), null, item.getTypeName())
+                || CoverRatioCache.isShortDramaCover(item.getPic());
         getDetail(item);
     }
 
@@ -3428,6 +3498,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void checkPlay() {
         setR1Callback();
         debugPlaybackControl("checkPlay");
+        // 服务被回收未绑回时 player() 为 null：点播放直接吞掉，不许裸解崩溃（深挖 S1）
+        if (player() == null) return;
         if (player().isPlaying()) onPaused();
         else if (player().isEmpty()) onRefresh();
         else onPlay();
@@ -5437,6 +5509,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onRefresh() {
+        // 停播前先抓旧集末帧，切集盖图优先用它（停播后画面可能已清，抓不到再回落封面）
+        capturePendingCoverFrame();
         saveHistory();
         player().stop();
         player().clear();
@@ -5712,10 +5786,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
         logVideoFrame("enterFullscreen before");
         setFullscreen(true);
-        if (isLand() && !player().isPortrait()) setTransition();
-        mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
         // 方向判定优先级：1) 后台预取的真实宽高缓存（最准） 2) 播放器元数据 3) 短剧启发式
         boolean isPortrait = resolveOrientation();
+        // 尺寸过渡：横屏内容沿用原口径；竖屏内容在竖屏下进全屏（短剧式）同样给过渡，
+        // 否则视频框从嵌入尺寸瞬跳满屏。嵌入态与横屏现状不受影响。
+        if (isLand() && !player().isPortrait()) setTransition();
+        else if (isPort() && isPortrait) setTransition();
+        mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
         setRequestedOrientation(PlaybackOrientation.getEnterFullscreenOrientation(isPortrait));
         mBinding.control.title.setVisibility(View.VISIBLE);
         setSizeText();
@@ -5742,7 +5819,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } catch (Exception e) {
             e.printStackTrace();
         }
+        // 尺寸过渡口径与进全屏对称：横屏沿用原条件；竖屏全屏退出（当前竖屏＋竖屏内容）补上，
+        // 视频框恢复嵌入尺寸时不再瞬跳。
         if (isLand() && !player().isPortrait()) setTransition();
+        else if (isPort() && resolveOrientation()) setTransition();
         setRequestedOrientation(PlaybackOrientation.getExitFullscreenOrientation(isPort()));
         mBinding.episodeGroup.postDelayed(() -> mBinding.episodeGroup.scrollToPosition(mEpisodeGroupAdapter.getPosition()), 100);
         mBinding.episode.postDelayed(this::scrollEpisodeToSelected, 100);
@@ -5768,7 +5848,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private boolean shouldAnimateVideoFrameTransition() {
-        return service() == null || !player().isNativePlayer();
+        return player() == null || !player().isNativePlayer();
     }
 
     private void showProgress() {
@@ -5802,7 +5882,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showControl() {
-        if (service() == null || isInPictureInPictureMode()) return;
+        if (service() == null || player() == null || isInPictureInPictureMode()) return;
         if (mAudioStageVisible && !isFullscreen()) {
             hideWidgetOverlay();
             hideControl();
@@ -5832,7 +5912,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
-        mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        View controlRoot = mBinding.control.getRoot();
+        if (controlRoot.getVisibility() != View.VISIBLE || controlRoot.getAlpha() < 1f) XcFadeTransition.fadeIn(controlRoot);
         updateDiscMenuTools();
         updateCustomButtonVisibility();
         if (mOsd != null) mOsd.setControlsVisible(true);
@@ -5843,7 +5924,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void hideControl() {
-        mBinding.control.getRoot().setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(mBinding.control.getRoot());
         updateDiscMenuTools();
         updateCustomButtonVisibility();
         if (mOsd != null) mOsd.setControlsVisible(false);
@@ -5881,6 +5962,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Traffic.setSpeed(mBinding.progress.traffic);
         try {
             int percent = player().getBufferedPercentage();
+            // loading 文字行布局默认 gone 且此前只有 setText 没人置可见，百分比白写（深挖网速残留）
+            mBinding.progress.loading.setVisibility(View.VISIBLE);
             mBinding.progress.loading.setText(getString(R.string.player_loading_hint) + (percent > 0 && percent < 100 ? " " + percent + "%" : ""));
         } catch (Throwable ignored) {
         }
@@ -6102,7 +6185,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         String spec = getKey() + "|" + flag + "|" + episodeUrl;
         mPreparsedHistorySpec = spec;
         mPreparsedHistoryFuture = Task.executor().submit(() -> {
-            Result result = SiteApi.playerContent(getKey(), flag, episodeUrl);
+            Result result = SiteApi.playerContentParseOnly(getKey(), flag, episodeUrl);
             if (spec.equals(mPreparsedHistorySpec)) {
                 mPreparsedHistoryResult = result;
             }
@@ -7495,59 +7578,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         player().resetTrack();
         player().reset();
         player().stop();
-        if (ThunderGateway.isModuleMissing(msg) && !mThunderPromptShowing) showThunderInstallPrompt();
-        else showError(msg);
+        hideSwitchCover();
+        showError(msg);
         startFlow();
-    }
-
-    private boolean mThunderPromptShowing;
-
-    // 磁力缺迅雷模块：设置页入口已删，不许再指去设置里找，直接在本页弹安装框。
-    // 安装过程有进度、失败有原因、安装钮能重点，都在模块弹窗里（ModuleViewModel 那套，
-    // 不另起下载链）；装好先经网关确认真接通才续播，接不通把原因摆出来，不假装能播。
-    private void showThunderInstallPrompt() {
-        int index = -1;
-        for (int i = 0; i < ModuleUtil.MODULES.length; i++) if (ModuleUtil.MODULES[i] == RuntimeModule.THUNDER) index = i;
-        if (index < 0 || isFinishing() || isDestroyed()) {
-            showError(ThunderGateway.MODULE_MISSING);
-            return;
-        }
-        mThunderPromptShowing = true;
-        hideError();
-        ModuleDialog dialog = ModuleDialog.create(index);
-        dialog.setOnInstalled(this::onThunderModuleInstalled);
-        dialog.setOnClosed(() -> {
-            mThunderPromptShowing = false;
-            if (!isFinishing() && !isDestroyed()) showError(ThunderGateway.MODULE_MISSING + "，重新点磁力可再装");
-        });
-        dialog.show(this);
-    }
-
-    private void onThunderModuleInstalled() {
-        Task.execute(() -> {
-            String failure = null;
-            try {
-                ThunderGateway.get().runtime();
-            } catch (Exception e) {
-                failure = e.getMessage() == null ? e.toString() : e.getMessage();
-            }
-            String error = failure;
-            App.post(() -> {
-                mThunderPromptShowing = false;
-                for (androidx.fragment.app.Fragment fragment : getSupportFragmentManager().getFragments()) {
-                    if (fragment instanceof ModuleDialog) ((ModuleDialog) fragment).dismissAllowingStateLoss();
-                }
-                if (isFinishing() || isDestroyed()) return;
-                if (error != null) {
-                    showError("迅雷模块已安装但加载失败：" + error);
-                } else if (mFlagAdapter.isEmpty() || mEpisodeAdapter.isEmpty()) {
-                    showError("迅雷模块已装好，重新点磁力即可播放");
-                } else {
-                    hideError();
-                    onRefresh();
-                }
-            });
-        });
     }
 
     @Override
@@ -7576,6 +7609,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 break;
             case Player.STATE_READY:
                 if (mPendingKaraokeResult == null) mKaraokeResultShown = false;
+                // 纯音频内容没有视频首帧可等，READY 即撤盖图；有视频时仍只认首帧回调
+                if (isAudioOnly()) hideSwitchCover();
                 recordPlayHealth(true, "");
                 hideProgress();
                 checkControl();
@@ -9156,6 +9191,175 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         else checkPrev();
     }
 
+    // ===== 切集盖图（保帧）＋短剧滑动切集预览 =====
+
+    private void createSwitchCover() {
+        FrameLayout cover = new FrameLayout(this);
+        cover.setBackgroundColor(Color.BLACK);
+        cover.setVisibility(View.GONE);
+        mSwitchCoverImage = new ImageView(this);
+        mSwitchCoverImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cover.addView(mSwitchCoverImage, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        mSwitchCoverLabel = new TextView(this);
+        mSwitchCoverLabel.setTextColor(Color.WHITE);
+        mSwitchCoverLabel.setTextSize(15);
+        mSwitchCoverLabel.setGravity(Gravity.CENTER);
+        mSwitchCoverLabel.setShadowLayer(8, 2, 2, Color.BLACK);
+        mSwitchCoverLabel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        labelParams.bottomMargin = ResUtil.dp2px(36);
+        cover.addView(mSwitchCoverLabel, labelParams);
+        // 插在视频面正上方：控件、进度（含网速）、OSD 都在它之上，盖图只盖视频区
+        ViewGroup parent = (ViewGroup) mBinding.exo.getParent();
+        parent.addView(cover, parent.indexOfChild(mBinding.exo) + 1, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        mSwitchCover = cover;
+    }
+
+    private Bitmap captureVideoFrame() {
+        try {
+            View surface = mBinding.exo.getVideoSurfaceView();
+            if (surface instanceof TextureView texture) {
+                Bitmap bitmap = texture.getBitmap();
+                if (bitmap != null) {
+                    if (bitmap.getWidth() > 0 && bitmap.getHeight() > 0 && !isMostlyBlack(bitmap)) return bitmap;
+                    bitmap.recycle();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    // 近乎全黑的帧（刚停播被清、暗场误抓）不算有效末帧，回落封面图
+    private boolean isMostlyBlack(Bitmap bitmap) {
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        int[] xs = {w / 4, w / 2, w * 3 / 4};
+        int[] ys = {h / 4, h / 2, h * 3 / 4};
+        for (int x : xs) {
+            for (int y : ys) {
+                int pixel = bitmap.getPixel(x, y);
+                if (Color.red(pixel) > 16 || Color.green(pixel) > 16 || Color.blue(pixel) > 16) return false;
+            }
+        }
+        return true;
+    }
+
+    private void capturePendingCoverFrame() {
+        if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
+        mPendingCoverFrame = captureVideoFrame();
+    }
+
+    private void clearSwitchCoverBitmap() {
+        if (mSwitchCoverBitmap != null && !mSwitchCoverBitmap.isRecycled()) mSwitchCoverBitmap.recycle();
+        mSwitchCoverBitmap = null;
+    }
+
+    private void showSwitchCover() {
+        if (mSwitchCover == null) return;
+        if (mSwitchCoverHold) {
+            // 滑动切集已把相邻集封面停在盖图层上，保持原图直接顶到首帧
+            mSwitchCover.setVisibility(View.VISIBLE);
+            return;
+        }
+        if (shouldUseImmersiveAudio()) {
+            hideSwitchCover();
+            return;
+        }
+        if (mPendingCoverFrame != null) {
+            mSwitchCoverImage.setImageBitmap(mPendingCoverFrame);
+            clearSwitchCoverBitmap();
+            mSwitchCoverBitmap = mPendingCoverFrame;
+            mPendingCoverFrame = null;
+        } else {
+            clearSwitchCoverBitmap();
+            ImgUtil.load(getName(), getPic(), mSwitchCoverImage, true);
+        }
+        mSwitchCoverLabel.setVisibility(View.GONE);
+        mSwitchCoverDir = 0;
+        mSwitchCover.setTranslationY(0);
+        mSwitchCover.setVisibility(View.VISIBLE);
+    }
+
+    private void hideSwitchCover() {
+        mSwitchCoverHold = false;
+        mSwitchCoverDir = 0;
+        if (mSwitchCover != null) {
+            mSwitchCover.setVisibility(View.GONE);
+            mSwitchCover.setTranslationY(0);
+        }
+        if (mSwitchCoverImage != null) mSwitchCoverImage.setImageDrawable(null);
+        clearSwitchCoverBitmap();
+        if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
+        mPendingCoverFrame = null;
+    }
+
+    @Override
+    protected void onVideoFirstFrame() {
+        hideSwitchCover();
+    }
+
+    @Override
+    public boolean isPageSwipeEnabled() {
+        return mShortDramaMode && isFullscreen();
+    }
+
+    @Override
+    public boolean canPageUp() {
+        return hasAdjacentEpisode(1);
+    }
+
+    @Override
+    public boolean canPageDown() {
+        return hasAdjacentEpisode(-1);
+    }
+
+    @Override
+    public void onPageDrag(float dy) {
+        positionSwitchPreview(dy);
+    }
+
+    @Override
+    public void onPageCommit(boolean up) {
+        // 先立保持标记再走原切集链：起播时盖图不换图，相邻集封面直接顶到新集首帧
+        mSwitchCoverHold = true;
+        if (up) onFlingUp();
+        else onFlingDown();
+        // 盖图层不透明且已停在原位，视频面在此刻归位不可见
+        mBinding.exo.setTranslationY(0);
+    }
+
+    @Override
+    public void onPageDragEnd(boolean committed) {
+        if (!committed) hideSwitchCover();
+    }
+
+    private void positionSwitchPreview(float dy) {
+        if (mSwitchCover == null) return;
+        int height = mBinding.video.getHeight();
+        if (height <= 0) return;
+        if (dy == 0) {
+            // 回弹末帧：预览按当前方向停回屏外，等手势收尾撤除
+            if (mSwitchCoverDir != 0) mSwitchCover.setTranslationY((float) mSwitchCoverDir * height);
+            return;
+        }
+        int dir = dy < 0 ? 1 : -1;
+        // 无相邻集的方向只有阻尼回弹，不露预览（getAdjacentEpisode 会钳到本集，露出来是假相邻）
+        if (dir > 0 ? !canPageUp() : !canPageDown()) return;
+        if (mSwitchCoverDir != dir) {
+            mSwitchCoverDir = dir;
+            clearSwitchCoverBitmap();
+            if (mPendingCoverFrame != null && !mPendingCoverFrame.isRecycled()) mPendingCoverFrame.recycle();
+            mPendingCoverFrame = null;
+            ImgUtil.load(getName(), getPic(), mSwitchCoverImage, true);
+            mSwitchCoverLabel.setText(getAdjacentEpisode(dir).getDisplayName());
+            mSwitchCoverLabel.setVisibility(View.VISIBLE);
+        }
+        mSwitchCover.setVisibility(View.VISIBLE);
+        mSwitchCover.setTranslationY(dy + dir * height);
+    }
+
     @Override
     public void onSeeking(long time) {
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
@@ -9434,6 +9638,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Timer.get().reset();
         DanmakuApi.cancel();
         RefreshEvent.keep();
+        mNextPreloader.clear();
         App.removeCallbacks(mR1, mR2, mR3, mR4);
         if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);

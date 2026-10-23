@@ -86,6 +86,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private FragmentVodBinding mBinding;
     private SiteViewModel mViewModel;
     private HomeWebController mWeb;
+    private int loadedConfigId = Integer.MIN_VALUE;
+    private String loadedHomeKey = "";
     private TypeAdapter mAdapter;
     private Result mResult;
     private String mChromeMode = WebHomeChrome.NORMAL;
@@ -496,6 +498,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
             showNativeContent();
             homeContent();
         }
+        markHomeLoaded();
     }
 
     private void clearPagerTypes() {
@@ -523,22 +526,34 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         if (event.type() == ConfigEvent.Type.VOD || event.type() == ConfigEvent.Type.COMMON) setTitle();
     }
 
+    // HOME 刷新的实际动作（事件与 onResume 兜底共用一份，避免两处口径漂移）
+    private void refreshHome() {
+        if (mWeb != null && mWeb.isVisible()) {
+            Site home = getHome();
+            WebHomeChromeStartup.remember(getConfig(), home);
+            requestNormalChrome();
+            setTitle();
+            if (!mWeb.load(home, true)) {
+                showNativeContent();
+                homeContent();
+            }
+        } else {
+            loadHome();
+        }
+        markHomeLoaded();
+    }
+
+    private void markHomeLoaded() {
+        loadedConfigId = com.fongmi.android.tv.api.config.VodConfig.getCid();
+        Site home = getHome();
+        loadedHomeKey = home == null ? "" : home.getKey();
+    }
+
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
         switch (event.getType()) {
             case HOME:
-                if (mWeb != null && mWeb.isVisible()) {
-                    Site home = getHome();
-                    WebHomeChromeStartup.remember(getConfig(), home);
-                    requestNormalChrome();
-                    setTitle();
-                    if (!mWeb.load(home, true)) {
-                        showNativeContent();
-                        homeContent();
-                    }
-                } else {
-                    loadHome();
-                }
+                refreshHome();
                 break;
             case SIZE:
                 if (mWeb != null && mWeb.isVisible()) return;
@@ -654,6 +669,14 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     public void onResume() {
         super.onResume();
         if (mWeb != null) mWeb.onResume();
+        // 兜底（深挖 L-14）：首页刷新只有 RefreshEvent 单通路，事件在未注册窗口期
+        // 丢了就永远陈旧。回前台时比对配置代次与主页 key，变了就按 HOME 口径补刷一次；
+        // 没变不动作，不改变常态行为。
+        if (loadedConfigId != Integer.MIN_VALUE) {
+            Site home = getHome();
+            String homeKey = home == null ? "" : home.getKey();
+            if (com.fongmi.android.tv.api.config.VodConfig.getCid() != loadedConfigId || !homeKey.equals(loadedHomeKey)) refreshHome();
+        }
     }
 
     @Override

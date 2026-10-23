@@ -67,6 +67,17 @@ public class KeepActivity extends BaseActivity implements KeepAdapter.OnClickLis
         mAdapter.setItems(Keep.getVod(), () -> mBinding.progressLayout.showContent(true, mAdapter.getItemCount()));
     }
 
+    private boolean resumedOnce;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 兜底（深挖 L-14）：刷新只有 RefreshEvent 单通路，退回本页时补拉一次；
+        // 首启 initView 已拉过，跳过第一次。
+        if (resumedOnce) getKeep();
+        resumedOnce = true;
+    }
+
     private void onSync() {
         SyncDialog.create().keep().show(this);
     }

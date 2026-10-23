@@ -214,6 +214,12 @@
         <item name="android:windowExitAnimation">@anim/hk_dialog_fade_out</item>
     </style>
 
+    <!-- PopupWindow 浮层统一淡入淡出 200ms（与 HkDialogFade 同口径） -->
+    <style name="XcPopupFade">
+        <item name="android:windowEnterAnimation">@anim/hk_dialog_fade_in</item>
+        <item name="android:windowExitAnimation">@anim/hk_dialog_fade_out</item>
+    </style>
+
     <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走深色毛玻璃（用户不要白色底） -->
     <style name="Theme.XingChen.HkPage" parent="Theme.XingChen">
         <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.Dark</item>

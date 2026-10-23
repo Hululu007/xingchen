@@ -72,6 +72,9 @@ public class MusicController {
     }
 
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    /** 视频暂停音乐的所有权旗（X-28 显式来源口径）：只有 pauseForVideo() 置位，
+     * 其它 play/pause 公共入口一律清掉，PlayerManager 退出视频时凭此旗决定是否续播。 */
+    private volatile boolean pausedByVideo;
     private final List<Runnable> pending = new ArrayList<>();
 
     private Context app;
@@ -255,6 +258,23 @@ public class MusicController {
 
     // ================= 播放控制 =================
 
+    /** PM（视频）专用暂停入口：暂停并置所有权旗；本入口不清自己的旗。 */
+    public void pauseForVideo() {
+        runOnService(() -> service().pause());
+        pausedByVideo = true;
+    }
+
+    public boolean isPausedByVideo() {
+        return pausedByVideo;
+    }
+
+    /** 取走所有权旗：返回此前是否持有，调用后旗已清（PM 续播专用）。 */
+    public boolean consumePausedByVideo() {
+        boolean was = pausedByVideo;
+        pausedByVideo = false;
+        return was;
+    }
+
     public void play(List<MusicTrack> queue, int index) {
         play(queue, index, null, null, null);
     }
@@ -263,6 +283,7 @@ public class MusicController {
     public void play(List<MusicTrack> queue, int index,
                      String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
+        pausedByVideo = false;
         runOnService(() -> service().playQueue(new ArrayList<>(queue), index, source, route, routeParams));
     }
 
@@ -273,6 +294,7 @@ public class MusicController {
     public void playWithMode(List<MusicTrack> queue, int index, int mode,
                              String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
+        pausedByVideo = false;
         runOnService(() -> service().playQueueWithMode(new ArrayList<>(queue), index, mode, source, route, routeParams));
     }
 
@@ -285,10 +307,12 @@ public class MusicController {
     public void playFrom(List<MusicTrack> queue, int index, long position,
                          String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
+        pausedByVideo = false;
         runOnService(() -> service().playQueueFrom(new ArrayList<>(queue), index, position, source, route, routeParams));
     }
 
     public void playAt(int index) {
+        pausedByVideo = false;
         runOnService(() -> service().playAt(index));
     }
 
@@ -299,6 +323,7 @@ public class MusicController {
     public void loadQueuePaused(List<MusicTrack> queue, int index, long position,
                                 String source, String route, java.util.Map<String, String> routeParams) {
         if (queue == null || queue.isEmpty()) return;
+        pausedByVideo = false;
         runOnService(() -> service().loadQueuePaused(new ArrayList<>(queue), index, position, source, route, routeParams));
     }
 
@@ -309,18 +334,22 @@ public class MusicController {
     }
 
     public void toggle() {
+        pausedByVideo = false;
         runOnService(() -> service().toggle());
     }
 
     public void play() {
+        pausedByVideo = false;
         runOnService(() -> service().play());
     }
 
     public void pause() {
+        pausedByVideo = false;
         runOnService(() -> service().pause());
     }
 
     public void next() {
+        pausedByVideo = false;
         runOnService(() -> service().next());
     }
 
@@ -341,6 +370,7 @@ public class MusicController {
     }
 
     public void prev() {
+        pausedByVideo = false;
         runOnService(() -> service().prev());
     }
 
@@ -396,7 +426,11 @@ public class MusicController {
     }
 
     public int getMode() {
-        MusicPlaybackService s = service();
+        // 读状态走空安全取法，不许走会抛的 service()：播放页 initView 在 bind 的
+        // onServiceConnected 回来之前就读模式，服务没就绪时抛 IllegalStateException
+        // 会直接崩掉开页（1.4.11 真机实证）。服务不在时回落存盘模式，口径与本类
+        // 其它读法（getSpeed/queue 等）一致。
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? MusicStore.getMode() : s.getQueue().getMode();
     }
 
@@ -424,17 +458,17 @@ public class MusicController {
 
     /** 第二波 B4 显示层用：服务侧是否正处分钟档到点后的等待态（面板不再只凭“档位＋剩余 -1”推断）。 */
     public boolean isSleepWaitingForSongEnd() {
-        MusicPlaybackService s = service();
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s != null && s.isSleepWaitingForSongEnd();
     }
 
     public int getSleep() {
-        MusicPlaybackService s = service();
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? MusicPlaybackService.SLEEP_OFF : s.getSleep();
     }
 
     public long sleepRemainingMs() {
-        MusicPlaybackService s = service();
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         return s == null ? -1 : s.getSleepRemainingMs();
     }
 
@@ -492,7 +526,9 @@ public class MusicController {
     }
 
     public boolean openEqualizer(Activity activity) {
-        MusicPlaybackService s = service();
+        // 同 getMode：空安全取法。服务不在时走下面已写好的可见提示分支，
+        // 不许抛 IllegalStateException 把调用方面板崩掉。
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
         if (s == null) {
             Notify.show("播放器还没起来");
             return false;
@@ -615,6 +651,7 @@ public class MusicController {
     public static boolean toggleStatic() {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
+        if (instance != null) instance.pausedByVideo = false;
         s.toggle();
         return true;
     }
@@ -622,6 +659,7 @@ public class MusicController {
     public static boolean nextStatic() {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
+        if (instance != null) instance.pausedByVideo = false;
         s.next();
         return true;
     }
@@ -629,6 +667,7 @@ public class MusicController {
     public static boolean prevStatic() {
         MusicPlaybackService s = MusicPlaybackService.get();
         if (s == null || !s.hasQueue()) return false;
+        if (instance != null) instance.pausedByVideo = false;
         s.prev();
         return true;
     }

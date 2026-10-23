@@ -64,7 +64,7 @@ public class HkMusicSource implements MusicSource {
         String line = str(raw, "line");
         String episodeUrl = str(raw, "episodeUrl");
         if (rule.isEmpty() || episodeUrl.isEmpty()) throw new Exception("歌曲缺少来源信息");
-        Result play = SiteApi.playerContent(HkDetailBridge.siteKey(rule), line, episodeUrl);
+        Result play = SiteApi.playerContentParseOnly(HkDetailBridge.siteKey(rule), line, episodeUrl);
         String url = play.getUrl() == null ? "" : play.getUrl().v();
         if (url == null || url.isEmpty()) throw new Exception("解析不到播放地址");
         return url;

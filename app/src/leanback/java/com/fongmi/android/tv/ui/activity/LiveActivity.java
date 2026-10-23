@@ -378,11 +378,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void checkPlay() {
+        // 服务被回收未绑回时 player() 为 null：点播放直接吞掉，不许裸解崩溃（深挖 S1）
+        if (player() == null) return;
         if (player().isPlaying()) onPaused();
         else onPlay();
     }
 
     private void onTrack(View view) {
+        if (player() == null) return;
         TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
         hideControl();
     }
@@ -766,7 +769,8 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         Keep keep = new Keep();
         keep.setKey(item.getName());
         keep.setType(1);
-        keep.save();
+        // 带当前直播配置 cid 落库：直播收藏按 cid＋频道名双键，同名跨源不顶替（深挖 F-05）
+        keep.save(com.fongmi.android.tv.api.config.LiveConfig.get().getConfig().getId());
     }
 
     private void delKeep(Channel item) {

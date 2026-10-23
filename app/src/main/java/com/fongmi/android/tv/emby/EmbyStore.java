@@ -198,6 +198,11 @@ public class EmbyStore {
         Prefers.put(K_LAST, id);
     }
 
+    /** 清除上次进入记录（enter 挂载最终失败回滚时用，避免下次又自动进同一台失败的服）。 */
+    public static void clearLastEntered() {
+        Prefers.remove(K_LAST);
+    }
+
     /** 任一服含 token 即算有登录。 */
     public static boolean hasLogin() {
         for (EmbyServer s : servers()) if (s.isLogin()) return true;

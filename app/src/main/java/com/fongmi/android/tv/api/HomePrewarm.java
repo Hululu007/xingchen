@@ -83,7 +83,8 @@ public final class HomePrewarm {
     private static final int STATE_IDLE = 0, STATE_STARTING = 1, STATE_RUNNING = 2, STATE_DONE = 3;
     private static final AtomicInteger state = new AtomicInteger(STATE_IDLE);
 
-    /** 播放进行中标记：SiteApi.playerContent 置 true；PlayerManager.stop()/release() 清 false。 */
+    /** 播放进行中标记：SiteApi.playerContent 置 true；PlayerManager.stop()/release() 清 false。
+     * 纯解析调用走 SiteApi.playerContentParseOnly，进出还原，不置不泄漏。 */
     public static volatile boolean playbackActive = false;
 
     private static final AtomicInteger threadNo = new AtomicInteger(0);

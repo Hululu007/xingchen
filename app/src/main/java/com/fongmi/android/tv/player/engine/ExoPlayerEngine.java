@@ -89,6 +89,21 @@ public class ExoPlayerEngine implements PlayerEngine {
     private final ExoTunnelingWatchdog tunnelingWatchdog = new ExoTunnelingWatchdog();
     private final ExoTunnelingProgressWatchdog tunnelingProgressWatchdog = new ExoTunnelingProgressWatchdog();
     private final Runnable tunnelingWatchdogRunnable = this::onTunnelingWatchdogTimeout;
+    private volatile TunnelingWatchdogCallback tunnelingWatchdogCallback;
+
+    /**
+     * 隧道看门狗超时回调（由 PlayerManager 注入）：引擎只上报超时，
+     * 不再自行 stop/start 重启——PM 的起播钟/onPrepare/倍速/轨/偏移恢复
+     * 都在 PM 侧的隧道失败重试路里重走。release() 时必须清掉，防
+     * 引擎与 PM 循环引用残留。
+     */
+    public interface TunnelingWatchdogCallback {
+        void onTunnelingWatchdogTimeout();
+    }
+
+    public void setTunnelingWatchdogCallback(TunnelingWatchdogCallback callback) {
+        this.tunnelingWatchdogCallback = callback;
+    }
     private final Runnable tunnelingProgressWatchdogRunnable = this::checkTunnelingProgress;
     private final Runnable decoderRuntimeStableRunnable = this::onDecoderRuntimeStable;
     private boolean firstFrameRendered;
@@ -210,6 +225,7 @@ public class ExoPlayerEngine implements PlayerEngine {
     public void release() {
         if (released) return;
         released = true;
+        tunnelingWatchdogCallback = null;
         compressedAudioDirectPolicy.resetOutputProgress();
         Runnable cacheRelease = null;
         if (cacheSessionActive) {
@@ -448,12 +464,11 @@ public class ExoPlayerEngine implements PlayerEngine {
         long nowMs = android.os.SystemClock.elapsedRealtime();
         long positionMs = player.getCurrentPosition();
         if (tunnelingProgressWatchdog.shouldTimeout(nowMs, positionMs)) {
-            long position = Math.max(0, positionMs);
-            boolean wasPlayWhenReady = player.getPlayWhenReady();
-            if (!disableTunnelingForSession()) return;
-            PlaybackTrace.log("exo-tunnel", getPlaybackTraceId(), "progress watchdog fallback position=%d", position);
-            player.stop();
-            startInternal(position, wasPlayWhenReady);
+            // 只上报 PM，由 PM 走隧道失败重试同款路重启（关隧道在 PM 路里做）；
+            // 引擎内不再直接 stop/start，否则 PM 的起播钟/onPrepare/倍速/轨/偏移全不重走。
+            PlaybackTrace.log("exo-tunnel", getPlaybackTraceId(), "progress watchdog timeout position=%d; report to PlayerManager", Math.max(0, positionMs));
+            TunnelingWatchdogCallback callback = tunnelingWatchdogCallback;
+            if (callback != null) callback.onTunnelingWatchdogTimeout();
             return;
         }
         tunnelingProgressWatchdog.observe(nowMs, positionMs);
@@ -462,12 +477,11 @@ public class ExoPlayerEngine implements PlayerEngine {
 
     private void onTunnelingWatchdogTimeout() {
         if (!tunnelingWatchdog.shouldTimeout(android.os.SystemClock.elapsedRealtime())) return;
-        long position = Math.max(0, player.getCurrentPosition());
-        boolean wasPlayWhenReady = player.getPlayWhenReady();
-        if (!disableTunnelingForSession()) return;
-        PlaybackTrace.log("exo-tunnel", getPlaybackTraceId(), "first-frame watchdog fallback position=%d", position);
-        player.stop();
-        startInternal(position, wasPlayWhenReady);
+        if (player == null) return;
+        // 只上报 PM（同进度看门狗口径）：关隧道与重启由 PM 的隧道失败重试路完成。
+        PlaybackTrace.log("exo-tunnel", getPlaybackTraceId(), "first-frame watchdog timeout position=%d; report to PlayerManager", Math.max(0, player.getCurrentPosition()));
+        TunnelingWatchdogCallback callback = tunnelingWatchdogCallback;
+        if (callback != null) callback.onTunnelingWatchdogTimeout();
     }
 
     @Override

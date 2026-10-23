@@ -162,7 +162,8 @@ public class UpdateDialog extends BaseAlertDialog {
             binding.stableDesc.setText(MarkdownText.render(getBody(update), getString(R.string.update_no_notes)));
             binding.stableConfirm.setEnabled(update != null && update.hasUpdate());
             binding.stableConfirm.setText(R.string.update_confirm);
-            binding.stableConfirm.setVisibility(View.GONE);
+            // D-08：原先无条件 GONE，两确认钮永远点不到；改成该通道确有更新时才显示（点了走既有 update→onConfirm 链）
+            binding.stableConfirm.setVisibility(update != null && update.hasUpdate() ? View.VISIBLE : View.GONE);
         } else {
             binding.betaVersion.setText(getVersion(update));
             binding.betaStatus.setText(getStatus(update));
@@ -171,7 +172,7 @@ public class UpdateDialog extends BaseAlertDialog {
             binding.betaDesc.setText(MarkdownText.render(getBody(update), getString(R.string.update_no_notes)));
             binding.betaConfirm.setEnabled(update != null && update.hasUpdate());
             binding.betaConfirm.setText(R.string.update_confirm);
-            binding.betaConfirm.setVisibility(View.GONE);
+            binding.betaConfirm.setVisibility(update != null && update.hasUpdate() ? View.VISIBLE : View.GONE);
         }
     }
 

@@ -260,6 +260,13 @@ public class PyLoader {
             return new SpiderNull();
         } catch (SpiderLoadFailed e) {
             // 失败不缓存（computeIfAbsent 在映射函数抛异常时不写入），下次调用重试。
+            // 静默只是不弹 Toast，不是无痕：与 getSpider 同口径落强制日志
+            //（key＋异常全文，分类 pyloader），后台路径（首页预热等）挂掉的源
+            // 事后能从日志页查到是谁、什么错。
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String msg = "PY加载失败 [" + key + "]: " + cause.getClass().getSimpleName() + ": " + cause.getMessage();
+            SpiderDebug.forceLog("pyloader", "%s", msg);
+            SpiderDebug.forceLog("pyloader", cause);
             return new SpiderNull();
         }
     }
@@ -355,6 +362,10 @@ public class PyLoader {
             // 此前这里返回 SpiderNull 会被写进缓存，一次失败毒化该源整个进程。
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             String msg = "PY加载失败 [" + key + "]: " + cause.getClass().getSimpleName() + ": " + cause.getMessage();
+            // 失败必落强制日志（照 jar 先例）：弹窗一闪而过、事后无处查，
+            // 这里把同一份 msg 与异常全文无视调试开关记下来，回头从日志页读回。
+            SpiderDebug.forceLog("pyloader", "%s", msg);
+            SpiderDebug.forceLog("pyloader", cause);
             android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
             h.post(() -> ToastUtil.show(App.get(), msg, android.widget.Toast.LENGTH_LONG));
             return new SpiderNull();

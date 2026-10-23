@@ -2688,6 +2688,11 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         if ("header".equals(item.getType())) return false;
         String url = item.getUrl();
         if (TextUtils.isEmpty(url)) return false;
+        // 图集协议（协议级判据）：pics:// 是详情页头部的封面展示卡，8.83 里走图片
+        // 分支、从不是视频集。此前它靠下面「url==pic」判等拦，但 url 带 pics://
+        // 前缀、pic 是封面原串，判等被前缀绕过，片名卡混进选集当了第 1 集
+        // （2026-10-23 真机复现）；按协议在源头挡，不再靠形态猜测。
+        if (url.regionMatches(true, 0, "pics://", 0, "pics://".length())) return false;
         if (isEmptyPlaceholder(url)) return false;
         // ignoreVideo/ignoreMusic 是给通用嗅探看的标记，挂了 @lazyRule= 的条目由
         // 懒函数自己解析播放、正是真选集（91短剧全部 18 集都是
@@ -2696,9 +2701,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         if (!url.contains("@lazyRule=")
                 && (url.contains("ignoreVideo") || url.contains("ignoreMusic"))) return false;
         if (url.contains("@rule=")) return false;
-        // 详情页头部条：地址就是它自己的封面图（91短剧头部条 url=pic），不是能播的集
+        // 详情页头部条：地址就是它自己的封面图（91短剧头部条 url=pic），不是能播的集。
+        // 判等先剥 pics:// 前缀再比，堵前缀绕过（带前缀的已被上面协议判据先挡，
+        // 这里是其余变体形态的冗余防线）。
         String pic = item.getPic();
-        if (!TextUtils.isEmpty(pic) && url.equals(pic)) return false;
+        String urlBare = url.regionMatches(true, 0, "pics://", 0, "pics://".length())
+                ? url.substring("pics://".length()) : url;
+        if (!TextUtils.isEmpty(pic) && urlBare.equals(pic)) return false;
         if (playList && !isSamePlayList(playListCls, item)) return false;
         return true;
     }

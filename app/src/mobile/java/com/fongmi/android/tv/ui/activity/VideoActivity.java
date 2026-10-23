@@ -1772,6 +1772,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         markEpisodeRender = true;
         recordDetailHealth(result, cost);
         mBinding.swipeLayout.setRefreshing(false);
+        if (SiteApi.isActionStub(getKey(), getId())) {
+            // 动作条目桩（旧代 jar 包已在 detail 调用内弹自有 UI）：不渲染空详情，直接退回列表。
+            SpiderDebug.log("video-flow", "action stub detail, finish key=%s id=%s", getKey(), getId());
+            finish();
+            return;
+        }
         if (result.getList().isEmpty()) {
             if (mDetailCacheShown) return;
             setEmpty(result.hasMsg());

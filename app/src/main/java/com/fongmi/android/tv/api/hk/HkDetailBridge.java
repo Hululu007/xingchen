@@ -65,23 +65,67 @@ public class HkDetailBridge {
             List<String> urls = new ArrayList<>(items.size());
             for (HkDetailItem di : items) urls.add(di.getUrl() == null ? "" : di.getUrl().trim());
             boolean[] keep = HkEpisodeSorter.select(urls, pageUrl);
-            Flag flag = null;
+            // 分拣后的候选表（保序）：集名/地址/回退名标记/原始标题
+            List<String> candNames = new ArrayList<>();
+            List<String> candUrls = new ArrayList<>();
+            List<Boolean> candFallback = new ArrayList<>();
+            List<String> candTitles = new ArrayList<>();
             for (int i = 0; i < items.size(); i++) {
                 if (!keep[i]) continue;
-                if (flag == null) {
-                    flag = Flag.create(e.getKey());
-                    flags.add(flag);
-                }
                 HkDetailItem di = items.get(i);
                 boolean fallbackName = di.getTitle() == null || di.getTitle().isEmpty();
-                String epName = fallbackName
-                        ? ("第" + (flag.getEpisodes().size() + 1) + "集") : di.getTitle();
-                Episode episode = Episode.create(epName, urls.get(i));
-                // 源没给集名的回退序号必须打标（与 Flag/VideoActivity 推送直建同口径）：
-                // Vod.setFlags 末尾 applySingleEpisodeTitle 据此把单集选集显示换成片名全名，
-                // 未打标时海阔单集内容选集只剩「第1集」（他 2026-10-23 单集显名定案）。
-                if (fallbackName) episode.setNumberName(true);
-                flag.getEpisodes().add(episode);
+                candNames.add(fallbackName ? ("第" + (candNames.size() + 1) + "集") : di.getTitle());
+                candUrls.add(urls.get(i));
+                candFallback.add(fallbackName);
+                candTitles.add(di.getTitle() == null ? "" : di.getTitle());
+            }
+            if (candUrls.isEmpty()) continue;
+            // 同片多址归并（治本通用层，与章节链共用 HkEpisodeMerger）：分拣治「该剔的」，
+            // 归并治「该并的」——同组条目折成一集、组内地址展开成同名同序的多条线路。
+            // 判定窄口径、拿不准不并；不并时与改前逐字一致地建单个 Flag。
+            HkEpisodeMerger.Plan plan = HkEpisodeMerger.plan(candUrls, candTitles, -1);
+            if (!plan.merge) {
+                Flag flag = Flag.create(e.getKey());
+                flags.add(flag);
+                for (int i = 0; i < candUrls.size(); i++) {
+                    Episode episode = Episode.create(candNames.get(i), candUrls.get(i));
+                    // 源没给集名的回退序号必须打标（与 Flag/VideoActivity 推送直建同口径）：
+                    // Vod.setFlags 末尾 applySingleEpisodeTitle 据此把单集选集显示换成片名全名，
+                    // 未打标时海阔单集内容选集只剩「第1集」（他 2026-10-23 单集显名定案）。
+                    if (candFallback.get(i)) episode.setNumberName(true);
+                    flag.getEpisodes().add(episode);
+                }
+                continue;
+            }
+            // 收缩集表：每集代表（折叠集取线路序首位、非折叠集取自身），
+            // 每集在各线路下的地址下标（折叠集＝组内成员序，非折叠集恒为自身）。
+            int episodeCount = 0;
+            for (int v : plan.episodeIndexOf) episodeCount = Math.max(episodeCount, v + 1);
+            boolean[] inGroup = new boolean[candUrls.size()];
+            int[] repOf = new int[episodeCount];
+            java.util.Arrays.fill(repOf, -1);
+            int[][] urlIndexOf = new int[episodeCount][];
+            for (HkEpisodeMerger.Group g : plan.groups) {
+                int epIdx = plan.episodeIndexOf[g.members[0]];
+                repOf[epIdx] = g.members[0];
+                urlIndexOf[epIdx] = g.members;
+                for (int m : g.members) inGroup[m] = true;
+            }
+            for (int i = 0; i < candUrls.size(); i++) {
+                int epIdx = plan.episodeIndexOf[i];
+                if (!inGroup[i] && repOf[epIdx] < 0) repOf[epIdx] = i;
+                if (urlIndexOf[epIdx] == null) urlIndexOf[epIdx] = new int[]{i};
+            }
+            for (int line = 0; line < plan.lineNames.length; line++) {
+                Flag flag = Flag.create(plan.lineNames[line]);
+                flags.add(flag);
+                for (int j = 0; j < episodeCount; j++) {
+                    int[] srcs = urlIndexOf[j];
+                    int src = srcs[Math.min(line, srcs.length - 1)];
+                    Episode episode = Episode.create(candNames.get(repOf[j]), candUrls.get(src));
+                    if (candFallback.get(repOf[j])) episode.setNumberName(true);
+                    flag.getEpisodes().add(episode);
+                }
             }
         }
         vod.setFlags(flags);

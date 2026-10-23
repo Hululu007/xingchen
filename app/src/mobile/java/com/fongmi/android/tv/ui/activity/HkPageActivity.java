@@ -3672,6 +3672,36 @@ public class HkPageActivity extends BaseActivity {
         return currentRule == null ? null : currentRule.getUrl();
     }
 
+    /**
+     * 漫画 pics 分支的页面地址：实际抓取页（hkPageUrl）优先；记录页缺失时
+     * 回退规则地址，但规则 host 必须与至少一张图的 host 同域相关（相等或互含，
+     * 与 ImgUtil 自动 Referer 的域判定同口径）才认——无关域宁可返回空串，
+     * 让组装层走自动判定，不拿规则文件地址冒充页面上下文。
+     */
+    private String hkComicPageUrl(java.util.List<String> pics) {
+        if (!TextUtils.isEmpty(hkPageUrl)) return hkPageUrl;
+        String ruleUrl = currentRule == null ? "" : currentRule.getUrl();
+        if (TextUtils.isEmpty(ruleUrl)) return "";
+        String ruleHost = hostOfUrl(ruleUrl);
+        if (ruleHost.isEmpty() || pics == null) return "";
+        for (String p : pics) {
+            String h = hostOfUrl(p);
+            if (!h.isEmpty() && (ruleHost.equals(h) || ruleHost.contains(h) || h.contains(ruleHost))) {
+                return ruleUrl;
+            }
+        }
+        return "";
+    }
+
+    private static String hostOfUrl(String url) {
+        try {
+            String h = android.net.Uri.parse(url).getHost();
+            return h == null ? "" : h;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
     /** 记录实际抓取的页面 URL（图片 Referer 用）。JS 规则取引擎最后一次 fetch 的真实 URL；非 JS 规则用展开后的模板 URL。 */
     private void recordHkPageUrl(int p, String c, String a, String y, String s) {
         try {
@@ -3986,9 +4016,15 @@ public class HkPageActivity extends BaseActivity {
                     s.bookTitle = stripHtml(item.getTitle());
                     s.images = urls;
                     s.referer = hkRuleUrl();
-                    // 页面地址另存 pageUrl（图片组装的真上下文）：hkRuleUrl 优先实际抓取页、
-                    // 回退才是规则主页；别再只靠 referer 一个字段混装地址与请求头
-                    s.pageUrl = hkRuleUrl();
+                    // 页面地址另存 pageUrl（图片组装的真上下文）：优先实际抓取页；
+                    // 记录页缺失回退规则地址时先验同域——规则文件常托管在无关域
+                    // （规则 CDN），拿它当页面地址只会算出假域，无关时宁可留空
+                    // 走自动判定（复核报告 §四附带风险），不再无条件冒充。
+                    s.pageUrl = hkComicPageUrl(urls);
+                    // 本入口没有 play 解析，实际有的请求头只有页面 Referer：
+                    // 喂进 playHeaders，让阅读器组图的整套头补缺对跨域防盗链图
+                    // 也有数据可补（此前三入口 playHeaders 恒为空集，复核报告 §4）。
+                    if (!TextUtils.isEmpty(s.pageUrl)) s.playHeaders.put("Referer", s.pageUrl);
                     ReadingSession.Chapter c = new ReadingSession.Chapter(s.bookTitle, url);
                     c.pic = item.getPic() == null ? "" : item.getPic();
                     s.chapters.add(c);

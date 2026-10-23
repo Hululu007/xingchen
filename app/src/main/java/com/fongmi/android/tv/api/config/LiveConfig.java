@@ -142,7 +142,9 @@ public class LiveConfig extends BaseConfig {
         try {
             if (isLoaded()) return;
             super.ensureLoaded();
-            LiveApi.parse(getHome());
+            // ensureLoaded 是惰性补全钩子，任意访问方（含后台）都可能触发，不是用户点开这个直播：
+            // 走静默解析，PY 直播源失败只落强制日志，不弹「PY加载失败」。直播页前台打开仍走 LiveApi.parse。
+            LiveApi.parseQuiet(getHome());
             LiveApi.parseXml(getHome());
         } catch (Throwable e) {
             e.printStackTrace();

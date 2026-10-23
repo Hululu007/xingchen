@@ -137,6 +137,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
         // 上游 App 同位置：启动即登记运行时包安装／卸载广播，RuntimeModule.refresh()
         // 靠它感知外置包变化；ModuleViewModel 各自的接收器只跟自己那块模块。
         RuntimeReceiver.register(this);
+        // 海阔图片毒缓存一次性清理：跨版本首次启动清 hiker files 根的 cache/，
+        // 内部自吞异常＋后台执行，不影响启动（见 HkCachePurge 类头定案说明）。
+        try { com.fongmi.android.tv.api.hk.HkCachePurge.onStartup(); } catch (Throwable ignored) {}
         try {
             com.fongmi.android.tv.api.loader.BaseLoader.get()
                     .watchPyPlugins(new java.io.File(getFilesDir(), "plugins/py"));

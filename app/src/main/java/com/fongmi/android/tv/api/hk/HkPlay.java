@@ -77,6 +77,14 @@ public class HkPlay {
     private String audioUrl = "";
     /** P1：pics:// 漫画多图模式的图片列表（非视频，UI 提示不支持）。 */
     private final java.util.List<String> pics = new java.util.ArrayList<>();
+    /**
+     * 产出本结果的真实页面地址（懒解析/规则求值实际跑在哪个页面上）：
+     * pics 分流进阅读器时作会话 pageUrl（图片组装的页面上下文）。
+     * 集地址本身（尤其 pics:// 串全文）不是页面地址，绝不许拿它冒充——
+     * 冒充时组装层算出假域、自动 Referer 恒不成立（漫画黑屏复核报告 §3）。
+     * play 现算不出产出页时留空，消费方宁可空着走自动判定。
+     */
+    private String pageUrl = "";
     /** P1：ed2k/magnet/thunder/ftp 等特殊协议类型（透传给播放器前识别）。 */
     private String playType = "";
 
@@ -142,6 +150,14 @@ public class HkPlay {
 
     public void setAudioUrl(String audioUrl) {
         this.audioUrl = audioUrl == null ? "" : audioUrl;
+    }
+
+    public String getPageUrl() {
+        return pageUrl == null ? "" : pageUrl;
+    }
+
+    public void setPageUrl(String pageUrl) {
+        this.pageUrl = pageUrl == null ? "" : pageUrl;
     }
 
     public java.util.List<String> getPics() {

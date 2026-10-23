@@ -640,8 +640,13 @@ public class ComicReaderActivity extends AppCompatActivity {
                     HkPlay play = router.play(ch.url);
                     if (play != null && !play.getPics().isEmpty()) {
                         // 切章刷新来源：本章页地址与整套 play 请求头随 pics 一并换新，
-                        // 后续组图不吃入口那一刻的旧值（旧值多半为空或规则主页，图必死）
-                        session.pageUrl = ch.url;
+                        // 后续组图不吃入口那一刻的旧值（旧值多半为空或规则主页，图必死）。
+                        // 页地址只认 play 记录的产出页且须 http(s)（与 ReadingGate.fromHkComic
+                        // 同款判定）：集地址 ch.url 可能是 pics:// 串全文，拿它冒充时组装层
+                        // getDom 算出首图碎片当域、自动 Referer 恒不成立；产出页取不到
+                        // 合格值就保留旧值，不拿假地址污染判定。
+                        String producedPage = play.getPageUrl();
+                        if (isHttpPage(producedPage)) session.pageUrl = producedPage;
                         session.playHeaders = new java.util.HashMap<>(play.getHeaders());
                         String ref = play.getHeaders().get("Referer");
                         if (ref != null) session.referer = ref;
@@ -742,6 +747,13 @@ public class ComicReaderActivity extends AppCompatActivity {
     private void updateSeekMax() {
         if (seekBar != null) seekBar.setMax(Math.max(0, images.size() - 1));
         updatePageLabel();
+    }
+
+    /** 真实页面地址判定（与 ReadingGate.isHttpPage 同款）：http(s) 全地址才认，pics:// 串、相对地址一律不认。 */
+    private static boolean isHttpPage(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String t = url.trim().toLowerCase(java.util.Locale.ROOT);
+        return t.startsWith("http://") || t.startsWith("https://");
     }
 
     /** 组图用的页面上下文：优先会话存的章节页地址，回退旧 referer 字段（入口乙/丙的存量会话）。 */

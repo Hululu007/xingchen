@@ -101,7 +101,13 @@ public class ReadingGate {
         s.images = new ArrayList<>(play.getPics());
         // 来源交接：章节页地址与 play 整套请求头分开存。旧口径只摘一个 Referer 值
         // 塞进 referer 字段当页面地址喂组装函数——头全丢、地址是假，图必死（断点报告）。
-        s.pageUrl = s.chapterUrl;
+        // 页面地址只认 play 解析时记录的产出页（懒解析/规则求值实际跑的真实页面）：
+        // 集地址本身——尤其 pics:// 串全文——不是页面地址，拿它冒充时组装层
+        // getDom 算出首图碎片当域、自动 Referer 恒不成立（复核报告 §3 钉死）。
+        // play 没记录到产出页（详情期直给 pics 串等）宁可留空：组装层走自动
+        // 判定、请求头由 playHeaders 补缺，不拿假地址污染判定。
+        String producedPage = play.getPageUrl();
+        s.pageUrl = isHttpPage(producedPage) ? producedPage : "";
         if (headers != null) {
             s.playHeaders.putAll(headers);
             String ref = headers.get("Referer");
@@ -109,6 +115,13 @@ public class ReadingGate {
         }
         logDivert("divert kind=COMIC rule=%s pics=%d why=pics-scheme", s.sourceName, play.getPics().size());
         return s;
+    }
+
+    /** 真实页面地址判定：http(s) 全地址才认（pics:// 串、js: 串、相对地址一律不认）。 */
+    private static boolean isHttpPage(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String t = url.trim().toLowerCase(Locale.ROOT);
+        return t.startsWith("http://") || t.startsWith("https://");
     }
 
     /** 海阔小说规则判定（type == "小说"，规则自声明，显式信号直认）。 */

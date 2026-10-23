@@ -22,6 +22,10 @@ import okhttp3.OkHttpClient;
  * {@link HkHttp#shouldUseAutoDNS(String)}，命中才把 client 换成
  * {@link HkHttp#buildAutoDNSClient(String, OkHttpClient)} 的派生 client
  * （名单内域名主解析走 DoH/静态地址，不再先过系统解析）；未命中用原 client。</p>
+ *
+ * <p>同时把原 client 与「首发是否已走自动 DNS」交给抓取器：首发没走自动
+ * DNS 而加载失败时，抓取器可用原 client 派生自动 DNS client 换解析重试
+ * 一次（名单外域名被系统解析给错 IP 的兜底，见 HkOkHttpStreamFetcher）。</p>
  */
 public class HkGlideUrlLoader implements ModelLoader<GlideUrl, InputStream> {
 
@@ -35,10 +39,13 @@ public class HkGlideUrlLoader implements ModelLoader<GlideUrl, InputStream> {
     public LoadData<InputStream> buildLoadData(@NonNull GlideUrl model, int width, int height, @NonNull Options options) {
         Call.Factory use = client;
         String url = model.toStringUrl();
+        boolean auto = false;
         if (url != null && client instanceof OkHttpClient && HkHttp.shouldUseAutoDNS(url)) {
             use = HkHttp.buildAutoDNSClient(url, (OkHttpClient) client);
+            auto = true;
         }
-        return new LoadData<>(model, new HkOkHttpStreamFetcher(use, model));
+        OkHttpClient base = client instanceof OkHttpClient ? (OkHttpClient) client : null;
+        return new LoadData<>(model, new HkOkHttpStreamFetcher(use, model, base, auto));
     }
 
     @Override

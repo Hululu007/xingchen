@@ -13,6 +13,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.Product;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
@@ -179,6 +180,9 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mViewModel.getResult().observe(getViewLifecycleOwner(), this::setAdapter);
         mViewModel.getAction().observe(getViewLifecycleOwner(), result -> {
             if (result.hasMsg()) Notify.show(result.getMsg());
+            // 纯动作面板页：开关态／状态文案都写在条目数据里，动作完成刷新本页才看得见新状态；
+            // 混合页／影片页不触发，防打断浏览、滚动位与分页。
+            if (mAdapter != null && !mAdapter.getItems().isEmpty() && mAdapter.getItems().stream().allMatch(Vod::isAction)) onRefresh();
         });
     }
 
@@ -273,6 +277,8 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     public void onResume() {
         super.onResume();
         checkCoverChanged();
+        // 旧代 jar 动作条目在自有 UI 里改了状态（域名／cookie 等）：回列表时消费 dirty 标刷新一次。
+        if (SiteApi.consumeStubDirty(getKey())) onRefresh();
     }
 
     @Override

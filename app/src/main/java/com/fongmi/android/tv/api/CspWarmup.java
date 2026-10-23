@@ -80,7 +80,8 @@ public final class CspWarmup {
         long start = System.currentTimeMillis();
         try {
             SpiderDebug.log("csp-warmup", "init start reason=%s site=%s api=%s jar=%s", reason, site.getKey(), site.getApi(), jarKey(site));
-            site.recent().spider();
+            // 后台预热走静默加载：PY 源失败只落强制日志，不弹「PY加载失败」。
+            site.recent().spiderQuiet();
             SpiderDebug.log("csp-warmup", "init done reason=%s site=%s api=%s cost=%sms", reason, site.getKey(), site.getApi(), System.currentTimeMillis() - start);
             return true;
         } catch (Throwable e) {

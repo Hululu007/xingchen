@@ -38,6 +38,7 @@ import org.greenrobot.eventbus.ThreadMode;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkCommonParser;
+import com.fongmi.android.tv.api.hk.HkEpisodeMerger;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkItem;
@@ -372,14 +373,62 @@ public class HkListActivity extends AppCompatActivity
                 // 播放器标题用页面标题：子列表页的活动标题就是被点视频名（dealRule 经 req.title 传入），
                 // 原版 PlayerChooser 用的正是这个 MTitle；一级列表页活动标题与规则名相同、不可用，回退选中集标题
                 String name = !TextUtils.isEmpty(mTitle) && !mTitle.equals(ruleTitle) ? mTitle : selName;
+                // 同片多址归并（治本通用层，与详情桥链共用 HkEpisodeMerger）：规则把同一
+                // 视频的一组候选节点逐条报成独立条目（本体同一播放页、仅差节点参数）时，
+                // 交接前折成一集、组内地址合成多线路播放数据，走下面既有的多线路展开。
+                // 判定窄口径、拿不准不并；不并时下面一切原样。
+                java.util.List<String> rawUrls = new java.util.ArrayList<>();
+                java.util.List<String> chapterTitles = new java.util.ArrayList<>();
+                for (HkArticleFragment.HkChapter ch : chapters) {
+                    rawUrls.add(playUrlForChapter(ch));
+                    chapterTitles.add(ch.memoryTitle == null ? "" : ch.memoryTitle);
+                }
+                HkEpisodeMerger.Plan mergePlan = HkEpisodeMerger.plan(rawUrls, chapterTitles, selIdx);
+                java.util.Map<Integer, HkPlayData> mergedPlayData = new java.util.HashMap<>();
+                if (mergePlan.merge) {
+                    int episodeCount = 0;
+                    for (int v : mergePlan.episodeIndexOf) episodeCount = Math.max(episodeCount, v + 1);
+                    boolean[] inGroup = new boolean[chapters.size()];
+                    int[] repOf = new int[episodeCount];
+                    java.util.Arrays.fill(repOf, -1);
+                    for (HkEpisodeMerger.Group g : mergePlan.groups) {
+                        int epIdx = mergePlan.episodeIndexOf[g.members[0]];
+                        // 代表取线路序首位：被点地址已被判定件旋转到首位，它就是这一集
+                        repOf[epIdx] = g.members[0];
+                        for (int m : g.members) inGroup[m] = true;
+                        HkPlayData pd = new HkPlayData();
+                        java.util.List<String> pdUrls = new java.util.ArrayList<>();
+                        for (int m : g.members) pdUrls.add(rawUrls.get(m));
+                        pd.setUrls(pdUrls);
+                        pd.setNames(new java.util.ArrayList<>(java.util.Arrays.asList(g.lineNames)));
+                        mergedPlayData.put(epIdx, pd);
+                    }
+                    for (int i = 0; i < chapters.size(); i++) {
+                        if (!inGroup[i] && repOf[mergePlan.episodeIndexOf[i]] < 0) {
+                            repOf[mergePlan.episodeIndexOf[i]] = i;
+                        }
+                    }
+                    java.util.List<HkArticleFragment.HkChapter> mergedChapters = new java.util.ArrayList<>();
+                    java.util.List<String> mergedRawUrls = new java.util.ArrayList<>();
+                    for (int j = 0; j < episodeCount; j++) {
+                        mergedChapters.add(chapters.get(repOf[j]));
+                        mergedRawUrls.add(rawUrls.get(repOf[j]));
+                    }
+                    selIdx = mergePlan.episodeIndexOf[selIdx];
+                    chapters = mergedChapters;
+                    rawUrls = mergedRawUrls;
+                    try {
+                        com.github.catvod.crawler.SpiderDebug.log("hk", "merge same-content chapters episodes=%d lines=%d",
+                                episodeCount, mergePlan.lineNames == null ? 0 : mergePlan.lineNames.length);
+                    } catch (Throwable ignored) {
+                    }
+                }
                 // 多线路展开：章节地址是播放数据（urls/names/headers）时按 names 展开成线路，
                 // 与 8.83 播放器内按集解析、线路序号对所有集统一的语义一致；普通集走原扁平载荷不变
                 java.util.List<HkPlayData> playDatas = new java.util.ArrayList<>();
-                java.util.List<String> rawUrls = new java.util.ArrayList<>();
-                for (HkArticleFragment.HkChapter ch : chapters) {
-                    String raw = playUrlForChapter(ch);
-                    rawUrls.add(raw);
-                    playDatas.add(playDataOf(raw));
+                for (int i = 0; i < chapters.size(); i++) {
+                    HkPlayData merged = mergedPlayData.get(i);
+                    playDatas.add(merged != null ? merged : playDataOf(rawUrls.get(i)));
                 }
                 java.util.List<String> lineNames = lineNamesOf(playDatas, selIdx);
                 String payload;
@@ -482,6 +531,10 @@ public class HkListActivity extends AppCompatActivity
                     s.referer = request.url == null ? "" : request.url;
                     // request.url 就是本章真实页地址：另存 pageUrl 供阅读器组图（与 referer 分开）
                     s.pageUrl = request.url == null ? "" : request.url;
+                    // 本入口没有 play 解析，实际有的请求头只有本章页地址作 Referer：
+                    // 喂进 playHeaders，让阅读器组图的整套头补缺对跨域防盗链图也有
+                    // 数据可补（此前三入口 playHeaders 恒为空集，复核报告 §4）。
+                    if (!TextUtils.isEmpty(s.pageUrl)) s.playHeaders.put("Referer", s.pageUrl);
                     if (request.chapters != null) {
                         for (HkArticleFragment.HkChapter ch : request.chapters) {
                             ReadingSession.Chapter c = new ReadingSession.Chapter(

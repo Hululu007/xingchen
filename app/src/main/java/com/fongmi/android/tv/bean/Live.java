@@ -379,6 +379,11 @@ public class Live {
         return BaseLoader.get().getSpider(getName(), getApi(), getExt(), getJar());
     }
 
+    /** 后台/自动路径用：静默加载（PY 失败不弹 Toast、只落强制日志）。前台打开仍走 spider()。 */
+    public Spider spiderQuiet() {
+        return BaseLoader.get().getSpiderQuiet(getName(), getApi(), getExt(), getJar());
+    }
+
     public Map<String, String> getHeaders() {
         Map<String, String> headers = new HashMap<>(getHeader());
         if (!getUa().isEmpty()) headers.put(HttpHeaders.USER_AGENT, getUa());

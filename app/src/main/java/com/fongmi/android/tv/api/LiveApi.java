@@ -23,7 +23,17 @@ import java.time.ZoneId;
 public class LiveApi {
 
     public static void parse(@NonNull Live item) throws Exception {
-        LiveParser.start(item.recent());
+        parse(item, false);
+    }
+
+    /** 后台/自动解析用（配置就绪后的 ensureLoaded）：蜘蛛静默加载，PY 失败不弹 Toast。 */
+    public static void parseQuiet(@NonNull Live item) throws Exception {
+        parse(item, true);
+    }
+
+    private static void parse(@NonNull Live item, boolean quiet) throws Exception {
+        if (quiet) LiveParser.startQuiet(item.recent());
+        else LiveParser.start(item.recent());
         item.getGroups().removeIf(Group::isEmpty);
         if (item.getGroups().isEmpty() || item.getGroups().get(0).isKeep()) return;
         item.getGroups().add(0, Group.create(R.string.keep));

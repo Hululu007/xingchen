@@ -468,6 +468,11 @@ public class Site implements Parcelable {
         return BaseLoader.get().getSpider(getKey(), getApi(), getExt(), getJar());
     }
 
+    /** 后台/自动路径用：静默加载（PY 失败不弹 Toast、只落强制日志）。前台打开仍走 spider()。 */
+    public Spider spiderQuiet() {
+        return BaseLoader.get().getSpiderQuiet(getKey(), getApi(), getExt(), getJar());
+    }
+
     public void save() {
         AppDatabase.get().getSiteDao().insertOrUpdate(this);
     }

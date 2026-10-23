@@ -554,7 +554,9 @@ public class SiteApi {
      * @return 首页 JSON；失败/空抛异常或返回 null。
      */
     static String prewarmSpiderHome(@NonNull Site site, long timeoutSeconds) throws Exception {
-        Spider spider = site.recent().spider();
+        // 后台预热走静默加载：坏源只留强制日志、由 HomePrewarm 记 skip，
+        // 不许在用户没点这个源时弹「PY加载失败」。
+        Spider spider = site.recent().spiderQuiet();
         java.util.concurrent.Future<String> fHome = HomePrewarm.workers.submit(() -> marked(site, () -> pyHomeContent(spider, -1)));
         java.util.concurrent.Future<String> fVideo = HomePrewarm.workers.submit(() -> marked(site, () -> pyHomeVideoContent(spider, -1)));
         String home;
@@ -619,6 +621,32 @@ public class SiteApi {
     private static final int DETAIL_EMPTY_EVICT_STRIKES = 2;
     private static final ConcurrentHashMap<String, AtomicInteger> detailEmptyStrikes = new ConcurrentHashMap<>();
 
+    /**
+     * 旧代 jar 包（无 action 字段契约）的动作条目桩登记：detail 回出
+     * 「list 恰 1 条 ∧ play_from 等于请求 id ∧ play_url 空 ∧ name 空」的回声桩，
+     * 说明该条目是动作条目（jar 已在 detail 调用内弹出自有 UI），不是空详情——
+     * 不计次、不驱逐、不入缓存，详情页据此直接退回列表。
+     * 判据只看返回形态，与包名／站名／id 拼写无关；站型信息只准进日志。
+     */
+    private static final ConcurrentHashMap<String, Long> actionStubs = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> stubDirtyKeys = new ConcurrentHashMap<>();
+
+    /** (key, id) 是否已被认定为动作条目桩（供详情页查，命中即退回列表）。 */
+    public static boolean isActionStub(@NonNull String key, @NonNull String id) {
+        return actionStubs.containsKey(key + "|" + id);
+    }
+
+    /** 消费某站的桩 dirty 标：自上次消费后有新桩命中返回 true 并清标（供分类页 onResume 刷新）。 */
+    public static boolean consumeStubDirty(@NonNull String key) {
+        return stubDirtyKeys.remove(key) != null;
+    }
+
+    private static boolean isActionStubShape(Result result, String id) {
+        if (result.getList().size() != 1) return false;
+        Vod vod = result.getVod();
+        return id.equals(vod.getPlayFrom()) && vod.getPlayUrl().isEmpty() && vod.getName().isEmpty();
+    }
+
     @NonNull
     public static Result detailContent(@NonNull String key, @NonNull String id) throws Exception {
         return detailContent(key, id, false);
@@ -668,7 +696,13 @@ public class SiteApi {
             // 计次按影片（key|id）：同一源下两部不同影片各空一次不能累计满阈值，
             // 否则无辜驱逐蜘蛛、下一部详情付全额重建。
             String strikeKey = key + "|" + id;
-            if (vod == null || vod.getPlayFrom().isEmpty() || vod.getPlayUrl().isEmpty()) {
+            if (isActionStubShape(result, id)) {
+                // 动作条目桩：jar 已在 detail 调用内弹自有 UI，这里只登记——
+                // 不计次、不驱逐、不入缓存（入缓存会让 jar UI 再也触发不了），结果原样返回。
+                actionStubs.put(strikeKey, System.currentTimeMillis());
+                stubDirtyKeys.put(key, Boolean.TRUE);
+                SpiderDebug.log("detail", "action stub key=%s id=%s api=%s", key, id, site.getApi());
+            } else if (vod == null || vod.getPlayFrom().isEmpty() || vod.getPlayUrl().isEmpty()) {
                 // 一次空详情可能是站点抖动：先记一笔，连续空达到阈值才驱逐蜘蛛。
                 // 旧写法一次空就驱逐，下次详情／起播付全额重建——抖动一次慢两次。
                 int strikes = detailEmptyStrikes.computeIfAbsent(strikeKey, k -> new AtomicInteger()).incrementAndGet();
@@ -685,6 +719,9 @@ public class SiteApi {
                 }
             } else {
                 detailEmptyStrikes.remove(strikeKey);
+                // 真详情回来则桩登记一并清掉：极端情形下坏源回过同形回声、后续恢复正常时，
+                // 详情页不再被旧登记永久退回（与计次清零同一语义）。
+                actionStubs.remove(strikeKey);
                 detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             }
             result.getVod().setFlags();

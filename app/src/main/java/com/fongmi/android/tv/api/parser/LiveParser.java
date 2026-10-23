@@ -65,14 +65,28 @@ public class LiveParser {
     }
 
     public static void start(Live live) throws Exception {
+        start(live, false);
+    }
+
+    /** 后台/自动解析用：蜘蛛静默加载（PY 失败不弹 Toast、只落强制日志）。 */
+    public static void startQuiet(Live live) throws Exception {
+        start(live, true);
+    }
+
+    private static void start(Live live, boolean quiet) throws Exception {
         if (!live.getGroups().isEmpty()) return;
-        String text = getText(live);
+        String text = quiet ? getTextQuiet(live) : getText(live);
         if (Json.isArray(text)) json(live, text);
         else text(live, text);
     }
 
     private static String getText(Live live) throws Exception {
         if (!live.getApi().isEmpty()) return live.spider().liveContent(live.getUrl());
+        return OkHttp.string(UrlUtil.convert(live.getUrl()), live.getHeaders());
+    }
+
+    private static String getTextQuiet(Live live) throws Exception {
+        if (!live.getApi().isEmpty()) return live.spiderQuiet().liveContent(live.getUrl());
         return OkHttp.string(UrlUtil.convert(live.getUrl()), live.getHeaders());
     }
 

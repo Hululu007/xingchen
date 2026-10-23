@@ -259,16 +259,30 @@ public class HkHttp {
             "http://gh.haikuoshijie.cn/https://github.com/qiusunshine/hiker-rules/blob/master/dns0.txt";
 
     /**
-     * APK 内置名单快照（8.83 DohProvidersKt$loadAutoDNSFromRemote$1 的内置文本，
-     * 四条记录：01xs.com→360 DoH、raw.githubusercontent.com / github.com /
+     * APK 内置名单快照（前四条为 8.83 DohProvidersKt$loadAutoDNSFromRemote$1 的
+     * 内置文本：01xs.com→360 DoH、raw.githubusercontent.com / github.com /
      * haikuoshijie.cn→阿里 DoH。smali 原文四条记录之间无分隔符、按原版解析法
      * 只会解出一条坏记录，这里按记录边界补回换行，记录内容一字未改）。
+     * 后十条为星辰补入：用户海阔规则原件里实测在用的图床域名（8.83 靠服务端
+     * 名单覆盖这类域名，那份数据不在包里；逐条出处见 hk-tuchuang-fix.md），
+     * 解析方式统一阿里 DoH。名单判定是后缀匹配，写父域名即覆盖其子域名
+     * （如 missav888.com 覆盖 static.missav888.com、vinua.cn 覆盖 img.vinua.cn）。
      */
     private static final String AUTO_DNS_BUNDLED =
             "01xs.com https://doh.360.cn/dns-query\n"
                     + "raw.githubusercontent.com https://dns.alidns.com/dns-query\n"
                     + "github.com https://dns.alidns.com/dns-query\n"
-                    + "haikuoshijie.cn https://dns.alidns.com/dns-query";
+                    + "haikuoshijie.cn https://dns.alidns.com/dns-query\n"
+                    + "spfm.xn--49sx5y1jln6s.cn https://dns.alidns.com/dns-query\n"
+                    + "missav888.com https://dns.alidns.com/dns-query\n"
+                    + "mogua.co https://dns.alidns.com/dns-query\n"
+                    + "vinua.cn https://dns.alidns.com/dns-query\n"
+                    + "thumbsnap.com https://dns.alidns.com/dns-query\n"
+                    + "ax1x.com https://dns.alidns.com/dns-query\n"
+                    + "sinaimg.cn https://dns.alidns.com/dns-query\n"
+                    + "postimg.cc https://dns.alidns.com/dns-query\n"
+                    + "bmp.ovh https://dns.alidns.com/dns-query\n"
+                    + "hikerfans.com https://dns.alidns.com/dns-query";
 
     /** 名单刷新间隔：24 小时（8.83 原版常量 0x5265c00 毫秒）。 */
     private static final long AUTO_DNS_REFRESH_MS = 86_400_000L;
@@ -350,6 +364,11 @@ public class HkHttp {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** 自动 DNS 总开关（dnsAuto）的对外只读口径：图片失败换解析重试等兜底以此为闸——用户指定了 DoH（总开关关）时不许兜底覆盖其设置。 */
+    public static boolean autoDnsEnabled() {
+        return dnsAuto;
     }
 
     /**

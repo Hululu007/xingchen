@@ -346,15 +346,7 @@ public class HkRouter {
         }
         // 1.5 P1：pics:// 漫画多图模式（非视频，记入 pics 列表，UI 提示不支持但不崩）
         if (u.startsWith("pics://")) {
-            String rest = HkParserKit.clearTag(u.substring(7).trim());
-            // 8.83 按字面 "&&" 分隔；旧写法 "[\\n&&]+" 是字符类，
-            // 图片地址查询参数里的 & 会被切碎。先按行拆、再按字面 && 拆。
-            for (String line : rest.split("\\n")) {
-                for (String p : line.split("&&")) {
-                    String t = p.trim();
-                    if (!t.isEmpty()) out.addPic(t);
-                }
-            }
+            parsePicsInto(u, out);
             return out;
         }
         // 1.6 P1：特殊协议识别（ed2k/magnet/thunder/ftp），原样透传给播放器。
@@ -409,7 +401,7 @@ public class HkRouter {
                     }
                     return out;
                 }
-                applyLazyResult(real, out, 0);
+                applyLazyResult(real, out, 0, pageUrl);
                 if (out.isEmpty()) {
                     throw new IllegalStateException("海阔 @rule=js: 懒解析未返回播放地址，请换一条试试");
                 }
@@ -434,7 +426,8 @@ public class HkRouter {
                 }
                 return out;
             }
-            applyLazyResult(real, out, 0);
+            // js: 整段以自身为 MY_URL 求值，没有真实宿主页面，产出页传空
+            applyLazyResult(real, out, 0, "");
             if (out.isEmpty()) {
                 throw new IllegalStateException("海阔 js: 懒解析未返回播放地址，请换一条试试");
             }
@@ -531,6 +524,23 @@ public class HkRouter {
     }
 
     /**
+     * pics:// 串解析（play 步骤 1.5 与 applyLazyResult 的 pics 分支共用同一口径，
+     * 防两处漂移）：清标记后先按行拆、再按字面 "&&" 拆——8.83 按字面 "&&" 分隔；
+     * 旧写法 "[\\n&&]+" 是字符类，图片地址查询参数里的 & 会被切碎。
+     *
+     * @param picsUrl 以 {@code pics://} 开头的完整串
+     */
+    private static void parsePicsInto(String picsUrl, HkPlay out) {
+        String rest = HkParserKit.clearTag(picsUrl.substring(7).trim());
+        for (String line : rest.split("\\n")) {
+            for (String p : line.split("&&")) {
+                String t = p.trim();
+                if (!t.isEmpty()) out.addPic(t);
+            }
+        }
+    }
+
+    /**
      * 解析 {@code @lazyRule=}：{@code .js:}/{@code js:} 开头走 JS 独立作用域求值，
      * 否则把规则当选择器对剧集页提单个地址（{@code .js:} 值后缀由选择器内部处理）。
      */
@@ -540,14 +550,29 @@ public class HkRouter {
      * 干净地址为止；旧实现直接对整串做 splitEnhancement，花括号匹配会跨进
      * 脚本里、把第二段懒规则连同地址一起毁掉，最终把 uri: 串塞给播放器报
      * Malformed URL——1.3.23 真机日志实证）。深度上限 3 防死循环。
+     *
+     * @param pageUrl 本次求值实际跑的页面地址（产出该结果的页面），
+     *                结果是 pics 时记入 {@link HkPlay#setPageUrl}；调用方
+     *                拿不到真实页面（如 js: 整段以自身为 MY_URL）时传空串。
      */
-    private void applyLazyResult(String v, HkPlay out, int depth) {
+    private void applyLazyResult(String v, HkPlay out, int depth, String pageUrl) {
         v = v.trim();
         // 懒解析直接返回播放数据 JSON 时当场拆开，否则整串会被当播放地址塞给播放器
         if (v.startsWith("{") && v.contains("\"urls\"") && parsePlayJson(v, out)) return;
         // 懒解析结果是 webRule:// 嗅探串时走网页嗅探（P1），不再原样塞播放器
         if (v.regionMatches(true, 0, "webRule://", 0, 10)) {
             resolveWebRule(v, out);
+            return;
+        }
+        // 懒解析现算出的 pics:// 是漫画多图（与步骤 1.5 同语义）：记入 pics 列表
+        // 供上层分流进阅读器，绝不许落到末尾当视频地址吞掉（复核报告 §3——
+        // 此前无此分支，lazy 现算的漫画集被当播放地址、阅读器永远进不去）。
+        // 产出页（本次求值实际跑的页面）一并记入 out，供分流时作会话页面地址。
+        if (v.startsWith("pics://")) {
+            parsePicsInto(v, out);
+            if (pageUrl != null && !pageUrl.isEmpty()) out.setPageUrl(pageUrl);
+            SpiderDebug.log("hk", "lazy resolved pics rule=%s pics=%d host=%s",
+                    rule.getTitle(), out.getPics().size(), hostOf(out.getPageUrl()));
             return;
         }
         int lr = v.indexOf("@lazyRule=");
@@ -589,7 +614,7 @@ public class HkRouter {
                 v = engine.getSelector().evalField(html, r, pageUrl);
             }
             if (!TextUtils.isEmpty(v)) {
-                applyLazyResult(v, out, depth);
+                applyLazyResult(v, out, depth, pageUrl);
             } else {
                 // 空结果也留痕到文件日志：规则解析失败（如福建兄妹抠不到 playUrl 时
                 // 懒函数抛错/回空）此前只进 logcat，他发来的日志里看不见、定不了案。

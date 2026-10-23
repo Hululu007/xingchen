@@ -193,7 +193,9 @@ public class HealthActivity extends BaseActivity {
             Site site = VodConfig.get().getSite(item.key);
             if (site == null || site.isEmpty()) site = dynamicSites.get(item.key);
             if (site == null || site.isEmpty()) return false;
-            Spider spider = site.spider();
+            // 批量检测走静默加载（同 PluginActivity 健康检查口径）：坏源只记检测结果＋强制日志，
+            // 不许逐个弹「PY加载失败」刷屏。
+            Spider spider = site.spiderQuiet();
             String json = callSpider(() -> spider.homeContent(true));
             Result result = Result.fromJson(json);
             if (result != null && result.getList() != null && !result.getList().isEmpty()) return true;

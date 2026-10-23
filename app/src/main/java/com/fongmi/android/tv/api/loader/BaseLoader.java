@@ -116,10 +116,16 @@ public class BaseLoader {
         else return new SpiderNull();
     }
 
-    /** 健康检查用：静默加载（PY 失败不弹 Toast，结果由调用方统一展示）。 */
+    /**
+     * 静默加载（PY 失败不弹 Toast、只落强制日志，结果由调用方统一展示）。
+     * 健康检查与后台路径（首页预热／蜘蛛预热／直播配置自动解析）共用：
+     * JS 本就不弹 Toast 走原路；jar 蜘蛛同样不弹 Toast（JarLoader 只落强制日志），
+     * 走原路保证混合类型后台路径的预热语义与前台一致，不因静默把 jar 源漏暖。
+     */
     public Spider getSpiderQuiet(String key, String api, String ext, String jar) {
         if (isPy(api)) return pyLoader.getSpiderQuiet(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
+        else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
         else return new SpiderNull();
     }
 

@@ -31,8 +31,10 @@ public class VisualizerRhythmSource implements MusicRhythmSource {
     private final Context appContext;
     private Visualizer visualizer;
     private int sessionId;
-    private boolean running;
-    private long lastCaptureMs;
+    /** 待裁8：捕获回调在 Visualizer 自己的线程上跑（不走 start/stop 的 synchronized），
+     * running 与 lastCaptureMs 都必须 volatile，否则跨线程读写无可见性保证。 */
+    private volatile boolean running;
+    private volatile long lastCaptureMs;
     private volatile float envA;
     private volatile float envB;
 
@@ -129,6 +131,9 @@ public class VisualizerRhythmSource implements MusicRhythmSource {
 
         @Override
         public void onFftDataCapture(Visualizer visualizer, byte[] fft, int samplingRate) {
+            // 待裁8：停/释放后迟到的回调不许再写包络——releaseLocked 刚把 envA/envB 归 0，
+            // 迟到一帧就会把旧包络复活、继续喂消费方（与类头「停后包络保持 0」相悖）。
+            if (!running) return;
             try {
                 float target = bassLevel(fft, samplingRate);
                 long now = SystemClock.uptimeMillis();

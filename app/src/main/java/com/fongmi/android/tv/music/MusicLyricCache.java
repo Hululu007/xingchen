@@ -98,10 +98,13 @@ public class MusicLyricCache {
         synchronized (MEM) {
             MEM.remove(key);
         }
-        try {
-            File f = diskFile(key);
-            if (f != null && f.isFile()) f.delete();
-        } catch (Throwable ignored) {
+        // 与 writeDisk 同锁：在途写盘改名不许把刚删掉的键又写回来
+        synchronized (DISK_LOCK) {
+            try {
+                File f = diskFile(key);
+                if (f != null && f.isFile()) f.delete();
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -175,22 +178,43 @@ public class MusicLyricCache {
         return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 
+    /** 待裁26：写盘串行锁——并行取词路（预取／下载／双调用）可同键并发 put，
+     * 两路直写同一文件会交错写坏；改临时文件写完再改名，读者也永不见半截文件。 */
+    private static final Object DISK_LOCK = new Object();
+
     private static void writeDisk(String key, MusicLyric lyric) {
-        try {
-            File f = diskFile(key);
-            if (f == null) return;
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(f));
+        synchronized (DISK_LOCK) {
             try {
-                writeString(out, lyric.rawLrc);
-                writeString(out, lyric.translation);
-                writeString(out, lyric.romanization);
-                writeString(out, lyric.format);
-                writeString(out, lyric.sourceName);
-            } finally {
-                out.close();
+                File f = diskFile(key);
+                if (f == null) return;
+                File tmp = new File(f.getPath() + ".tmp");
+                DataOutputStream out = new DataOutputStream(new FileOutputStream(tmp));
+                try {
+                    writeString(out, lyric.rawLrc);
+                    writeString(out, lyric.translation);
+                    writeString(out, lyric.romanization);
+                    writeString(out, lyric.format);
+                    writeString(out, lyric.sourceName);
+                } finally {
+                    out.close();
+                }
+                if (!tmp.renameTo(f)) {
+                    // 改名失败（如个别文件系统跨卷）退回直写，仍在锁内不交错
+                    DataOutputStream direct = new DataOutputStream(new FileOutputStream(f));
+                    try {
+                        writeString(direct, lyric.rawLrc);
+                        writeString(direct, lyric.translation);
+                        writeString(direct, lyric.romanization);
+                        writeString(direct, lyric.format);
+                        writeString(direct, lyric.sourceName);
+                    } finally {
+                        direct.close();
+                    }
+                    tmp.delete();
+                }
+                trimDisk();
+            } catch (Throwable ignored) {
             }
-            trimDisk();
-        } catch (Throwable ignored) {
         }
     }
 

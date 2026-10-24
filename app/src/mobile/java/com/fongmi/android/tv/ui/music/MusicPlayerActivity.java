@@ -2361,7 +2361,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 // favScale 上行段 GZ 实证：tween(200ms, bs4.b 字段=(0,0,0,1)) 到 1.045，随后 spring(0.9, 300) 回落
                 wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
                         .setInterpolator(INTERP_BEZ_0001)
-                        .withEndAction(() -> startCoverScaleSpring(wrap))
+                        // 待裁10：页已销毁时不许再起 spring——帧循环会对着已 detach 的
+                        // wrap 继续写缩放（虽自收敛、无崩点，但属销毁后动画，白跑且持引用）
+                        .withEndAction(() -> {
+                            if (!destroyed) startCoverScaleSpring(wrap);
+                        })
                         .start();
                 startRipple(wrap, e.getX(), e.getY());
                 try {
@@ -2431,6 +2435,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         coverScaleSpringCallback = new android.view.Choreographer.FrameCallback() {
             @Override
             public void doFrame(long frameTimeNanos) {
+                // 待裁10：spring 跑到一半页面销毁——立即收链，不再续帧
+                if (destroyed) {
+                    coverScaleSpringCallback = null;
+                    return;
+                }
                 long nowMs = android.os.SystemClock.uptimeMillis();
                 float dt = coverScaleSpringLastMs == 0 ? 0.016f
                         : Math.min(0.05f, (nowMs - coverScaleSpringLastMs) / 1000f);

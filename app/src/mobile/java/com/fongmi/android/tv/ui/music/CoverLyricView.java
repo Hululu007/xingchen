@@ -229,7 +229,12 @@ public class CoverLyricView extends View {
     }
 
     private void postFrame() {
-        if (framePosted || !playing || lines.isEmpty()) return;
+        if (framePosted || lines.isEmpty()) return;
+        // 待裁7：暂停不许把模糊趋近冻在半路——帧回调本身已按「暂停且无趋近在跑才停」
+        // 收口（见 frameCallback），投递侧却带 !playing 守卫，暂停后只剩一帧、链即断，
+        // 趋近停在中间值。与全屏面（FullLyricView 无 playing 守卫）对齐：暂停时只要
+        // 还有趋近在跑就续投，趋近结算完帧链自停，不空转。
+        if (!playing && !blurApproach.hasRunning(SystemClock.elapsedRealtime())) return;
         framePosted = true;
         choreographer.postFrameCallback(frameCallback);
     }

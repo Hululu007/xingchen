@@ -83,6 +83,9 @@ public class MusicPlaylistActivity extends BaseActivity {
     private String sheetSearchKw = "";
     private int sheetSort = 0; // 0 歌单原顺序 1 加入时间从新到旧 2 加入时间从旧到新 3 按歌曲名 4 按专辑名 5 按歌手名
     private boolean sheetMulti;
+    /** 待裁4：选中集存复合身份 trackKey（platform|id）——歌单条目唯一键是
+     * (playlistId, trackId, platform)，只按 trackId 选会让同 id 异源两行同显已选、
+     * 删除连坐（与编前扫查「歌单移除复合身份」同口径）。 */
     private final java.util.Set<String> sheetSelected = new java.util.HashSet<>();
     private boolean sheetSearchWired;
     private boolean sheetSearchShown;
@@ -384,11 +387,15 @@ public class MusicPlaylistActivity extends BaseActivity {
             setSheetMulti(false);
             return;
         }
-        java.util.Set<String> ids = new java.util.HashSet<>(sheetSelected);
+        java.util.Set<String> keys = new java.util.HashSet<>(sheetSelected);
         Task.execute(() -> {
             try {
-                for (String id : ids) {
-                    com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao().delete(playlistId, id);
+                // 待裁4：按复合身份逐行删（trackId＋platform 三参 delete），
+                // 只按 trackId 的两参 delete 会把同 id 异源行一并删掉
+                for (MusicTrack t : new java.util.ArrayList<>(sheetAll)) {
+                    if (t.id == null || !keys.contains(MusicQueue.trackKey(t))) continue;
+                    com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao()
+                            .delete(playlistId, t.id, t.platform);
                 }
             } catch (Throwable ignored) {
             }
@@ -1194,7 +1201,7 @@ public class MusicPlaylistActivity extends BaseActivity {
                 ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
             }
             if (sheetMulti) {
-                boolean sel = t.id != null && sheetSelected.contains(t.id);
+                boolean sel = t.id != null && sheetSelected.contains(MusicQueue.trackKey(t));
                 android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
                 circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                 int s24 = dp(24);
@@ -1206,8 +1213,9 @@ public class MusicPlaylistActivity extends BaseActivity {
                 h.more.setPadding(p6, p6, p6, p6);
                 android.view.View.OnClickListener toggle = v -> {
                     if (t.id != null) {
-                        if (sheetSelected.contains(t.id)) sheetSelected.remove(t.id);
-                        else sheetSelected.add(t.id);
+                        String key = MusicQueue.trackKey(t);
+                        if (sheetSelected.contains(key)) sheetSelected.remove(key);
+                        else sheetSelected.add(key);
                     }
                     adapter.notifyItemChanged(1);
                     adapter.notifyDataSetChanged();

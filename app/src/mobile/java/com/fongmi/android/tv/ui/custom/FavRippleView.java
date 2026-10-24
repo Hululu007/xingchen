@@ -33,6 +33,14 @@ public class FavRippleView extends View {
 
     /** 在 (x, y)（本视图坐标）起涟漪；x<0 表示以画布中心为心。 */
     public void startRipple(float x, float y) {
+        // 待裁9：同实例重入先撤旧动画——旧动画的结束／取消回调会 removeSelf，
+        // 不摘监听就撤会把新涟漪连带移除；先摘监听再 cancel 即静默收旧动画。
+        // 现接线每次双击都新建实例、此路不可达，仅作实例级加固，接线行为不变。
+        if (animator != null && animator.isRunning()) {
+            animator.removeAllListeners();
+            animator.removeAllUpdateListeners();
+            animator.cancel();
+        }
         centerX = x;
         centerY = y;
         progress = 0f;

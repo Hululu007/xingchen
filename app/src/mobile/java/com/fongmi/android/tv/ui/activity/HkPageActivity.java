@@ -4003,13 +4003,13 @@ public class HkPageActivity extends BaseActivity {
                     java.util.ArrayList<String> urls =
                             new java.util.ArrayList<>(HkRouter.parsePics(url));
                     if (!HkRouter.hasLoadablePic(urls)) {
-                        // 空体/无可加载 http 图：不开空阅读器，可见提示＋强制留底。
+                        // 入口无图不许拦（fix4）：阅读器自带回退解析（会话图→章节串
+                        // →router.play 重取→书源），入口一拦全灭——1.4.19 真机
+                        // 「漫画详情页都进不去」的根。只强制留底，照常组会话进阅读器。
                         com.github.catvod.crawler.SpiderDebug.forceLog("hk",
-                                "pics empty at page entry rule=%s pics=%d page=%s",
+                                "pics empty at page entry (proceed) rule=%s pics=%d page=%s",
                                 currentRule == null ? "" : currentRule.getTitle(),
                                 urls.size(), hkPageUrl);
-                        ToastUtil.show(this, "无图片", android.widget.Toast.LENGTH_SHORT);
-                        return;
                     }
                     ReadingSession s = new ReadingSession();
                     s.kind = ReadingSession.Kind.COMIC;

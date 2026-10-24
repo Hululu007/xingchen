@@ -1141,12 +1141,38 @@ public class SiteApi {
             return comicResult;
         }
         if (play.isPicsAttempted()) {
-            // 是 pics:// 漫画但拆完无有效图（规则产出空体等）：不许静默落进
-            // 下面的视频装配（空地址只剩 00:00、无报错），强制留底＋抛可见错，
-            // 与懒解析空结果同口径（HkRouter play 步骤 4）。
-            SpiderDebug.forceLog("hk", "pics empty no-divert rule=%s pics=%d page=%s",
+            // 是 pics:// 漫画但分流门没接（图空/条目不合门的判据）：不许抛错
+            // 拦详情（fix4——1.4.19 真机「漫画详情页都进不去」的根），也
+            // 不许落进下面的视频装配。组最小漫画会话交阅读器：会话图先行，
+            // 空时阅读器自带 router.play(章地址) 回退重取，不在此处判死。
+            SpiderDebug.forceLog("hk", "pics no-divert fallback-session rule=%s pics=%d page=%s",
                     title, play.getPics().size(), play.getPageUrl());
-            throw new IllegalStateException("无图片");
+            ReadingSession fallback = new ReadingSession();
+            fallback.kind = ReadingSession.Kind.COMIC;
+            fallback.sourceName = title;
+            fallback.ruleTitle = title;
+            fallback.bookTitle = "";
+            fallback.chapterUrl = id;
+            ReadingSession.Chapter fc = new ReadingSession.Chapter("", id);
+            fallback.chapters.add(fc);
+            fallback.chapterIndex = 0;
+            fallback.images = new java.util.ArrayList<>(play.getPics());
+            String producedPage = play.getPageUrl();
+            if (producedPage != null && (producedPage.startsWith("http://")
+                    || producedPage.startsWith("https://"))) {
+                fallback.pageUrl = producedPage;
+            }
+            java.util.Map<String, String> playHeaders = play.getHeaders();
+            if (playHeaders != null) {
+                fallback.playHeaders.putAll(playHeaders);
+                String ref = playHeaders.get("Referer");
+                if (ref != null) fallback.referer = ref;
+            }
+            Result fallbackResult = new Result();
+            fallbackResult.setReadingSession(fallback);
+            fallbackResult.setKey(key);
+            fallbackResult.setFlag(flag);
+            return fallbackResult;
         }
         // P2 多线路：按 (规则名,剧集) 记忆的线路下标取线（默认首线），
         // 该线路的地址+请求头按下标取、不跨线路合并（8.83 getPlayData/getHeaders 语义）

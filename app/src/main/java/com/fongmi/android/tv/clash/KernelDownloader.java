@@ -29,13 +29,13 @@ public final class KernelDownloader {
      * 老用户下次开节点开关会自动重新下载新内核（升级通道）。
      * 换版本时必须同步更新 EXPECTED_SHA256。
      */
-    public static final String DEFAULT_KERNEL_VERSION = "1.19.32";
+    public static final String DEFAULT_KERNEL_VERSION = "1.19.33";
 
     /** 期望的文件名：mihomo-android-arm64-v8-v{version}.gz（注意官方包名带 -v8）。 */
     private static final String ASSET_NAME = "mihomo-android-arm64-v8-v%s.gz";
 
     /** 本版内核包的 SHA256（托管在自有仓库的 gz 包实测值）。换版本时同步更新。 */
-    private static final String EXPECTED_SHA256 = "42b1f2be8702484d3ae6238daab392622f54bd0d264966700f1f28f52596e326";
+    private static final String EXPECTED_SHA256 = "2ddbd3aaa884f52b4568f406876ec81dddeef9f1bb67b90d4004d356e2c6a708";
 
     /** 最小合法体积（小于此值视为下载损坏）。 */
     private static final long MIN_GZ_BYTES = 5L * 1024 * 1024;

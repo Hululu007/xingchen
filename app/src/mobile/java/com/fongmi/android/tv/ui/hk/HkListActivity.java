@@ -546,16 +546,14 @@ public class HkListActivity extends AppCompatActivity
                                         HkArticleFragment.PictureListRequest request) {
                 if (activity == null || request == null) return;
                 try {
-                    // 空体守卫（全入口最后一道）：拆完无可加载 http 图不许开空阅读器，
-                    // 可见提示＋强制留底——旧口径裸组会话、失败只写 Log.e 静默吞。
+                    // 入口无图不许拦（fix4）：阅读器自带回退解析（会话图→章节串
+                    // →router.play 重取→书源），入口一拦全灭——1.4.19 真机
+                    // 「漫画详情页都进不去」的根。只强制留底，照常组会话进阅读器。
                     if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(request.pics)) {
                         com.github.catvod.crawler.SpiderDebug.forceLog("hk",
-                                "pics empty at openPictureList pics=%d reqUrl=%s",
+                                "pics empty at openPictureList (proceed) pics=%d reqUrl=%s",
                                 request.pics == null ? 0 : request.pics.size(),
                                 request.url == null ? "" : request.url);
-                        com.fongmi.android.tv.utils.ToastUtil.show(activity, "无图片",
-                                android.widget.Toast.LENGTH_SHORT);
-                        return;
                     }
                     ReadingSession s = new ReadingSession();
                     s.kind = ReadingSession.Kind.COMIC;

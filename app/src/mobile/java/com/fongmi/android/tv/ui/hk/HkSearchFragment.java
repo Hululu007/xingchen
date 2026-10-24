@@ -704,13 +704,11 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             String pageUrl = cleanSearchPageUrl(result == null ? "" : result.getUrl());
             if (pageUrl.isEmpty()) pageUrl = cleanSearchPageUrl(myUrl);
             if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(pics)) {
+                // 入口无图不许拦（fix4）：阅读器自带回退解析（会话图→章节串
+                // →router.play 重取→书源），入口一拦全灭——1.4.19 真机
+                // 「漫画详情页都进不去」的根。只强制留底，照常组会话进阅读器。
                 com.github.catvod.crawler.SpiderDebug.forceLog("hk",
-                        "pics empty at search entry pics=%d page=%s", pics.size(), pageUrl);
-                if (getContext() != null) {
-                    com.fongmi.android.tv.utils.ToastUtil.show(getContext(), "无图片",
-                            android.widget.Toast.LENGTH_SHORT);
-                }
-                return;
+                        "pics empty at search entry (proceed) pics=%d page=%s", pics.size(), pageUrl);
             }
             HkArticleFragment.PictureListRequest req = new HkArticleFragment.PictureListRequest();
             req.pics = pics;

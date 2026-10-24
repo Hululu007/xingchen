@@ -2434,11 +2434,12 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             // req.url 下游当 pageUrl/Referer 用，假地址算出假域、图必死。
             String pageUrl = chapterPageUrl(item, pics);
             if (!com.fongmi.android.tv.api.hk.HkRouter.hasLoadablePic(pics)) {
-                SpiderDebug.forceLog("hk", "pics empty at article entry rule=%s pics=%d page=%s",
+                // 入口无图不许拦（fix4）：阅读器自带回退解析（会话图→章节串
+                // →router.play 重取→书源），入口一拦全灭——1.4.19 真机
+                // 「漫画详情页都进不去」的根。只强制留底，照常组会话进阅读器。
+                SpiderDebug.forceLog("hk", "pics empty at article entry (proceed) rule=%s pics=%d page=%s",
                         articleListRule == null ? "" : articleListRule.getTitle(),
                         pics.size(), pageUrl);
-                toastCenter("无图片");
-                return;
             }
             PictureListRequest req = new PictureListRequest();
             req.pics = pics;

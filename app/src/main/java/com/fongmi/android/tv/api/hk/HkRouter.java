@@ -559,7 +559,10 @@ public class HkRouter {
      * 拆完是否有可加载的图：至少一条以 http:// 或 https:// 开头
      * （条目可带 {@code @Referer=} 等后缀，不影响前缀判定）。
      * 空体（"pics://" 后无内容）与全是非 http 条目都算无图——
-     * 各入口据此守卫：不许开空阅读器，须给可见提示＋强制留底。
+     * 此判据只许作各入口的强制留底判据，**不许据此拦入口**
+     * （fix4）：阅读器自带回退解析（会话图→章节串→router.play
+     * 重取→书源），入口判空只是入口这一刻的拆分结果，判死
+     * 会把整条回退链一并掐断（1.4.19 真机「漫画详情页都进不去」）。
      */
     public static boolean hasLoadablePic(java.util.List<String> pics) {
         if (pics == null) return false;

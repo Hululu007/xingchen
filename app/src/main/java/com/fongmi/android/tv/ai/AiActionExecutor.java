@@ -107,7 +107,7 @@ public class AiActionExecutor {
                     if (top == null) return "打开失败，请重试";
                     Class<?> cls = Class.forName("com.fongmi.android.tv.ui.activity.MusicSearchActivity");
                     android.content.Intent intent = new android.content.Intent(top, cls);
-                    intent.putExtra("mode", "search");
+                    // 扫查待裁 5：原多写 mode 无人读（搜索页只读 keyword），已摘
                     intent.putExtra("keyword", kw);
                     top.startActivity(intent);
                     return "正在搜" + kw;

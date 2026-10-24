@@ -644,25 +644,25 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             }
             if ("site".equals(params.get("mode"))) {
                 // 拆页 p12：site 已独立成页，落点改指 MusicSiteActivity；
-                // extras 五件逐字不变（新页 initView 读 sitePlatform/title/keyword 三件）。
+                // extras 逐字不变（新页 initView 读 sitePlatform/title/keyword 三件；
+                // 扫查待裁 5：playlistId 新页不读，原多写一件已摘）。
                 android.content.Intent i = new android.content.Intent(host,
                         com.fongmi.android.tv.ui.activity.MusicSiteActivity.class);
                 i.putExtra("mode", params.get("mode"));
                 i.putExtra("keyword", keyword == null ? "" : keyword);
                 i.putExtra("sitePlatform", params.get("sitePlatform"));
-                i.putExtra("playlistId", pid);
                 i.putExtra("title", title == null ? "" : title);
                 return i;
             }
             // 拆页 p11：通用兜底＝旧壳默认支（tracks 语义：无 mode／未知 mode／只有 title
             // 等其余情形在旧壳一律落 tracks 空列表页），落点换独立页 MusicTracksActivity，
-            // extras 五件逐字不变（新页 initView 同名同值读取）。
+            // extras 逐字不变（新页 initView 读 mode/keyword/sitePlatform/title 四件；
+            // 扫查待裁 5：playlistId 新页不读，原多写一件已摘）。
             android.content.Intent i = new android.content.Intent(host,
                     com.fongmi.android.tv.ui.activity.MusicTracksActivity.class);
             i.putExtra("mode", params.get("mode"));
             i.putExtra("keyword", keyword == null ? "" : keyword);
             i.putExtra("sitePlatform", params.get("sitePlatform"));
-            i.putExtra("playlistId", pid);
             i.putExtra("title", title == null ? "" : title);
             return i;
         }

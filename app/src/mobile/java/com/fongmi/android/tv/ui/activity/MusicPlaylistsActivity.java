@@ -410,14 +410,17 @@ public class MusicPlaylistsActivity extends BaseActivity {
         });
     }
 
-    /** list 路由参数照旧口径（行内整单播放的入队来源：mode=sheets＋playlistId=-1＋title=页标题） */
-    private java.util.Map<String, String> listRouteParams() {
+    /** 行内整单播放的入队来源参数：播的是歌单 p 本人，身份照歌单详情页口径
+     * （mode=sheet＋playlistId=p 的 id＋title=p 名）——旧写法报 mode=sheets＋
+     * playlistId=-1，队列来源跳转只能落歌单列表、落不回该歌单（扫查待裁 3）。
+     * 本页自身不再有整页入队点，此参数只服务行内播放入口。 */
+    private java.util.Map<String, String> sheetRouteParams(MusicPlaylist p) {
         java.util.Map<String, String> params = new java.util.HashMap<>();
-        params.put("mode", "sheets");
+        params.put("mode", "sheet");
         params.put("keyword", "");
         params.put("sitePlatform", "");
-        params.put("playlistId", "-1");
-        params.put("title", bigTitle == null ? "" : bigTitle);
+        params.put("playlistId", String.valueOf(p.getId()));
+        params.put("title", p.getName() == null ? "" : p.getName());
         return params;
     }
 
@@ -1285,7 +1288,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
                     Notify.show(R.string.music_no_track);
                     return;
                 }
-                MusicController.get().play(new ArrayList<>(list), 0, p.getName(), "list", listRouteParams());
+                MusicController.get().play(new ArrayList<>(list), 0, p.getName(), "list", sheetRouteParams(p));
             }));
             h.rowMore.setOnClickListener(v -> sheetLongPress(p));
         }

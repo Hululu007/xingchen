@@ -89,10 +89,10 @@ public class MusicPluginsActivity extends BaseActivity {
     /** X-08：重建时待回滚的列表滚动状态，数据到位后在 onResume 一次性回滚。 */
     private android.os.Parcelable pendingListState;
 
-    /** 入口同名迁移：无 extras（插件管理是自足页），契约与旧壳 startSites 逐字同。 */
+    /** 入口同名迁移：无 extras（插件管理是自足页），契约与旧壳 startSites 逐字同。
+     * （扫查待裁 5：原先多写一件 mode 无人读、与本注释自相矛盾，已摘。） */
     public static void startSites(Activity activity) {
         Intent i = new Intent(activity, MusicPluginsActivity.class);
-        i.putExtra("mode", "sites");
         activity.startActivity(i);
     }
 

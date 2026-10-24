@@ -262,7 +262,10 @@ public final class MusicHomeChartStore {
             selName = obj.has("selName") && !obj.get("selName").isJsonNull() ? obj.get("selName").getAsString() : null;
             selKey = obj.has("selKey") && !obj.get("selKey").isJsonNull() ? obj.get("selKey").getAsString() : null;
             tracks = readTracks;
-            tone = obj.has("tone") ? obj.get("tone").getAsInt() : 0;
+            // 扫查待裁 6：tone 缺失（或坏值 0＝全透明，取色永不产出此值）时回落默认红，
+            // 不再回落 0 让下划线先画一帧透明黑再跳变
+            tone = obj.has("tone") ? obj.get("tone").getAsInt() : TONE_DEFAULT;
+            if (tone == 0) tone = TONE_DEFAULT;
             toneCover = obj.has("toneCover") && !obj.get("toneCover").isJsonNull() ? obj.get("toneCover").getAsString() : "";
             toneSet = obj.has("toneSet") && obj.get("toneSet").getAsBoolean();
             cacheAt = obj.has("cacheAt") ? obj.get("cacheAt").getAsLong() : 0;

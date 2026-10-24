@@ -4717,7 +4717,27 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onRotate() {
         setR1Callback();
         setRotate(!isRotate());
-        setRequestedOrientation(PlaybackOrientation.getRotateOrientation(isRotate()));
+        // 先藏控件再请求方向：系统旋转转场会冻取发起那刻的整窗拷贝盖在新界面上，
+        // 控件在拷贝里就会成顶部残影条。现成 hideControl() 是 200ms 淡出而非同步消失，
+        // 必须等它定格（控件根 GONE）后的第一帧才发请求，拷贝里只剩干净视频帧。
+        hideControl();
+        requestRotateWhenControlGone();
+    }
+
+    private void requestRotateWhenControlGone() {
+        View controlRoot = mBinding.control.getRoot();
+        if (controlRoot.getVisibility() == View.GONE) {
+            setRequestedOrientation(PlaybackOrientation.getRotateOrientation(isRotate()));
+            return;
+        }
+        controlRoot.postOnAnimation(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                if (controlRoot.getVisibility() == View.GONE) setRequestedOrientation(PlaybackOrientation.getRotateOrientation(isRotate()));
+                else controlRoot.postOnAnimation(this);
+            }
+        });
     }
 
     private void onFullscreen() {

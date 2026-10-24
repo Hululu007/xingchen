@@ -6454,13 +6454,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         if (TextUtils.isEmpty(url)) return "";
         // hiker://empty 等非 http 协议直接返回空（由上层按形态分流）
         if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
-        // 8.83 原版：fetch 不走 generateRequestOptions，不自动补 UA（smali 实证）。
-        // 之前 mergeMobileUa 是偏离 8.83 的行为，已移除。
+        // UA 口径：不无条件补（8.83 裸 fetch 亦不补、无条件补移动 UA 的旧做法已撤），
+        // 但规则自己声明了 ua 时按声明补——见下方注入段。
         boolean withHeaders = false;
         boolean withStatusCode = false;
         boolean onlyHeaders = false;
         try {
-            Req req = TextUtils.isEmpty(optionsJson) ? Req.objectFrom("{}") : Req.objectFrom(optionsJson);
             // 开关一律解析 options JSON 取值；此前用子串扫整个 options 字符串，
             // 正文里含同名 JSON 键会被误判进包装分支
             com.google.gson.JsonObject optObj = null;
@@ -6471,6 +6470,41 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                 }
             } catch (Throwable ignored) {
             }
+            // 规则声明了 ua 且 options 没自带 User-Agent 时，按规则声明补上。
+            // 站点常按 UA 分模板：漫小肆声明 mobile，其章节页只有移动模板里
+            // 有 #cp_img 容器，桌面/okhttp UA 拿到的是另一套模板、选择器取空
+            // → pics:// 空体、漫画零图（本机实测对照：移动 UA 取 262 图，
+            // 桌面与 okhttp UA 取 0 图；pdfa 用本仓 Parser 实跑无误）。
+            // 未声明 ua 的规则不碰，保持原行为；页面直取那条路（HkEngine/
+            // HkRouter）早就用 resolvedUa，JS fetch 此前是唯一漏掉的一条。
+            HkRule boundRule = rule;
+            if (boundRule != null && !TextUtils.isEmpty(boundRule.getUa())) {
+                if (optObj == null) optObj = new com.google.gson.JsonObject();
+                com.google.gson.JsonObject hdrs = null;
+                if (optObj.has("headers") && optObj.get("headers").isJsonObject()) {
+                    hdrs = optObj.getAsJsonObject("headers");
+                } else if (optObj.has("header") && optObj.get("header").isJsonObject()) {
+                    hdrs = optObj.getAsJsonObject("header");
+                }
+                boolean hasUa = false;
+                if (hdrs != null) {
+                    for (String k : hdrs.keySet()) {
+                        if ("User-Agent".equalsIgnoreCase(k)) {
+                            hasUa = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasUa) {
+                    if (hdrs == null) {
+                        hdrs = new com.google.gson.JsonObject();
+                        optObj.add("headers", hdrs);
+                    }
+                    hdrs.addProperty("User-Agent", boundRule.resolvedUa());
+                    optionsJson = GSON.toJson(optObj);
+                }
+            }
+            Req req = TextUtils.isEmpty(optionsJson) ? Req.objectFrom("{}") : Req.objectFrom(optionsJson);
             withHeaders = optFlag(optObj, "withHeaders");
             withStatusCode = optFlag(optObj, "withStatusCode");
             boolean toHex = optFlag(optObj, "toHex");

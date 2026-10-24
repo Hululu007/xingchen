@@ -144,9 +144,6 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
 
     @Override
     public void onDestroyView() {
-        if (EventBus.getDefault().isRegistered(this)) {
-            EventBus.getDefault().unregister(this);
-        }
         super.onDestroyView();
     }
 
@@ -172,9 +169,6 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         } else {
             smartRefreshLayout.setEnableAutoLoadMore(false);
             smartRefreshLayout.setEnableLoadMore(false);
-        }
-        if (!EventBus.getDefault().isRegistered(this)) {
-            EventBus.getDefault().register(this);
         }
         recyclerView = root.findViewById(R.id.search_recycleview_v2);
         LinearLayoutManager manager = new LinearLayoutManager(getContext());

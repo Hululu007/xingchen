@@ -6,6 +6,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 
@@ -53,15 +54,28 @@ public final class MusicHomeChartStore {
     private MusicHomeChartStore() {
     }
 
-    /** 磁盘快照形态：字段名即存盘契约，与旧快照文件逐字一致，升级直接读通。 */
+    /**
+     * 磁盘快照形态：键名即存盘契约，与旧快照文件逐字一致，升级直接读通。
+     * 键名必须钉在 @SerializedName 上：写盘走反射字段名、读盘走字面键，
+     * R8 一改字段名两侧即不对称、快照同版往返静默失效（编前扫查实证：
+     * proguard 的旧 keep 指向已删的 MusicActivity$HomeChartSnapshot，新类一度裸奔）。
+     */
     private static class Snapshot {
+        @SerializedName("tabs")
         public List<MusicChart> tabs;
+        @SerializedName("selName")
         public String selName;
+        @SerializedName("selKey")
         public String selKey;
+        @SerializedName("tracks")
         public List<MusicTrack> tracks;
+        @SerializedName("tone")
         public int tone;
+        @SerializedName("toneCover")
         public String toneCover;
+        @SerializedName("toneSet")
         public boolean toneSet;
+        @SerializedName("cacheAt")
         public long cacheAt;
     }
 

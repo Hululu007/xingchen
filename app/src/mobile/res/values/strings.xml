@@ -425,4 +425,24 @@
     <string name="sheet_queue_hint">长按拖动调整顺序</string>
     <string name="sheet_queue_empty">队列为空</string>
 
+    <!-- 批 3：封面卡片展开态／Apple 歌曲信息页（文案照瓜子 SongInfoPageKt 字面） -->
+    <string name="music_info_back_cover">返回到封面模式</string>
+    <string name="music_info_section_tech">技术规格</string>
+    <string name="music_info_section_lyric">歌词</string>
+    <string name="music_info_platform">平台</string>
+    <string name="music_info_song_id">歌曲 ID</string>
+    <string name="music_info_quality_request">音质请求</string>
+    <string name="music_info_plugin">来源插件</string>
+    <string name="music_info_format">格式</string>
+    <string name="music_info_bit_depth">位深</string>
+    <string name="music_info_bitrate">比特率</string>
+    <string name="music_info_channels">声道</string>
+    <string name="music_info_duration">时长</string>
+    <string name="music_info_lyric_channel">加载通道</string>
+    <string name="music_info_lyric_lines">总行数</string>
+    <string name="music_info_empty">暂无播放，播放后自动刷新查看</string>
+    <string name="music_unknown_album">未知专辑</string>
+    <string name="music_info_chip_translation">翻译</string>
+    <string name="music_info_chip_roma">罗马音</string>
+
 </resources>

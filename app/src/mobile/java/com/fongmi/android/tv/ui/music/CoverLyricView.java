@@ -55,6 +55,7 @@ public class CoverLyricView extends View {
     private float fontSizeSp = 22f;
     private int blurLevel = 2;
     private boolean showSub = true;
+    private boolean alignCenter;
     private String emptyText = "";
     private OnLineClickListener lineClickListener;
 
@@ -120,6 +121,17 @@ public class CoverLyricView extends View {
     public void setShowSub(boolean show) {
         showSub = show;
         invalidate();
+    }
+
+    /** 居中对齐（批 3 封面卡片展开态歌词，§3：对齐居中；默认左对齐为经典口径）。 */
+    public void setAlignCenter(boolean center) {
+        alignCenter = center;
+        invalidate();
+    }
+
+    /** 当前行序号（宿主玻璃条单行歌词取当前行文本用）。 */
+    public int currentIndex() {
+        return currentIndex;
     }
 
     public void setEmptyText(String text) {
@@ -256,17 +268,27 @@ public class CoverLyricView extends View {
             int distance = currentIndex < 0 ? i : Math.abs(i - currentIndex);
             boolean current = i == currentIndex;
             LyricsLine line = lines.get(i);
+            float rowX = x;
+            if (alignCenter) {
+                float textW = drawer.measureMain(line.getText());
+                rowX = x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
+            }
             if (current) {
                 drawer.drawCurrentMain(canvas, line, pos - line.getTimeMs(), lineDurationMs(i),
-                        x, baseline, width);
+                        rowX, baseline, width);
             } else {
-                drawIdleMain(canvas, line.getText(), x, baseline, blockTop, width, distance);
+                drawIdleMain(canvas, line.getText(), rowX, baseline, blockTop, width, distance);
             }
             if (showSub) {
                 String sub = i < subs.size() ? subs.get(i) : null;
                 if (sub != null && !sub.isEmpty()) {
                     float subBaseline = baseline + subLineHeightPx() * 0.92f;
-                    drawer.drawSub(canvas, sub, x, subBaseline, width, current);
+                    float subX = x;
+                    if (alignCenter) {
+                        float subW = drawer.measureSub(sub);
+                        subX = x + Math.max(0f, (width - Math.min(width, subW)) / 2f);
+                    }
+                    drawer.drawSub(canvas, sub, subX, subBaseline, width, current);
                 }
             }
             baseline += slot;

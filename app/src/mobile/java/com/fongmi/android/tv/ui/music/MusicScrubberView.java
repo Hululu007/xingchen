@@ -31,6 +31,10 @@ public class MusicScrubberView extends View {
     private float fraction;
     private boolean dragging;
     private float trackDp = 4f;
+    private float trackIdleDp = 4f;
+    private float trackDragDp = 5f;
+    private float playedIdleAlpha = 0.42f;
+    private float playedDragAlpha = 0.78f;
     private ValueAnimator trackAnimator;
     private OnScrubListener listener;
 
@@ -44,6 +48,20 @@ public class MusicScrubberView extends View {
 
     public void setOnScrubListener(OnScrubListener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * 主题变体口径（批 3）：轨高（闲置／拖动）与已播透明度（闲置／激活）。
+     * 默认值即瓜子 Scrubber 默认口径（经典／封面卡片展开态：4/5dp、0.42/0.78）；
+     * Apple 主题传 6/7dp、0.58/0.90（§2）。底轨透明度 0.14/0.22 两主题同值，不另设。
+     */
+    public void setVariant(float idleTrackDp, float dragTrackDp, float idlePlayedAlpha, float dragPlayedAlpha) {
+        trackIdleDp = idleTrackDp;
+        trackDragDp = dragTrackDp;
+        trackDp = idleTrackDp;
+        playedIdleAlpha = idlePlayedAlpha;
+        playedDragAlpha = dragPlayedAlpha;
+        invalidate();
     }
 
     public boolean isDragging() {
@@ -85,7 +103,7 @@ public class MusicScrubberView extends View {
         // 已播条
         float filled = w * Math.max(0f, Math.min(1f, fraction));
         if (filled > 0) {
-            paint.setAlpha(Math.round(255f * (dragging ? 0.78f : 0.42f)));
+            paint.setAlpha(Math.round(255f * (dragging ? playedDragAlpha : playedIdleAlpha)));
             rect.set(0, top, filled, top + trackPx);
             canvas.drawRoundRect(rect, radius, radius, paint);
         }
@@ -102,7 +120,7 @@ public class MusicScrubberView extends View {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 dragging = true;
-                animateTrack(5f);
+                animateTrack(trackDragDp);
                 fraction = fractionFor(event.getX());
                 if (listener != null) listener.onScrubbing(fraction);
                 invalidate();
@@ -120,13 +138,13 @@ public class MusicScrubberView extends View {
                     if (listener != null) listener.onScrubCommit(fraction);
                 }
                 dragging = false;
-                animateTrack(4f);
+                animateTrack(trackIdleDp);
                 invalidate();
                 performClick();
                 return true;
             case MotionEvent.ACTION_CANCEL:
                 dragging = false;
-                animateTrack(4f);
+                animateTrack(trackIdleDp);
                 invalidate();
                 return true;
             default:

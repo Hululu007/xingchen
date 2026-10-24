@@ -28,6 +28,8 @@ public class PlayerPageSwipeLayout extends FrameLayout {
     private TextView hintView;
     private String hintNextText;
     private String hintPrevText;
+    /** 默认开（经典口径）；Apple 主题关——其歌词页要竖滚、播放页是横滑 pager，竖滑切歌会抢手势（批 3）。 */
+    private boolean swipeEnabled = true;
 
     private float downX;
     private float downY;
@@ -60,6 +62,15 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         swipeListener = listener;
     }
 
+    public void setSwipeEnabled(boolean enabled) {
+        swipeEnabled = enabled;
+        if (!enabled) {
+            tracking = false;
+            setTranslationY(0f);
+            if (hintView != null) hintView.setVisibility(View.GONE);
+        }
+    }
+
     public void setSwipeHintView(TextView hint, String nextText, String prevText) {
         hintView = hint;
         hintNextText = nextText;
@@ -78,6 +89,7 @@ public class PlayerPageSwipeLayout extends FrameLayout {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (!swipeEnabled) return false;
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = ev.getX();
@@ -113,6 +125,7 @@ public class PlayerPageSwipeLayout extends FrameLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
+        if (!swipeEnabled) return false;
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = ev.getX();

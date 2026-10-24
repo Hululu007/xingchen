@@ -104,6 +104,10 @@ public class VisualizerRhythmSource implements MusicRhythmSource {
     private void releaseLocked() {
         running = false;
         sessionId = 0;
+        // 释放即包络归 0：start 失败路（权限被拒/构造抛错）只走本方法，
+        // 不清会把上一会话的包络残值冻结着继续喂消费方，与类头「失败包络保持 0」口径相悖
+        envA = 0f;
+        envB = 0f;
         Visualizer v = visualizer;
         visualizer = null;
         if (v != null) {

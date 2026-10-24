@@ -32,8 +32,11 @@ import java.util.Map;
  * 行高＝字号×1.3、横向垫 28dp（布局 padding 给）、行距 6dp、顶渐隐 40dp；
  * 副行随行（字号×0.62、行高＝副行字号×4/3、字重 500）；当前行锚定在渐隐区下方（top 档口径），
  * 沉浸滚动跟随；手指拖动浏览，松手 5 秒回锚（旧引擎 APPLE_BROWSE_REANCHOR_DELAY 同值）；
- * 点行＝seek（定案）；非当前行模糊＋压暗（档位系数与半径量化同内嵌，距离项沿旧引擎应用侧等价式，
- * 源头公式 §19 第 2 项未抠到）；字斜 SKEW=-0.12 定案（LyricLineDrawer 统一挂）。
+ * 点行＝seek（定案）；非当前行模糊＋压暗（档位系数与半径量化同内嵌，模糊强度↔距离公式未抠到、
+ * 沿旧引擎应用侧等价式不动；压暗口径经批 2 补正改向录屏平台，见 drawIdleRow 注）；
+ * 字斜 SKEW=-0.12 定案（LyricLineDrawer 统一挂）。
+ * 本视图是沉浸页绘制路径（LiveWordLiftLine，LyricLineDrawer.setImmersive(true) 在 init 置位）：
+ * 长音缩放只给单字 CJK＋逐字错峰＋正弦字母浮，与内嵌的 WordByWordText 路径口径相反，归属见补正报告。
  * 长行按词／字宽折行（不截断——全屏是沉浸通读，折行口径照录屏实帧当前行折行形态；
  * 内嵌窗口的 D-11 截断省略只在 CoverLyricView）。
  */
@@ -113,6 +116,8 @@ public class FullLyricView extends View {
 
     private void init() {
         setLayerType(Build.VERSION.SDK_INT >= 31 ? LAYER_TYPE_HARDWARE : LAYER_TYPE_SOFTWARE, null);
+        // 沉浸页路径（LiveWordLiftLine）：长音缩放／扇形／字母浮走逐字错峰口径，与内嵌 WordByWordText 路径分工。
+        drawer.setImmersive(true);
         applyFontSize();
     }
 
@@ -449,10 +454,24 @@ public class FullLyricView extends View {
         paint.setShader(null);
     }
 
-    /** 非当前行：压暗（距离衰减沿旧引擎应用侧等价式 max(0.35, 0.85-距离×0.16)，源头公式未抠到）＋模糊。 */
+    /**
+     * 非当前行：压暗＋模糊。压暗经批 2 补正改向录屏口径（审计 §4）：原 max(0.35, 0.85-距离×0.16)
+     * 在 +3 行合成 ≈0.11、比录屏同距离（≈0.27）暗一倍多，作废。新式：以 palette 非当前 0.30 为基
+     * （录屏相对不透明度平台 0.2–0.3），行 alpha 不再随距离线性压暗、只走顶／底渐隐趋近——
+     * 顶渐隐 smoothstep (3-2t)t²（审计 §4 源码注记 :457–477）、底渐隐 bottomFadeKeep 分段曲线
+     * （源码实读转写，见下）。注：行 alpha 的源头状态函数未抠到（在未反编译的引擎本体内），
+     * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式未抠到、维持等价式不动。
+     * palette 颜色自带 alpha 会被 drawIdleMain 的 setAlpha 覆盖，故 0.30 以行 alpha 形式落。
+     */
     private void drawIdleRow(Canvas canvas, String text, float x, float baseline, float blockTop,
                              int width, int distance) {
-        int alpha = Math.round(255f * Math.max(0.35f, 0.85f - distance * 0.16f));
+        float fadePx = TOP_FADE_DP * getResources().getDisplayMetrics().density;
+        float relTop = blockTop - getPaddingTop();
+        float topT = LyricWordEngine.clampF(fadePx > 0f ? relTop / fadePx : 1f, 0f, 1f);
+        float topKeep = (3f - 2f * topT) * topT * topT;
+        float relY = LyricWordEngine.clampF(relTop / Math.max(1f, (float) getHeight()), 0f, 1f);
+        float bottomKeep = bottomFadeKeep(relY, 0.45f);
+        int alpha = Math.round(255f * 0.30f * topKeep * bottomKeep);
         float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
         boolean blurWanted = radius > 0f && distance > 0;
@@ -492,6 +511,24 @@ public class FullLyricView extends View {
             blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
             return null;
         }
+    }
+
+    /**
+     * 底渐隐保留曲线（源码 bottomFadeKeep 实读转写）：停点 {0, 0.3, 0.55, 0.78, 1} →
+     * 保留 {1, 0.85, 0.62, 0.48, endKeep}，段内以 smoothstep (3-2t)t² 插值；endKeep 默认 0.45（源码 default）。
+     */
+    private static float bottomFadeKeep(float f, float endKeep) {
+        float[] stops = {0f, 0.3f, 0.55f, 0.78f, 1f};
+        float[] keeps = {1f, 0.85f, 0.62f, 0.48f, endKeep};
+        float v = LyricWordEngine.clampF(f, 0f, 1f);
+        for (int i = 0; i < 4; i++) {
+            if (v <= stops[i + 1]) {
+                float t = (v - stops[i]) / (stops[i + 1] - stops[i]);
+                float smooth = (3f - 2f * t) * t * t;
+                return keeps[i] + (keeps[i + 1] - keeps[i]) * smooth;
+            }
+        }
+        return keeps[4];
     }
 
     /** API≥31 非当前行 RenderNode 录行（不许 discardDisplayList，旧引擎实证教训，同 CoverLyricView）。 */

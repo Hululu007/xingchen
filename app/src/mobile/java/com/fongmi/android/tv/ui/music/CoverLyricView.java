@@ -27,6 +27,8 @@ import java.util.Map;
  * 字号默认 22sp 粗体（700）、行高＝字号×4/3、行距 20dp、横向边距由布局 padding 给（28dp）、左对齐；
  * 副行（翻译）字号＝主行×0.62、字重 500、默认开。
  * 逐字渲染走共享内核 LyricWordEngine＋LyricLineDrawer（逐字上浮 -0.09em、长音光晕、X-13 零时长守卫）；
+ * 本视图是 WordByWordText 绘制路径（LyricLineDrawer.setImmersive(false)，默认）：长音缩放只给非 CJK，
+ * 与全屏页的沉浸页路径口径相反，归属见 LyricLineDrawer 类头与批 2 补正报告；
  * 非当前行压暗（深色面非当前 白 0.30，即 palette 口径）＋模糊：档位系数 off 0／light 0.45／medium 1.0（§6.1），
  * 绘制半径＝round(强度×2)/2，API≥31 走 RenderEffect（RenderNode 录行），API＜31 走 BlurMaskFilter 等效
  * （旧引擎应用侧同口径）；强度随距离的源头公式在未反编译的 AnchoredLyricEngine 本体内（§19 第 2 项未抠到），
@@ -296,14 +298,15 @@ public class CoverLyricView extends View {
         }
     }
 
-    /** 非当前行：压暗＋模糊（距当前 ≥2 行才上模糊，与批 1 门槛一致；半径走 §6.1 量化）。
+    /** 非当前行：压暗＋模糊（距当前 ≥1 行即上模糊——批 2 补正对齐审计 §4：录屏 +1 行已明显模糊、
+     * 与 FullLyricView 的距离 >0 口径合；原 ≥2 门槛作废。半径走 §6.1 量化）。
      * 强度随距离的源头公式在未反编译的引擎本体内（§19 第 2 项未抠到）：此处沿旧引擎应用侧等价式
      * min(2＋距离×2.2, 12)×档位系数（px），再按 §6.1 量化到 0.5 步进，不冒充瓜子公式。 */
     private void drawIdleMain(Canvas canvas, String text, float x, float baseline, float blockTop,
                               int width, int distance) {
         float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
-        boolean blurWanted = distance >= 2 && radius > 0f;
+        boolean blurWanted = distance >= 1 && radius > 0f;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {
             if (SystemClock.elapsedRealtime() >= blurRetryAfterMs
                     && drawIdleWithEffect(canvas, text, x, baseline, blockTop, width, radius)) {

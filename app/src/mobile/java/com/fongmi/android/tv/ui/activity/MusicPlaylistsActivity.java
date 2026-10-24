@@ -58,7 +58,7 @@ import java.util.zip.GZIPInputStream;
  * 我的歌单列表独立页（拆页 p8）：GZ 页头（YOUR PLAYLISTS＋大标题＋多选／全部 pill）
  * ＋操作行（新建／导入／搜索）＋歌单行（马赛克封面＋名＋曲目数＋更新时间＋播放圆钮＋⋮）；
  * 数据走 MusicLibrary 歌单口径（存量救援读在 MusicLibrary／存储层，本页只消费）；
- * 行点击进歌单详情（p8 先照旧 intent 打壳 MusicListActivity 的 sheet 模式，p9 换新页）；
+ * 行点击进歌单详情独立页 MusicPlaylistActivity；
  * 导入歌单面板／登录导入／.lxmc 文件导入的接线只在本页可达，随本页自带。
  * 顶栏在旧页 sheets 下恒隐藏、本页不带；无返回箭头，走系统返回。
  */
@@ -1273,7 +1273,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 if (pos != RecyclerView.NO_POSITION) adapter.notifyItemChanged(pos);
             };
             h.itemView.setOnClickListener(sheetsMulti ? toggle
-                    : v -> MusicListActivity.startSheet(MusicPlaylistsActivity.this, p.getId(), p.getName()));
+                    : v -> MusicPlaylistActivity.startSheet(MusicPlaylistsActivity.this, p.getId(), p.getName()));
             h.itemView.setOnLongClickListener(v -> {
                 if (sheetsMulti) return false;
                 sheetLongPress(p);

@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 歌单详情独立页（拆页 p9，2026-10-25）：从 MusicListActivity 的 sheet 模式拆出。
+     构成照旧页 sheet 模式实际引用子集：顶栏（居中标题＝歌单名＋⋮）＋页内搜索框（⋮ 里打开）
+     ＋工具条（随机播放／播放全部／排序）＋列表（英雄卡＋操作行＋区头＋歌曲行，行布局复用
+     item_music_sheet_hero／actions／section／track）＋空态覆盖层。
+     旧页大标题行在 sheet 下恒隐藏、本页不带（页头＝列表内英雄卡）。
+     根与背景层照 activity_music_list.xml：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
+     无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/home_bg_page"
+    android:fitsSystemWindows="true">
+
+    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
+        android:id="@+id/musicGlassBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp">
+
+        <RelativeLayout
+            android:id="@+id/headerBar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp">
+
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:text="@string/music_playlist"
+                android:textColor="#1C1C1E"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/btnSearch"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:contentDescription="@string/music_search"
+                android:padding="12dp"
+                android:src="@drawable/ic_music_search"
+                android:visibility="gone" />
+
+            <!-- 歌单详情页顶栏 ⋮：刷新歌单／随机播放／搜索歌曲／排序歌曲／分享歌单／多选 -->
+            <ImageView
+                android:id="@+id/btnSheetMore"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_centerVertical="true"
+                android:layout_toStartOf="@id/btnSearch"
+                android:contentDescription="@string/player_more"
+                android:padding="12dp"
+                android:src="@drawable/ic_music_more"
+                android:visibility="gone" />
+        </RelativeLayout>
+
+        <!-- 页内搜索框（顶栏 ⋮ 里「搜索歌曲」打开时可见）：按歌名／歌手过滤本单曲目 -->
+        <EditText
+            android:id="@+id/etSheetSearch"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/home_bg_search"
+            android:hint="搜索歌曲"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:textColor="#1C1C1E"
+            android:textColorHint="#8E8E93"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/btnPlayAll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <ImageView
+                    android:id="@+id/ivPlayAllIcon"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@drawable/card_music"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_shuffle"
+                    android:tint="#FA243C" />
+
+                <TextView
+                    android:id="@+id/tvPlayAll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/music_shuffle_play"
+                    android:textColor="#9AA7B8"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnPlaySeq"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="8dp">
+
+                <ImageView
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@drawable/card_music"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_play"
+                    android:tint="#FA243C" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/music_play_all_order"
+                    android:textColor="#9AA7B8"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/btnSourceFilter"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_pill_overview"
+                android:gravity="center"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:text="全部来源 ▾"
+                android:textColor="#1C1C1E"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/btnSort"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/music_sort_default"
+                android:padding="12dp"
+                android:src="@drawable/ic_music_sort" />
+
+            <TextView
+                android:id="@+id/tvSortCurrent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#9AA7B8"
+                android:textSize="12sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="96dp" />
+    </LinearLayout>
+
+    <!-- 状态层（空状态与「正在加载…」共用）：根 FrameLayout 覆盖层、layout_gravity 居中锚定 -->
+    <TextView
+        android:id="@+id/empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:textColor="#9AA7B8"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</FrameLayout>

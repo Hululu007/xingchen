@@ -575,10 +575,18 @@ public class MusicPlaylistActivity extends BaseActivity {
 
     private void removeFromSheet(MusicTrack track) {
         Task.execute(() -> {
-            // 按 trackId 删
+            // 按行主键删：同歌单里同 trackId 异来源可并存，按 (playlistId, trackId) 删会连坐别家那行
+            // （与 MusicLibrary.replaceTrackInPlaylist 同口径：先按 trackId＋platform 复合身份定位到行）
             try {
-                com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao()
-                        .delete(playlistId, track.id);
+                com.fongmi.android.tv.db.dao.MusicPlaylistItemDao dao =
+                        com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao();
+                for (com.fongmi.android.tv.bean.MusicPlaylistItem item : dao.findByPlaylist(playlistId)) {
+                    if (item != null && track.id != null && track.id.equals(item.getTrackId())
+                            && java.util.Objects.equals(track.platform, item.getPlatform())) {
+                        dao.deleteById(item.getId());
+                        break;
+                    }
+                }
             } catch (Throwable ignored) {
             }
             runOnUiThread(this::loadSheetTracks);

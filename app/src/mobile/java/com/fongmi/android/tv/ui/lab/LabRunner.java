@@ -512,7 +512,16 @@ public final class LabRunner {
         String bin = new File(LabPaths.packageDir(c, pkgId), "bin").getAbsolutePath();
         String oldLd = env.get("LD_LIBRARY_PATH");
         String lib = LabRuntimeManager.libDir(c, runtime).getAbsolutePath();
-        String ld = bin + File.pathSeparator + lib;
+        // 运行时自己的 bin 必须在 LD 里：运行时是 Termux 布局，可执行文件与它的依赖 .so
+        // 同住 bin/，且二进制 RUNPATH 写死 Termux 前缀、在星辰目录下不存在。只靠 lib/
+        // 软链农场时，农场漏掉的版本化 SONAME（libz.so.1 一类）无处可达，进程在链接期
+        // 直接 CANNOT LINK EXECUTABLE。上游口径正是把环境 bin 内文件全体链进 sharedBin
+        // 再让 LD 指向它——星辰分家布局下的等价做法就是把运行时 bin 本人放进 LD。
+        Set<String> ldSet = new LinkedHashSet<>();
+        ldSet.add(bin);
+        if (!"none".equals(runtime)) ldSet.add(LabRuntimeManager.binDir(c, runtime).getAbsolutePath());
+        ldSet.add(lib);
+        String ld = join(ldSet, File.pathSeparator);
         env.put("LD_LIBRARY_PATH", TextUtils.isEmpty(oldLd) ? ld : ld + File.pathSeparator + oldLd);
         // Python 运行时证书下发：运行时是 Termux 构建，OpenSSL 默认证书路径写死在
         // Termux 前缀下、星辰目录里不存在，进程启动加载零根证书，任何 HTTPS 验真必挂

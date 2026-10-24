@@ -646,7 +646,10 @@ public final class LabRuntimeManager {
 
     /**
      * 共享库软链（上游 LabEnv.symlinkShared 口径的轻量版）：
-     * 把包内各级 lib 目录下的 .so 软链到 runtimes/<name>/lib/，进程 LD_LIBRARY_PATH 已指向它。
+     * 把包内各级的共享库软链到 runtimes/<name>/lib/，进程 LD_LIBRARY_PATH 已指向它。
+     * 收集口径必须含带版本号的 SONAME 文件（libz.so.1、libcrypto.so.3 一类）——ELF 的
+     * DT_NEEDED 记的正是这些名字，只认 .so 结尾会把它们整批漏掉。上游是 bin 内文件
+     * 不过滤全链，星辰这边按文件名过滤就必须把版本化名字放进来。
      * proot 那套重型软链（ubuntu rootfs）等 proot 钩子一起做，见报告。
      */
     private static void symlinkShared(Context ctx, String runtime, File dest) {
@@ -657,6 +660,10 @@ public final class LabRuntimeManager {
             collectSo(dest, sos, 0);
             for (File so : sos) {
                 File link = new File(lib, so.getName());
+                // 源文件就在落点目录里（包自带 lib/ 与落点同为 runtimes/<name>/lib 时）：
+                // 自链没有意义；落点已有真实文件（非软链）时不许覆盖，那是包自己的库。
+                if (link.getAbsolutePath().equals(so.getAbsolutePath())) continue;
+                if (link.exists() && !java.nio.file.Files.isSymbolicLink(link.toPath())) continue;
                 if (link.exists()) link.delete();
                 new ProcessBuilder("ln", "-sf", so.getAbsolutePath(), link.getAbsolutePath())
                         .start().waitFor();
@@ -671,8 +678,14 @@ public final class LabRuntimeManager {
         if (kids == null) return;
         for (File k : kids) {
             if (k.isDirectory()) collectSo(k, out, depth + 1);
-            else if (k.getName().endsWith(".so")) out.add(k);
+            else if (isSharedLib(k.getName())) out.add(k);
         }
+    }
+
+    /** 共享库文件名：libfoo.so 本名与 libfoo.so.1 / libfoo.so.1.3.2 版本化 SONAME 都算。 */
+    static boolean isSharedLib(String name) {
+        if (name.endsWith(".so")) return true;
+        return name.matches(".+\\.so\\.\\d+(\\.\\d+)*");
     }
 
     private static String fileNameOf(String url) {

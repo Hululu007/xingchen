@@ -157,12 +157,6 @@ public class MusicListActivity extends BaseActivity {
         activity.startActivity(i);
     }
 
-    public static void startGuess(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "guess");
-        activity.startActivity(i);
-    }
-
     public static void startSite(Activity activity, MusicSite site) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "site");
@@ -435,8 +429,7 @@ public class MusicListActivity extends BaseActivity {
         // 第 11 项：sheets 模式用 GZ 页头（YOUR PLAYLISTS＋大标题＋操作行），顶栏居中标题与大标题行、随机播放行都隐藏
         boolean sheets = mode.equals("sheets");
         boolean sheet = mode.equals("sheet");
-        boolean guess = mode.equals("guess");
-        binding.headerBar.setVisibility((sheets || guess) ? View.GONE : View.VISIBLE);
+        binding.headerBar.setVisibility(sheets ? View.GONE : View.VISIBLE);
         binding.sheetsHeader.setVisibility(sheets ? View.VISIBLE : View.GONE);
         binding.sheetsOpRow.setVisibility(sheets ? View.VISIBLE : View.GONE);
         // 非 sheets 时空态块复位藏起，空态显隐由 refreshSheetsEmpty 管。
@@ -446,10 +439,9 @@ public class MusicListActivity extends BaseActivity {
         if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(View.VISIBLE);
         if (!sheets) binding.sheetsEmpty.setVisibility(View.GONE);
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
-        // 第 9 项：猜你喜欢页同样用自己的标题＋英雄卡当页头，大标题行与工具条隐藏（播放／随机播／保存在英雄卡操作行）
         // 2026-10-22 搜索页重做：搜索模式大标题行隐藏——顶栏居中标题已是“搜索”，再留左侧大“搜索”就是截图里的双标题。
-        binding.bigTitleRow.setVisibility((sheets || sheet || guess || mode.equals("search")) ? View.GONE : View.VISIBLE);
-        binding.toolbar.setVisibility((mode.equals("sites") || sheets || guess) ? View.GONE : View.VISIBLE);
+        binding.bigTitleRow.setVisibility((sheets || sheet || mode.equals("search")) ? View.GONE : View.VISIBLE);
+        binding.toolbar.setVisibility((mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         if (binding.searchCancel != null) binding.searchCancel.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
@@ -462,10 +454,6 @@ public class MusicListActivity extends BaseActivity {
             case "sheets":
                 bigTitle = getString(R.string.music_playlist);
                 loadSheets();
-                break;
-            case "guess":
-                bigTitle = getString(R.string.music_guess);
-                loadGuess();
                 break;
             case "site":
                 loadSiteTracks();
@@ -495,8 +483,6 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_playlist);
             case "sites":
                 return getString(R.string.music_plugin_manage);
-            case "guess":
-                return getString(R.string.music_guess);
             default:
                 return getString(R.string.music_playlist);
         }
@@ -1209,93 +1195,6 @@ public class MusicListActivity extends BaseActivity {
         for (Long id : ids) MusicLibrary.deletePlaylist(id, null);
         setSheetsMulti(false);
         loadSheets();
-    }
-
-    /** 第 9 项：猜你喜欢线索数（文案「来自收藏与最近播放的 N 条线索」里的 N，收藏＋最近播放去重后条数） */
-    private int guessClueCount = 0;
-
-    /**
-     * 第 9 项：猜你喜欢。推荐算法待他定——先用本地已有数据简单轮换顶上，不假装是 GZ 的推荐算法：
-     * 收藏／最近播放／已下载三路轮流取、按 id 去重、上限 50 首。
-     * 设备媒体库扫描要权限流程，不在猜你喜欢页内触发（“本地”口径这里＝已下载本地文件）。
-     * 空态用 GZ 空文案；“推荐获取失败／重试”是拉取失败态，本地数据没有失败触发点，只显空态。
-     */
-    private void loadGuess() {
-        showLoading();
-        MusicLibrary.favorites(favs -> {
-            if (!mode.equals("guess")) return;
-            MusicDownloadStore.all(dls -> {
-                if (!mode.equals("guess")) return;
-                List<MusicTrack> recents = MusicStore.loadRecent();
-                List<MusicTrack> favList = favs == null ? new ArrayList<>() : favs;
-                List<MusicTrack> dlList = dls == null ? new ArrayList<>() : dls;
-                java.util.Set<String> clueSeen = new java.util.HashSet<>();
-                int clues = 0;
-                for (MusicTrack t : favList) if (t.id == null || clueSeen.add(t.id)) clues++;
-                for (MusicTrack t : recents) if (t.id == null || clueSeen.add(t.id)) clues++;
-                guessClueCount = clues;
-                final List<MusicTrack> pool = buildGuessPool(favList, recents, dlList);
-                runOnUiThread(() -> {
-                    if (!mode.equals("guess")) return;
-                    tracks.clear();
-                    tracks.addAll(pool);
-                    adapter.notifyDataSetChanged();
-                    binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
-                    if (tracks.isEmpty()) binding.empty.setText("熟悉的偏爱，也有意外的新发现\n多听几首，让推荐慢慢懂你");
-                });
-            });
-        });
-    }
-
-    /** 三路轮流取、按 id 去重、上限 50 首（收藏→最近播放→已下载，每轮各取 1 首） */
-    private List<MusicTrack> buildGuessPool(List<MusicTrack> favs, List<MusicTrack> recents, List<MusicTrack> dls) {
-        List<List<MusicTrack>> srcs = java.util.Arrays.asList(favs, recents, dls);
-        List<MusicTrack> pool = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        int max = Math.max(favs.size(), Math.max(recents.size(), dls.size()));
-        for (int i = 0; i < max && pool.size() < 50; i++) {
-            for (List<MusicTrack> s : srcs) {
-                if (pool.size() >= 50) break;
-                if (i >= s.size()) continue;
-                MusicTrack t = s.get(i);
-                if (t.id == null || seen.add(t.id)) pool.add(t);
-            }
-        }
-        return pool;
-    }
-
-    /** 第 9 项：猜你喜欢英雄卡跟随首张封面取色淡染（榜单 tintChartCard 同款口径，圆角 20dp，失败回落白卡） */
-    private void tintGuessHero(View cardRoot) {
-        String key = "guess";
-        cardRoot.setTag(key);
-        if (tracks.isEmpty() || tracks.get(0).cover == null || tracks.get(0).cover.isEmpty()) return;
-        ImgUtil.load(tracks.get(0).cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                if (!key.equals(cardRoot.getTag())) return;
-                Task.execute(() -> {
-                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                    int r = (int) (android.graphics.Color.red(dom) * 0.15f + 255 * 0.85f);
-                    int g = (int) (android.graphics.Color.green(dom) * 0.15f + 255 * 0.85f);
-                    int b = (int) (android.graphics.Color.blue(dom) * 0.15f + 255 * 0.85f);
-                    int tinted = android.graphics.Color.rgb(r, g, b);
-                    runOnUiThread(() -> {
-                        if (!key.equals(cardRoot.getTag())) return;
-                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-                        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                        d.setColor(tinted);
-                        d.setStroke(dp(1), 0x14000000);
-                        d.setCornerRadius(dp(20));
-                        cardRoot.setBackground(d);
-                    });
-                });
-            }
-
-            @Override
-            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-            }
-        });
     }
 
     private void loadSiteTracks() {
@@ -2823,7 +2722,7 @@ public class MusicListActivity extends BaseActivity {
 
     /**
      * tracks 下标 → adapter 位置（trackIndex 的逆映射，见 ListAdapter.trackIndex）：
-     * 歌单详情＋3、猜你喜欢＋3、
+     * 歌单详情＋3、
      * 其余模式＝下标。卡片视图（歌单／榜单列表）
      * 其余模式＝下标＋设备头（本地页 1、其它 0）。卡片视图（本地分组卡／歌单／榜单列表）
      * 下没有歌曲行，返回 -1 不刷行。
@@ -2831,7 +2730,6 @@ public class MusicListActivity extends BaseActivity {
     private int adapterPositionForTrack(int trackIdx) {
         if (adapter == null || trackIdx < 0 || trackIdx >= tracks.size()) return -1;
         if (mode.equals("sheet")) return trackIdx + 3;
-        if (mode.equals("guess")) return trackIdx + 3;
         return trackIdx;
     }
 
@@ -3721,10 +3619,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
         private static final int TYPE_SHEET_TRACK = 10;
-        private static final int TYPE_GUESS_TITLE = 16;
-        private static final int TYPE_GUESS_HERO = 17;
-        private static final int TYPE_GUESS_SECTION = 18;
-        private static final int TYPE_GUESS_TRACK = 19;
         /** 第二波：插件分组头（sites 列表内插项） */
         private static final int TYPE_PLUGIN_GROUP = 20;
 
@@ -3741,13 +3635,6 @@ public class MusicListActivity extends BaseActivity {
                 if (position == 1) return TYPE_SHEET_ACTIONS;
                 if (position == 2) return TYPE_SHEET_SECTION;
                 return TYPE_SHEET_TRACK;
-            }
-            // 第 9 项：猜你喜欢＝标题＋英雄卡＋精选区头＋精选行（标题与英雄卡随列表滚动，与 GZ 一致）
-            if (mode.equals("guess")) {
-                if (position == 0) return TYPE_GUESS_TITLE;
-                if (position == 1) return TYPE_GUESS_HERO;
-                if (position == 2) return TYPE_GUESS_SECTION;
-                return TYPE_GUESS_TRACK;
             }
             if (isCardMode()) {
                 // 第二波：插件分组头（sites 列表内插项，非插件行）
@@ -3811,18 +3698,6 @@ public class MusicListActivity extends BaseActivity {
             if (viewType == TYPE_SHEET_TRACK) {
                 return new SheetTrackHolder(inf.inflate(R.layout.item_music_sheet_track, parent, false));
             }
-            if (viewType == TYPE_GUESS_TITLE) {
-                return new GuessTitleHolder(inf.inflate(R.layout.item_music_guess_title, parent, false));
-            }
-            if (viewType == TYPE_GUESS_HERO) {
-                return new GuessHeroHolder(inf.inflate(R.layout.item_music_guess_hero, parent, false));
-            }
-            if (viewType == TYPE_GUESS_SECTION) {
-                return new GuessSectionHolder(inf.inflate(R.layout.item_music_guess_section, parent, false));
-            }
-            if (viewType == TYPE_GUESS_TRACK) {
-                return new GuessTrackHolder(inf.inflate(R.layout.item_music_guess_track, parent, false));
-            }
             if (viewType == TYPE_PLUGIN) {
                 return new PluginHolder(inf.inflate(R.layout.item_music_plugin, parent, false));
             }
@@ -3845,14 +3720,6 @@ public class MusicListActivity extends BaseActivity {
                 else bindSheetTrack((SheetTrackHolder) h, trackIndex(position));
                 return;
             }
-            // 第 9 项：猜你喜欢四类行
-            if (mode.equals("guess")) {
-                if (h instanceof GuessTitleHolder) return;
-                else if (h instanceof GuessHeroHolder) bindGuessHero((GuessHeroHolder) h);
-                else if (h instanceof GuessSectionHolder) bindGuessSection((GuessSectionHolder) h);
-                else bindGuessTrack((GuessTrackHolder) h, trackIndex(position));
-                return;
-            }
             if (h instanceof GroupHolder) {
                 // 第二波：插件分组头（cards 内插项，位置即 cards 下标）；右端计数＝其后连续插件卡数
                 Object o = cards.get(position);
@@ -3873,7 +3740,6 @@ public class MusicListActivity extends BaseActivity {
         /** 歌曲行在列表里的下标：歌单详情页前面有英雄卡／操作行／区头 3 行；其它模式减头行数 */
         private int trackIndex(int position) {
             if (mode.equals("sheet")) return position - 3;
-            if (mode.equals("guess")) return position - 3;
             return position - headerCount();
         }
 
@@ -4719,155 +4585,7 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-        /** 第 9 项：猜你喜欢四类行 ViewHolder（标题行是纯静态文案，无需字段） */
-        class GuessTitleHolder extends RecyclerView.ViewHolder {
-            GuessTitleHolder(View v) {
-                super(v);
-            }
-        }
-
-        class GuessHeroHolder extends RecyclerView.ViewHolder {
-            final View root;
-            final ImageView deckBack2;
-            final ImageView deckBack1;
-            final ImageView deckFront;
-            final TextView countNum;
-            final TextView clue;
-            final TextView btnPlayAll;
-            final ImageView btnShuffle;
-            final ImageView btnSave;
-
-            GuessHeroHolder(View v) {
-                super(v);
-                root = v.findViewById(R.id.guessHeroRoot);
-                deckBack2 = v.findViewById(R.id.deckBack2);
-                deckBack1 = v.findViewById(R.id.deckBack1);
-                deckFront = v.findViewById(R.id.deckFront);
-                countNum = v.findViewById(R.id.tvGuessCountNum);
-                clue = v.findViewById(R.id.tvGuessClue);
-                btnPlayAll = v.findViewById(R.id.btnGuessPlayAll);
-                btnShuffle = v.findViewById(R.id.btnGuessShuffle);
-                btnSave = v.findViewById(R.id.btnGuessSave);
-            }
-        }
-
-        class GuessSectionHolder extends RecyclerView.ViewHolder {
-            final TextView count;
-            final View btnRefresh;
-            final TextView tvRefresh;
-
-            GuessSectionHolder(View v) {
-                super(v);
-                count = v.findViewById(R.id.tvGuessSectionCount);
-                btnRefresh = v.findViewById(R.id.btnGuessRefresh);
-                tvRefresh = v.findViewById(R.id.tvGuessRefresh);
-            }
-        }
-
-        class GuessTrackHolder extends RecyclerView.ViewHolder {
-            final ImageView cover;
-            final TextView title;
-            final TextView artist;
-            final ImageView more;
-
-            GuessTrackHolder(View v) {
-                super(v);
-                cover = v.findViewById(R.id.cover);
-                title = v.findViewById(R.id.title);
-                artist = v.findViewById(R.id.artist);
-                more = v.findViewById(R.id.more);
-            }
-        }
-
-        private void bindGuessHero(GuessHeroHolder h) {
-            // 叠卡：前一张取第 1 首封面，后两张取第 2、3 首；不够 3 首的层直接隐藏，不编假封面
-            loadDeckCover(h.deckFront, tracks.size() > 0 ? tracks.get(0) : null);
-            loadDeckCover(h.deckBack1, tracks.size() > 1 ? tracks.get(1) : null);
-            loadDeckCover(h.deckBack2, tracks.size() > 2 ? tracks.get(2) : null);
-            h.countNum.setText(String.valueOf(tracks.size()));
-            h.clue.setText("来自收藏与最近播放的 " + guessClueCount + " 条线索\n越常听，越懂你");
-            // 英雄卡跟随首张封面取色淡染（同榜单玻璃卡口径，失败回落白卡）
-            tintGuessHero(h.root);
-            h.btnPlayAll.setOnClickListener(v -> {
-                if (tracks.isEmpty()) return;
-                MusicController.get().play(new ArrayList<>(tracks), 0, bigTitle, "list", listRouteParams());
-                MusicPlayerActivity.start(MusicListActivity.this);
-            });
-            h.btnShuffle.setBackground(circle(0xFFF2F2F7));
-            h.btnShuffle.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
-            h.btnShuffle.setOnClickListener(v -> {
-                if (tracks.isEmpty()) return;
-                List<MusicTrack> shuffled = new ArrayList<>(tracks);
-                Collections.shuffle(shuffled);
-                MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
-                MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
-                MusicPlayerActivity.start(MusicListActivity.this);
-            });
-            h.btnSave.setBackground(circle(0xFFF2F2F7));
-            h.btnSave.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
-            h.btnSave.setOnClickListener(v -> {
-                if (tracks.isEmpty()) return;
-                inputPlaylistName(name -> MusicLibrary.importPlaylist(name, new ArrayList<>(tracks), res -> {
-                    if (res.inserted <= 0) {
-                        Notify.show(R.string.music_import_err_empty);
-                        return;
-                    }
-                    Notify.show(getString(R.string.music_imported, res.playlist.getName(), res.inserted));
-                }));
-            });
-        }
-
-        private void loadDeckCover(ImageView iv, MusicTrack t) {
-            if (t == null || t.cover == null || t.cover.isEmpty()) {
-                iv.setVisibility(View.GONE);
-                return;
-            }
-            iv.setVisibility(View.VISIBLE);
-            ImgUtil.loadRounded16(t.displayTitle(), t.cover, iv);
-        }
-
-        private void bindGuessSection(GuessSectionHolder h) {
-            h.count.setText(tracks.size() + " 首");
-            // 第三波 R5：文案改“换个顺序”——重算做不到：loadGuess 的池是收藏／最近／已下载
-            // 三路轮流取的固定池，重跑得同一池；不叫“换一批”假装换了推荐，只做本地重排。
-            if (h.tvRefresh != null) h.tvRefresh.setText("换个顺序");
-            View.OnClickListener refresh = v -> {
-                // 换个顺序＝本地轮换池重排，不是 GZ 的推荐算法重算；英雄卡叠卡随新前 3 首一起换
-                Collections.shuffle(tracks);
-                notifyDataSetChanged();
-            };
-            h.btnRefresh.setOnClickListener(refresh);
-            h.tvRefresh.setOnClickListener(refresh);
-        }
-
-        private void bindGuessTrack(GuessTrackHolder h, int position) {
-            MusicTrack t = tracks.get(position);
-            MusicTrack cur = MusicController.get().current();
-            boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
-            h.title.setText(t.displayTitle());
-            // 共用行口径（批 5 F2）：歌名恒粗（布局 textStyle）＋#1A1A1A，在播行只变红名
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
-            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
-            StringBuilder second = new StringBuilder();
-            second.append(artistDisplay(t.displayArtist()));
-            if (t.album != null && !t.album.isEmpty()) second.append(" · ").append(t.album);
-            h.artist.setText(second.toString());
-            if (t.cover == null || t.cover.isEmpty()) {
-                try {
-                    com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
-                } catch (Throwable ignored) {
-                }
-                h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
-                        t.displayTitle(), false, 8 * h.cover.getResources().getDisplayMetrics().density));
-            } else {
-                ImgUtil.loadRounded(t.displayTitle(), t.cover, h.cover);
-            }
-            h.itemView.setOnClickListener(v -> playTrack(position));
-            h.more.setOnClickListener(v -> onMore(t, position));
-        }
-
         public int getItemCount() {
-            if (mode.equals("guess")) return tracks.isEmpty() ? 0 : 3 + tracks.size();
             if (isCardMode()) return cards.size();
             if (mode.equals("sheet")) return 3 + tracks.size();
             return tracks.size() + headerCount();

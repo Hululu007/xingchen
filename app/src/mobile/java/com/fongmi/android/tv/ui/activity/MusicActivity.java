@@ -160,7 +160,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickRecent.setOnClickListener(v -> showRecent());
         binding.homeQuickDownload.setOnClickListener(v -> MusicDownloadActivity.startDownload(this));
         // 三彩卡入口：猜你喜欢页／榜单页／随心听页（歌单广场不在此卡，入口在五快捷「我的歌单」）
-        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
+        binding.homeCardGuess.setOnClickListener(v -> MusicGuessActivity.startGuess(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicChartsActivity.startCharts(this));
         binding.homeCardShuffle.setOnClickListener(v -> MusicRandomActivity.start(this));
         initMoodCard();

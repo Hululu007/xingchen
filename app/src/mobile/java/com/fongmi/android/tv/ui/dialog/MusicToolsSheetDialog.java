@@ -1487,13 +1487,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             dismissAllowingStateLoss();
         }, firstSrc);
         box.addView(lyricSrcCard, marginTop(dp(12)));
+        // GZ T26：预览盒高 132dp（PlayerToolsSheetKt CoverLyricStylePanel），只有当前行歌词预览、无歌名大字。
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(160));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(132));
         previewLp.topMargin = dp(12);
         box.addView(buildLyricPreview(), previewLp);
-        // L5：字号双滑杆——全屏行（16–40）＋封面行（14–32），分别复位见恢复默认钮。
-        box.addView(buildLyricSizeRow(false), marginTop(dp(16)));
-        box.addView(buildLyricSizeRow(true), marginTop(dp(12)));
+        // 二-34 对差：GZ 工具面板字号滑杆只有一条（T27：14–32、绑封面歌词字号，标签「字号」）。
+        // 面板内原全屏字号行（16–40）移出——全屏字号在 GZ 不属工具面板（在全屏歌词页自身样式面板），
+        // 星辰对应入口在音乐设置页歌词字号行（仍写同一存量键 music_lyric_font_size，不孤儿）。
+        box.addView(buildLyricSizeRow(), marginTop(dp(16)));
         box.addView(lyricSegRow(getString(R.string.music_lyric_weight),
                 new String[]{getString(R.string.music_weight_normal), getString(R.string.music_weight_bold),
                         getString(R.string.music_weight_black)},
@@ -1543,16 +1545,17 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     if (on) showAdvancedFxConfirm();
                 }));
         box.addView(card, marginTop(dp(16)));
-        // 恢复默认钮高 28dp（L5：全屏字号 24／封面字号 22 分别复位；其余粗细／对齐口径不变）
+        // 恢复默认钮高 28dp（GZ T34 口径：字号 22／粗细第 0 档「标准」／靠左／模糊轻度；
+        // 全屏字号不属本面板，其复位在设置页字号对话框「恢复 24sp」）
         TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_DARK, false);
         restore.setGravity(Gravity.CENTER);
         restore.setBackgroundResource(R.drawable.bg_music_glass_card);
         restore.setElevation(dp(2));
         restore.setOnClickListener(v -> {
-            MusicStore.setLyricFontSize(24f);
             MusicStore.setCoverLyricFontSize(22f);
             MusicStore.setLyricWeight(MusicStore.LYRIC_WEIGHT_NORMAL);
             MusicStore.setLyricAlign(MusicStore.LYRIC_ALIGN_LEFT);
+            MusicStore.setCoverLyricBlurLevel(MusicStore.LYRIC_BLUR_LIGHT);
             fireLyricChanged();
             showPanel(PANEL_LYRIC);
         });
@@ -1574,36 +1577,27 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 .show();
     }
 
-    /** 顶部预览区（GZ T26）：歌名大字＋当前行歌词样例，歌词行按当前样式实时渲染（500ms 跟随播放进度）；
-     * 旧版只有歌词行、没有歌名大字——GZ 预览是“歌名大字卡＋歌词行样例”，此处补歌名（当前曲名，28sp 粗体，
-     * GZ 标题确切字号未抠到）；歌词行样式逻辑不动。 */
+    /** 顶部预览区（GZ T26：CoverLyricPreviewLine——只有当前行歌词预览，字号＝封面歌词字号、
+     * 字重／对齐随面板值，500ms 跟随播放进度；GZ 无歌名大字，二-34 对差已撤） */
     private View buildLyricPreview() {
         LinearLayout column = new LinearLayout(getContext());
         column.setOrientation(LinearLayout.VERTICAL);
         column.setBackgroundResource(R.drawable.bg_music_glass_preview);
         column.setElevation(dp(2));
         column.setPadding(dp(14), dp(8), dp(14), dp(8));
-        MusicTrack track = MusicController.get().current();
-        TextView title = text(track == null ? getString(R.string.music_no_track) : track.displayTitle(),
-                28, COLOR_TEXT, true);
-        title.setMaxLines(1);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        column.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         lyricPreview = text(getString(R.string.music_lyric_preview_sample), 22, COLOR_TEXT, false);
         lyricPreview.setMaxLines(2);
         lyricPreview.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        lp.topMargin = dp(4);
-        column.addView(lyricPreview, lp);
+        column.addView(lyricPreview, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         applyPreview();
         return column;
     }
 
     private void applyPreview() {
         if (lyricPreview == null) return;
-        lyricPreview.setTextSize(MusicStore.getLyricFontSize());
+        // 预览跟随本面板唯一滑杆（封面歌词字号）；全屏字号的预览在设置页字号对话框内
+        lyricPreview.setTextSize(MusicStore.getCoverLyricFontSize());
         int w = MusicStore.getLyricWeight();
         lyricPreview.setTypeface(w == MusicStore.LYRIC_WEIGHT_NORMAL ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
         lyricPreview.getPaint().setFakeBoldText(w == MusicStore.LYRIC_WEIGHT_BLACK);
@@ -1734,22 +1728,22 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
     }
 
-    /** 字号滑杆（L5 双键，GZ T27：封面歌词 14–32、全屏 16–40，取整、两端 A 示意字 11sp/16sp）；
-     * cover＝false 走全屏键（默认 24、16–40），true 走封面键（默认 22、14–32）；面板预览只跟全屏行，
-     * 封面行拖动只改数值 label、松手后经 fireLyricChanged 刷播放页内嵌字号。 */
-    private View buildLyricSizeRow(boolean cover) {
-        final float min = cover ? 14f : 16f;
-        final float max = cover ? 32f : 40f;
+    /** 字号滑杆（GZ T27：工具面板唯一一条，14–32、取整、两端 A 示意字 11sp/16sp，绑封面歌词字号键，
+     * 默认 22）；拖动实时刷预览字号＋数值 label，松手落键后经 fireLyricChanged 刷播放页内嵌歌词。
+     * 全屏字号（16–40、默认 24）不在本面板——入口在音乐设置页歌词字号行、同一存量键。 */
+    private View buildLyricSizeRow() {
+        final float min = 14f;
+        final float max = 32f;
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.VERTICAL);
         LinearLayout head = new LinearLayout(getContext());
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(text(cover ? "封面字号" : getString(R.string.music_lyric_font_size), 14, COLOR_TEXT, false),
+        head.addView(text(getString(R.string.music_lyric_font_size), 14, COLOR_TEXT, false),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        float cur0 = cover ? MusicStore.getCoverLyricFontSize() : MusicStore.getLyricFontSize();
+        float cur0 = MusicStore.getCoverLyricFontSize();
         final TextView valueView = text(String.valueOf(Math.round(cur0)), 11, COLOR_LOW, false);
-        if (!cover) lyricSizeValue = valueView;
+        lyricSizeValue = valueView;
         head.addView(valueView);
         row.addView(head);
         LinearLayout sliderRow = new LinearLayout(getContext());
@@ -1768,7 +1762,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (!fromUser) return;
                 float v = progress + min;
-                if (!cover && lyricPreview != null) lyricPreview.setTextSize(v);
+                if (lyricPreview != null) lyricPreview.setTextSize(v);
                 valueView.setText(String.valueOf(Math.round(v)));
             }
 
@@ -1778,11 +1772,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-                if (cover) MusicStore.setCoverLyricFontSize(seekBar.getProgress() + min);
-                else MusicStore.setLyricFontSize(seekBar.getProgress() + min);
-                float stored = cover ? MusicStore.getCoverLyricFontSize() : MusicStore.getLyricFontSize();
-                valueView.setText(String.valueOf(Math.round(stored)));
-                if (!cover) applyPreview();
+                MusicStore.setCoverLyricFontSize(seekBar.getProgress() + min);
+                valueView.setText(String.valueOf(Math.round(MusicStore.getCoverLyricFontSize())));
+                applyPreview();
                 fireLyricChanged();
             }
         });

@@ -7,8 +7,12 @@ import android.os.Looper;
 import java.util.List;
 
 /**
- * 开机（App 启动）恢复：照参照物，App 启动后延迟 3 秒——
- * 先恢复还活着的进程状态，再把开了自动启动的包拉起来。
+ * 开机（App 启动）恢复：先恢复还活着的进程状态，再按实验室总开关拉起服务。
+ * 自启门槛只有总开关一道（1.4.27 改定）：总开关开着，已部署服务一律拉起——
+ * 每服务自己的「自启」标记（包声明 autoStartDefault／用户覆盖 autoStart）此前
+ * 是第二道门，他的两个服务都没开过，于是总开关拨了跟没拨一样、静默不拉起，
+ * 且没有任何提示。从本版起 boot 不再读 autoStartOf：标记字段与环境页开关照旧
+ * 存读（存量数据不动），但不再决定起不起；总开关关着则一台都不拉。
  */
 public final class LabBoot {
 
@@ -33,12 +37,16 @@ public final class LabBoot {
     }
 
     /**
-     * 立即补跑一遍自启（实验室首页把总开关拨上时调）：此前总开关的唯一读者
-     * 是冷启那一遍 boot——开关落盘没问题，但用户在实验室里拨上它，本进程内
-     * 没有任何触发点，跟没拨一样。现在拨上即按同一套门槛（总开关＋每服务
-     * 自启＋环境已装＋没在跑）补跑，失败经 LabRunner 落运行记录。
+     * 立即补跑一遍自启。两个调用点：①App.onCreate（主源集经反射调进来，
+     * 抢在 HomeActivity 首读已选配置之前——已选配置若是实验室服务的本地
+     * 回环地址，服务没起来时首读必然连不上、必弹「配置取得失败」）；
+     * ②实验室首页把总开关拨上时（LabHomeActivity）。
+     * 门槛只有总开关＋环境已装＋没在跑，失败经 LabRunner 落运行记录。
+     * Node 宿主登记同步先做：配置加载随时可能调 RuntimeModule.NODEJS，
+     * 登记必须先于它（与 schedule 同口径，重复登记同义覆盖）。
      */
     public static void kick(Context ctx) {
+        LabNodeHost.register();
         final Context c = ctx.getApplicationContext();
         new Thread(() -> {
             try {
@@ -56,7 +64,6 @@ public final class LabBoot {
         List<LabRegistry.Svc> pkgs = reg.allServices();
         for (LabRegistry.Svc p : pkgs) {
             try {
-                if (!LabRegistry.autoStartOf(p)) continue;
                 if (LabRunner.isRunning(c, p.id)) continue;
                 String runtime = p.runtime == null ? "none" : p.runtime;
                 if (!"none".equals(runtime) && !LabRuntimeManager.isInstalled(c, runtime)) continue;
@@ -64,12 +71,11 @@ public final class LabBoot {
             } catch (Exception ignored) {
             }
         }
-        // 自启的对：自定义命令里开了开机自动运行的，也拉起来（变量值走缓存）
-        // 双门槛是有意的：包级 autoStartOf 不开，这个包的任何命令都不自启；
-        // 已在命令弹窗里把这一条写明（LabServiceActivity.showCustomCommandDialog），不是暗坑
+        // 自定义命令里开了开机自动运行的，也拉起来（变量值走缓存）。
+        // 与服务本体同一道门：只看总开关＋命令自己的 autoExecute，
+        // 不再叠包级 autoStartOf（命令弹窗的说明已同步改，见 LabServiceActivity）。
         for (LabRegistry.Svc p : pkgs) {
             try {
-                if (!LabRegistry.autoStartOf(p)) continue;
                 List<LabCustomCommands.CustomCommand> customs = LabCustomCommands.list(c, p.id);
                 if (customs.isEmpty()) continue;
                 java.util.Map<String, String> cached = LabCustomCommands.varCache(c, p.id);

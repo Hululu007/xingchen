@@ -110,32 +110,85 @@ abstract class BaseConfig {
     protected void cancelLoad() {
     }
 
+    /**
+     * 本地回环配置的连接失败重试（仅回环＋仅连接失败才重试）：
+     * 已选配置若是实验室服务的回环地址，冷启时服务进程要几秒才监听，
+     * 首读必然先撞连接拒绝。回环连接拒绝是毫秒级返回的，短睡重试不拖慢
+     * 正常路径；窗口 10 次×2 秒＝最多约 20 秒，按真机 Node 冷启量级
+     * （进程拉起＋运行时链接＋监听，本机样本实测 1 秒内监听、真机 Termux
+     * 运行时慢数倍）留了数倍余量，真死了 20 秒后照旧只弹一次错。
+     * 远程配置地址不是回环、失败不是连接失败（解析错/内容错）都不进重试，
+     * 原行为一字不变。
+     */
+    private static final int LOOPBACK_MAX_RETRIES = 10;
+    private static final long LOOPBACK_RETRY_INTERVAL_MS = 2000;
+
     protected void loadConfig(int id, Config config, Callback callback) {
-        boolean success = false;
+        int loopbackRetries = 0;
+        while (true) {
+            boolean success = false;
+            boolean retryLoopback = false;
+            try {
+                Server.get().start();
+                OkHttp.cancel(getTag());
+                load(config);
+                if (taskId.get() != id) return;
+                if (config.equals(this.config)) config.update();
+                onLoadSuccess();
+                App.post(() -> Notify.show(config.getNotice()));
+                App.post(callback::success);
+                success = true;
+            } catch (Throwable e) {
+                if (isCanceled(e)) return;
+                if (taskId.get() != id) return;
+                if (loopbackRetries < LOOPBACK_MAX_RETRIES && isLoopbackConnectFailure(config, e)) {
+                    retryLoopback = true;
+                } else {
+                    e.printStackTrace();
+                    if (TextUtils.isEmpty(config.getUrl())) App.post(() -> callback.error(""));
+                    else App.post(() -> callback.error(Notify.getError(R.string.error_config_get, e)));
+                }
+            } finally {
+                // 只在成功时发事件：失败路径已有 callback.error 弹错＋StateEvent.empty，
+                // 再发事件会让首页（HomeActivity VOD 分支 → RefreshEvent.home）无条件重拉一次。
+                // 失败时无人依赖该事件：消费方核查——HomeActivity（VOD 转首页刷新／LIVE、COMMON 只调
+                // setNavigation）、leanback Home（VOD 转首页刷新）、VideoActivity 两版（只刷新解析器列表，
+                // 失败时解析器本就为空／旧数据）、PlaybackService（VOD/LIVE 清浏览树，失败不清、留旧树，
+                // 且 session 为空时直接返回）、SettingFragment/leanback Setting（只刷新壁纸文案）。
+                if (success && taskId.get() == id) postEvent();
+            }
+            if (!retryLoopback) return;
+            loopbackRetries++;
+            try {
+                Thread.sleep(LOOPBACK_RETRY_INTERVAL_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (taskId.get() != id) return;
+        }
+    }
+
+    /** 失败可否按「本地服务还没起来」重试：地址是回环＋异常链里有连接失败，两条都中才算。 */
+    private boolean isLoopbackConnectFailure(Config config, Throwable e) {
+        if (config == null || !isLoopbackUrl(config.getUrl())) return false;
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.net.ConnectException) return true;
+            String m = t.getMessage();
+            if (m != null && m.contains("Failed to connect")) return true;
+        }
+        return false;
+    }
+
+    private static boolean isLoopbackUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
         try {
-            Server.get().start();
-            OkHttp.cancel(getTag());
-            load(config);
-            if (taskId.get() != id) return;
-            if (config.equals(this.config)) config.update();
-            onLoadSuccess();
-            App.post(() -> Notify.show(config.getNotice()));
-            App.post(callback::success);
-            success = true;
-        } catch (Throwable e) {
-            e.printStackTrace();
-            if (isCanceled(e)) return;
-            if (taskId.get() != id) return;
-            if (TextUtils.isEmpty(config.getUrl())) App.post(() -> callback.error(""));
-            else App.post(() -> callback.error(Notify.getError(R.string.error_config_get, e)));
-        } finally {
-            // 只在成功时发事件：失败路径已有 callback.error 弹错＋StateEvent.empty，
-            // 再发事件会让首页（HomeActivity VOD 分支 → RefreshEvent.home）无条件重拉一次。
-            // 失败时无人依赖该事件：消费方核查——HomeActivity（VOD 转首页刷新／LIVE、COMMON 只调
-            // setNavigation）、leanback Home（VOD 转首页刷新）、VideoActivity 两版（只刷新解析器列表，
-            // 失败时解析器本就为空／旧数据）、PlaybackService（VOD/LIVE 清浏览树，失败不清、留旧树，
-            // 且 session 为空时直接返回）、SettingFragment/leanback Setting（只刷新壁纸文案）。
-            if (success && taskId.get() == id) postEvent();
+            String host = new java.net.URI(url.trim()).getHost();
+            // URI.getHost 对 IPv6 回环返回带括号的 "[::1]"，两种都认
+            return "127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host)
+                    || "::1".equals(host) || "[::1]".equals(host);
+        } catch (Exception e) {
+            return false;
         }
     }
 

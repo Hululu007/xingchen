@@ -118,6 +118,18 @@ public class App extends Application implements Application.ActivityLifecycleCal
         // 口径与 startBackgroundServices 的注释一致：非主进程什么都不起，
         // 只留 Application 本体供系统在该进程拉起页面（崩溃页/恢复页）。
         if (!PlaybackRecoveryMonitor.isMainProcess(this)) return;
+        // 实验室自启抢在已选配置首读之前：配置首读在 HomeActivity.initConfig，
+        // 比这里晚得多；已选配置若是实验室服务的本地回环地址（如样本服务
+        // http://127.0.0.1:<分配端口>/），服务没拉起来首读必然连不上、每次冷启
+        // 必弹「配置取得失败」。实验室在 mobile 源集，主源集不能直引（leanback
+        // 无此类），照 AiActionExecutor／NodeLabInfo 的反射口径调 LabBoot.kick；
+        // 拉不拉由实验室总开关在 LabBoot 内决定，类不在时静默跳过。
+        try {
+            Class.forName("com.fongmi.android.tv.ui.lab.LabBoot")
+                    .getMethod("kick", Context.class)
+                    .invoke(null, this);
+        } catch (Throwable ignored) {
+        }
         try { com.xingchen.tv.theme.ThemeManager.init(this); } catch (Exception e) {}
         try { com.fongmi.android.tv.ai.AiActivityTracker.init(this); } catch (Exception e) {}
         PlaybackMemoryMonitor.process().initialize(this);

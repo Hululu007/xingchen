@@ -664,10 +664,10 @@ public class LabServiceActivity extends AppCompatActivity {
         swRow.addView(swLab);
         swRow.addView(sw);
         box.addView(swRow);
-        // 双门槛明示：命令自启还要求包级「自启」开着（LabBoot 两道门都过才拉起），
-        // 此前只写「开机自动运行」，用户开了这一处仍不自启、还不知道卡在哪
+        // 自启门槛明示（1.4.27 改定）：只看实验室首页「自动启动」总开关＋
+        // 这条命令自己的开关，总开关关着时保存处会当场点破（见下方保存回调）
         TextView gateHint = new TextView(this);
-        gateHint.setText("还要这个包的「自启」开着（在环境页这个服务那一行），两个都开才会开机自动跑");
+        gateHint.setText("实验室首页的「自动启动」总开关开着时，星辰一启动就会把这条命令拉起来");
         gateHint.setTextSize(12);
         gateHint.setTextColor(LabSkin.HINT_ON_DARK);
         gateHint.setPadding(0, 0, 0, dp(8));
@@ -691,12 +691,9 @@ public class LabServiceActivity extends AppCompatActivity {
                     if (old == null) LabCustomCommands.add(this, pkgId, cc);
                     else LabCustomCommands.update(this, pkgId, cc);
                     Notify.show("存好了");
-                    // 开了命令自启但包级自启没开：当场点破，别让用户对着不自启的命令猜
-                    if (cc.autoExecute) {
-                        LabRegistry.Svc svc = LabRegistry.get(this).svc(pkgId);
-                        if (svc != null && !LabRegistry.autoStartOf(svc)) {
-                            Notify.show("这条命令开了自动运行，但这个包的「自启」还没开（在环境页这个服务那一行），两个都开才会开机自动跑");
-                        }
+                    // 开了命令自启但总开关没开：当场点破，别让用户对着不自启的命令猜
+                    if (cc.autoExecute && !LabRegistry.get(this).masterAutoStart) {
+                        Notify.show("这条命令开了自动运行，但实验室首页的「自动启动」总开关还没开，开了才会开机自动跑");
                     }
                     reload();
                     return true;

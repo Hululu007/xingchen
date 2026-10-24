@@ -20,6 +20,9 @@ public final class LabBoot {
     public static synchronized void schedule(Context ctx) {
         if (scheduled) return;
         scheduled = true;
+        // Node 内置桥的宿主判据登记（同步做，不等延迟 boot）：模块页检测与
+        // 配置加载随时可能调 RuntimeModule.NODEJS.require()，登记必须先于它们。
+        LabNodeHost.register();
         final Context c = ctx.getApplicationContext();
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {

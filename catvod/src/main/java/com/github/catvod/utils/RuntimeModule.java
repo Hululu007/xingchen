@@ -1,5 +1,6 @@
 package com.github.catvod.utils;
 
+import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -157,8 +159,12 @@ public enum RuntimeModule {
 
     private static RuntimeModule moduleForClass(String name) {
         if (name.startsWith("com.fongmi.chaquo.") || name.startsWith("com.chaquo.python.")) return PYTHON;
-        if (name.startsWith("com.fongmi.nodejs.")) return NODEJS;
         if (name.startsWith("com.fongmi.quickjs.") && !name.startsWith("com.fongmi.quickjs.host.")) return QUICKJS;
+        // Node 已改走内置桥（2026-10-24 定案）：com.fongmi.nodejs.* 由宿主内置桥
+        // 提供（脚本进程本体是实验室 bin/node），不再判给 NODEJS 外置模块。
+        // 摘掉映射后类落回宿主类加载器（同下方迅雷 C-10 口径）；entry() 的
+        // NODEJS 分支直接实例化内置入口，不走 createEntry 的外包加载路——
+        // 那条路的「实现类不许来自宿主」断言正是为外包设的，内置走它必抛。
         // 迅雷已改回内置（2026-10-23 定案）：com.xunlei.downloadlib.* 就在宿主
         // dex 里，不再判给 THUNDER 外置模块。摘掉映射后两个 loader 对 null 的
         // 处理都落回宿主类加载器——SPIDER_LOADER 走 super.loadClass（父加载器
@@ -170,6 +176,7 @@ public enum RuntimeModule {
 
     public synchronized <T extends RuntimePlugin> T entry(Class<T> type) {
         require();
+        if (this == NODEJS) return builtinEntry(type);
         if (getEntryClass().isEmpty()) throw new IllegalStateException("Runtime does not provide a Java plugin");
         External state = external();
         if (state.entryFailure != null) throw state.entryFailure;
@@ -180,6 +187,27 @@ public enum RuntimeModule {
             state.entryFailure = new IllegalStateException("Unable to load " + title + " Java runtime; restart the app", e);
             throw state.entryFailure;
         }
+    }
+
+    // 内置桥入口（映射表 #2）：入口类就在宿主 dex 里，由宿主类加载器直接加载
+    // 实例化——不备包、不读插件元数据、没有 DexClassLoader，自然也没有
+    // createEntry 的宿主断言。失败口径与外包路一致：记 entryFailure 并抛
+    // 「加载不了、重启 App」，不吞成空结果假装可用。
+    private <T extends RuntimePlugin> T builtinEntry(Class<T> type) {
+        External state = external();
+        if (state.entryFailure != null) throw state.entryFailure;
+        try {
+            if (state.entry == null) state.entry = createBuiltinEntry(type);
+            return type.cast(state.entry);
+        } catch (ReflectiveOperationException | ClassCastException | LinkageError e) {
+            state.entryFailure = new IllegalStateException("Unable to load " + title + " Java runtime; restart the app", e);
+            throw state.entryFailure;
+        }
+    }
+
+    private <T extends RuntimePlugin> T createBuiltinEntry(Class<T> type) throws ReflectiveOperationException {
+        Class<?> implementation = Class.forName(getEntryClass(), true, RuntimeModule.class.getClassLoader());
+        return type.cast(implementation.getConstructor().newInstance());
     }
 
     private <T extends RuntimePlugin> T createEntry(Class<T> type, External state) throws ReflectiveOperationException, IOException {
@@ -330,6 +358,7 @@ public enum RuntimeModule {
     }
 
     public synchronized boolean isRestartRequired() throws IOException {
+        if (this == NODEJS) return isNodeRestartRequired();
         External state = external();
         if (state.loadFailure != null || state.entryFailure != null) return true;
         if (state.loaded == null && state.loadedMetadata == null) return false;
@@ -337,6 +366,19 @@ public enum RuntimeModule {
         if (metadata == null || state.loadedMetadata != null && !state.loadedMetadata.digest.equals(metadata.digest)) return true;
         File loaded = state.loadedMetadata == null ? state.loaded.getParentFile() : nativeDirectory(state.loadedMetadata);
         return !loaded.equals(nativeDirectory(metadata));
+    }
+
+    // 桥口径（映射表 13）：没有插件元数据可比，改判「登记时那代运行时
+    // （bin/node 本体＋实验室登记戳）与当前实验室登记还对不对得上」；
+    // 对不上＝运行时已换代，Client 照原文案抛「运行时已变、重启 App」。
+    private boolean isNodeRestartRequired() {
+        External state = external();
+        if (state.loadFailure != null || state.entryFailure != null) return true;
+        if (state.loaded == null) return false;
+        if (!isNodeInstalled()) return true;
+        File binary = nodeBinary();
+        if (binary == null || !binary.equals(state.loaded)) return true;
+        return !Objects.equals(nodeStamp(), state.loadedStamp);
     }
 
     public synchronized File getLoadedFile() {
@@ -347,11 +389,14 @@ public enum RuntimeModule {
         if (this != NODEJS) throw new IOException("Runtime does not run in a separate process");
         if (owner == null) throw new IOException("Invalid runtime owner");
         require();
+        // 桥口径（映射表 13）：登记的必须是当前实验室的 bin/node 本体；
+        // 同时记下这代运行时的登记戳，供 isRestartRequired 改判换代。
+        File binary = nodeBinary();
+        if (binary == null || file == null || !file.equals(binary)) throw new IOException("Invalid loaded runtime file");
         External state = external();
-        Metadata metadata = state.loadedMetadata == null ? getMetadata() : state.loadedMetadata;
-        if (!file.equals(new File(nativeDirectory(metadata), library))) throw new IOException("Invalid loaded runtime file");
         state.loaded = file;
         state.loadedOwner = owner;
+        state.loadedStamp = nodeStamp();
     }
 
     public synchronized void recordStopped(Object owner) {
@@ -360,6 +405,7 @@ public enum RuntimeModule {
         if (owner == null || state.loadedOwner != owner) return;
         state.loaded = null;
         state.loadedOwner = null;
+        state.loadedStamp = null;
     }
 
     public synchronized void clean() throws IOException {
@@ -704,6 +750,7 @@ public enum RuntimeModule {
         ZipFile assets;
         Object loadedOwner;
         File loaded;
+        String loadedStamp;
         LinkageError loadFailure;
         boolean complete;
     }
@@ -726,7 +773,65 @@ public enum RuntimeModule {
         return Packages.states[ordinal()];
     }
 
+    /**
+     * Node 内置桥的宿主判据（映射表 13/14）：catvod 层不认识实验室，由宿主
+     * App 在启动时登记——实验室 Node 环境在不在、当前 bin/node 本体在哪、
+     * 这代运行时的登记戳（版本＋安装时间，同版本重打包靠安装时间区分）。
+     * 未登记一律按不在处理（fail-closed），与老路「插件没装」同一个
+     * MissingException 信号，任何路径不许把没装吞成空结果假装可用。
+     */
+    public interface NodeHost {
+        boolean installed(Context context);
+
+        File binary(Context context);
+
+        String stamp(Context context);
+    }
+
+    private static volatile NodeHost nodeHost;
+
+    public static void registerNodeHost(NodeHost host) {
+        nodeHost = host;
+    }
+
+    private boolean isNodeInstalled() {
+        NodeHost host = nodeHost;
+        if (host == null) return false;
+        try {
+            return host.installed(Runtime.context());
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    private File nodeBinary() {
+        NodeHost host = nodeHost;
+        if (host == null) return null;
+        try {
+            return host.binary(Runtime.context());
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private String nodeStamp() {
+        NodeHost host = nodeHost;
+        if (host == null) return null;
+        try {
+            return host.stamp(Runtime.context());
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
     public synchronized void require() {
+        if (this == NODEJS) {
+            // 桥口径（映射表 14）：在场判据换实验室 Node 环境，缺失信号不变——
+            // 仍是同一个 MissingException、同一句「Node.js module is not
+            // installed」文案，上层既有的未装引导口径不改。
+            if (!isNodeInstalled()) throw new MissingException(this);
+            return;
+        }
         if (!isInstalled()) throw new MissingException(this);
         try {
             getMetadata();

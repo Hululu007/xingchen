@@ -50,6 +50,14 @@
                 android:contentDescription="@null"
                 android:scaleType="centerCrop"
                 android:visibility="gone" />
+
+            <!-- 熔边层：与竖版同口径（封面下沿 84dp 渐隐进整页糊底，代码按氛围色刷渐变）；横版此前缺此层、封面下沿硬接缝 -->
+            <View
+                android:id="@+id/tpCoverMelt"
+                android:layout_width="match_parent"
+                android:layout_height="84dp"
+                android:layout_gravity="bottom"
+                android:contentDescription="@null" />
         </FrameLayout>
 
         <LinearLayout

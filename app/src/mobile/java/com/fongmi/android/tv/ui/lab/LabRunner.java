@@ -500,6 +500,17 @@ public final class LabRunner {
         String lib = LabRuntimeManager.libDir(c, runtime).getAbsolutePath();
         String ld = bin + File.pathSeparator + lib;
         env.put("LD_LIBRARY_PATH", TextUtils.isEmpty(oldLd) ? ld : ld + File.pathSeparator + oldLd);
+        // Python 运行时证书下发：运行时是 Termux 构建，OpenSSL 默认证书路径写死在
+        // Termux 前缀下、星辰目录里不存在，进程启动加载零根证书，任何 HTTPS 验真必挂
+        // （视频机器人轮询 Telegram 报 self-signed certificate in certificate chain 即此）。
+        // 统一下发指向运行时自带的 etc/tls/cert.pem；文件不在就不下发、保持原行为。
+        // 放在包声明（var_path）之前：包自己声明了同名变量时以包的为准。
+        String runtimeNorm = LabManifest.normalizeRuntime(runtime);
+        if ("python".equals(runtimeNorm)) {
+            for (Map.Entry<String, String> e : pythonCertVars(LabPaths.runtimeDir(c, runtimeNorm)).entrySet()) {
+                env.put(e.getKey(), e.getValue());
+            }
+        }
         // 包声明环境变量（上游 Item.var_path，此前导入按 String 读、运行期也没人注入，
         // 整段是死的，G-5）：PATH 并入进程 PATH（相对段落包内、含 com.termux 的跳过），
         // 其余键作环境变量（相对值落包内、占位展开），LD_LIBRARY_PATH 前插不覆盖
@@ -577,6 +588,24 @@ public final class LabRunner {
     static boolean nodeProxyWanted(LabRegistry.Svc pkg) {
         if (pkg == null || !pkg.nodeProxy) return false;
         return !"mihomo".equals(pkg.runtime) && !"mihomo".equals(pkg.id);
+    }
+
+    /**
+     * Python 运行时证书变量表（纯函数，便于单测）：运行时根目录按其实际布局推导
+     * etc/tls/cert.pem，文件存在才给三件套（OpenSSL 本体读 SSL_CERT_FILE，
+     * curl 系读 CURL_CA_BUNDLE，requests 系读 REQUESTS_CA_BUNDLE，同一个文件）；
+     * 不存在返回空表，调用方不下发、保持原行为。
+     */
+    static Map<String, String> pythonCertVars(File runtimeDir) {
+        Map<String, String> out = new java.util.LinkedHashMap<>();
+        if (runtimeDir == null) return out;
+        File cert = new File(new File(new File(runtimeDir, "etc"), "tls"), "cert.pem");
+        if (!cert.isFile()) return out;
+        String path = cert.getAbsolutePath();
+        out.put("SSL_CERT_FILE", path);
+        out.put("CURL_CA_BUNDLE", path);
+        out.put("REQUESTS_CA_BUNDLE", path);
+        return out;
     }
 
     /** 节点代理变量表（纯函数，便于单测）：混合端口 + socks 端口（混合+1）＋例外域名 */

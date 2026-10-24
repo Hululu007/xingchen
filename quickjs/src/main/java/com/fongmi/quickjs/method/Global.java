@@ -41,10 +41,15 @@ public class Global {
     private final Parser parser;
     private final QuickJSContext ctx;
     private final Timer timer;
+    // 本对象在蜘蛛执行器线程上构造（Spider.createFun 在 initializeJS 的提交内），
+    // 该线程即 ctx 的属主线程；关机兜底路径上要 release 时先比对它，异线程不放
+    // （freeValue 头一步查线程亲和，异线程 release 直接抛 QuickJSException）。
+    private final Thread ownerThread;
 
     private volatile boolean destroyed;
 
     private Global(QuickJSContext ctx, ExecutorService executor) {
+        this.ownerThread = Thread.currentThread();
         this.executor = executor;
         this.timerId = new AtomicInteger();
         this.timers = new ConcurrentHashMap<>();
@@ -274,7 +279,10 @@ public class Global {
 
     private boolean postCallback(JSFunction callback, Runnable runnable) {
         boolean posted = submit(() -> callAndRelease(callback, runnable));
-        if (!posted) callback.release();
+        // 投递失败＝执行器已关停：只在属主线程上才兜底 release（本方法也可能从
+        // JS 线程的同步失败路进来）；在 OkHttp 回调线程上硬放会抛线程亲和异常，
+        // 放弃释放、随 ctx 销毁回收。
+        if (!posted && Thread.currentThread() == ownerThread) callback.release();
         return posted;
     }
 
@@ -350,7 +358,9 @@ public class Global {
         private synchronized void release() {
             if (released) return;
             released = true;
-            func.release();
+            // cancelAndRelease 也可能由定时器线程在投递失败时触发：异线程不放，
+            // 理由同 postCallback 的兜底（随 ctx 销毁回收）。
+            if (Thread.currentThread() == ownerThread) func.release();
         }
     }
 }

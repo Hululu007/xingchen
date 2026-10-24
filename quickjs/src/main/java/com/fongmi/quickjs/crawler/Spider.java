@@ -103,8 +103,24 @@ public class Spider extends com.github.catvod.crawler.Spider {
         return result instanceof Boolean && (Boolean) result;
     }
 
-    private static void releaseArg(Object arg) {
-        if (arg instanceof JSObject) ((JSObject) arg).release();
+    // 与 WvSpider 同型同治：release 也是 ctx 操作（freeValue 头一步查线程亲和），
+    // 在调用线程上做会抛 QuickJSException("Must be call same thread in
+    // QuickJSContext.create!")。普通源主线（home/search）返回字符串不踩，
+    // 但 category/player/proxy 的入参对象与 proxy 结果对象一直是这个雷。
+    // 只把 release 搬回本类自己的执行器线程（FIFO 在先前调用之后），
+    // 调用调度与超时口径一字不动；执行器已关停时放弃释放、随 ctx 销毁回收。
+    private void releaseArg(Object arg) {
+        if (!(arg instanceof JSObject)) return;
+        JSObject object = (JSObject) arg;
+        try {
+            executor.execute(() -> {
+                try {
+                    object.release();
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -290,7 +306,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
         if (!(called instanceof JSArray)) return null;
         JSArray proxy = (JSArray) called;
         String json = submitAndGet(proxy::stringify);
-        proxy.release();
+        releaseArg(proxy);
         JSONArray array = new JSONArray(json);
         Map<String, String> headers = array.length() > 3 ? Json.toMap(array.optString(3)) : null;
         boolean base64 = array.length() > 4 && array.optInt(4) == 1;

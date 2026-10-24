@@ -187,8 +187,28 @@ public class WvSpider extends com.github.catvod.crawler.Spider {
         }
     }
 
-    private static void releaseArg(Object arg) {
-        if (arg instanceof JSObject) ((JSObject) arg).release();
+    /**
+     * JSObject 的 release 必须回到执行器线程做：wrapper 的 freeValue 头一步就是
+     * 线程亲和校验（checkSameThread），在调用线程上 release 会直接抛
+     * QuickJSException("Must be call same thread in QuickJSContext.create!")——
+     * 这正是 wvB 类源首页空白的断点（结果对象在 stringifyResult 的 finally 里、
+     * 入参对象在各入口的 finally 里被调用线程 release）。
+     * 单线程执行器 FIFO 保证 release 排在先前提交的调用/stringify 之后执行，
+     * 寿命口径与原地 release 一致，只换线程。执行器已关停（destroy 竞态）时
+     * 放弃释放、随 ctx 销毁回收，与 destroy 的既定取舍一致；绝不在当前线程硬放。
+     */
+    private void releaseArg(Object arg) {
+        if (!(arg instanceof JSObject)) return;
+        JSObject object = (JSObject) arg;
+        try {
+            executor.execute(() -> {
+                try {
+                    object.release();
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
     }
 
     /** JS 返回值转 JSON 字符串：对象走 stringify，字符串直通，其余按文本形态。 */
@@ -201,7 +221,7 @@ public class WvSpider extends com.github.catvod.crawler.Spider {
                 String json = submitAndGet(object::stringify);
                 return json == null ? "" : json;
             } finally {
-                object.release();
+                releaseArg(object);
             }
         }
         return String.valueOf(result);

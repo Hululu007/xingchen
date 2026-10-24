@@ -91,7 +91,7 @@ public class PlaybackExperimentPolicyTest {
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
                                 PlaybackExperimentPolicy.CURRENT_SCHEMA_VERSION,
-                                true, true, "bad", true));
+                                true, true, "bad"));
 
         assertEquals(PlaybackExperimentPolicy.Status.CORRUPT,
                 result.status());
@@ -105,7 +105,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                "one", true, true, true, true));
+                                "one", true, true, true));
 
         assertEquals(PlaybackExperimentPolicy.Status.CORRUPT,
                 result.status());
@@ -118,7 +118,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                1.5d, true, true, true, true));
+                                1.5d, true, true, true));
 
         assertEquals(PlaybackExperimentPolicy.Status.CORRUPT,
                 result.status());
@@ -132,7 +132,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                99, true, true, true, true));
+                                99, true, true, true));
 
         assertEquals(PlaybackExperimentPolicy.Status.FUTURE_SCHEMA,
                 result.status());
@@ -149,7 +149,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                0, true, null, null, null));
+                                0, true, null, null));
 
         assertEquals(PlaybackExperimentPolicy.Status.MIGRATED,
                 result.status());
@@ -168,7 +168,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                1, true, true, true, true));
+                                1, true, true, true));
 
         assertEquals(PlaybackExperimentPolicy.Status.MIGRATED,
                 result.status());
@@ -187,7 +187,7 @@ public class PlaybackExperimentPolicyTest {
         PlaybackExperimentPolicy.Resolution result =
                 PlaybackExperimentPolicy.resolve(
                         new PlaybackExperimentPolicy.RawState(
-                                0, null, null, null, null));
+                                0, null, null, null));
 
         assertEquals(PlaybackExperimentPolicy.Status.CORRUPT,
                 result.status());

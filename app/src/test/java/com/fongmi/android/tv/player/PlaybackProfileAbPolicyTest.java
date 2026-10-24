@@ -83,7 +83,7 @@ public class PlaybackProfileAbPolicyTest {
         PlaybackExperimentPolicy.State exoOnly =
                 new PlaybackExperimentPolicy.State(
                         PlaybackExperimentPolicy.CURRENT_SCHEMA_VERSION,
-                        true, true, false, false);
+                        true, true, false);
         PlaybackExperimentPolicy.State stable =
                 PlaybackExperimentPolicy.State.stable();
 

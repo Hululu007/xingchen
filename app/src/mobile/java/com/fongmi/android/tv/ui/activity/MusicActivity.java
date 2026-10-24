@@ -1114,12 +1114,12 @@ public class MusicActivity extends BaseActivity {
 
     /** 报告卡落点：树内无独立统计页，落到播放历史页（报告数据的完整明细）。 */
     private void openFullReport() {
-        MusicListActivity.startHistory(this);
+        MusicHistoryActivity.startHistory(this);
     }
 
     /** 播放历史入口：走历史页（旧的首页对话框不再用）。 */
     private void showRecent() {
-        MusicListActivity.startHistory(this);
+        MusicHistoryActivity.startHistory(this);
     }
 
     // ================= 按压反馈与封面圆角 =================

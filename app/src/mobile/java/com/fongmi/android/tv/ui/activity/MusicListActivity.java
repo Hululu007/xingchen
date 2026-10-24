@@ -97,7 +97,7 @@ public class MusicListActivity extends BaseActivity {
     // 第 6 项：收藏／历史英雄卡（GZ：拼贴 76dp＋大标题 28sp＋N 首 12sp＋播放全部／随机播放＋搜索框＋排序＋续播卡＋多选）
     private final List<MusicTrack> favHistAll = new ArrayList<>();
     private String favHistSearchKw = "";
-    private int favHistSort = 0; // 收藏：0 最近收藏 1 最早收藏 2 歌曲名称；历史：0 最近播放 1 最早播放 2 歌曲名称
+    private int favHistSort = 0; // 收藏：0 最近收藏 1 最早收藏 2 歌曲名称
     private boolean favHistMulti;
     private final Set<String> favHistSelected = new java.util.HashSet<>();
     private MusicTrack favHistResume;
@@ -175,12 +175,6 @@ public class MusicListActivity extends BaseActivity {
     public static void startFavorite(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "favorite");
-        activity.startActivity(i);
-    }
-
-    public static void startHistory(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "history");
         activity.startActivity(i);
     }
 
@@ -297,7 +291,7 @@ public class MusicListActivity extends BaseActivity {
             @Override
             public void onDraw(@NonNull android.graphics.Canvas c, @NonNull RecyclerView parent,
                                @NonNull RecyclerView.State state) {
-                if (!mode.equals("favorite") && !mode.equals("history")) return;
+                if (!mode.equals("favorite")) return;
                 float density = parent.getResources().getDisplayMetrics().density;
                 float left = 76 * density;
                 float right = parent.getWidth() - 14 * density;
@@ -332,7 +326,7 @@ public class MusicListActivity extends BaseActivity {
         }
         binding.btnChartsRefresh.setOnClickListener(v -> loadCharts());
         binding.btnSort.setOnClickListener(v -> {
-            if (mode.equals("favorite") || mode.equals("history")) showFavHistSortDialog();
+            if (mode.equals("favorite")) showFavHistSortDialog();
             else if (mode.equals("search") && selectedCat != 0 && searchGroupType < 0) {
                 // 第 5 项：歌手／歌单／专辑分类是分组卡，排序只对歌曲列有意义，分组卡不支持排序
                 Notify.show("分组不支持排序");
@@ -362,18 +356,6 @@ public class MusicListActivity extends BaseActivity {
         });
         binding.btnFavHistShuffle.setOnClickListener(v -> shufflePlay());
         binding.btnFavHistMulti.setOnClickListener(v -> setFavHistMulti(!favHistMulti));
-        binding.btnFavHistClear.setOnClickListener(v -> {
-            // 历史页清空（GZ：历史页有清除；收藏页无清空全部按钮，故本钮只在历史模式可见）
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle("清空播放历史")
-                    .setMessage("确定清空全部播放历史吗？")
-                    .setPositiveButton("清空", (d, w) -> {
-                        com.fongmi.android.tv.music.MusicStore.clearRecent();
-                        loadHistory();
-                    })
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show();
-        });
         binding.favHistResume.setOnClickListener(v -> {
             if (favHistResume == null) return;
             int idx = -1;
@@ -512,9 +494,6 @@ public class MusicListActivity extends BaseActivity {
             case "favorite":
                 loadFavorites();
                 break;
-            case "history":
-                loadHistory();
-                break;
             case "sheet":
                 loadSheetTracks();
                 break;
@@ -560,7 +539,7 @@ public class MusicListActivity extends BaseActivity {
         // 第 11 项：sheets 模式用 GZ 页头（YOUR PLAYLISTS＋大标题＋操作行），顶栏居中标题与大标题行、随机播放行都隐藏
         // 第 6 项：收藏／历史模式同样用自己的英雄卡当页头，顶栏与大标题行隐藏；工具条只留排序（播放／随机播在英雄卡操作行）
         boolean sheets = mode.equals("sheets");
-        boolean favHist = mode.equals("favorite") || mode.equals("history");
+        boolean favHist = mode.equals("favorite");
         boolean sheet = mode.equals("sheet");
         boolean chartDetail = mode.equals("chartDetail");
         boolean guess = mode.equals("guess");
@@ -612,10 +591,6 @@ public class MusicListActivity extends BaseActivity {
                 bigTitle = getString(R.string.music_favorite);
                 loadFavorites();
                 break;
-            case "history":
-                bigTitle = getString(R.string.music_history);
-                loadHistory();
-                break;
             case "guess":
                 bigTitle = getString(R.string.music_guess);
                 loadGuess();
@@ -652,8 +627,6 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_charts);
             case "sites":
                 return getString(R.string.music_plugin_manage);
-            case "history":
-                return getString(R.string.music_history);
             case "guess":
                 return getString(R.string.music_guess);
             default:
@@ -1655,27 +1628,17 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    private void loadHistory() {
-        showLoading();
-        favHistAll.clear();
-        try {
-            favHistAll.addAll(com.fongmi.android.tv.music.MusicStore.loadRecent());
-        } catch (Throwable ignored) {
-        }
-        refreshFavHistDisplay();
-    }
-
     /** 第 6 项：收藏／历史显示刷新（英雄卡＋搜索过滤＋排序＋续播卡；空态用 GZ 文案） */
     private void refreshFavHistDisplay() {
         boolean fav = mode.equals("favorite");
         binding.favHistHero.setVisibility(View.VISIBLE);
-        binding.tvFavHistLabel.setVisibility(fav ? View.VISIBLE : View.GONE);
+        binding.tvFavHistLabel.setVisibility(View.VISIBLE);
         // 本页对照修：GZ 收藏英雄卡标题是「我喜欢的音乐」，不是导航用的「收藏」
-        binding.tvFavHistTitle.setText(fav ? "我喜欢的音乐" : bigTitle);
+        binding.tvFavHistTitle.setText("我喜欢的音乐");
         binding.tvFavHistCount.setText(favHistAll.size() + " 首");
-        binding.btnFavHistClear.setVisibility(fav ? View.GONE : View.VISIBLE);
+        binding.btnFavHistClear.setVisibility(View.GONE);
         binding.btnFavHistMulti.setText(favHistMulti ? "取消多选" : "多选");
-        binding.etFavHistSearch.setHint(fav ? "搜索喜欢的歌曲" : "搜索历史歌曲");
+        binding.etFavHistSearch.setHint("搜索喜欢的歌曲");
         // 拼贴：前 4 首的封面（没封面的格子留灰底）
         ImageView[] cells = {binding.ivMosaic0, binding.ivMosaic1, binding.ivMosaic2, binding.ivMosaic3};
         for (int i = 0; i < cells.length; i++) {
@@ -1706,8 +1669,6 @@ public class MusicListActivity extends BaseActivity {
                         break;
                     }
                 }
-            } else if (!recent.isEmpty()) {
-                favHistResume = recent.get(0);
             }
         } catch (Throwable ignored) {
         }
@@ -1741,9 +1702,6 @@ public class MusicListActivity extends BaseActivity {
         } else if (fav) {
             if (favHistSort == 0) Collections.sort(show, (a, b) -> Long.compare(b.favoriteAddedTime, a.favoriteAddedTime));
             else Collections.sort(show, (a, b) -> Long.compare(a.favoriteAddedTime, b.favoriteAddedTime));
-        } else {
-            // 历史：0 最近播放＝loadRecent 顺序（已是最近在前），1 最早播放＝倒序
-            if (favHistSort == 1) Collections.reverse(show);
         }
         tracks.clear();
         tracks.addAll(show);
@@ -1755,9 +1713,7 @@ public class MusicListActivity extends BaseActivity {
                 binding.tvFavHistSection.setVisibility(View.GONE);
             } else {
                 binding.tvFavHistSection.setVisibility(View.VISIBLE);
-                binding.tvFavHistSection.setText(fav
-                        ? (favHistSearchKw.isEmpty() ? getString(R.string.wave2_section_all_songs) : getString(R.string.wave2_section_search_result))
-                        : (favHistSearchKw.isEmpty() ? getString(R.string.wave2_section_all_records) : getString(R.string.wave2_section_search_result)));
+                binding.tvFavHistSection.setText(favHistSearchKw.isEmpty() ? getString(R.string.wave2_section_all_songs) : getString(R.string.wave2_section_search_result));
             }
         }
         if (tracks.isEmpty()) {
@@ -1767,9 +1723,7 @@ public class MusicListActivity extends BaseActivity {
                 // 第二波：历史搜不到文案抠到瓜子 HistoryScreenKt EmptyHistoryHint，与收藏同款两行（此前历史搜不到错套空态）
                 binding.empty.setText("未找到匹配歌曲\n换个关键词试试歌名、歌手或专辑");
             } else {
-                binding.empty.setText(fav
-                        ? "还没有喜欢的歌曲\n播放时点亮爱心，它们会出现在这里"
-                        : "还没有播放记录\n听歌后这里会记录你的播放历史");
+                binding.empty.setText("还没有喜欢的歌曲\n播放时点亮爱心，它们会出现在这里");
             }
         } else {
             binding.empty.setVisibility(View.GONE);
@@ -1779,12 +1733,9 @@ public class MusicListActivity extends BaseActivity {
 
     /** 第 6 项：收藏／历史排序弹层（GZ：收藏 3 项／历史 3 项＋当前项文案「当前：…」） */
     private void showFavHistSortDialog() {
-        boolean fav = mode.equals("favorite");
-        String[] items = fav
-                ? new String[]{"最近收藏", "最早收藏", "歌曲名称"}
-                : new String[]{"最近播放", "最早播放", "歌曲名称"};
+        String[] items = new String[]{"最近收藏", "最早收藏", "歌曲名称"};
         new MaterialAlertDialogBuilder(this)
-                .setTitle(fav ? "收藏排序" : "历史排序")
+                .setTitle("收藏排序")
                 .setMessage("当前：" + items[favHistSort])
                 .setSingleChoiceItems(items, favHistSort, (d, which) -> {
                     favHistSort = which;
@@ -1835,10 +1786,6 @@ public class MusicListActivity extends BaseActivity {
                     }
                 });
             }
-        } else {
-            com.fongmi.android.tv.music.MusicStore.removeRecentByIds(new java.util.HashSet<>(favHistSelected));
-            setFavHistMulti(false);
-            loadHistory();
         }
     }
 
@@ -3270,7 +3217,7 @@ public class MusicListActivity extends BaseActivity {
     /** 第三波 R4：工具条旁常显当前通用排序档（收藏／历史有各自对话框时隐藏）。 */
     private void refreshSortLabel() {
         if (binding == null || binding.tvSortCurrent == null) return;
-        if (mode.equals("favorite") || mode.equals("history")) {
+        if (mode.equals("favorite")) {
             binding.tvSortCurrent.setVisibility(View.GONE);
             return;
         }
@@ -3441,7 +3388,6 @@ public class MusicListActivity extends BaseActivity {
             int downloadIdx = -1;
             int removeIdx = -1;
             int deleteLocalIdx = -1;
-            int removeHistIdx = -1;
             if (local) {
                 // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
                 deleteLocalIdx = opts.size();
@@ -3463,12 +3409,6 @@ public class MusicListActivity extends BaseActivity {
             int dIdx = downloadIdx;
             int rIdx = removeIdx;
             int delIdx = deleteLocalIdx;
-            // 第 6 项：历史页行级移除（GZ：历史页有「移除／移除历史」行级操作）
-            if (mode.equals("history")) {
-                removeHistIdx = opts.size();
-                opts.add("移除历史");
-            }
-            int rmHistIdx = removeHistIdx;
             MusicOptionsDialog.show(act, track.displayTitle(), opts, -1, idx -> {
                 if (idx == 0) playTrack(position);
                 else if (idx == 1) {
@@ -3478,11 +3418,6 @@ public class MusicListActivity extends BaseActivity {
                 else if (idx == 3) toggleFavorite(track, opts.get(3));
                 else if (idx == dIdx) downloadTrack(track);
                 else if (idx == rIdx) removeFromSheet(track);
-                else if (idx == rmHistIdx) {
-                    com.fongmi.android.tv.music.MusicStore.removeRecentByIds(
-                            java.util.Collections.singleton(track.id));
-                    loadHistory();
-                }
                 else if (idx == delIdx) confirmDeleteLocal(track);
             });
         });
@@ -4789,19 +4724,7 @@ public class MusicListActivity extends BaseActivity {
             // 共用行口径（批 5 F1/F2）：歌名 15sp 粗 #1A1A1A，在播行红名；此前代码侧写 #1C1C1E 与布局口径不一致，一并对齐
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
-            if (mode.equals("history") && isTrackCached(t)) {
-                // 第二波：历史行「已缓存」标签（瓜子 HistoryScreenKt 内边距 7/3dp、圆角 8dp；
-                // 口径确证：瓜子已缓存＝音频已落本地；星辰判定＝非设备库曲目且 localPath 文件真实存在——
-                // 播放历史 JSON 持久化整首曲目（含 localPath），下载／本地文件曲目播过即带路径；在线曲目无路径不贴。
-                // 标签字号瓜子侧未抠到，沿用行内徽标 11sp；底沿用行内徽标底，圆角差（4dp vs 瓜子 8dp）见交卷。）
-                h.badge.setVisibility(View.VISIBLE);
-                h.badge.setText(R.string.wave2_cached);
-                h.badge.setTextSize(11);
-                h.badge.setTextColor(0xFF8E8E93);
-                int p7 = dp(7);
-                int p3 = dp(3);
-                h.badge.setPadding(p7, p3, p7, p3);
-            } else if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
+            if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(t.qualityTag);
                 h.badge.setTextSize(11);
@@ -4853,7 +4776,7 @@ public class MusicListActivity extends BaseActivity {
                 // ImgUtil.loadRounded 写死 8dp，走本页 12dp helper；横内边距 4→14dp 另见 item_music_track.xml）
                 loadCoverRounded(t.displayTitle(), t.cover, h.cover, 10);
             }
-            if (favHistMulti && (mode.equals("favorite") || mode.equals("history"))) {
+            if (favHistMulti && mode.equals("favorite")) {
                 // 第 6 项：收藏／历史多选态（行点按变勾选；行尾 24dp 选中圆圈，选中红底、未选灰框）
                 boolean sel = t.id != null && favHistSelected.contains(t.id);
                 android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
@@ -4889,18 +4812,6 @@ public class MusicListActivity extends BaseActivity {
             if (ms <= 0) return "--:--";
             long s = ms / 1000;
             return String.format("%02d:%02d", s / 60, s % 60);
-        }
-
-        /** 第二波：历史行「已缓存」判定（见 bindTrack 注释口径） */
-        private boolean isTrackCached(MusicTrack t) {
-            if (t == null) return false;
-            if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(t.platform)) return false;
-            if (t.localPath == null || t.localPath.isEmpty()) return false;
-            try {
-                return new java.io.File(t.localPath).isFile();
-            } catch (Throwable ignored) {
-                return false;
-            }
         }
 
         // ================= 第 1 项：歌单详情页 =================

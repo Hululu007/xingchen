@@ -226,6 +226,26 @@ public final class SourceGate {
                             "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id + " host=" + hostOf(uri) + viaSuffix(via));
                     return shell.select(uri);
                 }
+                // 兜底认领越界守卫（1.4.24 真机实证）：回退打点（via=fallback）只是
+                // 「近 15 秒内唯一活跃源」的猜测归属，排在 host 认领之前咨询，会把
+                // 已登记归属他人的 host 抢走——missav.com 登记本人是 MissAV（其逐源
+                // 开关没开、本场已判 not-enabled 直连），随后一发无打点请求却被回退
+                // 猜成当时唯一活跃的 JAV Verse、判走节点，同一 host 两条相悖裁决并存。
+                // 治本口径：规则本人对自家 host 的裁决优先于一切兜底认领——host 有
+                // 登记归属、归属与回退猜测不同、且归属未启用时，本人未开就是未开，
+                // 回退认领不得把该请求判给任何其它已启用来源走节点。归属与猜测相同、
+                // 归属已启用、或 host 无登记归属时，维持现状不拦。
+                if ("fallback".equals(via) && hostClaim != null) {
+                    Mark owner = claimHost(uri);
+                    if (owner != null
+                            && !(owner.kind.equals(m.kind) && owner.id.equals(m.id))
+                            && !p.shouldProxy(owner.kind, owner.id)) {
+                        logDecision("owneroff|" + owner.kind + "|" + owner.id + "|" + hostOf(uri),
+                                "gate direct reason=owner-not-enabled kind=" + owner.kind + " id=" + owner.id
+                                        + " host=" + hostOf(uri) + " via=fallback claimant=" + m.kind + "|" + m.id);
+                        return shell.select(uri);
+                    }
+                }
                 boolean hit = (m != null) ? p.shouldProxy(m.kind, m.id) : p.globalMode();
                 if (hit) {
                     int port = p.port();

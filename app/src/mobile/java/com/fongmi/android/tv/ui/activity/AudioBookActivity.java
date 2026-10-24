@@ -743,7 +743,9 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     }
 
     private PlayerManager player() {
-        return mService.player();
+        // 扫查待裁 24：与 PlaybackActivity 空安全口径对齐——服务未绑/已解绑时返 null，
+        // 不再在访问器里裸解引用（现有调用点均先判 mService，行为不变；防新调用点踩）。
+        return mService == null ? null : mService.player();
     }
 
     @Override

@@ -217,9 +217,20 @@ public class FreeJsBridge {
                 declared = null;
             }
             if (declared == null) return true;
-            String json = declared instanceof JSObject ? ((JSObject) declared).stringify() : String.valueOf(declared);
-            if (json == null || json.isEmpty() || "undefined".equals(json)) return true;
-            return json.contains("\"music\"");
+            try {
+                String json = declared instanceof JSObject ? ((JSObject) declared).stringify() : String.valueOf(declared);
+                if (json == null || json.isEmpty() || "undefined".equals(json)) return true;
+                return json.contains("\"music\"");
+            } finally {
+                // 扫查待裁 23：getProperty 的 JSObject 用完即 release（与本文件
+                // getJSFunction 的 finally release 纪律对齐，不靠 ctx 销毁兜底）
+                if (declared instanceof JSObject) {
+                    try {
+                        ((JSObject) declared).release();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
         }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
@@ -251,7 +262,18 @@ public class FreeJsBridge {
     private String toJson(Object result) throws Exception {
         if (result == null) return null;
         if (result instanceof JSObject)
-            return submit(() -> ((JSObject) result).stringify()).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            // 扫查待裁 23：调用结果对象 stringify 后即在桥线程 release；全部调用方
+            // 只用返回的 JSON 串、不再碰 result 本体，释放不影响后续。
+            return submit(() -> {
+                try {
+                    return ((JSObject) result).stringify();
+                } finally {
+                    try {
+                        ((JSObject) result).release();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         return String.valueOf(result);
     }
 

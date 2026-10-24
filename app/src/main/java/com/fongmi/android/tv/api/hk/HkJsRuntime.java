@@ -3713,8 +3713,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     }
                     BaseFunction func = null;
                     if (json != null && json.containsKey("func")) {
-                        func = (BaseFunction) json.get("func");
+                        // 扫查待裁 22：安全取值——func 缺失/非函数时原裸强转＋空解引用
+                        // 直接 NPE/CCE 打死调用链；无可调用函数即按无任务返回 null。
+                        Object funcObj = json.get("func");
+                        if (funcObj instanceof BaseFunction) func = (BaseFunction) funcObj;
                     }
+                    if (func == null) return null;
                     Object param = null;
                     if (json != null) {
                         param = json.get("param");
@@ -7180,20 +7184,21 @@ public synchronized Object syncExecute(@Parameter("task") Object task) {
         } else {
             // 8.83: check-cast to com.alibaba.fastjson.JSONObject (fastjson absent in
             // target); the target's two-arg adjuster returns LinkedHashMap, so Map is equivalent.
-            p1 = (java.util.Map<?, ?>) argsNativeObjectAdjust(p1, true); // two-arg exists in HkJsRuntime
+            // （扫查待裁 22：adjust 结果在此先落 Object，下方 instanceof 定型，不裸强转。）
+            p1 = argsNativeObjectAdjust(p1, true); // two-arg exists in HkJsRuntime
         }
     }
-    java.util.Map<?, ?> jo = (java.util.Map<?, ?>) p1; // null-safe cast, mirrors smali register flow
-    BaseFunction v1;
-    if (jo != null && jo.containsKey("func")) {
-        v1 = (BaseFunction) jo.get("func");
-    } else {
-        v1 = null;
-    }
-    Object v0 = null;
+    // 扫查待裁 22：安全取值——adjust 结果非 Map、func 缺失/非函数时原裸强转＋
+    // 空解引用直接 NPE/CCE（且与本方法头注「null/undefined -> null」契约相悖）；
+    // 无可调用函数即按无任务返回 null。
+    java.util.Map<?, ?> jo = p1 instanceof java.util.Map ? (java.util.Map<?, ?>) p1 : null;
+    BaseFunction v1 = null;
     if (jo != null) {
-        v0 = jo.get("param");
+        Object funcObj = jo.get("func");
+        if (funcObj instanceof BaseFunction) v1 = (BaseFunction) funcObj;
     }
+    if (v1 == null) return null;
+    Object v0 = jo.get("param");
     Scriptable parentScope = v1.getParentScope();
     Context v2 = Context.getCurrentContext();
     return v1.call(v2, parentScope, v1, new Object[]{v0});

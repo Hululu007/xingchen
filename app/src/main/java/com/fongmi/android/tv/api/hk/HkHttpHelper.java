@@ -168,6 +168,17 @@ public class HkHttpHelper {
         return def;
     }
 
+    /** 扫查待裁 21：规则 JS 作者数据安全取值——非 Map 一律当无（原裸强转，
+     * 畸形规则数据会 CCE 把整条请求打成静默失败；外层 catch 兜底不崩但功能丢）。 */
+    private static Map asMap(Object o) {
+        return o instanceof Map ? (Map) o : null;
+    }
+
+    /** 同上：非 String 一律当无。 */
+    private static String asString(Object o) {
+        return o instanceof String ? (String) o : null;
+    }
+
     /** 8.83 HttpHelper.tryGetBool 原样移植（smali:3295-3308）。 */
     private static boolean tryGetBool(Map<String, Object> map, String key, Boolean def) {
         Boolean v = (Boolean) tryGet(map, key, def);
@@ -481,8 +492,8 @@ public class HkHttpHelper {
         RequestBody reqBody;
 
         if (opts != null) {
-            Map optHeaders = (Map) opts.get("headers");
-            if (optHeaders == null) optHeaders = (Map) opts.get("header");
+            Map optHeaders = asMap(opts.get("headers"));
+            if (optHeaders == null) optHeaders = asMap(opts.get("header"));
             headers = optHeaders;
 
             withHeaders = tryGetBool(opts, "withHeaders", Boolean.FALSE);
@@ -501,7 +512,7 @@ public class HkHttpHelper {
             toHex = tryGetBool(opts, "toHex", Boolean.FALSE);
             inputStream = tryGetBool(opts, "inputStream", Boolean.FALSE);
             rejectCoding = tryGetBool(opts, "rejectCoding", Boolean.FALSE);
-            dns = (String) tryGet(opts, "dns", null);
+            dns = asString(tryGet(opts, "dns", null));
 
             // 8.83：先走规则 delegate，String/InputStream 直接短路返回（smali:144-145）
             Object delegateResult = delegate.fetch(url, toHex, inputStream);
@@ -510,12 +521,12 @@ public class HkHttpHelper {
             }
 
             if (headers != null) {
-                contentType = (String) headers.get("content-type");
-                if (isEmpty(contentType)) contentType = (String) headers.get("Content-Type");
-                if (isEmpty(contentType)) contentType = (String) headers.get("Content-type");
-                body = (String) headers.get("body");
+                contentType = asString(headers.get("content-type"));
+                if (isEmpty(contentType)) contentType = asString(headers.get("Content-Type"));
+                if (isEmpty(contentType)) contentType = asString(headers.get("Content-type"));
+                body = asString(headers.get("body"));
             }
-            method = (String) opts.get("method");
+            method = asString(opts.get("method"));
             // 8.83 method 分发：HEAD → OkGo.head / DELETE → OkGo.delete / 其它 → OkGo.get（smali:1038-1110）
             if ("HEAD".equalsIgnoreCase(method)) {
                 reqMethod = "HEAD";
@@ -602,12 +613,16 @@ public class HkHttpHelper {
         } else {
             rb.get();
         }
-        // 8.83：headers 逐条 check-cast 为 String 后装配（smali:239-243）
+        // 8.83：headers 逐条装配（smali:239-243 原为 check-cast；扫查待裁 21 改安全
+        // 取值：键/值非 String 的条目跳过，不再一条畸形头打死整条请求）
         Headers.Builder hb = new Headers.Builder();
         if (headers != null && !headers.isEmpty()) {
             for (Object o : headers.entrySet()) {
                 Map.Entry e = (Map.Entry) o;
-                hb.add((String) e.getKey(), (String) e.getValue());
+                String hk = asString(e.getKey());
+                String hv = asString(e.getValue());
+                if (hk == null || hv == null) continue;
+                hb.add(hk, hv);
             }
         }
         rb.headers(hb.build());

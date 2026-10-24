@@ -320,7 +320,18 @@ public class LxBridge {
         if (!(result instanceof JSObject)) return String.valueOf(result);
         JSObject promise = (JSObject) result;
         JSFunction then = promise.getJSFunction("then");
-        if (then == null) return promise.stringify();
+        if (then == null) {
+            // 扫查待裁 23：promise 包装由本次调用独占，stringify 后即 release
+            // （与 quickjs Async.then 的既定纪律同口径，不靠 ctx 销毁兜底）
+            try {
+                return promise.stringify();
+            } finally {
+                try {
+                    promise.release();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
         CompletableFuture<Object> future = new CompletableFuture<>();
         JSCallFunction ok = args -> {
             future.complete(args != null && args.length > 0 ? args[0] : null);
@@ -354,7 +365,17 @@ public class LxBridge {
                 }
             }
             if (v == null) return null;
-            if (v instanceof JSObject) return ((JSObject) v).stringify();
+            if (v instanceof JSObject) {
+                // 扫查待裁 23：兑现值包装归本次调用消费，stringify 后即 release
+                try {
+                    return ((JSObject) v).stringify();
+                } finally {
+                    try {
+                        ((JSObject) v).release();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
             return String.valueOf(v);
         } finally {
             try {
@@ -366,6 +387,10 @@ public class LxBridge {
                     catchFn.release();
                 } catch (Throwable ignored) {
                 }
+            }
+            try {
+                promise.release();
+            } catch (Throwable ignored) {
             }
         }
     }

@@ -90,9 +90,24 @@ abstract class BaseConfig {
     public void load(Callback callback) {
         beforeLoad();
         int id = taskId.incrementAndGet();
-        if (future != null && !future.isDone()) future.cancel(true);
+        if (future != null && !future.isDone()) {
+            cancelLoad();
+            future.cancel(true);
+        }
         future = Task.submit(() -> loadConfig(id, config, callback));
         callback.start();
+    }
+
+    public void cancel() {
+        taskId.incrementAndGet();
+        cancelLoad();
+        OkHttp.cancel(getTag());
+        if (future != null && !future.isDone()) future.cancel(true);
+    }
+
+    // 取消在途加载的附带清理钩（上游同名口径）：默认无操作，需要收口的
+    // 子类覆写——VodConfig 用它取消 Node 配置加载（NodeRuntime.cancelLoad）。
+    protected void cancelLoad() {
     }
 
     protected void loadConfig(int id, Config config, Callback callback) {

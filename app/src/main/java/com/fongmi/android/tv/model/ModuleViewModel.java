@@ -1,9 +1,12 @@
 package com.fongmi.android.tv.model;
 
 // 树适配说明（与上游定稿的差异，均因本树缺件）：本树 media3 叉版没有 BdjRuntime，
-// catvod 没有 PythonRuntime/QuickJsRuntime，本树没有 NodeRuntime 与 player.mpv.MpvUtil，
-// 故删去这五个导入；PYTHON/QUICKJS/NODEJS 检测改走 RuntimePlugin 通用入口，
+// catvod 没有 PythonRuntime/QuickJsRuntime，本树没有 player.mpv.MpvUtil，
+// 故删去这四个导入；PYTHON/QUICKJS 检测改走 RuntimePlugin 通用入口，
 // BDJ 检测如实抛未接入，MPV 改内联上游 loadRuntime() 本体，BDJ 重启标记走通用口径。
+// NODEJS 已随 Node 桥接线（api/node 三件＋NodeLabInfo 登记口）：检测走
+// NodeRuntime.client().check()（与上游 :236 一致），版本显示取实验室登记，
+// 安装动作跳实验室环境页，不再走插件 APK 的下载/安装链。
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -25,6 +28,8 @@ import androidx.media3.exoplayer.offline.Downloader;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.node.NodeLabInfo;
+import com.fongmi.android.tv.api.node.NodeRuntime;
 import com.fongmi.android.tv.utils.ApkCache;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -221,9 +226,9 @@ public final class ModuleViewModel extends AndroidViewModel {
             // 树适配：本树没有 BD-J 支持（无 BdjRuntime），检测如实抛未接入，不假装能测；
             // 抛出点只在 BDJ 自己弹窗的检测动作里，失败原因可见，不连累其它模块。
             case BDJ -> throw new IllegalStateException("本版未接入 BD-J 检测");
-            // 树适配：PYTHON/QUICKJS/NODEJS 统一走 RuntimePlugin 通用入口（本树无专用类）。
+            // 树适配：PYTHON/QUICKJS 统一走 RuntimePlugin 通用入口（本树无专用类）。
             case PYTHON -> module.entry(RuntimePlugin.class).check();
-            case NODEJS -> module.entry(RuntimePlugin.class).check();
+            case NODEJS -> checkNodeRuntime(signal);
             case QUICKJS -> module.entry(RuntimePlugin.class).check();
             case THUNDER -> module.entry(ThunderRuntime.class).check();
             // 树适配：本树没有 player.mpv.MpvUtil，改调下方内联的上游 loadRuntime() 本体。
@@ -231,6 +236,19 @@ public final class ModuleViewModel extends AndroidViewModel {
         }
         signal.throwIfCanceled();
         return version;
+    }
+
+    // 与上游 checkNodeRuntime 一致：检测走桥的 Client 健康检查（探针包真起
+    // 一次进程验 {42,pid,version}），取消信号转线程中断让阻塞的等待能退。
+    private void checkNodeRuntime(CancellationSignal signal) throws Exception {
+        Thread worker = Thread.currentThread();
+        signal.setOnCancelListener(worker::interrupt);
+        try {
+            signal.throwIfCanceled();
+            NodeRuntime.get().client().check();
+        } finally {
+            signal.setOnCancelListener(null);
+        }
     }
 
     // 树适配：上游 MpvUtil.loadRuntime() 本体原文内联（本树无该类）。
@@ -296,8 +314,21 @@ public final class ModuleViewModel extends AndroidViewModel {
         }
     }
 
+    // 桥口径（映射表 15）：NODEJS 行的状态只认实验室登记——已装版本与目录
+    // 可用版本都取 NodeLabInfo，不存在插件包/插件资产目录这回事；两版不同
+    // 即有更新（动作仍是跳实验室页处理）；不可从模块页卸载（卸载在实验室
+    // 环境页）；重启标记仍走 RuntimeModule 的改判口径。
+    private Status nodeStatus() throws IOException {
+        String installed = NodeLabInfo.installedVersion();
+        String available = NodeLabInfo.availableVersion();
+        if (available == null) available = installed;
+        boolean update = installed != null && available != null && !available.equals(installed);
+        return new Status(RuntimeInstaller.getAbi(), installed, available, update, module.isRestartRequired(), false);
+    }
+
     private Status getInstalledStatus() throws IOException {
         RuntimeModule.refresh();
+        if (module == RuntimeModule.NODEJS) return nodeStatus();
         String installed = module.getVersionName();
         // 树适配：本树没有 BdjRuntime，BDJ 的重启标记也走 RuntimeModule 通用口径。
         boolean restart = module.isRestartRequired();
@@ -310,6 +341,7 @@ public final class ModuleViewModel extends AndroidViewModel {
     }
 
     private Status getStatus(Status runtime, CancellationSignal signal) throws IOException {
+        if (module == RuntimeModule.NODEJS) return nodeStatus();
         String installed = runtime.installedVersion();
         long code = module.getVersionCode();
         JSONObject asset = RuntimeInstaller.getAsset(module, signal);
@@ -344,10 +376,31 @@ public final class ModuleViewModel extends AndroidViewModel {
     }
 
     public void install() {
+        if (module == RuntimeModule.NODEJS) {
+            openNodeLabPage();
+            return;
+        }
         changeRuntime(false);
     }
 
+    // 桥口径（设计未定项②按推荐落）：NODEJS 的「安装」不走插件 APK 的
+    // 下载/安装链，跳实验室环境页装 Node 环境（与未装引导同一落点，设计
+    // 风险 5）。实验室在 mobile 源集，主源集照 AiActionExecutor 的先例用
+    // 类名开页；leanback 没有实验室，类名取不到就如实提示不可用，不假装能装。
+    private void openNodeLabPage() {
+        try {
+            Intent intent = new Intent(getApplication(), Class.forName("com.fongmi.android.tv.ui.lab.LabHomeActivity"));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getApplication().startActivity(intent);
+        } catch (Throwable e) {
+            Notify.show(R.string.module_unavailable);
+        }
+    }
+
     public void remove() {
+        // 桥口径：NODEJS 的卸载在实验室环境页，模块页不提供（nodeStatus 的
+        // removable 已同步为 false，这里再兜一层，不许误入插件卸载链）。
+        if (module == RuntimeModule.NODEJS) return;
         changeRuntime(true);
     }
 

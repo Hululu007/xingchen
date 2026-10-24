@@ -146,6 +146,12 @@
             android:foregroundServiceType="dataSync|connectedDevice"
             android:stopWithTask="false" />
 
+        <service
+            android:name=".api.node.NodeService"
+            android:exported="false"
+            android:process=":nodejs"
+            android:stopWithTask="true" />
+
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />

@@ -160,3 +160,16 @@
 # mobile 源集的实验室类），类名被 R8 改名会让登记静默失效、桥误判
 # 没装。整类保名。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeProcessHost { *; }
+
+# Node 桥版本登记口（第 4 步接线）：NodeLabInfo 在 main 源集按类名
+# Class.forName 触发 LabNodeInfo 加载自登记（同第 3 步口径），类名被
+# R8 改名会让模块页 NODEJS 行的版本登记静默失效、误报没装。整类保名。
+-keep class com.fongmi.android.tv.ui.lab.LabNodeInfo { *; }
+
+# Node 桥内置入口（第 1 步内置分支）：RuntimeModule 按字面类名
+# Class.forName("com.fongmi.nodejs.RuntimeEntry") 加载内置桥入口，
+# 类名被 R8 改名会让 entry() 在正式包里必抛「加载不了、重启 App」。
+# 前三步未落此条，第 4 步接线时补上；只需保类名与无参构造。
+-keep class com.fongmi.nodejs.RuntimeEntry {
+    public <init>();
+}

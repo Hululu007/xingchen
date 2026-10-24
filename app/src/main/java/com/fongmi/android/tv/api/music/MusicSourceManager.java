@@ -891,15 +891,18 @@ public class MusicSourceManager {
                 }
                 if (key == null) {
                     r.message = "该插件没有可检测的平台";
+                    r.searchMessage = "没有可检测的平台";
                     r.state = MusicPluginTest.State.FAILED;
                     return r;
                 }
                 List<MusicTrack> tracks = LxPlatformSearch.search(key, TEST_PROBE_KEYWORD);
                 if (tracks == null || tracks.isEmpty()) {
                     r.message = "搜不到探针歌曲";
+                    r.searchMessage = "搜不到探针歌曲";
                     r.state = MusicPluginTest.State.FAILED;
                     return r;
                 }
+                r.searchOk = true;
                 first = tracks.get(0);
                 String platform = platformOf(first, key);
                 JsonObject info = lxMusicInfo(first, platform);
@@ -909,6 +912,7 @@ public class MusicSourceManager {
                 long ms = System.currentTimeMillis() - a0;
                 r.audioOk = !TextUtils.isEmpty(url);
                 r.latencyMs = ms;
+                if (!r.audioOk) r.playMessage = "取不到播放地址";
                 if (r.audioOk) MusicStore.notePluginLatency(site.platform, site.srcUrl, ms, true);
                 if (b.supports(platform, "lyric")) {
                     r.lyricCapable = true;
@@ -916,6 +920,7 @@ public class MusicSourceManager {
                     String text = extractLyric(lr);
                     r.lyricOk = !TextUtils.isEmpty(text);
                     if (r.lyricOk) r.preview = previewOf(text);
+                    else r.lyricMessage = "歌词为空";
                 } else {
                     r.lyricCapable = false;
                 }
@@ -923,6 +928,7 @@ public class MusicSourceManager {
                 FreeJsBridge b = bridgeOf(site);
                 if (b == null) {
                     r.message = "桥建不起来";
+                    r.searchMessage = "桥建不起来";
                     r.state = MusicPluginTest.State.FAILED;
                     return r;
                 }
@@ -933,6 +939,7 @@ public class MusicSourceManager {
                     List<MusicTrack> ltracks = lr == null ? null : lr.getTracks();
                     if (ltracks == null || ltracks.isEmpty()) {
                         r.message = "搜不到探针歌曲";
+                        r.searchMessage = "搜不到探针歌曲";
                         r.state = MusicPluginTest.State.FAILED;
                         return r;
                     }
@@ -941,12 +948,14 @@ public class MusicSourceManager {
                 } else {
                     first = tracks.get(0);
                 }
+                r.searchOk = true;
                 if (!lyricOnly) {
                     long a0 = System.currentTimeMillis();
                     com.fongmi.android.tv.bean.music.MusicMediaSource ms = b.getMediaSource(first, MusicQuality.STANDARD);
                     long took = System.currentTimeMillis() - a0;
                     r.audioOk = ms != null && !TextUtils.isEmpty(ms.url);
                     r.latencyMs = took;
+                    if (!r.audioOk) r.playMessage = "取不到播放地址";
                     if (r.audioOk) MusicStore.notePluginLatency(site.platform, site.srcUrl, took, true);
                 }
                 try {
@@ -954,13 +963,17 @@ public class MusicSourceManager {
                     r.lyricOk = lyric != null && !TextUtils.isEmpty(lyric.rawLrc);
                     r.lyricCapable = r.lyricOk;
                     if (r.lyricOk) r.preview = previewOf(lyric.rawLrc);
+                    else if (!lyricOnly) r.lyricMessage = "歌词为空";
                 } catch (Throwable ignored) {
                     r.lyricCapable = false;
                 }
             }
             if (lyricOnly) {
                 r.state = r.lyricOk ? MusicPluginTest.State.AVAILABLE : MusicPluginTest.State.FAILED;
-                if (!r.lyricOk) r.message = "歌词探针失败";
+                if (!r.lyricOk) {
+                    r.message = "歌词探针失败";
+                    if (r.lyricMessage == null || r.lyricMessage.isEmpty()) r.lyricMessage = "歌词探针失败";
+                }
             } else if (r.audioOk && (r.lyricOk || !r.lyricCapable)) {
                 r.state = MusicPluginTest.State.AVAILABLE;
             } else {
@@ -971,6 +984,12 @@ public class MusicSourceManager {
         } catch (Throwable t) {
             r.state = MusicPluginTest.State.FAILED;
             r.message = t.getMessage() == null ? "检测失败" : t.getMessage();
+            // 批 6：异常落在哪一段就记哪一段的原因（搜索未过＝搜索段，其余归取播放段兜底）
+            if (!r.searchOk && (r.searchMessage == null || r.searchMessage.isEmpty())) {
+                r.searchMessage = r.message;
+            } else if (!r.audioOk && (r.playMessage == null || r.playMessage.isEmpty())) {
+                r.playMessage = r.message;
+            }
             return r;
         }
     }

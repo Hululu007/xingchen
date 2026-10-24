@@ -32,6 +32,18 @@ public class MusicPluginTest {
     /** 音源取链耗时 ms（写入耗时表作初始值，不覆盖真实取链耗时） */
     public long latencyMs;
 
+    // ===== 批 6：三段分段结果（搜索／取播放／取歌词），行内与详情面板逐段显状态用。
+    // 新增字段对旧存盘 JSON 向后兼容（旧结果无这些字段，读回为 false／""，UI 侧对
+    // AVAILABLE 的旧结果按「搜索必已通过」兜底显示，见 MusicListActivity.stageText）。 =====
+    /** 搜索段是否通过（探针关键词搜到歌） */
+    public boolean searchOk;
+    /** 搜索段失败原因短文（通过时为空） */
+    public String searchMessage = "";
+    /** 取播放段失败原因短文（通过时为空；message 仍保留总失败文案口径不变） */
+    public String playMessage = "";
+    /** 取歌词段失败原因短文（通过或无歌词能力时为空） */
+    public String lyricMessage = "";
+
     public MusicPluginTest() {
     }
 

@@ -7,12 +7,23 @@
      分组与行顺序、行名、行值一字不动；新行只加在最贴合的分组里。
      GZ 12 分类中无适用项的类不建分区：曲库与扫描（随页打开自动进行，无独立开关）、
      搜索与通用（搜索历史清空在搜索页）、底栏与黑胶（底栏黑胶参数未抠到，无可调项）。
-     需登录的功能（云同步、插件同步等）一律排除；需系统能力／不适用项（桌面歌词、词幕等）不搬。 -->
+     需登录的功能（云同步、插件同步等）一律排除；需系统能力／不适用项（桌面歌词、词幕等）不搬。
+     批 6（2026-10-24）：背景收口全域玻璃（MusicGlassBackgroundView＋bg_music_glass_card）；
+     摘除两行假开关——「左手布局」（music_left_hand_landscape 全树无读取方）与「过滤词曲信息」
+     （music_filter_lyric_meta 全树无读取方，解析链是无条件过滤、开关改不了行为）；
+     两键存量值原样保留在 prefs 里未删，待协调者定接线或正式废弃。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/home_bg_page"
     android:fitsSystemWindows="true">
+
+    <!-- 全域统一背景（批 5 F1 立、批 6 设置页收口）：与首页同一份 MusicGlassBackgroundView，
+         根 home_bg_page 只作背景 View 之下的兜底色，不许本页自编背景。 -->
+    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
+        android:id="@+id/musicGlassBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -57,7 +68,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <LinearLayout
@@ -219,7 +230,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <!-- 播放音质（下载音质归下载设置，不在这里重复列） -->
@@ -296,7 +307,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <LinearLayout
@@ -348,7 +359,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <LinearLayout
@@ -400,7 +411,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <LinearLayout
@@ -443,26 +454,6 @@
                             style="@style/MusicSettingSwitch" />
                     </LinearLayout>
 
-                    <View style="@style/MusicSettingDivider" />
-
-                    <LinearLayout
-                        android:id="@+id/rowLeftHand"
-                        style="@style/MusicSettingRow">
-
-                        <ImageView
-                            style="@style/MusicSettingIcon"
-                            android:backgroundTint="#FFE082"
-                            android:contentDescription="@null"
-                            android:src="@drawable/ic_setting_swap" />
-
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="左手布局" />
-
-                        <com.google.android.material.switchmaterial.SwitchMaterial
-                            android:id="@+id/swLeftHand"
-                            style="@style/MusicSettingSwitch" />
-                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 歌词显示 -->
@@ -473,7 +464,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <!-- 歌词缺失自动搜索 -->
@@ -683,27 +674,6 @@
                             style="@style/MusicSettingSwitch" />
                     </LinearLayout>
 
-                    <View style="@style/MusicSettingDivider" />
-
-                    <!-- 过滤词曲信息（瓜子歌词过滤：作词／作曲／编曲等制作信息行不进歌词区显示） -->
-                    <LinearLayout
-                        android:id="@+id/rowFilterMeta"
-                        style="@style/MusicSettingRow">
-
-                        <ImageView
-                            style="@style/MusicSettingIcon"
-                            android:backgroundTint="#A9BDF0"
-                            android:contentDescription="@null"
-                            android:src="@drawable/ic_setting_filter" />
-
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="过滤词曲信息" />
-
-                        <com.google.android.material.switchmaterial.SwitchMaterial
-                            android:id="@+id/swFilterMeta"
-                            style="@style/MusicSettingSwitch" />
-                    </LinearLayout>
 
                     <View style="@style/MusicSettingDivider" />
 
@@ -735,7 +705,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <!-- 下载音质 -->
@@ -855,7 +825,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <!-- S1 电池优化白名单（动作行，跳系统电池优化设置；副文二态按系统实读） -->
@@ -887,7 +857,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/card_music"
+                    android:background="@drawable/bg_music_glass_card"
                     android:orientation="vertical">
 
                     <!-- 清除音乐缓存（低-02 修后：只清音乐自有歌词缓存，

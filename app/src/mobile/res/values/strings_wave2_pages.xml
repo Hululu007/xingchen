@@ -7,6 +7,9 @@
     <string name="wave2_plugin_group_audio">音源插件</string>
     <string name="wave2_plugin_group_other">其他插件</string>
     <string name="wave2_plugin_group_lyric">内置歌词</string>
+    <!-- 批 6 双轨分组头：落雪 JS 源／FreeJS 源两轨各自成列（空轨不渲染） -->
+    <string name="wave2_plugin_group_lx">落雪 JS 源</string>
+    <string name="wave2_plugin_group_freejs">FreeJS 源</string>
     <!-- 播放路由：瓜子 LxPluginScreen 播放路由区 -->
     <string name="wave2_route_title">播放路由</string>
     <string name="wave2_route_sub">高级设置</string>

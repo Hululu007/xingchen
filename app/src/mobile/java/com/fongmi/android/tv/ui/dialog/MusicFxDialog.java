@@ -27,6 +27,10 @@ import java.util.List;
  * 状态全从播放服务的 audiofx 三件读，设备不支持某项就置灰写「不支持」，
  * 总开关关＝三件全 bypass。设置持久化走 MusicStore.music_fx_*。
  * 听感真机验（本机验不到）。
+ * 批 6：面板底换全域液态玻璃（布局侧 bg_music_glass_panel）；补 onDestroyView 置空
+ * binding 的销毁守卫（面板销毁后 SeekBar 回调／refresh 不许再碰已回收的视图）。
+ * ParametricEq 两文件经普查有活引用（服务处理链＋MusicController＋ParametricEqDialog），
+ * 按定案只报不删，本面板内的参数均衡器入口保持原样。
  */
 public class MusicFxDialog extends BaseBottomSheetDialog {
 
@@ -47,6 +51,14 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         return binding = DialogMusicFxBinding.inflate(inflater, container, false);
+    }
+
+    @Override
+    public void onDestroyView() {
+        // 销毁守卫：置空后 refresh() 的 binding==null 检查才真正生效
+        binding = null;
+        state = null;
+        super.onDestroyView();
     }
 
     @Override

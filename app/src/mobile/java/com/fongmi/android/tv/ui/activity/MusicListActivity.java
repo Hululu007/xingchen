@@ -3091,27 +3091,22 @@ public class MusicListActivity extends BaseActivity {
             runOnUiThread(() -> {
                 pluginImporting = false;
                 cards.clear();
-                // 第二波：插件分组头（瓜子 LxPluginScreen 三组，空组不渲染；判定复用头卡现有歌词三档）：
-                // 内置歌词＝应用自带歌词预置；其他插件＝歌词型但非预置；其余＝音源插件。组内保持排序后顺序。
-                List<MusicSite> audio = new ArrayList<>();
-                List<MusicSite> other = new ArrayList<>();
-                List<MusicSite> builtinLyric = new ArrayList<>();
+                // 批 6 双轨分区（定案：落雪 JS＋FreeJS 双轨各自成列，空轨不渲染；组内保持排序后顺序）。
+                // 旧三组（音源／其他／内置歌词）按能力分，与双轨口径冲突，本批起改按脚本格式分轨；
+                // 内置歌词预置（歌词网／歌词千寻）是 FreeJS 种子，归 FreeJS 轨，行内「官方」段标识不变。
+                List<MusicSite> lxTrack = new ArrayList<>();
+                List<MusicSite> freeTrack = new ArrayList<>();
                 for (MusicSite s : ordered) {
-                    if (MusicSourceManager.isBuiltinLyricPreset(s.srcUrl)) builtinLyric.add(s);
-                    else if (isLyricPluginSite(s)) other.add(s);
-                    else audio.add(s);
+                    if (MusicSourceManager.isLx(s)) lxTrack.add(s);
+                    else freeTrack.add(s);
                 }
-                if (!audio.isEmpty()) {
-                    cards.add(new PluginGroup(getString(R.string.wave2_plugin_group_audio)));
-                    cards.addAll(audio);
+                if (!lxTrack.isEmpty()) {
+                    cards.add(new PluginGroup(getString(R.string.wave2_plugin_group_lx)));
+                    cards.addAll(lxTrack);
                 }
-                if (!other.isEmpty()) {
-                    cards.add(new PluginGroup(getString(R.string.wave2_plugin_group_other)));
-                    cards.addAll(other);
-                }
-                if (!builtinLyric.isEmpty()) {
-                    cards.add(new PluginGroup(getString(R.string.wave2_plugin_group_lyric)));
-                    cards.addAll(builtinLyric);
+                if (!freeTrack.isEmpty()) {
+                    cards.add(new PluginGroup(getString(R.string.wave2_plugin_group_freejs)));
+                    cards.addAll(freeTrack);
                 }
                 adapter.notifyDataSetChanged();
                 // 第 8 项去双标题：sites 模式只留顶部居中“插件管理”，下方大标题行整行隐藏
@@ -3527,27 +3522,40 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    /** C4 分检测面板：标题“音源检测”／“歌词检测”（18sp），结果分两行出 */
+    /** 批 6 分段检测面板：搜索／取播放／取歌词三段逐段显状态（通过／失败＋原因短文）。
+     * 数据取 MusicPluginTest 三段字段；批 6 前的旧结果无段字段，按旧口径兜底
+     * （AVAILABLE 必经搜索成功；失败原因取总 message）。 */
     private void showTestDetail(MusicSite site, MusicPluginTest result) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
         box.setPadding(pad, pad, pad, pad);
-        TextView audioTitle = new TextView(this);
-        audioTitle.setText("音源检测");
-        audioTitle.setTextSize(18);
-        audioTitle.setTextColor(0xFFFFFFFF);
-        audioTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        box.addView(audioTitle);
-        TextView audioLine = new TextView(this);
-        audioLine.setText(result.audioOk
-                ? "可用（取链耗时 " + result.latencyMs + "ms）"
-                : "失败" + (result.message == null || result.message.isEmpty() ? "" : "：" + result.message));
-        audioLine.setTextSize(14);
-        audioLine.setTextColor(result.audioOk ? 0xFF34C759 : 0xFFFF3B30);
-        box.addView(audioLine);
+        boolean searchOk = result.searchOk || result.state == MusicPluginTest.State.AVAILABLE;
+        String searchMsg = result.searchMessage != null && !result.searchMessage.isEmpty()
+                ? result.searchMessage : result.message;
+        addStageRow(box, "搜索", searchOk ? 0xFF34C759 : 0xFFFF3B30,
+                searchOk ? "通过" : "失败" + stageReason(searchMsg), false);
+        boolean lyricOnly = !result.audioOk && result.lyricOk && searchOk;
+        addStageRow(box, "取播放", lyricOnly ? 0xFF8E8E93 : result.audioOk ? 0xFF34C759 : 0xFFFF3B30,
+                lyricOnly ? "歌词型插件，无取播放段"
+                        : result.audioOk ? "通过（取链耗时 " + result.latencyMs + "ms）"
+                        : "失败" + stageReason(result.playMessage != null && !result.playMessage.isEmpty()
+                        ? result.playMessage : result.message), true);
+        String lyricText;
+        int lyricColor;
+        if (!result.lyricCapable) {
+            lyricText = "该插件无歌词能力，只看音源与取播放";
+            lyricColor = 0xFF8E8E93;
+        } else if (result.lyricOk) {
+            lyricText = "通过" + (result.preview == null || result.preview.isEmpty() ? "" : "：" + result.preview);
+            lyricColor = 0xFF34C759;
+        } else {
+            lyricText = "失败" + stageReason(result.lyricMessage != null && !result.lyricMessage.isEmpty()
+                    ? result.lyricMessage : result.message);
+            lyricColor = 0xFFFF3B30;
+        }
         TextView lyricTitle = new TextView(this);
-        lyricTitle.setText("歌词检测");
+        lyricTitle.setText("取歌词");
         lyricTitle.setTextSize(18);
         lyricTitle.setTextColor(0xFFFFFFFF);
         lyricTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -3556,23 +3564,60 @@ public class MusicListActivity extends BaseActivity {
         lp.topMargin = dp(16);
         box.addView(lyricTitle, lp);
         TextView lyricLine = new TextView(this);
-        if (!result.lyricCapable) {
-            lyricLine.setText("该插件无歌词能力，只看音源");
-            lyricLine.setTextColor(0xFF8E8E93);
-        } else if (result.lyricOk) {
-            lyricLine.setText("可用" + (result.preview == null || result.preview.isEmpty() ? "" : "：" + result.preview));
-            lyricLine.setTextColor(0xFF34C759);
-        } else {
-            lyricLine.setText("失败" + (result.message == null || result.message.isEmpty() ? "" : "：" + result.message));
-            lyricLine.setTextColor(0xFFFF3B30);
-        }
+        lyricLine.setText(lyricText);
         lyricLine.setTextSize(14);
+        lyricLine.setTextColor(lyricColor);
         box.addView(lyricLine);
         new MaterialAlertDialogBuilder(this)
                 .setTitle(site.name == null ? "" : site.name)
                 .setView(box)
                 .setPositiveButton("知道了", null)
                 .show();
+    }
+
+    private static String stageReason(String msg) {
+        return msg == null || msg.isEmpty() ? "" : "：" + msg;
+    }
+
+    private void addStageRow(LinearLayout box, String title, int color, String text, boolean marginTop) {
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(18);
+        t.setTextColor(0xFFFFFFFF);
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        if (marginTop) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(16);
+            box.addView(t, lp);
+        } else {
+            box.addView(t);
+        }
+        TextView line = new TextView(this);
+        line.setText(text);
+        line.setTextSize(14);
+        line.setTextColor(color);
+        box.addView(line);
+    }
+
+    /** 批 6：行内三段文案（搜索／取播放／取歌词一段一节，失败带原因短文；未检测返回空串＝不显行） */
+    private static String pluginStageText(MusicPluginTest test) {
+        if (test == null || test.state == MusicPluginTest.State.UNTESTED) return "";
+        boolean searchOk = test.searchOk || test.state == MusicPluginTest.State.AVAILABLE;
+        StringBuilder sb = new StringBuilder();
+        sb.append("搜索 ").append(searchOk ? "通过" : "失败" + stageReason(
+                test.searchMessage != null && !test.searchMessage.isEmpty() ? test.searchMessage : test.message));
+        sb.append(" · 取播放 ");
+        if (!test.audioOk && test.lyricOk && searchOk) sb.append("—");
+        else if (test.audioOk) sb.append("通过 ").append(test.latencyMs).append("ms");
+        else sb.append("失败").append(stageReason(
+                test.playMessage != null && !test.playMessage.isEmpty() ? test.playMessage : test.message));
+        sb.append(" · 取歌词 ");
+        if (!test.lyricCapable) sb.append("无此能力");
+        else if (test.lyricOk) sb.append("通过");
+        else sb.append("失败").append(stageReason(
+                test.lyricMessage != null && !test.lyricMessage.isEmpty() ? test.lyricMessage : test.message));
+        return sb.toString();
     }
 
     /** C5 开关行＋C4 自动屏蔽行＋C10 运行时状态区（仅插件管理页 sites 模式） */
@@ -3972,22 +4017,27 @@ public class MusicListActivity extends BaseActivity {
             } else if (idx == fBlockIdx) {
                 showPlatformBlockSheet(site);
             } else if (idx == fDeleteIdx) {
-                // 瓜子移除弹窗（仅本机文案；云端备份选项属排除项，不出）
-                new MaterialAlertDialogBuilder(this)
-                        .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
-                        .setMessage("该插件只存在于本机，移除后需要重新导入脚本才能恢复。")
-                        .setPositiveButton("移除", (d, w) -> Task.execute(() -> {
-                            MusicSourceManager.get().removeSite(site.srcUrl);
-                            runOnUiThread(() -> {
-                                MusicActivity.clearHomeChartCache();
-                                Notify.show(R.string.music_deleted);
-                                loadSites();
-                            });
-                        }))
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show();
+                confirmDeletePlugin(site);
             }
         });
+    }
+
+    /** 批 6：删除插件确认（瓜子移除弹窗，仅本机文案；云端备份选项属排除项，不出）。
+     * ⋮ 菜单删除与行内删除钮共用这一份，行为一字不变（removeSite 连本地文件一起删）。 */
+    private void confirmDeletePlugin(MusicSite site) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
+                .setMessage("该插件只存在于本机，移除后需要重新导入脚本才能恢复。")
+                .setPositiveButton("移除", (d, w) -> Task.execute(() -> {
+                    MusicSourceManager.get().removeSite(site.srcUrl);
+                    runOnUiThread(() -> {
+                        MusicActivity.clearHomeChartCache();
+                        Notify.show(R.string.music_deleted);
+                        loadSites();
+                    });
+                }))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     /** 第 11 项②：单插件屏蔽平台弹层（GZ PlatformBlockSheet：标题 18sp、说明 12sp、平台行 15sp＋行尾已屏蔽态、
@@ -5726,7 +5776,16 @@ public class MusicListActivity extends BaseActivity {
             } else {
                 h.pluginError.setVisibility(View.GONE);
             }
+            // 批 6：三段行（已检测才显；检测中收起，避免旧段结果与「检测中…」打架）
+            String stages = MusicSourceManager.get().isTesting(s.srcUrl) ? "" : pluginStageText(rowTest);
+            if (stages.isEmpty()) {
+                h.pluginStages.setVisibility(View.GONE);
+            } else {
+                h.pluginStages.setVisibility(View.VISIBLE);
+                h.pluginStages.setText(stages);
+            }
             h.pluginTest.setOnClickListener(v -> startPluginTest(s));
+            if (h.pluginDelete != null) h.pluginDelete.setOnClickListener(v -> confirmDeletePlugin(s));
             View.OnClickListener menu = v -> pluginMenu(s);
             h.pluginMore.setOnClickListener(menu);
             h.itemView.setOnClickListener(menu);
@@ -7427,9 +7486,11 @@ public class MusicListActivity extends BaseActivity {
             final TextView version;
             final TextView testStatus;
             final TextView pluginError;
+            final TextView pluginStages;
             final TextView pluginTest;
             final com.google.android.material.switchmaterial.SwitchMaterial pluginSwitch;
             final ImageView pluginMore;
+            final ImageView pluginDelete;
 
             PluginHolder(View v) {
                 super(v);
@@ -7440,9 +7501,11 @@ public class MusicListActivity extends BaseActivity {
                 version = v.findViewById(R.id.version);
                 testStatus = v.findViewById(R.id.testStatus);
                 pluginError = v.findViewById(R.id.pluginError);
+                pluginStages = v.findViewById(R.id.pluginStages);
                 pluginTest = v.findViewById(R.id.pluginTest);
                 pluginSwitch = v.findViewById(R.id.pluginSwitch);
                 pluginMore = v.findViewById(R.id.pluginMore);
+                pluginDelete = v.findViewById(R.id.pluginDelete);
                 // U4：插件行开关 M3 Switch 缩放 0.75（与自动屏蔽行 0.72 区分，不混）
                 pluginSwitch.setScaleX(0.75f);
                 pluginSwitch.setScaleY(0.75f);

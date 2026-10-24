@@ -156,7 +156,7 @@ public class MusicActivity extends BaseActivity {
         // 五快捷真跳
         binding.homeQuickFavorite.setOnClickListener(v -> MusicListActivity.startFavorite(this));
         binding.homeQuickSheets.setOnClickListener(v -> MusicListActivity.startSheets(this));
-        binding.homeQuickDevice.setOnClickListener(v -> MusicListActivity.startDevice(this));
+        binding.homeQuickDevice.setOnClickListener(v -> MusicDeviceActivity.startDevice(this));
         binding.homeQuickRecent.setOnClickListener(v -> showRecent());
         binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
         // 三彩卡入口：猜你喜欢页／榜单页／随心听页（歌单广场不在此卡，入口在五快捷「我的歌单」）

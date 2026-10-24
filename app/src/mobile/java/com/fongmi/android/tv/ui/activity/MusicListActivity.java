@@ -100,25 +100,6 @@ public class MusicListActivity extends BaseActivity {
     private String dlSearchKw = "";
     private boolean dlSearchWired;
 
-    // 第 8 项：本地音乐视图／排序／来源／组筛选（GZ：歌曲／专辑／歌手／文件夹 4 视图＋排序弹层＋来源弹层）
-    private static final int DEVICE_VIEW_SONGS = 0;
-    private static final int DEVICE_VIEW_ALBUMS = 1;
-    private static final int DEVICE_VIEW_ARTISTS = 2;
-    private static final int DEVICE_VIEW_FOLDERS = 3;
-    private int deviceView = DEVICE_VIEW_SONGS;
-    private int deviceSort = 0; // 0 默认 1 最近添加 2 时长 3 文件大小
-    private boolean deviceAsc = false; // 默认降序（新→旧／大→小；升降序在分组区块头右侧切换）
-    private int deviceSource = 0; // 0 全部 1 设备媒体库 2 导入目录（id 含 :lib: 即导入目录）
-    private int deviceGroupType = -1; // -1 无组筛选 0 专辑 1 歌手 2 文件夹
-    private String deviceGroupKey = "";
-    // 第三波 R6：本地页内搜索词（只滤本地库；组视图同样先滤 base 再分组，不跳全局搜索）
-    private String deviceSearchKw = "";
-    private boolean deviceSearchWired;
-    private final List<MusicTrack> deviceAll = new ArrayList<>();
-    private final List<Integer> deviceSectionPos = new ArrayList<>();
-    private final List<String> deviceSectionTitles = new ArrayList<>();
-    private final List<Integer> deviceSectionCounts = new ArrayList<>();
-
     // 第 6 项：收藏／历史英雄卡（GZ：拼贴 76dp＋大标题 28sp＋N 首 12sp＋播放全部／随机播放＋搜索框＋排序＋续播卡＋多选）
     private final List<MusicTrack> favHistAll = new ArrayList<>();
     private String favHistSearchKw = "";
@@ -199,12 +180,6 @@ public class MusicListActivity extends BaseActivity {
     public static void startDownload(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "download");
-        activity.startActivity(i);
-    }
-
-    public static void startDevice(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "device");
         activity.startActivity(i);
     }
 
@@ -301,9 +276,6 @@ public class MusicListActivity extends BaseActivity {
             String savedKw = savedInstanceState.getString("ml_keyword");
             if (savedKw != null) keyword = savedKw;
             selectedCat = savedInstanceState.getInt("ml_selectedCat", selectedCat);
-            deviceView = savedInstanceState.getInt("ml_deviceView", deviceView);
-            deviceSort = savedInstanceState.getInt("ml_deviceSort", deviceSort);
-            deviceSource = savedInstanceState.getInt("ml_deviceSource", deviceSource);
             sheetSearchKw = savedInstanceState.getString("ml_sheetSearchKw", sheetSearchKw);
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
@@ -384,8 +356,7 @@ public class MusicListActivity extends BaseActivity {
         }
         binding.btnChartsRefresh.setOnClickListener(v -> loadCharts());
         binding.btnSort.setOnClickListener(v -> {
-            if (mode.equals("device")) showDeviceSortDialog();
-            else if (mode.equals("favorite") || mode.equals("history")) showFavHistSortDialog();
+            if (mode.equals("favorite") || mode.equals("history")) showFavHistSortDialog();
             else if (mode.equals("search") && selectedCat != 0 && searchGroupType < 0) {
                 // 第 5 项：歌手／歌单／专辑分类是分组卡，排序只对歌曲列有意义，分组卡不支持排序
                 Notify.show("分组不支持排序");
@@ -438,20 +409,6 @@ public class MusicListActivity extends BaseActivity {
         binding.btnDlPlayAll.setOnClickListener(v -> {
             if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
             else playTrack(0);
-        });
-        // 第 8 项：本地音乐视图切换＋来源＋组筛选清除
-        binding.tvDeviceViewSongs.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_SONGS));
-        binding.tvDeviceViewAlbums.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_ALBUMS));
-        binding.tvDeviceViewArtists.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_ARTISTS));
-        binding.tvDeviceViewFolders.setOnClickListener(v -> setDeviceView(DEVICE_VIEW_FOLDERS));
-        binding.tvDeviceSource.setOnClickListener(v -> showDeviceSourceDialog());
-        // 第二波：本地扫描设置／移除恢复入口（仅 device 模式工具条内，见 refreshDeviceDisplay 更新显隐与计数）
-        if (binding.tvDeviceScanSettings != null) binding.tvDeviceScanSettings.setOnClickListener(v -> showDeviceScanDialog());
-        if (binding.tvDeviceRemoved != null) binding.tvDeviceRemoved.setOnClickListener(v -> showDeviceRemovedDialog());
-        binding.deviceFilterBar.setOnClickListener(v -> {
-            deviceGroupType = -1;
-            deviceGroupKey = "";
-            refreshDeviceDisplay();
         });
         // 第 6 项：收藏／历史英雄卡操作行
         binding.btnFavHistPlayAll.setOnClickListener(v -> {
@@ -572,9 +529,6 @@ public class MusicListActivity extends BaseActivity {
                     && binding.etKeyword.getText() != null
                     ? binding.etKeyword.getText().toString() : keyword);
             outState.putInt("ml_selectedCat", selectedCat);
-            outState.putInt("ml_deviceView", deviceView);
-            outState.putInt("ml_deviceSort", deviceSort);
-            outState.putInt("ml_deviceSource", deviceSource);
             outState.putString("ml_sheetSearchKw", sheetSearchKw);
             if (binding != null && binding.recycler != null
                     && binding.recycler.getLayoutManager() != null) {
@@ -622,9 +576,6 @@ public class MusicListActivity extends BaseActivity {
             case "download":
                 loadDownloads();
                 break;
-            case "device":
-                loadDevice();
-                break;
             default:
                 break;
         }
@@ -663,11 +614,6 @@ public class MusicListActivity extends BaseActivity {
         if (binding.downloadBatchBar != null) binding.downloadBatchBar.setVisibility(View.GONE);
         if (binding.tvDlLiveHeader != null) binding.tvDlLiveHeader.setVisibility(View.GONE);
         if (binding.etDlSearch != null) binding.etDlSearch.setVisibility(View.GONE);
-        // 第 8 项：本地音乐视图条／组筛选条默认 GONE，非 device 模式必须保持不可见
-        if (binding.deviceViewBar != null) binding.deviceViewBar.setVisibility(View.GONE);
-        if (binding.deviceFilterBar != null) binding.deviceFilterBar.setVisibility(View.GONE);
-        // 第二波：本地扫描工具条默认 GONE，非 device 模式必须保持不可见
-        if (binding.deviceToolsBar != null) binding.deviceToolsBar.setVisibility(View.GONE);
         // 第 6 项：收藏／历史英雄卡默认 GONE，非 favorite/history 模式必须保持不可见；多选态复位
         if (binding.favHistHero != null) binding.favHistHero.setVisibility(View.GONE);
         favHistMulti = false;
@@ -753,9 +699,6 @@ public class MusicListActivity extends BaseActivity {
                 bigTitle = getString(R.string.music_downloaded);
                 loadDownloads();
                 break;
-            case "device":
-                loadDevice();
-                break;
             case "sites":
                 bigTitle = getString(R.string.music_plugin_manage);
                 loadSites();
@@ -782,8 +725,6 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_charts);
             case "download":
                 return getString(R.string.wave2_download_manage);
-            case "device":
-                return getString(R.string.music_device);
             case "sites":
                 return getString(R.string.music_plugin_manage);
             case "history":
@@ -2431,488 +2372,6 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    // ================= 本地音乐（设备音频） =================
-
-    private static final int REQ_AUDIO_PERMISSION = 4312;
-    private static final int REQ_IMPORT_MUSIC = 4313;
-    /** 自动弹授权框只弹一次：永久拒绝后系统会立即回 denied，不护栏就会回调套回调死循环 */
-    private boolean permAutoAsked;
-
-    private boolean deviceHeader() {
-        return mode.equals("device");
-    }
-
-    private String audioPermission() {
-        return android.os.Build.VERSION.SDK_INT >= 33
-                ? android.Manifest.permission.READ_MEDIA_AUDIO
-                : android.Manifest.permission.READ_EXTERNAL_STORAGE;
-    }
-
-    /** P-16：还能弹系统授权框就弹；已被永久拒绝就跳本应用详情设置页（一键去开），不许点了没反应。 */
-    private void requestAudioPermissionOrSettings() {
-        boolean canAsk = !permAutoAsked
-                || androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this, audioPermission());
-        if (canAsk) {
-            requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
-            return;
-        }
-        try {
-            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Throwable ignored) {
-            // 设置页也打不开时退回再弹一次授权框，至少不静默
-            try {
-                requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
-            } catch (Throwable ignored2) {
-            }
-        }
-    }
-
-    private void loadDevice() {
-        bigTitle = getString(R.string.music_device);
-        binding.tvTitle.setText(titleForMode());
-        if (androidx.core.content.ContextCompat.checkSelfPermission(this, audioPermission())
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            // 没权限：不白屏不崩，给提示行＋点一行去开，第一次直接弹系统授权框。
-            // P-16 在音乐侧收口（批 5 F2）：已被永久拒绝（弹过且系统不再给理由）时再 requestPermissions
-            // 只会静默无反应、页面像「点了没用」——改跳本应用设置页让他一键去开，不把排查推给他。
-            tracks.clear();
-            cards.clear();
-            adapter.notifyDataSetChanged();
-            binding.tvBigTitle.setText(bigTitle);
-            binding.tvBigCount.setText("");
-            binding.empty.setVisibility(View.VISIBLE);
-            binding.empty.setText(R.string.music_device_need_permission);
-            binding.empty.setOnClickListener(v -> requestAudioPermissionOrSettings());
-            if (!permAutoAsked) {
-                permAutoAsked = true;
-                requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
-            }
-            return;
-        }
-        binding.empty.setOnClickListener(null);
-        showLoading();
-        Task.execute(() -> {
-            List<MusicTrack> list = com.fongmi.android.tv.music.DeviceMusicStore.scan(this);
-            runOnUiThread(() -> {
-                // 忽略掉的歌（行内「移除」）不进列表，重启仍生效
-                java.util.Set<String> ignored = com.fongmi.android.tv.music.MusicStore.loadIgnoredDeviceIds();
-                deviceAll.clear();
-                for (MusicTrack t : list) {
-                    if (t != null && t.id != null && !ignored.contains(t.id)) deviceAll.add(t);
-                }
-                refreshDeviceDisplay();
-            });
-        });
-    }
-
-    /** 第 8 项：本地音乐视图切换（切视图清掉组筛选） */
-    private void setDeviceView(int view) {
-        deviceView = view;
-        deviceGroupType = -1;
-        deviceGroupKey = "";
-        refreshDeviceDisplay();
-    }
-
-    /** 第 8 项：本地音乐排序弹层（GZ 标题「选择排序方式」＋4 项副文案；升/降序不在弹层内，只在分组区块头右侧切换） */
-    private void showDeviceSortDialog() {
-        String[] items = {"默认", "最近添加", "时长", "文件大小"};
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("选择排序方式")
-                .setMessage("切换后列表将按该方式分组展示，升/降序在区块头右侧切换\n\n"
-                        + "默认：按添加时间新→旧平铺\n"
-                        + "最近添加：按 今天/昨天/本周/更早 分组\n"
-                        + "时长：按 短/中/长/超长 分组\n"
-                        + "文件大小：按 小/中/大/超大 分组")
-                .setSingleChoiceItems(items, deviceSort, (d, which) -> {
-                    deviceSort = which;
-                    d.dismiss();
-                    refreshDeviceDisplay();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    /** 第 8 项：本地音乐来源弹层（GZ 4 源里星辰只有本地音乐是真实来源；按扫描的两路来源分：媒体库／导入目录） */
-    private void showDeviceSourceDialog() {
-        String[] items = {"全部来源", "设备媒体库", "导入目录"};
-        MusicOptionsDialog.show(this, "选择音乐库来源", java.util.Arrays.asList(items), deviceSource, idx -> {
-            deviceSource = idx;
-            binding.tvDeviceSource.setText("来源：" + items[idx].replace("设备媒体库", "媒体库"));
-            refreshDeviceDisplay();
-        });
-    }
-
-    /** 第二波：本地扫描设置入口（瓜子 LibraryScreen：扫描过滤＋文件夹排除管理；
-     * 扫描目录单目录模式星辰没有——星辰扫描＝整台设备媒体库＋导入目录，目录控制即排除管理，见交卷差异） */
-    private void showDeviceScanDialog() {
-        long min = com.fongmi.android.tv.music.MusicStore.getDeviceMinDuration();
-        String filterLabel = min == 30000L ? "30 秒" : min == 60000L ? "1 分钟" : min == 120000L ? "2 分钟" : "不过滤";
-        int excludedN = com.fongmi.android.tv.music.MusicStore.getDeviceExcludedFolders().size();
-        List<String> opts = new ArrayList<>();
-        opts.add(getString(R.string.wave2_device_scan_filter) + "：当前" + filterLabel);
-        opts.add(getString(R.string.wave2_device_exclude) + (excludedN > 0 ? "（" + excludedN + " 个）" : ""));
-        MusicOptionsDialog.show(this, getString(R.string.wave2_device_scan_settings), opts, -1, idx -> {
-            if (idx == 0) showDeviceFilterDialog();
-            else if (idx == 1) showDeviceExcludeDialog();
-        });
-    }
-
-    /** 第二波：扫描过滤（瓜子档：不过滤／30 秒／1 分钟／2 分钟；星辰默认不过滤，改过滤后重扫生效；时长未知（0）的歌不过滤） */
-    private void showDeviceFilterDialog() {
-        String[] items = {"不过滤", "30 秒", "1 分钟", "2 分钟"};
-        long[] values = {0L, 30000L, 60000L, 120000L};
-        long cur = com.fongmi.android.tv.music.MusicStore.getDeviceMinDuration();
-        int checked = 0;
-        for (int i = 0; i < values.length; i++) if (values[i] == cur) checked = i;
-        MusicOptionsDialog.show(this, getString(R.string.wave2_device_scan_filter),
-                java.util.Arrays.asList(items), checked, idx -> {
-                    com.fongmi.android.tv.music.MusicStore.setDeviceMinDuration(values[idx]);
-                    loadDevice();
-                });
-    }
-
-    /** 第二波：文件夹排除管理（文件夹取自当前库去重；勾选即排除该目录及其子目录，文件不动；保存后重扫生效） */
-    private void showDeviceExcludeDialog() {
-        java.util.TreeSet<String> folders = new java.util.TreeSet<>();
-        for (MusicTrack t : deviceAll) {
-            if (t == null || t.localPath == null || t.localPath.isEmpty()) continue;
-            String dir = new java.io.File(t.localPath).getParent();
-            if (dir != null && !dir.isEmpty()) folders.add(dir);
-        }
-        if (folders.isEmpty()) {
-            Notify.show("暂无文件夹");
-            return;
-        }
-        List<String> list = new ArrayList<>(folders);
-        java.util.Set<String> excluded = new java.util.HashSet<>(
-                com.fongmi.android.tv.music.MusicStore.getDeviceExcludedFolders());
-        boolean[] checked = new boolean[list.size()];
-        for (int i = 0; i < list.size(); i++) checked[i] = excluded.contains(list.get(i));
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.wave2_device_exclude)
-                .setMultiChoiceItems(list.toArray(new String[0]), checked, (d, which, isChecked) -> {
-                    if (isChecked) excluded.add(list.get(which));
-                    else excluded.remove(list.get(which));
-                })
-                .setPositiveButton("保存", (d, w) -> {
-                    com.fongmi.android.tv.music.MusicStore.setDeviceExcludedFolders(excluded);
-                    loadDevice();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    /** 第二波：本地「移除」恢复入口（T6）：忽略集非空时才显 pill；恢复只清忽略集，文件不动，重扫后回列表 */
-    private void showDeviceRemovedDialog() {
-        int n = com.fongmi.android.tv.music.MusicStore.loadIgnoredDeviceIds().size();
-        if (n <= 0) {
-            Notify.show("没有已移除的歌曲");
-            return;
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("已移除歌曲")
-                .setMessage("共 " + n + " 首被移除（文件未删），恢复后重新出现在本地音乐里。")
-                .setPositiveButton(R.string.wave2_device_restore_all, (d, w) -> {
-                    com.fongmi.android.tv.music.MusicStore.clearIgnoredDeviceIds();
-                    Notify.show(R.string.wave2_device_restored);
-                    loadDevice();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    private static boolean isLibTrack(MusicTrack t) {
-        return t != null && t.id != null && t.id.contains(":lib:");
-    }
-
-    private static long fileMtime(MusicTrack t) {
-        try {
-            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
-                return new java.io.File(t.localPath).lastModified();
-            }
-        } catch (Throwable ignored) {
-        }
-        return 0;
-    }
-
-    private static long fileSizeOf(MusicTrack t) {
-        try {
-            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
-                return new java.io.File(t.localPath).length();
-            }
-        } catch (Throwable ignored) {
-        }
-        return 0;
-    }
-
-    private static String groupVal(String s) {
-        return s == null || s.trim().isEmpty() ? "" : s.trim();
-    }
-
-    private static String folderOf(MusicTrack t) {
-        try {
-            if (t != null && t.localPath != null && !t.localPath.isEmpty()) {
-                java.io.File parent = new java.io.File(t.localPath).getParentFile();
-                if (parent != null && parent.getName() != null && !parent.getName().isEmpty()) {
-                    return parent.getName();
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return "未知文件夹";
-    }
-
-    /** 第 8 项：本地行尾徽标文案（真实格式：只显编码名，flac＝FLAC，其余显扩展名大写；取不到扩展名则不显） */
-    private static String deviceBadge(MusicTrack t) {
-        String path = t == null ? null : t.localPath;
-        if (path == null || path.isEmpty()) path = t == null ? null : t.title;
-        if (path == null) return "";
-        int dot = path.lastIndexOf('.');
-        if (dot < 0 || dot >= path.length() - 1) return "";
-        String ext = path.substring(dot + 1).toLowerCase(java.util.Locale.US);
-        if (ext.equals("flac")) return "FLAC";
-        return ext.toUpperCase(java.util.Locale.US);
-    }
-
-    /** 第 8 项：本地音乐显示刷新（歌曲视图：平铺／分组；组视图：专辑／歌手／文件夹卡） */
-    private void refreshDeviceDisplay() {
-        if (binding.deviceViewBar != null) binding.deviceViewBar.setVisibility(View.VISIBLE);
-        // 第三波 R6：本地页内搜索框显隐＋监听（只滤本地库；TextWatcher 只改词并重刷，不触发全局搜索）
-        if (binding.etDeviceSearch != null) {
-            binding.etDeviceSearch.setVisibility(View.VISIBLE);
-            if (!deviceSearchWired) {
-                deviceSearchWired = true;
-                binding.etDeviceSearch.addTextChangedListener(new android.text.TextWatcher() {
-                    @Override
-                    public void beforeTextChanged(CharSequence s, int st, int c, int a) {
-                    }
-
-                    @Override
-                    public void onTextChanged(CharSequence s, int st, int b, int c) {
-                    }
-
-                    @Override
-                    public void afterTextChanged(android.text.Editable s) {
-                        deviceSearchKw = s == null ? "" : s.toString().trim();
-                        refreshDeviceDisplay();
-                    }
-                });
-            }
-        }
-        // 第二波：本地扫描工具条（扫描设置常显；已移除 pill 仅忽略集非空时显，计数实时取）
-        if (binding.deviceToolsBar != null) binding.deviceToolsBar.setVisibility(View.VISIBLE);
-        if (binding.tvDeviceRemoved != null) {
-            int removed = com.fongmi.android.tv.music.MusicStore.loadIgnoredDeviceIds().size();
-            binding.tvDeviceRemoved.setVisibility(removed > 0 ? View.VISIBLE : View.GONE);
-            if (removed > 0) binding.tvDeviceRemoved.setText(getString(R.string.wave2_device_removed, removed));
-        }
-        // 视图 chips 选中态（选中红字加粗，其余默认色）
-        TextView[] chips = {binding.tvDeviceViewSongs, binding.tvDeviceViewAlbums,
-                binding.tvDeviceViewArtists, binding.tvDeviceViewFolders};
-        for (int i = 0; i < chips.length; i++) {
-            if (chips[i] == null) continue;
-            boolean sel = i == deviceView;
-            chips[i].setTextColor(sel ? 0xFFFA243C : 0xFF1C1C1E);
-            chips[i].getPaint().setFakeBoldText(sel);
-        }
-        if (deviceGroupType >= 0) {
-            binding.deviceFilterBar.setVisibility(View.VISIBLE);
-            String label = deviceGroupType == 0 ? "专辑：" : deviceGroupType == 1 ? "歌手：" : "文件夹：";
-            binding.deviceFilterBar.setText(label + deviceGroupKey + " ×");
-        } else {
-            binding.deviceFilterBar.setVisibility(View.GONE);
-        }
-        List<MusicTrack> base = new ArrayList<>();
-        // 建议项：本地搜索转小写用 Locale.ROOT，土耳其语 locale 下 I 转小写会变 ı、对不上。
-        String dkw = deviceSearchKw.toLowerCase(java.util.Locale.ROOT);
-        for (MusicTrack t : deviceAll) {
-            if (deviceSource == 1 && isLibTrack(t)) continue;
-            if (deviceSource == 2 && !isLibTrack(t)) continue;
-            if (deviceGroupType == 0 && !groupVal(t.album).equals(deviceGroupKey)) continue;
-            if (deviceGroupType == 1 && !artistDisplay(groupVal(t.artist)).equals(deviceGroupKey)) continue;
-            if (deviceGroupType == 2 && !folderOf(t).equals(deviceGroupKey)) continue;
-            if (!dkw.isEmpty()) {
-                String hay = ((t.title == null ? "" : t.title) + " " + (t.artist == null ? "" : t.artist)
-                        + " " + (t.album == null ? "" : t.album)).toLowerCase(java.util.Locale.ROOT);
-                if (!hay.contains(dkw)) continue;
-            }
-            base.add(t);
-        }
-        deviceSectionPos.clear();
-        deviceSectionTitles.clear();
-        deviceSectionCounts.clear();
-        cards.clear();
-        if (deviceView == DEVICE_VIEW_SONGS) {
-            List<MusicTrack> ordered;
-            if (deviceGroupType >= 0 || deviceSort == 0) ordered = sortDeviceFlat(base);
-            else ordered = groupDevice(base);
-            tracks.clear();
-            tracks.addAll(ordered);
-            binding.tvBigTitle.setText(bigTitle);
-            binding.tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
-            binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
-            // 本页对照修：本地空态用 GZ 两行文案，点空态重扫（对应 GZ「重新扫描」）；
-            // 第三波 R6：页内搜索滤空时不套“尚未添加”文案，改写搜不到。
-            if (tracks.isEmpty()) {
-                if (!deviceSearchKw.isEmpty()) {
-                    binding.empty.setText("没有找到本地音乐");
-                    binding.empty.setOnClickListener(null);
-                } else {
-                    binding.empty.setText("尚未添加本地音乐\n选择音乐文件夹 / 扫描整台设备");
-                    binding.empty.setOnClickListener(v -> loadDevice());
-                }
-            }
-        } else {
-            java.util.Map<String, List<MusicTrack>> groups = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-            for (MusicTrack t : base) {
-                String key = deviceView == DEVICE_VIEW_ALBUMS
-                        ? (groupVal(t.album).isEmpty() ? "未知专辑" : groupVal(t.album))
-                        : deviceView == DEVICE_VIEW_ARTISTS
-                        ? artistDisplay(groupVal(t.artist))
-                        : folderOf(t);
-                List<MusicTrack> g = groups.get(key);
-                if (g == null) {
-                    g = new ArrayList<>();
-                    groups.put(key, g);
-                }
-                g.add(t);
-            }
-            for (java.util.Map.Entry<String, List<MusicTrack>> e : groups.entrySet()) {
-                // 本地页回炉：组卡马赛克封面＝组内成员前 4 张不重复封面（本地扫描已带封面，无需另查）。
-                java.util.List<String> covers = new java.util.ArrayList<>();
-                for (MusicTrack t : e.getValue()) {
-                    if (t != null && t.cover != null && !t.cover.isEmpty() && !covers.contains(t.cover)) {
-                        covers.add(t.cover);
-                        if (covers.size() >= 4) break;
-                    }
-                }
-                cards.add(new DeviceGroupCard(deviceView, e.getKey(), e.getValue().size(), covers));
-            }
-            tracks.clear();
-            binding.tvBigTitle.setText(bigTitle);
-            binding.tvBigCount.setText(cards.size() + " 组");
-            binding.empty.setVisibility(cards.isEmpty() ? View.VISIBLE : View.GONE);
-            // 复核必-11：组视图空态照歌曲视图分支写——搜词非空时是搜不到，不挂重扫点击。
-            if (cards.isEmpty()) {
-                if (!deviceSearchKw.isEmpty()) {
-                    binding.empty.setText("没有找到本地音乐");
-                    binding.empty.setOnClickListener(null);
-                } else {
-                    binding.empty.setText("尚未添加本地音乐\n选择音乐文件夹 / 扫描整台设备");
-                    binding.empty.setOnClickListener(v -> loadDevice());
-                }
-            }
-        }
-        // M12：本地组视图（专辑／歌手／文件夹卡）下没有歌曲行，顺序播放钮同理隐藏；歌曲视图恢复显示。
-        // 随机播在组视图有专路（shufflePlay 按全库打乱），不在此动。
-        binding.btnPlaySeq.setVisibility(deviceView == DEVICE_VIEW_SONGS ? View.VISIBLE : View.GONE);
-        adapter.notifyDataSetChanged();
-    }
-
-    /** 第 8 项：本地歌曲平铺排序（默认／组筛选内：按排序键＋当前方向；默认＝添加时间新→旧） */
-    private List<MusicTrack> sortDeviceFlat(List<MusicTrack> base) {
-        List<MusicTrack> out = new ArrayList<>(base);
-        java.util.Comparator<MusicTrack> cmp;
-        if (deviceSort == 2) cmp = java.util.Comparator.comparingLong(t -> t.duration);
-        else if (deviceSort == 3) cmp = java.util.Comparator.comparingLong(MusicListActivity::fileSizeOf);
-        else cmp = java.util.Comparator.comparingLong(MusicListActivity::fileMtime);
-        if (!deviceAsc) cmp = cmp.reversed();
-        Collections.sort(out, cmp);
-        return out;
-    }
-
-    /** 第 8 项：本地歌曲分组（最近添加／时长／文件大小；组顺序跟方向走；同时填区块头位置表） */
-    private List<MusicTrack> groupDevice(List<MusicTrack> base) {
-        java.util.Map<String, List<MusicTrack>> groups = new java.util.LinkedHashMap<>();
-        for (MusicTrack t : base) {
-            String key;
-            if (deviceSort == 1) key = recentBucket(fileMtime(t));
-            else if (deviceSort == 2) key = durationBucket(t.duration);
-            else key = sizeBucket(fileSizeOf(t));
-            List<MusicTrack> g = groups.get(key);
-            if (g == null) {
-                g = new ArrayList<>();
-                groups.put(key, g);
-            }
-            g.add(t);
-        }
-        List<String> order;
-        if (deviceSort == 1) order = java.util.Arrays.asList("今天", "昨天", "本周", "更早");
-        else if (deviceSort == 2) order = java.util.Arrays.asList("短", "中", "长", "超长");
-        else order = java.util.Arrays.asList("小", "中", "大", "超大");
-        if (!deviceAsc) Collections.reverse(order);
-        List<MusicTrack> flat = new ArrayList<>();
-        int pos = 1; // 设备头占 1 位（导入行）
-        for (String key : order) {
-            List<MusicTrack> g = groups.get(key);
-            if (g == null || g.isEmpty()) continue;
-            java.util.Comparator<MusicTrack> cmp;
-            if (deviceSort == 1) cmp = java.util.Comparator.comparingLong(MusicListActivity::fileMtime);
-            else if (deviceSort == 2) cmp = java.util.Comparator.comparingLong(t -> t.duration);
-            else cmp = java.util.Comparator.comparingLong(MusicListActivity::fileSizeOf);
-            if (!deviceAsc) cmp = cmp.reversed();
-            Collections.sort(g, cmp);
-            deviceSectionPos.add(pos);
-            deviceSectionTitles.add(key);
-            deviceSectionCounts.add(g.size());
-            pos += 1 + g.size();
-            flat.addAll(g);
-        }
-        return flat;
-    }
-
-    /** 最近添加分组桶（GZ 只给分组名未给边界；星辰侧自定：今天／昨天／过去 7 天内／更早） */
-    private static String recentBucket(long mtime) {
-        if (mtime <= 0) return "更早";
-        java.util.Calendar now = java.util.Calendar.getInstance();
-        java.util.Calendar day = java.util.Calendar.getInstance();
-        day.setTimeInMillis(mtime);
-        boolean sameDay = now.get(java.util.Calendar.YEAR) == day.get(java.util.Calendar.YEAR)
-                && now.get(java.util.Calendar.DAY_OF_YEAR) == day.get(java.util.Calendar.DAY_OF_YEAR);
-        if (sameDay) return "今天";
-        java.util.Calendar yesterday = java.util.Calendar.getInstance();
-        yesterday.add(java.util.Calendar.DAY_OF_YEAR, -1);
-        boolean isYesterday = yesterday.get(java.util.Calendar.YEAR) == day.get(java.util.Calendar.YEAR)
-                && yesterday.get(java.util.Calendar.DAY_OF_YEAR) == day.get(java.util.Calendar.DAY_OF_YEAR);
-        if (isYesterday) return "昨天";
-        long diff = System.currentTimeMillis() - mtime;
-        if (diff < 7L * 24 * 60 * 60 * 1000) return "本周";
-        return "更早";
-    }
-
-    /** 时长分组桶（GZ 阈值未抠到；星辰侧自定：短＜3 分钟／中 3–6 分钟／长 6–10 分钟／超长＞10 分钟） */
-    private static String durationBucket(long ms) {
-        if (ms < 180 * 1000) return "短";
-        if (ms < 360 * 1000) return "中";
-        if (ms < 600 * 1000) return "长";
-        return "超长";
-    }
-
-    /** 文件大小分组桶（GZ 阈值未抠到；星辰侧自定：小＜5MB／中 5–20MB／大 20–100MB／超大＞100MB） */
-    private static String sizeBucket(long bytes) {
-        if (bytes < 5L * 1024 * 1024) return "小";
-        if (bytes < 20L * 1024 * 1024) return "中";
-        if (bytes < 100L * 1024 * 1024) return "大";
-        return "超大";
-    }
-
-    /** 第 8 项：本地组卡（专辑／歌手／文件夹；点卡进该组的歌曲列） */
-    private static class DeviceGroupCard {
-        final int view;
-        final String key;
-        final int count;
-        /** 组内成员前 4 张不重复封面（本地页回炉：组卡马赛克用；空表＝无封面回落图标）。 */
-        final java.util.List<String> covers;
-
-        DeviceGroupCard(int view, String key, int count, java.util.List<String> covers) {
-            this.view = view;
-            this.key = key;
-            this.count = count;
-            this.covers = covers == null ? new java.util.ArrayList<>() : covers;
-        }
-    }
 
     /** 第 5 项：搜索分组卡（1 歌手组／3 专辑组；点卡进该组歌曲列） */
     private static class SearchGroupCard {
@@ -2940,131 +2399,6 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_AUDIO_PERMISSION && deviceHeader()) {
-            // 无论授权与否都刷新：给了就加载，拒了就留提示行（不许静默）
-            loadDevice();
-        }
-    }
-
-    /** 导入加密歌曲：系统文件选择器多选（QQ 的 mflac 系、酷狗 kgm 系），解密落 music_library/ */
-    private void pickImportFiles() {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        startActivityForResult(Intent.createChooser(i, getString(R.string.music_import_encrypted)), REQ_IMPORT_MUSIC);
-    }
-
-    private String displayName(Uri uri) {
-        try (android.database.Cursor c = getContentResolver().query(
-                uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                String n = c.getString(0);
-                if (n != null && !n.isEmpty()) return n;
-            }
-        } catch (Throwable ignored) {
-        }
-        String p = uri.getPath();
-        if (p == null) return "未知文件";
-        int slash = p.lastIndexOf('/');
-        return slash >= 0 ? p.substring(slash + 1) : p;
-    }
-
-    private void runImport(Intent data) {
-        List<Uri> uris = new ArrayList<>();
-        if (data.getClipData() != null) {
-            for (int i = 0; i < data.getClipData().getItemCount(); i++) {
-                uris.add(data.getClipData().getItemAt(i).getUri());
-            }
-        } else if (data.getData() != null) {
-            uris.add(data.getData());
-        }
-        if (uris.isEmpty()) return;
-        Notify.show(R.string.music_device_importing);
-        Task.execute(() -> {
-            java.io.File dir = com.fongmi.android.tv.music.DeviceMusicStore.libraryDir(this);
-            dir.mkdirs();
-            int ok = 0;
-            List<String> failed = new ArrayList<>();
-            for (Uri u : uris) {
-                String name = displayName(u);
-                try {
-                    byte[] bytes = readAllCapped(u, 200L * 1024 * 1024);
-                    com.fongmi.android.tv.music.MusicDecrypt.Result r =
-                            com.fongmi.android.tv.music.MusicDecrypt.decrypt(name, bytes);
-                    java.io.File out = uniqueFile(dir, safeName(name) + "." + r.ext);
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
-                        fos.write(r.data);
-                    }
-                    ok++;
-                } catch (Exception e) {
-                    failed.add(name + "：" + (e.getMessage() == null ? "失败" : e.getMessage()));
-                }
-            }
-            final int fOk = ok;
-            final List<String> fFailed = failed;
-            runOnUiThread(() -> {
-                if (!fFailed.isEmpty()) {
-                    StringBuilder sb = new StringBuilder();
-                    if (fOk > 0) sb.append("成功 ").append(fOk).append(" 首\n\n");
-                    for (String f : fFailed) sb.append(f).append("\n");
-                    new MaterialAlertDialogBuilder(this)
-                            .setTitle(R.string.music_import_encrypted)
-                            .setMessage(sb.toString().trim())
-                            .setPositiveButton(android.R.string.ok, null)
-                            .show();
-                } else {
-                    Notify.show("导入成功 " + fOk + " 首");
-                }
-                loadDevice();
-            });
-        });
-    }
-
-    private static String safeName(String name) {
-        int dot = name.lastIndexOf('.');
-        String base = dot > 0 ? name.substring(0, dot) : name;
-        base = base.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-        return base.isEmpty() ? "imported" : base;
-    }
-
-    private static java.io.File uniqueFile(java.io.File dir, String name) {
-        java.io.File f = new java.io.File(dir, name);
-        if (!f.exists()) return f;
-        int dot = name.lastIndexOf('.');
-        String base = dot > 0 ? name.substring(0, dot) : name;
-        String ext = dot > 0 ? name.substring(dot) : "";
-        for (int i = 1; ; i++) {
-            java.io.File c = new java.io.File(dir, base + "_" + i + ext);
-            if (!c.exists()) return c;
-        }
-    }
-
-    private void bindImportRow(ListAdapter.CardHolder h) {
-        // 回收行复位（与 bindCard 同口径）：导入行只用图标，马赛克位一律藏。
-        h.icon.setVisibility(View.VISIBLE);
-        h.mosaicSingle.setVisibility(View.GONE);
-        h.mosaicGrid.setVisibility(View.GONE);
-        h.coverBox.setBackgroundResource(0);
-        h.coverBox.setClipToOutline(false);
-        h.name.setText(R.string.music_import_encrypted);
-        h.status.setText("");
-        h.icon.setImageResource(R.drawable.ic_music_download);
-        h.icon.setBackground(circle(0xFF06B6D4));
-        h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        h.itemView.setOnClickListener(v -> pickImportFiles());
-    }
-
-    private GradientDrawable circle(int color) {
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.OVAL);
-        d.setColor(color);
-        return d;
-    }
 
     /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋头卡／两按钮／已安装头／排序后列表 */
     /** 第二波：插件分组头占位（adapter 内插项，非插件行；标题取 wave2 串） */
@@ -3413,10 +2747,6 @@ public class MusicListActivity extends BaseActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_IMPORT_MUSIC) {
-            if (resultCode == RESULT_OK && data != null) runImport(data);
-            return;
-        }
         if (requestCode == REQ_SHEET_COVER) {
             // 第 1 项：改封面＝把选的图拷到应用文件目录，按歌单 id 索引（不改 Room schema）
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -3474,21 +2804,6 @@ public class MusicListActivity extends BaseActivity {
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
-            return bos.toByteArray();
-        }
-    }
-
-    /** 带上限的整读（加密导入用）：边读边判，超上限立刻放弃，不许把大文件全灌进内存 */
-    private byte[] readAllCapped(Uri uri, long max) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new IllegalStateException("读不到这个文件");
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                if (bos.size() + n > max) throw new Exception("文件太大（超 200MB），跳过");
-                bos.write(buf, 0, n);
-            }
             return bos.toByteArray();
         }
     }
@@ -4298,7 +3613,7 @@ public class MusicListActivity extends BaseActivity {
 
     /** 第三波 R4：通用排序改对话框（默认／标题／歌手／时长＋升降），不再盲切 cycleSort；
      * 当前档常显在工具条 tvSortCurrent 与 btnSort 无障碍文案上（见 refreshSortLabel）。
-     * device／收藏／历史走各自对话框，不进这里。 */
+     * 收藏／历史走各自对话框，不进这里。 */
     private void showGenericSortDialog() {
         String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
                 getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
@@ -4323,10 +3638,10 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    /** 第三波 R4：工具条旁常显当前通用排序档（device／收藏／历史有各自对话框时隐藏）。 */
+    /** 第三波 R4：工具条旁常显当前通用排序档（收藏／历史有各自对话框时隐藏）。 */
     private void refreshSortLabel() {
         if (binding == null || binding.tvSortCurrent == null) return;
-        if (mode.equals("device") || mode.equals("favorite") || mode.equals("history")) {
+        if (mode.equals("favorite") || mode.equals("history")) {
             binding.tvSortCurrent.setVisibility(View.GONE);
             return;
         }
@@ -4360,24 +3675,6 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private void shufflePlay() {
-        // 第 8 项：本地页组视图（卡）下没有歌曲行，随机播按当前来源过滤的全库打乱播
-        if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
-            List<MusicTrack> pool = new ArrayList<>();
-            for (MusicTrack t : deviceAll) {
-                if (deviceSource == 1 && isLibTrack(t)) continue;
-                if (deviceSource == 2 && !isLibTrack(t)) continue;
-                pool.add(t);
-            }
-            if (pool.isEmpty()) {
-                Notify.show(R.string.music_no_track);
-                return;
-            }
-            Collections.shuffle(pool);
-            MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
-            MusicController.get().play(pool, 0, bigTitle, "list", listRouteParams());
-            MusicPlayerActivity.start(this);
-            return;
-        }
         if (mode.equals("search") && tracks.isEmpty()) {
             // 第三波 A2：搜索分组卡下没有歌曲行，随机播按当前过滤后的池（选源后只播该源）打乱播
             List<MusicTrack> pool = currentSearchPool();
@@ -4446,7 +3743,7 @@ public class MusicListActivity extends BaseActivity {
     /**
      * tracks 下标 → adapter 位置（trackIndex 的逆映射，见 ListAdapter.trackIndex）：
      * 歌单详情＋3、榜单详情＋1、猜你喜欢＋3、下载＝任务数＋已完成区头 1＋下标、
-     * 本地歌曲分组视图＝按 adapter 位置逐个跳过区块头数到第 trackIdx 个歌曲行、
+     * 其余模式＝下标。卡片视图（歌单／榜单列表）
      * 其余模式＝下标＋设备头（本地页 1、其它 0）。卡片视图（本地分组卡／歌单／榜单列表）
      * 下没有歌曲行，返回 -1 不刷行。
      */
@@ -4456,15 +3753,6 @@ public class MusicListActivity extends BaseActivity {
         if (mode.equals("chartDetail")) return trackIdx + 1;
         if (mode.equals("guess")) return trackIdx + 3;
         if (mode.equals("download")) return dlTasks.size() + 1 + trackIdx;
-        if (mode.equals("device")) {
-            if (deviceView != DEVICE_VIEW_SONGS) return -1;
-            int seen = -1;
-            for (int p = 1; p < adapter.getItemCount(); p++) {
-                if (deviceSectionPos.contains(p)) continue;
-                if (++seen == trackIdx) return p;
-            }
-            return -1;
-        }
         return trackIdx;
     }
 
@@ -4526,8 +3814,6 @@ public class MusicListActivity extends BaseActivity {
             int removeIdx = -1;
             int deleteLocalIdx = -1;
             int detailIdx = -1;
-            int removeDeviceIdx = -1;
-            int deleteFileIdx = -1;
             int removeHistIdx = -1;
             if (local) {
                 // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
@@ -4543,13 +3829,6 @@ public class MusicListActivity extends BaseActivity {
                 if (mode.equals("sheet")) {
                     removeIdx = opts.size();
                     opts.add(getString(R.string.music_remove));
-                } else if (mode.equals("device")) {
-                    // 第 8 项：本地页行内移除（移出曲库，重启仍生效）／删文件（真删文件＋同名旁路）
-                    // GZ 本地库行内未抠到删除入口（只有文件夹排除管理＋下载页删除二选一），这两项是任务要求的星辰侧实现
-                    removeDeviceIdx = opts.size();
-                    opts.add("移除");
-                    deleteFileIdx = opts.size();
-                    opts.add("删除文件");
                 }
             } else {
                 if (mode.equals("sheet")) {
@@ -4563,8 +3842,6 @@ public class MusicListActivity extends BaseActivity {
             int rIdx = removeIdx;
             int delIdx = deleteLocalIdx;
             int detIdx = detailIdx;
-            int rmDevIdx = removeDeviceIdx;
-            int delFileIdx = deleteFileIdx;
             // 第 6 项：历史页行级移除（GZ：历史页有「移除／移除历史」行级操作）
             if (mode.equals("history")) {
                 removeHistIdx = opts.size();
@@ -4580,40 +3857,6 @@ public class MusicListActivity extends BaseActivity {
                 else if (idx == 3) toggleFavorite(track, opts.get(3));
                 else if (idx == dIdx) downloadTrack(track);
                 else if (idx == rIdx) removeFromSheet(track);
-                else if (idx == rmDevIdx) {
-                    // 第 8 项：行内移除＝记入忽略集，列表立即刷新，重启仍生效（恢复入口待定，见对照表）
-                    com.fongmi.android.tv.music.MusicStore.ignoreDeviceId(track.id);
-                    Notify.show("已移出本地库");
-                    loadDevice();
-                } else if (idx == delFileIdx) {
-                    new MaterialAlertDialogBuilder(act)
-                            .setTitle(track.displayTitle())
-                            .setMessage("确定删除这个文件吗？文件将从手机中彻底删除，同名歌词与封面文件一并删除。")
-                            .setPositiveButton("删除", (d, w) -> {
-                                try {
-                                    if (track.localPath != null && !track.localPath.isEmpty()) {
-                                        java.io.File audio = new java.io.File(track.localPath);
-                                        String name = audio.getName();
-                                        int dot = name.lastIndexOf('.');
-                                        audio.delete();
-                                        if (dot > 0) {
-                                            String base = name.substring(0, dot);
-                                            java.io.File parent = audio.getParentFile();
-                                            if (parent != null) {
-                                                for (String e : new String[]{"lrc", "jpg", "png", "jpeg"}) {
-                                                    new java.io.File(parent, base + "." + e).delete();
-                                                }
-                                            }
-                                        }
-                                    }
-                                } catch (Throwable ignored) {
-                                }
-                                Notify.show(R.string.music_deleted);
-                                loadDevice();
-                            })
-                            .setNegativeButton(android.R.string.cancel, null)
-                            .show();
-                }
                 else if (idx == rmHistIdx) {
                     com.fongmi.android.tv.music.MusicStore.removeRecentByIds(
                             java.util.Collections.singleton(track.id));
@@ -5421,7 +4664,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_HEADER = 3;
         private static final int TYPE_SHEET = 4;
         private static final int TYPE_DL_TASK = 5;
-        private static final int TYPE_SECTION = 6;
         private static final int TYPE_SHEET_HERO = 7;
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
@@ -5440,14 +4682,13 @@ public class MusicListActivity extends BaseActivity {
         /** 第二波：下载已完成区头（进行中任务之后、已完成列表之前） */
         private static final int TYPE_DL_SECTION = 21;
 
-        /** 本地音乐页首行是「导入加密歌曲」头，歌曲行整体下移一位 */
+        /** 本页无列表内头行（旧本地页的导入行已随本地页拆出）。 */
         private int headerCount() {
-            return deviceHeader() ? 1 : 0;
+            return 0;
         }
 
         @Override
         public int getItemViewType(int position) {
-            if (deviceHeader() && position == 0) return TYPE_HEADER;
             // 第 1 项：歌单详情页＝英雄卡＋操作行＋区头＋歌曲行（英雄卡随列表滚动，与 GZ 一致）
             if (mode.equals("sheet")) {
                 if (position == 0) return TYPE_SHEET_HERO;
@@ -5472,9 +4713,6 @@ public class MusicListActivity extends BaseActivity {
                 if (position == 2) return TYPE_GUESS_SECTION;
                 return TYPE_GUESS_TRACK;
             }
-            // 第 8 项：本地页组视图走卡、歌曲分组视图的区块头走分组头
-            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) return TYPE_CARD;
-            if (mode.equals("device") && deviceSectionPos.contains(position)) return TYPE_SECTION;
             if (mode.equals("download") && position < dlTasks.size()) return TYPE_DL_TASK;
             // 第二波：下载已完成区头（仅已完成非空时插在任务之后；空时不占位，空态文案管）
             if (mode.equals("download") && !tracks.isEmpty() && position == dlTasks.size()) return TYPE_DL_SECTION;
@@ -5542,9 +4780,6 @@ public class MusicListActivity extends BaseActivity {
                 row.setLayoutParams(lp);
                 return new GroupHolder(row, tv, count);
             }
-            if (viewType == TYPE_SECTION) {
-                return new SectionHolder(inf.inflate(R.layout.item_music_device_section, parent, false));
-            }
             if (viewType == TYPE_SHEET_HERO) {
                 return new SheetHeroHolder(inf.inflate(R.layout.item_music_sheet_hero, parent, false));
             }
@@ -5598,10 +4833,6 @@ public class MusicListActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int position) {
-            if (deviceHeader() && position == 0) {
-                bindImportRow((CardHolder) h);
-                return;
-            }
             // 第 1 项：歌单详情页四类行
             if (mode.equals("sheet")) {
                 if (h instanceof SheetHeroHolder) bindSheetHero((SheetHeroHolder) h);
@@ -5630,15 +4861,6 @@ public class MusicListActivity extends BaseActivity {
                 else bindGuessTrack((GuessTrackHolder) h, trackIndex(position));
                 return;
             }
-            // 第 8 项：本地组视图的卡要减设备头；分组区块头单独绑
-            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
-                bindCard((CardHolder) h, position - headerCount());
-                return;
-            }
-            if (mode.equals("device") && deviceSectionPos.contains(position)) {
-                bindDeviceSection((SectionHolder) h, deviceSectionPos.indexOf(position));
-                return;
-            }
             if (h instanceof DlTaskHolder) bindDlTask((DlTaskHolder) h, position);
             else if (h instanceof DlSectionHolder) {
                 // 第二波：下载已完成区头（搜时「搜索结果」，平时「全部歌曲」；瓜子 DownloadsScreen 区头口径）
@@ -5663,7 +4885,7 @@ public class MusicListActivity extends BaseActivity {
             else bindTrack((TrackHolder) h, trackIndex(position));
         }
 
-        /** 歌曲行在列表里的下标：download 模式前面有进行中任务行，要减掉；歌单详情页前面有英雄卡／操作行／区头 3 行；本地分组视图还要减掉前面的区块头；其它模式减设备头 */
+        /** 歌曲行在列表里的下标：download 模式前面有进行中任务行，要减掉；歌单详情页前面有英雄卡／操作行／区头 3 行；其它模式减头行数 */
         private int trackIndex(int position) {
             if (mode.equals("download")) {
                 // 第二波：已完成区头占 1 位（仅已完成非空时存在；区头位本身不走 trackIndex）
@@ -5674,11 +4896,6 @@ public class MusicListActivity extends BaseActivity {
             if (mode.equals("sheet")) return position - 3;
             if (mode.equals("chartDetail")) return position - 1;
             if (mode.equals("guess")) return position - 3;
-            if (mode.equals("device")) {
-                int sectionsBefore = 0;
-                for (int p : deviceSectionPos) if (p < position) sectionsBefore++;
-                return position - headerCount() - sectionsBefore;
-            }
             return position - headerCount();
         }
 
@@ -5932,47 +5149,6 @@ public class MusicListActivity extends BaseActivity {
                 h.icon.setImageResource(R.drawable.ic_music_eq);
                 h.icon.setBackground(circle(0xFFA855F7));
                 h.itemView.setOnClickListener(v -> openChart(c));
-            } else if (o instanceof DeviceGroupCard) {
-                // 第 8 项：本地组卡（点卡进该组的歌曲列，筛选条可清掉回到全部）
-                // 本地页回炉：组卡封面＝瓜子合集行做法（成员封面马赛克，1 张铺满、2 张以上 2×2；
-                // 无封面回落原彩色圆盘图标；圆角与底复用歌单马赛克件）。
-                DeviceGroupCard g = (DeviceGroupCard) o;
-                h.name.setText(g.key);
-                h.status.setText(g.count + " 首");
-                int color = g.view == DEVICE_VIEW_ALBUMS ? 0xFF3B82F6
-                        : g.view == DEVICE_VIEW_ARTISTS ? 0xFF22C55E : 0xFFA855F7;
-                if (g.covers == null || g.covers.isEmpty()) {
-                    h.icon.setImageResource(R.drawable.ic_music_queue);
-                    h.icon.setBackground(circle(color));
-                } else {
-                    h.icon.setVisibility(View.GONE);
-                    h.coverBox.setBackgroundResource(R.drawable.bg_playlist_mosaic);
-                    h.coverBox.setClipToOutline(true);
-                    if (g.covers.size() == 1) {
-                        h.mosaicSingle.setVisibility(View.VISIBLE);
-                        loadMosaicCover(g.covers.get(0), h.mosaicSingle);
-                    } else {
-                        h.mosaicGrid.setVisibility(View.VISIBLE);
-                        android.widget.ImageView[] qs = {h.mosaic1, h.mosaic2, h.mosaic3, h.mosaic4};
-                        for (int qi = 0; qi < 4; qi++) {
-                            if (qi < g.covers.size()) loadMosaicCover(g.covers.get(qi), qs[qi]);
-                            else {
-                                try {
-                                    com.bumptech.glide.Glide.with(qs[qi]).clear(qs[qi]);
-                                } catch (Throwable ignored) {
-                                }
-                                qs[qi].setImageDrawable(null);
-                            }
-                        }
-                    }
-                }
-                h.itemView.setOnClickListener(v -> {
-                    deviceGroupType = g.view == DEVICE_VIEW_ALBUMS ? 0
-                            : g.view == DEVICE_VIEW_ARTISTS ? 1 : 2;
-                    deviceGroupKey = g.key;
-                    deviceView = DEVICE_VIEW_SONGS;
-                    refreshDeviceDisplay();
-                });
             } else if (o instanceof SearchGroupCard) {
                 // 第 5 项：搜索分组卡（点卡进该组歌曲列，筛选条点 × 回分类）
                 SearchGroupCard g = (SearchGroupCard) o;
@@ -6033,21 +5209,7 @@ public class MusicListActivity extends BaseActivity {
             // 第 7 项尾巴：下载多选态（选中行同正在播行的底）
             boolean dlSel = mode.equals("download") && t.id != null && dlSelected.contains(t.id);
             if (dlSel) h.itemView.setBackgroundResource(R.drawable.card_music_current);
-            if (mode.equals("device")) {
-                // 第 8 项：本地行尾音质徽标 9sp（GZ LocalQualityBadge 9sp、胶囊内边距 4/1dp；
-                // GZ 档位判定要逐文件读采样率/位深/码率，扫描会变慢，星辰侧显真实格式：只显编码名（flac＝FLAC），其余显扩展名，不冒充档位）
-                String badge = deviceBadge(t);
-                if (!badge.isEmpty()) {
-                    h.badge.setVisibility(View.VISIBLE);
-                    h.badge.setText(badge);
-                    h.badge.setTextSize(9);
-                    int p4 = dp(4);
-                    int p1 = dp(1);
-                    h.badge.setPadding(p4, p1, p4, p1);
-                } else {
-                    h.badge.setVisibility(View.GONE);
-                }
-            } else if (mode.equals("history") && isTrackCached(t)) {
+            if (mode.equals("history") && isTrackCached(t)) {
                 // 第二波：历史行「已缓存」标签（瓜子 HistoryScreenKt 内边距 7/3dp、圆角 8dp；
                 // 口径确证：瓜子已缓存＝音频已落本地；星辰判定＝非设备库曲目且 localPath 文件真实存在——
                 // 播放历史 JSON 持久化整首曲目（含 localPath），下载／本地文件曲目播过即带路径；在线曲目无路径不贴。
@@ -6080,12 +5242,6 @@ public class MusicListActivity extends BaseActivity {
                 } catch (Throwable ignored) {
                 }
                 h.artist.setText(artistDisplay(t.displayArtist()) + " · 已下载" + (size.isEmpty() ? "" : " · " + size));
-            } else if (mode.equals("device")) {
-                // 本页对照修：本地行第二行＝歌手 · 专辑（GZ 第二字段疑似专辑；无专辑时只显歌手）
-                String second = t.displayArtist();
-                if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(second)) second = getString(R.string.music_unknown_artist);
-                if (t.album != null && !t.album.trim().isEmpty()) second += " · " + t.album.trim();
-                h.artist.setText(second);
             } else {
                 // 第三波 R1/R2：通用行第二行统一拼“歌手 · 专辑”（有专辑才拼，与本地／歌单行
                 // 口径一致）；当前行统一加在播前缀（正在播放／已暂停，与收藏／历史行口径一致，
@@ -6106,10 +5262,6 @@ public class MusicListActivity extends BaseActivity {
             // 本地行路径行（批 5 F2）：仅本地模式且路径真实存在时显所在目录，其余一律 GONE（回收行防串显）
             if (h.path != null) {
                 String dir = null;
-                if (mode.equals("device") && t.localPath != null && !t.localPath.isEmpty()) {
-                    java.io.File pf = new java.io.File(t.localPath).getParentFile();
-                    if (pf != null) dir = pf.getAbsolutePath();
-                }
                 if (dir != null && !dir.isEmpty()) {
                     h.path.setVisibility(View.VISIBLE);
                     h.path.setText(dir);
@@ -6241,30 +5393,6 @@ public class MusicListActivity extends BaseActivity {
                 return new java.io.File(t.localPath).isFile();
             } catch (Throwable ignored) {
                 return false;
-            }
-        }
-
-        /** 第 8 项：本地分组区块头绑定（组名＋N 首＋右侧升/降序切换，点切换即重排） */
-        private void bindDeviceSection(SectionHolder h, int sectionIdx) {
-            h.name.setText(deviceSectionTitles.get(sectionIdx));
-            h.count.setText(deviceSectionCounts.get(sectionIdx) + " 首");
-            h.direction.setText(deviceAsc ? "升序" : "降序");
-            h.direction.setOnClickListener(v -> {
-                deviceAsc = !deviceAsc;
-                refreshDeviceDisplay();
-            });
-        }
-
-        class SectionHolder extends RecyclerView.ViewHolder {
-            final TextView name;
-            final TextView count;
-            final TextView direction;
-
-            SectionHolder(View v) {
-                super(v);
-                name = v.findViewById(R.id.name);
-                count = v.findViewById(R.id.count);
-                direction = v.findViewById(R.id.direction);
             }
         }
 
@@ -7349,12 +6477,6 @@ public class MusicListActivity extends BaseActivity {
             if (isCardMode()) return cards.size();
             if (mode.equals("download")) return dlTasks.size() + tracks.size() + (tracks.isEmpty() ? 0 : 1);
             if (mode.equals("sheet")) return 3 + tracks.size();
-            if (mode.equals("device") && deviceView != DEVICE_VIEW_SONGS) {
-                return cards.size() + headerCount();
-            }
-            if (mode.equals("device")) {
-                return tracks.size() + deviceSectionPos.size() + headerCount();
-            }
             return tracks.size() + headerCount();
         }
 

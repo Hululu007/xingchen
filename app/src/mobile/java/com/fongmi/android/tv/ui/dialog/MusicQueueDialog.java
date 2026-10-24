@@ -572,6 +572,10 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 pid = Long.parseLong(playlistId);
             } catch (Throwable ignored) {
             }
+            if ("device".equals(params.get("mode"))) {
+                return new android.content.Intent(host,
+                        com.fongmi.android.tv.ui.activity.MusicDeviceActivity.class);
+            }
             android.content.Intent i = new android.content.Intent(host,
                     com.fongmi.android.tv.ui.activity.MusicListActivity.class);
             i.putExtra("mode", params.get("mode"));

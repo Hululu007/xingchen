@@ -84,22 +84,28 @@ public class MusicPlaybackService extends MediaSessionService {
     public static final String LOCAL_BIND_ACTION = BuildConfig.APPLICATION_ID.concat(".MUSIC_LOCAL_BIND");
 
     /**
-     * 占位前台通知 id：必须与 media3 默认媒体通知同 id（DefaultMediaNotification
-     * 的 1001）——占位先顶上、真媒体通知出来时同 id 原地替换，不会双份。
-     * 不许分家成独立 id：前台服务只有一个前台通知槽，分家后 provider 的媒体
-     * 通知顶不进这个槽、cancel 又摘不掉在任的前台通知，真机实证只剩占位空条，
-     * 通知栏媒体卡／灵动岛／控制中心音乐卡三处一起没（1.4.15 分家批的回归）。
+     * 占位前台通知 id：必须与本服务给 media3 provider 设的媒体通知 id 一致
+     * （onCreate 里 DefaultMediaNotificationProvider.Builder.setNotificationId
+     * 传的就是本常量）——占位先顶上、真媒体通知出来时同 id 原地替换，不会双份。
+     * 1.4.15 的教训是「占位 id 与 provider id 必须一致」，不是「必须等于 1001」：
+     * 1001 是 media3 的默认 id，视频 PlaybackService 的 provider 没改 id、用的
+     * 就是 1001，音乐若也用 1001，两个服务的媒体通知同 App 互相顶（D-18）。
+     * 所以音乐整套改到独立的 1004：provider 与占位同用 1004、仍满足一致口径，
+     * 又不与视频撞号。不许只改一边：占位与 provider 分家后，前台服务只有一个
+     * 前台通知槽，provider 的媒体通知顶不进这个槽、cancel 又摘不掉在任的前台
+     * 通知，真机实证只剩占位空条，通知栏媒体卡／灵动岛／控制中心音乐卡三处
+     * 一起没（1.4.15 分家批的回归）。
      */
-    private static final int FG_NOTIFICATION_ID = 1001;
+    private static final int FG_NOTIFICATION_ID = 1004;
 
     /**
-     * 失败停机通知 id：与媒体通知 1001、通用 Notify 9527 都不同，
+     * 失败停机通知 id：与媒体通知 1004、通用 Notify 9527 都不同，
      * 失败停机时单独发一条、点开回播放器；恢复播放时按此 id 撤掉。
      */
     private static final int FAIL_NOTIFICATION_ID = 1002;
     /** 失败停机通知渠道（IMPORTANCE_DEFAULT：后台用户能看见提醒） */
     private static final String FAIL_NOTIFICATION_CHANNEL = "music_stopped";
-    /** 定时结束通知 id：与媒体通知 1001、失败通知 1002 都不同 */
+    /** 定时结束通知 id：与媒体通知 1004、失败通知 1002 都不同 */
     private static final int SLEEP_NOTIFICATION_ID = 1003;
     /** 定时结束通知渠道（IMPORTANCE_DEFAULT：后台用户能看见提醒） */
     private static final String SLEEP_NOTIFICATION_CHANNEL = "music_sleep_ended";
@@ -324,7 +330,7 @@ public class MusicPlaybackService extends MediaSessionService {
         // 从没有外部 MediaController 连进来，onGetSession 永远等不到人触发登记，
         // 不加这行媒体通知永远发不出来（1.3.59 真机实证通知栏空白）。
         addSession(session);
-        setMediaNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).build());
+        setMediaNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).setNotificationId(FG_NOTIFICATION_ID).build());
         restoreBreakpoint();
         startTicker();
         SpiderDebug.log("music", "service onCreate");
@@ -2076,9 +2082,6 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private void notifyPlayFailedStopped(MusicTrack failed, boolean hasNext) {
         try {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
-            NotificationManagerCompat mgr = NotificationManagerCompat.from(this);
-            mgr.createNotificationChannel(new NotificationChannelCompat.Builder(FAIL_NOTIFICATION_CHANNEL, NotificationManagerCompat.IMPORTANCE_DEFAULT).setName(getString(R.string.music_play_stopped_channel)).build());
             int reasonRes = lastFailReasonRes != 0 ? lastFailReasonRes : R.string.music_fail_unknown;
             String text = getString(reasonRes);
             if (failed != null) {
@@ -2089,6 +2092,16 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
             }
             text += hasNext ? "，还有下一首" : "，已无下一首";
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                // X-32：无通知权限不许无声消失——落日志＋吐司兜底（Notify.show(String)
+                // 走 ToastUtil、不需要通知权限；同文件 lxNoSupportNotified 已有先例）。
+                // 文案与通知版正文同串。吐司在后台可能被系统抑制，真机为准。
+                SpiderDebug.log("music", "notifyPlayFailedStopped no notification permission, toast fallback: %s", text);
+                Notify.show(text);
+                return;
+            }
+            NotificationManagerCompat mgr = NotificationManagerCompat.from(this);
+            mgr.createNotificationChannel(new NotificationChannelCompat.Builder(FAIL_NOTIFICATION_CHANNEL, NotificationManagerCompat.IMPORTANCE_DEFAULT).setName(getString(R.string.music_play_stopped_channel)).build());
             Notification notification = new NotificationCompat.Builder(this, FAIL_NOTIFICATION_CHANNEL)
                     .setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle(getString(R.string.music_play_stopped_title))
@@ -2116,7 +2129,15 @@ public class MusicPlaybackService extends MediaSessionService {
      */
     private void notifySleepEnded() {
         try {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                // X-32：无通知权限不许无声消失——落日志＋吐司兜底（Notify.show(String)
+                // 走 ToastUtil、不需要通知权限）。文案＝通知版标题＋正文两串拼接。
+                // 吐司在后台可能被系统抑制，真机为准。
+                String text = getString(R.string.music_sleep_title) + "：" + getString(R.string.music_play_stopped_title);
+                SpiderDebug.log("music", "notifySleepEnded no notification permission, toast fallback: %s", text);
+                Notify.show(text);
+                return;
+            }
             NotificationManagerCompat mgr = NotificationManagerCompat.from(this);
             mgr.createNotificationChannel(new NotificationChannelCompat.Builder(SLEEP_NOTIFICATION_CHANNEL, NotificationManagerCompat.IMPORTANCE_DEFAULT).setName(getString(R.string.music_sleep_channel)).build());
             Notification notification = new NotificationCompat.Builder(this, SLEEP_NOTIFICATION_CHANNEL)
@@ -2197,7 +2218,10 @@ public class MusicPlaybackService extends MediaSessionService {
                 preparing = false;
                 lastFailReasonRes = R.string.music_fail_play_error;
                 onPlayFailed(loadedTrack != null ? loadedTrack : queue.current());
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                // X-31：错误处理自己再抛错不许静默吞——落日志留痕再收口，
+                // 否则失败收口断在哪一步无从查起。
+                SpiderDebug.log("music", "onPlayerError handler failed %s", t);
             }
         }
 

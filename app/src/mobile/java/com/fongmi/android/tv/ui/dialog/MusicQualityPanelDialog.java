@@ -50,6 +50,8 @@ import java.util.Set;
  * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——后台逐档取链得真实地址后 HEAD
  * 取 Content-Length 回填；取不到真实地址／无长度时该行写“未知”，不写估算数、不显示估算列。
  * 点行即回选档值并关面板（与 MusicOptionsDialog 同款行为，调用方判是否变化再切档）。
+ * 批 4：只换皮——面板／行／图标盒／关闭钮换液态玻璃（bg_music_quality_* 半透明白＋白描边高光，底不许纯白），
+ * 四档构成、按歌列档、大小实测与选档回逻辑一字不动；选中态仍粉底红字（与现行一致）。
  */
 public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
 
@@ -106,7 +108,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private List<TextView> sizeViews = new ArrayList<>();
 
     public static void show(FragmentActivity activity, MusicTrack track, int current, OnQualityPick callback) {
-        if (activity == null || activity.isFinishing()) return;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         MusicQualityPanelDialog d = new MusicQualityPanelDialog();
         d.track = track;
         d.current = current;

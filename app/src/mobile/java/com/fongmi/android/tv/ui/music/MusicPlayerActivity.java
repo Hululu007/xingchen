@@ -1278,7 +1278,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             attachPressScale(next, 0.88f);
         }
         if (playTopView != null) attachPressScale(playTopView, 0.9f);
-        // 功能行：第一键是歌词菜单（不是进歌词页）——批 4 歌词设置面板未落前先接现行歌词面板入口（与歌词筹同路）
+        // 功能行：第一键是歌词菜单（不是进歌词页）——批 4 已换接新歌词设置子面板
+        // （MusicToolsSheetDialog 直达 PANEL_LYRIC：字号双滑杆／粗细／对齐／模糊三档／主歌词／高级动效，批 4 补齐模糊行）
         View lyricMenu = find(R.id.tpBtnLyricMenu);
         if (lyricMenu != null) lyricMenu.setOnClickListener(v -> showToolsSheetLyric());
         View qualityFunc = find(R.id.tpBtnQualityFunc);

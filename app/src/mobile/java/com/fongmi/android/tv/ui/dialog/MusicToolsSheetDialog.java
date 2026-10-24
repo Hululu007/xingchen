@@ -52,7 +52,9 @@ import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.service.MusicPlaybackService;
+import com.fongmi.android.tv.ui.music.CdDiscView;
 import com.fongmi.android.tv.ui.music.MusicPlayerHost;
+import com.fongmi.android.tv.ui.music.MusicPlayerSettings;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -80,6 +82,10 @@ import java.util.regex.Pattern;
  * 面板内边距 16dp 底 10dp（GlassSheetPanelKt）、区块间隔 20dp、子面板头 44dp/圆钮 40dp。
  * P04：瓜子工具面板无拖动条，星辰自绘条已删。P39/U1：不熄屏开关选中轨红 #FA243C（smali 实证）、
  * 拇指恒白、未选轨黑 0.10——旧「开关选中态改深色填充 #1C1C1E」口径已废止。
+ * 批 4：面板族换液态玻璃皮（面板底 bg_music_glass_panel、分组卡／快捷格／段控／圆钮／预览区换
+ * bg_music_glass_* 玻璃件，半透明白＋白描边高光，底不许纯白）；主题子面板改七卡真预览
+ * （五主题＋CD 三表面按主题 id 逐个成卡、写 MusicPlayerSettings，预览＝主题布局缩略渲染）；
+ * 歌词子面板补模糊三档行；外观子面板补流体速度三档＋高级动效行。
  */
 public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
@@ -113,7 +119,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // GZ SheetTokensKt 浅色套
     private static final int COLOR_PANEL = 0xFFF3F3F3;
-    private static final int COLOR_CARD = 0xFFFFFFFF;
     private static final int COLOR_DARK = 0xFF1C1C1E;   // 深色文字/恢复默认行用；开关选中轨已改红，不再用它
     private static final int COLOR_RED = 0xFFFA243C;    // GZ AccentRed（本体多处实证；上一版「中性深代红」口径无原话、已废止）
     private static final int COLOR_TEXT = 0xFF1C1C1E;
@@ -122,20 +127,36 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private static final int COLOR_DIVIDER = 0x0F000000;
     private static final int COLOR_BORDER = 0x0F000000;
 
-    // 第三波残留 T3：工具面板主题卡顺序改瓜子序（与设置页 showThemeDialog 一致：
-    // 经典／封面卡片／Apple／流光 CD／唱片架），此前为经典／Apple／封面卡片／流光／唱片架。
+    // 主题卡序（瓜子主题清单序，PlayerTheme.java:132-134）：Classic／CoverImmersive／AppleMusic／
+    // LuminousCd／RecordShelf；批 4 起流光 CD 三表面按独立主题 id 逐个成卡（luminous_cd／
+    // luminous_cd_dark／luminous_cd_auto，§4 主题模型），共七卡。id／名／布局／代表底色一一对应：
+    // 代表底色只作缩略渲染的垫底（主题自身表面色：CD 浅 base #F4F2EE／深 #14161C、架 #F1F0ED），不是预览图本体。
     private static final String[] THEME_IDS = {
-            MusicStore.THEME_CLASSIC, MusicStore.THEME_COVER_IMMERSIVE, MusicStore.THEME_APPLE_MUSIC,
-            MusicStore.THEME_LUMINOUS_CD, MusicStore.THEME_RECORD_SHELF};
+            MusicPlayerSettings.THEME_CLASSIC, MusicPlayerSettings.THEME_COVER_IMMERSIVE,
+            MusicPlayerSettings.THEME_APPLE_MUSIC, MusicPlayerSettings.THEME_LUMINOUS_CD,
+            MusicPlayerSettings.THEME_LUMINOUS_CD_DARK, MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO,
+            MusicPlayerSettings.THEME_RECORD_SHELF};
     private static final int[] THEME_NAMES = {
             R.string.music_theme_classic, R.string.music_theme_cover, R.string.music_theme_apple,
-            R.string.music_theme_cd, R.string.music_theme_vinyl};
+            R.string.music_theme_cd, R.string.music_theme_cd_dark, R.string.music_theme_cd_auto,
+            R.string.music_theme_vinyl};
+    private static final int[] THEME_LAYOUTS = {
+            R.layout.music_player_theme_classic, R.layout.music_player_theme_cover,
+            R.layout.music_player_theme_apple, R.layout.music_player_theme_cd,
+            R.layout.music_player_theme_cd, R.layout.music_player_theme_cd,
+            R.layout.music_player_theme_shelf};
     private static final int[][] THEME_COLORS = {
             {0xFF3A4A5F, 0xFF10151C},
             {0xFF7B4DFF, 0xFFFF8A3D},
             {0xFFF5F5F7, 0xFFD9D9DE},
-            {0xFF59E3FF, 0xFFFF5DA2, 0xFFFFD35D},
-            {0xFF4A3220, 0xFF14100C}};
+            {0xFFF4F2EE, 0xFFE9EFF5},
+            {0xFF14161C, 0xFF14161C},
+            {0xFFE9EFF5, 0xFF282D36},
+            {0xFFF1F0ED, 0xFFF1F0ED}};
+    /** 主题真预览图宽高比（PlayerToolsSheetKt ThemePanel 实读 0.46075085＝宽/高，竖幅）。 */
+    private static final float THEME_PREVIEW_ASPECT = 0.46075085f;
+    /** 主题缩略渲染缓存（本面板实例内，id→位图；渲染失败存空标记不重复试）。 */
+    private final java.util.Map<String, android.graphics.Bitmap> themePreviewCache = new java.util.HashMap<>();
 
     private DialogMusicToolsBinding binding;
     private Listener listener;
@@ -173,7 +194,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private boolean lyricHasRoma;
 
     public static void show(Activity activity, Listener listener) {
+        // 防崩守卫：宿主已结束／已销毁时不弹（页面销毁后弹出守卫，批 4 自查项）
         if (!(activity instanceof FragmentActivity)) return;
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         MusicToolsSheetDialog d = new MusicToolsSheetDialog();
         d.listener = listener;
         d.show(((FragmentActivity) activity).getSupportFragmentManager(), "music_tools_sheet");
@@ -182,6 +205,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     /** 直达歌词设置子面板（播放页歌词筹入口） */
     public static void showLyricPanel(Activity activity, Listener listener) {
         if (!(activity instanceof FragmentActivity)) return;
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         MusicToolsSheetDialog d = new MusicToolsSheetDialog();
         d.listener = listener;
         d.initialPanel = PANEL_LYRIC;
@@ -191,6 +215,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     /** 直达歌曲信息子面板（主面板歌曲信息行／Apple 左划同一入口） */
     public static void showSongInfoPanel(Activity activity, Listener listener) {
         if (!(activity instanceof FragmentActivity)) return;
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         MusicToolsSheetDialog d = new MusicToolsSheetDialog();
         d.listener = listener;
         d.initialPanel = PANEL_SONG_INFO;
@@ -420,7 +445,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
         cell.setClipChildren(false);
         FrameLayout boxTile = new FrameLayout(getContext());
-        boxTile.setBackgroundResource(R.drawable.bg_sheet_quick);
+        boxTile.setBackgroundResource(R.drawable.bg_music_glass_quick);
         boxTile.setElevation(dp(2));
         ImageView iv = new ImageView(getContext());
         iv.setImageResource(icon);
@@ -457,7 +482,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         int selIdx = 0;
         for (int i = 0; i < values.length; i++) if (values[i] == cur) selIdx = i;
         FrameLayout frame = new FrameLayout(getContext());
-        frame.setBackgroundResource(R.drawable.bg_sheet_seg_card);
+        frame.setBackgroundResource(R.drawable.bg_music_glass_seg);
         frame.setPadding(dp(4), dp(4), dp(4), dp(4));
         View indicator = new View(getContext());
         indicator.setBackgroundResource(R.drawable.sheet_mode_selected);
@@ -577,7 +602,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setBackgroundResource(R.drawable.bg_sheet_card);
+            row.setBackgroundResource(R.drawable.bg_music_glass_card);
             row.setPadding(dp(16), dp(12), dp(16), dp(12));
             LinearLayout texts = new LinearLayout(getContext());
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -611,7 +636,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private View buildVolumeCard() {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.bg_sheet_card);
+        card.setBackgroundResource(R.drawable.bg_music_glass_card);
         card.setElevation(dp(2));
         card.setPadding(dp(16), 0, dp(16), 0);
         LinearLayout row = new LinearLayout(getContext());
@@ -768,7 +793,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             if (host != null) MusicFxDialog.show(host);
         }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         grid1.addView(settingsCell(R.drawable.ic_music_palette, getString(R.string.music_player_theme),
-                themeName(MusicStore.getPlayerTheme()), v -> showPanel(PANEL_THEME)),
+                themeName(MusicPlayerSettings.getTheme()), v -> showPanel(PANEL_THEME)),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         card.addView(grid1);
         // A4：设置卡次行“外观设置”格（调色板图标取现有图标）＋右格“自定义封面”
@@ -867,8 +892,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // ================= 外观设置子面板（A4） =================
 
-    /** A4 子面板：头“外观设置”，分区“背景动效”，两行 switchRow 复用：
-     * “动态流体背景”（开时 AnimatedVisibility 式子内容：说明行显隐）＋“音乐律动”。
+    /** 外观子面板（A4＋批 4）：头“外观设置”，分区“背景动效”——
+     * “动态流体背景”开关（开时说明行显隐）＋“流动速度”三档（慢速／标准／快速，§0 倍率 0.6/1.0/2.5，
+     * 写 MusicPlayerSettings 流体速度键、经 onAppearanceChanged 下发批 3 的 FluidCoverAmbientView.setSpeed）
+     * ＋“高级动效”开关（星辰现行键 music_advanced_fx，与歌词子面板同一键、同一语义，不另造键）
+     * ＋“音乐律动”（星辰自有行，保留）。
      * 音乐律动行不设禁用态（瓜子第 5 布尔参疑似禁用标志、未完全解码，不编造）。 */
     private void buildAppearancePanel() {
         LinearLayout box = binding.container;
@@ -884,13 +912,18 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         fluidSub.setPadding(dp(16), 0, dp(16), dp(12));
         TextView fluidNote = text("开启后播放页背景改为流体氛围（封面取色，仍按时间正弦漂移）", 12, COLOR_LOW, false);
         fluidSub.addView(fluidNote);
-        fluidSub.setVisibility(MusicStore.isFluidBg() ? View.VISIBLE : View.GONE);
-        card.addView(switchRow("动态流体背景", MusicStore.isFluidBg(), on -> {
-            MusicStore.setFluidBg(on);
+        fluidSub.setVisibility(MusicPlayerSettings.isFluidBg() ? View.VISIBLE : View.GONE);
+        card.addView(switchRow("动态流体背景", MusicPlayerSettings.isFluidBg(), on -> {
+            MusicPlayerSettings.setFluidBg(on);
             fluidSub.setVisibility(on ? View.VISIBLE : View.GONE);
             if (listener != null) listener.onAppearanceChanged();
         }));
         card.addView(fluidSub);
+        addDivider(card);
+        card.addView(switchRow(getString(R.string.music_advanced_fx), MusicStore.isAdvancedFx(), on -> {
+            MusicStore.setAdvancedFx(on);
+            fireLyricChanged();
+        }));
         card.addView(switchRow("音乐律动", MusicStore.isRhythm(),
                 on -> {
                     MusicStore.setRhythm(on);
@@ -900,6 +933,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         clp.topMargin = dp(8);
         box.addView(card, clp);
+        // 流动速度三档（批 4 接批 3 setSpeed）：段控写键后通知播放页 applyFluidBg 重下发倍率，并重建本面板对齐选中态
+        box.addView(lyricSegRow(getString(R.string.music_fluid_speed),
+                new String[]{getString(R.string.music_speed_slow), getString(R.string.music_speed_normal),
+                        getString(R.string.music_speed_fast)},
+                MusicPlayerSettings.getFluidSpeed(), idx -> {
+                    MusicPlayerSettings.setFluidSpeed(idx);
+                    if (listener != null) listener.onAppearanceChanged();
+                    showPanel(PANEL_APPEARANCE);
+                }), marginTop(dp(14)));
     }
 
     // ================= 自定义封面子面板（瓜子 CustomCoverPanel 同款结构，本地图片版） =================
@@ -1084,13 +1126,19 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
-        String cur = MusicStore.getPlayerTheme();
+        // 批 4：主题读写走 MusicPlayerSettings（七 id 同键 music_player_theme）——MusicStore.setPlayerTheme
+        // 只认五 id、会把 CD 深／自动写成 classic，不许再经它写；选中即写键＋回调播放页 applyTheme 刷新。
+        String cur = MusicPlayerSettings.getTheme();
         for (int i = 0; i < THEME_IDS.length; i++) {
             final String id = THEME_IDS[i];
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(112), ViewGroup.LayoutParams.WRAP_CONTENT);
             if (i > 0) lp.setMarginStart(dp(12));
-            row.addView(themeCard(id, THEME_NAMES[i], THEME_COLORS[i], id.equals(cur), v -> {
-                MusicStore.setPlayerTheme(id);
+            row.addView(themeCard(id, THEME_NAMES[i], THEME_COLORS[i], THEME_LAYOUTS[i], id.equals(cur), v -> {
+                MusicPlayerSettings.setTheme(id);
+                // 存量表面键同步（设置页批 6 前仍读 music_cd_surface）：CD 三 id 落对应表面档，其余主题不动此键
+                if (MusicPlayerSettings.THEME_LUMINOUS_CD.equals(id)) MusicStore.setCdSurface(0);
+                else if (MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(id)) MusicStore.setCdSurface(1);
+                else if (MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(id)) MusicStore.setCdSurface(2);
                 if (listener != null) listener.onThemeChanged();
                 showPanel(PANEL_THEME);
             }), lp);
@@ -1100,40 +1148,40 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(14);
         box.addView(scroll, slp);
-        // 选中流光 CD 时才出表面三段：浅色/深色/自动（GZ T24 CdSurfaceMode）
-        if (MusicStore.THEME_LUMINOUS_CD.equals(MusicStore.getPlayerTheme())) {
-            String[] labels = {getString(R.string.music_surface_light), getString(R.string.music_surface_dark),
-                    getString(R.string.music_surface_auto)};
-            View seg = segment(labels, MusicStore.getCdSurface(), idx -> {
-                MusicStore.setCdSurface(idx);
-                if (listener != null) listener.onThemeChanged();
-                showPanel(PANEL_THEME);
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(16);
-            box.addView(seg, lp);
-        }
     }
 
-    /** 主题卡（T22/T23，无 Pro 锁——用户定案全免费）：色块示意＋主题名＋选中勾；
-     * 选中卡背景 150ms 渐变到浅粉 #F8E1E3＋红描边红勾（GZ 主题选中卡口径） */
-    private View themeCard(String id, int nameRes, int[] colors, boolean selected, View.OnClickListener click) {
+    /** 主题卡（ThemePanel 数值照 §7.2：卡宽 112dp 由调用方给、流式间距 12dp 同、卡圆角 16dp、描边 2dp、
+     * 主题名 12sp、选中底色动画 150ms、按压 0.97；无 Pro 锁——定案全免费）：
+     * 预览区是真预览图——宽＝卡内宽 96dp、高＝96/0.46075085≈208dp（GZ 真预览图宽高比实读），
+     * 内容为该主题布局的缩略渲染（见 renderThemePreview），垫底是主题自身表面色；
+     * 渲染失败才回落代表色渐变（色板），不拿无关图充数。选中卡底 150ms 渐变到浅粉 #F8E1E3＋红描边红勾。 */
+    private View themeCard(String id, int nameRes, int[] colors, int layoutRes, boolean selected, View.OnClickListener click) {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setPadding(dp(8), dp(9), dp(8), dp(9));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(COLOR_CARD);
+        bg.setColor(0xB3FFFFFF);
         bg.setCornerRadius(dp(16));
         bg.setStroke(dp(2), COLOR_BORDER);
         if (selected) bg.setStroke(dp(2), COLOR_RED);
         card.setBackground(bg);
-        View block = new View(getContext());
+        ImageView preview = new ImageView(getContext());
+        preview.setScaleType(ImageView.ScaleType.FIT_XY);
         GradientDrawable grad = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         grad.setCornerRadius(dp(8));
-        block.setBackground(grad);
-        card.addView(block, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
+        preview.setBackground(grad);
+        preview.setClipToOutline(true);
+        preview.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(8));
+            }
+        });
+        android.graphics.Bitmap thumb = themePreview(id, layoutRes);
+        if (thumb != null) preview.setImageBitmap(thumb);
+        int previewH = dp(Math.round(96f / THEME_PREVIEW_ASPECT));
+        card.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, previewH));
         TextView name = text(getString(nameRes), 12, COLOR_TEXT, selected);
         name.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
@@ -1150,12 +1198,61 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         attachPress(card, 0.97f);
         if (selected) {
             android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofObject(
-                    new android.animation.ArgbEvaluator(), 0xFFFFFFFF, 0xFFF8E1E3);
+                    new android.animation.ArgbEvaluator(), 0xB3FFFFFF, 0xFFF8E1E3);
             anim.setDuration(150);
             anim.addUpdateListener(a -> bg.setColor((int) a.getAnimatedValue()));
             anim.start();
         }
         return card;
+    }
+
+    /** 主题真预览：把该主题的播放页布局离屏 measure/layout/draw 成位图（2 倍密度渲染后由 ImageView 缩放显示）。
+     * CD 深色卡先把布局内的 CdDiscView 切深色表面（只调主题视图既有 setter、本批不改主题视图文件）；
+     * 自动卡按系统夜间态定表面。封面／歌词等动态内容离屏无数据，缩略呈现的是主题布局结构本身；
+     * 任一步异常返回空，卡回落代表色渐变。结果按主题 id 在本面板实例内缓存。 */
+    private android.graphics.Bitmap themePreview(String id, int layoutRes) {
+        if (themePreviewCache.containsKey(id)) return themePreviewCache.get(id);
+        android.graphics.Bitmap bmp = null;
+        try {
+            Context ctx = getContext();
+            if (ctx != null) {
+                View root = LayoutInflater.from(ctx).inflate(layoutRes, null, false);
+                boolean dark = MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(id)
+                        || (MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(id) && isSystemNight());
+                if (dark) applyCdDarkSurface(root);
+                int w = dp(192);
+                int h = Math.round(w / THEME_PREVIEW_ASPECT);
+                root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+                root.layout(0, 0, w, h);
+                bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+                root.draw(new android.graphics.Canvas(bmp));
+            }
+        } catch (Throwable ignored) {
+            bmp = null;
+        }
+        themePreviewCache.put(id, bmp);
+        return bmp;
+    }
+
+    private void applyCdDarkSurface(View view) {
+        if (view instanceof CdDiscView) ((CdDiscView) view).setDarkSurface(true);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) applyCdDarkSurface(group.getChildAt(i));
+        }
+    }
+
+    private boolean isSystemNight() {
+        try {
+            Context ctx = getContext();
+            if (ctx == null) return false;
+            int night = ctx.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private String themeName(String id) {
@@ -1319,7 +1416,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         TextView closeBtn = text(MusicPlaybackService.sleepName(MusicPlaybackService.SLEEP_OFF), 12, COLOR_TEXT, false);
         applyWeight(closeBtn, 700);
         closeBtn.setGravity(Gravity.CENTER);
-        closeBtn.setBackgroundResource(R.drawable.bg_sheet_card);
+        closeBtn.setBackgroundResource(R.drawable.bg_music_glass_card);
         closeBtn.setElevation(dp(2));
         closeBtn.setPadding(dp(12), dp(7), dp(12), dp(7));
         closeBtn.setOnClickListener(v -> {
@@ -1434,6 +1531,17 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                     fireLyricChanged();
                     showPanel(PANEL_LYRIC);
                 }), marginTop(dp(14)));
+        // 批 4 补：模糊三档（关闭／轻度／中度，§7.2 歌词设置构成）——此前本面板无此行，模糊只能在设置页改；
+        // 写存量键 music_cover_lyric_blur（全屏与封面共用，MusicPlayerSettings.getCoverLyricBlurLevel 同键），
+        // fireLyricChanged 后播放页 applyLyricStyle 即时下发内嵌＋全屏＋Apple 歌词页。
+        box.addView(lyricSegRow(getString(R.string.music_lyric_blur),
+                new String[]{getString(R.string.music_blur_off), getString(R.string.music_blur_light),
+                        getString(R.string.music_blur_medium)},
+                MusicStore.getCoverLyricBlurLevel(), idx -> {
+                    MusicStore.setCoverLyricBlurLevel(idx);
+                    fireLyricChanged();
+                    showPanel(PANEL_LYRIC);
+                }), marginTop(dp(14)));
         box.addView(lyricSegRow(getString(R.string.music_lyric_primary),
                 new String[]{getString(R.string.music_primary_original), getString(R.string.music_primary_translation),
                         getString(R.string.music_primary_romanization)},
@@ -1459,7 +1567,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         // 恢复默认钮高 28dp（L5：全屏字号 24／封面字号 22 分别复位；其余粗细／对齐口径不变）
         TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_DARK, false);
         restore.setGravity(Gravity.CENTER);
-        restore.setBackgroundResource(R.drawable.bg_sheet_card);
+        restore.setBackgroundResource(R.drawable.bg_music_glass_card);
         restore.setElevation(dp(2));
         restore.setOnClickListener(v -> {
             MusicStore.setLyricFontSize(24f);
@@ -1493,7 +1601,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private View buildLyricPreview() {
         LinearLayout column = new LinearLayout(getContext());
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setBackgroundResource(R.drawable.bg_sheet_preview);
+        column.setBackgroundResource(R.drawable.bg_music_glass_preview);
         column.setElevation(dp(2));
         column.setPadding(dp(14), dp(8), dp(14), dp(8));
         MusicTrack track = MusicController.get().current();
@@ -1746,7 +1854,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         back.setImageResource(R.drawable.ic_music_chevron_left);
         back.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
         back.setPadding(dp(10), dp(10), dp(10), dp(10));
-        back.setBackgroundResource(R.drawable.bg_sheet_circle_btn);
+        back.setBackgroundResource(R.drawable.bg_music_glass_circle);
         back.setContentDescription(getString(R.string.music_back));
         back.setOnClickListener(v -> showPanel(PANEL_MAIN));
         attachPress(back, 0.9f);
@@ -1762,7 +1870,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         close.setImageResource(R.drawable.ic_music_close);
         close.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
         close.setPadding(dp(11), dp(11), dp(11), dp(11));
-        close.setBackgroundResource(R.drawable.bg_sheet_circle_btn);
+        close.setBackgroundResource(R.drawable.bg_music_glass_circle);
         close.setContentDescription(getString(R.string.music_close));
         close.setOnClickListener(v -> dismissAllowingStateLoss());
         attachPress(close, 0.9f);
@@ -1825,11 +1933,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         return wrap;
     }
 
-    /** 分组白卡容器：圆角 16dp＋阴影 2dp（bg_sheet_card），行自带 16dp 横向内边距（分割线收边与行边距对齐靠此口径） */
+    /** 分组玻璃卡容器：圆角 16dp＋阴影 2dp（批 4 换 bg_music_glass_card），行自带 16dp 横向内边距（分割线收边与行边距对齐靠此口径） */
     private LinearLayout cardBox() {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.bg_sheet_card);
+        card.setBackgroundResource(R.drawable.bg_music_glass_card);
         card.setElevation(dp(2));
         card.setPadding(0, 0, 0, 0);
         return card;

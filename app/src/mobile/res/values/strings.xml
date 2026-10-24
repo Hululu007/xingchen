@@ -339,6 +339,8 @@
     <string name="music_theme_apple">Apple Music</string>
     <string name="music_theme_cover">封面卡片</string>
     <string name="music_theme_cd">流光 CD</string>
+    <string name="music_theme_cd_dark">流光 CD 深色</string>
+    <string name="music_theme_cd_auto">流光 CD 自动</string>
     <string name="music_theme_vinyl">黑胶唱片架</string>
     <string name="music_surface_light">浅色</string>
     <string name="music_surface_dark">深色</string>
@@ -370,6 +372,14 @@
     <string name="music_align_left">靠左</string>
     <string name="music_align_center">居中</string>
     <string name="music_align_right">靠右</string>
+    <string name="music_lyric_blur">歌词模糊</string>
+    <string name="music_blur_off">关闭</string>
+    <string name="music_blur_light">轻度</string>
+    <string name="music_blur_medium">中度</string>
+    <string name="music_fluid_speed">流动速度</string>
+    <string name="music_speed_slow">慢速</string>
+    <string name="music_speed_normal">标准</string>
+    <string name="music_speed_fast">快速</string>
     <string name="music_lyric_primary">主歌词</string>
     <string name="music_primary_original">原文</string>
     <string name="music_primary_translation">翻译</string>

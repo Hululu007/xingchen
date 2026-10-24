@@ -56,6 +56,9 @@ import java.util.List;
  * 提示行「长按拖动调整顺序」；队列行＝序号 %02d＋封面 36dp＋歌名 13sp/700＋歌手 11sp＋三钮常显（30dp/图标 18dp），
  * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
  * 清空＝清队并关面板（无二次确认）；空态照 GZ。上一版的「中性深代红」口径无用户原话、与本体证据冲突，本版废止。
+ * 批 4：面板底换液态玻璃（bg_music_glass_panel，布局侧）；模式筹改模式串常显（批 4 任务口径：
+ * 播放模式串在面板内可见——非随机模式也显示 modeName，随机时红筹、其余 inset 筹）；
+ * 数值补抠（PlayQueueSheetKt:343 高度占比 0.68、:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致，不改。
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
 
@@ -86,6 +89,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     };
 
     public static void show(FragmentActivity activity) {
+        // 防崩守卫：宿主已结束／已销毁时不弹（页面销毁后弹出守卫，批 4 自查项）
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         new MusicQueueDialog().show(activity.getSupportFragmentManager(), "music_queue");
     }
 
@@ -240,7 +245,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 // 被拖行：白底圆角 12dp 不动（旧证据 8dp 系误读，8 是阴影高）＋缩放 0.97＋阴影 8dp（仅被拖行）
                 if (vh != null && actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
                     dragging = true;
-                    vh.itemView.setBackgroundResource(R.drawable.bg_sheet_row_drag);
+                    vh.itemView.setBackgroundResource(R.drawable.bg_music_glass_drag);
                     vh.itemView.setScaleX(0.97f);
                     vh.itemView.setScaleY(0.97f);
                     float density = vh.itemView.getContext().getResources().getDisplayMetrics().density;
@@ -437,8 +442,15 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         // GZ 计数筹＝纯数字（PlayQueueSheetKt:724 String.valueOf(size)），无「首」
         binding.tvCount.setText(String.valueOf(tracks.size()));
         bindSourceRow();
-        binding.badgeShuffle.setVisibility(
-                MusicController.get().getMode() == MusicQueue.MODE_SHUFFLE ? View.VISIBLE : View.GONE);
+        // 批 4：播放模式串常显——筹文案＝MusicQueue.modeName（顺序播放／全部循环／单曲循环／随机播放）；
+        // 随机沿 GZ 红筹，其余用 inset 筹＋中字，不再只在随机模式露一个「随机」筹。
+        int mode = MusicController.get().getMode();
+        boolean shuffle = mode == MusicQueue.MODE_SHUFFLE;
+        binding.badgeShuffle.setText(MusicQueue.modeName(mode));
+        binding.badgeShuffle.setBackgroundResource(
+                shuffle ? R.drawable.sheet_chip_shuffle : R.drawable.sheet_chip_inset);
+        binding.badgeShuffle.setTextColor(shuffle ? COLOR_RED : COLOR_LOW);
+        binding.badgeShuffle.setVisibility(View.VISIBLE);
         boolean empty = tracks.isEmpty();
         binding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.emptyBox.setVisibility(empty ? View.VISIBLE : View.GONE);

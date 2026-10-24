@@ -1,6 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 音质面板液态玻璃底（批 4）：半透明白渐变＋白描边高光，上圆角 20dp（原圆角不变）；不许纯白底。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#FFFFFF" />
+    <gradient android:angle="270" android:startColor="#F2FFFFFF" android:endColor="#D6FFFFFF" />
     <corners
         android:topLeftRadius="20dp"
         android:topRightRadius="20dp" />
+    <stroke android:width="1dp" android:color="#99FFFFFF" />
 </shape>

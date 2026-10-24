@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐底部工具面板（浅色令牌照 GZ 参数表第 7 节浅色套）：面板底 sheetPanelBg #F3F3F3（bg_sheet_panel，
-     上圆角 16dp＋描边黑 0.06）、内容区可滚动，内边距 左右 16dp／顶部 16dp／底部 10dp（GlassSheetPanel 口径），
+<!-- 音乐底部工具面板（浅色令牌照 GZ 参数表第 7 节浅色套）：面板底批 4 换液态玻璃（bg_music_glass_panel：
+     半透明白渐变＋白描边高光、上圆角 16dp＝GlassBottomSheetKt:158；内分组卡／格／段控同批换玻璃件）、
+     内容区可滚动，内边距 左右 16dp／顶部 16dp／底部 10dp（GlassSheetPanel 口径），
      子面板在代码里换 container 内容。P04：瓜子工具面板根本没有拖动条（宿主非 M3、handle 槽 null），
      星辰自绘 36×4dp 黑 0.14 条已删，不留。
      限高说明：原生 ScrollView 不处理 maxHeight，680dp 上限曾形同虚设、面板顶满屏截断最后一行；
@@ -11,7 +12,7 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel_home"
+    android:background="@drawable/bg_music_glass_panel"
     android:orientation="vertical">
 
     <com.fongmi.android.tv.ui.custom.MaxHeightScrollView

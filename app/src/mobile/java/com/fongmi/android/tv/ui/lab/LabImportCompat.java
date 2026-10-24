@@ -218,7 +218,7 @@ public final class LabImportCompat {
         it.background = o.optBoolean("background", true);
         it.autoStart = o.optBoolean("auto_execute", o.optBoolean("autoExecute", false));
         it.showOutput = o.optBoolean("show_output", o.optBoolean("showOutput", true));
-        it.minVersion = o.optInt("min_version", 0);
+        it.minVersion = upstreamMinVersion(o.optInt("min_version", 0), it);
         String cmd = o.optString("command", "");
         it.runtime = runtimeFromCommand(cmd);
         it.command = translateWebhtvCommand(cmd, it);
@@ -277,6 +277,8 @@ public final class LabImportCompat {
         // 上游 Item.group：包级分组 id，套到每条命令（此前整段没读，分组信息静默丢失）
         String group = o.optString("group", "").trim();
         boolean autoInstall = o.optBoolean("auto_install", false);
+        // 上游 Item 级 min_version：命令没写时兜底（尺度归一在 upstreamMinVersion）
+        int itemMinVersion = o.optInt("min_version", 0);
         // Item 级 downloads[]（靠下载落二进制的服务，如 lxserver/drpy-node）：解析一次套到每条命令。
         // 此前整段没读，装完没二进制还不吭声；读不通的也必须进 needsReview 明说
         ItemDownloads itemDls = parseItemDownloads(o);
@@ -307,26 +309,43 @@ public final class LabImportCompat {
             // 声明自动安装的包，装上即按自动运行对待）。曾收窄为仅 auto_execute，
             // auto_install 的包导入后不再自启，已恢复两者并取
             it.autoStart = c.optBoolean("auto_execute", false) || autoInstall;
-            it.minVersion = c.optInt("min_version", 0);
+            // 命令没写 min_version 时用包级的（上游 Item 级此前整段没读，G-5）
+            int cmdMin = c.optInt("min_version", 0);
+            it.minVersion = upstreamMinVersion(cmdMin > 0 ? cmdMin : itemMinVersion, it);
             it.variables.addAll(parseLabVarList(c.optJSONArray("variables")));
             it.variables.addAll(pkgVars);
             JSONObject dl = c.optJSONObject("download");
             if (dl != null) {
                 String url = dl.optString("url", "").trim();
+                LabManifest.LabDownload d = new LabManifest.LabDownload();
+                d.url = url;
+                // 落盘键两种都吃：save_to（上游）/ file（自家 LabManifest 口径），两路对齐
+                d.file = dl.has("file") ? dl.optString("file", "").trim()
+                        : dl.optString("save_to", "").trim();
+                // 上游 CommandDownload 的其余字段此前整段没读：check_file（判备好没）、
+                // extract_to（整包解压落点）、required——丢了它们下载只会原样落盘、
+                // 压缩件永远解不开（G-1）。这里全接上，运行期 LabDepends 按声明走
+                d.checkFile = dl.optString("check_file", dl.optString("checkFile", "")).trim();
+                d.extractTo = dl.optString("extract_to", dl.optString("extractTo", "")).trim();
+                d.required = dl.optBoolean("required", false);
                 if (!url.isEmpty()) {
-                    LabManifest.LabDownload d = new LabManifest.LabDownload();
-                    d.url = url;
-                    // 落盘键两种都吃：save_to（上游）/ file（自家 LabManifest 口径），两路对齐
-                    d.file = dl.has("file") ? dl.optString("file", "").trim()
-                            : dl.optString("save_to", "").trim();
                     it.download = d;
+                } else if (!d.checkFile.isEmpty()) {
+                    // 地址留空＋check_file（如 mihomo 的订阅配置）：文件要用户先备好，
+                    // 没得下；把声明带上，缺文件时运行日志里能对上是哪一份
+                    it.download = d;
+                    it.needsReview = addLine(it.needsReview,
+                            "这条命令要用的文件（" + d.checkFile + "）不在包里、地址也是空的（多半是订阅类配置），先把文件备到包里或公共目录它该在的位置");
                 } else {
                     it.needsReview = addLine(it.needsReview,
                             "这条命令声明了下载（" + dl.optString("title", "下载文件") + "），但没给下载地址");
                 }
             }
-            // 命令自己没声明下载时，套 Item 级 downloads[] 选中的那条；解析时的提示逐条带上
-            if (it.download == null && itemDls.download != null) it.download = itemDls.download;
+            // 命令自己没声明能下的下载时，套 Item 级 downloads[] 选中的那条；
+            // 命令声明了但地址为空（check_file 型，如订阅配置）的不算能下——
+            // 它什么都不拉，不能把 Item 级的二进制下载挤掉（mihomo 就长这样）
+            if ((it.download == null || it.download.url == null || it.download.url.isEmpty())
+                    && itemDls.download != null) it.download = itemDls.download;
             for (String note : itemDls.notes) it.needsReview = addLine(it.needsReview, note);
             if (!pkgVars.isEmpty()) {
                 it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
@@ -351,6 +370,20 @@ public final class LabImportCompat {
             out.add(it);
         }
         return out;
+    }
+
+    /**
+     * 上游 min_version 尺度归一（G-2）：上游拿它跟默影视自己的 versionCode 比
+     * （mihomo 真样本写 110），星辰的 versionCode（1.4.25=108）不是一个尺度，
+     * 原样带过去会被 LabRunner 的版本门批量误杀。故上游来源一律不带这个门
+     * （归零），声明进 needsReview 明说；自家 .lab 的 min_version 不走这里，
+     * 那是星辰自己的尺度、版本门照常生效。
+     */
+    private static int upstreamMinVersion(int declared, ImportItem it) {
+        if (declared <= 0) return 0;
+        it.needsReview = addLine(it.needsReview,
+                "包声明最低版本 min_version=" + declared + "（默影视的版本号口径），跟星辰的版本号不是一个尺度、没按它拦");
+        return 0;
     }
 
     /** Item 级下载声明的解析结果：选中的一条下载＋要带给用户看的提示 */
@@ -1076,6 +1109,17 @@ public final class LabImportCompat {
             o.kind = it.outputKind;
             o.target = it.outputTarget == null ? "" : it.outputTarget;
             o.port = it.portPolicy == null || it.portPolicy.isEmpty() ? "auto" : it.portPolicy;
+            m.output = o;
+        } else if (it.portPolicy != null && it.portPolicy.matches("\\d+")) {
+            // 没产出声明、只有固定端口时也要把端口带进清单（G-3）：此前这里
+            // 直接丢掉，运行时 allocPort 只能随机分口，命令里已换成 {port} 的
+            // 字面端口跟着跑偏，配置里写死同口的对端永远连不上（WebHome 形态
+            // 必中）。合成一个只有端口的 output：kind/target 都空，所有消费点
+            // 都以 kind/target 非空为门，行为与无产出时一致，只多了端口策略
+            LabManifest.LabOutput o = new LabManifest.LabOutput();
+            o.kind = "";
+            o.target = "";
+            o.port = it.portPolicy;
             m.output = o;
         }
         return m;

@@ -340,10 +340,26 @@ public final class LabRunner {
         }).start();
     }
 
-    private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) {
+    private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) throws Exception {
         String policy = manifest == null || manifest.output == null ? "auto" : manifest.output.port;
         if (policy != null && policy.matches("\\d+")) {
             int fixed = Integer.parseInt(policy);
+            // 固定口先查占用（G-3）：此前不查，被占时服务绑口失败只进日志、
+            // 界面还按这个口登记，用户对着死口干等。刚停掉的自家进程放口
+            // 可能慢一拍，给十次短重试；仍占着就报人话，不许静默按错口展开
+            boolean free = portFree(fixed);
+            for (int i = 0; !free && i < 10; i++) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                free = portFree(fixed);
+            }
+            if (!free) {
+                throw new Exception("固定端口 " + fixed + " 已经被别的程序占着了，先停掉占它的服务，或者改这个包的端口");
+            }
             if (pkg.port != fixed) {
                 pkg.port = fixed;
                 LabRegistry.get(c).upsertSvc(c, pkg);

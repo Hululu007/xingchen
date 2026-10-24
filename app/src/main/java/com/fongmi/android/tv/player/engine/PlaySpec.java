@@ -8,7 +8,9 @@ import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Drm;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
+import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.PlayerHelper;
+import com.fongmi.android.tv.player.danmaku.live.LiveRoomResolver;
 import com.fongmi.android.tv.player.PlaybackRoute;
 import com.fongmi.android.tv.player.PlaybackTrace;
 import com.fongmi.android.tv.setting.Setting;
@@ -29,6 +31,7 @@ public class PlaySpec {
     private Result parseResult;
     private String format;
     private String key;
+    private String detailVodId = "";
     private PlaybackRoute.Resolution playbackRoute = PlaybackRoute.resolve(null);
     private String playbackTraceId = PlaybackTrace.NONE;
     private String url;
@@ -104,7 +107,38 @@ public class PlaySpec {
         PlaySpec copy = new PlaySpec(key, url, headers, format, drm, subs, danmakus, metadata).setSource(parseResult, parseSource, parseUseParse);
         copy.playbackRoute = playbackRoute;
         copy.playbackTraceId = playbackTraceId;
+        copy.detailVodId = detailVodId;
         return copy;
+    }
+
+    /** 详情 vod id（详情页起播装配时写入）：直播平台弹幕识别的真 id 所在，play 结果的 Vod 恒空、靠不住。 */
+    public String getDetailVodId() {
+        return detailVodId;
+    }
+
+    public PlaySpec setDetailVodId(String detailVodId) {
+        this.detailVodId = detailVodId == null ? "" : detailVodId;
+        return this;
+    }
+
+    /**
+     * 直播平台弹幕识别快照（起播装配点旁路用）：vodId 优先取详情 vod id，
+     * 缺失才退 parseResult 的 Vod（play 结果不带 list 时它恒为空 Vod、id 恒空，
+     * 只靠它识别必然落空——见 douyu-live-danmaku-noshow-trace.md）。
+     * 其余字段口径与原 PlayerManager 组快照一致，不动 Resolver 的强信号纪律。
+     */
+    public LiveRoomResolver.Snapshot liveDanmakuSnapshot() {
+        Vod vod = parseResult == null ? null : parseResult.getVod();
+        MediaMetadata md = metadata;
+        String title = md == null || md.title == null ? "" : md.title.toString();
+        String id = !detailVodId.isEmpty() ? detailVodId : (vod == null ? "" : vod.getId());
+        return new LiveRoomResolver.Snapshot(
+                key,
+                id,
+                vod == null ? "" : vod.getPlayUrl(),
+                vod == null ? "" : vod.getPlayFrom(),
+                vod == null ? title : vod.getName(),
+                url);
     }
 
     public PlaybackRoute.Resolution getPlaybackRoute() {

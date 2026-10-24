@@ -377,10 +377,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         } else if (result.needParse() || useParse) {
             attachSurface();
             player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay(), startPositionMs);
+            PlaySpec spec = player().getSpec();
+            if (spec != null) spec.setDetailVodId(getDetailVodId());
         } else {
             attachSurface();
-            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay(), startPositionMs);
+            player().start(PlaySpec.from(result, key, metadata).setDetailVodId(getDetailVodId()), timeout, PlayerSetting.isAutoPlay(), startPositionMs);
         }
+    }
+
+    /** 详情 vod id（详情页起播装配时写入 PlaySpec，供直播平台弹幕识别）；非详情页默认无。 */
+    protected String getDetailVodId() {
+        return "";
     }
 
     private boolean rejectUnsupportedDrm(String key, Result result) {

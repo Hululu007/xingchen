@@ -1490,12 +1490,12 @@ public class PlayerManager implements ParseCallback {
             pendingSwitchPositionMs = position;
             pendingSwitchSpeed = speed;
             pendingSwitchRepeat = repeat;
-            spec = PlaySpec.fromParse(result, key, metadata, useParse);
+            spec = inheritDetailVodId(PlaySpec.fromParse(result, key, metadata, useParse));
             bindPlaybackTrace();
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch decode fresh parse decode=%d position=%d useParse=%s spec=%s", next, position, useParse, debugSpec());
             parseJob = ParseJob.create(this).start(result, useParse);
         } else {
-            spec = PlaySpec.from(result, key, metadata);
+            spec = inheritDetailVodId(PlaySpec.from(result, key, metadata));
             bindPlaybackTrace();
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch decode fresh result decode=%d position=%d spec=%s", next, position, debugSpec());
             setMediaItem(Constant.TIMEOUT_PLAY);
@@ -1576,12 +1576,12 @@ public class PlayerManager implements ParseCallback {
             pendingSwitchPositionMs = position;
             pendingSwitchSpeed = speed;
             pendingSwitchRepeat = repeat;
-            spec = PlaySpec.fromParse(result, key, metadata, useParse);
+            spec = inheritDetailVodId(PlaySpec.fromParse(result, key, metadata, useParse));
             bindPlaybackTrace();
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player fresh parse type=%d position=%d useParse=%s spec=%s", type, position, useParse, debugSpec());
             parseJob = ParseJob.create(this).start(result, useParse);
         } else {
-            spec = PlaySpec.from(result, key, metadata);
+            spec = inheritDetailVodId(PlaySpec.from(result, key, metadata));
             bindPlaybackTrace();
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player fresh result type=%d position=%d spec=%s", type, position, debugSpec());
             setMediaItem(Constant.TIMEOUT_PLAY);
@@ -3651,7 +3651,7 @@ public class PlayerManager implements ParseCallback {
         pendingSwitchRepeat = repeat;
         stopParse();
         if (spec.isParseSource()) {
-            spec = PlaySpec.fromParse(result, key, metadata, useParse);
+            spec = inheritDetailVodId(PlaySpec.fromParse(result, key, metadata, useParse));
             bindPlaybackTrace();
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player reparse type=%d position=%d useParse=%s spec=%s", playerType, position, useParse, debugSpec());
             parseJob = ParseJob.create(this).start(result, useParse);
@@ -3684,12 +3684,12 @@ public class PlayerManager implements ParseCallback {
             return;
         }
         if (result.needParse()) {
-            spec = PlaySpec.fromParse(result, key, metadata, false);
+            spec = inheritDetailVodId(PlaySpec.fromParse(result, key, metadata, false));
             bindPlaybackTrace();
             parseJob = ParseJob.create(this).start(result, false);
             return;
         }
-        spec = PlaySpec.from(result, key, metadata);
+        spec = inheritDetailVodId(PlaySpec.from(result, key, metadata));
         bindPlaybackTrace();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player refreshed direct spec=%s", debugSpec());
         setMediaItem(Constant.TIMEOUT_PLAY);
@@ -4699,17 +4699,14 @@ public class PlayerManager implements ParseCallback {
     private void maybeStartLivePlatformDanmaku() {
         if (spec == null) return;
         if (DanmakuUrlPolicy.classify(currentDanmakuUrl).isLive()) return;
-        com.fongmi.android.tv.bean.Vod vod = spec.getParseResult() == null ? null : spec.getParseResult().getVod();
-        MediaMetadata metadata = spec.getMetadata();
-        String title = metadata == null || metadata.title == null ? "" : metadata.title.toString();
-        LiveRoomResolver.Snapshot snapshot = new LiveRoomResolver.Snapshot(
-                spec.getKey(),
-                vod == null ? "" : vod.getId(),
-                vod == null ? "" : vod.getPlayUrl(),
-                vod == null ? "" : vod.getPlayFrom(),
-                vod == null ? title : vod.getName(),
-                spec.getUrl());
-        liveDanmakuCoordinator.onPlayback(snapshot);
+        // 快照由 PlaySpec 组：vodId 优先详情 vod id（play 结果的 Vod 恒空，只用它识别恒落空）
+        liveDanmakuCoordinator.onPlayback(spec.liveDanmakuSnapshot());
+    }
+
+    /** 切内核/切解码/重解析等重建 spec 的路：详情 vod id 从旧 spec 承继，别让直播弹幕识别断在重建后。 */
+    private PlaySpec inheritDetailVodId(PlaySpec fresh) {
+        if (fresh != null && fresh.getDetailVodId().isEmpty() && spec != null) fresh.setDetailVodId(spec.getDetailVodId());
+        return fresh;
     }
 
     private void onPlatformLiveState(LiveDanmakuWebSocketSession.State state, long generation, String targetTag, int code, String detail) {

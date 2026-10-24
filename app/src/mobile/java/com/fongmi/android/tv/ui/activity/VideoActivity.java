@@ -733,6 +733,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
+    @Override
+    protected String getDetailVodId() {
+        return getId();
+    }
+
     private Site getSite() {
         return VodConfig.get().getSite(getKey());
     }

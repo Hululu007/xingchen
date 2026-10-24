@@ -137,9 +137,21 @@ public class LabManifest {
     }
 
     public static LabManifest parse(String json) throws Exception {
+        return parse(json, "");
+    }
+
+    /**
+     * 同 parse，id 缺失时用调用方给的派生 id 兜底（上游 webhtv 的包根本没有 id
+     * 概念、身份就是包名/目录名；存量包的 lab.json 没写 id 不该整份读死）。
+     * 派生 id 同样要过路径安全检查；两边都没有才报「缺 id」。
+     */
+    public static LabManifest parse(String json, String fallbackId) throws Exception {
         JSONObject o = new JSONObject(json);
         LabManifest m = new LabManifest();
         m.id = o.optString("id", "").trim();
+        if (m.id.isEmpty() && fallbackId != null && !fallbackId.trim().isEmpty()) {
+            m.id = fallbackId.trim();
+        }
         // id 直接决定包目录：纯「..」这类 id 能让安装/卸载删到实验室根，进门就拒
         //（路径层 LabPaths 还有一道 canonical 兜底，两层同口径）
         if (!m.id.isEmpty()) {

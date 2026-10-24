@@ -779,7 +779,8 @@ public class LabServiceActivity extends AppCompatActivity {
             int n = 0, r;
             while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
             in.close();
-            return LabManifest.parse(new String(buf, 0, n, "UTF-8"));
+            // 与 LabRunner.readManifest 同口径：缺 id 时按包目录名派生，不整份读死
+            return LabManifest.parse(new String(buf, 0, n, "UTF-8"), pkgId);
         } catch (Exception e) {
             // 文件不存在已在上面静默返回；走到这里是文件在但读坏/解坏，留痕 + 报因一次，
             // 别再静默回 null 让页面装作没这个包

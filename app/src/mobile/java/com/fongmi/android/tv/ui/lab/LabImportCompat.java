@@ -708,9 +708,10 @@ public final class LabImportCompat {
         return it;
     }
 
-    /** lab.json 粘贴：转成一条（取默认命令） */
+    /** lab.json 粘贴：转成一条（取默认命令）。上游形态的说明常不写 id，
+     * 按包名派生（上游身份就是包名），名也没有才按缺 id 报错 */
     private static ImportItem fromLabJson(JSONObject o) throws Exception {
-        LabManifest m = LabManifest.parse(o.toString());
+        LabManifest m = LabManifest.parse(o.toString(), sanitize(o.optString("name", "")));
         ImportItem it = new ImportItem();
         it.kind = Kind.LAB_JSON;
         it.id = sanitize(m.id);

@@ -576,6 +576,17 @@ public final class LabPackageInstaller {
         return loadManifest(zip);
     }
 
+    /** 包文件名去扩展（kuwo.lab.7z / kuwo.lab / kuwo.zip → kuwo），派生 id 的原料 */
+    private static String zipStem(File zip) {
+        String n = zip == null ? "" : zip.getName();
+        String lower = n.toLowerCase();
+        for (String ext : new String[]{".lab.7z", ".lab", ".zip", ".7z"}) {
+            if (lower.endsWith(ext)) return n.substring(0, n.length() - ext.length());
+        }
+        int dot = n.lastIndexOf('.');
+        return dot > 0 ? n.substring(0, dot) : n;
+    }
+
     /** 包里有没有 lab.json（根目录或 files/ 下）：决定解压时要不要把 files/ 合并到包根 */
     private static boolean hasLabJson(File zip) {
         try (ZipFile zf = new ZipFile(zip)) {
@@ -597,7 +608,9 @@ public final class LabPackageInstaller {
             if (e == null) e = zf.getEntry("files/lab.json");
             if (e != null) {
                 try (InputStream in = zf.getInputStream(e)) {
-                    return LabManifest.parse(readAll(in));
+                    // lab.json 没写 id 时按包文件名派生（上游包没有 id 概念，
+                    // 身份就是包名），不让整包卡在这一项上
+                    return LabManifest.parse(readAll(in), LabImportCompat.sanitize(zipStem(zip)));
                 }
             }
             java.util.List<String> names = new java.util.ArrayList<>();

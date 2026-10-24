@@ -32,6 +32,22 @@ public final class LabBoot {
         }, 3000);
     }
 
+    /**
+     * 立即补跑一遍自启（实验室首页把总开关拨上时调）：此前总开关的唯一读者
+     * 是冷启那一遍 boot——开关落盘没问题，但用户在实验室里拨上它，本进程内
+     * 没有任何触发点，跟没拨一样。现在拨上即按同一套门槛（总开关＋每服务
+     * 自启＋环境已装＋没在跑）补跑，失败经 LabRunner 落运行记录。
+     */
+    public static void kick(Context ctx) {
+        final Context c = ctx.getApplicationContext();
+        new Thread(() -> {
+            try {
+                boot(c);
+            } catch (Exception ignored) {
+            }
+        }).start();
+    }
+
     private static void boot(Context c) {
         // 先恢复进程状态（死了的自动从注册表里清掉）
         LabProc.recoveredAliveKeys(c);

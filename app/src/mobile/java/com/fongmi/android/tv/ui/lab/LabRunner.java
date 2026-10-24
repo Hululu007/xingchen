@@ -171,6 +171,7 @@ public final class LabRunner {
                 // 失败原因进 ERRORS（lastError 的数据源）：与默认命令那条 startCommand 同口径，
                 // 此前这条路的失败只通知 listener、页面上查不到原因
                 ERRORS.put(key, m == null ? "未知原因" : m);
+                recordFailure(c, pkgId, key, m == null ? "未知原因" : m);
                 String fail = "启动失败：" + (m == null ? "未知原因" : m) + "\n";
                 // 正在看这条命令实时输出的页面也要拿到失败原因（总线另一半在 pump）
                 LabLiveOutputActivity.LiveBus.emit(key, fail);
@@ -332,12 +333,25 @@ public final class LabRunner {
             } catch (Exception e) {
                 String m = e.getMessage();
                 ERRORS.put(keyOf(pkgId), m == null ? "未知原因" : m);
+                recordFailure(c, pkgId, keyOf(pkgId), m == null ? "未知原因" : m);
                 if (listener != null) {
                     listener.onOutput("启动失败：" + (m == null ? "未知原因" : m) + "\n");
                     listener.onExit(-1);
                 }
             }
         }).start();
+    }
+
+    /**
+     * 启动失败落运行记录：runShell 之前抛的失败（包说明读坏、缺环境、端口被占、
+     * 命令为空等）此前只进内存 ERRORS，进程一重启就没了，运行记录页永远空着，
+     * 界面却叫人「去运行记录看看」。失败必须在记录里留一行，内存与落盘各一份，
+     * 与 pump 写进程输出同一份文件（getLog 的读取口径）。
+     */
+    private static void recordFailure(Context c, String pkgId, String key, String message) {
+        String line = "启动失败：" + message + "\n";
+        appendLog(key, line);
+        appendFile(LabProc.logFile(c, pkgId), line);
     }
 
     private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) throws Exception {
@@ -778,7 +792,9 @@ public final class LabRunner {
             byte[] buf = new byte[(int) f.length()];
             int n = 0, r;
             while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
-            return LabManifest.parse(new String(buf, 0, n, StandardCharsets.UTF_8));
+            // 存量包的 lab.json 可能没写 id：身份以注册表/目录名为准，派生兜底，
+            // 不让一份缺 id 的说明把整个包读死（上游包本就没有 id 概念）
+            return LabManifest.parse(new String(buf, 0, n, StandardCharsets.UTF_8), pkgId);
         }
     }
 }

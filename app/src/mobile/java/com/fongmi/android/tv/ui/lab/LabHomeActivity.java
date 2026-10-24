@@ -95,7 +95,7 @@ public class LabHomeActivity extends AppCompatActivity {
         alp.rightMargin = dp(8);
         arLab.setLayoutParams(alp);
         head.addView(arLab);
-        masterSw = LabSkin.miniSwitch(this, false, on -> LabRegistry.get(this).setMasterAutoStart(this, on));
+        masterSw = LabSkin.miniSwitch(this, false, on -> onMasterSwitch(on));
         head.addView(masterSw);
         headBox = head;
         root.addView(head);
@@ -161,6 +161,12 @@ public class LabHomeActivity extends AppCompatActivity {
         setContentView(root);
     }
 
+    /** 总开关拨动：落盘之外，拨上立即补跑一遍自启（冷启那遍之外唯一的触发点） */
+    private void onMasterSwitch(boolean on) {
+        LabRegistry.get(this).setMasterAutoStart(this, on);
+        if (on) LabBoot.kick(this);
+    }
+
     private TextView pill(String text) {
         TextView p = new TextView(this);
         p.setText(text);
@@ -179,7 +185,7 @@ public class LabHomeActivity extends AppCompatActivity {
         // 开关重建（miniSwitch 是自绘 View，无 setChecked 口）
         headBox.removeView(masterSw);
         masterSw = LabSkin.miniSwitch(this, LabRegistry.get(this).masterAutoStart,
-                on -> LabRegistry.get(this).setMasterAutoStart(this, on));
+                on -> onMasterSwitch(on));
         headBox.addView(masterSw);
         int n = LabRunner.runningCount(this);
         runningNum.setText(String.valueOf(n));

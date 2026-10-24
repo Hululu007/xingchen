@@ -217,7 +217,10 @@ public class LabEnvActivity extends AppCompatActivity {
         LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setBackground(LabSkin.glassDark(this));
-        tile.setPadding(dp(14), dp(15), dp(14), dp(15));
+        tile.setPadding(dp(13), dp(14), dp(13), dp(14));
+        // 等高：内容全是定高件（标题单行、徽、钮、开关），再兜一道统一最低高，
+        // 同排两卡不许一张高一张矮
+        tile.setMinimumHeight(dp(158));
         GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
         lp.width = 0;
         lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
@@ -238,7 +241,14 @@ public class LabEnvActivity extends AppCompatActivity {
         name.setTextSize(15);
         name.setTextColor(LabSkin.TEXT_ON_DARK);
         name.getPaint().setFakeBoldText(true);
-        name.setPadding(0, 0, 0, dp(11));
+        // 标题单行：长了跑马灯滚动（与详情页长标题同口径），短标题不动；
+        // 不许再换行把卡片撑高
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.MARQUEE);
+        name.setMarqueeRepeatLimit(-1);
+        name.setHorizontallyScrolling(true);
+        name.setSelected(true);
+        name.setPadding(0, 0, 0, dp(10));
         tile.addView(name);
 
         TextView chip = new TextView(this);
@@ -260,13 +270,13 @@ public class LabEnvActivity extends AppCompatActivity {
         chip.setLayoutParams(clp);
         tile.addView(chip);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        // 启动钮独占一行（整宽居中）：原先与自启/节点开关挤同一行，卡宽放不下
+        // 三样，节点开关被挤出卡外。新排布：钮一行、开关一行（见下），三样全露。
         TextView go = new TextView(this);
         go.setText(running ? "停止" : "启动");
         go.setTextSize(12);
         go.getPaint().setFakeBoldText(true);
+        go.setGravity(Gravity.CENTER);
         if (running) {
             go.setTextColor(LabSkin.TEXT_ON_DARK);
             go.setBackground(LabSkin.rowDark(this));
@@ -274,7 +284,9 @@ public class LabEnvActivity extends AppCompatActivity {
             go.setTextColor(LabSkin.ON_YELLOW);
             go.setBackground(LabSkin.capsuleYellow(this));
         }
-        go.setPadding(dp(18), dp(6), dp(18), dp(6));
+        go.setPadding(0, dp(8), 0, dp(8));
+        go.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         go.setClickable(true);
         go.setFocusable(true);
         go.setOnClickListener(v -> {
@@ -307,18 +319,29 @@ public class LabEnvActivity extends AppCompatActivity {
                 });
             }
         });
-        row.addView(go);
+        tile.addView(go);
 
+        // 开关行：自启、节点两组各占半行（标签＋开关），组内贴紧、两组分列左右，
+        // 不再横排硬挤。语义与存法与原来一致：拨动即存；节点对正在跑的服务
+        // 下次启动生效（不强制重启）
+        LinearLayout swRow = new LinearLayout(this);
+        swRow.setOrientation(LinearLayout.HORIZONTAL);
+        swRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams swRowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        swRowLp.topMargin = dp(11);
+        swRow.setLayoutParams(swRowLp);
+
+        LinearLayout autoGroup = new LinearLayout(this);
+        autoGroup.setOrientation(LinearLayout.HORIZONTAL);
+        autoGroup.setGravity(Gravity.CENTER_VERTICAL);
+        autoGroup.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView swLab = new TextView(this);
         swLab.setText("自启");
         swLab.setTextSize(11);
         swLab.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.leftMargin = dp(9);
-        slp.rightMargin = dp(5);
-        swLab.setLayoutParams(slp);
-        row.addView(swLab);
+        autoGroup.addView(swLab);
         View sw = LabSkin.miniSwitch(this, LabRegistry.autoStartOf(s), on -> {
             LabRegistry.Svc cur = LabRegistry.get(this).svc(s.id);
             if (cur != null) {
@@ -326,20 +349,23 @@ public class LabEnvActivity extends AppCompatActivity {
                 LabRegistry.get(this).upsertSvc(this, cur);
             }
         });
-        row.addView(sw);
-        // 节点：同一行最右边。开关按服务存，拨动即存；正在跑的服务下次启动生效（不强制重启）
-        LinearLayout spacer2 = new LinearLayout(this);
-        spacer2.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(spacer2);
+        // 开关自带定尺寸 LayoutParams，不许覆盖；标签与开关之间用 5dp 间隔件
+        View swGap = new View(this);
+        swGap.setLayoutParams(new LinearLayout.LayoutParams(dp(5), 1));
+        autoGroup.addView(swGap);
+        autoGroup.addView(sw);
+        swRow.addView(autoGroup);
+
+        LinearLayout nodeGroup = new LinearLayout(this);
+        nodeGroup.setOrientation(LinearLayout.HORIZONTAL);
+        nodeGroup.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
+        nodeGroup.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView nodeLab = new TextView(this);
         nodeLab.setText("节点");
         nodeLab.setTextSize(11);
         nodeLab.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nlp.rightMargin = dp(5);
-        nodeLab.setLayoutParams(nlp);
-        row.addView(nodeLab);
+        nodeGroup.addView(nodeLab);
         View nodeSw = LabSkin.miniSwitch(this, s.nodeProxy, on -> {
             LabRegistry.Svc cur = LabRegistry.get(this).svc(s.id);
             if (cur != null) {
@@ -347,8 +373,12 @@ public class LabEnvActivity extends AppCompatActivity {
                 LabRegistry.get(this).upsertSvc(this, cur);
             }
         });
-        row.addView(nodeSw);
-        tile.addView(row);
+        View nodeGap = new View(this);
+        nodeGap.setLayoutParams(new LinearLayout.LayoutParams(dp(5), 1));
+        nodeGroup.addView(nodeGap);
+        nodeGroup.addView(nodeSw);
+        swRow.addView(nodeGroup);
+        tile.addView(swRow);
         return tile;
     }
 

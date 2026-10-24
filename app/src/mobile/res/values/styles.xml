@@ -32,6 +32,14 @@
         <item name="android:windowSplashScreenBackground">@color/music_page_base</item>
     </style>
 
+    <!-- 随心听独立页专属主题：沉浸深底页，窗口底落它自己的深底（@color/music_random_base），
+         不借浅色音乐基色、也不透主壁纸；运行时 ThemeManager 对本页同样落 0xFF0A0E16 -->
+    <style name="Theme.XingChen.MusicDark" parent="Theme.App">
+        <item name="android:windowBackground">@color/music_random_base</item>
+        <item name="android:colorBackground">@color/music_random_base</item>
+        <item name="android:windowSplashScreenBackground">@color/music_random_base</item>
+    </style>
+
     <style name="Theme.Crash" parent="Theme.XingChen">
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

@@ -139,13 +139,15 @@
         <activity
             android:name=".ui.activity.MusicRandomActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.MusicDark" />
 
 
         <activity
             android:name=".ui.activity.MusicSettingsActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.Music" />
 
         <service
             android:name=".service.MusicPlaybackService"
@@ -398,6 +400,7 @@
             android:name=".ui.activity.MusicCloudActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.Music"
             android:windowSoftInputMode="adjustResize" />
 
         <activity

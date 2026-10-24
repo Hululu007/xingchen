@@ -131,10 +131,18 @@ public class ThemeManager {
     }
 
     // 音乐独立页（与海阔页同口径：自带底、不跟主壁纸走）：不贴星辰壁纸，
-    // 窗口底落页面自己的玻璃基色。逐页独立化时往此名单加页，第一页＝音乐首页。
+    // 窗口底落页面自己的基色。判定按包内前缀泛化：.ui.activity.Music* 全算
+    // （MusicActivity/MusicListActivity/MusicSettingsActivity/MusicCloudActivity/
+    // MusicRandomActivity 及后续同包新页）；播放页在 .ui.music 包，不在此列。
     private boolean isMusicPage(Activity activity) {
         String actName = activity.getClass().getName();
-        return actName.endsWith(".ui.activity.MusicActivity");
+        return actName.contains(".ui.activity.Music");
+    }
+
+    // 随心听是音乐页里的深底沉浸页：异步贴落它自己的深底，不落浅色基色。
+    private boolean isMusicRandomPage(Activity activity) {
+        String actName = activity.getClass().getName();
+        return actName.endsWith(".ui.activity.MusicRandomActivity");
     }
 
     // 同步贴：只用已有图源（当前缓存优先，其次上一张），不解码。
@@ -211,13 +219,16 @@ public class ThemeManager {
                 } catch (Exception ignored) {}
                 return;
             }
-            // 音乐独立页同口径：窗口底落页面自己的玻璃基色，转场/冷启/overscroll
-            // 都不透主壁纸；主题层已先落同色兜底首帧。色值与 @color/music_page_base、
-            // MusicGlassBackgroundView.BASE 三处同值（0xFFFAFAFC），改色须三处同改。
+            // 音乐独立页同口径：窗口底落页面自己的基色，转场/冷启/overscroll
+            // 都不透主壁纸；主题层已先落同色兜底首帧。浅色页色值与 @color/music_page_base、
+            // MusicGlassBackgroundView.BASE 三处同值（0xFFFAFAFC），改色须三处同改；
+            // 随心听例外落自己的深底 0xFF0A0E16（与 @color/music_random_base、
+            // activity_music_random.xml 布局根底三处同值）。
             if (isMusicPage(activity)) {
                 try {
+                    int base = isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFFFAFAFC;
                     activity.getWindow().setBackgroundDrawable(
-                            new android.graphics.drawable.ColorDrawable(0xFFFAFAFC));
+                            new android.graphics.drawable.ColorDrawable(base));
                 } catch (Exception ignored) {}
                 return;
             }

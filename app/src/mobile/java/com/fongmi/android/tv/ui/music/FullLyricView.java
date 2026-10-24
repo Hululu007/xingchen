@@ -488,7 +488,9 @@ public class FullLyricView extends View {
      * 顶渐隐 smoothstep (3-2t)t²（审计 §4 源码注记 :457–477）、底渐隐 bottomFadeKeep 分段曲线
      * （源码实读转写，见下）。注：行 alpha 的源头状态函数未抠到（在未反编译的引擎本体内），
      * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式未抠到、维持等价式不动。
-     * palette 颜色自带 alpha 会被 drawIdleMain 的 setAlpha 覆盖，故 0.30 以行 alpha 形式落。
+     * palette 非当前色（白 0.30）自带 alpha、与画笔 alpha 相乘落地，故行 alpha 只给渐隐系数，
+     * 不再乘 0.30——原式 255×0.30×渐隐再乘色内 0.30，合成约 0.09，闲行近乎不可见（全屏页「像没做」断点，
+     * 1.4.27 查修批纠正）；纠正后合成＝0.30×顶渐隐×底渐隐，与批 2 补正的录屏平台值一致。
      */
     private void drawIdleRow(Canvas canvas, String text, float x, float baseline, float blockTop,
                              int width, int distance) {
@@ -498,7 +500,7 @@ public class FullLyricView extends View {
         float topKeep = (3f - 2f * topT) * topT * topT;
         float relY = LyricWordEngine.clampF(relTop / Math.max(1f, (float) getHeight()), 0f, 1f);
         float bottomKeep = bottomFadeKeep(relY, 0.45f);
-        int alpha = Math.round(255f * 0.30f * topKeep * bottomKeep);
+        int alpha = Math.round(255f * topKeep * bottomKeep);
         float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
         boolean blurWanted = radius > 0f && distance > 0;

@@ -96,6 +96,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private ImageView coverView;
     private ImageView coverExitView;
+    /** 封面下沿熔边层（经典／Apple 布局内 tpCoverMelt，其余主题无此视图）：把实图封面下沿渐隐进整页糊底，消除两张皮接缝。 */
+    private View coverMeltView;
     private int coverExitGen;
     private TextView titleView;
     private TextView artistView;
@@ -308,11 +310,22 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (!theme.equals(themeId)) applyTheme();
         else applyLyricStyle();
         applyKeepScreenOn();
+        // 迷你条钩子（1.4.27 查修批恢复，旧页 fe2e780b onResume 末尾同位）：进播放页要向迷你条报到，
+        // 否则 MiniBarPolicy 的音乐 pageForeground 永不置真、页内暂停满 10 秒会被计时器真关会话。
+        try {
+            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).pageResumed("music");
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
     protected void onPause() {
         MusicController.get().removeListener(listener);
+        // 迷你条钩子（同上，旧页 onPause 开头同位）：离页报离，页面前台标记与暂停计时恢复由迷你条侧接管。
+        try {
+            com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).pagePaused("music");
+        } catch (Throwable ignored) {
+        }
         super.onPause();
     }
 
@@ -529,8 +542,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 if (!swipeFired && !swipeDownInCoverArea) {
                     float dx = ev.getX() - swipeDownX;
                     float dy = ev.getY() - swipeDownY;
-                    float threshold = 60f * getResources().getDisplayMetrics().density;
-                    if (Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.5f
+                    // 触发量与轴判定照瓜子横滑口径（施工图 §3：触发 36dp、dominance 1.2）；
+                    // 原 60dp＋1.5 在真机自然右划下难以触发，是「右划进不了歌词页」的断点之一。
+                    float threshold = 36f * getResources().getDisplayMetrics().density;
+                    if (Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.2f
                             && !isInScrubberRow(ev)) {
                         if (dx > 0 && !lyricPageVisible) {
                             showLyricPage();
@@ -579,6 +594,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private void grabThemeViews() {
         coverView = find(R.id.tpCover);
         coverExitView = find(R.id.tpCoverExit);
+        coverMeltView = find(R.id.tpCoverMelt);
+        updateCoverMelt();
         titleView = find(R.id.tpTitle);
         artistView = find(R.id.tpArtist);
         albumView = find(R.id.tpAlbum);
@@ -2101,6 +2118,22 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
     }
 
+    /**
+     * 封面下沿熔边（封面背景一体，1.4.27 查修批）：整页只有一层糊底（ivBgBlur），实图封面浮在它的上段；
+     * 熔边层在封面下沿 84dp 内把实图渐隐到氛围实色，与下半糊底同色收尾，消除「上图下板」的硬接缝。
+     * 渐变色随氛围色动画逐帧更新（animateAmbient 监听内调用）；无熔边视图的主题（卡片／CD／唱片架）直接跳过。
+     */
+    private void updateCoverMelt() {
+        if (coverMeltView == null) return;
+        int tone = CoverColor.toneAdjust(ambientColor) | 0xFF000000;
+        int transparent = tone & 0x00FFFFFF;
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{transparent, transparent, tone});
+        drawable.setGradientType(android.graphics.drawable.GradientDrawable.LINEAR_GRADIENT);
+        coverMeltView.setBackground(drawable);
+    }
+
     /** 氛围取色过渡 450ms（§1）。 */
     private void animateAmbient(int to) {
         if (ambientAnimator != null) ambientAnimator.cancel();
@@ -2115,6 +2148,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (lyricPageView != null && lyricPageVisible) {
                 lyricPageView.setToneColor(ambientColor);
             }
+            updateCoverMelt();
             if (appleLyricView != null) {
                 appleLyricView.setFadeColor(ambientColor);
             }

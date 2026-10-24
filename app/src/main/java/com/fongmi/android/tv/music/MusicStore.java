@@ -807,10 +807,9 @@ public class MusicStore {
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
 
-    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的用户值一律不动）。
-     * 必-4 一处收口：未存值仍走全新默认 cover_immersive；已存非法值（旧版／外写残留，
-     * 存入校验拦不住的历史值）读侧回落 classic，与 setPlayerTheme 非法写 classic、
-     * 设置页 else 分支 classic 同口径；存入校验与选择器预选不动。 */
+    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的合法用户值一律不动）。
+     * 1.4.27 查修批纠正：已存非法值（旧版／外写残留）读侧回落默认封面卡片，不再回落 classic——
+     * 非法值不是用户选择，原回落会把存量用户无声落到经典主题；与 MusicPlayerSettings.getTheme 同口径。 */
     public static String getPlayerTheme() {
         String theme = Prefers.getString(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
         if (theme == null || theme.isEmpty()) return THEME_COVER_IMMERSIVE;
@@ -819,18 +818,17 @@ public class MusicStore {
                 || THEME_RECORD_SHELF.equals(theme)) {
             return theme;
         }
-        return THEME_CLASSIC;
+        return THEME_COVER_IMMERSIVE;
     }
 
     public static void setPlayerTheme(String theme) {
-        // T1：只存 5 个合法 id，非法（含空）写 classic，与瓜子 PlayerTheme.fromId 未知 id → Classic 一致；
-        // getPlayerTheme 的全新默认（cover_immersive）不动，两者分属不同落点：存入校验≠读取默认。
+        // 只存 5 个合法 id；非法（含空）写默认封面卡片（1.4.27 查修批纠正，原写 classic 同上条理由作废）。
         if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
                 || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
                 || THEME_RECORD_SHELF.equals(theme)) {
             Prefers.put(K_PLAYER_THEME, theme);
         } else {
-            Prefers.put(K_PLAYER_THEME, THEME_CLASSIC);
+            Prefers.put(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
         }
     }
 

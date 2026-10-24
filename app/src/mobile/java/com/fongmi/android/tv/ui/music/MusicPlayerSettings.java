@@ -47,17 +47,19 @@ public final class MusicPlayerSettings {
 
     /**
      * 播放页主题 id：未存值＝星辰定案默认封面卡片 cover_immersive（压过瓜子 classic 默认）；
-     * 已存非法值回落 classic（与 MusicStore.getPlayerTheme 读侧口径一致）。
+     * 已存合法值尊重原值；已存非法值（旧版／外写残留）回落默认封面卡片——
+     * 1.4.27 查修批纠正：原回落 classic 会把存量用户无声落到经典主题（无主控行形态），
+     * 与「新装默认封面卡片、存量值合法则尊重」的口径不符，非法值不是用户选择、不许当选择尊重。
      * 流光 CD 的 dark/auto 是独立主题 id（§4），MusicStore 的五 id 校验不认，本类放行。
      */
     public static String getTheme() {
         String theme = Prefers.getString(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
         if (theme == null || theme.isEmpty()) return THEME_COVER_IMMERSIVE;
-        return isKnownTheme(theme) ? theme : THEME_CLASSIC;
+        return isKnownTheme(theme) ? theme : THEME_COVER_IMMERSIVE;
     }
 
     public static void setTheme(String theme) {
-        Prefers.put(K_PLAYER_THEME, isKnownTheme(theme) ? theme : THEME_CLASSIC);
+        Prefers.put(K_PLAYER_THEME, isKnownTheme(theme) ? theme : THEME_COVER_IMMERSIVE);
     }
 
     /** 全屏歌词字号 sp（§0 默认 24，钳 16–40；与 MusicStore 同键同迁移口径，直接走它）。 */

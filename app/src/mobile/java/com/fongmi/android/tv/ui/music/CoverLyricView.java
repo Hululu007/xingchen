@@ -249,8 +249,18 @@ public class CoverLyricView extends View {
         return LINE_GAP_DP * getResources().getDisplayMetrics().density;
     }
 
+    /** 副行槽高只在真有副行文本时预留：整表无翻译／罗马音时不留空槽（原实现按 showSub 开关恒预留，
+     * 无译文歌曲行距被空槽撑到约 67dp、远超瓜子行距，是歌词区「糊成一坨」的构图断点之一）。 */
+    private boolean hasAnySub() {
+        if (!showSub) return false;
+        for (String sub : subs) {
+            if (sub != null && !sub.isEmpty()) return true;
+        }
+        return false;
+    }
+
     private float slotHeightPx() {
-        return mainLineHeightPx() + (showSub ? subLineHeightPx() : 0f) + gapPx();
+        return mainLineHeightPx() + (hasAnySub() ? subLineHeightPx() : 0f) + gapPx();
     }
 
     private int windowStart() {
@@ -317,27 +327,31 @@ public class CoverLyricView extends View {
 
     /** 非当前行：压暗＋模糊（距当前 ≥1 行即上模糊——批 2 补正对齐审计 §4：录屏 +1 行已明显模糊、
      * 与 FullLyricView 的距离 >0 口径合；原 ≥2 门槛作废。半径走 §6.1 量化）。
+     * 压暗恢复 1.4.26 旧基线（KaraokeLyricsView 同式）：行 alpha 系数＝max(0.35, 0.85－距离×0.16)，
+     * 乘在 palette 非当前色（白 0.30）之上——原实现恒 255（等效 0.30 不衰减），远行与近行同亮同糊，
+     * 是真机「整片泥浆」的断点；瓜子录屏同为近行可辨、远行渐隐。
      * 强度随距离的源头公式在未反编译的引擎本体内（§19 第 2 项未抠到）：此处沿旧引擎应用侧等价式
      * min(2＋距离×2.2, 12)×档位系数（px），再按 §6.1 量化到 0.5 步进，不冒充瓜子公式。 */
     private void drawIdleMain(Canvas canvas, String text, float x, float baseline, float blockTop,
                               int width, int distance) {
+        int alpha = Math.round(255f * Math.max(0.35f, 0.85f - distance * 0.16f));
         float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
         boolean blurWanted = distance >= 1 && radius > 0f;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {
             if (SystemClock.elapsedRealtime() >= blurRetryAfterMs
-                    && drawIdleWithEffect(canvas, text, x, baseline, blockTop, width, radius)) {
+                    && drawIdleWithEffect(canvas, text, x, baseline, blockTop, width, radius, alpha)) {
                 return;
             }
             // 无可用效果时不挂模糊、只压暗直绘（旧引擎 GZ 应用侧同口径）。
-            drawer.drawIdleMain(canvas, text, x, baseline, width, 255);
+            drawer.drawIdleMain(canvas, text, x, baseline, width, alpha);
             return;
         }
         if (blurWanted) {
             // API＜31：BlurMaskFilter 等效（同半径、同量化）。
             android.text.TextPaint paint = drawer.mainPaint();
             paint.setColor(drawer.palette().inactive);
-            paint.setAlpha(255);
+            paint.setAlpha(alpha);
             paint.setMaskFilter(new android.graphics.BlurMaskFilter(radius, android.graphics.BlurMaskFilter.Blur.NORMAL));
             paint.setShader(null);
             CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width, android.text.TextUtils.TruncateAt.END);
@@ -346,7 +360,7 @@ public class CoverLyricView extends View {
             paint.setAlpha(255);
             return;
         }
-        drawer.drawIdleMain(canvas, text, x, baseline, width, 255);
+        drawer.drawIdleMain(canvas, text, x, baseline, width, alpha);
     }
 
     private RenderEffect blurEffectFor(float radius) {
@@ -368,7 +382,7 @@ public class CoverLyricView extends View {
      * 注意：不许调 node.discardDisplayList()——硬件加速下显示列表在 onDraw 返回后才被渲染线程消费，
      * 立即 discard 会让行「绘制成功却空白」（旧引擎实证教训）。 */
     private boolean drawIdleWithEffect(Canvas canvas, String text, float x, float baseline, float blockTop,
-                                       int width, float radius) {
+                                       int width, float radius, int alpha) {
         RenderEffect effect = blurEffectFor(radius);
         if (effect == null) return false;
         int w = getWidth();
@@ -380,7 +394,7 @@ public class CoverLyricView extends View {
             Canvas rec = node.beginRecording(w, h);
             android.text.TextPaint paint = new android.text.TextPaint(drawer.mainPaint());
             paint.setColor(drawer.palette().inactive);
-            paint.setAlpha(255);
+            paint.setAlpha(alpha);
             paint.setMaskFilter(null);
             CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width, android.text.TextUtils.TruncateAt.END);
             rec.drawText(draw, 0, draw.length(), x, baseline - blockTop, paint);

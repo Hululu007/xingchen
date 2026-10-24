@@ -30,13 +30,21 @@
             android:contentDescription="@null"
             android:scaleType="centerCrop"
             android:visibility="gone" />
+
+        <!-- 熔边层：封面下沿 84dp 渐隐进整页糊底（代码按氛围色刷渐变），封面与底一层无接缝 -->
+        <View
+            android:id="@+id/tpCoverMelt"
+            android:layout_width="match_parent"
+            android:layout_height="84dp"
+            android:layout_gravity="bottom"
+            android:contentDescription="@null" />
     </FrameLayout>
 
-    <!-- SongMeta 与封面的间距：§1 表无此项字面值，沿旧经典布局 12dp（报告已注非瓜子抠值） -->
+    <!-- SongMeta 紧贴封面（§1 结构序：CoverArt → SongMeta，无间隔字面值） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="0dp"
         android:clipChildren="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"

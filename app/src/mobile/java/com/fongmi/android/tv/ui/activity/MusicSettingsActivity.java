@@ -371,7 +371,7 @@ public class MusicSettingsActivity extends BaseActivity {
                 : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(t) ? R.string.music_theme_cd_dark
                 : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(t) ? R.string.music_theme_cd_auto
                 : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_RECORD_SHELF.equals(t) ? R.string.music_theme_vinyl
-                : R.string.music_theme_classic);
+                : R.string.music_theme_cover);
     }
 
     private void showThemeDialog() {

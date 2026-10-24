@@ -52,6 +52,14 @@
                 android:contentDescription="@null"
                 android:scaleType="centerCrop"
                 android:visibility="gone" />
+
+            <!-- 熔边层：封面下沿 84dp 渐隐进整页糊底（代码按氛围色刷渐变），与经典同口径 -->
+            <View
+                android:id="@+id/tpCoverMelt"
+                android:layout_width="match_parent"
+                android:layout_height="84dp"
+                android:layout_gravity="bottom"
+                android:contentDescription="@null" />
         </FrameLayout>
 
         <!-- 标题列：横垫 24dp、相对封面下沿上叠 −12dp；右两键玻璃钮盒 34dp 图标 20dp -->

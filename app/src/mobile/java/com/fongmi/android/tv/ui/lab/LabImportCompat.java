@@ -644,6 +644,13 @@ public final class LabImportCompat {
     // ---------------- 路3：裸脚本文件 ----------------
 
     private static ParseResult parseScript(String t, String fileName) throws Exception {
+        // Node bundle 的配置文件（*.config.js）单独喂进来时收口：它只是整包的
+        // 一份配置、自己起不了服务，此前会被当裸脚本装成一个跑不起来的服务。
+        // 必须整包导（目录 / zip / .md5 链接）
+        if (fileName != null && fileName.toLowerCase().endsWith(".config.js")) {
+            throw new Exception("这是 Node 服务包的配置文件，不能单独导入；"
+                    + "把整个包导进来（粘 .js.md5 链接、选整包 zip，或粘包文件夹的本地路径）");
+        }
         String suffix = "";
         if (fileName != null) {
             String fn = fileName.toLowerCase();
@@ -914,6 +921,107 @@ public final class LabImportCompat {
         return r;
     }
 
+    /**
+     * clan:// 归一成本地路径，与点播侧 JarLoader 的口径一致（同一条规则不许
+     * 两套写法）：clan://localhost/<p> 与 clan://<p> 都落到 /<p>（G-8）。
+     * 不是 clan 写法返回 null。
+     */
+    public static String clanToLocalPath(String s) {
+        if (s == null) return null;
+        if (!s.toLowerCase().startsWith("clan://")) return null;
+        String rest = s.substring(7).replaceFirst("(?i)^localhost/", "");
+        return rest.startsWith("/") ? rest : "/" + rest;
+    }
+
+    // ---------------- 路8b：本地 Node bundle（目录 / zip / 7z 里的裸包，G-7 余路） ----------------
+
+    /**
+     * 在一堆条目名里找 Node bundle 入口：根目录或一层子目录下有 index.js，
+     * 且同层没有 package.json / lab.json（有的话归 npm 项目路 / 清单路）。
+     * 命中返回前缀（根目录 ""，子目录以 / 结尾），不中返回 null。
+     */
+    public static String findNodeBundleEntry(java.util.Collection<String> names) {
+        if (names == null) return null;
+        java.util.Set<String> set = new java.util.HashSet<>();
+        for (String n : names) if (n != null) set.add(n.replace('\\', '/'));
+        List<String> candidates = new ArrayList<>();
+        if (set.contains("index.js")) candidates.add("");
+        for (String n : set) {
+            if (n.endsWith("/index.js")) {
+                String prefix = n.substring(0, n.length() - "index.js".length());
+                String dir = prefix.endsWith("/") ? prefix.substring(0, prefix.length() - 1) : prefix;
+                if (!dir.isEmpty() && !dir.contains("/")) candidates.add(prefix);
+            }
+        }
+        for (String prefix : candidates) {
+            if (set.contains(prefix + "package.json")) continue;
+            if (set.contains(prefix + "lab.json")) continue;
+            if (set.contains("lab.json")) continue;
+            return prefix;
+        }
+        return null;
+    }
+
+    /**
+     * 本地 Node bundle → 一条服务（与网址路 fromNodeBundle 同一类目收口）。
+     * keepPrefix=false（7z/本地目录路）：文件由安装器按 asset/extraFiles 落到
+     * 包根，前缀剥掉，命令跑 {pkgDir}/index.js；keepPrefix=true（zip 路）：
+     * 文件由安装器整包解压原样落盘，命令按前缀指到真入口。
+     */
+    public static ImportItem fromNodeBundleLocal(String displayName, Map<String, byte[]> files,
+                                                 String prefix, boolean keepPrefix) {
+        ImportItem it = new ImportItem();
+        it.kind = Kind.NODE_BUNDLE;
+        String base = displayName == null ? "" : displayName;
+        int sl = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (sl >= 0) base = base.substring(sl + 1);
+        for (String ext : new String[]{".zip", ".lab", ".7z"}) {
+            if (base.toLowerCase().endsWith(ext)) {
+                base = base.substring(0, base.length() - ext.length());
+                break;
+            }
+        }
+        if (base.isEmpty() || base.startsWith("labpkg")) base = "bundle";
+        it.id = "nodebundle_" + sanitize(base.replace('.', '_'));
+        it.name = base.matches(".*[a-zA-Z0-9].*") ? "Node 服务包（" + base + "）" : "Node 服务包（本地）";
+        it.desc = "";
+        it.runtime = "nodejs";
+        it.background = true;
+        it.autoStart = false;
+        it.portPolicy = "auto";
+        if (keepPrefix) {
+            it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/"
+                    + prefix + "index.js";
+        } else {
+            it.assetName = "index.js";
+            Map<String, byte[]> extras = new LinkedHashMap<>();
+            if (files != null) {
+                for (Map.Entry<String, byte[]> e : files.entrySet()) {
+                    String n = e.getKey().replace('\\', '/');
+                    if (!n.startsWith(prefix)) continue;
+                    String rel = n.substring(prefix.length());
+                    if (rel.isEmpty() || rel.endsWith("/")) continue;
+                    if (rel.equals("index.js")) it.assetBytes = e.getValue();
+                    else extras.put(rel, e.getValue());
+                }
+            }
+            if (!extras.isEmpty()) it.extraFiles = extras;
+            it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/index.js";
+        }
+        it.needsReview = addLine(it.needsReview,
+                "本地 Node 服务包：整包文件已部署成本地服务，启动跑 index.js；这类包没有清单，端口自动分配，地址进服务页看");
+        return it;
+    }
+
+    /** 本地 Node bundle 的识别结果（一包一条服务） */
+    public static ParseResult nodeBundleLocalResult(String displayName, Map<String, byte[]> files, String prefix) {
+        ParseResult r = new ParseResult();
+        r.kind = Kind.NODE_BUNDLE;
+        r.items.add(fromNodeBundleLocal(displayName, files, prefix, false));
+        r.note = "认出来了：Node 服务包（本地整包，入口 index.js）";
+        return r;
+    }
+
     // ---------------- .lab.7z 离线包（上游导出布局） ----------------
 
     /** zip 判定：魔数 PK\x03\x04 或文件名后缀（.zip/.lab） */
@@ -1054,7 +1162,24 @@ public final class LabImportCompat {
                 return r;
             }
         }
-        if (pkgJson == null) throw new Exception("无效的离线包：里面没有 package.json");
+        // 没有 package.json、也没有 lab.json，但根/一层目录下有 index.js：
+        // 是本地 Node bundle 裸包（G-7 余路）——整包文件落盘、命令跑 index.js，
+        // 与网址 .md5 路、zip 路同一类目（Kind.NODE_BUNDLE）收口
+        if (pkgJson == null) {
+            String bundlePrefix = findNodeBundleEntry(names);
+            if (bundlePrefix != null) {
+                Map<String, byte[]> allFiles = new LinkedHashMap<>();
+                try (SevenZFile sz2 = new SevenZFile(tmp)) {
+                    SevenZArchiveEntry e2;
+                    while ((e2 = sz2.getNextEntry()) != null) {
+                        if (e2.isDirectory()) continue;
+                        allFiles.put(e2.getName().replace('\\', '/'), readSzEntryBytes(sz2));
+                    }
+                }
+                return nodeBundleLocalResult(tmp.getName(), allFiles, bundlePrefix);
+            }
+            throw new Exception("无效的离线包：里面没有 package.json");
+        }
         String nm = new JSONObject(pkgJson).optString("name", "");
         if (nm.contains("/") || nm.contains("..")) throw new Exception("包名非法");
         ParseResult r = parseJson(pkgJson);

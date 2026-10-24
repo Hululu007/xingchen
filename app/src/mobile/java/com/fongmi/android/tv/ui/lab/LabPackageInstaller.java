@@ -621,6 +621,16 @@ public final class LabPackageInstaller {
                     return LabImportCompat.toManifest(it);
                 }
             }
+            // 本地 Node bundle 裸包（G-7 余路）：没 lab.json/package.json、但有
+            // index.js 入口——整包由安装器原样解压落盘（mergeFiles 只认 lab.json，
+            // 这类包为 false、结构原样），命令按入口前缀生成，与网址 .md5 路、
+            // 7z 路同一类目（Kind.NODE_BUNDLE）收口
+            String bundlePrefix = LabImportCompat.findNodeBundleEntry(names);
+            if (bundlePrefix != null) {
+                LabImportCompat.ImportItem it = LabImportCompat.fromNodeBundleLocal(
+                        zip.getName(), null, bundlePrefix, true);
+                return LabImportCompat.toManifest(it);
+            }
         }
         throw new Exception("包里没有 lab.json，这不是 .lab 包");
     }

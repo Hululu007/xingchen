@@ -282,6 +282,10 @@ public class LabPasteImportActivity extends AppCompatActivity {
         items = null;
         new Thread(() -> {
             try {
+                // 本地路径一行（目录 / index.js / index.js.md5，含 file:// 与
+                // clan:// 写法）：走本地 Node bundle 目录路（G-7 余路＋G-8）；
+                // 不是路径或路径不存在时它返回 false，继续原有各路
+                if (fileName == null && dispatchLocalBundlePath(t)) return;
                 String src = t;
                 String fn = fileName;
                 if (isSingleUrl(t)) {
@@ -384,6 +388,113 @@ public class LabPasteImportActivity extends AppCompatActivity {
         }
         runOnUiThread(() -> showResult(r));
         return true;
+    }
+
+    /**
+     * 本地路径分发（G-7 余路）：粘进来的是一行本地路径时命中——目录、
+     * 目录里的 index.js、或 index.js.md5 指针（本地形态：读指针、验同目录
+     * index.js 的 MD5）。整目录文件收进内存（总量上限 30MB，与归档路同口径）
+     * 交 LabImportCompat 造 Node bundle 条目。路径形状对但不存在/不是 bundle
+     * 时在本方法里把话说清并返回 true 收口；压根不是路径形状返回 false。
+     */
+    private boolean dispatchLocalBundlePath(String t) throws Exception {
+        if (t.contains("\n")) return false;
+        String p = LabImportCompat.clanToLocalPath(t);
+        if (p == null && t.toLowerCase().startsWith("file://")) p = t.substring(7);
+        if (p == null && t.startsWith("/")) p = t;
+        if (p == null) return false;
+        java.io.File f = new java.io.File(p);
+        if (!f.exists()) {
+            showResultError("这个本地路径不存在：" + p);
+            return true;
+        }
+        java.io.File dir = f;
+        if (f.isFile()) {
+            String fn = f.getName().toLowerCase();
+            if (fn.endsWith(".js.md5")) {
+                // 本地指针：本体是 MD5，真身是同目录去掉 .md5 的文件，验过才收
+                String pointerText = readTextFile(f);
+                String pointer = LabImportCompat.isMd5Pointer(pointerText)
+                        ? pointerText.trim().split("\\s+")[0] : "";
+                java.io.File main = new java.io.File(f.getParentFile(),
+                        f.getName().substring(0, f.getName().length() - 4));
+                if (pointer.isEmpty() || !main.isFile()) {
+                    showResultError("这个 .md5 指针指不到同目录的真身文件");
+                    return true;
+                }
+                byte[] mainBytes = readFileBytes(main, 30 * 1024 * 1024);
+                if (!LabImportCompat.md5Hex(mainBytes).equalsIgnoreCase(pointer)) {
+                    showResultError("同目录真身文件的 MD5 与指针里写的对不上，不导了");
+                    return true;
+                }
+                dir = f.getParentFile();
+            } else if (fn.equals("index.js")) {
+                dir = f.getParentFile();
+            } else {
+                showResultError("这个文件不是 Node 服务包入口（要目录、index.js 或 index.js.md5）");
+                return true;
+            }
+        }
+        if (dir == null || !new java.io.File(dir, "index.js").isFile()) {
+            showResultError("这个目录里没有 index.js，不是 Node 服务包目录");
+            return true;
+        }
+        java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<>();
+        long[] total = {0};
+        collectBundleDir(dir, "", files, total);
+        if (files.isEmpty()) {
+            showResultError("这个目录里没收到文件");
+            return true;
+        }
+        LabImportCompat.ParseResult r = LabImportCompat.nodeBundleLocalResult(
+                dir.getName(), files, "");
+        runOnUiThread(() -> showResult(r));
+        return true;
+    }
+
+    /** 递归收目录文件（相对名用 / 分隔；总量 30MB 上限；跳过隐藏目录） */
+    private void collectBundleDir(java.io.File dir, String prefix,
+                                  java.util.Map<String, byte[]> out, long[] total) throws Exception {
+        java.io.File[] kids = dir.listFiles();
+        if (kids == null) return;
+        java.util.Arrays.sort(kids, (a, b) -> a.getName().compareTo(b.getName()));
+        for (java.io.File k : kids) {
+            if (k.isDirectory()) {
+                if (k.getName().startsWith(".")) continue;
+                collectBundleDir(k, prefix + k.getName() + "/", out, total);
+            } else if (k.isFile()) {
+                byte[] b = readFileBytes(k, 30 * 1024 * 1024);
+                total[0] += b.length;
+                if (total[0] > 30 * 1024 * 1024) throw new Exception("整包超过 30MB 了");
+                out.put(prefix + k.getName(), b);
+            }
+        }
+    }
+
+    private static String readTextFile(java.io.File f) throws Exception {
+        return new String(readFileBytes(f, 4096), "UTF-8");
+    }
+
+    private static byte[] readFileBytes(java.io.File f, int cap) throws Exception {
+        try (InputStream in = new java.io.FileInputStream(f);
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > cap) throw new Exception("文件太大");
+            }
+            return out.toByteArray();
+        }
+    }
+
+    /** 错误收口（后台线程调用安全）：状态行显错误、不给导入钮 */
+    private void showResultError(String msg) {
+        runOnUiThread(() -> {
+            showStatus(msg);
+            resultBox.removeAllViews();
+            importBtn.setVisibility(View.GONE);
+        });
     }
 
     /**

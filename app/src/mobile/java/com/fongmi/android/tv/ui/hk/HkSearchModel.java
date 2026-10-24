@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.hk;
 
 import com.fongmi.android.tv.api.hk.HkCommonParser;
+import com.fongmi.android.tv.clash.ReadingProxyGate;
 import com.fongmi.android.tv.api.hk.HkHttpParser;
 import com.fongmi.android.tv.api.hk.HkJsRuntime;
 import com.fongmi.android.tv.api.hk.HkSearchEngine;
@@ -73,6 +74,12 @@ public class HkSearchModel {
     private void processInBackground(String key, Callback callback) {
         String keyword = (String) mParams[0];
         HkSearchEngine engine = (HkSearchEngine) mParams[1];
+        // 定向认领提前登记（同 HkArticleListModel 口径）：搜索首发请求同样走
+        // enqueue 在调度线程判定，登记须赶在发请求之前；只给归属不决定走向。
+        try {
+            ReadingProxyGate.recordUrl(engine.getSearch_url(), "hk", engine.getTitle());
+        } catch (Throwable ignored) {
+        }
         String url = HkHttpParser.getUrlAppendUA(engine.getSearch_url(), engine.getUa());
         int page = (Integer) mParams[2];
         if (page == 1 && mParams.length >= 4

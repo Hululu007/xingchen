@@ -14,6 +14,8 @@ import com.google.common.net.HttpHeaders;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
@@ -849,6 +851,46 @@ public class HkHttp {
         }
     }
 
+    /**
+     * 按归属裁决取 client（治连接池污染，1.4.22 真机实证）：选择器只在新建连接时
+     * 被调用，池里已有的直连连接会被后续请求直接复用、判定改了也换不掉——首发
+     * 请求一旦直连回池，整页 fetch 全绕过网关。故判走节点时改用显式 proxy 的派生
+     * client：显式 proxy 是 Address 的一部分，与直连连接天然不同池、互不复用；
+     * 判直连/无裁决时原样返回 client()，选择器链行为不变。
+     * 裁决口径与选择器一致：线程标记优先（ReadingProxyGate.decide 的 flagOn 与
+     * SourceProxyPolicy 同源），无标记按 host 认领，再无认领看「全部走节点」。
+     */
+    public static OkHttpClient clientFor(String url) {
+        Proxy proxy = explicitProxy(url);
+        OkHttpClient base = client();
+        return proxy == null ? base : base.newBuilder().proxy(proxy).build();
+    }
+
+    private static Proxy explicitProxy(String url) {
+        try {
+            SourceGate.Mark m = SourceGate.current();
+            if (m != null) {
+                Proxy p = ReadingProxyGate.proxyFor(m.kind, m.id, true);
+                return p == Proxy.NO_PROXY ? null : p;
+            }
+            String host = ReadingProxyGate.hostOf(url);
+            if (host != null && !host.isEmpty()) {
+                String claimed = ReadingProxyGate.claim(host);
+                if (claimed != null) {
+                    int split = claimed.indexOf('|');
+                    if (split <= 0) return null;
+                    Proxy p = ReadingProxyGate.proxyFor(
+                            claimed.substring(0, split), claimed.substring(split + 1), true);
+                    return p == Proxy.NO_PROXY ? null : p;
+                }
+            }
+            Proxy p = ReadingProxyGate.proxyFor(null, null, false);
+            return p == Proxy.NO_PROXY ? null : p;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public static Call to(String url, Req req) {
         noteHkHost(url);
         // 入口留痕：此前只有完成/失败才记 fetch 诊断，卡在 execute 里时日志里
@@ -866,7 +908,7 @@ public class HkHttp {
             if (t != null) timeout = t;
         } catch (Throwable ignored) {
         }
-        OkHttpClient c = client();
+        OkHttpClient c = clientFor(url);
         if (!redirect || timeout != 10000) {
             OkHttpClient.Builder b = c.newBuilder()
                     .followRedirects(redirect)
@@ -1117,7 +1159,7 @@ public class HkHttp {
             }
         }
         applyThreadTag(rb);
-        try (Response resp = client().newCall(rb.build()).execute()) {
+        try (Response resp = clientFor(url).newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
             if (body == null) throw new IOException("空响应 " + url);
@@ -1137,12 +1179,12 @@ public class HkHttp {
         applyThreadTag(plainRb);
         Request req = plainRb.build();
         OkHttpClient c = timeoutMs > 0
-                ? client().newBuilder()
+                ? clientFor(url).newBuilder()
                         .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .build()
-                : client();
+                : clientFor(url);
         try (Response resp = c.newCall(req).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();
@@ -1172,12 +1214,12 @@ public class HkHttp {
         }
         applyThreadTag(rb);
         OkHttpClient ce = timeoutMs > 0
-                ? client().newBuilder()
+                ? clientFor(url).newBuilder()
                         .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .build()
-                : client();
+                : clientFor(url);
         try (Response resp = ce.newCall(rb.build()).execute()) {
             if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + url);
             ResponseBody body = resp.body();

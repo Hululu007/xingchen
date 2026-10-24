@@ -4,6 +4,7 @@ import android.content.Context;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.api.hk.HkHttpParser;
+import com.fongmi.android.tv.clash.ReadingProxyGate;
 import com.fongmi.android.tv.api.hk.HkItem;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.utils.Task;
@@ -148,6 +149,14 @@ public class HkArticleListModel {
         // 诊断：新链加载入口（旧 load start 已不可达），只记日志不改行为
         if (bridge != null) bridge.log("hk: load start rule=" + rule.getTitle()
                 + " page=" + page + " key=" + key, rule);
+        // 定向认领提前登记（1.4.22 真机实证）：首发请求走 enqueue 在调度线程判定，
+        // 此前两处登记（JS 首次求值、带标记 fetch）都晚于它 3 秒以上，认领表为空
+        // 判 no-mark 直连、连接回池后整页绕过网关。拿到 rule 先登记主域名，
+        // 认领只给归属、走不走仍由逐源开关裁决，没开定向的照旧直连。
+        try {
+            ReadingProxyGate.recordUrl(rule.getUrl(), "hk", rule.getTitle());
+        } catch (Throwable ignored) {
+        }
         if (page == 1 && mParams.length >= 4
                 && Boolean.FALSE.toString().equals(String.valueOf(mParams[3]))
                 && !TextUtils.isEmpty(rule.getPreRule())) {

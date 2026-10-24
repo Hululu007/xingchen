@@ -121,7 +121,7 @@ public final class HkCodeUtil {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        HkHttp.client().newCall(rb.build()).enqueue(new okhttp3.Callback() {
+        HkHttp.clientFor(url).newCall(rb.build()).enqueue(new okhttp3.Callback() {
             @Override
             public void onFailure(okhttp3.Call call, IOException e) {
                 Log.e(TAG, "get", e);
@@ -183,7 +183,7 @@ public final class HkCodeUtil {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        HkHttp.client().newCall(rb.build()).enqueue(new okhttp3.Callback() {
+        HkHttp.clientFor(url).newCall(rb.build()).enqueue(new okhttp3.Callback() {
             @Override
             public void onFailure(okhttp3.Call call, IOException e) {
                 Log.e(TAG, "post", e);
@@ -219,7 +219,7 @@ public final class HkCodeUtil {
                     rb.header(e.getKey(), e.getValue());
                 }
             }
-            try (Response r = HkHttp.client().newCall(rb.build()).execute()) {
+            try (Response r = HkHttp.clientFor(url).newCall(rb.build()).execute()) {
                 return r.headers();
             }
         } catch (Exception e) {
@@ -249,7 +249,7 @@ public final class HkCodeUtil {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        HkHttp.client().newCall(rb.build()).enqueue(new okhttp3.Callback() {
+        HkHttp.clientFor(url).newCall(rb.build()).enqueue(new okhttp3.Callback() {
             @Override
             public void onFailure(okhttp3.Call call, IOException e) {
                 Log.e(TAG, "download", e);
@@ -292,7 +292,7 @@ public final class HkCodeUtil {
                 rb.header(e.getKey(), e.getValue());
             }
         }
-        try (Response r = HkHttp.client().newCall(rb.build()).execute()) {
+        try (Response r = HkHttp.clientFor(url).newCall(rb.build()).execute()) {
             if (r.body() == null) throw new Exception("empty body");
             writeFile(savePath, r.body().byteStream());
         } catch (Exception e) {

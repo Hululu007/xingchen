@@ -223,7 +223,7 @@ public final class SourceGate {
                 }
                 if (!p.enabled()) {
                     if (m != null) logDecision("disabled|" + m.kind + "|" + m.id,
-                            "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id + viaSuffix(via));
+                            "gate direct reason=disabled(开关关或内核没跑) kind=" + m.kind + " id=" + m.id + " host=" + hostOf(uri) + viaSuffix(via));
                     return shell.select(uri);
                 }
                 boolean hit = (m != null) ? p.shouldProxy(m.kind, m.id) : p.globalMode();
@@ -231,13 +231,13 @@ public final class SourceGate {
                     int port = p.port();
                     if (port > 0 && port <= 65535) {
                         logDecision("proxy|" + (m == null ? "global" : m.kind + "|" + m.id),
-                                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + viaSuffix(via));
+                                "gate proxy kind=" + (m == null ? "-" : m.kind) + " id=" + (m == null ? "-" : m.id) + " port=" + port + " host=" + hostOf(uri) + viaSuffix(via));
                         return List.of(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", port)));
                     }
                     logDecision("badport", "gate direct reason=bad-port port=" + port);
                 } else if (m != null) {
                     logDecision("notenabled|" + m.kind + "|" + m.id,
-                            "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id + viaSuffix(via));
+                            "gate direct reason=not-enabled kind=" + m.kind + " id=" + m.id + " host=" + hostOf(uri) + viaSuffix(via));
                 } else {
                     // 无归属也记一条（带 host）：以前流/图的直连是黑盒，现在可查。
                     logDecision("nomark|" + hostOf(uri),

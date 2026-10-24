@@ -47,7 +47,7 @@ import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 /**
  * 照 8.83 SearchActivity 的聚合搜索宿主：顶部搜索栏（无搜索按钮，回车/IME 触发 C1；
  * 空词 Toast「搜索关键词不能为空」+收键盘 C2）、分组下拉、搜索模式切换（偏好键 smode C6）、
- * ViewPager 每发动机一个 HkSearchFragment、底部状态条订阅 HkSearchStatusEvent、
+ * ViewPager 每发动机一个 HkSearchFragment、顶部状态条订阅 HkSearchStatusEvent、
  * 失败发动机汇总弹窗；返回直接 finish（C9）。
  * 单规则模式（oneRule）对应原版 SearchInOneRuleActivity：只有一个发动机且宿主报 isOneRuleHost，
  * 使 Fragment 的单结果自动打开逻辑生效。布局 activity_hk_search。
@@ -390,7 +390,7 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         if (suggestList != null) suggestList.setVisibility(View.GONE);
     }
 
-    // ---------- 状态事件（底部状态条） ----------
+    // ---------- 状态事件（顶部状态条） ----------
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onStatusEvent(HkSearchStatusEvent event) {        if (event == null || event.engine == null) return;

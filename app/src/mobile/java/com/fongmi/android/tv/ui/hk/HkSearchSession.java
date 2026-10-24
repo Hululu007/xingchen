@@ -20,7 +20,7 @@ import java.util.Map;
  * <p>宿主（HkSearchActivity）每次提交关键词建一个会话：当前分组内全部发动机立即按序入队开搜，
  * 结果按发动机留存（{@link State}）；页签渲染仍归 ViewPager2 懒建，页签建出时凭
  * {@link #stateFor(HkSearchEngine)} 领留存结果直接呈现，不重搜。状态落点仍走既有的
- * engine.setStatus + HkSearchStatusEvent，底部状态条与失败汇总的消费口径不变；
+ * engine.setStatus + HkSearchStatusEvent，顶部状态条与失败汇总的消费口径不变；
  * 单源失败只落本源状态 3，不影响其余源（用户既定口径）。
  *
  * <p>并发纪律（本机实测形态）：HkSearchModel.process 的阻塞段只有 parsePreRule 的 JS 求值，

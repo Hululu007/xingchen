@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 海阔 8.83 聚合搜索页（SearchActivity）星辰版：顶部搜索栏（无搜索按钮、回车触发）+ 建议下拉 + ViewPager 多发动机结果 + 底部状态条。 -->
+<!-- 海阔 8.83 聚合搜索页（SearchActivity）星辰版：顶部搜索栏（无搜索按钮、回车触发）+ 搜索栏下状态条 + 建议下拉 + ViewPager 多发动机结果。 -->
 <!-- 液态玻璃动态背景：LinearLayout 根，背景走 HkDynamicBgView.attachTo（decor 注入，见 HkSearchActivity） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -76,6 +76,15 @@
         android:layout_height="0.5dip"
         android:background="#FFE0E0E0" />
 
+    <!-- 各源状态条（2026-10-24 用户点名：原在页面最底部贴边几乎看不见，挪到搜索栏之下、结果区之上） -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/hk_search_bottom"
+        android:layout_width="fill_parent"
+        android:layout_height="42.0dip"
+        android:background="@android:color/transparent"
+        android:paddingStart="6.0dip"
+        android:paddingEnd="6.0dip" />
+
     <FrameLayout
         android:layout_width="fill_parent"
         android:layout_height="0.0dip"
@@ -94,12 +103,4 @@
             android:maxHeight="280.0dip"
             android:visibility="gone" />
     </FrameLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/hk_search_bottom"
-        android:layout_width="fill_parent"
-        android:layout_height="42.0dip"
-        android:background="@android:color/transparent"
-        android:paddingStart="6.0dip"
-        android:paddingEnd="6.0dip" />
 </LinearLayout>

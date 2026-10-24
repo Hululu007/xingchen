@@ -65,6 +65,7 @@ import com.fongmi.android.tv.player.danmaku.LiveDanmakuMetrics;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuParser;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuWebSocketSession;
 import com.fongmi.android.tv.player.danmaku.live.LiveDanmakuCoordinator;
+import com.fongmi.android.tv.player.danmaku.live.LiveDanmakuStamp;
 import com.fongmi.android.tv.player.danmaku.live.LiveRoomResolver;
 import com.fongmi.android.tv.player.lut.DynamicLutEffect;
 import com.fongmi.android.tv.player.lut.LutEffectFactory;
@@ -144,6 +145,12 @@ public class PlayerManager implements ParseCallback {
     private static final int LUT_WARMUP_RECOVERED_ERROR_REFRESH_THRESHOLD = 3;
     private static final long DANMAKU_FORCE_RELOAD_DEBOUNCE_MS = 10000;
     private static final long LIVE_DANMAKU_METRICS_INTERVAL_MS = 15000L;
+    // 平台路弹幕在「已连上、播放尚未激活」窗口内的待喂上限：起播头一两秒 isPlaying
+    // 未翻 true 时先攒着、激活后补喂，不再整批静默丢（douyu-danmaku-stops-trace.md
+    // 第四节次要项）。大房聊天峰值约百条/秒量级，256 条足够覆盖该窗最坏积压；
+    // 超限丢最旧（直播弹幕时效性强、旧条目补喂价值最低，且补喂还要过 buffer 自身
+    // TTL/STALE 一道），内存上界即 256 个小对象。
+    private static final int LIVE_DANMAKU_PENDING_CAP = 256;
     private static final long PLAYBACK_TELEMETRY_INTERVAL_MS = 5000L;
     private static final long MPV_FRAME_TIMING_LOG_INTERVAL_MS = 5000L;
     private static final long DISK_RANGE_GAP_TOLERANCE_MS = 2000L;
@@ -205,6 +212,11 @@ public class PlayerManager implements ParseCallback {
     private long danmakuLoadStartedAtMs;
     private volatile long liveDanmakuGeneration;
     private volatile boolean liveDanmakuPlaybackActive;
+    // 平台路未激活窗口的待喂缓冲：以本 list 对象为锁；pendingGeneration 是「武装代」
+    // ——CONNECTING 时按代武装（与 buffer/batcher 的 reset 同点），只有武装代的消息
+    // 才进缓冲，补喂/停连后解除武装。代不符一律不收，防串房。
+    private final List<LiveDanmakuMessage> liveDanmakuPendingMessages = new ArrayList<>();
+    private long liveDanmakuPendingGeneration = -1L;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
     private float pendingSwitchSpeed = 1f;
@@ -4715,9 +4727,11 @@ public class PlayerManager implements ParseCallback {
         if (state == LiveDanmakuWebSocketSession.State.CONNECTING) {
             liveDanmakuBuffer.reset(generation);
             liveDanmakuBatcher.reset(generation);
+            armPendingPlatformLiveMessages(generation);
         } else if (state == LiveDanmakuWebSocketSession.State.RETRY_WAIT || state == LiveDanmakuWebSocketSession.State.STOPPED || state == LiveDanmakuWebSocketSession.State.RELEASED) {
             liveDanmakuBatcher.clear();
             liveDanmakuBuffer.clear();
+            disarmPendingPlatformLiveMessages();
         }
         if (state != LiveDanmakuWebSocketSession.State.OPEN) {
             App.post(() -> logLiveDanmakuMetrics("state_" + state, false));
@@ -4729,7 +4743,16 @@ public class PlayerManager implements ParseCallback {
     private void onPlatformLiveMessages(long generation, List<LiveDanmakuMessage> messages) {
         if (generation != liveDanmakuGeneration || messages.isEmpty()) return;
         liveDanmakuMetrics.onFrame();
-        if (!liveDanmakuPlaybackActive) return;
+        if (!liveDanmakuPlaybackActive) {
+            // 起播未激活窗（WS 已 OPEN、isPlaying 未翻 true）：旧口径整批静默丢，
+            // 首帧弹幕必丢（trace 第四节次要项）。改为进待喂缓冲、激活后补喂。
+            bufferPendingPlatformLiveMessages(generation, messages);
+            return;
+        }
+        offerPlatformLiveMessages(generation, messages);
+    }
+
+    private void offerPlatformLiveMessages(long generation, List<LiveDanmakuMessage> messages) {
         boolean drained = false;
         for (LiveDanmakuMessage message : messages) {
             LiveDanmakuBuffer.OfferResult offer = liveDanmakuBuffer.offer(message);
@@ -4737,6 +4760,57 @@ public class PlayerManager implements ParseCallback {
             if (offer != LiveDanmakuBuffer.OfferResult.STALE) drained = true;
         }
         if (drained) liveDanmakuBatcher.requestDrain(generation);
+    }
+
+    /** CONNECTING 时按代武装待喂缓冲（与 buffer/batcher 的 reset 同点、同代）。 */
+    private void armPendingPlatformLiveMessages(long generation) {
+        synchronized (liveDanmakuPendingMessages) {
+            liveDanmakuPendingMessages.clear();
+            liveDanmakuPendingGeneration = generation;
+        }
+    }
+
+    /** 停连/待重试/释放：清缓冲并解除武装，旧代消息不许补喂进新房。 */
+    private void disarmPendingPlatformLiveMessages() {
+        synchronized (liveDanmakuPendingMessages) {
+            liveDanmakuPendingMessages.clear();
+            liveDanmakuPendingGeneration = -1L;
+        }
+    }
+
+    /** 只清缓冲不清武装：暂停丢弃待喂（与 discardLiveDanmakuPending 同口径）时用。 */
+    private void clearPendingPlatformLiveMessages() {
+        synchronized (liveDanmakuPendingMessages) {
+            liveDanmakuPendingMessages.clear();
+        }
+    }
+
+    private void bufferPendingPlatformLiveMessages(long generation, List<LiveDanmakuMessage> messages) {
+        synchronized (liveDanmakuPendingMessages) {
+            // 非武装代不收：已激活过的代在暂停期到达的消息维持旧口径丢弃
+            // （暂停丢弃语义，见 fix 报告），不攒着等恢复时倒灌。
+            if (generation != liveDanmakuPendingGeneration) return;
+            liveDanmakuPendingMessages.addAll(messages);
+            while (liveDanmakuPendingMessages.size() > LIVE_DANMAKU_PENDING_CAP) liveDanmakuPendingMessages.remove(0);
+        }
+    }
+
+    /** 播放激活（isPlaying 翻 true）时补喂：取出整批、解除武装，再走与直达同路的 offer。 */
+    private void flushPendingPlatformLiveMessages() {
+        List<LiveDanmakuMessage> pending;
+        long generation;
+        synchronized (liveDanmakuPendingMessages) {
+            if (liveDanmakuPendingMessages.isEmpty()) {
+                liveDanmakuPendingGeneration = -1L;
+                return;
+            }
+            generation = liveDanmakuPendingGeneration;
+            pending = new ArrayList<>(liveDanmakuPendingMessages);
+            liveDanmakuPendingMessages.clear();
+            liveDanmakuPendingGeneration = -1L;
+        }
+        if (generation != liveDanmakuGeneration || !liveDanmakuPlaybackActive) return;
+        offerPlatformLiveMessages(generation, pending);
     }
 
     private void onPlatformLiveOnline(long generation, long online) {
@@ -4749,11 +4823,14 @@ public class PlayerManager implements ParseCallback {
         App.post(() -> {
             if (generation != liveDanmakuGeneration || messages.isEmpty() || danmakuController == null || !DanmakuSetting.isShow()) return;
             liveDanmakuMetrics.onBatch(messages.size(), SystemClock.elapsedRealtime() - scheduledAtMs);
+            // 时间戳必须打装配时刻的播放进度：恒 0 会在进度过 3 秒后跌出渲染层
+            // 激活窗、弹幕永远不上屏（trace 第三节主断点）。整批共用装配时刻一值。
+            long timeMs = LiveDanmakuStamp.timeMsAt(player == null ? 0L : player.getCurrentPosition());
             List<androidx.media3.ui.danmaku.Danmaku> batch = new ArrayList<>(messages.size());
             for (LiveDanmakuMessage message : messages) {
                 int pool = message.type() == LiveDanmakuMessage.Type.SUPER_CHAT ? androidx.media3.ui.danmaku.Danmaku.POOL_SPECIAL : androidx.media3.ui.danmaku.Danmaku.POOL_NORMAL;
                 long ttlMs = message.type() == LiveDanmakuMessage.Type.SUPER_CHAT ? LiveDanmakuBuffer.DEFAULT_PRIORITY_TTL_MS : LiveDanmakuBuffer.DEFAULT_NORMAL_TTL_MS;
-                batch.add(new androidx.media3.ui.danmaku.Danmaku(message.text(), 0L, androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL, message.colorArgb(), 0f, pool, "", 0L)
+                batch.add(new androidx.media3.ui.danmaku.Danmaku(message.text(), timeMs, androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL, message.colorArgb(), 0f, pool, "", 0L)
                         .setLiveExpiryElapsedRealtimeMs(message.receivedAtMs() + ttlMs));
             }
             danmakuController.offerLiveBatch(batch);
@@ -4768,6 +4845,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void discardLiveDanmakuPending() {
+        clearPendingPlatformLiveMessages();
         liveDanmakuBuffer.discardPending();
         liveDanmakuBatcher.reset(liveDanmakuGeneration);
         clearLiveDanmakuRenderer(liveDanmakuGeneration);
@@ -6144,6 +6222,7 @@ public class PlayerManager implements ParseCallback {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             liveDanmakuPlaybackActive = isPlaying;
+            if (isPlaying) flushPendingPlatformLiveMessages();
             if (!isPlaying) discardLiveDanmakuPending();
             if (isPlaying) scheduleNetworkProtection(0);
             else if (player.getPlaybackState() == Player.STATE_READY && !player.getPlayWhenReady()) {

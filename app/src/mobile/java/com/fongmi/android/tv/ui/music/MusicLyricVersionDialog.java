@@ -1,4 +1,4 @@
-package com.fongmi.android.tv.ui.dialog;
+package com.fongmi.android.tv.ui.music;
 
 import android.content.res.ColorStateList;
 import android.text.TextUtils;
@@ -21,6 +21,7 @@ import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.databinding.DialogMusicLyricVersionsBinding;
+import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
 import com.fongmi.android.tv.databinding.ItemMusicLyricVersionBinding;
 import com.fongmi.android.tv.utils.ImgUtil;
 
@@ -30,7 +31,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 歌词版本面板（第 13 项，GZ 歌词版本底卡形态）：标题＋X、头行封面＋歌名歌手＋版本数、
+ * 歌词版本面板（批 2 迁入 ui/music 包替代旧 ui/dialog 实现，行为与回调语义不变；
+ * 面板底照现行弹窗口径 bg_sheet_panel（GZ sheetPanelBg #F3F3F3），不再用纯白底）：
+ * 标题＋X、头行封面＋歌名歌手＋版本数、
  * 筛选签（全部／逐字／逐行／翻译／音译／文本）、版本行卡（来源＋行数＋歌名·歌手＋类型签＋匹配度％，
  * L9：选中与非选中同底、只用透明度区分（当前 0.95／非当前 0.58），不再粉底红字）。
  * 点行即切换版本（回调播放页 applyLyricVersion）并关面板。

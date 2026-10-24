@@ -54,4 +54,11 @@
         android:id="@+id/heartsOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- 全屏歌词页（批 2）：整屏页层，默认 gone；右划进、左划／返回键出（定案） -->
+    <include
+        android:id="@+id/lyricPage"
+        layout="@layout/music_lyric_page"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 </FrameLayout>

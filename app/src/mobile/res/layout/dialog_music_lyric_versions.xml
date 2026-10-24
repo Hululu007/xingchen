@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 歌词版本面板（GZ 歌词版本底卡形态）：标题＋X、头行封面＋歌名歌手＋版本数、筛选签、版本行列表。
-     底色用纯白面板（bg_sheet_panel_home，照 GZ 白；旧暖渐变已作废）。
+     底色照现行弹窗口径 bg_sheet_panel（GZ sheetPanelBg #F3F3F3，与队列／选项／工具面板同款；
+     旧纯白 bg_sheet_panel_home 已随批 2 迁包一并改掉，不用白底）。
      行高／字号／间距确数未抠到处按 GZ 截图比例落、表里标未对齐。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel_home"
+    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical"
     android:paddingStart="20dp"
     android:paddingTop="16dp"

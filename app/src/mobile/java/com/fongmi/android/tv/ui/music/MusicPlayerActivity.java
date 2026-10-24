@@ -2829,7 +2829,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                if (cur == null || !cur.equals(track)) return;
+                // 守卫认 trackKey（id＋平台）：MusicTrack.equals 只比 id，异平台同 id 的歌会让上一首的迟到词贴到新歌上
+                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
                 currentLyricFormat = resultFormat;
                 currentLyricKey = resultKey;
                 currentLyricSource = resultSource;
@@ -2860,7 +2861,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     List<LyricVersion> resultVersions = versions;
                     runOnUiThread(() -> {
                         MusicTrack cur2 = MusicController.get().current();
-                        if (cur2 == null || !cur2.equals(track)) return;
+                        if (cur2 == null || !trackKey(cur2).equals(trackKey(track))) return;
                         currentLyricVersions.clear();
                         currentLyricVersions.addAll(resultVersions);
                     });
@@ -2933,7 +2934,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             List<String> resultRomas = romas;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                if (cur == null || !cur.equals(track)) return;
+                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
                 currentLyricFormat = rich.format;
                 currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
                 currentLyricSource = version.getSource();

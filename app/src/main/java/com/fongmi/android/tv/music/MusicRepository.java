@@ -947,9 +947,16 @@ public class MusicRepository {
             return out;
         }
         collectCrossPass(track, self, queries, MATCH_EXACT, probe, out);
-        if (!out.lyrics.isEmpty() || out.keyIssue != null) return out;
+        if (out.keyIssue != null || hasRawEntry(out.lyrics)) return out;
         collectCrossPass(track, self, queries, MATCH_CONTAINS, probe, out);
         return out;
+    }
+
+    /** 精确遍收口判据：只有带正文的入列才算真命中——无正文的精确命中（纯音译等）
+     * LyricPick 全程不取，若按「列表非空」收口，包含遍里别家的完整词永远没机会被问。 */
+    private static boolean hasRawEntry(List<MusicLyric> lyrics) {
+        for (MusicLyric l : lyrics) if (hasRaw(l)) return true;
+        return false;
     }
 
     /** 步 2 单遍收集：查询序列外层×其它源内层，命中按原序入列、探针桶命中首选即停；level 指定级别时只认该级对歌 */

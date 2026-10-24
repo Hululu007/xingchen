@@ -30,9 +30,12 @@ import java.util.List;
 /**
  * 全屏歌词页（ui/music 包）：播放页内的整屏页层，共用播放页已加载的歌词数据与 MusicController，
  * 不另起取词链。形态只认定案（他的图 112930＋2026-10-22「歌词页重做」定案）：
- * 背景＝封面模糊底（播放页喂整页糊底同配方位图，API31+ 另挂 24dp 模糊效；上盖半透取色罩保可读，
- * 歌词页专属模糊值未抠到、与播放页糊底同值落）；页眉＝封面缩略图＋歌名＋歌手＋右上 Tr 钮
- * （40dp，点开主歌词三选菜单——原文恒有、翻译／音译有数据才出，选后内嵌＋全屏同刷）；
+ * 背景＝封面模糊底（播放页喂整页糊底同配方位图，API31+ 另挂 24dp 模糊效；上盖半透取色罩保可读——
+ * 2026-10-25 深挖定性：GZ 歌词页本体无自有背景/罩、透明浮于播放页共享背景之上，星辰糊底＋罩
+ * 是 112930 定案形态，与 GZ 的出入按定案保留）；页眉＝封面缩略图＋歌名＋歌手＋右上 Tr 钮
+ * （34dp，尺寸 GZ 页眉钮实证、语义照定案＝主歌词三选菜单——原文恒有、翻译／音译有数据才出，
+ * 选后内嵌＋全屏同刷；页眉数值 2026-10-25 深挖对齐 GZ AppleLyricsSongHeader：横垫 28dp、
+ * 纵垫 6dp、缩略图 40dp 圆角 6dp、歌名 16sp/行高 21sp 半粗、歌手 13sp/行高 17sp 基色×0.55）；
  * 歌词左对齐沉浸滚动（FullLyricView）。没有底部进度条、没有底部按键。
  * 与录屏 f001 形态（清封面拉满＋歌名行队列／暂停键）的出入：那是瓜子的另一歌词面，
  * 本页以 112930 定案为准（冲突在五主题对照表单列）；头行最左的 ☰ 在瓜子＝一起听邀请入口，
@@ -105,8 +108,8 @@ public class MusicLyricPageView extends FrameLayout {
         addView(veilView, 1, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         if (lyricView != null) lyricView.setFadeColor(toneColor);
         if (thumbView != null) {
-            // 缩略图圆角 8dp（应用内封面圆角同路：OutlineProvider＋clipToOutline）。
-            final float radius = 8f * getResources().getDisplayMetrics().density;
+            // 缩略图圆角 6dp（2026-10-25 深挖 GZ 页眉实证；OutlineProvider＋clipToOutline）。
+            final float radius = 6f * getResources().getDisplayMetrics().density;
             thumbView.setOutlineProvider(new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {

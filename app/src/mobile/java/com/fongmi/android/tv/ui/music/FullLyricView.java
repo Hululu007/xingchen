@@ -80,6 +80,8 @@ public class FullLyricView extends View {
     private long anchorPosMs;
     private long anchorElapsedMs;
     private boolean framePosted;
+    /** 逐行模糊趋近（GZ lyricRowBlur 规格，见 drawIdleRow）。 */
+    private final LyricRowApproach blurApproach = new LyricRowApproach();
     private final Choreographer choreographer = Choreographer.getInstance();
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
@@ -88,7 +90,8 @@ public class FullLyricView extends View {
             if (lines.isEmpty()) return;
             stepFrame();
             invalidate();
-            if (playing || scroller.computeScrollOffset() || browsing || scrollAnimating()) postFrame();
+            if (playing || scroller.computeScrollOffset() || browsing || scrollAnimating()
+                    || blurApproach.hasRunning(SystemClock.elapsedRealtime())) postFrame();
         }
     };
 
@@ -198,6 +201,7 @@ public class FullLyricView extends View {
         subs.clear();
         if (mains != null) lines.addAll(mains);
         if (subLines != null) subs.addAll(subLines);
+        blurApproach.clear();
         currentIndex = -1;
         scrollOffset = 0f;
         browsing = false;
@@ -212,6 +216,7 @@ public class FullLyricView extends View {
         lines.clear();
         subs.clear();
         layouts.clear();
+        blurApproach.clear();
         contentHeight = 0f;
         currentIndex = -1;
         invalidate();
@@ -434,7 +439,7 @@ public class FullLyricView extends View {
                         drawer.drawCurrentWordRow(canvas, row, layout.lastWord, pos - line.getTimeMs(),
                                 rowX, baseline, width, line.isBG());
                     } else {
-                        drawIdleRow(canvas, joinWords(row), rowX, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, i, joinWords(row), rowX, baseline, lineTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
@@ -445,7 +450,7 @@ public class FullLyricView extends View {
                         drawer.drawCurrentPlain(canvas, rowText, pos - line.getTimeMs(), lineDurationMs(i),
                                 rowX, baseline, width);
                     } else {
-                        drawIdleRow(canvas, rowText, rowX, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, i, rowText, rowX, baseline, lineTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
@@ -491,8 +496,17 @@ public class FullLyricView extends View {
      * palette 非当前色（白 0.30）自带 alpha、与画笔 alpha 相乘落地，故行 alpha 只给渐隐系数，
      * 不再乘 0.30——原式 255×0.30×渐隐再乘色内 0.30，合成约 0.09，闲行近乎不可见（全屏页「像没做」断点，
      * 1.4.27 查修批纠正）；纠正后合成＝0.30×顶渐隐×底渐隐，与批 2 补正的录屏平台值一致。
+     * 2026-10-25 深挖补记：源头状态函数已抠实——本页（Apple 列表面）跑模式 A，闲行行 alpha＝0.72 平台
+     * （不透明 ColorInactive），但 GZ 另有整页 lyricDimAlpha 因子（主题宿主注入、数值未抠到）与之相乘，
+     * 乘积与本页现行 0.30 录屏平台相合；只知其一不知其二，不动水平值（见深挖报告第 5 项）。
      */
-    private void drawIdleRow(Canvas canvas, String text, float x, float baseline, float blockTop,
+    /** 与当前行同时间组（同 timeMs，如合唱/重叠行）——GZ 趋近时长门「当前组高亮」的星辰映射。 */
+    private boolean sameTimeGroup(int row) {
+        if (row < 0 || currentIndex < 0 || row >= lines.size() || currentIndex >= lines.size()) return false;
+        return lines.get(row).getTimeMs() == lines.get(currentIndex).getTimeMs();
+    }
+
+    private void drawIdleRow(Canvas canvas, int row, String text, float x, float baseline, float blockTop,
                              int width, int distance) {
         float fadePx = TOP_FADE_DP * getResources().getDisplayMetrics().density;
         float relTop = blockTop - getPaddingTop();
@@ -502,7 +516,14 @@ public class FullLyricView extends View {
         float bottomKeep = bottomFadeKeep(relY, 0.45f);
         int alpha = Math.round(255f * topKeep * bottomKeep);
         // 模糊强度走源头式（smali 深挖 D1，distance 为带符号距离：本行－当前行）；旧等价式作废。
-        float strength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
+        // 趋近动画 2026-10-25 深挖落码（GZ lyricRowBlur）：逐行 animateFloatAsState——目标变化时
+        // 以当前显示值起整段重跑 tween（活动门任一开 200ms、否则 400ms，CubicBezier(0.2,0,0,1)）。
+        // 门的星辰映射：browsing（本视图浏览态）或与当前行同时间组；GZ 另两门（S1 状态、snap 旗）
+        // 源名未恢复、未映射，见深挖报告。趋近作用在量化前的强度值上，半径仍走 §6.1 量化。
+        float targetStrength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
+        boolean gate = browsing || sameTimeGroup(row);
+        float strength = blurApproach.approach(row, targetStrength, gate ? 200 : 400,
+                SystemClock.elapsedRealtime());
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
         boolean blurWanted = radius > 0f && distance != 0;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {

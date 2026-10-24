@@ -66,13 +66,17 @@ public class CoverLyricView extends View {
     private long anchorPosMs;
     private long anchorElapsedMs;
     private boolean framePosted;
+    /** 逐行模糊趋近（GZ lyricRowBlur 规格，见 drawIdleMain）。 */
+    private final LyricRowApproach blurApproach = new LyricRowApproach();
     private final Choreographer choreographer = Choreographer.getInstance();
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
             framePosted = false;
-            if (!playing || lines.isEmpty()) return;
-            updateCurrentIndex(displayPositionMs());
+            if (lines.isEmpty()) return;
+            boolean animating = blurApproach.hasRunning(SystemClock.elapsedRealtime());
+            if (!playing && !animating) return;
+            if (playing) updateCurrentIndex(displayPositionMs());
             invalidate();
             postFrame();
         }
@@ -175,6 +179,7 @@ public class CoverLyricView extends View {
         subs.clear();
         if (mains != null) lines.addAll(mains);
         if (subLines != null) subs.addAll(subLines);
+        blurApproach.clear();
         currentIndex = -1;
         anchorPosMs = 0;
         anchorElapsedMs = SystemClock.elapsedRealtime();
@@ -185,6 +190,7 @@ public class CoverLyricView extends View {
     public void clearLines() {
         lines.clear();
         subs.clear();
+        blurApproach.clear();
         currentIndex = -1;
         invalidate();
     }
@@ -310,7 +316,7 @@ public class CoverLyricView extends View {
                 drawer.drawCurrentMain(canvas, line, pos - line.getTimeMs(), lineDurationMs(i),
                         rowX, baseline, width);
             } else {
-                drawIdleMain(canvas, line.getText(), rowX, baseline, blockTop, width, distance);
+                drawIdleMain(canvas, i, line.getText(), rowX, baseline, blockTop, width, distance);
             }
             if (showSub) {
                 String sub = i < subs.size() ? subs.get(i) : null;
@@ -333,10 +339,20 @@ public class CoverLyricView extends View {
      * 强度随距离的源头公式 2026-10-25 已 smali 深挖抠实（D1）：走 LyricWordEngine.blurStrength
      * （distance 为带符号距离：本行－当前行），再乘档位系数、按 §6.1 量化到 0.5 步进；
      * 旧等价式 min(2＋|距离|×2.2, 12) 作废。压暗式仍走 1.4.26 基线（alpha 用绝对距离）。 */
-    private void drawIdleMain(Canvas canvas, String text, float x, float baseline, float blockTop,
+    /** 与当前行同时间组（同 timeMs）——GZ 趋近时长门「当前组高亮」的星辰映射。 */
+    private boolean sameTimeGroup(int row) {
+        if (row < 0 || currentIndex < 0 || row >= lines.size() || currentIndex >= lines.size()) return false;
+        return lines.get(row).getTimeMs() == lines.get(currentIndex).getTimeMs();
+    }
+
+    private void drawIdleMain(Canvas canvas, int row, String text, float x, float baseline, float blockTop,
                               int width, int distance) {
         int alpha = Math.round(255f * Math.max(0.35f, 0.85f - Math.abs(distance) * 0.16f));
-        float strength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
+        // 趋近动画 2026-10-25 深挖落码（GZ lyricRowBlur，同 FullLyricView 口径）：逐行趋近、
+        // 与当前行同时间组 200ms、否则 400ms，CubicBezier(0.2,0,0,1)；作用在量化前强度上。
+        float targetStrength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
+        float strength = blurApproach.approach(row, targetStrength, sameTimeGroup(row) ? 200 : 400,
+                SystemClock.elapsedRealtime());
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
         boolean blurWanted = distance != 0 && radius > 0f;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {

@@ -134,4 +134,37 @@ public class LiveRoomResolverTest {
         assertTrue(LiveRoomResolver.resolve(snapshot("huya_123456789012345678901", "")).isEmpty());
         assertTrue(LiveRoomResolver.resolve(snapshot("huya_有中文", "")).isEmpty());
     }
+
+    @Test
+    public void douyinPrefixResolves() {
+        Optional<RoomRef> ref = LiveRoomResolver.resolve(snapshot("douyin_974709925783", ""));
+        assertTrue(ref.isPresent());
+        assertEquals(RoomRef.Platform.DOUYIN, ref.get().platform());
+        assertEquals("974709925783", ref.get().roomId());
+        assertEquals("douyin:974709925783", ref.get().key());
+    }
+
+    @Test
+    public void douyinLinkResolvesFromVodIdAndPlayUrl() {
+        assertEquals("974709925783", LiveRoomResolver.resolve(snapshot("https://live.douyin.com/974709925783", "")).get().roomId());
+        assertEquals("73897632289", LiveRoomResolver.resolve(snapshot("", "episode$https://live.douyin.com/73897632289?from=x")).get().roomId());
+    }
+
+    @Test
+    public void douyinBareDigitsNeverResolve() {
+        // 抖音不设裸数字路：带抖音语境的裸数字也不认（与虎牙同一防冒认口径）
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("site", "974709925783", "", "抖音直播", "", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("SimpleLive", "974709925783", "", "抖音直播", "某主播", "")).isEmpty());
+        // 别家域名里的数字段不许被抖音链接式冒认
+        assertTrue(LiveRoomResolver.resolve(snapshot("", "https://live.douyu.com/974709925783")).get().platform() == RoomRef.Platform.DOUYU);
+    }
+
+    @Test
+    public void douyinMalformedIdsDoNotResolve() {
+        assertTrue(LiveRoomResolver.resolve(snapshot("douyin_", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("douyin_abc", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("douyin_12345678901234567890123", "")).isEmpty());
+    }
 }

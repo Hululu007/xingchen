@@ -14,6 +14,9 @@ import java.util.regex.Pattern;
  * 只是弱语境，上下文另有别家平台明文标记（斗鱼/虎牙/抖音/快手）时不许冒认。
  * 虎牙：vod_id 前缀 huya_{房号}（房号可为数字或字母短号）与 huya.com/{房号} 链接形态
  * （www/m 子域可有可无）；不设裸数字路，带房号的三件套提取与在播校验在 provider 预备步兜底。
+ * 抖音：vod_id 前缀 douyin_{webRid} 与 live.douyin.com/{webRid} 链接形态（webRid 为纯数字串）；
+ * 不设裸数字路，进房要先经房间页把 webRid 换成真实 room_id 并校验在播，
+ * 都在 provider 预备步兜底。
  * 「数字即认」永不成立。识别不出返回 empty＝不接，绝不拿标题反查房间。
  */
 public final class LiveRoomResolver {
@@ -24,6 +27,8 @@ public final class LiveRoomResolver {
     private static final Pattern BILI_LINK = Pattern.compile("live\\.bilibili\\.com/(\\d{1,15})(?:[/?#]|$)");
     private static final Pattern HUYA_PREFIX = Pattern.compile("^huya_([0-9A-Za-z]{1,20})$");
     private static final Pattern HUYA_LINK = Pattern.compile("(?:www\\.|m\\.)?huya\\.com/([0-9A-Za-z]{1,20})(?:[/?#]|$)");
+    private static final Pattern DOUYIN_PREFIX = Pattern.compile("^douyin_(\\d{1,20})$");
+    private static final Pattern DOUYIN_LINK = Pattern.compile("live\\.douyin\\.com/(\\d{1,20})(?:[/?#]|$)");
     private static final Pattern BARE_DIGITS = Pattern.compile("^\\d{1,15}$");
 
     private LiveRoomResolver() {
@@ -53,7 +58,25 @@ public final class LiveRoomResolver {
         if (douyu.isPresent()) return douyu;
         Optional<RoomRef> bili = resolveBili(snapshot);
         if (bili.isPresent()) return bili;
-        return resolveHuya(snapshot);
+        Optional<RoomRef> huya = resolveHuya(snapshot);
+        if (huya.isPresent()) return huya;
+        return resolveDouyin(snapshot);
+    }
+
+    private static Optional<RoomRef> resolveDouyin(Snapshot snapshot) {
+        Matcher prefix = DOUYIN_PREFIX.matcher(snapshot.vodId().trim());
+        if (prefix.matches()) return Optional.of(new RoomRef(RoomRef.Platform.DOUYIN, prefix.group(1)));
+        String link = findDouyinLink(snapshot.vodId());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.DOUYIN, link));
+        link = findDouyinLink(snapshot.playUrl());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.DOUYIN, link));
+        return Optional.empty();
+    }
+
+    private static String findDouyinLink(String text) {
+        if (text == null || text.isEmpty()) return null;
+        Matcher matcher = DOUYIN_LINK.matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static Optional<RoomRef> resolveHuya(Snapshot snapshot) {

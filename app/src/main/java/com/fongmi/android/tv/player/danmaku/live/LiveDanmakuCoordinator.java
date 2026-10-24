@@ -6,6 +6,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuMessage;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuWebSocketSession;
 import com.fongmi.android.tv.player.danmaku.live.bili.BiliProvider;
+import com.fongmi.android.tv.player.danmaku.live.douyin.DouyinProvider;
 import com.fongmi.android.tv.player.danmaku.live.douyu.DouyuProvider;
 import com.fongmi.android.tv.player.danmaku.live.huya.HuyaProvider;
 import com.fongmi.android.tv.setting.DanmakuSetting;
@@ -48,7 +49,7 @@ public final class LiveDanmakuCoordinator {
     private int flowGeneration;
 
     public LiveDanmakuCoordinator(Host host) {
-        this(host, Map.of(RoomRef.Platform.DOUYU, new DouyuProvider(), RoomRef.Platform.BILI, new BiliProvider(), RoomRef.Platform.HUYA, new HuyaProvider()));
+        this(host, Map.of(RoomRef.Platform.DOUYU, new DouyuProvider(), RoomRef.Platform.BILI, new BiliProvider(), RoomRef.Platform.HUYA, new HuyaProvider(), RoomRef.Platform.DOUYIN, new DouyinProvider()));
     }
 
     LiveDanmakuCoordinator(Host host, Map<RoomRef.Platform, PlatformDanmakuProvider> providers) {
@@ -200,6 +201,12 @@ public final class LiveDanmakuCoordinator {
                         host.onMessages(generation, result.messages());
                     }
                     if (result.online() != null) host.onOnline(generation, result.online());
+                    if (!result.replyFrames().isEmpty()) {
+                        LiveDanmakuWebSocketSession current = session;
+                        if (current != null && current.generation() == generation) {
+                            for (byte[] reply : result.replyFrames()) current.send(reply);
+                        }
+                    }
                 }
             });
         }

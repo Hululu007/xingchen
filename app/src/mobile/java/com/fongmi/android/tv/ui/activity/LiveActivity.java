@@ -593,8 +593,33 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void onRotate() {
         Log.i(ORIENTATION_TAG, "rotate clicked embedded=" + isEmbeddedLiveUi() + " " + orientationState());
-        if (isEmbeddedLiveUi()) enterFullscreenLive();
-        else exitFullscreenLive();
+        // 先藏控件再进/出全屏：系统旋转转场会冻取发起那刻的整窗拷贝盖在新界面上，
+        // 控件在拷贝里就是残影。与点播 VideoActivity.onRotate 同口径（c6d49133）：
+        // 现成 hideControl() 是 200ms 淡出而非同步消失，必须等控件根 GONE 定格后
+        // 才走 enter/exit 发方向请求，拷贝里只剩干净视频帧。enter/exit 本体不动，
+        // 返回键等其他调用方行为一字不变；进出方向在点击时定格，等待期间不重判。
+        boolean enter = isEmbeddedLiveUi();
+        hideControl();
+        requestRotateWhenControlGone(enter);
+    }
+
+    private void requestRotateWhenControlGone(boolean enter) {
+        View controlRoot = mBinding.control.getRoot();
+        if (controlRoot.getVisibility() == View.GONE) {
+            if (enter) enterFullscreenLive();
+            else exitFullscreenLive();
+            return;
+        }
+        controlRoot.postOnAnimation(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                if (controlRoot.getVisibility() == View.GONE) {
+                    if (enter) enterFullscreenLive();
+                    else exitFullscreenLive();
+                } else controlRoot.postOnAnimation(this);
+            }
+        });
     }
 
     private void enterFullscreenLive() {

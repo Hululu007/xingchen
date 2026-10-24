@@ -192,6 +192,10 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
     }
 
     protected void initData() {
+        // 空词不搜：页面刚打开、用户还没输词时页签先建出来，不许拿空关键词自己开搜
+        // （真机 1.4.22 实证：一点进全局搜索就全发动机空搜、底部挂「搜索中」）。
+        // 提交后 Activity 走 refreshPager 以真词重建页签，本守卫不拦真搜索。
+        if (keyWord == null || keyWord.trim().isEmpty()) return;
         // F-13：第一页重搜时清到底态（长按「刷新页面」等不走 OnRefreshListener 的入口同样生效）
         if (page == 1 && smartRefreshLayout != null) smartRefreshLayout.resetNoMoreData();
         searchEngine.setStatus(1);

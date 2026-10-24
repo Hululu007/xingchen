@@ -519,10 +519,11 @@ public class HkPageActivity extends BaseActivity {
         binding.btnSelectAllRules.setOnClickListener(v -> toggleSelectAllRules());
         binding.btnDeleteSelectedRules.setOnClickListener(v -> showDeleteSelectedConfirm());
         binding.btnSelectDone.setOnClickListener(v -> exitRuleSelectMode());
-        // 点 🔍：首页直接 inline 过滤小程序卡片；长按 🔍：选择搜内容/搜规则
+        // 点 🔍：搜规则（首页直接 inline 按名过滤小程序卡片）；长按 🔍：搜内容（全局搜索）
+        // 用户拍板（2026-10-24）：不许再弹「搜内容/搜规则」二选一弹窗，多此一举
         binding.btnSearchRule.setOnClickListener(v -> toggleInlineSearch());
         binding.btnSearchRule.setOnLongClickListener(v -> {
-            showSearchChooser();
+            openContentSearch();
             return true;
         });
         binding.btnSortRule.setOnClickListener(v -> {
@@ -3834,17 +3835,6 @@ public class HkPageActivity extends BaseActivity {
         searchResults.clear();
         searchSrcRules.clear();
         HkSearchActivity.startGlobalSearch(this, "");
-    }
-
-    /** H3: 长按搜索按钮弹出选择：搜内容 / 搜规则（已安装小程序） */
-    private void showSearchChooser() {
-        HkDialogs.cards(this, "搜索", new String[]{"搜内容", "搜规则"}, null, (d, which) -> {
-                    if (which == 0) {
-                        openContentSearch();
-                    } else {
-                        HkRuleSearchActivity.start(this);
-                    }
-                });
     }
 
     /**

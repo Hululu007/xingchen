@@ -82,10 +82,21 @@ public class LabManifest {
         public String value;
     }
 
-    /** 命令依赖下载：运行前把 url 落到包内 file（相对包目录），缺了才下 */
+    /**
+     * 命令依赖下载（上游 CommandDownload 口径）：运行前按声明备好文件，缺了才下。
+     * 两种落位模式（LabDepends 判）：
+     *   save 模式：file（save_to）非空且 extractTo 为空——原样落到 file；
+     *   extract 模式：extractTo 非空（"."=包根、"rootfs"=包内 rootfs、或相对/绝对目录）——
+     *     整包解压进该目录，file 此时是 binary_path 语义（解压后归位到的二进制位置）。
+     * checkFile 非空时以它判「备好没」（相对包目录，或带占位的绝对路径）；
+     * 路径都可带 {sdcard}/{pkgDir} 等占位，运行时展开。
+     */
     public static class LabDownload {
         public String url;
         public String file;
+        public String checkFile;
+        public String extractTo;
+        public boolean required;
     }
 
     public static class LabOutput {
@@ -169,6 +180,12 @@ public class LabManifest {
                     d.url = dl.optString("url", "");
                     // 落盘键两种都吃：file（自家）/ save_to（上游与 LabImportCompat 口径），两路对齐
                     d.file = dl.has("file") ? dl.optString("file", "") : dl.optString("save_to", "");
+                    // 上游键与 Gson 落盘名（驼峰）都吃，回读自家写的清单不能丢字段
+                    d.checkFile = dl.has("check_file") ? dl.optString("check_file", "")
+                            : dl.optString("checkFile", "");
+                    d.extractTo = dl.has("extract_to") ? dl.optString("extract_to", "")
+                            : dl.optString("extractTo", "");
+                    d.required = dl.optBoolean("required", false);
                     if (!TextUtils.isEmpty(d.url)) cmd.download = d;
                 }
                 cmd.variables.addAll(parseVars(c.optJSONArray("variables")));

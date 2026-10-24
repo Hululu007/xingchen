@@ -162,7 +162,7 @@ public final class LabRunner {
                 // 包设置值先垫底，同名变量再覆盖（上游变量值缓存复用口径）
                 Map<String, String> merged = new java.util.HashMap<>(LabCustomCommands.settingsOf(c, pkgId));
                 if (vars != null) merged.putAll(vars);
-                ensureDependency(c, pkgId, cmd);
+                ensureDependency(c, pkgId, cmd, port);
                 String command = expand(c, pkgId, cmd.command, port, merged);
                 ERRORS.remove(key);
                 runShell(c, pkgId, key, command, pkgId, listener);
@@ -196,25 +196,24 @@ public final class LabRunner {
         }
     }
 
-    /** 命令依赖下载：download 声明的文件缺了就先下后跑 */
-    private static void ensureDependency(Context c, String pkgId, LabManifest.LabCommand cmd) throws Exception {
+    /**
+     * 命令依赖备料：download 声明缺了才下，按声明原样落盘（save_to）或整包解压
+     * （extract_to / Item 级 downloads，含 .gz/.tar.gz 解压、binary_path 归位、补可执行），
+     * 判定与落位走 LabDepends（上游 prepareDependency 口径）。路径里的占位
+     * （{sdcard}/{pkgDir}/{dataPath} 等）先按命令同口径展开再判定落盘。
+     */
+    private static void ensureDependency(Context c, String pkgId, LabManifest.LabCommand cmd, int port) throws Exception {
         if (cmd == null || cmd.download == null || TextUtils.isEmpty(cmd.download.url)) return;
-        String rel = TextUtils.isEmpty(cmd.download.file) ? fileNameOf(cmd.download.url) : cmd.download.file;
         File pkgDir = LabPaths.packageDir(c, pkgId);
-        File dest = new File(pkgDir, rel);
-        // 落点收口（与安装器 zip-slip 守卫同口径）：download.file 由包作者控制，
-        // 写 ../ 能落到包目录外，先验 canonical 再碰盘，越界直接报错、不落盘。
-        if (!dest.getCanonicalPath().startsWith(pkgDir.getCanonicalPath() + File.separator)) {
-            throw new Exception("依赖下载的落点跑出包目录了：" + rel);
-        }
-        if (dest.exists()) return;
-        downloadFile(cmd.download.url, dest);
-    }
-
-    private static String fileNameOf(String url) {
-        String u = url.split("\\?")[0];
-        int i = u.lastIndexOf('/');
-        return i >= 0 ? u.substring(i + 1) : "dep.bin";
+        LabManifest.LabDownload src = cmd.download;
+        LabManifest.LabDownload d = new LabManifest.LabDownload();
+        d.url = expand(c, pkgId, src.url, port);
+        d.file = expand(c, pkgId, src.file, port);
+        d.checkFile = expand(c, pkgId, src.checkFile, port);
+        d.extractTo = expand(c, pkgId, src.extractTo, port);
+        d.required = src.required;
+        if (!LabDepends.needed(pkgDir, d)) return;
+        LabDepends.fetch(pkgDir, c.getCacheDir(), d, LabRunner::downloadFile);
     }
 
     private static void downloadFile(String url, File dest) throws Exception {
@@ -319,9 +318,14 @@ public final class LabRunner {
                 if (!"none".equals(runtime) && !LabRuntimeManager.isInstalled(c, runtime)) {
                     throw new Exception("缺" + LabRuntimeManager.label(runtime) + "，先把它装上");
                 }
+                checkMinVersion(c, cmd);
                 ERRORS.remove(keyOf(pkgId));
                 stop(c, pkgId);
                 int port = allocPort(c, pkg, manifest);
+                // 默认命令路此前不备料也不查版本门：靠 downloads 拿二进制的包
+                // （mihomo/frp/ubuntu 一族）从服务页启动永远缺文件，与按命令启动
+                // 那条路口径对齐（上游运行前统一 prepareDependency）
+                ensureDependency(c, pkgId, cmd, port);
                 String command = expand(c, pkgId, cmd.command, port);
                 runShell(c, pkgId, keyOf(pkgId), command, pkgId, listener);
                 if (listener != null) listener.onOutput("");

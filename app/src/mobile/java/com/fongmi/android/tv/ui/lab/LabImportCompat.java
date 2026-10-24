@@ -386,9 +386,15 @@ public final class LabImportCompat {
         if (!chosenUrl.isEmpty()) {
             LabManifest.LabDownload dl = new LabManifest.LabDownload();
             dl.url = chosenUrl;
+            // Item 级 downloads 是整包压缩件（.gz/.tar.gz/rootfs），上游在安装时
+            // 整包解压进包目录：这里归一成 extract 模式——普通包解到包根，
+            // rootfs 包（Item 带 rootfs:true）解进包内 rootfs（命令按
+            // {envRootPath}/rootfs 引用它）；binary_path 作归位目标，
+            // 解压后由 LabDepends 按名/单文件归位到 bin/ 下（G-1）
+            dl.extractTo = o.optBoolean("rootfs", false) ? "rootfs" : ".";
             if (!binaryPath.isEmpty()) {
                 dl.file = binaryPath.endsWith("/") ? binaryPath + urlFileName(chosenUrl) : binaryPath;
-                out.notes.add("包声明二进制放 binary_path（" + binaryPath + "），已按这个位置接上 downloads 的下载");
+                out.notes.add("包声明二进制放 binary_path（" + binaryPath + "），已按这个位置接上 downloads 的下载（整包先解压再归位）");
             }
             out.download = dl;
         } else if (!anyUrl) {

@@ -45,7 +45,7 @@ import okhttp3.ResponseBody;
  *
  * <p>HTTP 客户端：{@link HkHttp#client()}（8.83 buildOkHttpClient 移植版，CookieJar / 拦截器；DNS 系统默认）。
  * 需要 per-request 禁止重定向或自定义超时时，用 {@code HkHttp.client().newBuilder()} 派生
- * （见 {@link #resolveClient(OkHttpClient, boolean, int)}）。</p>
+ * （见 {@link #resolveClient(String, OkHttpClient, boolean, int)}）。</p>
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class HkHttpHelper {
@@ -616,7 +616,7 @@ public class HkHttpHelper {
         Object tag = getTagFromThread();
         if (tag != null) rb.tag(Object.class, tag);
 
-        OkHttpClient effectiveClient = resolveClient(client, redirect, timeout);
+        OkHttpClient effectiveClient = resolveClient(url, client, redirect, timeout);
         Request request = rb.build();
 
         FetchResponse fetchResponse = new FetchResponse();
@@ -777,7 +777,8 @@ public class HkHttpHelper {
      * redirect=false 时 followRedirects/followSslRedirects 置 false</li>
      * <li>timeout &lt;= 0 且 redirect=false → 对应 {@code noRedirectHttpClient}：
      * 同样派生，仅关重定向</li>
-     * <li>其余 → {@code HkHttp.client()} 本体</li>
+     * <li>其余 → 按归属裁决的 client（{@code HkHttp.clientFor(url)}：判走节点为显式
+     * proxy 派生 client，判直连/无裁决为 {@code HkHttp.client()} 本体）</li>
      * </ul>
      * 派生 client 与本体共享连接池 / dispatcher / CookieJar / 拦截器
      * （okhttp3 {@code newBuilder()} 语义；DNS 系统默认）。
@@ -786,12 +787,17 @@ public class HkHttpHelper {
      * 图片路径已按原版口径移植为 HkHttp.HK_IMAGE_DNS（默认系统解析，仅 haikuoshijie
      * 类地址在开 DoH 时走 DoH）；取数路径 DNS 为系统默认（照原版）。见 notes。</p>
      */
-    private static OkHttpClient resolveClient(OkHttpClient client, boolean redirect, int timeout) {
+    private static OkHttpClient resolveClient(String url, OkHttpClient client, boolean redirect, int timeout) {
         if (client != null) {
             return client;
         }
+        // 无显式 client 时与 HkHttp.to()/HkCodeUtil 同口径走 clientFor(url)：判走节点用
+        // 显式 proxy 派生 client，与直连池连接天然不同 Address、互不复用。此前本路只用
+        // client() 本体（仅选择器链），池里已有同 host 直连连接时 fetch0 的请求会直接
+        // 复用、绕过网关——f17ca631 给 to()/get() 治了连接池污染，漏了本路，一并补齐。
+        OkHttpClient base = url == null || url.isEmpty() ? HkHttp.client() : HkHttp.clientFor(url);
         if (timeout > 0 || !redirect) {
-            OkHttpClient.Builder b = HkHttp.client().newBuilder();
+            OkHttpClient.Builder b = base.newBuilder();
             if (timeout > 0) {
                 b.readTimeout(timeout, TimeUnit.MILLISECONDS);
                 b.writeTimeout(timeout, TimeUnit.MILLISECONDS);
@@ -803,7 +809,7 @@ public class HkHttpHelper {
             }
             return b.build();
         }
-        return HkHttp.client();
+        return base;
     }
 
     //======================================================================

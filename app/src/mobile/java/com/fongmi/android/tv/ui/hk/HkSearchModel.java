@@ -104,6 +104,13 @@ public class HkSearchModel {
             pageUrl = "hiker://empty";
         }
         final String requestUrl = pageUrl;
+        // 补登记最终请求 host：入口处登记的是 search_url 模板的 host，模板经
+        // parsePageClassUrl/proxyUrl 改写后最终请求 host 可能与模板不同，届时认领
+        // 按最终 host 查表落空、搜索首发又绕回直连（与列表路同口径补登）。
+        try {
+            ReadingProxyGate.recordUrl(requestUrl, "hk", engine.getTitle());
+        } catch (Throwable ignored) {
+        }
         HkHttpParser.parseSearchUrlForHtml(keyword, requestUrl, new HkHttpParser.OnSearchCallBack() {
             @Override
             public void onSuccess(String successUrl, String html) {

@@ -202,6 +202,15 @@ public class HkArticleListModel {
             String pageUrl = bridge == null ? urlWithUa
                     : bridge.parsePageClassUrl(urlWithUa, page, rule, options);
             if (bridge != null) pageUrl = bridge.proxyUrl(pageUrl, rule.getProxy());
+            // 补登记最终请求 host：processInBackground 登记的是规则主域名（rule.getUrl），
+            // parsePageClassUrl/proxyUrl 改写后最终请求 host 可能与主域名不同（如规则自带
+            // proxy 改写、镜像域），只登主域名时 explicitProxy/认领按最终 host 查表落空、
+            // 整页又绕回直连。发请求前把最终 URL 的 host 也登记给本规则（归属口径不变，
+            // 走不走仍由逐源开关裁决）。
+            try {
+                ReadingProxyGate.recordUrl(pageUrl, "hk", rule.getTitle());
+            } catch (Throwable ignored) {
+            }
             String findRule = rule.getFindRule();
             final Callback target = effectiveCallback;
             final int finalPage = page;

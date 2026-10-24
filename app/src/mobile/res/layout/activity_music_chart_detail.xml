@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 榜单详情独立页（拆页 p6，2026-10-25）：从 MusicListActivity 的 chartDetail 模式拆出。
+     构成照旧页 chartDetail 模式实际引用子集：顶栏（标题＝榜名＋搜索钮；旧页大标题行与
+     工具条在 chartDetail 下恒隐藏、本页不带）＋列表（英雄卡＋排名行，行布局复用
+     item_music_chart_hero／item_music_chart_track）＋空态覆盖层。
+     根与背景层照 activity_music_list.xml：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
+     无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/home_bg_page"
+    android:fitsSystemWindows="true">
+
+    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
+        android:id="@+id/musicGlassBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp">
+
+        <RelativeLayout
+            android:id="@+id/headerBar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp">
+
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:textColor="#1C1C1E"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/btnSearch"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:contentDescription="@string/music_search"
+                android:padding="12dp"
+                android:src="@drawable/ic_music_search" />
+        </RelativeLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="96dp" />
+    </LinearLayout>
+
+    <!-- 状态层（空状态与「正在加载…」共用）：根 FrameLayout 覆盖层、layout_gravity 居中锚定 -->
+    <TextView
+        android:id="@+id/empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:textColor="#9AA7B8"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</FrameLayout>

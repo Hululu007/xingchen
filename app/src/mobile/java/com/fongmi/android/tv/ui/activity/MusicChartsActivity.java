@@ -34,8 +34,7 @@ import java.util.List;
 /**
  * 榜单列表独立页（拆页 p5）：焦点卡＋分区头＋普通卡；
  * 数据源＝MusicRepository 榜单（只留酷我＋QQ 的站点），卡内预览逐榜拉取，
- * 卡面跟随封面取色淡染；点卡进榜单详情（本笔先照旧 intent 打到壳
- * MusicListActivity 的 chartDetail 模式，p6 再换新页）。
+ * 卡面跟随封面取色淡染；点卡进榜单详情独立页 MusicChartDetailActivity。
  * 顶栏只留标题，无返回箭头，走系统返回。
  */
 public class MusicChartsActivity extends BaseActivity {
@@ -226,18 +225,9 @@ public class MusicChartsActivity extends BaseActivity {
     }
 
     /** 榜单详情开新页（系统返回回榜单列表；本页不放自己的返回箭头）。
-     * p5 落点照旧 intent 打到壳 MusicListActivity（chartDetail 还在壳里），p6 换新页。 */
+     * p5 先照旧 intent 打到壳，p6 起落点换新页 MusicChartDetailActivity（extras 契约不变）。 */
     private void openChartDetail(MusicChart chart) {
-        Intent i = new Intent(this, MusicListActivity.class);
-        i.putExtra("mode", "chartDetail");
-        i.putExtra("title", chart.name);
-        i.putExtra("chartPlatform", chart.platform);
-        i.putExtra("chartId", chart.id);
-        i.putExtra("chartCover", chart.cover);
-        // 英雄卡描述／更新频率透传（源没给则空，详情页不编）
-        i.putExtra("chartDesc", chart.description == null ? "" : chart.description);
-        i.putExtra("chartFreq", chart.updateFrequency == null ? "" : chart.updateFrequency);
-        startActivity(i);
+        MusicChartDetailActivity.startChartDetail(this, chart);
     }
 
     // ================= 通用排序（工具栏排序键照旧口径） =================

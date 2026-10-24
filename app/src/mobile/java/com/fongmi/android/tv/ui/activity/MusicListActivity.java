@@ -30,7 +30,6 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.music.LxMusicSource;
-import com.fongmi.android.tv.api.music.KwChartSource;
 import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.api.music.PlaylistImporter;
@@ -104,10 +103,6 @@ public class MusicListActivity extends BaseActivity {
     private boolean sheetSearchWired;
     private boolean sheetSearchShown;
 
-    // 第 3 项：榜单详情页（英雄卡＋排名行）
-    private String chartPlatform = "";
-    private String chartId = "";
-    private String chartCover = "";
     private String mode = "tracks";
     /** onResume 首过标记（中-03）：首次由 initView 的 load() 负责，之后回页才重拉。 */
     private boolean resumedOnce = false;
@@ -228,12 +223,6 @@ public class MusicListActivity extends BaseActivity {
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
         playlistId = i.getLongExtra("playlistId", -1);
-        chartPlatform = i.getStringExtra("chartPlatform");
-        chartId = i.getStringExtra("chartId");
-        chartCover = i.getStringExtra("chartCover");
-        if (chartPlatform == null) chartPlatform = "";
-        if (chartId == null) chartId = "";
-        if (chartCover == null) chartCover = "";
         bigTitle = i.getStringExtra("title");
         if (bigTitle == null) bigTitle = "";
 
@@ -446,7 +435,6 @@ public class MusicListActivity extends BaseActivity {
         // 第 11 项：sheets 模式用 GZ 页头（YOUR PLAYLISTS＋大标题＋操作行），顶栏居中标题与大标题行、随机播放行都隐藏
         boolean sheets = mode.equals("sheets");
         boolean sheet = mode.equals("sheet");
-        boolean chartDetail = mode.equals("chartDetail");
         boolean guess = mode.equals("guess");
         binding.headerBar.setVisibility((sheets || guess) ? View.GONE : View.VISIBLE);
         binding.sheetsHeader.setVisibility(sheets ? View.VISIBLE : View.GONE);
@@ -458,11 +446,10 @@ public class MusicListActivity extends BaseActivity {
         if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(View.VISIBLE);
         if (!sheets) binding.sheetsEmpty.setVisibility(View.GONE);
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
-        // 第 3 项：榜单详情页同样用英雄卡当页头，大标题行与工具条隐藏（排名不参与列表排序）
         // 第 9 项：猜你喜欢页同样用自己的标题＋英雄卡当页头，大标题行与工具条隐藏（播放／随机播／保存在英雄卡操作行）
         // 2026-10-22 搜索页重做：搜索模式大标题行隐藏——顶栏居中标题已是“搜索”，再留左侧大“搜索”就是截图里的双标题。
-        binding.bigTitleRow.setVisibility((sheets || sheet || chartDetail || guess || mode.equals("search")) ? View.GONE : View.VISIBLE);
-        binding.toolbar.setVisibility((mode.equals("sites") || sheets || chartDetail || guess) ? View.GONE : View.VISIBLE);
+        binding.bigTitleRow.setVisibility((sheets || sheet || guess || mode.equals("search")) ? View.GONE : View.VISIBLE);
+        binding.toolbar.setVisibility((mode.equals("sites") || sheets || guess) ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         if (binding.searchCancel != null) binding.searchCancel.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
@@ -475,9 +462,6 @@ public class MusicListActivity extends BaseActivity {
             case "sheets":
                 bigTitle = getString(R.string.music_playlist);
                 loadSheets();
-                break;
-            case "chartDetail":
-                loadChartDetail();
                 break;
             case "guess":
                 bigTitle = getString(R.string.music_guess);
@@ -1278,106 +1262,6 @@ public class MusicListActivity extends BaseActivity {
             }
         }
         return pool;
-    }
-
-    /** 第 3 项：榜单详情开新页（系统返回回榜单列表；本页不放自己的返回箭头） */
-    private void openChartDetail(MusicChart chart) {
-        Intent i = new Intent(this, MusicListActivity.class);
-        i.putExtra("mode", "chartDetail");
-        i.putExtra("title", chart.name);
-        i.putExtra("chartPlatform", chart.platform);
-        i.putExtra("chartId", chart.id);
-        i.putExtra("chartCover", chart.cover);
-        // 第二波：英雄卡描述／更新频率透传（源没给则空，详情页不编）
-        i.putExtra("chartDesc", chart.description == null ? "" : chart.description);
-        i.putExtra("chartFreq", chart.updateFrequency == null ? "" : chart.updateFrequency);
-        startActivity(i);
-    }
-
-    private void loadChartDetail() {
-        showLoading();
-        binding.tvTitle.setText(bigTitle);
-        MusicChart chart = new MusicChart(chartPlatform, chartId, bigTitle);
-        chart.cover = chartCover;
-        if (KwChartSource.PLATFORM.equals(chartPlatform)) {
-            loadKwChartDetail(chart);
-            return;
-        }
-        Task.execute(() -> {
-            List<MusicTrack> r = MusicRepository.chartTracks(chart);
-            runOnUiThread(() -> {
-                tracks.clear();
-                if (r != null) tracks.addAll(r);
-                adapter.notifyDataSetChanged();
-                binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
-                if (tracks.isEmpty()) {
-                    // 第二波：榜单详情空态改榜单口径（此前套搜索口径「没搜到，去换个词试试」）；点空态重试（失败与空未区分，源不给失败态，见交卷）
-                    binding.empty.setText(R.string.wave2_chart_empty);
-                    binding.empty.setOnClickListener(v -> loadChartDetail());
-                }
-            });
-        });
-    }
-
-    /** 酷我详情首屏不再等整榜：先直连快出文字＋时长（这部分快），封面按片陆续补（先回的片先上图，不等另一片）。
-     * 直连都空时走旧路（Worker 分片＋整榜直连回落），行为与改动前一致；QQ 等其它源走上面旧路不动。 */
-    private void loadKwChartDetail(MusicChart chart) {
-        final String detailId = chartId;
-        Task.execute(() -> {
-            MusicRepository.startKwChartSlices(chart);
-            List<MusicTrack> direct = MusicRepository.chartTracksDirect(chart);
-            if (direct == null || direct.isEmpty()) {
-                List<MusicTrack> r = MusicRepository.chartTracks(chart);
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
-                    tracks.clear();
-                    if (r != null) tracks.addAll(r);
-                    adapter.notifyDataSetChanged();
-                    binding.empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
-                    if (tracks.isEmpty()) {
-                        binding.empty.setText(R.string.wave2_chart_empty);
-                        binding.empty.setOnClickListener(v -> loadChartDetail());
-                    }
-                });
-                return;
-            }
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
-                tracks.clear();
-                tracks.addAll(direct);
-                adapter.notifyDataSetChanged();
-                binding.empty.setVisibility(View.GONE);
-            });
-            MusicRepository.fetchKwChartCovers(chart, new KwChartSource.CoverListener() {
-                @Override
-                public void onShard(int pn, List<MusicTrack> shard) {
-                    runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
-                        applyShardCovers(shard);
-                    });
-                }
-            });
-        });
-    }
-
-    /** 按 rid 把一片 Worker 封面贴到已显示的直连列表上，只刷封面变了的行（先回的片先上图，不等另一片）；
-     * 封面为空的片内曲目留素图（与旧按片回落一致）；chartDetail 行 0 号是头，曲目行下标＝曲目号＋1 */
-    private void applyShardCovers(List<MusicTrack> shard) {
-        if (shard == null || shard.isEmpty() || tracks.isEmpty()) return;
-        Map<String, Integer> index = new LinkedHashMap<>();
-        for (int i = 0; i < tracks.size(); i++) {
-            String id = tracks.get(i).id;
-            if (id != null && !id.isEmpty()) index.put(id, i);
-        }
-        for (MusicTrack s : shard) {
-            if (s == null || s.id == null || s.cover == null || s.cover.isEmpty()) continue;
-            Integer idx = index.get(s.id);
-            if (idx == null) continue;
-            MusicTrack cur = tracks.get(idx);
-            if (s.cover.equals(cur.cover)) continue;
-            cur.cover = s.cover;
-            adapter.notifyItemChanged(idx + 1);
-        }
     }
 
     /** 第 9 项：猜你喜欢英雄卡跟随首张封面取色淡染（榜单 tintChartCard 同款口径，圆角 20dp，失败回落白卡） */
@@ -2939,7 +2823,7 @@ public class MusicListActivity extends BaseActivity {
 
     /**
      * tracks 下标 → adapter 位置（trackIndex 的逆映射，见 ListAdapter.trackIndex）：
-     * 歌单详情＋3、榜单详情＋1、猜你喜欢＋3、
+     * 歌单详情＋3、猜你喜欢＋3、
      * 其余模式＝下标。卡片视图（歌单／榜单列表）
      * 其余模式＝下标＋设备头（本地页 1、其它 0）。卡片视图（本地分组卡／歌单／榜单列表）
      * 下没有歌曲行，返回 -1 不刷行。
@@ -2947,7 +2831,6 @@ public class MusicListActivity extends BaseActivity {
     private int adapterPositionForTrack(int trackIdx) {
         if (adapter == null || trackIdx < 0 || trackIdx >= tracks.size()) return -1;
         if (mode.equals("sheet")) return trackIdx + 3;
-        if (mode.equals("chartDetail")) return trackIdx + 1;
         if (mode.equals("guess")) return trackIdx + 3;
         return trackIdx;
     }
@@ -3838,8 +3721,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
         private static final int TYPE_SHEET_TRACK = 10;
-        private static final int TYPE_CHART_HERO = 14;
-        private static final int TYPE_CHART_TRACK = 15;
         private static final int TYPE_GUESS_TITLE = 16;
         private static final int TYPE_GUESS_HERO = 17;
         private static final int TYPE_GUESS_SECTION = 18;
@@ -3860,11 +3741,6 @@ public class MusicListActivity extends BaseActivity {
                 if (position == 1) return TYPE_SHEET_ACTIONS;
                 if (position == 2) return TYPE_SHEET_SECTION;
                 return TYPE_SHEET_TRACK;
-            }
-            // 第 3 项：榜单详情＝英雄卡＋排名行
-            if (mode.equals("chartDetail")) {
-                if (position == 0) return TYPE_CHART_HERO;
-                return TYPE_CHART_TRACK;
             }
             // 第 9 项：猜你喜欢＝标题＋英雄卡＋精选区头＋精选行（标题与英雄卡随列表滚动，与 GZ 一致）
             if (mode.equals("guess")) {
@@ -3935,12 +3811,6 @@ public class MusicListActivity extends BaseActivity {
             if (viewType == TYPE_SHEET_TRACK) {
                 return new SheetTrackHolder(inf.inflate(R.layout.item_music_sheet_track, parent, false));
             }
-            if (viewType == TYPE_CHART_HERO) {
-                return new ChartHeroHolder(inf.inflate(R.layout.item_music_chart_hero, parent, false));
-            }
-            if (viewType == TYPE_CHART_TRACK) {
-                return new ChartTrackHolder(inf.inflate(R.layout.item_music_chart_track, parent, false));
-            }
             if (viewType == TYPE_GUESS_TITLE) {
                 return new GuessTitleHolder(inf.inflate(R.layout.item_music_guess_title, parent, false));
             }
@@ -3975,12 +3845,6 @@ public class MusicListActivity extends BaseActivity {
                 else bindSheetTrack((SheetTrackHolder) h, trackIndex(position));
                 return;
             }
-            // 第 3 项：榜单详情
-            if (mode.equals("chartDetail")) {
-                if (h instanceof ChartHeroHolder) bindChartHero((ChartHeroHolder) h);
-                else bindChartTrack((ChartTrackHolder) h, trackIndex(position));
-                return;
-            }
             // 第 9 项：猜你喜欢四类行
             if (mode.equals("guess")) {
                 if (h instanceof GuessTitleHolder) return;
@@ -4009,7 +3873,6 @@ public class MusicListActivity extends BaseActivity {
         /** 歌曲行在列表里的下标：歌单详情页前面有英雄卡／操作行／区头 3 行；其它模式减头行数 */
         private int trackIndex(int position) {
             if (mode.equals("sheet")) return position - 3;
-            if (mode.equals("chartDetail")) return position - 1;
             if (mode.equals("guess")) return position - 3;
             return position - headerCount();
         }
@@ -4856,226 +4719,6 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-    /** 第二波：平台胶囊（瓜子尾行：半粗、accent 字、accent 0.14 底；普通卡内边距 7/3dp＋圆角 7dp，详情英雄卡 8/3dp＋圆角 8dp） */
-    private void tintChartCapsule(MusicChart chart, android.widget.TextView capsule, int cornerDp) {
-        if (capsule == null) return;
-        String key = chart.platform + ":" + chart.id;
-        capsule.setTag(key);
-        capsule.setTextColor(0xFFFA243C);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dp(cornerDp));
-        bg.setColor(0x24FA243C);
-        capsule.setBackground(bg);
-        if (chart.cover == null || chart.cover.isEmpty()) return;
-        ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                Task.execute(() -> {
-                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                    runOnUiThread(() -> {
-                        if (!key.equals(capsule.getTag())) return;
-                        capsule.setTextColor(dom);
-                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-                        d.setCornerRadius(dp(cornerDp));
-                        d.setColor((dom & 0x00FFFFFF) | 0x24000000);
-                        capsule.setBackground(d);
-                    });
-                });
-            }
-
-            @Override
-            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-            }
-        });
-    }
-
-    class ChartHeroHolder extends RecyclerView.ViewHolder {
-        final ImageView cover;
-        final TextView name;
-        final TextView capsule;
-        final TextView desc;
-        final TextView freq;
-        final View btnPlayAll;
-        final View btnRefresh;
-
-        ChartHeroHolder(View v) {
-            super(v);
-            cover = v.findViewById(R.id.cover);
-            name = v.findViewById(R.id.name);
-            capsule = v.findViewById(R.id.chartHeroCapsule);
-            desc = v.findViewById(R.id.chartHeroDesc);
-            freq = v.findViewById(R.id.chartHeroFreq);
-            btnPlayAll = v.findViewById(R.id.btnChartPlayAll);
-            btnRefresh = v.findViewById(R.id.btnChartRefresh);
-            cover.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(android.view.View view, android.graphics.Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(16));
-                }
-            });
-            cover.setClipToOutline(true);
-        }
-    }
-
-    class ChartTrackHolder extends RecyclerView.ViewHolder {
-        final TextView rank;
-        final ImageView stateMark;
-        final ImageView cover;
-        final TextView title;
-        final TextView artist;
-        final TextView duration;
-
-        ChartTrackHolder(View v) {
-            super(v);
-            rank = v.findViewById(R.id.rank);
-            stateMark = v.findViewById(R.id.stateMark);
-            cover = v.findViewById(R.id.cover);
-            title = v.findViewById(R.id.title);
-            artist = v.findViewById(R.id.artist);
-            duration = v.findViewById(R.id.duration);
-            cover.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(android.view.View view, android.graphics.Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(10));
-                }
-            });
-            cover.setClipToOutline(true);
-        }
-    }
-
-    private void bindChartHero(ChartHeroHolder h) {
-        // 第二波：详情英雄卡（瓜子 BoardDetailHero：榜名 24sp／800／字距 −0.4sp＋平台胶囊 10sp＋描述／更新行＋48dp 高「播放全部」钮；
-        // 刷新照瓜子详情顶栏刷新落点——星辰详情页无顶栏（铁律不放自带返回箭头、顶栏已隐），刷新钮放英雄卡操作行右端，落点不同、功能同）
-        h.name.setText(bigTitle);
-        h.name.getPaint().setFakeBoldText(true);
-        h.name.setLetterSpacing(-0.017f);
-        String platName = LxPlatformSearch.platformName(chartPlatform);
-        if (h.capsule != null) {
-            if (platName == null || platName.isEmpty()) {
-                h.capsule.setVisibility(View.GONE);
-            } else {
-                h.capsule.setVisibility(View.VISIBLE);
-                h.capsule.setText(platName);
-                setSemiBold(h.capsule);
-                MusicChart heroChart = new MusicChart(chartPlatform, chartId, bigTitle);
-                heroChart.cover = chartCover;
-                tintChartCapsule(heroChart, h.capsule, 8);
-            }
-        }
-        // 描述／更新频率来自列表页 intent 透传（源没给则留空隐藏；详情现取的曲目数不冒充榜总曲数，故英雄卡不显「N 首」）
-        String heroDesc = getIntent() == null ? null : getIntent().getStringExtra("chartDesc");
-        String heroFreq = getIntent() == null ? null : getIntent().getStringExtra("chartFreq");
-        if (h.desc != null) {
-            if (heroDesc == null || heroDesc.isEmpty()) h.desc.setVisibility(View.GONE);
-            else {
-                h.desc.setVisibility(View.VISIBLE);
-                h.desc.setText(heroDesc);
-            }
-        }
-        if (h.freq != null) {
-            if (heroFreq == null || heroFreq.isEmpty()) h.freq.setVisibility(View.GONE);
-            else {
-                h.freq.setVisibility(View.VISIBLE);
-                h.freq.setText(heroFreq);
-            }
-        }
-        if (chartCover == null || chartCover.isEmpty()) {
-            try {
-                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
-            } catch (Throwable ignored) {
-            }
-            h.cover.setImageDrawable(null);
-            h.cover.setBackgroundColor(0xFFE5E5EA);
-        } else {
-            h.cover.setBackgroundColor(0x00000000);
-            ImgUtil.loadRounded16(bigTitle, chartCover, h.cover);
-        }
-        if (h.btnPlayAll != null) {
-            h.btnPlayAll.setOnClickListener(v -> {
-                if (tracks.isEmpty()) {
-                    Notify.show(R.string.music_no_track);
-                    return;
-                }
-                playTrack(0);
-            });
-        }
-        if (h.btnRefresh != null) {
-            h.btnRefresh.setOnClickListener(v -> loadChartDetail());
-        }
-    }
-
-    private void bindChartTrack(ChartTrackHolder h, int position) {
-        MusicTrack t = tracks.get(position);
-        MusicTrack cur = MusicController.get().current();
-        boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
-        // 排名始终可见：在播行取封面语气色（GZ TopListDetailScreenKt），其余默认灰
-        h.rank.setVisibility(View.VISIBLE);
-        h.rank.setText(String.valueOf(position + 1));
-        h.rank.setTextColor(0xFF8E8E93);
-        h.title.setText(t.displayTitle());
-        // 共用行口径（批 5 F2）：歌名 #1A1A1A；粗细走布局 textStyle bold，此前代码侧 fakeBold=false 会把布局粗体抹掉，一并摘除
-        h.title.setTextColor(0xFF1A1A1A);
-        h.artist.setText(artistDisplay(t.displayArtist()));
-        h.duration.setText(fmt(t.duration));
-        String trackKey = t.id == null ? "" : t.id;
-        h.rank.setTag(trackKey);
-        h.stateMark.setTag(trackKey);
-        if (isCurrent) {
-            // 第二波：在播标记按瓜子图标版（返工此前文字版）：播放态 14dp／暂停态 12dp 图标，tint 同取封面语气色；
-            // 图标字形瓜子侧未解码，星辰侧用均衡条（播）／暂停（停）图标，无障碍文案沿用瓜子「正在播放／已暂停」
-            boolean playing = MusicController.get().isPlaying();
-            h.stateMark.setVisibility(View.VISIBLE);
-            h.stateMark.setImageResource(playing ? R.drawable.ic_music_eq : R.drawable.ic_music_pause);
-            h.stateMark.setContentDescription(playing ? "正在播放" : "已暂停");
-            android.view.ViewGroup.LayoutParams slp = h.stateMark.getLayoutParams();
-            int sz = dp(playing ? 14 : 12);
-            slp.width = sz;
-            slp.height = sz;
-            h.stateMark.setLayoutParams(slp);
-            if (t.cover == null || t.cover.isEmpty()) {
-                h.rank.setTextColor(0xFFFA243C);
-                h.stateMark.setColorFilter(0xFFFA243C);
-            } else {
-                h.rank.setTextColor(0xFFFA243C);
-                h.stateMark.setColorFilter(0xFFFA243C);
-                ImgUtil.load(t.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-                    @Override
-                    public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                                com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                        if (!trackKey.equals(h.rank.getTag())) return;
-                        Task.execute(() -> {
-                            int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                            runOnUiThread(() -> {
-                                if (!trackKey.equals(h.rank.getTag())) return;
-                                h.rank.setTextColor(dom);
-                                h.stateMark.setColorFilter(dom);
-                            });
-                        });
-                    }
-
-                    @Override
-                    public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-                    }
-                });
-            }
-        } else {
-            h.stateMark.setVisibility(View.GONE);
-        }
-        if (t.cover == null || t.cover.isEmpty()) {
-            try {
-                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
-            } catch (Throwable ignored) {
-            }
-            h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
-                    t.displayTitle(), false, 10 * h.cover.getResources().getDisplayMetrics().density));
-        } else {
-            ImgUtil.loadRounded10(t.displayTitle(), t.cover, h.cover);
-        }
-        h.itemView.setOnClickListener(v -> playTrack(position));
-        h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
-    }
-
         /** 第 9 项：猜你喜欢四类行 ViewHolder（标题行是纯静态文案，无需字段） */
         class GuessTitleHolder extends RecyclerView.ViewHolder {
             GuessTitleHolder(View v) {
@@ -5224,7 +4867,6 @@ public class MusicListActivity extends BaseActivity {
         }
 
         public int getItemCount() {
-            if (mode.equals("chartDetail")) return 1 + tracks.size();
             if (mode.equals("guess")) return tracks.isEmpty() ? 0 : 3 + tracks.size();
             if (isCardMode()) return cards.size();
             if (mode.equals("sheet")) return 3 + tracks.size();

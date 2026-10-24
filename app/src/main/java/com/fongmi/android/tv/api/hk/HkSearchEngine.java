@@ -52,9 +52,14 @@ public class HkSearchEngine {
         this.displayName = displayName;
     }
 
-    /** 照原版 getDisplayTitle（SearchEngine.smali:419）：仅 null 判——displayName 非 null（哪怕空串）就用它，否则 title。 */
+    /**
+     * 原版 getDisplayTitle（SearchEngine.smali:419）仅判 null——但星辰的 HkRule.getDisplayName()
+     * 把 null 归一成 ""，fromRule 照单全收，未设 displayName 的规则（绝大多数）到这里 displayName
+     * 恒为空串、永不为 null，源名在底部状态条/结果来源标/失败汇总三处全灭（2026-10-24 真机实证）。
+     * 故此处口径修正为空串同样回落 title；设了 displayName 的规则行为与原版一致。
+     */
     public String getDisplayTitle() {
-        return displayName != null ? displayName : title;
+        return displayName != null && !displayName.isEmpty() ? displayName : title;
     }
 
     public String getFindRule() {

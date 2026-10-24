@@ -5,6 +5,7 @@ import android.os.SystemClock;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuMessage;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuWebSocketSession;
+import com.fongmi.android.tv.player.danmaku.live.bili.BiliProvider;
 import com.fongmi.android.tv.player.danmaku.live.douyu.DouyuProvider;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.github.catvod.crawler.SpiderDebug;
@@ -46,7 +47,7 @@ public final class LiveDanmakuCoordinator {
     private int flowGeneration;
 
     public LiveDanmakuCoordinator(Host host) {
-        this(host, Map.of(RoomRef.Platform.DOUYU, new DouyuProvider()));
+        this(host, Map.of(RoomRef.Platform.DOUYU, new DouyuProvider(), RoomRef.Platform.BILI, new BiliProvider()));
     }
 
     LiveDanmakuCoordinator(Host host, Map<RoomRef.Platform, PlatformDanmakuProvider> providers) {

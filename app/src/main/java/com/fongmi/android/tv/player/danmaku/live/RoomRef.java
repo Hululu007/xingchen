@@ -8,7 +8,8 @@ import java.util.Locale;
 public record RoomRef(Platform platform, String roomId) {
 
     public enum Platform {
-        DOUYU
+        DOUYU,
+        BILI
     }
 
     public String key() {

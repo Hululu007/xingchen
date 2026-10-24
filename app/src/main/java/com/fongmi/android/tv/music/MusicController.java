@@ -457,6 +457,12 @@ public class MusicController {
         return s == null ? 0 : s.getAudioSessionId();
     }
 
+    /** 取链渠道显示串（只读转发，三-42 信息页用；服务不在／非起播那首／无记录时 null） */
+    public String playChannelLabel(MusicTrack track) {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null || track == null ? null : s.getPlayChannelLabel(track);
+    }
+
     public void setMode(int mode) {
         runOnService(() -> service().setMode(mode));
     }

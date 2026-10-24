@@ -453,6 +453,11 @@
     <string name="music_info_channels">声道</string>
     <string name="music_info_duration">时长</string>
     <string name="music_info_lyric_channel">加载通道</string>
+    <string name="music_info_play_channel">取链渠道</string>
+    <string name="music_channel_assigned">指派插件</string>
+    <string name="music_channel_lx">落雪</string>
+    <string name="music_channel_freejs">FreeJS</string>
+    <string name="music_channel_direct">直连</string>
     <string name="music_info_lyric_matched_source">匹配来源</string>
     <string name="music_info_lyric_lines">总行数</string>
     <string name="music_info_empty">暂无播放，播放后自动刷新查看</string>

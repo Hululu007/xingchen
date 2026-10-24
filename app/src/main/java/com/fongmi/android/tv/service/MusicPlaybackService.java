@@ -235,6 +235,15 @@ public class MusicPlaybackService extends MediaSessionService {
      */
     private String currentPlayUrl;
     /**
+     * 三-42：当前真起播那首的取链渠道（与 currentPlayUrl 同点记、同按 trackKey 认歌）：
+     * playChannelKey＝起播歌的 trackKey，playChannelKind/Src＝仓库旁路记录里那次命中的
+     * 渠道枚举与命中插件 srcUrl。只供信息页「取链渠道」行展示；换歌由下一次真起播覆盖，
+     * 读端按 key 比对，切歌／失败停留态下不是这首的一律不显，不许串歌。
+     */
+    private String playChannelKey;
+    private int playChannelKind = MusicRepository.PLAY_CHANNEL_NONE;
+    private String playChannelSrc;
+    /**
      * 在线位深 Range 探头按（歌键＋直链）只探一次：rangeProbeKey＝本次探头的键，
      * rangeProbeInfo＝进行中探头对应的 audioInfo 实例，rangeProbedBitDepth＝已测到
      * 的位深（>0）或 -1（未测到／失败，不重试刷屏）。
@@ -877,6 +886,53 @@ public class MusicPlaybackService extends MediaSessionService {
             return player == null ? 0 : player.getAudioSessionId();
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    /**
+     * 三-42（只读口）：当前真起播那首的取链渠道显示串，供信息页「取链渠道」行。
+     * 按 trackKey 守卫：传入歌不是起播时记下的那首（切歌／失败停留态）返回 null，
+     * 信息页显「—」。渠道无记录同样返回 null，不许拿平台名或日志冒充渠道。
+     * 有命中插件时附插件显示名（按 srcUrl 反查站点名，查不到就显 srcUrl 本身）。
+     */
+    public String getPlayChannelLabel(MusicTrack track) {
+        try {
+            if (track == null || playChannelKey == null) return null;
+            if (!playChannelKey.equals(MusicQueue.trackKey(track))) return null;
+            String label;
+            switch (playChannelKind) {
+                case MusicRepository.PLAY_CHANNEL_ASSIGNED:
+                    label = getString(R.string.music_channel_assigned);
+                    break;
+                case MusicRepository.PLAY_CHANNEL_LX:
+                    label = getString(R.string.music_channel_lx);
+                    break;
+                case MusicRepository.PLAY_CHANNEL_FREEJS:
+                    label = getString(R.string.music_channel_freejs);
+                    break;
+                case MusicRepository.PLAY_CHANNEL_DIRECT:
+                    label = getString(R.string.music_channel_direct);
+                    break;
+                default:
+                    return null;
+            }
+            if (playChannelSrc != null && !playChannelSrc.isEmpty()) {
+                String name = null;
+                try {
+                    for (com.fongmi.android.tv.bean.music.MusicSite site
+                            : MusicSourceManager.get().listSites()) {
+                        if (site != null && playChannelSrc.equals(site.srcUrl)) {
+                            name = site.name;
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+                label += " · " + (name != null && !name.isEmpty() ? name : playChannelSrc);
+            }
+            return label;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -1855,6 +1911,11 @@ public class MusicPlaybackService extends MediaSessionService {
                 // 就被系统收掉，歌自己停（第十二件主根因）。已在前台时重复调无害。
                 startForegroundNow();
                 currentPlayUrl = fUrl;
+                // 三-42：与直链同点记渠道（按 trackKey 从仓库旁路记录读那次命中；
+                // 预载命中的链也是预载取链时记的同键记录，读到的就是真渠道）
+                playChannelKey = MusicQueue.trackKey(track);
+                playChannelKind = MusicRepository.playChannelKindOf(playChannelKey);
+                playChannelSrc = MusicRepository.playChannelSrcOf(playChannelKey);
                 player.setMediaItem(item, startPosition);
                 hasMediaItem = true;
                 loadedTrack = track;

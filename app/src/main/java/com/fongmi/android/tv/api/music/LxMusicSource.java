@@ -235,6 +235,10 @@ public class LxMusicSource implements MusicSource {
                     // C5 真实取链耗时（最近一次口径）：记到实际出链的那个脚本名下
                     com.fongmi.android.tv.music.MusicStore.notePluginLatency(
                             PLATFORM, plugin.srcUrl, System.currentTimeMillis() - lxT0, false);
+                    // 三-42 渠道旁路：记遍历命中的就是这个脚本（仓库层随后补渠道枚举；
+                    // 探链不记，与不记死同口径）。只记不改取链。
+                    if (!probe) com.fongmi.android.tv.music.MusicRepository.notePlayChannelSrc(
+                            deadKey, plugin.srcUrl);
                     return url;
                 }
                 // P-3d：出空链也算死一次，本曲后续回落不再重进该插件；探链不记死。

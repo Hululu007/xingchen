@@ -60,6 +60,67 @@ public class MusicRepository {
     private static final Set<String> deadAssignedPlayUrlPlugins = new HashSet<>();
 
     /**
+     * 三-42 取链渠道旁路记录（单条最近命中，按 trackKey 认歌）：playUrl 真实取链命中时
+     * 只记「命中的是哪条路＋命中插件 srcUrl」，不参与取链决策、不改任何回落顺序。
+     * 探链（probe）不记（与不记死同口径，探链不是播放取链）。服务 prepareTrack 真起播时
+     * 按 trackKey 读走存进服务状态，信息页经 MusicController 只读口展示；预加载取的链
+     * 也是经 playUrl 记的同一键，正式起播命中预载槽时读到的仍是那次命中的真渠道。
+     * 并发取链下单槽以后到者为准，读端一律按 key 比对，key 不符即无记录，不许串歌。
+     */
+    public static final int PLAY_CHANNEL_NONE = 0;
+    /** 指派插件单试命中（明细＝指派插件 srcUrl） */
+    public static final int PLAY_CHANNEL_ASSIGNED = 1;
+    /** 落雪源内遍历命中（明细＝出链脚本 srcUrl，由 LxMusicSource 成功点旁路补记） */
+    public static final int PLAY_CHANNEL_LX = 2;
+    /** FreeJS 源内命中（明细＝本歌归属插件 srcUrl，即 track 的 _plugin，桥按它选） */
+    public static final int PLAY_CHANNEL_FREEJS = 3;
+    /** 直连命中（壳源／本地／设备，无插件明细） */
+    public static final int PLAY_CHANNEL_DIRECT = 4;
+
+    private static volatile String playChannelKey;
+    private static volatile int playChannelKind = PLAY_CHANNEL_NONE;
+    private static volatile String playChannelSrc;
+
+    /** 仓库层成功点记渠道（明细 srcUrl 可空；同 key 且明细传空时不覆盖源内已补记的明细） */
+    public static void notePlayChannel(String trackKey, int kind, String srcUrl) {
+        if (trackKey == null || trackKey.isEmpty()) return;
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            if (!trackKey.equals(playChannelKey)) playChannelSrc = null;
+            playChannelKey = trackKey;
+            playChannelKind = kind;
+            if (srcUrl != null) playChannelSrc = srcUrl;
+        }
+    }
+
+    /** 源内成功点补记命中插件 srcUrl（如落雪遍历命中的脚本）；key 不符不写，不许串歌 */
+    public static void notePlayChannelSrc(String trackKey, String srcUrl) {
+        if (trackKey == null || trackKey.isEmpty() || srcUrl == null) return;
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            if (!trackKey.equals(playChannelKey)) {
+                playChannelKey = trackKey;
+                playChannelKind = PLAY_CHANNEL_NONE;
+            }
+            playChannelSrc = srcUrl;
+        }
+    }
+
+    /** 按 key 读渠道枚举；key 不符（不是这首的命中）返回 PLAY_CHANNEL_NONE */
+    public static int playChannelKindOf(String trackKey) {
+        if (trackKey == null) return PLAY_CHANNEL_NONE;
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            return trackKey.equals(playChannelKey) ? playChannelKind : PLAY_CHANNEL_NONE;
+        }
+    }
+
+    /** 按 key 读命中插件 srcUrl；key 不符或无明细返回 null */
+    public static String playChannelSrcOf(String trackKey) {
+        if (trackKey == null) return null;
+        synchronized (DEAD_PLAY_URL_LOCK) {
+            return trackKey.equals(playChannelKey) ? playChannelSrc : null;
+        }
+    }
+
+    /**
      * 二-28 负结果短期缓存：整链跑完确认无词的歌，60 秒内再取词直接回空，不重走全链
      * （本地无词歌每次进播放页都整链串行重跑，是「歌词出现晚、无词也晚」的尾巴；
      * 且播放页 lyricRich 空后还要再走一遍 lyric() 纯文本链，不拦就是双倍整链）。
@@ -446,7 +507,11 @@ public class MusicRepository {
                 }
                 try {
                     String url = assignedPlayUrl(track, quality, site, probe);
-                    if (url != null && !url.isEmpty()) return url;
+                    if (url != null && !url.isEmpty()) {
+                        // 三-42 渠道旁路：指派插件单试命中（探链不记，口径见字段注释）
+                        if (!probe) notePlayChannel(MusicQueue.trackKey(track), PLAY_CHANNEL_ASSIGNED, site.srcUrl);
+                        return url;
+                    }
                     if (!probe) markDeadAssigned(MusicQueue.trackKey(track), site.srcUrl, quality);
                     if (pluginOnly && !manualOriginFallback) return null;
                     if (pluginOnly) SpiderDebug.log("music",
@@ -462,7 +527,21 @@ public class MusicRepository {
             // 同源跳过：现有路径本来就是该桥，不进单试／不触发 pluginOnly 停住，直接走现有路径
         }
         try {
-            return s.playUrl(track, quality, probe);
+            String url = s.playUrl(track, quality, probe);
+            // 三-42 渠道旁路：源内命中按平台记枚举；明细——FreeJS 是本歌归属插件
+            // （桥按 _plugin 选，真值在仓库层），落雪是遍历命中的脚本（Lx 源内已补记
+            // 同 key 明细，此处传空不覆盖），直连无插件明细。探链不记。
+            if (!probe && url != null && !url.isEmpty()) {
+                String key = MusicQueue.trackKey(track);
+                if (LxMusicSource.PLATFORM.equals(track.platform)) {
+                    notePlayChannel(key, PLAY_CHANNEL_LX, null);
+                } else if (FreeJsMusicSource.PLATFORM.equals(track.platform)) {
+                    notePlayChannel(key, PLAY_CHANNEL_FREEJS, originPluginOf(track));
+                } else {
+                    notePlayChannel(key, PLAY_CHANNEL_DIRECT, null);
+                }
+            }
+            return url;
         } catch (Throwable t) {
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "playUrl error platform=%s id=%s %s", track.platform, track.id, t.getMessage());

@@ -3228,6 +3228,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         lyricBody.addView(chips);
         infoRow(lyricBody, getString(R.string.music_info_lyric_channel),
                 currentLyricFormat == null || currentLyricFormat.isEmpty() ? "—" : currentLyricFormat);
+        // 三-42 取链渠道行：服务状态里当前真起播那首的渠道（按 trackKey 守卫，非本曲
+        // 或无记录返回 null 显「—」，不拿平台名冒充）；行序承加载通道之后、匹配来源之前
+        String playChannel = null;
+        try {
+            playChannel = MusicController.get().playChannelLabel(track);
+        } catch (Throwable ignored) {
+        }
+        infoRow(lyricBody, getString(R.string.music_info_play_channel),
+                playChannel == null || playChannel.isEmpty() ? "—" : playChannel);
         infoRow(lyricBody, getString(R.string.music_info_lyric_matched_source),
                 currentLyricSource == null || currentLyricSource.isEmpty() ? "—" : currentLyricSource);
         infoRow(lyricBody, getString(R.string.music_info_lyric_lines),

@@ -514,6 +514,21 @@ public class MusicListActivity extends BaseActivity {
             });
         }
         binding.btnSearch.setOnClickListener(v -> startSearch(this, ""));
+        // 批 5 F1：搜索框行右「取消」＝直接退出搜索页（系统返回同路，不放返回箭头）。
+        if (binding.searchCancel != null) binding.searchCancel.setOnClickListener(v -> finish());
+        // 批 5 F1 空输入核查：搜索只由键盘搜索键／历史筹／热搜行显式触发，输入框无任何
+        // TextWatcher 自动搜；此处 watcher 只做反向守卫——文字被清空时回落地页清结果，
+        // 杜绝「空输入自动搜／旧结果残留」。仅 search 模式挂（etKeyword 与歌单页共用，勿扰 sheets）。
+        if (mode.equals("search")) {
+            binding.etKeyword.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence cs, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence cs, int a, int b, int c) { }
+                @Override public void afterTextChanged(android.text.Editable e) {
+                    String q = e == null ? "" : e.toString().trim();
+                    if (q.isEmpty() && binding.searchLanding.getVisibility() != View.VISIBLE) showSearchLanding();
+                }
+            });
+        }
         // 第二波：搜索框右侧「搜索」钮按瓜子去掉（瓜子 SearchTextField 无此钮，框内是平台下拉——下拉属搜索方式不抄）；
         // 提交走键盘搜索键（IME_ACTION_SEARCH／回车，见下），歌单页搜索同样走键盘键，按钮移除不影响提交链。
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
@@ -628,6 +643,8 @@ public class MusicListActivity extends BaseActivity {
         // 歌单页极光背景只跟 sheets 模式走（其它模式 GONE）；非 sheets 时空态块也复位藏起，空态显隐由 refreshSheetsEmpty 管
         // 第三波 B⑧：插件页同样用极光底（近白 #FFFAFAFC＋柔光），不再 GONE 了事
         binding.auroraBg.setVisibility((sheets || mode.equals("sites")) ? View.VISIBLE : View.GONE);
+        // 批 5 F1：搜索模式背景换全域统一玻璃背景（与首页同一份实现）；其它模式维持原底不动。
+        if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         if (!sheets) binding.sheetsEmpty.setVisibility(View.GONE);
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
         // 第 3 项：榜单详情页同样用英雄卡当页头，大标题行与工具条隐藏（排名不参与列表排序）
@@ -644,6 +661,7 @@ public class MusicListActivity extends BaseActivity {
         if (mode.equals("charts")) binding.btnPlaySeq.setVisibility(View.GONE);
         if (mode.equals("charts")) binding.btnPlayAll.setVisibility(View.GONE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
+        if (binding.searchCancel != null) binding.searchCancel.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
         if (!keyword.isEmpty()) {
             binding.etKeyword.setText(keyword);
@@ -1129,7 +1147,7 @@ public class MusicListActivity extends BaseActivity {
             chip.setText(w);
             chip.setTextSize(12);
             chip.setTextColor(0xFF3A3A3C);
-            chip.setBackgroundResource(R.drawable.bg_search_capsule);
+            chip.setBackgroundResource(R.drawable.bg_music_glass_chip);
             chip.setPadding(dp(10), dp(6), dp(10), dp(6));
             chip.setOnClickListener(v -> {
                 binding.etKeyword.setText(w);
@@ -1186,54 +1204,72 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    /** 热搜行：排名 15sp 宽 28dp＋词 15sp＋副内容（歌手）12sp；热度栏无数据来源，不显 */
+    /** 热搜行（批 5 F1 换新）：左右两列排名卡，每行两格；前 3 名红字、其余灰字；点格即搜。 */
     private void buildHotRows() {
         binding.hotRows.removeAllViews();
-        // 2026-10-22 搜索页重做：热搜没数据时整段隐藏（不留空标题、不贴“暂无热搜”占位）。
+        // 热搜没数据时整段隐藏（不留空标题、不贴占位）。
         boolean hotEmpty = searchHotTerms == null || searchHotTerms.isEmpty();
         if (binding.hotHeader != null) binding.hotHeader.setVisibility(hotEmpty ? View.GONE : View.VISIBLE);
         binding.hotRows.setVisibility(hotEmpty ? View.GONE : View.VISIBLE);
         if (hotEmpty) return;
-        for (int i = 0; i < searchHotTerms.size(); i++) {
-            MusicTrack t = searchHotTerms.get(i);
+        for (int i = 0; i < searchHotTerms.size(); i += 2) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(6), 0, dp(6));
-            TextView rank = new TextView(this);
-            rank.setText(String.valueOf(i + 1));
-            rank.setTextSize(15);
-            rank.setTextColor(0xFF9AA7B8);
-            rank.setGravity(android.view.Gravity.CENTER);
-            row.addView(rank, new LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
-            TextView term = new TextView(this);
-            term.setText(t.title == null ? "" : t.title);
-            term.setTextSize(15);
-            term.setTextColor(0xFF1C1C1E);
-            term.setSingleLine(true);
-            term.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams lpTerm = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            lpTerm.leftMargin = dp(8);
-            row.addView(term, lpTerm);
-            if (t.artist != null && !t.artist.isEmpty()) {
-                TextView sub = new TextView(this);
-                sub.setText(t.artist);
-                sub.setTextSize(12);
-                sub.setTextColor(0xFF9AA7B8);
-                sub.setSingleLine(true);
-                sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                LinearLayout.LayoutParams lpSub = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lpSub.leftMargin = dp(8);
-                row.addView(sub, lpSub);
+            row.addView(hotCell(i), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            if (i + 1 < searchHotTerms.size()) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                lp.leftMargin = dp(12);
+                row.addView(hotCell(i + 1), lp);
+            } else {
+                View spacer = new View(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
+                lp.leftMargin = dp(12);
+                row.addView(spacer, lp);
             }
-            final String w = t.title == null ? "" : t.title;
-            row.setOnClickListener(v -> {
-                binding.etKeyword.setText(w);
-                doSearch();
-            });
             binding.hotRows.addView(row);
         }
+    }
+
+    private View hotCell(int i) {
+        MusicTrack t = searchHotTerms.get(i);
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.HORIZONTAL);
+        cell.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        cell.setPadding(0, dp(6), 0, dp(6));
+        TextView rank = new TextView(this);
+        rank.setText(String.valueOf(i + 1));
+        rank.setTextSize(15);
+        rank.setTextColor(i < 3 ? 0xFFFA243C : 0xFF9AA7B8);
+        if (i < 3) rank.setTypeface(null, android.graphics.Typeface.BOLD);
+        rank.setGravity(android.view.Gravity.CENTER);
+        cell.addView(rank, new LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView term = new TextView(this);
+        term.setText(t.title == null ? "" : t.title);
+        term.setTextSize(15);
+        term.setTextColor(0xFF1A1A1A);
+        term.setSingleLine(true);
+        term.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(term);
+        if (t.artist != null && !t.artist.isEmpty()) {
+            TextView sub = new TextView(this);
+            sub.setText(t.artist);
+            sub.setTextSize(12);
+            sub.setTextColor(0xFF999999);
+            sub.setSingleLine(true);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(sub);
+        }
+        LinearLayout.LayoutParams lpTexts = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lpTexts.leftMargin = dp(8);
+        cell.addView(texts, lpTexts);
+        final String w = t.title == null ? "" : t.title;
+        cell.setOnClickListener(v -> {
+            binding.etKeyword.setText(w);
+            doSearch();
+        });
+        return cell;
     }
 
     /**
@@ -5935,7 +5971,7 @@ public class MusicListActivity extends BaseActivity {
             } else {
                 // 第二波：共用行封面圆角 8→12dp（瓜子搜索／收藏／历史／下载／本地行封面均为 12dp；
                 // ImgUtil.loadRounded 写死 8dp，走本页 12dp helper；横内边距 4→14dp 另见 item_music_track.xml）
-                loadCoverRounded(t.displayTitle(), t.cover, h.cover, 12);
+                loadCoverRounded(t.displayTitle(), t.cover, h.cover, 10);
             }
             if (mode.equals("download") && !dlSelected.isEmpty()) {
                 // 多选态下行点按变勾选（与歌单页多选口径一致）；⋮ 仍进菜单（详情／删除）

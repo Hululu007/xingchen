@@ -399,6 +399,10 @@
     <string name="home_recent">播放历史</string>
     <string name="home_download">下载音乐</string>
     <string name="home_guess">猜你喜欢</string>
+    <string name="home_square">歌单广场</string>
+    <string name="home_square_sub">发现好歌单</string>
+    <string name="home_continue">继续播放</string>
+    <string name="music_search_cancel">取消</string>
     <string name="music_lyric_chip_word">逐字</string>
     <string name="music_lyric_chip_amll">AMLL</string>
     <string name="music_lyric_chip_line">逐行</string>

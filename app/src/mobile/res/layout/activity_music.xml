@@ -8,10 +8,20 @@
      根布局不吃 fitsSystemWindows：旧版 fitsSystemWindows=true 时系统左右 inset（0）会盖掉 XML 的边距，
      实机卡片贴边；改由代码固定 16dp 离边＋状态栏高垫顶。
      首页顺序定死：标题 → 搜索胶囊条 → 五快捷白卡 → 三彩卡 → 心情电台卡 → 榜单白卡。 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 全域统一背景（批 5 F1）：MusicGlassBackgroundView 单一实现，后批各页同款复用 -->
+    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
+        android:id="@+id/homeGlassBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+<ScrollView
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/home_bg_page"
+    android:background="@android:color/transparent"
     android:scrollbars="none">
     <!-- 内层承内容：边距由 MusicActivity 代码打在 ScrollView 根上（左右 16dp、顶＝状态栏高＋12dp、底 16dp），
          这里不许再写内边距，否则双倍。ScrollView 量测链是不定高（UNSPECIFIED）：三彩卡里的光晕
@@ -26,18 +36,51 @@
          文案按他亲口定用“星辰音乐”（不用 GZ 的“发现好音乐”）；另加歌词同款斜度 skewX(-0.12f)；
          顶距＝代码垫顶（状态栏高＋12dp）＋标题上边距 8dp（他 18:06 令整体下移一档，用户审美令高于 GZ 值）；
          搜索条下移量＝标题块高度（28sp 行高约 34dp＋下 2dp，约 36dp，真机实测为准） -->
-    <TextView
-        android:id="@+id/homeTitle"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:paddingBottom="2dp"
-        android:text="星辰音乐"
-        android:textColor="#1C1C1E"
-        android:textSize="28sp"
-        android:letterSpacing="-0.029"
-        android:fontWeight="800"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/homeAvatar"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_music_home_avatar"
+            android:gravity="center"
+            android:text="星"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/homeTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingBottom="2dp"
+                android:text="星辰音乐"
+                android:textColor="#1C1C1E"
+                android:textSize="24sp"
+                android:letterSpacing="-0.029"
+                android:fontWeight="800"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/homeGreeting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#8E8E93"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- ① 搜索条＋右侧 ⋮（高 48dp、圆角 24dp 保持不动；上距 8dp＝他 18:07 令标题与搜索框拉开，用户审美令） -->
     <LinearLayout
@@ -45,7 +88,7 @@
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_marginTop="8dp"
-        android:background="@drawable/home_bg_search"
+        android:background="@drawable/bg_music_glass_search"
         android:clickable="true"
         android:elevation="3dp"
         android:focusable="true"
@@ -128,20 +171,18 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:background="@drawable/home_bg_card_white"
-        android:elevation="3dp"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingTop="14dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="13dp">
+        android:layout_marginTop="20dp"
+        android:orientation="horizontal">
 
         <LinearLayout
             android:id="@+id/homeQuickFavorite"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="11dp"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_horizontal"
@@ -176,8 +217,12 @@
         <LinearLayout
             android:id="@+id/homeQuickSheets"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginStart="6dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="11dp"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_horizontal"
@@ -212,8 +257,12 @@
         <LinearLayout
             android:id="@+id/homeQuickDevice"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginStart="6dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="11dp"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_horizontal"
@@ -248,8 +297,12 @@
         <LinearLayout
             android:id="@+id/homeQuickRecent"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginStart="6dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="11dp"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_horizontal"
@@ -284,8 +337,12 @@
         <LinearLayout
             android:id="@+id/homeQuickDownload"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginStart="6dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="11dp"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_horizontal"
@@ -318,6 +375,86 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 继续播放白卡（批 5 F1）：有上次未播完才出现（代码控制显隐，默认 gone 不留空洞） -->
+    <LinearLayout
+        android:id="@+id/homeContinueCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/bg_music_glass_white_card"
+        android:clickable="true"
+        android:elevation="3dp"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/homeContinueCover"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/home_continue"
+                android:textColor="#FA243C"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/homeContinueTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#1A1A1A"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/homeContinueArtist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#999999"
+                android:textSize="12sp" />
+
+            <ProgressBar
+                android:id="@+id/homeContinueProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="8dp"
+                android:max="1000"
+                android:progressDrawable="@drawable/bg_music_continue_progress" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/homeContinuePlay"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_music_continue_play"
+            android:contentDescription="@string/home_play"
+            android:padding="11dp"
+            android:src="@drawable/ic_music_play"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+
     <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动）
          卡内间隔＝权重 Spacer：Spacer 高＝基准参量（非汽车 30dp／汽车 48dp，见 values[-car]/dimens.xml）
          ＋权重 1 撑满剩余空间；卡 FrameLayout 与内列改 match_parent，使权重有撑满空间、图标底对齐 -->
@@ -332,7 +469,7 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="@drawable/home_bg_card_pink"
+            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -351,7 +488,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/home_guess"
+                    android:text="@string/home_square"
                     android:textColor="#1C1C1E"
                     android:textSize="14sp"
                     android:lineHeight="19dp"
@@ -363,7 +500,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/home_guess_sub"
+                    android:text="@string/home_square_sub"
                     android:textColor="#8C1C1C1E"
                     android:textSize="9sp"
                     android:lineHeight="13dp" />
@@ -377,7 +514,8 @@
                 android:layout_height="22dp"
                 android:contentDescription="@null"
                 android:src="@drawable/home_ic_favorite"
-                android:tint="#FFFFFF" />
+                android:alpha="0.55"
+                android:tint="#FF5C8A" />
             </LinearLayout>
         </FrameLayout>
 
@@ -387,7 +525,7 @@
             android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
-            android:background="@drawable/home_bg_card_teal"
+            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -432,7 +570,8 @@
                 android:layout_height="22dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_bar_chart"
-                android:tint="#FFFFFF" />
+                android:alpha="0.55"
+                android:tint="#0E9F8A" />
             </LinearLayout>
         </FrameLayout>
 
@@ -442,7 +581,7 @@
             android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
-            android:background="@drawable/home_bg_card_lime"
+            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -488,7 +627,8 @@
                 android:layout_height="22dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_music_play"
-                android:tint="#FFFFFF" />
+                android:alpha="0.55"
+                android:tint="#7A9A01" />
             </LinearLayout>
         </FrameLayout>
     </LinearLayout>
@@ -507,6 +647,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
+        android:background="@drawable/bg_music_glass_entry"
         android:orientation="vertical">
 
         <LinearLayout
@@ -625,8 +766,8 @@
         android:id="@+id/homeChartCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="40dp"
-        android:background="@drawable/home_bg_card_white"
+        android:layout_marginTop="24dp"
+        android:background="@drawable/bg_music_glass_entry"
         android:elevation="3dp"
         android:orientation="vertical"
         android:padding="16dp"
@@ -939,7 +1080,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:background="@drawable/home_bg_card_white"
+        android:background="@drawable/bg_music_glass_entry"
         android:orientation="vertical"
         android:padding="16dp"
         android:visibility="gone">
@@ -977,3 +1118,4 @@
         android:layout_height="104dp" />
     </LinearLayout>
 </ScrollView>
+</FrameLayout>

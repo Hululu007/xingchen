@@ -322,11 +322,39 @@ public class MusicActivity extends BaseActivity {
         float homeDensity = getResources().getDisplayMetrics().density;
         homeRoot.setPadding(Math.round(16 * homeDensity), sbHome + Math.round(12 * homeDensity),
                 Math.round(16 * homeDensity), Math.round(16 * homeDensity));
+        // 批 5 F1：背景层不吃根 padding（负边距抵消，极光铺满全屏，内容边距不变）
+        try {
+            View bgv = findViewById(R.id.homeGlassBg);
+            if (bgv != null && bgv.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
+                android.widget.FrameLayout.LayoutParams blp =
+                        (android.widget.FrameLayout.LayoutParams) bgv.getLayoutParams();
+                blp.leftMargin = -Math.round(16 * homeDensity);
+                blp.rightMargin = -Math.round(16 * homeDensity);
+                blp.topMargin = -(sbHome + Math.round(12 * homeDensity));
+                blp.bottomMargin = -Math.round(16 * homeDensity);
+                bgv.setLayoutParams(blp);
+            }
+        } catch (Throwable ignored) {
+        }
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         // ⓪ 首页标题斜度：歌词同款 skewX(-0.12f)（他 16:42 令，幅度只要一点；
         // TextView 无 setTextSkewX，照歌词斜度口径用 getPaint().setTextSkewX(-0.12f)）
         binding.homeTitle.getPaint().setTextSkewX(-0.12f);
+        // 批 5 F1：标题渐变字（粉→紫，第十稿标题口径；shader 宽按文字实测宽走，量不到回落纯色不崩）
+        try {
+            float tw = binding.homeTitle.getPaint().measureText("星辰音乐");
+            if (tw > 0) binding.homeTitle.getPaint().setShader(new android.graphics.LinearGradient(
+                    0, 0, tw, 0, 0xFFFF5C8A, 0xFF8E7BFF, android.graphics.Shader.TileMode.CLAMP));
+            binding.homeTitle.invalidate();
+        } catch (Throwable ignored) {
+        }
+        binding.homeGreeting.setText(greetingText());
+        // 批 5 F1：继续播放白卡——整卡点开播放页（有会话时），圆键切播放/暂停或断点续播
+        binding.homeContinueCard.setOnClickListener(v -> {
+            if (MusicController.get().isActive()) MusicPlayerActivity.start(this);
+        });
+        binding.homeContinuePlay.setOnClickListener(v -> onContinuePlay());
         // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
         binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
         binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
@@ -340,7 +368,9 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
         // ③ 三彩卡
         // 猜你喜欢：树内现行推荐来源只有榜单聚合页（MusicRepository.charts 聚合各源榜单），用 charts 模式承接
-        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
+        // 批 5 F1：底部第一卡按任务口径改「歌单广场·发现好歌单」，落点＝歌单库页（startSheets）；
+        // 原猜你喜欢页（startGuess）入口随之从首页下线，页面本体未删、别处仍可达时不受影响。
+        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startSheets(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeCardShuffle.setOnClickListener(v -> MusicRandomActivity.start(this));
         // GZ 三彩卡按压缩放 0.98（MotionKt；返回 false 不吞点击，只做缩放反馈）
@@ -404,6 +434,7 @@ public class MusicActivity extends BaseActivity {
         refreshShuffleSubtitle();
         refreshMoodState();
         refreshNotifPermStrip();
+        refreshContinue();
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
@@ -883,22 +914,13 @@ public class MusicActivity extends BaseActivity {
             pluginCount = MusicSourceManager.get().listSites().size();
         } catch (Throwable ignored) {
         }
-        // 插件行：紫色拼图＋实际插件数；网盘行：蓝色云＋两家（单独新页 MusicCloudActivity，只做搜索，115／夸克）；设置行：红色齿轮＋「播放／下载／外观」
+        // 插件行：紫色拼图＋实际插件数；设置行：红色齿轮＋「播放／下载／外观」（批 5 F1 起菜单只此两行）
         card.addView(menuRow(R.drawable.ic_music_puzzle, 0xFFAF52DE,
                 getString(R.string.music_plugin_manage),
                 pluginCount + " " + getString(R.string.music_plugins),
                 () -> dismissThen.accept(() -> MusicListActivity.startSites(this))));
-        View divider = new View(this);
-        divider.setBackgroundColor(0x14000000);
-        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerLp.leftMargin = dp(62);
-        card.addView(divider, dividerLp);
-        card.addView(menuRow(R.drawable.icon_cloud6, 0xFF007AFF,
-                getString(R.string.music_cloud_drive),
-                "115／夸克",
-                () -> dismissThen.accept(() -> MusicCloudActivity.start(this))));
-        // 2026-10-22 潇洒哥：首页已有播放历史，⋮菜单的听歌统计纯重复（点开就是播放历史页），整行删掉。
+        // 批 5 F1：⋮ 菜单按任务口径只留两项（插件管理／设置）；原网盘行从本菜单下线，
+        // 网盘音乐页本体未删（MusicCloudActivity 仍在，别线入口不受影响），报告已注明。
         View divider2 = new View(this);
         divider2.setBackgroundColor(0x14000000);
         LinearLayout.LayoutParams dividerLp2 = new LinearLayout.LayoutParams(
@@ -987,6 +1009,105 @@ public class MusicActivity extends BaseActivity {
         int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
         if (id > 0) return getResources().getDimensionPixelSize(id);
         return dp(24);
+    }
+
+    // ================= 继续播放（批 5 F1） =================
+
+    private static String greetingText() {
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (h < 6) return "夜深了";
+        if (h < 12) return "上午好";
+        if (h < 14) return "中午好";
+        if (h < 18) return "下午好";
+        return "晚上好";
+    }
+
+    /**
+     * 继续播放白卡数据：优先当前会话（服务在跑且有队列），其次断点（MusicStore 只读：
+     * loadQueue/loadIndex/loadPosition）。两者皆无 → 整卡 GONE，不留空洞、不编假数据。
+     * 进度：会话取 Controller position/duration；断点取存盘 position 与曲目 duration（毫秒）。
+     */
+    private void refreshContinue() {
+        if (binding == null) return;
+        try {
+            MusicTrack track = null;
+            long pos = 0, dur = 0;
+            boolean active = false;
+            try {
+                if (MusicController.get().isActive()) {
+                    track = MusicController.get().current();
+                    pos = MusicController.get().position();
+                    dur = MusicController.get().duration();
+                    active = track != null;
+                }
+            } catch (Throwable ignored) {
+            }
+            if (track == null) {
+                List<MusicTrack> q = MusicStore.loadQueue();
+                if (q != null && !q.isEmpty()) {
+                    int idx = MusicStore.loadIndex();
+                    if (idx < 0 || idx >= q.size()) idx = 0;
+                    track = q.get(idx);
+                    pos = MusicStore.loadPosition();
+                    dur = track == null ? 0 : track.duration;
+                }
+            }
+            if (track == null) {
+                binding.homeContinueCard.setVisibility(View.GONE);
+                return;
+            }
+            binding.homeContinueCard.setVisibility(View.VISIBLE);
+            binding.homeContinueTitle.setText(track.displayTitle());
+            binding.homeContinueArtist.setText(track.displayArtist() == null ? "" : track.displayArtist());
+            if (track.cover == null || track.cover.isEmpty()) {
+                try {
+                    com.bumptech.glide.Glide.with(binding.homeContinueCover).clear(binding.homeContinueCover);
+                } catch (Throwable ignored) {
+                }
+                binding.homeContinueCover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                        track.displayTitle(), false, 10 * getResources().getDisplayMetrics().density));
+            } else {
+                ImgUtil.loadRounded(track.displayTitle(), track.cover, binding.homeContinueCover);
+            }
+            if (dur > 0) {
+                binding.homeContinueProgress.setVisibility(View.VISIBLE);
+                long p = Math.max(0, Math.min(pos, dur));
+                binding.homeContinueProgress.setProgress((int) (p * 1000L / dur));
+            } else {
+                binding.homeContinueProgress.setVisibility(View.GONE);
+            }
+            boolean playing = false;
+            try {
+                playing = active && MusicController.get().isPlaying();
+            } catch (Throwable ignored) {
+            }
+            binding.homeContinuePlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+        } catch (Throwable ignored) {
+            try {
+                binding.homeContinueCard.setVisibility(View.GONE);
+            } catch (Throwable ignored2) {
+            }
+        }
+    }
+
+    /** 继续播放圆键：有会话＝切换播放/暂停；只有断点＝按存盘队列/序号/进度续播并进播放页。 */
+    private void onContinuePlay() {
+        try {
+            if (MusicController.get().isActive()) {
+                MusicController.get().toggle();
+                refreshContinue();
+                return;
+            }
+            List<MusicTrack> q = MusicStore.loadQueue();
+            if (q == null || q.isEmpty()) return;
+            int idx = MusicStore.loadIndex();
+            if (idx < 0 || idx >= q.size()) idx = 0;
+            long pos = MusicStore.loadPosition();
+            MusicController.get().playFrom(new ArrayList<>(q), idx, pos,
+                    MusicStore.loadQueueSource(), MusicStore.loadQueueRoute(), MusicStore.loadQueueRouteParams());
+            MusicPlayerActivity.start(this);
+        } catch (Throwable ignored) {
+        }
     }
 
     // ================= 五快捷数量（真数据，异步回填） =================

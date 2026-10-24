@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 全域玻璃件·搜索胶囊（批 5 F1）：圆角 24dp；首页搜索条与搜索页搜索框共用同一件。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#E0FFFFFF" android:endColor="#C7FFFFFF" />
+    <corners android:radius="24dp" />
+    <stroke android:width="1dp" android:color="#80FFFFFF" />
+</shape>

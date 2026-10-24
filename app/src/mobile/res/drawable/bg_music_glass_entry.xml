@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 全域玻璃件·入口卡（批 5 F1）：浅色玻璃面，圆角 20dp；首页底部三卡与后续各页入口卡共用。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#E6FFFFFF" android:endColor="#C2FFFFFF" />
+    <corners android:radius="20dp" />
+    <stroke android:width="1dp" android:color="#8CFFFFFF" />
+</shape>

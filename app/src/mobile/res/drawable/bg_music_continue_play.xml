@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 继续播放圆键（批 5 F1）：深墨圆底＋白图标，对比够（字体／图标看得清铁律）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#FF1C1C1E" />
+</shape>

@@ -247,45 +247,6 @@
                     android:layout_marginEnd="7dp"
                     android:layout_weight="1" />
             </androidx.appcompat.widget.LinearLayoutCompat>
-
-            <com.google.android.material.textview.MaterialTextView
-                style="@style/ControlSheetTitleLight"
-                android:text="@string/danmaku" />
-
-            <androidx.appcompat.widget.LinearLayoutCompat
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/danmakuSetting"
-                    style="@style/ControlSheetButtonLight"
-                    android:text="@string/danmaku_setting" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_marginEnd="7dp"
-                    android:layout_weight="1" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_marginEnd="7dp"
-                    android:layout_weight="1" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_marginEnd="7dp"
-                    android:layout_weight="1" />
-
-                <Space
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_marginEnd="7dp"
-                    android:layout_weight="1" />
-            </androidx.appcompat.widget.LinearLayoutCompat>
         </androidx.appcompat.widget.LinearLayoutCompat>
     </androidx.core.widget.NestedScrollView>
 </FrameLayout>

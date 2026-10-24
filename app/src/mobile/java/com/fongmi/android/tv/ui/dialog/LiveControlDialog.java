@@ -111,10 +111,6 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
             listener().onLiveConfigPanel();
             dismiss();
         });
-        binding.danmakuSetting.setOnClickListener(v -> {
-            listener().onLiveDanmakuSettingPanel();
-            dismiss();
-        });
         binding.source.setOnClickListener(v -> listener().onLiveSourcePanel());
         binding.epg.setOnClickListener(v -> {
             listener().onLiveEpgPanel();
@@ -277,8 +273,6 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     public interface Listener {
 
         void onLiveConfigPanel();
-
-        void onLiveDanmakuSettingPanel();
 
         void onLiveSourcePanel();
 

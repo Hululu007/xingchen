@@ -76,6 +76,16 @@
                 android:scaleType="center"
                 android:src="@drawable/ic_control_info" />
 
+            <!-- 右上角弹幕细设齿轮（与点播同位置同图标：顶栏右组、诊断钮之前） -->
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/fineSetting"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/player_fine_setting"
+                android:scaleType="center"
+                android:src="@drawable/ic_player_sliders" />
+
             <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/osdDiagnostics"
                 android:layout_width="48dp"

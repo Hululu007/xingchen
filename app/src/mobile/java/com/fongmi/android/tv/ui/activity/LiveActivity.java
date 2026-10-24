@@ -277,6 +277,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.cast.setOnClickListener(view -> onCast());
         mBinding.control.info.setOnClickListener(view -> onInfo());
         mBinding.control.osdDiagnostics.setOnClickListener(view -> onPlayParams());
+        mBinding.control.fineSetting.setOnClickListener(view -> onFineSetting());
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
         checkDanmakuImg();
         mBinding.control.play.setOnClickListener(view -> checkPlay());
@@ -949,6 +950,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.danmaku.setImageResource(DanmakuSetting.isShow() ? R.drawable.ic_control_danmaku_on : R.drawable.ic_control_danmaku_off);
     }
 
+    /** 右上角细设齿轮（与点播同位置同行为）：直开与点播同一细设面板/存储/生效链；不带 restoreParent（那是回点播弹幕源列表用的，直播无此父面）。显隐随顶栏走，不挂 haveDanmaku()/isShow() 闸。 */
+    private void onFineSetting() {
+        if (player() == null) return;
+        DanmakuSettingDialog.create().player(player()).show(this);
+        hideControl();
+    }
+
     private void onPlayParams() {
         if (mOsd == null) return;
         boolean visible = !mOsd.isDiagnosticsVisible();
@@ -1330,14 +1338,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onLiveConfigPanel() {
         onConfig();
-    }
-
-    @Override
-    public void onLiveDanmakuSettingPanel() {
-        if (player() == null) return;
-        // 与点播同一细设面板/存储/生效链；不带 restoreParent（那是回点播弹幕源列表用的，直播无此父面）
-        DanmakuSettingDialog.create().player(player()).show(this);
-        hideControl();
     }
 
     @Override

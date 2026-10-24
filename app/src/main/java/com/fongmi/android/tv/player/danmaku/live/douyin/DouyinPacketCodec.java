@@ -20,7 +20,7 @@ import java.util.zip.GZIPInputStream;
  */
 public final class DouyinPacketCodec {
 
-    /** 弹幕字体色：参照实现对抖音一律取白（ChatMessage 无可直转的颜色字段）。 */
+    /** 弹幕默认色：抖音没有直给的颜色字段，颜色藏在 RTF 富文本段里（见 {@link #rtfBodyColor}），取不到时为白。 */
     public static final int CHAT_COLOR_ARGB = 0xFFFFFFFF;
 
     private DouyinPacketCodec() {
@@ -107,7 +107,54 @@ public final class DouyinPacketCodec {
             String nick = firstString(parse(user), 3);
             if (nick != null) nickname = nick;
         }
-        return new Chat(nickname, content, CHAT_COLOR_ARGB);
+        return new Chat(nickname, content, rtfBodyColor(firstBytes(chat, 41)));
+    }
+
+    /**
+     * 抖音弹幕颜色实证（2026-10-24 对在播房录制帧做字段转储）：ChatMessage 没有直给的
+     * 颜色字段，颜色在 field 41 的 RTF 富文本里——重复段（field 4）各带样式
+     * （段 field 2 的 field 1 为 "#RRGGBB" 或 "#AARRGGBB"）。口径：只看正文段
+     * （段类型 field 1 == 1）的颜色，全部正文段同色才取该色作整条弹幕颜色；
+     * @提及段（类型 11）的蓝是提及高亮、属分段色，整条单色模型不表达、不参与投票；
+     * 无 RTF、正文段无色或同条多色不一致，一律回白色（与无 RTF 的普通弹幕一致）。
+     * 解码全程不抛：RTF 异形只丢颜色、不丢弹幕。
+     */
+    static int rtfBodyColor(byte[] rtfBytes) {
+        if (rtfBytes == null || rtfBytes.length == 0) return CHAT_COLOR_ARGB;
+        try {
+            Map<Integer, List<Object>> rtf = parse(rtfBytes);
+            Integer agreed = null;
+            for (Object blob : rtf.getOrDefault(4, List.of())) {
+                if (!(blob instanceof byte[] spanBytes)) continue;
+                Map<Integer, List<Object>> span = parse(spanBytes);
+                if (firstVarint(span, 1, -1L) != 1L) continue;
+                byte[] styleBytes = firstBytes(span, 2);
+                if (styleBytes == null) continue;
+                Integer color = parseStyleColor(firstString(parse(styleBytes), 1));
+                if (color == null) continue;
+                if (agreed == null) {
+                    agreed = color;
+                } else if (agreed.intValue() != color.intValue()) {
+                    return CHAT_COLOR_ARGB;
+                }
+            }
+            return agreed == null ? CHAT_COLOR_ARGB : agreed;
+        } catch (Throwable error) {
+            return CHAT_COLOR_ARGB;
+        }
+    }
+
+    /** "#RRGGBB" → 补 FF alpha；"#AARRGGBB" → 原样（含 alpha）；解析不出回 null。 */
+    private static Integer parseStyleColor(String raw) {
+        if (raw == null) return null;
+        String hex = raw.startsWith("#") ? raw.substring(1) : raw;
+        try {
+            if (hex.length() == 6) return 0xFF000000 | Integer.parseInt(hex, 16);
+            if (hex.length() == 8) return (int) Long.parseLong(hex, 16);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+        return null;
     }
 
     private static Long parseOnline(byte[] body) {

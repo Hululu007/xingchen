@@ -52,7 +52,7 @@ import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
  * 单规则模式（oneRule）对应原版 SearchInOneRuleActivity：只有一个发动机且宿主报 isOneRuleHost，
  * 使 Fragment 的单结果自动打开逻辑生效。布局 activity_hk_search。
  */
-public class HkSearchActivity extends AppCompatActivity implements HkSearchFragment.SearchHost {
+public class HkSearchActivity extends AppCompatActivity implements HkSearchFragment.SearchSessionHost {
 
     private EditText searchEdit;
     private View searchClear;
@@ -74,6 +74,8 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
     private SuggestAdapter suggestAdapter;
     private BottomAdapter bottomAdapter;
     private SearchPagerAdapter pagerAdapter;
+    /** 当前提交的全源搜索会话（提交后全部源一起搜的执行面）；未提交/空词时为 null。 */
+    private HkSearchSession searchSession;
 
     // ---------- 静态入口 ----------
 
@@ -333,6 +335,27 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
         errorEngines.clear();
         if (bottomAdapter != null) bottomAdapter.notifyDataSetChanged();
         refreshPager();
+        startAllEnginesSearch();
+    }
+
+    /**
+     * 2026-10-24 用户定案：提交后当前分组全部发动机一起开搜（推翻页签懒建执行面）。
+     * 旧会话先废弃（迟到回调不再落状态），新会话接管全部发动机的第一页搜索与结果留存；
+     * 页签仍懒建，建出时领留存结果。状态条从这一刻起逐源实时更新（事件路径不变）。
+     */
+    private void startAllEnginesSearch() {
+        if (searchSession != null) searchSession.cancel();
+        searchSession = new HkSearchSession(this, keyword, currentGroup, new ArrayList<>(engines));
+        searchSession.start();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (searchSession != null) {
+            searchSession.cancel();
+            searchSession = null;
+        }
+        super.onDestroy();
     }
 
     private void refreshPager() {
@@ -438,6 +461,18 @@ public class HkSearchActivity extends AppCompatActivity implements HkSearchFragm
     @Override
     public boolean isOneRuleHost() {
         return oneRule;
+    }
+
+    // ---------- HkSearchFragment.SearchSessionHost ----------
+
+    @Override
+    public HkSearchSession.State sessionStateFor(HkSearchEngine engine) {
+        return searchSession == null ? null : searchSession.stateFor(engine);
+    }
+
+    @Override
+    public void sessionSearch(HkSearchEngine engine) {
+        if (searchSession != null) searchSession.requestSearch(engine);
     }
 
     // ---------- 适配器 ----------

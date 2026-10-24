@@ -35,6 +35,8 @@ import com.google.gson.JsonParser;
 import com.scwang.smart.refresh.layout.SmartRefreshLayout;
 
 import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -61,6 +63,19 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         boolean isOneRuleHost();
     }
 
+    /**
+     * 全源会话宿主接缝（2026-10-24「提交后全部源一起搜」）：宿主持有 HkSearchSession 时，
+     * 页签第一页不再自搜——开搜与结果留存都归会话，页签只领结果呈现；会话里没有本源
+     * （未提交过/空词/已切组）时领不到状态，页签回落原 initData 自搜，行为与改前一致。
+     */
+    public interface SearchSessionHost extends SearchHost {
+        /** 领本源在当前会话里的留存状态；无会话/无本源返回 null。 */
+        HkSearchSession.State sessionStateFor(HkSearchEngine engine);
+
+        /** 请求会话（重新）搜本源（下拉/长按刷新走这里，排队中的提优先、在途的不重复发起）。 */
+        void sessionSearch(HkSearchEngine engine);
+    }
+
     private HkSearchAdapter adapter;
     private String firstPageData;
     private String group;
@@ -74,6 +89,11 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
     private final List<SearchResult> results = new ArrayList<>();
     private HkSearchEngine searchEngine;
     private HkSearchModel searchModel;
+    /** 全源会话模式：宿主有会话且领到本源状态时为真，第一页归会话搜、本页只领结果。 */
+    private boolean sessionMode;
+    private HkSearchSession.State sessionState;
+    /** 会话模式下本源尚未终结、等状态事件回来领结果。 */
+    private boolean sessionWaiting;
     private SmartRefreshLayout smartRefreshLayout;
     private RecyclerView recyclerView;
     private SearchHost searchHost;
@@ -139,12 +159,84 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         super.onViewCreated(view, savedInstanceState);
         restoreFromArguments();
         initView(view);
-        initData();
+        if (!enterSessionMode()) initData();
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // 会话模式才订阅：等本源在会话里的状态事件回来领结果；非会话页签不挂多余订阅
+        if (sessionMode && !EventBus.getDefault().isRegistered(this)) {
+            EventBus.getDefault().register(this);
+        }
+    }
+
+    @Override
+    public void onStop() {
+        if (EventBus.getDefault().isRegistered(this)) {
+            EventBus.getDefault().unregister(this);
+        }
+        super.onStop();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+    }
+
+    private SearchSessionHost sessionHost() {
+        return searchHost instanceof SearchSessionHost ? (SearchSessionHost) searchHost : null;
+    }
+
+    /**
+     * 试进全源会话模式：宿主有会话且领得到本源状态才进。已终结→立刻领结果呈现（不重搜）；
+     * 待搜/在途→挂等待，状态事件回来再领。领不到（未提交/空词守卫同口径）返回 false 走原自搜。
+     */
+    private boolean enterSessionMode() {
+        SearchSessionHost host = sessionHost();
+        if (host == null || searchEngine == null) return false;
+        if (keyWord == null || keyWord.trim().isEmpty()) return false;
+        HkSearchSession.State state = host.sessionStateFor(searchEngine);
+        if (state == null) return false;
+        sessionMode = true;
+        sessionState = state;
+        adoptSessionState();
+        return true;
+    }
+
+    /** 按留存快照呈现：终结走与实时回调同一套 UI 落点（bindArrayOnUi/errorOnUi），未终结只同步转圈态。 */
+    private void adoptSessionState() {
+        if (sessionState == null) return;
+        HkSearchSession.Snapshot snap = sessionState.snapshot();
+        myUrl = snap.myUrl;
+        if (snap.status == 2 || snap.status == 4) {
+            sessionWaiting = false;
+            List<SearchResult> list = snap.results == null ? new ArrayList<>() : snap.results;
+            String json = snap.json == null ? new Gson().toJson(list) : snap.json;
+            int smode = 0;
+            if (getContext() != null) {
+                smode = PreferenceManager.getDefaultSharedPreferences(getContext()).getInt("smode", 0);
+            }
+            bindArrayOnUi(list, json, smode);
+        } else if (snap.status == 3) {
+            sessionWaiting = false;
+            errorOnUi("", "", "", null);
+        } else {
+            sessionWaiting = true;
+            loading(snap.status == 1);
+        }
+    }
+
+    /** 会话里本源的状态事件：搜索中→转圈；终结→领留存结果。只认自己那台发动机。 */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onSessionStatusEvent(HkSearchStatusEvent event) {
+        if (!sessionMode || !sessionWaiting || event == null || event.engine == null) return;
+        if (!HkSearchSession.keyOf(event.engine).equals(HkSearchSession.keyOf(searchEngine))) return;
+        if (event.engine.getStatus() == 1) {
+            loading(true);
+            return;
+        }
+        adoptSessionState();
     }
 
     protected void initView(View root) {
@@ -154,7 +246,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             isRefresh = true;
             // F-13：新一轮搜索先清到底态，否则刷新后仍被 noMore 拦住翻页
             layout.resetNoMoreData();
-            initData();
+            if (sessionMode) requestSessionSearch();
+            else initData();
         });
         orginalUrl = searchEngine.getSearch_url();
         // 照原版 initView（:5661）：search_url 含 fypage 才挂 OnLoadMoreListener（不动 enable）；
@@ -191,6 +284,15 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         progressView1 = root.findViewById(R.id.progress_image_view1);
     }
 
+    /** 会话模式下的重搜请求：归会话排队（在途不重复发起），本页挂等待、终结事件回来领新结果。 */
+    private void requestSessionSearch() {
+        SearchSessionHost host = sessionHost();
+        if (host == null || searchEngine == null) return;
+        sessionWaiting = true;
+        loading(true);
+        host.sessionSearch(searchEngine);
+    }
+
     protected void initData() {
         // 空词不搜：页面刚打开、用户还没输词时页签先建出来，不许拿空关键词自己开搜
         // （真机 1.4.22 实证：一点进全局搜索就全发动机空搜、底部挂「搜索中」）。
@@ -198,6 +300,15 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         if (keyWord == null || keyWord.trim().isEmpty()) return;
         // F-13：第一页重搜时清到底态（长按「刷新页面」等不走 OnRefreshListener 的入口同样生效）
         if (page == 1 && smartRefreshLayout != null) smartRefreshLayout.resetNoMoreData();
+        // 全源会话模式：第一页归会话搜（长按「刷新页面」等入口同走会话重搜）；
+        // 上拉翻页（page≥2）仍走本页模型，与改前一致，结果只并进本页、不回写留存。
+        if (sessionMode) {
+            if (page == 1) {
+                requestSessionSearch();
+                return;
+            }
+            if (sessionWaiting) return;
+        }
         searchEngine.setStatus(1);
         EventBus.getDefault().post(new HkSearchStatusEvent(searchEngine, group));
         loading(true);
@@ -345,7 +456,13 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
 
     /** 照原版 filterData：smode==0 不过滤；单条特殊页豁免；余下按 searchContains(title, keyWord) 逐条删。 */
     private void filterData(List<SearchResult> list) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        filterData(getContext(), keyWord, list);
+    }
+
+    /** filterData 的可复用形态：宿主全源会话（HkSearchSession）回结果时按同一口径过滤，共用此份实现不许分叉。 */
+    static void filterData(android.content.Context context, String keyWord, List<SearchResult> list) {
+        if (context == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         int smode = prefs.getInt("smode", 0);
         if (smode == 0) return;
         if (list == null || list.isEmpty()) return;

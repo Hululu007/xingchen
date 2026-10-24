@@ -316,6 +316,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mCommentEpisodeVid = "";
     private String mHongguoDanmakuVid = "";
     private String mHongguoDanmakuPending = "";
+    private String mHongguoDanmakuPrefetchVid = "";
     private boolean mContentExpanded = false;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
@@ -2640,6 +2641,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mCommentEpisodeVid = "";
         mHongguoDanmakuVid = "";
         mHongguoDanmakuPending = "";
+        mHongguoDanmakuPrefetchVid = "";
     }
 
     /** 详情到达即判识别闸并预抓（短剧直进路径在 setPlayer 起播点补判）。 */
@@ -2703,6 +2705,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (fragment instanceof HongguoCommentDialog) ((HongguoCommentDialog) fragment).refreshEpisode(vid);
         }
         prepareHongguoDanmaku(result, vid);
+        prefetchNextHongguoDanmaku(playEpisode);
     }
 
     /**
@@ -2730,6 +2733,29 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 onHongguoDanmakuReady(key, vid, siteDanmakus, item);
             });
         });
+    }
+
+    /**
+     * 下一集弹幕预拉（用户口径：跟预加载一样，下一集提前拉）：当前集制备提交之后，把紧邻
+     * 下一集的弹幕顺手排进同一条单线程队列——排在本集制备之后，不抢本集的窗请求。
+     * 只落盘、永不挂载：预拉任务只调 fetchToFile 把文件备好，不碰 mHongguoDanmakuVid/
+     * Pending、不调 onHongguoDanmakuReady；切过去时走既有制备路，完整缓存直接用、
+     * 半截继续增量补。只预拉一集、不连环；连切多集时每轮起播按新位置重排新目标，
+     * 旧目标没拉完的只留半截文件（按 vid 落盘，将来真看到那集还能续），挂错集无路可走：
+     * 挂载唯一入口 onHongguoDanmakuReady 还要复核产出 vid 与当前集 vid 一致才挂。
+     * 双开关关着不预拉；预拉失败静默，切过去再走正常制备。
+     */
+    private void prefetchNextHongguoDanmaku(Episode current) {
+        if (!DanmakuSetting.isLoad() || !DanmakuSetting.isShow()) return;
+        if (!hasAdjacentEpisode(1)) return;
+        Episode next = getAdjacentEpisode(1);
+        if (next == null || next.isSelected() || TextUtils.isEmpty(next.getUrl())) return;
+        if (current != null && next.getUrl().equals(current.getUrl())) return;
+        String nextVid = HongguoCommentApi.episodeVid(next.getUrl());
+        if (nextVid.isEmpty() || nextVid.equals(mHongguoDanmakuPrefetchVid)) return;
+        mHongguoDanmakuPrefetchVid = nextVid;
+        String seriesId = mHongguoSeriesId;
+        mHongguoExecutor.execute(() -> HongguoDanmakuApi.fetchToFile(seriesId, nextVid, 0));
     }
 
     /** 制备产出到达（首份/增量新版/最终版走同一处理）：已挂的正是这份就重读文件；还没挂按源弹幕优先口径裁决。 */

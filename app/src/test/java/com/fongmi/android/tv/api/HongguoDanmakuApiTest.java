@@ -221,4 +221,81 @@ public class HongguoDanmakuApiTest {
         assertEquals(1, all.size());
         assertEquals(1, source.fetches);
     }
+
+    // ---------- 完整性结果与种子续拉（预拉/缓存复用口径） ----------
+
+    @Test
+    public void collectCompleteWhenServerEndsNaturally() {
+        // 两窗拉完、服务端明说没更多了：自然收尾，complete=true（配落完成标记、免重复拉）
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一")),
+                windowOf(-1, false, item(31000, "二"))));
+        HongguoDanmakuApi.CollectOutcome outcome = HongguoDanmakuApi.collectWindows(source, 0, null, null);
+        assertTrue(outcome.complete);
+        assertEquals(2, outcome.items.size());
+        assertEquals(2, source.fetches);
+    }
+
+    @Test
+    public void collectIncompleteWhenWindowFailsMidway() {
+        // 第二窗失败：已得部分保留，但 complete=false——半截不记完成，下次继续补
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一"), item(2000, "二"))));
+        HongguoDanmakuApi.CollectOutcome outcome = HongguoDanmakuApi.collectWindows(source, 0, null, null);
+        assertEquals(2, outcome.items.size());
+        assertTrue(!outcome.complete);
+    }
+
+    @Test
+    public void collectCompleteAtDurationBoundary() {
+        // 时长到头收尾算自然收尾，不是失败
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一")),
+                windowOf(60000, true, item(31000, "二"))));
+        HongguoDanmakuApi.CollectOutcome outcome = HongguoDanmakuApi.collectWindows(source, 30000, null, null);
+        assertTrue(outcome.complete);
+        assertEquals(1, outcome.items.size());
+        assertEquals(1, source.fetches);
+    }
+
+    @Test
+    public void collectSeedIsKeptAndMergedWithDedup() {
+        // 半截文件的旧货当种子：重拉的新窗并进来、跨新旧重复的去重吃掉，只长不缩
+        List<HongguoDanmakuApi.Item> seed = List.of(item(1000, "一"), item(5000, "旧"));
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一"), item(31000, "二")),
+                windowOf(-1, false, item(61000, "三"))));
+        List<List<HongguoDanmakuApi.Item>> growth = new ArrayList<>();
+        HongguoDanmakuApi.CollectOutcome outcome = HongguoDanmakuApi.collectWindows(source, 0, growth::add, seed);
+        assertEquals(4, outcome.items.size());
+        assertTrue(outcome.complete);
+        // 增长快照含种子：第一窗后 3 条、第二窗后 4 条
+        assertEquals(2, growth.size());
+        assertEquals(3, growth.get(0).size());
+        assertEquals(4, growth.get(1).size());
+    }
+
+    @Test
+    public void collectSeedSurvivesImmediateFailure() {
+        // 种子在手、重拉第一窗就失败：旧货不丢，且不冒充完整
+        List<HongguoDanmakuApi.Item> seed = List.of(item(1000, "一"), item(5000, "旧"));
+        ScriptedSource source = new ScriptedSource(List.of());
+        HongguoDanmakuApi.CollectOutcome outcome = HongguoDanmakuApi.collectWindows(source, 0, null, seed);
+        assertEquals(2, outcome.items.size());
+        assertTrue(!outcome.complete);
+    }
+
+    @Test
+    public void xmlItemsRoundTripThroughBuildAndParse() {
+        // buildXml 写出的文件能被 parseXmlItems 原样读回（种子续拉的前提），特殊字符也对得上
+        List<HongguoDanmakuApi.Item> items = new ArrayList<>();
+        items.add(new HongguoDanmakuApi.Item(20187, "晚"));
+        items.add(new HongguoDanmakuApi.Item(2163, "a<b>&\"'c"));
+        List<HongguoDanmakuApi.Item> back = HongguoDanmakuApi.parseXmlItems(HongguoDanmakuApi.buildXml(items));
+        assertEquals(2, back.size());
+        assertEquals(2163L, back.get(0).offsetMs);
+        assertEquals("a<b>&\"'c", back.get(0).text);
+        assertEquals(20187L, back.get(1).offsetMs);
+        assertEquals("晚", back.get(1).text);
+    }
 }

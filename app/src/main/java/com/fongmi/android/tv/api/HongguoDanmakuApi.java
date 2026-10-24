@@ -6,7 +6,9 @@ import com.fongmi.android.tv.bean.Danmaku;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -15,6 +17,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 红果弹幕壳子抓取器：与 HongguoCommentApi 同层共建——共用其传输（轻签名器/设备号/全局
@@ -23,6 +27,12 @@ import java.util.Set;
  * 产出渲染层现成认的 Bilibili 弹幕 XML 落本地缓存文件，渲染层零改。
  * 增量口径（douyu-live-danmaku-noshow-trace.md 第五节修法）：已拉到的窗先落盘先挂，
  * 任一窗失败只停在已得部分、不整集连坐；全程零条才按无弹幕返回 null。
+ * 缓存复用口径：一次拉取「自然收尾」（服务端没更多/时长到头/游标停/撞上限，且无一窗
+ * 失败）就在同目录落 {vid}.done 完成标记；下次 fetch 命中标记直接用现成文件（有文件
+ * 给文件、没文件是已知空集），不再重复拉。没标记的半截文件当种子：重拉时与旧货合并
+ * 去重继续长大，拉失败也不缩水；中断/失败不记完成，下次进来接着补。
+ * 预拉（下一集）与本集制备走同一条 fetchToFile：预拉只落盘、永不挂载，
+ * 挂载只在播放侧按当前集 vid 裁定（VideoActivity.onHongguoDanmakuReady 复核当前集）。
  * 全部方法失败静默降级，绝不抛异常进播放链；平台只下发采样热弹幕，
  * 条数少于平台自报是平台行为（trace §结论 4），本类不做任何补凑。
  */
@@ -58,6 +68,17 @@ public class HongguoDanmakuApi {
     /** 累积有增长时的回调，参数为当前全量快照（防御性拷贝）。 */
     interface GrowthListener {
         void onGrowth(List<Item> snapshot);
+    }
+
+    /** 拉取结果：items 为最终累积；complete 为是否自然收尾（无一窗失败地拉到底/到上限）——只有 complete 才配落完成标记，半截不记。 */
+    static class CollectOutcome {
+        final List<Item> items;
+        final boolean complete;
+
+        CollectOutcome(List<Item> items, boolean complete) {
+            this.items = items;
+            this.complete = complete;
+        }
     }
 
     /** 一窗的解析结果：nextStart 为服务端给的下一窗起点（没给时为 -1），hasMore 为服务端原值，推进与否由 nextWindowStart 裁定。 */
@@ -143,8 +164,20 @@ public class HongguoDanmakuApi {
      * @return 最终累积（可能为空：全程一窗都没取到或全是空窗）。
      */
     static List<Item> collectWindows(WindowSource source, long durationMs, GrowthListener growth) {
+        return collectWindows(source, durationMs, growth, null).items;
+    }
+
+    /**
+     * 带种子与完整性结果的拉取循环：seed 是半截旧文件的既有条目，先并入累积再逐窗拉，
+     * 跨新旧按 offset:text 去重——重拉只长不缩。任一窗取不到（null/异常）或线程被中断，
+     * 停在已得部分且 complete=false；服务端没更多、时长到头、游标不推进、撞窗数/条数
+     * 上限而收尾的，complete=true。
+     */
+    static CollectOutcome collectWindows(WindowSource source, long durationMs, GrowthListener growth, List<Item> seed) {
         List<Item> all = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        if (seed != null) mergeWindow(all, seen, seed);
+        boolean failed = false;
         String cursor = "";
         long start = 0;
         for (int window = 0; window < MAX_WINDOWS; window++) {
@@ -153,6 +186,7 @@ public class HongguoDanmakuApi {
                     Thread.sleep(WINDOW_GAP_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    failed = true;
                     break;
                 }
             }
@@ -161,9 +195,13 @@ public class HongguoDanmakuApi {
             try {
                 parsed = source.fetch(start, cursor);
             } catch (Exception e) {
+                failed = true;
                 break;
             }
-            if (parsed == null) break;
+            if (parsed == null) {
+                failed = true;
+                break;
+            }
             int before = all.size();
             mergeWindow(all, seen, parsed.items);
             if (growth != null && all.size() > before) growth.onGrowth(new ArrayList<>(all));
@@ -173,7 +211,7 @@ public class HongguoDanmakuApi {
             start = next;
             cursor = parsed.cursor;
         }
-        return all;
+        return new CollectOutcome(all, !failed);
     }
 
     public static Danmaku fetchToFile(String seriesId, String vid, long durationMs) {
@@ -185,11 +223,20 @@ public class HongguoDanmakuApi {
      * 后续窗有新增就重写同一文件再报；单窗失败保留已得部分。最终返回指向该文件的 Danmaku
      * 条目（name=红果弹幕、url=本地绝对路径）；全程零条才返回 null。本类无静态状态，
      * 一次失败不毒化下一次制备（宿主的重试门在 VideoActivity 侧按成功与否置位）。
+     * 命中完成标记时不发任何请求：有文件直接包条目返回、没文件返回 null（已知空集）。
+     * 本集制备与下一集预拉共用本方法，预拉侧传 listener=null 且丢弃返回值——只落盘不挂载。
      */
     public static Danmaku fetchToFile(String seriesId, String vid, long durationMs, ProgressListener listener) {
         if (!HongguoCommentApi.isId(seriesId) || !HongguoCommentApi.isId(vid)) return null;
+        // 完整缓存免重复拉：标记与文件同目录同生死，标记在就算拉满过
+        if (hasCompleteCache(vid)) {
+            File file = cacheFile(vid);
+            return file != null && file.length() > 0 ? toDanmaku(file) : null;
+        }
+        // 半截文件当种子：旧货先入账，重拉在其上继续长，拉失败也不缩水
+        List<Item> seed = readCacheItems(vid);
         Danmaku[] ready = new Danmaku[1];
-        List<Item> all = collectWindows((start, cursor) -> {
+        CollectOutcome outcome = collectWindows((start, cursor) -> {
             try {
                 JSONObject payload = new JSONObject()
                         .put("comment_source", 601).put("server_channel", 1000)
@@ -212,18 +259,109 @@ public class HongguoDanmakuApi {
                 ready[0] = item;
                 if (listener != null) listener.onProgress(item);
             }
-        });
-        return all.isEmpty() ? null : ready[0];
+        }, seed);
+        List<Item> all = outcome.items;
+        if (all.isEmpty()) {
+            // 自然收尾且真空集：记完成免得每次起播白跑全程；失败中断的不记，下次还能补
+            if (outcome.complete) markComplete(vid);
+            return null;
+        }
+        Danmaku item = ready[0] != null ? ready[0] : writeItem(vid, all);
+        // 记完成的门槛：自然收尾且最终文件真落了盘——半截（失败收尾）不记，下次继续增量补
+        if (outcome.complete && item != null) markComplete(vid);
+        return item;
     }
 
     /** 把当前累积写盘并包成 Danmaku 条目；写盘失败返回 null（已有旧文件不删，后续窗还会再试）。 */
     private static Danmaku writeItem(String vid, List<Item> items) {
         File file = writeXmlFile(vid, buildXml(items));
-        if (file == null) return null;
+        return file == null ? null : toDanmaku(file);
+    }
+
+    private static Danmaku toDanmaku(File file) {
         Danmaku danmaku = new Danmaku();
         danmaku.setName(SOURCE_NAME);
         danmaku.setUrl(file.getAbsolutePath());
         return danmaku;
+    }
+
+    // ---------- 缓存文件与完成标记 ----------
+
+    private static File cacheFile(String vid) {
+        try {
+            return new File(new File(App.get().getCacheDir(), "hongguo_danmaku"), vid + ".xml");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static File markerFile(String vid) {
+        try {
+            return new File(new File(App.get().getCacheDir(), "hongguo_danmaku"), vid + ".done");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 这集是不是已经拉满过（完成标记在手）。标记与 XML 同目录：系统清缓存两者同去，不会只剩标记骗过判定。 */
+    static boolean hasCompleteCache(String vid) {
+        File marker = markerFile(vid);
+        return marker != null && marker.isFile();
+    }
+
+    private static void markComplete(String vid) {
+        try {
+            File marker = markerFile(vid);
+            if (marker == null) return;
+            File parent = marker.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) return;
+            try (FileOutputStream out = new FileOutputStream(marker)) {
+                out.write(1);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 读半截文件的既有条目当种子；读不出（文件不在/坏）就当没有——重拉照常从零长。 */
+    private static List<Item> readCacheItems(String vid) {
+        File file = cacheFile(vid);
+        if (file == null || !file.isFile() || file.length() == 0) return new ArrayList<>();
+        try (FileInputStream in = new FileInputStream(file)) {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int read;
+            while ((read = in.read(chunk)) != -1) buffer.write(chunk, 0, read);
+            return parseXmlItems(new String(buffer.toByteArray(), StandardCharsets.UTF_8));
+        } catch (Throwable t) {
+            return new ArrayList<>();
+        }
+    }
+
+    private static final Pattern DANMAKU_ROW = Pattern.compile("<d p=\"([0-9]+(?:\\.[0-9]+)?),[^\"]*\">(.*?)</d>", Pattern.DOTALL);
+
+    /** 把自家 buildXml 写出的文件读回条目（只认自家格式）：秒数还原毫秒、正文反转义；坏行跳过。 */
+    static List<Item> parseXmlItems(String xml) {
+        List<Item> items = new ArrayList<>();
+        if (xml == null || xml.isEmpty()) return items;
+        Matcher matcher = DANMAKU_ROW.matcher(xml);
+        while (matcher.find()) {
+            try {
+                long offsetMs = Math.round(Double.parseDouble(matcher.group(1)) * 1000);
+                String text = unescapeXml(matcher.group(2));
+                if (offsetMs >= 0 && !text.isEmpty()) items.add(new Item(offsetMs, text));
+            } catch (Exception ignored) {
+            }
+        }
+        return items;
+    }
+
+    static String unescapeXml(String text) {
+        // &amp; 必须最后还原，防 &amp;lt; 被二次解成 <
+        return text.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&");
     }
 
     // ---------- 解析（含回验闸） ----------

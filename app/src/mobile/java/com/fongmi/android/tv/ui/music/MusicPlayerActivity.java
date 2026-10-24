@@ -207,6 +207,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean lyricLoading;
 
     private static final android.view.animation.Interpolator INTERP_FOSI = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    /** bs4.b 字段字面 (0,0,0,1)（favScale 上行／图标入场用；与 bs4.b() 方法返回值不同物）。 */
+    private static final android.view.animation.Interpolator INTERP_BEZ_0001 = new PathInterpolator(0f, 0f, 0f, 1f);
     private static final android.view.animation.Interpolator INTERP_EMPH = new PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
     /** 切歌换卡出场缓动（瓜子 bs4.c＝(0.3,0,1,1)，dig 三.16）。 */
     private static final android.view.animation.Interpolator INTERP_EXIT = new PathInterpolator(0.3f, 0f, 1f, 1f);
@@ -1559,7 +1561,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         playTopView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
         int pad = Math.round((value ? 7.5f : 6f) * getResources().getDisplayMetrics().density);
         ValueAnimator padAnim = ValueAnimator.ofInt(playTopView.getPaddingLeft(), pad);
+        // 300ms 缓动曲线 GZ 实证（2026-10-25 深挖）：playPauseSize tween(300, bs4.a=(0.2,0,0,1))＝INTERP_FOSI
         padAnim.setDuration(300);
+        padAnim.setInterpolator(INTERP_FOSI);
         padAnim.addUpdateListener(a -> {
             int p = (int) a.getAnimatedValue();
             playTopView.setPadding(p, p, p, p);
@@ -1822,18 +1826,21 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         loadIntoCover(coverView, cover, title);
         updateBackground(track);
         if (coverView != null && track != null) {
-            // 入场（Classic：400ms、竖向滑移 0.5＋缩放 0.94→1，Emphasized 缓动近似瓜子分链口径，旧页同取法）
+            // 入场（Classic CoverTransitionSpec 实证：400ms、bs4.e 缓动、竖向滑移 0.5H＋缩放 0.94→1；
+            // 方向 2026-10-25 深挖补实：transitionDir 下一首 +1＝新封面自下方入、旧封面上行出，
+            // 上一首 −1 反向。星辰 lastSkipDirection 与 transitionDir 同号（next=+1），直接乘）
+            int dir = lastSkipDirection >= 0 ? 1 : -1;
             int h = coverView.getHeight();
             float slide = (h > 0 ? h : 300 * getResources().getDisplayMetrics().density) * 0.5f;
             coverView.setAlpha(0f);
             coverView.setScaleX(0.94f);
             coverView.setScaleY(0.94f);
-            coverView.setTranslationY(slide);
+            coverView.setTranslationY(dir * slide);
             coverView.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
                     .setDuration(400).setInterpolator(INTERP_EMPH).start();
             if (stagedExit) {
                 final int gen = coverExitGen;
-                coverExitView.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).translationY(-slide)
+                coverExitView.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).translationY(-dir * slide)
                         .setDuration(400).setInterpolator(INTERP_EMPH)
                         .withEndAction(() -> {
                             if (coverExitView != null && coverExitGen == gen) {
@@ -2342,12 +2349,17 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     binding.heartsOverlay.burstCover(p[0], p[1], favorited);
                 });
                 cancelCoverScaleSpring();
+                // favScale 上行段 GZ 实证：tween(200ms, bs4.b 字段=(0,0,0,1)) 到 1.045，随后 spring(0.9, 300) 回落
                 wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
+                        .setInterpolator(INTERP_BEZ_0001)
                         .withEndAction(() -> startCoverScaleSpring(wrap))
                         .start();
-                startRipple(wrap);
+                startRipple(wrap, e.getX(), e.getY());
                 try {
-                    wrap.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    // 双击震动 GZ 实证（2026-10-25 深挖）：Compose 类型 9（TextHandleMove）＋
+                    // View CONTEXT_CLICK(6) 双路并行；旧值 LONG_PRESS(0) 是 GZ 的长按值，错位已改
+                    wrap.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE);
+                    wrap.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
                 } catch (Throwable ignored) {
                 }
                 return true;
@@ -2369,31 +2381,18 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (coverTheme) setCoverExpanded(!coverExpanded);
     }
 
-    /** 涟漪 0→1、800ms（§1）：以封面缩放的轻微过冲近似呈现——封面本体无独立涟漪层，
-     * 这里用一个贴在封面上的半透明白圆 View 自绘扩散，结束即移除。 */
-    private void startRipple(View wrap) {
+    /**
+     * 双击涟漪（2026-10-25 深挖换实：GZ favRipple 是独立 Canvas 层——以双击点为心、
+     * 三圆公式、800ms×bs4.a 驱动，见 FavRippleView；旧自造居中椭圆整套参数非 GZ 值，已废）。
+     */
+    private void startRipple(View wrap, float tapX, float tapY) {
         if (!(wrap instanceof android.view.ViewGroup)) return;
-        View ripple = new View(this);
-        int size = Math.max(wrap.getWidth(), wrap.getHeight());
-        if (size <= 0) return;
-        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(size, size);
-        lp.gravity = android.view.Gravity.CENTER;
-        ripple.setLayoutParams(lp);
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setShape(GradientDrawable.OVAL);
-        drawable.setColor(0x33FFFFFF);
-        ripple.setBackground(drawable);
-        ripple.setScaleX(0f);
-        ripple.setScaleY(0f);
-        ripple.setAlpha(1f);
+        com.fongmi.android.tv.ui.custom.FavRippleView ripple = new com.fongmi.android.tv.ui.custom.FavRippleView(this);
+        ripple.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
         ((android.view.ViewGroup) wrap).addView(ripple);
-        ripple.animate().scaleX(1f).scaleY(1f).alpha(0f).setDuration(800)
-                .withEndAction(() -> {
-                    try {
-                        ((android.view.ViewGroup) wrap).removeView(ripple);
-                    } catch (Throwable ignored) {
-                    }
-                }).start();
+        ripple.startRipple(tapX, tapY);
     }
 
     private float[] toOverlayPoint(View anchor, float x, float y) {

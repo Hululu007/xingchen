@@ -1,6 +1,5 @@
 package com.fongmi.android.tv.ui.music;
 
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -12,9 +11,13 @@ import androidx.annotation.Nullable;
 
 /**
  * Apple Music 三页横滑 pager（施工图 §2）：第 0 页歌曲信息／第 1 页播放／第 2 页歌词，
- * 进页默认停播放页（offset=1）。切页动效＝pager 默认 fling 近似（瓜子无时长字面值，
- * 落定动画 250ms 为近似、不冒充）＋交叉淡化公式 alpha＝1−(3−2v)v²，v＝clamp(|页号−当前偏移|)
- * （PlayerScreenKt pagerCrossfade 实读）。子页按页宽平铺，横向拖动跟手、松手吸附整页。
+ * 进页默认停播放页（offset=1）。落页吸附照 GZ 实证（2026-10-25 深挖）：GZ 用 Compose
+ * pager 库默认 fling——无 tween 时长，吸附动画＝spring(阻尼比 1.0 无回弹、刚度 400、
+ * 可见阈值 1.0)，最多吸附 1 页（PagerSnapDistance.atMost(1)）；落页判定三阈值：
+ * |速度|≥400dp/s 按速度方向定页；低速时位置分数 ≤0.5 回原页，且位移＜min(56dp, 页宽/2)
+ * 不翻页。本类以半隐式欧拉逐帧积分该 spring（带松手初速），停稳条件 |Δx|＜1px。
+ * 交叉淡化公式 alpha＝1−(3−2v)v²，v＝clamp(|页号−当前偏移|)（PlayerScreenKt pagerCrossfade 实读）。
+ * 子页按页宽平铺，横向拖动跟手、松手吸附整页。
  * 起点落在 tag＝"noPagerSwipe" 的子视图（进度条／音量杆）内时不拦截该次手势，拖动优先给子视图。
  */
 public class ApplePagerView extends FrameLayout {
@@ -31,8 +34,21 @@ public class ApplePagerView extends FrameLayout {
     private float lastX;
     private long lastMoveMs;
     private float velocityPxS;
-    private ValueAnimator snapAnimator;
     private final int touchSlop;
+    // 吸附 spring 状态（刚度 400、阻尼比 1.0，位置以 px 计、逐帧半隐式欧拉积分）
+    private boolean springActive;
+    private float springX;
+    private float springV;
+    private float springTarget;
+    private long springLastMs;
+    private final android.view.Choreographer.FrameCallback springCallback = new android.view.Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!springActive) return;
+            stepSpring();
+            if (springActive) android.view.Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
 
     public ApplePagerView(Context context) {
         super(context);
@@ -71,8 +87,34 @@ public class ApplePagerView extends FrameLayout {
 
     /** 无动画直落某页（装配时停播放页用）。 */
     public void setPageImmediate(int page) {
-        if (snapAnimator != null) snapAnimator.cancel();
+        cancelSpring();
         offset = clampPage(page);
+        applyOffset();
+    }
+
+    private void cancelSpring() {
+        springActive = false;
+        android.view.Choreographer.getInstance().removeFrameCallback(springCallback);
+    }
+
+    /** spring 逐帧推进：a＝−k(x−T)−2√k·v（k=400、阻尼比 1.0）；|Δx|＜1px 且低速时精确落位停稳。 */
+    private void stepSpring() {
+        int w = getWidth();
+        if (w <= 0) {
+            springActive = false;
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        float dt = Math.min(0.05f, Math.max(0.001f, (now - springLastMs) / 1000f));
+        springLastMs = now;
+        float accel = -400f * (springX - springTarget) - 40f * springV;
+        springV += accel * dt;
+        springX += springV * dt;
+        if (Math.abs(springX - springTarget) < 1f && Math.abs(springV) < 10f) {
+            springX = springTarget;
+            springActive = false;
+        }
+        offset = clampPage(springX / (float) w);
         applyOffset();
     }
 
@@ -113,7 +155,7 @@ public class ApplePagerView extends FrameLayout {
                 lastX = ev.getX();
                 lastMoveMs = downTimeMs;
                 velocityPxS = 0f;
-                if (snapAnimator != null) snapAnimator.cancel();
+                cancelSpring();
                 return false;
             case MotionEvent.ACTION_MOVE:
                 if (blockedByChild || dragging) return dragging;
@@ -147,7 +189,7 @@ public class ApplePagerView extends FrameLayout {
                 lastX = ev.getX();
                 lastMoveMs = downTimeMs;
                 velocityPxS = 0f;
-                if (snapAnimator != null) snapAnimator.cancel();
+                cancelSpring();
                 return true;
             case MotionEvent.ACTION_MOVE: {
                 long now = android.os.SystemClock.uptimeMillis();
@@ -163,11 +205,7 @@ public class ApplePagerView extends FrameLayout {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL: {
                 dragging = false;
-                int target = Math.round(offset);
-                float velPages = -velocityPxS / (float) w;
-                if (velPages > 0.5f) target = Math.min(getChildCount() - 1, (int) Math.floor(offset) + 1);
-                else if (velPages < -0.5f) target = Math.max(0, (int) Math.ceil(offset) - 1);
-                snapTo(target);
+                snapTo(decideTargetPage(ev));
                 return true;
             }
             default:
@@ -175,21 +213,46 @@ public class ApplePagerView extends FrameLayout {
         }
     }
 
+    /**
+     * 落页判定（GZ 三阈值实证）：以手势起始页为基准、最多动 1 页——
+     * |速度|≥400dp/s 按速度方向定页（正＝向下一页）；否则位移≥min(56dp, 页宽/2)
+     * 且位置分数＞0.5 才翻页，其余回起始页。
+     */
+    private int decideTargetPage(MotionEvent ev) {
+        int w = getWidth();
+        float density = getResources().getDisplayMetrics().density;
+        int startPage = Math.round(startOffset);
+        int target = startPage;
+        float velPagesS = -velocityPxS / (float) w;
+        if (Math.abs(velocityPxS) >= 400f * density) {
+            target = startPage + (velPagesS > 0 ? 1 : -1);
+        } else {
+            float dispPx = Math.abs(ev.getX() - downX);
+            float fraction = offset - startOffset;
+            if (dispPx >= Math.min(56f * density, w / 2f) && Math.abs(fraction) > 0.5f) {
+                target = startPage + (fraction > 0 ? 1 : -1);
+            }
+        }
+        target = Math.max(startPage - 1, Math.min(startPage + 1, target));
+        return Math.max(0, Math.min(getChildCount() - 1, target));
+    }
+
+    /** 起 spring 吸附：初速承接松手速度（位置速度＝−手指速度），目标＝整页 px。 */
     private void snapTo(int page) {
-        if (snapAnimator != null) snapAnimator.cancel();
-        float from = offset;
-        snapAnimator = ValueAnimator.ofFloat(from, page);
-        snapAnimator.setDuration(250);
-        snapAnimator.addUpdateListener(a -> {
-            offset = (float) a.getAnimatedValue();
-            applyOffset();
-        });
-        snapAnimator.start();
+        cancelSpring();
+        int w = getWidth();
+        if (w <= 0) return;
+        springX = offset * w;
+        springV = -velocityPxS;
+        springTarget = page * (float) w;
+        springLastMs = android.os.SystemClock.uptimeMillis();
+        springActive = true;
+        android.view.Choreographer.getInstance().postFrameCallback(springCallback);
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        if (snapAnimator != null) snapAnimator.cancel();
+        cancelSpring();
         super.onDetachedFromWindow();
     }
 }

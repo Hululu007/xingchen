@@ -357,30 +357,19 @@ public class MusicActivity extends BaseActivity {
             String selKey = savedInstanceState.getString("ma_chartSelKey");
             if (selKey != null && sHomeChartSelKey == null) sHomeChartSelKey = selKey;
         }
-        // 首页离边 16dp 实机生效：根布局已不吃 fitsSystemWindows（旧版系统左右 inset 0 会盖掉 XML 边距致贴边），
-        // 这里直接定死左右 16dp、顶＝状态栏高＋12dp、底 16dp；不依赖 inset 分发，旋转／异形屏也不丢边距。
+        // 首页离边 16dp：边距只打在滚动层（homeScroll）上。背景层（homeGlassBg）与滚动层
+        // 是根 FrameLayout 的两个并列子 View，背景层不吃这层 padding、全屏铺满。
+        // 旧法把 padding 打在共享根上、再用负边距给背景层抵消——子 View 的布局框不可能
+        // 溢出父布局框，抵消在真机不生效：1.4.27 真机截图里背景被框进边距内、四边露出
+        // 窗口壁纸，整页像一张带边距的白纸（断点实证），故废弃旧法。
         // 圆角不动（搜索 24dp、三彩卡 20dp、五快捷 16dp）；三段上距见布局（32/40/40dp）。
-        View homeRoot = binding.getRoot();
         int sbHome = 0;
         int sbRes = getResources().getIdentifier("status_bar_height", "dimen", "android");
         if (sbRes > 0) sbHome = getResources().getDimensionPixelSize(sbRes);
         float homeDensity = getResources().getDisplayMetrics().density;
-        homeRoot.setPadding(Math.round(16 * homeDensity), sbHome + Math.round(12 * homeDensity),
-                Math.round(16 * homeDensity), Math.round(16 * homeDensity));
-        // 批 5 F1：背景层不吃根 padding（负边距抵消，极光铺满全屏，内容边距不变）
-        try {
-            View bgv = findViewById(R.id.homeGlassBg);
-            if (bgv != null && bgv.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
-                android.widget.FrameLayout.LayoutParams blp =
-                        (android.widget.FrameLayout.LayoutParams) bgv.getLayoutParams();
-                blp.leftMargin = -Math.round(16 * homeDensity);
-                blp.rightMargin = -Math.round(16 * homeDensity);
-                blp.topMargin = -(sbHome + Math.round(12 * homeDensity));
-                blp.bottomMargin = -Math.round(16 * homeDensity);
-                bgv.setLayoutParams(blp);
-            }
-        } catch (Throwable ignored) {
-        }
+        int sideHome = Math.round(16 * homeDensity);
+        binding.homeScroll.setPadding(sideHome, sbHome + Math.round(12 * homeDensity),
+                sideHome, Math.round(16 * homeDensity));
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         // ⓪ 首页标题斜度：歌词同款 skewX(-0.12f)（他 16:42 令，幅度只要一点；
@@ -493,6 +482,12 @@ public class MusicActivity extends BaseActivity {
         // 听书迷你条关闭路径 3：进入音乐页，听书真关闭（音乐会话自身不受影响）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this).musicPageEnter();
+        } catch (Throwable ignored) {
+        }
+        // 迷你条再注册（1.4.27 查修批）：会话被策略层暂停自动关闭摘掉后，服务队列还在
+        // 也不会有新事件把条带回来；回首页按现队列主动对一次，有可续播内容条必须在。
+        try {
+            MusicController.get().refreshMiniBar();
         } catch (Throwable ignored) {
         }
     }

@@ -165,12 +165,16 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- ② 五快捷白卡：收藏／歌单／本地（正中）／历史／下载，图标＋名字＋数量
-         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰；上距 32dp＝往下移＋拉开，见表 H7） -->
+    <!-- ② 五快捷：一张玻璃白卡内五格（第十稿定案「五入一卡」，不许拆成五张独立方格——
+         1.4.27 真机截图里五格各带一张玻璃片、与定案不符，本批并卡）；格内图标＋名字＋数量
+         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
+        android:background="@drawable/bg_music_glass_white_card"
+        android:elevation="2dp"
+        android:padding="6dp"
         android:orientation="horizontal">
 
         <LinearLayout
@@ -178,8 +182,6 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
-            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -216,10 +218,8 @@
         <LinearLayout
             android:id="@+id/homeQuickSheets"
             android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_marginStart="6dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
-            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -256,10 +256,8 @@
         <LinearLayout
             android:id="@+id/homeQuickDevice"
             android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_marginStart="6dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
-            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -296,10 +294,8 @@
         <LinearLayout
             android:id="@+id/homeQuickRecent"
             android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_marginStart="6dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
-            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -336,10 +332,8 @@
         <LinearLayout
             android:id="@+id/homeQuickDownload"
             android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_marginStart="6dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
-            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"

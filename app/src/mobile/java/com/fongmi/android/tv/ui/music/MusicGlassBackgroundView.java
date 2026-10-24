@@ -41,11 +41,14 @@ public class MusicGlassBackgroundView extends View {
 
     // 大光斑：中心公式与 AuroraBackgroundView 一致（cx=(W-r)*((a+1)/2)+r/2，半径=r/2）；
     // 色相换第十稿的粉／紫／薄荷：左上粉、右上紫、左下薄荷、右下粉。
+    // 1.4.27 查修批加强：旧值色太浅（FFD9E8 级近白粉彩）＋中心透明度仅 0.50、中段 0.16，
+    // 真机上整片极光几乎不可见、页面读作平白纸（截图实证）。改为色加深一档、中心 0.85、
+    // 中段 0.38、直径加大，柔光必须一眼可见；仍是粉彩域、不压字（卡面文字区另有玻璃面承托）。
     private static final Blob[] LARGE = {
-            new Blob(0xFFFFD9E8, -0.85f, -0.55f, 360f, 0.50f, 0.16f),
-            new Blob(0xFFE0D9FF, 0.85f, -0.35f, 340f, 0.50f, 0.16f),
-            new Blob(0xFFD4F8F0, -0.55f, 0.75f, 320f, 0.50f, 0.16f),
-            new Blob(0xFFFFD9E8, 0.60f, 0.85f, 300f, 0.45f, 0.14f),
+            new Blob(0xFFFFB9D9, -0.85f, -0.55f, 410f, 0.85f, 0.38f),
+            new Blob(0xFFC9B8FF, 0.85f, -0.35f, 390f, 0.85f, 0.38f),
+            new Blob(0xFFA9E8D8, -0.55f, 0.75f, 370f, 0.80f, 0.36f),
+            new Blob(0xFFFFB9D9, 0.60f, 0.85f, 350f, 0.78f, 0.34f),
     };
 
     private static final class Dot {
@@ -65,10 +68,11 @@ public class MusicGlassBackgroundView extends View {
     }
 
     // 小暖光：与 Aurora 小光斑同位，色保持蜜桃／金／粉（第十稿柔光里的暖点）。
+    // 旧透明度 0.06–0.09 在真机等于没有，随大光斑一并加强到可见但不抢眼。
     private static final Dot[] SMALL = {
-            new Dot(0xFFFF9A76, 110f, 70f, 190f, 0.094f, 0.031f, false),
-            new Dot(0xFFFFD175, 230f, 50f, 150f, 0.078f, 0.024f, false),
-            new Dot(0xFFF8C0D0, -140f, 40f, 120f, 0.063f, 0.016f, true),
+            new Dot(0xFFFF9A76, 110f, 70f, 190f, 0.22f, 0.08f, false),
+            new Dot(0xFFFFD175, 230f, 50f, 150f, 0.19f, 0.07f, false),
+            new Dot(0xFFF8C0D0, -140f, 40f, 120f, 0.16f, 0.05f, true),
     };
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);

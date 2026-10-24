@@ -676,6 +676,16 @@ public class MusicController {
         }
     }
 
+    /**
+     * 回音乐首页时页面侧主动对一次迷你条（1.4.27 查修批）：迷你条会话可能已被策略层
+     * 暂停自动关闭摘掉（会话摘除后服务队列还在、但没有任何事件会再触发同步），
+     * 首页 onResume 调这里按服务现队列重注册——有可续播内容时条必须在，
+     * 这是 1.4.26 的在位口径，不许只等播放事件把条带回来。
+     */
+    public void refreshMiniBar() {
+        syncMiniBar();
+    }
+
     // ================= 语音/后台直调用（静态） =================
 
     public static boolean isActiveStatic() {

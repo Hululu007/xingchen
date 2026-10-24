@@ -653,6 +653,11 @@ public class MusicRepository {
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
+        // 来源名回填（与全量链 own 步同口径）：快路径步 0–3 此前集体不填，
+        // 信息页「匹配来源」在最常见命中上恒显「—」（三-42 主路径未达成）
+        if (own != null && (own.sourceName == null || own.sourceName.isEmpty())) {
+            own.sourceName = siteNameForPlatform(track.platform);
+        }
         MusicLyric hit = pick.note(own);
         if (hit != null) {
             clearLyricMiss(track);
@@ -974,6 +979,9 @@ public class MusicRepository {
                     if (hitTrack == null) continue;
                     MusicLyric lrc = normalizeRich(richOf(other, hitTrack));
                     if (lrc == null) continue;
+                    if (lrc.sourceName == null || lrc.sourceName.isEmpty()) {
+                        lrc.sourceName = siteNameForPlatform(hitTrack.platform);
+                    }
                     out.lyrics.add(lrc);
                     if (probe.note(lrc) != null) return;
                 } catch (Throwable t) {

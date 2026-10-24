@@ -377,6 +377,7 @@ public class LxMusicSource implements MusicSource {
             try {
                 String r = b.request(p.platform, "lyric", musicInfo, "");
                 MusicLyric lyric = extractLyricRich(r);
+                if (lyric != null && (lyric.sourceName == null || lyric.sourceName.isEmpty())) lyric.sourceName = plugin.name;
                 // 正文/译文立即返回；纯音译只留候选，不截断后面插件的正文
                 if (lyric != null && lyric.hasBodyText()) return lyric;
                 if (lyric != null && lyric.hasLyric() && romajiOnly == null) romajiOnly = lyric;

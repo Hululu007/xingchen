@@ -253,6 +253,7 @@ public class FreeJsMusicSource implements MusicSource {
                     if (hit == null) continue;
                     try {
                         MusicLyric l = b.getLyric(hit);
+                        if (l != null && (l.sourceName == null || l.sourceName.isEmpty())) l.sourceName = site.name;
                         // 命中口径：正文或译文才立即返回（译文-only 也算，仓库
                         // normalizeRich 会把定时译文提为正文）；纯音译只留作候选，
                         // 不许截断后面的插件——它们可能有正文
@@ -399,6 +400,7 @@ public class FreeJsMusicSource implements MusicSource {
                                 com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
                         if (hit == null) continue;
                         MusicLyric l = b.getLyric(hit);
+                        if (l != null && (l.sourceName == null || l.sourceName.isEmpty())) l.sourceName = site.name;
                         // 同 lyricFallbackRich：正文/译文立即返回，纯音译只留候选不截断
                         if (l != null && l.hasBodyText()) return l;
                         if (l != null && l.hasLyric() && romajiOnly == null) romajiOnly = l;

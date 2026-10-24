@@ -1,18 +1,23 @@
 package com.github.catvod.utils;
 
+import android.net.Uri;
 import android.os.Environment;
 import android.system.ErrnoException;
 import android.system.Os;
 
 import com.github.catvod.Init;
+import com.github.catvod.Runtime;
 import com.orhanobut.logger.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,6 +26,7 @@ import java.util.List;
 public class Path {
 
     private static final String TAG = Path.class.getSimpleName();
+    private static final int BUFFER_SIZE = 16 * 1024;
 
     private static File mkdir(File file) {
         if (file == null || file.exists()) return file;
@@ -155,6 +161,12 @@ public class Path {
         return new String(readToByte(is), StandardCharsets.UTF_8);
     }
 
+    public static InputStream open(Uri uri, String error) throws IOException {
+        InputStream input = Runtime.context().getContentResolver().openInputStream(uri);
+        if (input == null) throw new IOException(error);
+        return input;
+    }
+
     // 上游原文（catvod Download.requireSpace 用）。
     public static long available(File file) {
         File directory = file == null ? null : file.getAbsoluteFile();
@@ -206,6 +218,41 @@ public class Path {
         }
     }
 
+    public static void writeAtomically(File file, InputStream is) throws IOException {
+        try (InputStream input = is) {
+            File parent = file.getAbsoluteFile().getParentFile();
+            if (parent == null || (!parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory())) throw new IOException("Unable to create " + parent);
+            File temp = File.createTempFile("write-", ".tmp", parent);
+            try {
+                writeSynced(temp, input);
+                move(temp, file);
+            } finally {
+                clear(temp);
+            }
+        }
+    }
+
+    private static void writeSynced(File file, InputStream input) throws IOException {
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            transfer(input, output);
+            output.flush();
+            output.getFD().sync();
+        }
+    }
+
+    public static void writeAtomically(File file, File source) throws IOException {
+        if (source.getCanonicalFile().equals(file.getCanonicalFile())) return;
+        writeAtomically(file, new FileInputStream(source));
+    }
+
+    public static void writeAtomically(File file, Uri source) throws IOException {
+        writeAtomically(file, open(source, "Unable to open " + source));
+    }
+
+    public static void writeAtomically(File file, byte[] data) throws IOException {
+        writeAtomically(file, new ByteArrayInputStream(data));
+    }
+
     public static File write(File file, byte[] data) {
         try (FileOutputStream fos = new FileOutputStream(create(file))) {
             fos.write(data);
@@ -216,7 +263,7 @@ public class Path {
         }
     }
 
-    public static void move(File in, File out) {
+    public static void move(File in, File out) throws IOException {
         if (in.renameTo(out)) return;
         copy(in, out);
         clear(in);
@@ -235,6 +282,15 @@ public class Path {
             byte[] buffer = new byte[16384];
             while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
         } catch (IOException ignored) {
+        }
+    }
+
+    private static void transfer(InputStream input, OutputStream output) throws IOException {
+        int read;
+        byte[] buffer = new byte[BUFFER_SIZE];
+        while ((read = input.read(buffer)) != -1) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Canceled");
+            output.write(buffer, 0, read);
         }
     }
 

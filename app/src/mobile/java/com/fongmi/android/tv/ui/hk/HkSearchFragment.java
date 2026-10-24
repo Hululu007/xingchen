@@ -319,7 +319,12 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         activity.runOnUiThread(() -> errorOnUi(title, msg, code, e));
     }
 
-    /** 照 lambda$error$14：状态 3 + "数据获取失败-_-" 伪条目（content 为错误全文）。 */
+    /**
+     * 单源失败落点。原版（lambda$error$14）会往结果列表塞一条 "数据获取失败-_-" 伪条目
+     * 把整页变成报错页；2026-10-24 用户定口径改之：单源失败只在它自己的底部状态位
+     * 标「失败」（状态 3 + 状态事件，宿主状态条与失败源汇总都走这条），结果页保持空、
+     * 不当结果页展示，搜索跳过本源继续其余源。此处刻意不照原版塞伪条目。
+     */
     private void errorOnUi(String title, String msg, String code, Exception e) {
         if (!isAdded() || isDetached()) return;
         loading(false);
@@ -329,9 +334,6 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         }
         searchEngine.setStatus(3);
         EventBus.getDefault().post(new HkSearchStatusEvent(searchEngine, group));
-        SearchResult pseudo = new SearchResult("数据获取失败-_-", "小棉袄");
-        pseudo.setContent(getErrorMsg(title, msg, code, e));
-        results.add(pseudo);
         if (adapter != null) adapter.notifyDataSetChanged();
     }
 

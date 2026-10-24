@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
@@ -28,7 +29,7 @@ import androidx.annotation.Nullable;
  * X-14 落法：舞台宽高在 onSizeChanged 按屏宽公式定死（不随切歌/内容变化），
  * 切歌只换三槽位图与位移动画代次，绝不重绑根布局、不改根宽——避开旧账两因。
  * 袖：外 Box 当前槽 1.48×f3／非当前 f3；袖层圆角 1.5dp＋封面本体圆角 2dp；
- * 架板宽 1.1×f3、高 6dp、偏移 (−0.05×f3, f3−2dp)，色暂用 ShelfInk（瓜子板色未定位，旧几何存档同口径）。
+ * 架板宽 1.1×f3、高 6dp、偏移 (−0.05×f3, f3−2dp)；填充为三层半透明黑槽影（2026-10-25 深挖抠实）；袖内无封面占位＝居中音符矢量 0.18×f、ShelfMuted（同批抠实）。
  * 圆盘：直径 0.97×封套、圆形、阴影 5dp（以盘下暗圆近似）；滑动露出：
  * translationX＝−f×0.51×(1−reveal)、旋转＝盘自转＋(1−reveal)×(−70°)，
  * reveal 取槽位接近度 clamp(1−|slot|,0,1)（静止当前槽 reveal＝1 全探出；侧槽无盘，与 GZ 侧槽不绘盘一致）。
@@ -55,6 +56,29 @@ public class ShelfStageView extends View {
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF rect = new RectF();
     private final Path clipPath = new Path();
+    private final Matrix noteMatrix = new Matrix();
+    private final Path notePath = new Path();
+
+    /** Rounded.MusicNote 矢量（24×24；GZ tf2.w() 构建路径逐笔解码，相对曲线已换算为绝对坐标）。 */
+    private static final Path NOTE_PATH = buildNotePath();
+
+    private static Path buildNotePath() {
+        Path p = new Path();
+        p.moveTo(12f, 5f);
+        p.lineTo(12f, 13.55f);
+        p.cubicTo(11.06f, 13.01f, 9.9f, 12.8f, 8.67f, 13.23f);
+        p.cubicTo(7.33f, 13.71f, 6.3f, 14.9f, 6.06f, 16.3f);
+        p.cubicTo(5.6f, 19.04f, 7.92f, 21.38f, 10.65f, 20.95f);
+        p.cubicTo(12.61f, 20.64f, 14f, 18.84f, 14f, 16.85f);
+        p.lineTo(14f, 7f);
+        p.lineTo(16f, 7f);
+        p.cubicTo(17.1f, 7f, 18f, 6.1f, 18f, 5f);
+        p.cubicTo(18f, 3.9f, 17.1f, 3f, 16f, 3f);
+        p.lineTo(14f, 3f);
+        p.cubicTo(12.9f, 3f, 12f, 3.9f, 12f, 5f);
+        p.close();
+        return p;
+    }
 
     private Bitmap coverPrev;
     private Bitmap coverCur;
@@ -239,13 +263,21 @@ public class ShelfStageView extends View {
         canvas.scale(scale, scale);
         canvas.translate(-slotCenterX, -sleeveBottom);
 
-        // 架板：宽 1.1×f3、高 6dp、偏移 (−0.05×f3, f3−2dp)
+        // 架板：宽 1.1×f3、高 6dp、偏移 (−0.05×f3, f3−2dp)；填充不是纯色——GZ 实证为三层
+        // 半透明黑槽影叠画（全幅 α0.055／内缩 α0.10／芯 α0.17、无圆角），ShelfInk 只是墨色不作板色。
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(SHELF_INK);
         float boardLeft = slotCenterX - sleevePx / 2f + dp(-0.05f * sleeveDp);
         float boardTop = sleeveTop + sleevePx - dp(2f);
-        rect.set(boardLeft, boardTop, boardLeft + sleevePx * 1.1f, boardTop + dp(6f));
-        canvas.drawRoundRect(rect, dp(3f), dp(3f), paint);
+        float boardW = sleevePx * 1.1f;
+        float boardH = dp(6f);
+        paint.setColor(0x0E000000);
+        canvas.drawRect(boardLeft, boardTop, boardLeft + boardW, boardTop + boardH, paint);
+        paint.setColor(0x1A000000);
+        canvas.drawRect(boardLeft + boardW * 0.06f, boardTop + boardH * 0.20f,
+                boardLeft + boardW * 0.94f, boardTop + boardH * 0.74f, paint);
+        paint.setColor(0x2B000000);
+        canvas.drawRect(boardLeft + boardW * 0.12f, boardTop + boardH * 0.34f,
+                boardLeft + boardW * 0.88f, boardTop + boardH * 0.58f, paint);
 
         // 圆盘（仅接近当前槽时绘：reveal＝v；侧槽静止 v＝0 不绘，与 GZ 一致）
         if (v > 0.001f) {
@@ -272,16 +304,17 @@ public class ShelfStageView extends View {
             canvas.drawBitmap(cover, sleeveLeft + (sleevePx - dw) / 2f, sleeveTop + (sleevePx - dh) / 2f, bitmapPaint);
             canvas.restoreToCount(save);
         } else {
-            paint.setColor(0xFFE8E4DA);
-            rect.set(sleeveLeft, sleeveTop, sleeveLeft + sleevePx, sleeveBottom);
-            canvas.drawRoundRect(rect, dp(2f), dp(2f), paint);
-            if (slot == 0 && !titleCur.isEmpty()) {
-                paint.setColor(0xFF86857E);
-                paint.setTextSize(dp(28f));
-                paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText(titleCur.substring(0, 1), slotCenterX, sleeveTop + sleevePx / 2f + dp(10f), paint);
-                paint.setTextAlign(Paint.Align.LEFT);
-            }
+            // 无封面占位（GZ 实证）：袖面居中音符矢量 Rounded.MusicNote、边长 0.18×f、tint ShelfMuted，
+            // 画序在封面之下（有封面被盖住、无封面才露出）；星辰旧版素色块＋歌名首字作废。
+            float noteSize = sleevePx * 0.18f;
+            noteMatrix.setScale(noteSize / 24f, noteSize / 24f);
+            noteMatrix.postTranslate(sleeveLeft + (sleevePx - noteSize) / 2f,
+                    sleeveTop + (sleevePx - noteSize) / 2f);
+            notePath.set(NOTE_PATH);
+            notePath.transform(noteMatrix);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFF86857E);
+            canvas.drawPath(notePath, paint);
         }
         // 袖面高光：#D7D5CF 斜光（sleeveEdgeLighting 色）低 alpha 覆顶
         paint.setColor(0x2ED7D5CF);

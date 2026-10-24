@@ -2,7 +2,9 @@ package com.fongmi.android.tv.ui.music;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Shader;
 import android.os.SystemClock;
 import android.text.TextPaint;
 import android.util.AttributeSet;
@@ -42,6 +44,8 @@ public class ShelfLyricView extends View {
 
     private final TextPaint mainPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint subPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    /** 面顶部内阴影带专用（GZ shelfInformationSurface 绘制修饰抠实，见 onDraw）。 */
+    private final Paint shadowPaint = new Paint();
     private final List<LyricsLine> lines = new ArrayList<>();
     private final List<String> subs = new ArrayList<>();
     private int currentIndex = -1;
@@ -277,9 +281,33 @@ public class ShelfLyricView extends View {
         return Math.round(strength * 2f) / 2f;
     }
 
+    /**
+     * 当前行锚位 Y（视图坐标）：GZ CoverCurrentLyric 钳制支实证（2026-10-25 深挖）——
+     * anchor＝min(字号量＋槽高量, 0.55×内容高)；字号量＝字号px（0.75×行高，行高＝字号×4/3）、
+     * 槽高量＝行高＋20dp（COVER_LINE_GAP）。星辰旧版「面高 12%」固定比例作废。
+     */
+    private float anchorY() {
+        float density = getResources().getDisplayMetrics().density;
+        float contentH = getHeight() - getPaddingTop() - getPaddingBottom();
+        float fontPx = mainPaint.getTextSize();
+        float want = fontPx + (fontPx * (4f / 3f) + LINE_GAP_DP * density);
+        return getPaddingTop() + Math.min(want, contentH * 0.55f);
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        // 面顶部内阴影带（GZ shelfInformationSurface 抠实）：高 min(20dp, 面高)，
+        // 竖向渐变停点 0→黑α0.13、0.35→黑α0.055、1→透明。
+        if (getHeight() > 0 && getWidth() > 0) {
+            float density = getResources().getDisplayMetrics().density;
+            float bandH = Math.min(20f * density, getHeight());
+            shadowPaint.setShader(new LinearGradient(0, 0, 0, bandH,
+                    new int[]{0x21000000, 0x0E000000, 0x00000000},
+                    new float[]{0f, 0.35f, 1f}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, getWidth(), bandH, shadowPaint);
+            shadowPaint.setShader(null);
+        }
         int width = getWidth() - getPaddingLeft() - getPaddingRight();
         if (width <= 0) return;
         float x0 = getPaddingLeft();
@@ -294,8 +322,7 @@ public class ShelfLyricView extends View {
         }
         float slot = slotHeightPx();
         int cur = Math.max(0, currentIndex);
-        // 当前行锚在面上部 12% 处（面内歌词自舞台底向下排，锚位星辰侧排布，GZ 锚公式未抠到，见报告）
-        float anchorY = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) * 0.12f;
+        float anchorY = anchorY();
         float baseTop = anchorY - cur * slot;
         float density = getResources().getDisplayMetrics().density;
         for (int i = 0; i < lines.size(); i++) {
@@ -333,7 +360,7 @@ public class ShelfLyricView extends View {
         if (event.getActionMasked() == MotionEvent.ACTION_UP && lineClickListener != null && !lines.isEmpty()) {
             float slot = slotHeightPx();
             int cur = Math.max(0, currentIndex);
-            float anchorY = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) * 0.12f;
+            float anchorY = anchorY();
             int idx = cur + Math.round((event.getY() - anchorY - mainPaint.getTextSize() / 2f) / slot);
             if (idx >= 0 && idx < lines.size()) {
                 lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());

@@ -124,7 +124,8 @@
             android:layout_height="10dp" />
     </LinearLayout>
 
-    <!-- 主控行 76dp、横垫 20dp、纵向偏移 −12dp、末尾 8dp 垫：键盒 48、播放盒 68 图标 52 -->
+    <!-- 主控行 76dp、横垫 20dp、纵向偏移 −12dp、末尾 8dp 垫：键盒 48/48/68/48/48、图标 24/32/52/32/24；
+         间距＝GZ SpaceBetween（两端贴边、余量四等分到键间），以四个等权 spacer 实现 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="76dp"
@@ -154,14 +155,23 @@
             android:padding="8dp"
             android:src="@drawable/ic_music_prev" />
 
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
         <ImageView
             android:id="@+id/tpShelfPlay"
             android:layout_width="68dp"
             android:layout_height="68dp"
-            android:layout_marginHorizontal="10dp"
             android:contentDescription="@string/music_play_pause"
             android:padding="8dp"
             android:src="@drawable/ic_music_pause" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <ImageView
             android:id="@+id/tpShelfBtnNext"

@@ -23,7 +23,7 @@ import java.util.List;
  * 调色 PlayerLyricPalette(ink, ink×0.42, ink×0.38, ink×0.42)（sung/activeUnsung/inactive/translation）；
  * 当前行 alpha 1.0、其余 0.55（任务口径）；歌词字带一点斜 SKEW −0.12（定案，非瓜子值，
  * 与 CoverLyricView 同口径）；副行（翻译）字号＝主行×0.62、字重 500。
- * 窗口：当前行锚在窗高 40% 处（星辰侧排布，GZ 锚定公式在未反编译引擎内、未抠到，见报告），
+ * 窗口：当前行块居中锚（2026-10-25 深挖抠实：max((窗高−块高)/2, 字号量)，旧「窗高 40%」作废），
  * 前后行按槽高排布；点行＝回调行首时间（页级口径：点歌词行 seek）。
  * 非当前行模糊：源头距离公式未抠到（§19-2），本窗不冒充——只压暗不挂模糊（报告明记）。
  */
@@ -216,6 +216,23 @@ public class CdLyricWindowView extends View {
         return (color & 0x00FFFFFF) | (a << 24);
     }
 
+    /**
+     * 当前行块顶 Y（视图坐标）：GZ CoverCurrentLyric 居中支实证（2026-10-25 深挖）——
+     * anchor＝max((内容高 − 当前行块高)/2, 字号量)，字号量＝字号px（0.75×行高，行高＝字号×4/3）；
+     * 块高按当前行实有构成（主行＋有副行时副行）近 GZ 的实测块高。星辰旧版「窗高 40%」作废。
+     */
+    private float anchorY() {
+        float contentH = getHeight() - getPaddingTop() - getPaddingBottom();
+        float blockH = mainHeightPx();
+        int cur = Math.max(0, currentIndex);
+        if (showSub && cur < subs.size()) {
+            String sub = subs.get(cur);
+            if (sub != null && !sub.isEmpty()) blockH += subHeightPx();
+        }
+        float centered = (contentH - blockH) / 2f;
+        return getPaddingTop() + Math.max(centered, mainPaint.getTextSize());
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -230,7 +247,7 @@ public class CdLyricWindowView extends View {
             return;
         }
         float slot = slotHeightPx();
-        float anchorY = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) * 0.4f;
+        float anchorY = anchorY();
         int cur = Math.max(0, currentIndex);
         float baseline = anchorY - cur * slot + mainPaint.getTextSize();
         for (int i = 0; i < lines.size(); i++) {
@@ -269,7 +286,7 @@ public class CdLyricWindowView extends View {
         if (event.getActionMasked() == MotionEvent.ACTION_UP) {
             if (!lines.isEmpty()) {
                 float slot = slotHeightPx();
-                float anchorY = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) * 0.4f;
+                float anchorY = anchorY();
                 int cur = Math.max(0, currentIndex);
                 int idx = cur + Math.round((event.getY() - anchorY) / slot);
                 if (idx >= 0 && idx < lines.size()) {

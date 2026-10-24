@@ -99,6 +99,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     /** 当前条是否为音乐样式（浅色胶囊：圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） */
     private boolean barMusicMode;
     private ImageView ivVinyl;
+    /** 音乐条已绑定的封面地址（批 7 防挂旧脸：切歌换址时先清旧图再加载，见 bindMusicSession）。 */
+    private String musicBoundCover;
     // 以下成员只服务音乐分支（buildMusicBar/bindMusicSession），听书条不读写
     private HomeProgressRingView homeRing;
     private ImageView homeNextBtn;
@@ -699,6 +701,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
         ivVinyl = bar.findViewById(R.id.homeCover);
+        // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
+        musicBoundCover = null;
         // 第三波 M3：新封面视图先恢复摘条时记下的转角，不从头转。
         if (ivVinyl != null) ivVinyl.setRotation(savedHomeRotation);
         homeRing = bar.findViewById(R.id.homeRing);
@@ -748,13 +752,26 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         try {
             com.fongmi.android.tv.bean.music.MusicTrack t = musicCtl().current();
             tvTitle.setText(t == null ? "" : t.displayTitle());
-            if (t != null && t.cover != null && !t.cover.isEmpty() && ivVinyl != null) {
-                ImgUtil.loadCircle(t.displayTitle(), t.cover, ivVinyl);
-            } else if (ivVinyl != null) {
-                // 封面地址真为空才上素图（素灰底＋歌名首字，小圆排不下整名）；
-                // 有地址的走加载、失败也透明，不在这里兜底（封面规矩按有无地址分）
-                ivVinyl.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
-                        t == null ? "" : t.displayTitle(), true, -1));
+            if (ivVinyl != null) {
+                String cover = t == null ? null : t.cover;
+                boolean hasCover = cover != null && !cover.isEmpty();
+                if (hasCover) {
+                    // 批 7 防挂旧脸（瓜子切歌挂上一首封面的 bug 不学，他 2026-10-24 点名）：
+                    // 封面地址变了＝换歌，先清掉上一首的图再异步加载新图——新图就绪前保持透明
+                    //（有地址加载中／失败都透明是封面占位定案），不让旧封面陪新歌名一起露面。
+                    // 地址没变（播放态／进度刷新重绑）不动图，避免闪烁。
+                    if (!cover.equals(musicBoundCover)) {
+                        musicBoundCover = cover;
+                        ivVinyl.setImageDrawable(null);
+                        ImgUtil.loadCircle(t.displayTitle(), cover, ivVinyl);
+                    }
+                } else {
+                    musicBoundCover = null;
+                    // 封面地址真为空才上素图（素灰底＋歌名首字，小圆排不下整名）；
+                    // 有地址的走加载、失败也透明，不在这里兜底（封面规矩按有无地址分）
+                    ivVinyl.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                            t == null ? "" : t.displayTitle(), true, -1));
+                }
             }
         } catch (Throwable ignored) {
         }

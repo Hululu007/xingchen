@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 全屏歌词页（批 2，形态只认实证：录屏 f001＋截图 112747＋对照图 113010 中机）：
      封面拉满整屏作背景、下半渐隐到封面取色底（渐隐罩由 MusicLyricPageView 在封面之上插入 ToneVeilView）；
-     歌名左对齐压在歌词上方，歌名下「歌手 ♡ 专辑名」一行；歌名行右侧三个裸图标（☰／播放列表／暂停）；
+     歌名左对齐压在歌词上方，歌名下「歌手 ♡ 专辑名」一行；歌名行右侧两个裸图标（播放列表／暂停——
+     瓜子此处最左的 ☰ 已于批 7 摘除：抠实＝一起听邀请面板入口，定案不做，见批 7 报告）；
      歌词左对齐沉浸滚动。没有顶部小封面、没有底部进度条和底部按键。
      头行与歌词区的纵向位置由 MusicLyricPageView 按封面方幅（宽＝高）在 onSizeChanged 里落位。 -->
 <com.fongmi.android.tv.ui.music.MusicLyricPageView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -84,24 +85,15 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 右侧三键：盒各 40dp（SongMeta 同口径）；☰ 菜单键功能未抠明——只画不接线（见批 2 报告 ☰ 深挖） -->
+        <!-- 右侧两键：盒各 40dp（SongMeta 同口径）。批 7 摘键：☰（btnLyricMenu）已删——
+             jadx 抠实它在瓜子打开「一起听」邀请面板（ListenTogetherInviteSheet），一起听是定案不做项，
+             按「假键比缺键更糟」摘键；键组只剩队列＋暂停，wrap_content 不留空洞。 -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
-
-            <ImageView
-                android:id="@+id/btnLyricMenu"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:clickable="false"
-                android:contentDescription="@string/music_more"
-                android:focusable="false"
-                android:padding="9.5dp"
-                android:src="@drawable/ic_music_menu"
-                android:tint="#FFFFFF" />
 
             <ImageView
                 android:id="@+id/btnLyricQueue"

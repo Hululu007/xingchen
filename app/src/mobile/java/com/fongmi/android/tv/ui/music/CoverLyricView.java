@@ -58,6 +58,7 @@ public class CoverLyricView extends View {
     private int blurLevel = 2;
     private boolean showSub = true;
     private boolean alignCenter;
+    private int textAlign;
     private String emptyText = "";
     private OnLineClickListener lineClickListener;
 
@@ -129,6 +130,30 @@ public class CoverLyricView extends View {
     public void setAlignCenter(boolean center) {
         alignCenter = center;
         invalidate();
+    }
+
+    /** 文本对齐（批 7 补线：键 music_lyric_align 0 左／1 中／2 右，此前只进了工具面板预览）。
+     * 封面卡片展开态的 alignCenter 是主题层钉死的居中口径，优先级高于设置键——alignCenter 在时仍居中。 */
+    public void setTextAlign(int align) {
+        textAlign = (align == 1 || align == 2) ? align : 0;
+        invalidate();
+    }
+
+    /** 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗）。 */
+    public void setLyricWeight(int weight) {
+        drawer.setLyricWeight(weight);
+        invalidate();
+    }
+
+    /** 行起点 X（对齐口径统一：居中＝alignCenter 或设置键 1；右＝设置键 2；其余左）。超宽行钳到左起点不溢出。 */
+    private float rowStartX(float x, float width, float textW) {
+        if (alignCenter || textAlign == 1) {
+            return x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
+        }
+        if (textAlign == 2) {
+            return x + Math.max(0f, width - Math.min(width, textW));
+        }
+        return x;
     }
 
     /** 当前行序号（宿主玻璃条单行歌词取当前行文本用）。 */
@@ -270,11 +295,7 @@ public class CoverLyricView extends View {
             int distance = currentIndex < 0 ? i : Math.abs(i - currentIndex);
             boolean current = i == currentIndex;
             LyricsLine line = lines.get(i);
-            float rowX = x;
-            if (alignCenter) {
-                float textW = drawer.measureMain(line.getText());
-                rowX = x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
-            }
+            float rowX = rowStartX(x, width, drawer.measureMain(line.getText()));
             if (current) {
                 drawer.drawCurrentMain(canvas, line, pos - line.getTimeMs(), lineDurationMs(i),
                         rowX, baseline, width);
@@ -285,11 +306,7 @@ public class CoverLyricView extends View {
                 String sub = i < subs.size() ? subs.get(i) : null;
                 if (sub != null && !sub.isEmpty()) {
                     float subBaseline = baseline + subLineHeightPx() * 0.92f;
-                    float subX = x;
-                    if (alignCenter) {
-                        float subW = drawer.measureSub(sub);
-                        subX = x + Math.max(0f, (width - Math.min(width, subW)) / 2f);
-                    }
+                    float subX = rowStartX(x, width, drawer.measureSub(sub));
                     drawer.drawSub(canvas, sub, subX, subBaseline, width, current);
                 }
             }

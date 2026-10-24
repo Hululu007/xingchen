@@ -98,6 +98,21 @@ public final class MusicPlayerSettings {
         return MusicStore.getLyricOffsetMs();
     }
 
+    /** 歌词字重（批 7 补线：0 标准／1 加粗／2 特粗；键 music_lyric_weight 在 MusicStore，此前只进了工具面板预览）。 */
+    public static int getLyricWeight() {
+        return MusicStore.getLyricWeight();
+    }
+
+    /** 歌词对齐（批 7 补线：0 左／1 中／2 右；键 music_lyric_align 在 MusicStore）。 */
+    public static int getLyricAlign() {
+        return MusicStore.getLyricAlign();
+    }
+
+    /** 主歌词（批 7 补线：0 原文为主／1 翻译为主／2 音译为主；键 music_lyric_primary 在 MusicStore）。 */
+    public static int getLyricPrimary() {
+        return MusicStore.getLyricPrimary();
+    }
+
     /** 歌词高级动效（§0 默认开；与 MusicStore 同键）。 */
     public static boolean isAdvancedFx() {
         return Prefers.getBoolean(K_ADVANCED_FX, true);

@@ -10,6 +10,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.text.TextPaint;
 import android.text.TextUtils;
 
@@ -69,6 +70,34 @@ public class LyricLineDrawer {
         mainPaint.setLetterSpacing(letterSpacingEm);
         subPaint.setTextSize(mainSizePx * LyricWordEngine.SUB_RATIO);
         subPaint.setLetterSpacing(letterSpacingEm);
+        clearGlowCache();
+    }
+
+    /**
+     * 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗，此前只进了工具面板预览）。
+     * 映射照面板预览 applyPreview 的既有先例：0→400（低版 DEFAULT）、1→700（DEFAULT_BOLD）、
+     * 2→900（低版 DEFAULT_BOLD＋fakeBold 近似）。只挂主行画笔，副行 §6.1 字重 500 不动。
+     * 光晕位图键不含字重，换字重必须作废缓存，否则光晕仍按旧字重出图。
+     */
+    public void setLyricWeight(int weight) {
+        Typeface base;
+        boolean fake = false;
+        if (weight >= 2) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                base = Typeface.create(Typeface.DEFAULT, 900);
+            } else {
+                base = Typeface.DEFAULT_BOLD;
+                fake = true;
+            }
+        } else if (weight == 1) {
+            base = Typeface.DEFAULT_BOLD;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            base = Typeface.create(Typeface.DEFAULT, 400);
+        } else {
+            base = Typeface.DEFAULT;
+        }
+        mainPaint.setTypeface(base);
+        mainPaint.setFakeBoldText(fake);
         clearGlowCache();
     }
 

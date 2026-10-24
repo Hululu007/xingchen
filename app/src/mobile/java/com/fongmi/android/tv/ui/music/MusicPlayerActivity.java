@@ -1496,17 +1496,19 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
     }
 
-    /** 玻璃条单行歌词（§3：当前行文本，13sp 居中由布局给）：随内嵌歌词当前行走，无词时显示无词文案。 */
+    /** 玻璃条单行歌词（§3：当前行文本，13sp 居中由布局给）：随内嵌歌词当前行走，无词时显示无词文案。
+     * 批 7：取生效主行（主歌词键提升后显示提升文本，与各歌词面同口径）。 */
     private void updateGlassLyricLine() {
         if (glassLyricView == null) return;
         String text;
-        if (lyricMains.isEmpty()) {
+        List<LyricsLine> mains = effectiveMains();
+        if (mains.isEmpty()) {
             text = getString(R.string.music_no_lyric);
         } else {
             int idx = lyricView == null ? -1 : lyricView.currentIndex();
             if (idx < 0) idx = 0;
-            if (idx >= lyricMains.size()) idx = lyricMains.size() - 1;
-            text = lyricMains.get(idx).getText();
+            if (idx >= mains.size()) idx = mains.size() - 1;
+            text = mains.get(idx).getText();
             if (text == null) text = "";
         }
         if (!text.equals(glassLyricShown)) {
@@ -1520,13 +1522,14 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (cdSummaryMainView == null) return;
         String main;
         String sub = "";
-        if (lyricMains.isEmpty()) {
+        List<LyricsLine> mains = effectiveMains();
+        if (mains.isEmpty()) {
             main = getString(R.string.music_no_lyric);
         } else {
             int idx = cdLyricView == null ? -1 : cdLyricView.currentIndex();
             if (idx < 0) idx = 0;
-            if (idx >= lyricMains.size()) idx = lyricMains.size() - 1;
-            main = lyricMains.get(idx).getText();
+            if (idx >= mains.size()) idx = mains.size() - 1;
+            main = mains.get(idx).getText();
             if (main == null) main = "";
             List<String> subs = subLines();
             if (idx < subs.size() && subs.get(idx) != null) sub = subs.get(idx);
@@ -2447,10 +2450,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 歌词（批 2：逐字引擎＋全屏歌词页） =================
 
     private void applyLyricStyle() {
+        // 批 7 补线：字重／对齐两键在此统一读出下发（主歌词键在喂词层 effectiveMains 换算，见该处注）。
+        int lyricWeight = MusicPlayerSettings.getLyricWeight();
+        int lyricAlign = MusicPlayerSettings.getLyricAlign();
         if (cdLyricView != null) {
             // CD 歌词窗字号固定 21sp（§4 字面值，不走封面字号设置）；副行开关与全页同口径
             cdLyricView.setShowSub(MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization());
             cdLyricView.setEmptyText(getString(R.string.music_no_lyric));
+            // 批 7：CD 窗只接字重——对齐不接（§4 本窗居中是瓜子定式：摘要行居中、窗内居中单行，不是设置键的左对齐面）。
+            cdLyricView.setLyricWeight(lyricWeight);
         }
         if (shelfLyricView != null) {
             // 唱片架歌词面字号走封面字号键（出厂 22＝§5 字面值）、模糊档共用存量键（默认 medium 档位映射见 ShelfLyricView）
@@ -2458,12 +2466,17 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             shelfLyricView.setBlurLevel(MusicPlayerSettings.getCoverLyricBlurLevel());
             shelfLyricView.setShowSub(MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization());
             shelfLyricView.setEmptyText(getString(R.string.music_no_lyric));
+            // 批 7：唱片架独立画笔，接字重＋对齐（其行 X 现为写死左对齐，现按键算）。
+            shelfLyricView.setLyricWeight(lyricWeight);
+            shelfLyricView.setTextAlign(lyricAlign);
         }
         if (lyricView != null) {
             lyricView.setFontSizeSp(MusicPlayerSettings.getCoverLyricFontSize());
             lyricView.setBlurLevel(MusicPlayerSettings.getCoverLyricBlurLevel());
             lyricView.setAdvancedFx(MusicPlayerSettings.isAdvancedFx());
             lyricView.setShowSub(MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization());
+            lyricView.setLyricWeight(lyricWeight);
+            lyricView.setTextAlign(lyricAlign);
             sizeExpandedLyricSlot();
         }
         if (appleLyricView != null) {
@@ -2471,17 +2484,56 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             appleLyricView.setFontSizeSp(MusicPlayerSettings.getFullLyricFontSize());
             appleLyricView.setBlurLevel(MusicPlayerSettings.getCoverLyricBlurLevel());
             appleLyricView.setAdvancedFx(MusicPlayerSettings.isAdvancedFx());
+            appleLyricView.setLyricWeight(lyricWeight);
+            appleLyricView.setTextAlign(lyricAlign);
             appleLyricView.setFadeColor(ambientColor);
         }
         if (lyricPageView != null) {
             // 全屏模糊档与封面共用同一个存量键（MusicStore 只有这一把模糊键，§0 全屏／封面默认同为 medium）。
             lyricPageView.applyLyricStyle(MusicPlayerSettings.getFullLyricFontSize(),
-                    MusicPlayerSettings.getCoverLyricBlurLevel(), MusicPlayerSettings.isAdvancedFx());
+                    MusicPlayerSettings.getCoverLyricBlurLevel(), MusicPlayerSettings.isAdvancedFx(),
+                    lyricWeight, lyricAlign);
         }
     }
 
-    /** 副行选词：翻译开取翻译、罗马音开取罗马音（都开时翻译优先，与旧页喂词口径一致的简化：副行只有一条槽）。 */
+    /**
+     * 主歌词生效行（批 7 补线：键 music_lyric_primary 0 原文为主／1 翻译为主／2 音译为主，
+     * 此前只进了工具面板预览 applyPreview、真渲染从未读）。
+     * 提升法：以原文行的 timeMs 为时间轴，把译文／音译逐行提为主行文本（该行译文为空时回落该行原文，
+     * 不出空行）；副行改挂原文（见 subLines）。提升后的主行是纯文本行（无逐字词），
+     * 逐字上浮／扫边自然走 LyricLineDrawer 的整行提亮回落——这是数据形态的固有限制，不是接线缺失。
+     * 在喂词层（feedLyricView／摘要／玻璃条）统一换算，一处覆盖全部歌词面（内嵌／全屏／Apple／CD／唱片架／歌词页）。
+     */
+    private List<LyricsLine> effectiveMains() {
+        int primary = MusicPlayerSettings.getLyricPrimary();
+        if (primary == 1 && hasNonEmpty(lyricTrans)) return promotedLines(lyricTrans);
+        if (primary == 2 && hasNonEmpty(lyricRomas)) return promotedLines(lyricRomas);
+        return lyricMains;
+    }
+
+    private List<LyricsLine> promotedLines(List<String> src) {
+        List<LyricsLine> out = new ArrayList<>();
+        for (int i = 0; i < lyricMains.size(); i++) {
+            LyricsLine orig = lyricMains.get(i);
+            String text = i < src.size() ? src.get(i) : null;
+            if (text == null || text.isEmpty()) text = orig.getText();
+            out.add(new LyricsLine(orig.getTimeMs(), text == null ? "" : text));
+        }
+        return out;
+    }
+
+    private List<String> originalTextLines() {
+        List<String> out = new ArrayList<>();
+        for (LyricsLine line : lyricMains) out.add(line.getText() == null ? "" : line.getText());
+        return out;
+    }
+
+    /** 副行选词：翻译开取翻译、罗马音开取罗马音（都开时翻译优先，与旧页喂词口径一致的简化：副行只有一条槽）。
+     * 批 7：主歌词已提升翻译／音译时，副行改挂原文（与 effectiveMains 成对换位，不重复显示同一文本）。 */
     private List<String> subLines() {
+        int primary = MusicPlayerSettings.getLyricPrimary();
+        if (primary == 1 && hasNonEmpty(lyricTrans)) return originalTextLines();
+        if (primary == 2 && hasNonEmpty(lyricRomas)) return originalTextLines();
         if (MusicPlayerSettings.isShowTranslation()) return new ArrayList<>(lyricTrans);
         if (MusicPlayerSettings.isShowRomanization()) return new ArrayList<>(lyricRomas);
         return new ArrayList<>();
@@ -2489,30 +2541,30 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void feedLyricView() {
         if (cdLyricView != null) {
-            cdLyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            cdLyricView.setLines(new ArrayList<>(effectiveMains()), subLines());
             cdLyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
             cdSummaryShown = "\u0001";
             updateCdSummary();
         }
         if (shelfLyricView != null) {
-            shelfLyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            shelfLyricView.setLines(new ArrayList<>(effectiveMains()), subLines());
             shelfLyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
         }
         if (lyricView != null) {
-            lyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            lyricView.setLines(new ArrayList<>(effectiveMains()), subLines());
             lyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
         }
         if (appleLyricView != null) {
             boolean showSub = MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization();
             appleLyricView.setShowSub(showSub);
-            appleLyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            appleLyricView.setLines(new ArrayList<>(effectiveMains()), subLines());
             appleLyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
         }
         glassLyricShown = "\u0001";
         updateGlassLyricLine();
         if (lyricPageView != null) {
             boolean showSub = MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization();
-            lyricPageView.setLyricData(new ArrayList<>(lyricMains), subLines(), showSub);
+            lyricPageView.setLyricData(new ArrayList<>(effectiveMains()), subLines(), showSub);
             lyricPageView.setLyricPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
         }
     }

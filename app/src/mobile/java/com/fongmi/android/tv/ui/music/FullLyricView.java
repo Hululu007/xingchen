@@ -64,6 +64,7 @@ public class FullLyricView extends View {
     private int currentIndex = -1;
     private float fontSizeSp = 24f;
     private int blurLevel = 2;
+    private int textAlign;
     private boolean showSub = true;
     private String emptyText = "";
     private int fadeColor = 0;
@@ -137,6 +138,28 @@ public class FullLyricView extends View {
     public void setBlurLevel(int level) {
         blurLevel = Math.max(0, Math.min(2, level));
         invalidate();
+    }
+
+    /** 文本对齐（批 7 补线：键 music_lyric_align 0 左／1 中／2 右，此前只进了工具面板预览）。
+     * 对齐改变折行后视觉行宽即变，须重算布局（字重经 setLyricWeight 同样影响度量，一并走 layoutWidth 重置）。 */
+    public void setTextAlign(int align) {
+        textAlign = (align == 1 || align == 2) ? align : 0;
+        layoutWidth = -1;
+        invalidate();
+    }
+
+    /** 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗）。 */
+    public void setLyricWeight(int weight) {
+        drawer.setLyricWeight(weight);
+        layoutWidth = -1;
+        invalidate();
+    }
+
+    /** 视觉行起点 X：按对齐与实测行宽算；超宽（单行宽≥可用宽）钳到左起点不溢出。 */
+    private float rowStartX(float x, float width, float textW) {
+        if (textAlign == 1) return x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
+        if (textAlign == 2) return x + Math.max(0f, width - Math.min(width, textW));
+        return x;
     }
 
     public void setAdvancedFx(boolean advancedFx) {
@@ -404,21 +427,25 @@ public class FullLyricView extends View {
             float baseline = lineTop + drawer.mainTextSizePx();
             if (layout.wordRows != null) {
                 for (List<LyricsWord> row : layout.wordRows) {
+                    float rowTextW = 0f;
+                    for (LyricsWord w : row) rowTextW += drawer.measureMain(w.getText());
+                    float rowX = rowStartX(x, width, rowTextW);
                     if (current) {
                         drawer.drawCurrentWordRow(canvas, row, layout.lastWord, pos - line.getTimeMs(),
-                                x, baseline, width);
+                                rowX, baseline, width);
                     } else {
-                        drawIdleRow(canvas, joinWords(row), x, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, joinWords(row), rowX, baseline, lineTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
             } else {
                 for (String rowText : layout.textRows) {
+                    float rowX = rowStartX(x, width, drawer.measureMain(rowText));
                     if (current) {
                         drawer.drawCurrentPlain(canvas, rowText, pos - line.getTimeMs(), lineDurationMs(i),
-                                x, baseline, width);
+                                rowX, baseline, width);
                     } else {
-                        drawIdleRow(canvas, rowText, x, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, rowText, rowX, baseline, lineTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
@@ -428,7 +455,7 @@ public class FullLyricView extends View {
                 if (sub != null && !sub.isEmpty()) {
                     // 副行紧跟主行块下方：副行基线＝行块底 - 副行高 + 副行高×0.92（与内嵌同式）
                     float subBaseline = lineTop + layout.height - subRowHeightPx() + subRowHeightPx() * 0.92f;
-                    drawer.drawSub(canvas, sub, x, subBaseline, width, current);
+                    drawer.drawSub(canvas, sub, rowStartX(x, width, drawer.measureSub(sub)), subBaseline, width, current);
                 }
             }
         }

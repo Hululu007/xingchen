@@ -88,6 +88,33 @@ public class CdLyricWindowView extends View {
         invalidate();
     }
 
+    /**
+     * 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗）。
+     * 映射与 LyricLineDrawer.setLyricWeight 同口径（0→400、1→700、2→900／低版近似）。
+     * 对齐不接：本窗居中是 §4 瓜子定式，不随设置键走（见批 7 报告）。
+     */
+    public void setLyricWeight(int weight) {
+        android.graphics.Typeface base;
+        boolean fake = false;
+        if (weight >= 2) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                base = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 900);
+            } else {
+                base = android.graphics.Typeface.DEFAULT_BOLD;
+                fake = true;
+            }
+        } else if (weight == 1) {
+            base = android.graphics.Typeface.DEFAULT_BOLD;
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            base = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 400);
+        } else {
+            base = android.graphics.Typeface.DEFAULT;
+        }
+        mainPaint.setTypeface(base);
+        mainPaint.setFakeBoldText(fake);
+        invalidate();
+    }
+
     public void setShowSub(boolean show) {
         showSub = show;
         invalidate();

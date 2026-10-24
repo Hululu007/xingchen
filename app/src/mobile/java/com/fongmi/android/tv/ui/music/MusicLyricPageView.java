@@ -24,8 +24,10 @@ import java.util.List;
  * 全屏歌词页（批 2 新页，ui/music 包）：播放页内的整屏页层（与瓜子 pager 内一页同理，
  * 共用播放页已加载的歌词数据与 MusicController，不另起取词链）。
  * 形态只认实证（录屏 f001＋截图 112747＋对照图 113010）：封面拉满整屏作背景、下半渐隐到封面取色底；
- * 歌名左对齐压在歌词上方、歌名下「歌手 ♡ 专辑名」一行；歌名行右侧三个裸图标——
- * ☰（功能未抠明，只画不接线，见批 2 报告）、播放列表（f003 实证）、暂停；
+ * 歌名左对齐压在歌词上方、歌名下「歌手 ♡ 专辑名」一行；歌名行右侧两个裸图标——播放列表（f003 实证）、暂停。
+ * 头行最左的 ☰ 已摘（批 7 终局）：jadx 深挖抠实它在瓜子＝「一起听」邀请面板入口
+ * （ListenTogetherInviteSheet），而一起听是定案不做项（2026-10-20 他拍板全删＋本重建对照单 §八），
+ * 故按「假键比缺键更糟」的明规摘键、不接线、不留空洞（证据链见 batch7-h-finale-report.md）。
  * 歌词左对齐沉浸滚动（FullLyricView）。没有顶部小封面、没有底部进度条和底部按键。
  * 入口＝播放页右划（定案）；点歌词行只快进、不进本页。
  */
@@ -161,11 +163,15 @@ public class MusicLyricPageView extends FrameLayout {
         lyricView.setLines(mains, subs);
     }
 
-    public void applyLyricStyle(float fontSizeSp, int blurLevel, boolean advancedFx) {
+    public void applyLyricStyle(float fontSizeSp, int blurLevel, boolean advancedFx,
+                                int lyricWeight, int lyricAlign) {
         if (lyricView == null) return;
         lyricView.setFontSizeSp(fontSizeSp);
         lyricView.setBlurLevel(blurLevel);
         lyricView.setAdvancedFx(advancedFx);
+        // 批 7 补线：字重／对齐下发全屏歌词视图（此前 applyLyricStyle 只到字号／模糊／动效）。
+        lyricView.setLyricWeight(lyricWeight);
+        lyricView.setTextAlign(lyricAlign);
     }
 
     public void setLyricPosition(long positionMs) {

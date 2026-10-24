@@ -48,6 +48,8 @@ public class ShelfLyricView extends View {
     private int sungColor = 0xFF252522;
     private int inactiveColor = 0xFF86857E;
     private float fontSp = 22f;
+    private int weight = 1; // 主行字重档（批 7：默认 1＝旧写死 DEFAULT_BOLD 的现行观感，设置下发后覆盖）
+    private int textAlign; // 0 左（默认）／1 中／2 右
     private int blurLevel = 1; // 0 关、1 中（medium）、2 强
     private boolean showSub = true;
     private String emptyText = "";
@@ -92,10 +94,47 @@ public class ShelfLyricView extends View {
     private void applyTextSizes() {
         float scaled = getResources().getDisplayMetrics().scaledDensity;
         mainPaint.setTextSize(fontSp * scaled);
-        mainPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        // 字重按设置键（批 7 接入前写死 DEFAULT_BOLD；applyTextSizes 在 setFontSizeSp 时重跑，须用 weight 字段重挂）
+        mainPaint.setTypeface(weightTypeface());
+        mainPaint.setFakeBoldText(weight >= 2
+                && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P);
         mainPaint.setTextSkewX(SKEW);
         subPaint.setTextSize(fontSp * 0.62f * scaled);
         subPaint.setTextSkewX(SKEW);
+    }
+
+    /** 主行字重画笔（映射与 LyricLineDrawer.setLyricWeight 同口径：0→400、1→700、2→900／低版近似）。 */
+    private android.graphics.Typeface weightTypeface() {
+        if (weight >= 2) {
+            return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P
+                    ? android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 900)
+                    : android.graphics.Typeface.DEFAULT_BOLD;
+        }
+        if (weight == 1) return android.graphics.Typeface.DEFAULT_BOLD;
+        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P
+                ? android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 400)
+                : android.graphics.Typeface.DEFAULT;
+    }
+
+    /** 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗）。 */
+    public void setLyricWeight(int value) {
+        weight = value;
+        applyTextSizes();
+        invalidate();
+    }
+
+    /** 文本对齐（批 7 补线：键 music_lyric_align 0 左／1 中／2 右；此前行 X 写死左对齐）。 */
+    public void setTextAlign(int align) {
+        textAlign = (align == 1 || align == 2) ? align : 0;
+        invalidate();
+    }
+
+    /** 行起点 X：按对齐与截断后实测宽算。 */
+    private float rowX(float x0, int width, CharSequence draw, TextPaint paint) {
+        if (textAlign == 0) return x0;
+        float w = paint.measureText(draw, 0, draw.length());
+        if (textAlign == 1) return x0 + Math.max(0f, (width - w) / 2f);
+        return x0 + Math.max(0f, width - w);
     }
 
     public void setFontSizeSp(float sp) {
@@ -271,7 +310,7 @@ public class ShelfLyricView extends View {
             mainPaint.setMaskFilter(blur);
             String text = lines.get(i).getText() == null ? "" : lines.get(i).getText();
             CharSequence draw = android.text.TextUtils.ellipsize(text, mainPaint, width, android.text.TextUtils.TruncateAt.END);
-            canvas.drawText(draw, 0, draw.length(), x0, top + mainPaint.getTextSize(), mainPaint);
+            canvas.drawText(draw, 0, draw.length(), rowX(x0, width, draw, mainPaint), top + mainPaint.getTextSize(), mainPaint);
             if (showSub) {
                 String sub = i < subs.size() ? subs.get(i) : null;
                 if (sub != null && !sub.isEmpty()) {
@@ -279,7 +318,7 @@ public class ShelfLyricView extends View {
                     subPaint.setAlpha(Math.round(255f * fade * (current ? 0.72f : 0.5f)));
                     subPaint.setMaskFilter(blur);
                     CharSequence dsub = android.text.TextUtils.ellipsize(sub, subPaint, width, android.text.TextUtils.TruncateAt.END);
-                    canvas.drawText(dsub, 0, dsub.length(), x0, top + mainHeightPx() + subPaint.getTextSize() * 0.92f, subPaint);
+                    canvas.drawText(dsub, 0, dsub.length(), rowX(x0, width, dsub, subPaint), top + mainHeightPx() + subPaint.getTextSize() * 0.92f, subPaint);
                 }
             }
         }

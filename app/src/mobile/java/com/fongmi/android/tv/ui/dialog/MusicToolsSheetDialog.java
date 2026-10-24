@@ -100,7 +100,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
         void onDownload();
 
-        /** A4 外观开关变化（流体／律动）时通知播放页刷新流体层 */
+        /** A4 外观开关变化（流体）时通知播放页刷新流体层 */
         void onAppearanceChanged();
     }
 
@@ -769,7 +769,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     }
 
     /** ⑤ 设置卡（GZ 工具面板设置卡原样）：2 列格（均衡器｜播放页主题／外观设置｜自定义封面）
-     * ＋分割线＋不熄屏开关行（＋仅横屏：分割线＋左手布局开关行）。
+     * ＋分割线＋不熄屏开关行。
+     * 批 7 摘行：「左手布局（横屏）」行已摘——键 music_left_hand_landscape 全树无读取方（批 6 全键核对查实），
+     * 是假开关；键与存量值保留不动（MusicStore 本体未动），只摘 UI 行。
      * 堵-2 恢复：歌曲信息行已加回设置卡（导航行→歌曲信息子面板，子面板代码即其去向）；
      * 瓜子对齐后主面板不再放的行：来源行（瓜子主面板没有；在歌曲信息子面板里看）、
      * 下一首播放／加入播放队列（瓜子没有；当前曲已在队列中，复拷意义小）。
@@ -818,16 +820,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         addDivider(card);
         card.addView(switchRow(R.drawable.ic_setting_sun, getString(R.string.music_keep_screen_on), MusicStore.isPlayerKeepScreenOn(),
                 on -> MusicStore.setPlayerKeepScreenOn(on)));
-        // A7 门控照瓜子双非空：仅横屏时传状态值与变更回调，竖屏行不出（对话框横屏才建行）
-        if (isLandscape()) {
-            addDivider(card);
-            card.addView(switchRow(R.drawable.ic_setting_swap, "左手布局（横屏）", MusicStore.isLeftHandLandscape(),
-                    on -> {
-                        MusicStore.setLeftHandLandscape(on);
-                        // 横屏分支在 applyTheme 内重算，开关拨动即刷新主题装配使换位立即生效
-                        if (listener != null) listener.onThemeChanged();
-                    }));
-        }
+        // 批 7：「左手布局（横屏）」开关行已摘（假行，见方法头注）——键 music_left_hand_landscape 保留不动。
         return card;
     }
 
@@ -895,9 +888,9 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     /** 外观子面板（A4＋批 4）：头“外观设置”，分区“背景动效”——
      * “动态流体背景”开关（开时说明行显隐）＋“流动速度”三档（慢速／标准／快速，§0 倍率 0.6/1.0/2.5，
      * 写 MusicPlayerSettings 流体速度键、经 onAppearanceChanged 下发批 3 的 FluidCoverAmbientView.setSpeed）
-     * ＋“高级动效”开关（星辰现行键 music_advanced_fx，与歌词子面板同一键、同一语义，不另造键）
-     * ＋“音乐律动”（星辰自有行，保留）。
-     * 音乐律动行不设禁用态（瓜子第 5 布尔参疑似禁用标志、未完全解码，不编造）。 */
+     * ＋“高级动效”开关（星辰现行键 music_advanced_fx，与歌词子面板同一键、同一语义，不另造键）。
+     * 批 7 摘行：「音乐律动」行已摘——键 music_rhythm 全树无读取方（批 6 全键核对查实），是假开关；
+     * 键与存量值保留不动（MusicStore 本体未动），只摘 UI 行。 */
     private void buildAppearancePanel() {
         LinearLayout box = binding.container;
         box.addView(subHeader("外观设置"));
@@ -924,11 +917,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             MusicStore.setAdvancedFx(on);
             fireLyricChanged();
         }));
-        card.addView(switchRow("音乐律动", MusicStore.isRhythm(),
-                on -> {
-                    MusicStore.setRhythm(on);
-                    if (listener != null) listener.onAppearanceChanged();
-                }));
+        // 批 7：「音乐律动」行已摘（假行，见方法头注）。
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         clp.topMargin = dp(8);
@@ -1100,16 +1089,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
     private void refreshPlayerCover() {
         FragmentActivity host = getActivity();
         if (host instanceof MusicPlayerHost) ((MusicPlayerHost) host).refreshCurrentCover();
-    }
-
-    /** A7 门控：仅横屏时建左手行（瓜子双非空：横屏调用方传状态＋回调，竖屏传空行不出） */
-    private boolean isLandscape() {
-        try {
-            return getContext() != null && getContext().getResources().getConfiguration().orientation
-                    == Configuration.ORIENTATION_LANDSCAPE;
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     // ================= 主题子面板 =================

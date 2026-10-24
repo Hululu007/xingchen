@@ -528,7 +528,17 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     // HkHttp 的选择器链会据此查 SourceProxyPolicy。求值可嵌套，进出按栈恢复。
     private SourceGate.Mark swapHkMark() {
         SourceGate.Mark prev = SourceGate.current();
-        if (rule != null) SourceGate.mark("hk", rule.getTitle());
+        if (rule != null) {
+            SourceGate.mark("hk", rule.getTitle());
+            // 规则主域名先登记认领（与阅读/Emby 共用认领表）：本规则后续在
+            // 无归属线程发出的请求（图片、调度线程判读的取数）能按域名认领
+            // 回本规则，不必等第一次带标记的取数先行（JAV Verse 案）。
+            try {
+                com.fongmi.android.tv.clash.ReadingProxyGate.recordUrl(
+                        rule.getUrl(), "hk", rule.getTitle());
+            } catch (Throwable ignored) {
+            }
+        }
         return prev;
     }
 

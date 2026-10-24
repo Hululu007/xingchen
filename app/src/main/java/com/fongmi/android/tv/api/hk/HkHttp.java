@@ -6,6 +6,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.XingChenDoh;
 import com.fongmi.quickjs.bean.Req;
 import com.github.catvod.bean.Doh;
+import com.fongmi.android.tv.clash.ReadingProxyGate;
 import com.github.catvod.net.GlobalProxy;
 import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Json;
@@ -830,7 +831,26 @@ public class HkHttp {
      * 规则可通过 Req 指定 redirect（是否跟随跳转）和 timeout（毫秒）；
      * 例如 fetch(url, {redirect: 0}) 用于取 302 的 Location 头。默认跟随跳转。</p>
      */
+    /**
+     * 按源定向归属登记：本线程带着 hk 归属发请求时，把目标 host 记进认领表
+     * （与阅读/Emby 共用 ReadingProxyGate 的表），后续在无归属线程发出的
+     * 同 host 请求（OkHttp 调度线程判读、Glide 图片）可按域名认领回本规则，
+     * 不再只靠线程标记＋15 秒兜底窗口（JAV Verse 真机实证：load 首发请求
+     * 在调度线程判读时无标记、直连被站方挡死，规则 20 秒超时打不开）。
+     * 认领只提供归属，是否走节点仍由 SourceProxyPolicy 的逐源开关裁决。
+     */
+    private static void noteHkHost(String url) {
+        try {
+            SourceGate.Mark m = SourceGate.current();
+            if (m != null && "hk".equals(m.kind)) {
+                ReadingProxyGate.recordUrl(url, m.kind, m.id);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static Call to(String url, Req req) {
+        noteHkHost(url);
         // 入口留痕：此前只有完成/失败才记 fetch 诊断，卡在 execute 里时日志里
         // 分不清"没走到"还是"走到了没回来"（1.2.6 真机日志的教训）
         try {
@@ -1071,6 +1091,7 @@ public class HkHttp {
      * timeoutMs<=0 时走默认超时（connect 15s / read-write 30s）。
      */
     public static String get(String url, String ua, int timeoutMs) throws IOException {
+        noteHkHost(url);
         Enhancement e = parseEnhancement(url);
         if (e.isPlain()) return getPlain(e.url, ua, timeoutMs);
         return getEnhanced(e, ua, timeoutMs);
@@ -1080,6 +1101,7 @@ public class HkHttp {
      * 下载二进制（图片解密用）。支持 headers map。
      */
     public static byte[] getBytes(String url, Map<String, String> headers) throws IOException {
+        noteHkHost(url);
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new IllegalArgumentException("不支持的链接协议: " + url);
         }

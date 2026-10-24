@@ -6274,7 +6274,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
         setTrackVisible();
         hideWidgetOverlay();
-        mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !DanmakuSetting.isShow() ? View.GONE : View.VISIBLE);
+        // 弹幕开关常驻（用户明令，「该藏的藏」只豁免这一个）：未锁屏就露脸，没弹幕/关着也露——关着时用户得能在这儿直接打开；图标两态由 checkDanmakuImg 按 isShow 刷
+        mBinding.control.danmaku.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         // 竖屏套按实际屏幕方向定：屏幕横了走横屏套（哪怕视频本身是竖的短剧），不按视频宽高
         boolean isVerticalFullscreen = isFullscreen() && !isActualLand();
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);

@@ -121,6 +121,26 @@
 
     </androidx.appcompat.widget.LinearLayoutCompat>
 
+    <!-- 左侧：弹幕真开关（与点播控制层同位置同图标：屏幕左边、垂直居中，用户明令两方向一致） -->
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="8dp"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/danmaku"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:src="@drawable/ic_control_danmaku_on" />
+
+    </androidx.appcompat.widget.LinearLayoutCompat>
+
     <include
         android:id="@+id/right"
         layout="@layout/view_control_right"

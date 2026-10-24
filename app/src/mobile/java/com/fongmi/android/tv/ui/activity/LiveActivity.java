@@ -65,6 +65,7 @@ import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.playback.PlaybackOrientation;
 import com.fongmi.android.tv.service.PlaybackService;
+import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.LiveEpgSetting;
 import com.fongmi.android.tv.setting.LiveSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
@@ -275,6 +276,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.cast.setOnClickListener(view -> onCast());
         mBinding.control.info.setOnClickListener(view -> onInfo());
         mBinding.control.osdDiagnostics.setOnClickListener(view -> onPlayParams());
+        mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
+        checkDanmakuImg();
         mBinding.control.play.setOnClickListener(view -> checkPlay());
         mBinding.control.next.setOnClickListener(view -> nextChannel());
         mBinding.control.prev.setOnClickListener(view -> prevChannel());
@@ -911,6 +914,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.cast.setVisibility(View.GONE);
         mBinding.control.right.rotate.setVisibility(isLock() || isPadLiveFullscreenMode() ? View.GONE : View.VISIBLE);
+        // 弹幕开关常驻（与点播同口径，用户明令）：未锁屏就露脸，图标两态随 isShow
+        mBinding.control.danmaku.setVisibility(isLock() ? View.GONE : View.VISIBLE);
+        checkDanmakuImg();
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.action.getRoot().setVisibility(embedded ? View.GONE : View.VISIBLE);
@@ -928,6 +934,18 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         XcFadeTransition.fadeOutThenGone(mBinding.control.getRoot());
         if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
+    }
+
+    /** 弹幕真开关（与点播 VideoActivity.onDanmakuShow 同语义）：翻转 DanmakuSetting 并即时作用到渲染层。 */
+    private void onDanmakuShow() {
+        DanmakuSetting.putShow(!DanmakuSetting.isShow());
+        checkDanmakuImg();
+        PlayerManager manager = player();
+        if (manager != null) manager.setDanmakuEnabled(DanmakuSetting.isShow());
+    }
+
+    private void checkDanmakuImg() {
+        mBinding.control.danmaku.setImageResource(DanmakuSetting.isShow() ? R.drawable.ic_control_danmaku_on : R.drawable.ic_control_danmaku_off);
     }
 
     private void onPlayParams() {

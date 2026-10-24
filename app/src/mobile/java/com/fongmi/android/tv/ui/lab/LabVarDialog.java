@@ -183,6 +183,8 @@ public final class LabVarDialog {
                 boolean on = cachedVal != null ? !"false".equalsIgnoreCase(cachedVal)
                         : !"false".equalsIgnoreCase(v.defaultValue);
                 sw.setChecked(on);
+                // 上游 Setting.editable=false：只给看不给改（此前字段没人读，照样能改）
+                if (Boolean.FALSE.equals(v.editable)) sw.setEnabled(false);
                 LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 slp.bottomMargin = dp16;
@@ -203,8 +205,10 @@ public final class LabVarDialog {
                 String cur = cachedVal != null ? cachedVal : v.defaultValue;
                 pick.setText(labelOf(v, cur));
                 pick.setTag(cur == null ? "" : cur);
-                pick.setClickable(true);
-                pick.setFocusable(true);
+                boolean pickEditable = !Boolean.FALSE.equals(v.editable);
+                pick.setClickable(pickEditable);
+                pick.setFocusable(pickEditable);
+                pick.setEnabled(pickEditable);
                 pick.setOnClickListener(vv -> {
                     String[] labels = new String[v.options.size()];
                     for (int i = 0; i < labels.length; i++) labels[i] = v.options.get(i).label;
@@ -247,6 +251,7 @@ public final class LabVarDialog {
             } else {
                 et.setInputType(InputType.TYPE_CLASS_TEXT);
             }
+            if (Boolean.FALSE.equals(v.editable)) et.setEnabled(false);
             et.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             row.addView(et);
             if ("file".equals(type) || "directory".equals(type)) {
@@ -274,6 +279,7 @@ public final class LabVarDialog {
                         Notify.show("打不开文件选择");
                     }
                 });
+                if (Boolean.FALSE.equals(v.editable)) sel.setEnabled(false);
                 row.addView(sel);
             }
             LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(

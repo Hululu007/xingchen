@@ -233,7 +233,7 @@ public class LabPasteImportActivity extends AppCompatActivity {
                 java.io.File spool = spoolToFile(getContentResolver().openInputStream(uri),
                         30 * 1024 * 1024, "文件太大");
                 try {
-                    if (!dispatchSevenZ(spool, name)) {
+                    if (!dispatchSevenZ(spool, name) && !dispatchZip(spool, name)) {
                         if (spool.length() > 2 * 1024 * 1024) throw new Exception("文件太大");
                         String text = new String(readAll(new java.io.FileInputStream(spool),
                                 2 * 1024 * 1024), StandardCharsets.UTF_8);
@@ -293,6 +293,9 @@ public class LabPasteImportActivity extends AppCompatActivity {
                         if (dispatchSevenZ(spool, t)) return;
                         // Node bundle 指针（.js.md5）：本体只是 MD5，跟随指针拉整包
                         if (dispatchNodeBundle(spool, t)) return;
+                        // .lab/npm 的 zip 包（G-6）：此前不分发，二进制当文本读、
+                        // 过 2MB 上限直接报废；转安装确认页，与文件路对齐
+                        if (dispatchZip(spool, t)) return;
                         if (spool.length() > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
                         src = new String(readAll(new java.io.FileInputStream(spool),
                                 2 * 1024 * 1024), StandardCharsets.UTF_8);
@@ -380,6 +383,37 @@ public class LabPasteImportActivity extends AppCompatActivity {
             r = LabImportCompat.parseSevenZ(in);
         }
         runOnUiThread(() -> showResult(r));
+        return true;
+    }
+
+    /**
+     * zip 包分发（G-6）：嗅到 zip 魔数/后缀就把落盘文件转给安装确认页
+     * （peekManifest 展示包说明、点安装才装，与选文件路同一条链）。
+     * spool 是调用方的临时文件、回去就删，这里先拷一份到缓存再交出去；
+     * 确认页自己会再拷临时副本，这份留缓存里等系统清。
+     * 是 zip 返回 true（本页收口），不是返回 false 交回文本路。
+     */
+    private boolean dispatchZip(java.io.File spool, String sniffName) throws Exception {
+        byte[] head = new byte[4];
+        int hn = 0;
+        try (InputStream in = new java.io.FileInputStream(spool)) {
+            int r;
+            while (hn < head.length && (r = in.read(head, hn, head.length - hn)) > 0) hn += r;
+        }
+        byte[] magic = hn == head.length ? head : java.util.Arrays.copyOf(head, Math.max(hn, 0));
+        if (!LabImportCompat.isZip(magic, sniffName)) return false;
+        java.io.File keep = new java.io.File(getCacheDir(), "lab-link-import.lab");
+        try (InputStream in = new java.io.FileInputStream(spool);
+             java.io.FileOutputStream out = new java.io.FileOutputStream(keep)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+        final String env = getIntent().getStringExtra(EXTRA_DEFAULT_ENV);
+        runOnUiThread(() -> {
+            LabInstallActivity.startWithUri(this, Uri.fromFile(keep), env);
+            finish();
+        });
         return true;
     }
 

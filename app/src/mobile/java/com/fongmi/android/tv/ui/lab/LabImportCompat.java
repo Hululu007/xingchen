@@ -44,6 +44,10 @@ public final class LabImportCompat {
         public int minVersion = 0;
         /** 命令变量表（上游 variables/settings 口径） */
         public final List<LabManifest.LabVar> variables = new ArrayList<>();
+        /** 包声明预建目录（上游 Item.mkdir，安装时真建） */
+        public final List<String> mkdirs = new ArrayList<>();
+        /** 包声明环境变量（上游 Item.var_path Map 原形，运行时注入进程环境） */
+        public final Map<String, String> varPath = new LinkedHashMap<>();
         /** 运行前依赖下载（上游 download 口径；Item 级 downloads[] 选中的那条也落这里） */
         public LabManifest.LabDownload download;
         public String portPolicy = "auto";   // auto 或固定端口数字
@@ -137,8 +141,22 @@ public final class LabImportCompat {
         if (o.has("services") && o.opt("services") instanceof JSONArray) {
             r.kind = Kind.TERMUX_LIST;
             JSONArray svcs = o.getJSONArray("services");
-            r.note = "认出来了：Termux 服务清单（" + svcs.length() + " 个服务）";
-            for (int i = 0; i < svcs.length(); i++) r.items.add(fromTermux(svcs.getJSONObject(i)));
+            int skippedOff = 0;
+            for (int i = 0; i < svcs.length(); i++) {
+                JSONObject s = svcs.getJSONObject(i);
+                // enabled:false 是作者明说停用的服务（G-5）：此前不读这个字段，
+                // 停用的照样装进来占位、还可能被自启拉起来
+                if (!s.optBoolean("enabled", true)) {
+                    skippedOff++;
+                    continue;
+                }
+                r.items.add(fromTermux(s));
+            }
+            if (r.items.isEmpty()) {
+                throw new Exception("这份清单里的服务全被标了停用（enabled:false），没导进来");
+            }
+            r.note = "认出来了：Termux 服务清单（" + r.items.size() + " 个服务）"
+                    + (skippedOff > 0 ? "，另有 " + skippedOff + " 个标了停用，没导" : "");
             return r;
         }
         if (o.has("command")) {
@@ -273,6 +291,27 @@ public final class LabImportCompat {
         String itemName = o.optString("name", "").trim();
         String stem = itemName.isEmpty() ? "item" : itemName;
         String info = o.optString("info", "").trim();
+        // 包级 description（历史自创清单形态用它当包说明）：info 没写时拿它兜底，
+        // 此前只认 info，包说明整段丢（G-5/§12）
+        if (info.isEmpty()) info = o.optString("description", "").trim();
+        // 包级开关兜底（同上形态）：auto_execute/show_output 写在包级时套到
+        // 没单独声明的命令上，此前整段没读、三个开关静默失效（G-5/§12）
+        boolean pkgAutoExec = o.optBoolean("auto_execute", false);
+        Boolean pkgShowOutput = o.opt("show_output") instanceof Boolean
+                ? (Boolean) o.opt("show_output") : null;
+        // 包级预建目录与环境变量（上游 mkdir/var_path 原形）：解析一次套到每条命令，
+        // mkdir 安装时真建、var_path 运行时真注入，不再只留一句提示（G-4/G-5）
+        List<String> pkgMkdirs = mkdirListOf(o.opt("mkdir"));
+        Map<String, String> pkgVarPath = new LinkedHashMap<>();
+        JSONObject vpo = o.optJSONObject("var_path");
+        if (vpo != null) {
+            java.util.Iterator<String> keys = vpo.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                String v = vpo.optString(k, "").trim();
+                if (!k.isEmpty() && !v.isEmpty()) pkgVarPath.put(k, v);
+            }
+        }
         String version = o.optString("version", "1.0").trim();
         // 上游 Item.group：包级分组 id，套到每条命令（此前整段没读，分组信息静默丢失）
         String group = o.optString("group", "").trim();
@@ -304,11 +343,17 @@ public final class LabImportCompat {
             it.command = translateWebhtvCommand(cmd, it);
             // background 缺省 true，同命令条目路
             it.background = c.optBoolean("background", true);
-            it.showOutput = c.optBoolean("show_output", c.optBoolean("showOutput", true));
+            // show_output：命令自己写了听自己的，没写拿包级兜底，都没写缺省 true
+            it.showOutput = (c.has("show_output") || c.has("showOutput"))
+                    ? c.optBoolean("show_output", c.optBoolean("showOutput", true))
+                    : (pkgShowOutput != null ? pkgShowOutput : true);
             // 自启来源：命令自己的 auto_execute，或包级 auto_install（上游语义：
-            // 声明自动安装的包，装上即按自动运行对待）。曾收窄为仅 auto_execute，
-            // auto_install 的包导入后不再自启，已恢复两者并取
-            it.autoStart = c.optBoolean("auto_execute", false) || autoInstall;
+            // 声明自动安装的包，装上即按自动运行对待），或包级 auto_execute
+            // （历史自创清单形态的包级自启）。曾收窄为仅 auto_execute，
+            // auto_install 的包导入后不再自启，已恢复并取
+            it.autoStart = c.optBoolean("auto_execute", false) || autoInstall || pkgAutoExec;
+            it.mkdirs.addAll(pkgMkdirs);
+            it.varPath.putAll(pkgVarPath);
             // 命令没写 min_version 时用包级的（上游 Item 级此前整段没读，G-5）
             int cmdMin = c.optInt("min_version", 0);
             it.minVersion = upstreamMinVersion(cmdMin > 0 ? cmdMin : itemMinVersion, it);
@@ -437,13 +482,9 @@ public final class LabImportCompat {
         } else {
             out.notes.add("这个包声明的二进制（downloads）没有你手机架构的版本，没接上，装完可能跑不起来");
         }
-        String varPath = o.optString("var_path", "").trim();
-        if (!varPath.isEmpty()) {
-            out.notes.add("包声明了数据目录 var_path（" + varPath + "），星辰统一放包目录内，命令里写死了这个路径的话要改");
-        }
-        if (!mkdirListOf(o.opt("mkdir")).isEmpty()) {
-            out.notes.add("包声明了预建目录（mkdir），星辰没有预建，命令依赖这些目录时会跑不起来");
-        }
+        // var_path 与 mkdir 不在这里出提示了：var_path 上游是 Map，此前按 String
+        // 读永远读不出东西、提示也永不触发；现在两者都在 fromWebhtvItem 按原形
+        // 解析并真执行（var_path 注入环境、mkdir 安装时建），无须再提示
         return out;
     }
 
@@ -516,6 +557,7 @@ public final class LabImportCompat {
                     : (v.has("defaultValue") ? v.optString("defaultValue", null) : null);
             var.hint = v.optString("hint", null);
             var.required = v.optBoolean("required", false);
+            if (v.opt("editable") instanceof Boolean) var.editable = (Boolean) v.opt("editable");
             var.filter = v.has("filter") ? v.optString("filter", null) : null;
             var.min = v.has("min") ? v.optString("min", null) : null;
             var.max = v.has("max") ? v.optString("max", null) : null;
@@ -874,6 +916,21 @@ public final class LabImportCompat {
 
     // ---------------- .lab.7z 离线包（上游导出布局） ----------------
 
+    /** zip 判定：魔数 PK\x03\x04 或文件名后缀（.zip/.lab） */
+    public static boolean isZip(byte[] data, String fileName) {
+        if (data != null && data.length >= 4
+                && data[0] == 0x50 && data[1] == 0x4B && data[2] == 0x03 && data[3] == 0x04) {
+            return true;
+        }
+        if (fileName != null) {
+            String f = fileName.toLowerCase();
+            int q = f.indexOf('?');
+            if (q >= 0) f = f.substring(0, q);
+            if (f.endsWith(".zip") || f.endsWith(".lab")) return true;
+        }
+        return false;
+    }
+
     private static final byte[] SEVENZ_MAGIC = {0x37, 0x7A, (byte) 0xBC, (byte) 0xAF, 0x27, 0x1C};
 
     /** 7z 判定：魔数或文件名后缀（.lab.7z/.7z） */
@@ -1092,6 +1149,8 @@ public final class LabImportCompat {
         m.group = it.group == null ? "" : it.group;
         m.runtime = it.runtime == null ? "none" : it.runtime;
         m.autoStart = it.autoStart;
+        m.mkdir.addAll(it.mkdirs);
+        m.varPath.putAll(it.varPath);
         LabManifest.LabCommand c = new LabManifest.LabCommand();
         c.id = "main";
         c.name = it.name;

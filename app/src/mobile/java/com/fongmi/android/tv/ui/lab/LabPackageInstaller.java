@@ -225,6 +225,7 @@ public final class LabPackageInstaller {
                                     } catch (Exception ignored) {
                                     }
                                     swapIntoPlace(staging, dest);
+                                    createDeclaredDirs(ctx, dest, manifest.mkdir);
                                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                                     pkg.id = manifest.id;
                                     pkg.name = manifest.name;
@@ -473,6 +474,7 @@ public final class LabPackageInstaller {
                     } catch (Exception ignored) {
                     }
                     swapIntoPlace(staging, dest);
+                    createDeclaredDirs(ctx, dest, m.mkdir);
                     LabRegistry.Svc pkg = new LabRegistry.Svc();
                     pkg.id = m.id;
                     pkg.name = m.name;
@@ -523,6 +525,38 @@ public final class LabPackageInstaller {
             // ensureRuntime 同步抛错（还没走到任何回调）时守卫也要放，并给明确终态
             releasePackageInstall(guard);
             if (listener != null) listener.onFail(human(setupEx));
+        }
+    }
+
+    /**
+     * 包声明的预建目录真建（上游 LabEnv.install 的 mkdirList 口径，此前星辰只在
+     * 导入提示里说一句「没有预建」就丢了，G-4）。占位展开：{sdcard}→公共目录、
+     * {dataPath}→包内 data、{pkgDir}/{filesDir}；相对路径落包内。只建包目录内
+     * 与公共目录下的（声明由包作者控制，越界的不碰），建不上不拦安装
+     * （上游同样逐个吞异常）——公共目录在真机上受分区存储管控，能不能建出来
+     * 看系统脸色，建不出来命令跑起来时才见分晓，已记进交付报告的待真机项。
+     */
+    static void createDeclaredDirs(Context ctx, File pkgDir, java.util.List<String> dirs) {
+        if (dirs == null) return;
+        for (String raw : dirs) {
+            if (raw == null) continue;
+            String p = raw.trim()
+                    .replace("{sdcard}", "/storage/emulated/0")
+                    .replace("{dataPath}", new File(pkgDir, "data").getAbsolutePath())
+                    .replace("{pkgDir}", pkgDir.getAbsolutePath())
+                    .replace("{filesDir}", ctx.getFilesDir().getAbsolutePath());
+            if (p.isEmpty()) continue;
+            try {
+                File dir = p.startsWith("/") ? new File(p) : new File(pkgDir, p);
+                String canon = dir.getCanonicalPath();
+                String pkg = pkgDir.getCanonicalPath();
+                String sd = "/storage/emulated/0";
+                if (canon.equals(pkg) || canon.startsWith(pkg + File.separator)
+                        || canon.equals(sd) || canon.startsWith(sd + File.separator)) {
+                    dir.mkdirs();
+                }
+            } catch (Exception ignored) {
+            }
         }
     }
 

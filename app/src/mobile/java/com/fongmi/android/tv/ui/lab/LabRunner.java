@@ -500,6 +500,39 @@ public final class LabRunner {
         String lib = LabRuntimeManager.libDir(c, runtime).getAbsolutePath();
         String ld = bin + File.pathSeparator + lib;
         env.put("LD_LIBRARY_PATH", TextUtils.isEmpty(oldLd) ? ld : ld + File.pathSeparator + oldLd);
+        // 包声明环境变量（上游 Item.var_path，此前导入按 String 读、运行期也没人注入，
+        // 整段是死的，G-5）：PATH 并入进程 PATH（相对段落包内、含 com.termux 的跳过），
+        // 其余键作环境变量（相对值落包内、占位展开），LD_LIBRARY_PATH 前插不覆盖
+        LabManifest mf = readManifestQuiet(c, pkgId);
+        if (mf != null && !mf.varPath.isEmpty()) {
+            File pkgDir = LabPaths.packageDir(c, pkgId);
+            for (Map.Entry<String, String> e : mf.varPath.entrySet()) {
+                String key = e.getKey();
+                String value = e.getValue();
+                if (key == null || value == null || value.isEmpty()) continue;
+                if ("PATH".equals(key)) {
+                    LinkedHashSet<String> merged = new LinkedHashSet<>();
+                    String cur = env.get("PATH");
+                    if (cur != null) for (String s : cur.split(":")) if (!s.isEmpty()) merged.add(s);
+                    for (String part : value.split(":")) {
+                        if (part.isEmpty() || part.contains("com.termux")) continue;
+                        merged.add(part.startsWith("/") || part.contains("{")
+                                ? expand(c, pkgId, part, 0) : new File(pkgDir, part).getAbsolutePath());
+                    }
+                    env.put("PATH", join(merged, ":"));
+                    continue;
+                }
+                String v = value;
+                if (!v.startsWith("/") && !v.startsWith("$")) v = new File(pkgDir, v).getAbsolutePath();
+                v = expand(c, pkgId, v, 0);
+                if ("LD_LIBRARY_PATH".equals(key)) {
+                    String prevLd = env.get("LD_LIBRARY_PATH");
+                    env.put(key, TextUtils.isEmpty(prevLd) ? v : v + File.pathSeparator + prevLd);
+                } else {
+                    env.put(key, v);
+                }
+            }
+        }
         // 全局代理（实验室设置页）：开着就给进程 http_proxy/https_proxy/no_proxy
         if (LabSettings.proxyOn(c)) {
             String port = LabSettings.proxyPort(c);

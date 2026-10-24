@@ -41,6 +41,10 @@ public class LabManifest {
     public String group = "";
     public String runtime = "none";
     public boolean autoStart = false;
+    /** 包声明预建目录（上游 Item.mkdir 口径：{sdcard} 等占位、相对落包内），安装时真建 */
+    public final List<String> mkdir = new ArrayList<>();
+    /** 包声明环境变量（上游 Item.var_path 口径）：PATH 并入进程 PATH，其余作环境变量注入 */
+    public final java.util.Map<String, String> varPath = new java.util.LinkedHashMap<>();
     public final List<LabCommand> commands = new ArrayList<>();
     /** 包设置项（复用变量表 UI）：{key,name,type,defaultValue,hint,required,...} */
     public final List<LabVar> settings = new ArrayList<>();
@@ -71,6 +75,8 @@ public class LabManifest {
         public String defaultValue;
         public String hint;
         public boolean required;
+        /** 上游 Setting.editable：false=只给看不给改（变量表里置灰）；缺省 null 按可改 */
+        public Boolean editable;
         public String filter;
         public String min;
         public String max;
@@ -154,6 +160,29 @@ public class LabManifest {
         m.autoStart = o.has("auto_execute") ? o.optBoolean("auto_execute", false)
                 : (o.has("auto_start") ? o.optBoolean("auto_start", false)
                 : o.optBoolean("autoStart", false));
+        // 预建目录（上游 mkdir 双形态：字符串单个 / 数组多个）
+        Object mk = o.opt("mkdir");
+        if (mk instanceof String) {
+            String s = ((String) mk).trim();
+            if (!s.isEmpty()) m.mkdir.add(s);
+        } else if (mk instanceof JSONArray) {
+            JSONArray arr = (JSONArray) mk;
+            for (int i = 0; i < arr.length(); i++) {
+                String s = arr.optString(i, "").trim();
+                if (!s.isEmpty()) m.mkdir.add(s);
+            }
+        }
+        // 包级环境变量（上游 var_path 是 Map；Gson 落盘名 varPath 也认）
+        JSONObject vp = o.optJSONObject("var_path");
+        if (vp == null) vp = o.optJSONObject("varPath");
+        if (vp != null) {
+            java.util.Iterator<String> keys = vp.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                String v = vp.optString(k, "");
+                if (!k.isEmpty() && !v.isEmpty()) m.varPath.put(k, v);
+            }
+        }
         if (TextUtils.isEmpty(m.id)) throw new Exception("lab.json 缺 id");
         if (TextUtils.isEmpty(m.name)) throw new Exception("lab.json 缺 name");
         JSONArray cs = o.optJSONArray("commands");
@@ -222,6 +251,7 @@ public class LabManifest {
                     : (v.has("defaultValue") ? v.optString("defaultValue", null) : null);
             var.hint = v.optString("hint", null);
             var.required = v.optBoolean("required", false);
+            if (v.opt("editable") instanceof Boolean) var.editable = (Boolean) v.opt("editable");
             var.filter = v.optString("filter", null);
             var.min = v.has("min") ? v.optString("min", null) : null;
             var.max = v.has("max") ? v.optString("max", null) : null;

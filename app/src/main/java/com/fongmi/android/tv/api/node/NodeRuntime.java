@@ -9,6 +9,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
+import com.fongmi.android.tv.ui.activity.WebActivity;
 import com.fongmi.android.tv.ui.custom.WebViewCookies;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
@@ -135,18 +136,15 @@ public final class NodeRuntime implements NodeRuntimeApi.Callback {
         return result.toString();
     }
 
-    // 树适配：上游 openWeb 走 WebActivity.openWeb——WebActivity 整类及
-    // bean.Web/Result.takeWeb 面在本树不存在（与模板考试缺口④同源），整类
-    // 移植会拖入 BrowserWebView 等一整套上游 Web UI，不在本批范围。脚本的
-    // openWeb 动作如实回失败并留痕，不假装打开；待该面单独立项后改回直调。
+    // 宿主面已补齐（模板缺口小批）：WebActivity＋bean.Web 已落本树，
+    // openWeb 改回上游直调口径；Result.takeWeb 结果面仍不在本树（见缺口报告）。
     private boolean openWeb(JsonObject options) {
-        SpiderDebug.log("NodeRuntime", "openWeb unsupported in this tree: %s", options);
-        return false;
+        return WebActivity.openWeb(options.toString());
     }
 
     // 树适配：上游 userAgent 取 WebActivity.getUserAgent()，其本体只是
-    // 「设置里的 UA 优先、否则 WebView 默认 UA」——宿主类不在本树（见上），
-    // 这一句按上游本体原样落在这里，口径不变。
+    // 「设置里的 UA 优先、否则 WebView 默认 UA」——WebActivity 落树后
+    // getUserAgent() 与此式同口径，此处保留原式不改调用点行为。
     private static String userAgentString() {
         String userAgent = Setting.getUa();
         return userAgent.isEmpty() ? WebSettings.getDefaultUserAgent(App.get()) : userAgent;

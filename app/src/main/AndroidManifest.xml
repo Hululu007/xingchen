@@ -103,6 +103,11 @@
             android:theme="@style/Theme.Crash" />
 
         <activity
+            android:name=".ui.activity.WebActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
+        <activity
             android:name=".ui.activity.PlaybackRecoveryActivity"
             android:exported="false"
             android:excludeFromRecents="true"

@@ -259,7 +259,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
         String content = Module.get().fetch(api);
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
-        ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api));
+        ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api, JSONObject.quote(siteKey)));
         Object created = ctx.getProperty(ctx.getGlobalObject(), spider);
         jsObject = created instanceof JSObject ? (JSObject) created : null;
     }

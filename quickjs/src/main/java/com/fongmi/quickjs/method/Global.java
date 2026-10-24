@@ -201,9 +201,33 @@ public class Global {
 
     @Keep
     @JSMethod
+    public String sha256X(String text) {
+        String result = Crypto.sha256(text);
+        Logger.t("sha256X").d("text:%s\nresult:\n%s", text, result);
+        return result;
+    }
+
+    @Keep
+    @JSMethod
+    public String randomX(Integer size) {
+        String result = Crypto.randomUrlSafe(size == null ? 0 : size);
+        Logger.t("randomX").d("size:%s\nresult:\n%s", size, result);
+        return result;
+    }
+
+    @Keep
+    @JSMethod
     public String aesX(String mode, boolean encrypt, String input, boolean inBase64, String key, String iv, boolean outBase64) {
         String result = Crypto.aes(mode, encrypt, input, inBase64, key, iv, outBase64);
         Logger.t("aesX").d("mode:%s\nencrypt:%s\ninBase64:%s\noutBase64:%s\nkey:%s\niv:%s\ninput:\n%s\nresult:\n%s", mode, encrypt, inBase64, outBase64, key, iv, input, result);
+        return result;
+    }
+
+    @Keep
+    @JSMethod
+    public String desX(String mode, boolean encrypt, String input, boolean inBase64, String key, String iv, boolean outBase64) {
+        String result = Crypto.des(mode, encrypt, input, inBase64, key, iv, outBase64);
+        Logger.t("desX").d("mode:%s\nencrypt:%s\ninBase64:%s\noutBase64:%s\nkey:%s\niv:%s\ninput:\n%s\nresult:\n%s", mode, encrypt, inBase64, outBase64, key, iv, input, result);
         return result;
     }
 

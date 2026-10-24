@@ -5,6 +5,8 @@
 # TV
 -keep class androidx.leanback.widget.** { *; }
 -keep class com.fongmi.quickjs.method.** { *; }
+# PY 蜘蛛以完整类名反射调 WebActivity 的静态面（open/openWeb/getUserAgent），类名方法名不许改
+-keep class com.fongmi.android.tv.ui.activity.WebActivity { *; }
 -keep class com.fongmi.android.tv.bean.** { *; }
 # 海阔详情短时缓存落盘结构（2026-10-17 崩溃修法保险丝：R8 曾把 Entry 的 List<HkItem>
 # 字段泛型签名剥掉、读回全变 LinkedTreeMap 直接崩；现在 Entry 只存字符串无泛型可剥，

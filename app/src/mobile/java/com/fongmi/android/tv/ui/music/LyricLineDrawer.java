@@ -25,7 +25,8 @@ import java.util.Map;
 /**
  * 歌词行绘制器（批 2＋批 2 补正，与 LyricWordEngine 共用内核）：内嵌 CoverLyricView 与全屏 FullLyricView 共用。
  * 补正口径（审计 batch2-wordfx-audit.md §5 七条，公式只认瓜子 LyricsViewKt 源码原式）：
- * 1）扫边羽化宽 ≈0.6em（录屏反推、源码原值未抠到，见 LyricWordEngine.SWEEP_FEATHER_EM）、
+ * 1）扫边羽化宽＝max(9dp, 字号px)（2026-10-25 smali 深挖抠实原值，见 LyricWordEngine.sweepFeatherPx；
+ *    此前 ≈0.6em 录屏反推作废）、
  *    渐变＝同色 alpha 斜坡（已唱色不变、只变 alpha，FadeBrushCache 语义），不再向 TRANSPARENT（透明黑）渐变；
  * 2）粒度逐字化：词先切 lift 单元（CJK 逐字切时窗、非 CJK 字素簇共用整词时窗），扫边与上浮逐单元推进；
  *    扫边罩整行一张、相邻单元以字框中点为界无缝 tiling，不再按词 clipRect 裁剪；
@@ -169,16 +170,18 @@ public class LyricLineDrawer {
                                   float x, float baseline, float maxWidth) {
         if (line == null) return;
         if (line.hasWords()) {
-            drawWordLine(canvas, line.getWords(), lastNonEmptyWord(line.getWords()), relativeMs, x, baseline, maxWidth);
+            drawWordLine(canvas, line.getWords(), lastNonEmptyWord(line.getWords()), relativeMs, x, baseline, maxWidth,
+                    line.isBG());
         } else {
             drawWholeLine(canvas, line.getText(), relativeMs, lineDurationMs, x, baseline, maxWidth);
         }
     }
 
-    /** 全屏页分行绘制：当前行的一个视觉行（词子集）；lineLastWord 为整行最后一个非空词（光晕释放尾判定用）。 */
+    /** 全屏页分行绘制：当前行的一个视觉行（词子集）；lineLastWord 为整行最后一个非空词（光晕释放尾判定用）；
+     * lineBg＝整行是否伴唱行（沉浸页字母浮 ×2 系数开关，smali 深挖抠实＝LyricLine.isBG）。 */
     public void drawCurrentWordRow(Canvas canvas, List<LyricsWord> rowWords, LyricsWord lineLastWord,
-                                   long relativeMs, float x, float baseline, float maxWidth) {
-        drawWordLine(canvas, rowWords, lineLastWord, relativeMs, x, baseline, maxWidth);
+                                   long relativeMs, float x, float baseline, float maxWidth, boolean lineBg) {
+        drawWordLine(canvas, rowWords, lineLastWord, relativeMs, x, baseline, maxWidth, lineBg);
     }
 
     /** 全屏页分行绘制：无词当前行的一个视觉行（整行提亮回落的片段版，进度按整行算）。 */
@@ -227,7 +230,7 @@ public class LyricLineDrawer {
         canvas.drawText(drawText, x, baseline, mainPaint);
         if (progress > 0f && width > 0f) {
             float em = mainPaint.getTextSize();
-            float feather = LyricWordEngine.SWEEP_FEATHER_EM * em;
+            float feather = LyricWordEngine.sweepFeatherPx(em, density);
             float edgeX = x + (width + feather) * progress;
             drawSungSegment(canvas, drawText, x, baseline, edgeX, feather, x, x + width);
         }
@@ -252,10 +255,10 @@ public class LyricLineDrawer {
     }
 
     private void drawWordLine(Canvas canvas, List<LyricsWord> words, LyricsWord lineLastWord, long relativeMs,
-                              float x, float baseline, float maxWidth) {
+                              float x, float baseline, float maxWidth, boolean lineBg) {
         if (words == null || words.isEmpty()) return;
         float em = mainPaint.getTextSize();
-        float feather = LyricWordEngine.SWEEP_FEATHER_EM * em;
+        float feather = LyricWordEngine.sweepFeatherPx(em, density);
         List<UnitDraw> draws = new ArrayList<>();
         float cx = x;
         boolean truncated = false;
@@ -309,8 +312,9 @@ public class LyricLineDrawer {
                             }
                             dy += LyricWordEngine.EMPHASIZE_DWELL_EM * em * amount * st.unitProgress;
                         }
-                        // ×2 系数（z2）开关未抠到（审计 §6-4）——按 ×1 落。
-                        dy += st.unitFloat * LyricWordEngine.EMPHASIZE_LETTER_FLOAT_EM * em * 1.0f;
+                        // ×2 系数（z2）开关 2026-10-25 smali 深挖抠实：当前行是伴唱行
+                        // （LyricLine.isBG，TTML x-bg）时字母浮 ×2.0，否则 ×1.0。
+                        dy += st.unitFloat * LyricWordEngine.EMPHASIZE_LETTER_FLOAT_EM * em * (lineBg ? 2.0f : 1.0f);
                     } else {
                         // WordByWordText 路径（:10366–10377）：整词 empEasing 一路驱动缩放／扇形／驻留，
                         // 缩放与扇形只给非 CJK；此路径无正弦字母浮（dy 只有上浮＋驻留，源码实读）。
@@ -323,7 +327,18 @@ public class LyricLineDrawer {
                             dy += LyricWordEngine.EMPHASIZE_DWELL_EM * em * amount * st.glowProgress;
                         }
                     }
-                    if (st.glowProgress > 0.01f) {
+                    if (immersive) {
+                        // 沉浸页光晕 alpha 时间曲线（2026-10-25 smali 深挖抠实）：
+                        // alpha＝强度 glowV × 逐字错峰进度 unitProgress（empEasing 驼峰）× 上浮进度 liftProgress，
+                        // ≤0.001 不绘。此前用整词一路 glowProgress 代替逐字一路，是内嵌路的口径、沉浸路用错了一路。
+                        // （行级 alpha 因子：星辰当前行恒满 alpha，与瓜子行状态在本页同值，不另乘。）
+                        if (st.unitProgress > 0.001f && st.liftProgress > 0f) {
+                            d.unitGlowRadius = LyricWordEngine.emphasizeGlowRadius(word.getDurationMs(), isLast, em);
+                            d.glowAlpha = st.unitProgress * st.liftProgress
+                                    * LyricWordEngine.emphasizeGlowIntensity(word.getDurationMs(), isLast);
+                        }
+                    } else if (st.glowProgress > 0.01f) {
+                        // 内嵌 WordByWord 路：alpha＝整词进度 emphasizeProgressTime × 强度，门槛 0.01（smali 旁证同值）。
                         d.unitGlowRadius = LyricWordEngine.emphasizeGlowRadius(word.getDurationMs(), isLast, em);
                         d.glowAlpha = st.glowProgress
                                 * LyricWordEngine.emphasizeGlowIntensity(word.getDurationMs(), isLast);
@@ -349,7 +364,8 @@ public class LyricLineDrawer {
         float rowRight = cx;
         // —— 光晕（挖空边缘光，绘在字形之下，字芯保持干净） ——
         for (UnitDraw d : draws) {
-            if (d.glowAlpha > 0.01f && d.unitGlowRadius > 0f) {
+            // 绘制门槛：沉浸路 0.001、内嵌路 0.01（smali 深挖两路原值不同，不许混）。
+            if (d.glowAlpha > (immersive ? 0.001f : 0.01f) && d.unitGlowRadius > 0f) {
                 if (immersive) {
                     drawUnitGlow(canvas, d, em);
                 }

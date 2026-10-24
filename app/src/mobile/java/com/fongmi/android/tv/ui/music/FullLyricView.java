@@ -423,7 +423,7 @@ public class FullLyricView extends View {
             if (lineTop + layout.height < top0 || lineTop > getHeight()) continue;
             LyricsLine line = lines.get(i);
             boolean current = i == currentIndex;
-            int distance = currentIndex < 0 ? i : Math.abs(i - currentIndex);
+            int distance = currentIndex < 0 ? i + 1 : i - currentIndex;
             float baseline = lineTop + drawer.mainTextSizePx();
             if (layout.wordRows != null) {
                 for (List<LyricsWord> row : layout.wordRows) {
@@ -432,7 +432,7 @@ public class FullLyricView extends View {
                     float rowX = rowStartX(x, width, rowTextW);
                     if (current) {
                         drawer.drawCurrentWordRow(canvas, row, layout.lastWord, pos - line.getTimeMs(),
-                                rowX, baseline, width);
+                                rowX, baseline, width, line.isBG());
                     } else {
                         drawIdleRow(canvas, joinWords(row), rowX, baseline, lineTop, width, distance);
                     }
@@ -487,7 +487,7 @@ public class FullLyricView extends View {
      * （录屏相对不透明度平台 0.2–0.3），行 alpha 不再随距离线性压暗、只走顶／底渐隐趋近——
      * 顶渐隐 smoothstep (3-2t)t²（审计 §4 源码注记 :457–477）、底渐隐 bottomFadeKeep 分段曲线
      * （源码实读转写，见下）。注：行 alpha 的源头状态函数未抠到（在未反编译的引擎本体内），
-     * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式未抠到、维持等价式不动。
+     * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式已 smali 深挖抠实（D1），走源头式。
      * palette 非当前色（白 0.30）自带 alpha、与画笔 alpha 相乘落地，故行 alpha 只给渐隐系数，
      * 不再乘 0.30——原式 255×0.30×渐隐再乘色内 0.30，合成约 0.09，闲行近乎不可见（全屏页「像没做」断点，
      * 1.4.27 查修批纠正）；纠正后合成＝0.30×顶渐隐×底渐隐，与批 2 补正的录屏平台值一致。
@@ -501,9 +501,10 @@ public class FullLyricView extends View {
         float relY = LyricWordEngine.clampF(relTop / Math.max(1f, (float) getHeight()), 0f, 1f);
         float bottomKeep = bottomFadeKeep(relY, 0.45f);
         int alpha = Math.round(255f * topKeep * bottomKeep);
-        float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
+        // 模糊强度走源头式（smali 深挖 D1，distance 为带符号距离：本行－当前行）；旧等价式作废。
+        float strength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
-        boolean blurWanted = radius > 0f && distance > 0;
+        boolean blurWanted = radius > 0f && distance != 0;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {
             if (SystemClock.elapsedRealtime() >= blurRetryAfterMs
                     && drawIdleWithEffect(canvas, text, x, baseline, blockTop, width, radius, alpha)) {

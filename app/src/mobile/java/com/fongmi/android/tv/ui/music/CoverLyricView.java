@@ -302,7 +302,7 @@ public class CoverLyricView extends View {
         float baseline = getPaddingTop() + drawer.mainTextSizePx();
         float blockTop = getPaddingTop();
         for (int i = start; i < end; i++) {
-            int distance = currentIndex < 0 ? i : Math.abs(i - currentIndex);
+            int distance = currentIndex < 0 ? i + 1 : i - currentIndex;
             boolean current = i == currentIndex;
             LyricsLine line = lines.get(i);
             float rowX = rowStartX(x, width, drawer.measureMain(line.getText()));
@@ -330,14 +330,15 @@ public class CoverLyricView extends View {
      * 压暗恢复 1.4.26 旧基线（KaraokeLyricsView 同式）：行 alpha 系数＝max(0.35, 0.85－距离×0.16)，
      * 乘在 palette 非当前色（白 0.30）之上——原实现恒 255（等效 0.30 不衰减），远行与近行同亮同糊，
      * 是真机「整片泥浆」的断点；瓜子录屏同为近行可辨、远行渐隐。
-     * 强度随距离的源头公式在未反编译的引擎本体内（§19 第 2 项未抠到）：此处沿旧引擎应用侧等价式
-     * min(2＋距离×2.2, 12)×档位系数（px），再按 §6.1 量化到 0.5 步进，不冒充瓜子公式。 */
+     * 强度随距离的源头公式 2026-10-25 已 smali 深挖抠实（D1）：走 LyricWordEngine.blurStrength
+     * （distance 为带符号距离：本行－当前行），再乘档位系数、按 §6.1 量化到 0.5 步进；
+     * 旧等价式 min(2＋|距离|×2.2, 12) 作废。压暗式仍走 1.4.26 基线（alpha 用绝对距离）。 */
     private void drawIdleMain(Canvas canvas, String text, float x, float baseline, float blockTop,
                               int width, int distance) {
-        int alpha = Math.round(255f * Math.max(0.35f, 0.85f - distance * 0.16f));
-        float strength = Math.min(2f + distance * 2.2f, 12f) * LyricWordEngine.blurCoefficient(blurLevel);
+        int alpha = Math.round(255f * Math.max(0.35f, 0.85f - Math.abs(distance) * 0.16f));
+        float strength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
         float radius = LyricWordEngine.quantizeBlurRadius(strength);
-        boolean blurWanted = distance >= 1 && radius > 0f;
+        boolean blurWanted = distance != 0 && radius > 0f;
         if (blurWanted && Build.VERSION.SDK_INT >= 31) {
             if (SystemClock.elapsedRealtime() >= blurRetryAfterMs
                     && drawIdleWithEffect(canvas, text, x, baseline, blockTop, width, radius, alpha)) {

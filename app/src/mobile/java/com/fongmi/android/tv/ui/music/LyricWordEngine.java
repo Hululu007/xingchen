@@ -41,13 +41,15 @@ public final class LyricWordEngine {
     public static final float WORD_LIFT_EM = -0.09f;
     public static final long WORD_LIFT_MIN_DURATION_MS = 1100L;
 
-    // —— 扫边（审计 §2／§5-1） ——
+    // —— 扫边（审计 §2／§5-1；羽化原值 2026-10-25 smali 深挖 D1 抠实） ——
     /**
-     * 扫边羽化宽度 ≈0.6em：录屏反推值（审计 §2 量测 0.55–0.65em）。
-     * 源码原值未抠到——drawLiveSweepMask 的 f4 经 AnchoredLyricEngine 多层传递、调用链断
-     * （审计 §6-2），误差 ±0.15em，不许当源码值用。
+     * 扫边羽化宽度原值（smali 实证，FadeBrush 渐变 span，px）：
+     * span＝max(9dp→px, 字号px × 1.0)。此前 ≈0.6em 是录屏反推（把 9dp 下限在特定字号下误读成
+     * em 比例），作废。渐变几何不变：前锋处 alpha 落 0、往左 span 内升满（drawSungSegment）。
      */
-    public static final float SWEEP_FEATHER_EM = 0.6f;
+    public static float sweepFeatherPx(float emPx, float density) {
+        return Math.max(9f * Math.max(1f, density), emPx);
+    }
     /** 短字扫速平滑（源码 :11167 一带实读）：分母＝max(时长, min(280ms, 时长+120ms))。 */
     public static final long SWEEP_SMOOTH_CAP_MS = 280L;
     public static final long SWEEP_SMOOTH_ADD_MS = 120L;
@@ -459,6 +461,22 @@ public final class LyricWordEngine {
         if (level == 0) return 0f;
         if (level == 1) return 0.45f;
         return 1.0f;
+    }
+
+    /**
+     * 非当前行模糊强度 ↔ 行距离源头式（2026-10-25 smali 深挖 D1 抠实，引擎主方法逐行渲染段）：
+     * 带符号距离 d（本行索引 − 当前行索引）：下方 d＞0 → min(d×2.5, 16)；上方 d＜0 →
+     * min((|d|−1)×2＋2.5, 10)；当前行 0（高亮门清零）。末端再乘模糊档系数（调用方处理）。
+     * 抠不到的残项：模式 A（上限 5 的另一套曲线）与模式 B 的选择布尔、以及上方另一支
+     * min(|d|×2.5, 16) 的开关布尔，源名在 smali 里因寄存器复用不可恢复——本式按主曲线
+     * （模式 B、下方支与上方默认支）落，选择条件记未定，不冒充全抠到。
+     * 此前等价式 min(2＋|d|×2.2, 12) 是应用侧近似（近行糊过头是「歌词糊成一团」的一因），作废。
+     */
+    public static float blurStrength(int signedDistance) {
+        if (signedDistance == 0) return 0f;
+        if (signedDistance > 0) return Math.min(signedDistance * 2.5f, 16f);
+        int a = -signedDistance;
+        return Math.min((a - 1) * 2f + 2.5f, 10f);
     }
 
     /** 绘制半径量化（§6.1 应用侧）：E＝round(强度×2)、半径＝E/2（0.5 步进）。 */

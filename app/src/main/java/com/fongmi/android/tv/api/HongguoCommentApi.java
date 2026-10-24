@@ -347,7 +347,8 @@ public class HongguoCommentApi {
 
     // ---------- 传输 ----------
 
-    private static JSONObject post(String path, JSONObject payload, int source, int channel) throws Exception {
+    /** 同包共用传输（HongguoDanmakuApi 复用同一签名器/设备号/直连口径），非同包不可见。 */
+    static JSONObject post(String path, JSONObject payload, int source, int channel) throws Exception {
         long now = System.currentTimeMillis();
         Map<String, String> query = new TreeMap<>();
         query.put("aid", "8662");

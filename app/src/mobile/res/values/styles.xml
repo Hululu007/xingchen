@@ -1,5 +1,11 @@
 <resources>
 
+    <!-- 评论面板横屏形态：右侧划入/划出（窗口动画） -->
+    <style name="HongguoCommentRightAnim">
+        <item name="android:windowEnterAnimation">@anim/hongguo_panel_right_in</item>
+        <item name="android:windowExitAnimation">@anim/hongguo_panel_right_out</item>
+    </style>
+
     <style name="Theme.Base" parent="Theme.Material3.DynamicColors.DayNight.NoActionBar">
         <item name="android:statusBarColor">@color/transparent</item>
         <item name="android:navigationBarColor">@color/transparent</item>

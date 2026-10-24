@@ -76,6 +76,8 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.DanmakuApi;
+import com.fongmi.android.tv.api.HongguoCommentApi;
+import com.fongmi.android.tv.api.HongguoDanmakuApi;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.hk.HkDetail;
@@ -174,6 +176,7 @@ import com.fongmi.android.tv.ui.dialog.DanmakuSettingDialog;
 import com.fongmi.android.tv.ui.dialog.EmbyQualityDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
+import com.fongmi.android.tv.ui.dialog.HongguoCommentDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
@@ -225,6 +228,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -299,6 +304,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mKaraokeResultShown;
     private boolean mUserExitedFullscreenForThisVideo;
     private boolean mShortDramaMode;
+    // 红果评论/弹幕（壳子直抓）：识别闸通过才预抓，预抓真拿到评论才露入口；状态按 historyKey 隔离
+    private final ExecutorService mHongguoExecutor = Executors.newSingleThreadExecutor();
+    private String mHongguoSeriesId = "";
+    private boolean mHongguoGate;
+    private boolean mCommentPrefetching;
+    private boolean mCommentAvailable;
+    private String mCommentPrefetchKey = "";
+    private HongguoCommentApi.Page mCommentSeriesPage;
+    private HongguoCommentApi.Page mCommentEpisodePage;
+    private String mCommentEpisodeVid = "";
+    private String mHongguoDanmakuVid = "";
     private boolean mContentExpanded = false;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
@@ -1047,6 +1063,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
         mBinding.more.setOnClickListener(view -> onMore());
+        // 评论入口只在竖屏布局有此 id（占原一起看按钮位），横屏/平板布局为 null，判空写法同 embyFavBtn
+        if (mBinding.commentDetail != null) mBinding.commentDetail.setOnClickListener(view -> onComment());
         mBinding.keepBtn.setOnClickListener(view -> onKeep());
         mBinding.downloadBtn.setOnClickListener(view -> onDownload());
         mBinding.castBtn.setOnClickListener(view -> onCast());
@@ -1072,6 +1090,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.right.episodesVertical.setOnClickListener(view -> onEpisodes());
+        mBinding.control.right.commentVertical.setOnClickListener(view -> onComment());
         mBinding.control.right.castVertical.setOnClickListener(view -> onCast());
         mBinding.control.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
@@ -1089,6 +1108,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmakuText.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.moreText.setOnClickListener(view -> onMorePanel());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
+        mBinding.control.action.commentAction.setOnClickListener(view -> onComment());
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
         mBinding.audioPrev.setOnClickListener(view -> checkPrev());
@@ -1894,6 +1914,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 410 自救均不碰。
      */
     private void setDetail(Vod item, boolean deferLists) {
+        prepareHongguoComments(item);
         renderDetailUi(item, deferLists);
         if (service() == null) {
             mPendingDetailVod = item;
@@ -2581,8 +2602,147 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         Episode playEpisode = getEpisode();
         if (DanmakuApi.canAutoSearch(siteDanmakus) && playEpisode != null)
             DanmakuApi.search(mHistory.getVodName(), playEpisode.getName(), player()::setDanmaku);
+        onHongguoPlaybackStarted(result, playEpisode);
         if (mShortDramaMode && !isFullscreen()) enterFullscreen();
         preloadNextEpisode();
+    }
+
+    // ---------- 红果评论/弹幕（壳子直抓，与 HongguoCommentApi/HongguoDanmakuApi 配套） ----------
+
+    /** 识别闸（设计 §4.2）：id 清洗后是纯数字，且站名含「红果」或任一选集带 hg-episode-v1: token。 */
+    private boolean computeHongguoGate(List<Flag> flags) {
+        if (HongguoCommentApi.cleanSeriesId(getId()).isEmpty()) return false;
+        Site site = getSite();
+        if (site != null && site.getName() != null && site.getName().contains("红果")) return true;
+        if (flags != null) for (Flag flag : flags) {
+            if (flag == null || flag.getEpisodes() == null) continue;
+            for (Episode episode : flag.getEpisodes()) {
+                if (episode != null && !HongguoCommentApi.episodeVid(episode.getUrl()).isEmpty()) return true;
+            }
+        }
+        return false;
+    }
+
+    private void resetHongguoState(String key) {
+        mCommentPrefetchKey = key;
+        mHongguoSeriesId = "";
+        mHongguoGate = false;
+        mCommentPrefetching = false;
+        mCommentAvailable = false;
+        mCommentSeriesPage = null;
+        mCommentEpisodePage = null;
+        mCommentEpisodeVid = "";
+        mHongguoDanmakuVid = "";
+    }
+
+    /** 详情到达即判识别闸并预抓（短剧直进路径在 setPlayer 起播点补判）。 */
+    private void prepareHongguoComments(Vod item) {
+        String key = getHistoryKey();
+        if (!key.equals(mCommentPrefetchKey)) resetHongguoState(key);
+        mHongguoSeriesId = HongguoCommentApi.cleanSeriesId(getId());
+        mHongguoGate = computeHongguoGate(item == null ? null : item.getFlags());
+        if (mHongguoGate) prefetchComments();
+        updateCommentEntries();
+    }
+
+    /** 预抓：先试剧评首屏，剧评真为空再试当前集评论首屏；任一真拿到评论才露入口（用户定调：抓到才出现）。 */
+    private void prefetchComments() {
+        if (mCommentPrefetching || mCommentAvailable || mHongguoSeriesId.isEmpty()) return;
+        mCommentPrefetching = true;
+        String key = mCommentPrefetchKey;
+        String seriesId = mHongguoSeriesId;
+        Episode episode = getEpisode();
+        String vid = episode == null ? "" : HongguoCommentApi.episodeVid(episode.getUrl());
+        mHongguoExecutor.execute(() -> {
+            HongguoCommentApi.Page series = HongguoCommentApi.seriesComments(seriesId, "");
+            HongguoCommentApi.Page episodePage = null;
+            boolean available = series != null && (series.total > 0 || !series.items.isEmpty());
+            if (!available && !vid.isEmpty()) {
+                episodePage = HongguoCommentApi.episodeComments(seriesId, vid, "");
+                available = episodePage != null && (episodePage.total > 0 || !episodePage.items.isEmpty());
+            }
+            HongguoCommentApi.Page fSeries = series;
+            HongguoCommentApi.Page fEpisode = episodePage;
+            boolean fAvailable = available;
+            App.post(() -> {
+                if (isFinishing() || isDestroyed() || !key.equals(mCommentPrefetchKey)) return;
+                mCommentPrefetching = false;
+                mCommentSeriesPage = fSeries;
+                if (fEpisode != null) {
+                    mCommentEpisodePage = fEpisode;
+                    mCommentEpisodeVid = vid;
+                }
+                mCommentAvailable = fAvailable;
+                updateCommentEntries();
+            });
+        });
+    }
+
+    /** 起播点：直进全屏等无详情路径在此补判识别闸；已开着的评论面板跟随切集；顺手备本集红果弹幕。 */
+    private void onHongguoPlaybackStarted(Result result, Episode playEpisode) {
+        if (playEpisode == null) return;
+        String key = getHistoryKey();
+        if (!key.equals(mCommentPrefetchKey)) resetHongguoState(key);
+        String vid = HongguoCommentApi.episodeVid(playEpisode.getUrl());
+        if (!mHongguoGate) {
+            mHongguoSeriesId = HongguoCommentApi.cleanSeriesId(getId());
+            Site site = getSite();
+            boolean named = site != null && site.getName() != null && site.getName().contains("红果");
+            mHongguoGate = !mHongguoSeriesId.isEmpty() && (named || !vid.isEmpty());
+        }
+        if (!mHongguoGate) return;
+        prefetchComments();
+        for (androidx.fragment.app.Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof HongguoCommentDialog) ((HongguoCommentDialog) fragment).refreshEpisode(vid);
+        }
+        prepareHongguoDanmaku(result, vid);
+    }
+
+    /** 红果弹幕制备：识别为红果的剧起播时按集拉弹幕转本地 XML，备好后进本集弹幕源列表（与 Result 同一列表引用，PlaySpec 共用）。 */
+    private void prepareHongguoDanmaku(Result result, String vid) {
+        if (vid.isEmpty() || vid.equals(mHongguoDanmakuVid)) return;
+        if (!DanmakuSetting.isLoad() || !DanmakuSetting.isShow()) return;
+        mHongguoDanmakuVid = vid;
+        String key = mCommentPrefetchKey;
+        String seriesId = mHongguoSeriesId;
+        List<Danmaku> siteDanmakus = result.getDanmaku();
+        mHongguoExecutor.execute(() -> {
+            Danmaku item = HongguoDanmakuApi.fetchToFile(seriesId, vid, 0);
+            if (item == null) return;
+            App.post(() -> {
+                if (isFinishing() || isDestroyed() || !key.equals(mCommentPrefetchKey)) return;
+                Episode current = getEpisode();
+                if (current == null || !vid.equals(HongguoCommentApi.episodeVid(current.getUrl()))) return;
+                // 源弹幕优先的既有口径：本站没给弹幕、且当前没挂任何弹幕时才自动挂上；否则只进列表供用户在弹幕面板里选
+                if (siteDanmakus.isEmpty() && !player().haveDanmaku()) player().setDanmaku(item);
+                else if (!siteDanmakus.contains(item)) siteDanmakus.add(item);
+            });
+        });
+    }
+
+    /** 三处入口（详情页标题右/竖屏右侧栏/横屏底排）同一裁定：没抓到评论一律不露。 */
+    private void updateCommentEntries() {
+        boolean show = mCommentAvailable;
+        if (mBinding.commentDetail != null) mBinding.commentDetail.setVisibility(show ? View.VISIBLE : View.GONE);
+        boolean verticalFullscreen = isFullscreen() && !isActualLand();
+        mBinding.control.right.commentVertical.setVisibility(show && verticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        // 竖屏全屏时底排让位给右侧栏（与选集同口径），横屏走底排
+        mBinding.control.action.commentAction.setVisibility(show && !verticalFullscreen ? View.VISIBLE : View.GONE);
+    }
+
+    private void onComment() {
+        if (!mCommentAvailable || mHongguoSeriesId.isEmpty()) return;
+        Episode episode = getEpisode();
+        String vid = episode == null ? "" : HongguoCommentApi.episodeVid(episode.getUrl());
+        // 预抓的单集首屏只在集对得上时才给面板，错集不喂
+        HongguoCommentApi.Page episodePage = vid.equals(mCommentEpisodeVid) ? mCommentEpisodePage : null;
+        HongguoCommentDialog.create()
+                .seriesId(mHongguoSeriesId)
+                .episode(vid)
+                .rightSide(isFullscreen() && isActualLand())
+                .cached(mCommentSeriesPage, episodePage)
+                .show(this);
+        hideControl();
     }
 
     /**
@@ -6094,6 +6254,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 竖排选集与底部行选集同一判定：集数<2（单片）不露，选集只对多集有意义
         mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() && mEpisodeAdapter != null && getEpisodeCount() >= 2 ? View.VISIBLE : View.GONE);
         mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        updateCommentEntries();
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.cast.setVisibility(View.GONE);
@@ -9680,6 +9841,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.episodesVertical.setVisibility(isVerticalFullscreen && !isLock() && mEpisodeAdapter != null && getEpisodeCount() >= 2 ? View.VISIBLE : View.GONE);
         mBinding.control.right.castVertical.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
+        updateCommentEntries();
     }
 
     private void syncFullscreenForOrientation(int orientation) {
@@ -9801,6 +9963,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         embyOnExit();
         Timer.get().reset();
         DanmakuApi.cancel();
+        mHongguoExecutor.shutdownNow();
         RefreshEvent.keep();
         mNextPreloader.clear();
         App.removeCallbacks(mR1, mR2, mR3, mR4);

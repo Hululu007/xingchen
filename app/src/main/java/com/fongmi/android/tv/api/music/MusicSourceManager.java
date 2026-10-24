@@ -123,6 +123,10 @@ public class MusicSourceManager {
                 BUILTIN_LYRIC_GECIQIANXUN));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
                 "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"));
+        /* 自写油管音乐源（自有站托管，2026-10-24）：必须走壳子代理、曲库随节点国家，
+           坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件 */
+        list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "油管音乐（需代理）", "",
+                "https://xingchen-dl.pages.dev/music-sources/ytmusic.js"));
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
         return list;
     }

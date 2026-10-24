@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -432,6 +433,33 @@ public class Site implements Parcelable {
 
     public boolean hasHomePage() {
         return !getHomePage().isEmpty();
+    }
+
+    /**
+     * 道长 WebHome 形态：type=4 的 api 本身就是一个网页（WebHome.php 一族的配置管理页），
+     * 配置里没另给 homePage 字段。上游「当网页主页打开」的判据是站点带 homePage 字段
+     * （HomeWebController.load 只认 hasHomePage）；这类源把页面地址放在 api 里，
+     * 故按 api 的文件名认：路径末段以 webhome 打头、.php 结尾（WebHome.php、
+     * WebHomeᵐⁱ.php 等变体）。真 JSON 型 type=4 接口（MacCMS 一族 api.php 等）
+     * 文件名不匹配，不会被误吞。
+     */
+    public boolean isWebHomeApi() {
+        if (getType() != 4 || hasHomePage()) return false;
+        String api = getApi();
+        if (api.isEmpty()) return false;
+        int cut = api.length();
+        int q = api.indexOf('?');
+        if (q >= 0) cut = Math.min(cut, q);
+        int h = api.indexOf('#');
+        if (h >= 0) cut = Math.min(cut, h);
+        String path = api.substring(0, cut);
+        String name = path.substring(path.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+        return name.startsWith("webhome") && name.endsWith(".php");
+    }
+
+    /** 网页主页形态的页面地址：homePage 字段优先，没给时用 api（WebHome 形态）。 */
+    public String webHomeUrl() {
+        return hasHomePage() ? getHomePage() : getApi();
     }
 
     public boolean isEmpty() {

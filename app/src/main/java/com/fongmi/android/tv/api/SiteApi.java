@@ -524,6 +524,10 @@ public class SiteApi {
             HomePrewarm.recordCost(site.getKey(), System.currentTimeMillis() - loadStart);
             return result;
         } else if (site.getType() == 4) {
+            // 网页主页形态（道长 WebHome）：首页由 HomeWebController 按站源主页打开 api
+            // 页面（见 Site.isWebHomeApi），这里不发请求——拿 HTML 按 JSON 解只会解出空壳，
+            // 还白打一发带 filter 参数的请求到管理页上。
+            if (site.isWebHomeApi()) return Result.empty();
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("filter", "true");
             String homeContent = call(site.fetchExt(), params);

@@ -33,7 +33,7 @@ public final class WebHomeChromeStartup {
             clear();
             return;
         }
-        if (config == null || TextUtils.isEmpty(config.getUrl()) || site == null || !site.hasHomePage()) {
+        if (config == null || TextUtils.isEmpty(config.getUrl()) || site == null || !site.hasHomePage() && !site.isWebHomeApi()) {
             clear();
             return;
         }
@@ -46,7 +46,7 @@ public final class WebHomeChromeStartup {
             clear();
             return;
         }
-        if (config == null || TextUtils.isEmpty(config.getUrl()) || site == null || !site.hasHomePage() || chrome == null) return;
+        if (config == null || TextUtils.isEmpty(config.getUrl()) || site == null || !site.hasHomePage() && !site.isWebHomeApi() || chrome == null) return;
         JsonObject object = chrome.deepCopy();
         String mode = WebHomeChrome.normalize(Json.safeString(object, "mode"), WebHomeChrome.EDGE);
         if (!WebHomeChrome.NORMAL.equals(mode) && !WebHomeChrome.EDGE.equals(mode)) return;

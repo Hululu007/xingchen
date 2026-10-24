@@ -393,7 +393,7 @@ public class HomeWebBridge {
         JsonObject object = new JsonObject();
         object.addProperty("key", site.getKey());
         object.addProperty("name", site.getName());
-        object.addProperty("homePage", site.getHomePage());
+        object.addProperty("homePage", site.webHomeUrl());
         object.addProperty("chromeMode", site.getChromeMode());
         object.add("webHomeChrome", site.getWebHomeChrome());
         object.addProperty("type", site.getType());
@@ -415,7 +415,7 @@ public class HomeWebBridge {
         Site site = VodConfig.get().getHome();
         object.addProperty("siteKey", site.getKey());
         object.addProperty("siteName", site.getName());
-        object.addProperty("homePage", site.getHomePage());
+        object.addProperty("homePage", site.webHomeUrl());
         WebHomeExtensionRegistry.Snapshot snapshot = WebHomeExtensionRegistry.get().snapshot();
         object.addProperty("enabled", snapshot.enabled);
         object.addProperty("matched", snapshot.matchedCount);

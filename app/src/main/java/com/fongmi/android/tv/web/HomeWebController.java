@@ -128,7 +128,7 @@ public class HomeWebController {
     }
 
     public boolean load(Site site, boolean force) {
-        if (!site.hasHomePage()) return false;
+        if (!site.hasHomePage() && !site.isWebHomeApi()) return false;
         if (Setting.isWebHomeFullscreen()) listener.applyDefaultChrome(site);
         else listener.setChrome(normalChrome());
         Server.get().start();
@@ -772,7 +772,7 @@ public class HomeWebController {
     }
 
     private String getHomePage(Site site) {
-        String url = site.getHomePage();
+        String url = site.webHomeUrl();
         if (UrlUtil.scheme(url).isEmpty()) url = UrlUtil.resolve(VodConfig.getUrl(), url);
         return UrlUtil.convert(url);
     }

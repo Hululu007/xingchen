@@ -154,3 +154,9 @@
 -keep class com.fongmi.android.tv.api.hk.HkViewCollection { *; }
 -keep class com.fongmi.android.tv.api.hk.HkSubscribeRecord { *; }
 -keep class com.fongmi.android.tv.api.hk.HkPlayData { *; }
+
+# Node 桥进程宿主登记（第 3 步接缝）：NodeService 在 main 源集按类名
+# Class.forName 触发 LabNodeProcessHost 加载自登记（main 不能直引
+# mobile 源集的实验室类），类名被 R8 改名会让登记静默失效、桥误判
+# 没装。整类保名。
+-keep class com.fongmi.android.tv.ui.lab.LabNodeProcessHost { *; }

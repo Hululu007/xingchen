@@ -87,14 +87,6 @@ public class MusicListActivity extends BaseActivity {
         activity.startActivity(i);
     }
 
-    public static void startSite(Activity activity, MusicSite site) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "site");
-        i.putExtra("sitePlatform", site.platform);
-        i.putExtra("title", site.name);
-        activity.startActivity(i);
-    }
-
     private final MusicController.Listener controllerListener = new MusicController.Listener() {
         @Override
         public void onTrackChanged(MusicTrack track) {
@@ -124,10 +116,10 @@ public class MusicListActivity extends BaseActivity {
         MusicController.get().bind(this);
         Intent i = getIntent();
         mode = i.getStringExtra("mode");
-        // 拆页 p11：tracks（无 mode／未知 mode 的默认落点）已独立成页 MusicTracksActivity，
-        // 本壳只剩 site/sites 两 mode；落到本壳的无 mode／未知 mode 一律归 sites
-        // （插件管理是无需 extras 的自足页），不许再落已删的默认支把壳改瘫。
-        if (!"site".equals(mode) && !"sites".equals(mode)) mode = "sites";
+        // 拆页 p11/p12：tracks 与 site 已先后独立成页（MusicTracksActivity／MusicSiteActivity），
+        // 本壳只剩 sites 一 mode；落到本壳的任何 mode 一律归 sites
+        // （插件管理是无需 extras 的自足页），不许再落已删的分支把壳改瘫。
+        if (!"sites".equals(mode)) mode = "sites";
         keyword = i.getStringExtra("keyword");
         if (keyword == null) keyword = "";
         sitePlatform = i.getStringExtra("sitePlatform");
@@ -268,9 +260,6 @@ public class MusicListActivity extends BaseActivity {
         // 搜索框行已随搜索页拆出：本页 searchBar 恒 GONE（布局默认 gone，此处不显）
         binding.btnSearch.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
         switch (mode) {
-            case "site":
-                loadSiteTracks();
-                break;
             case "sites":
             default:
                 bigTitle = getString(R.string.music_plugin_manage);
@@ -292,21 +281,6 @@ public class MusicListActivity extends BaseActivity {
     private String artistDisplay(String raw) {
         return com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(raw)
                 ? getString(R.string.music_unknown_artist) : raw;
-    }
-
-    private void loadSiteTracks() {
-        showLoading();
-        Task.execute(() -> {
-            MusicSite target = null;
-            for (MusicSite s : MusicRepository.sites()) {
-                if (s.platform.equals(sitePlatform)) {
-                    target = s;
-                    break;
-                }
-            }
-            List<MusicTrack> r = target == null ? new ArrayList<>() : MusicRepository.tracks(target);
-            runOnUiThread(() -> showTracks(r));
-        });
     }
 
     /** 插件管理：全量列表（停用的也得在，不然关了就找不回来）＋头卡／两按钮／已安装头／排序后列表 */

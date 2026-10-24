@@ -606,10 +606,10 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 return i;
             }
             if ("site".equals(params.get("mode"))) {
-                // 拆页 p11 过渡：site 模式本笔仍在壳内（p12 拆出后此分支改指新页），
-                // 先把 site 从通用兜底里摘出来单独成支，兜底才好整段换 tracks 新页。
+                // 拆页 p12：site 已独立成页，落点改指 MusicSiteActivity；
+                // extras 五件逐字不变（新页 initView 读 sitePlatform/title/keyword 三件）。
                 android.content.Intent i = new android.content.Intent(host,
-                        com.fongmi.android.tv.ui.activity.MusicListActivity.class);
+                        com.fongmi.android.tv.ui.activity.MusicSiteActivity.class);
                 i.putExtra("mode", params.get("mode"));
                 i.putExtra("keyword", keyword == null ? "" : keyword);
                 i.putExtra("sitePlatform", params.get("sitePlatform"));

@@ -203,6 +203,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private final List<LyricVersion> currentLyricVersions = new ArrayList<>();
     private String currentLyricKey;
     private String currentLyricFormat;
+    /** 当前已应用歌词的来源名（MusicLyric.sourceName／LyricVersion.getSource，信息页「匹配来源」行数据源） */
+    private String currentLyricSource;
     private boolean lyricEmpty;
     private boolean lyricLoading;
 
@@ -2745,6 +2747,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         currentLyricVersions.clear();
         currentLyricFormat = null;
         currentLyricKey = null;
+        currentLyricSource = null;
         if (!force) {
             // 切歌同步（他定「不许还挂着上一首的脸」）：全部歌词面同步清旧词，不许只清内嵌面、
             // 其余面（CD／唱片架／Apple／全屏页）残留上一首的词等异步取词回来才覆盖。
@@ -2763,6 +2766,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             List<String> romas = new ArrayList<>();
             String richFormat = null;
             String richKey = null;
+            String richSource = null;
             boolean richProvided = false;
             LxKeyIssue keyIssue = null;
             String sidecarLrc = MusicDownloadStore.readSidecarLyric(track);
@@ -2793,6 +2797,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 richProvided = !mains.isEmpty();
                 if (richProvided && rich != null) {
                     richFormat = rich.format;
+                    richSource = rich.sourceName;
                     richKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
                     if (cached == null) MusicLyricCache.put(track, rich);
                 }
@@ -2813,12 +2818,14 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             List<String> resultRomas = romas;
             String resultFormat = richProvided ? richFormat : null;
             String resultKey = richProvided ? richKey : null;
+            String resultSource = richProvided ? richSource : null;
             LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
                 if (cur == null || !cur.equals(track)) return;
                 currentLyricFormat = resultFormat;
                 currentLyricKey = resultKey;
+                currentLyricSource = resultSource;
                 applyLyricData(resultMains, resultTrans, resultRomas);
                 lyricEmpty = resultMains.isEmpty();
                 lyricLoading = false;
@@ -2922,6 +2929,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 if (cur == null || !cur.equals(track)) return;
                 currentLyricFormat = rich.format;
                 currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
+                currentLyricSource = version.getSource();
                 applyLyricData(resultMains, resultTrans, resultRomas);
             });
         });
@@ -3017,7 +3025,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
      * 信息内容重建（数据＝当前曲目＋实测音频参数＋已加载歌词元信息，全部取星辰现有数据源）：
      * Apple 页＝HeroCard（封面 80dp 圆角 16＋歌名 20sp/800＋歌手·专辑 12sp/500/0.55）＋三 GlassSection；
      * 封面卡片＝信息卡头（标题 16sp/800/0.95＋歌手·专辑合并行 11sp/500/0.55）＋同三段（小标题 11sp）。
-     * 瓜子「取链渠道／换源」行在星辰无对应数据源，不落（见报告未抠到/无对应清单）。
+     * 瓜子「取链渠道／换源」行在星辰无对应数据源，不落（见报告未抠到/无对应清单）；
+     * 歌词段「匹配来源」行有数据源（已应用歌词的 sourceName／版本来源），已接。
      */
     private void refreshInfoContent() {
         if (infoContentView == null) return;
@@ -3202,6 +3211,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         lyricBody.addView(chips);
         infoRow(lyricBody, getString(R.string.music_info_lyric_channel),
                 currentLyricFormat == null || currentLyricFormat.isEmpty() ? "—" : currentLyricFormat);
+        infoRow(lyricBody, getString(R.string.music_info_lyric_matched_source),
+                currentLyricSource == null || currentLyricSource.isEmpty() ? "—" : currentLyricSource);
         infoRow(lyricBody, getString(R.string.music_info_lyric_lines),
                 lyricMains.isEmpty() ? "—" : lyricMains.size() + " 行");
         infoContentView.addView(lyric);

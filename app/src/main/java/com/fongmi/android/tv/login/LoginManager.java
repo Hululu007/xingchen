@@ -7,6 +7,7 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,6 +43,7 @@ public class LoginManager {
 
     private LoginManager() {
         register(new Qr115Provider());
+        register(new KuaishouLoginProvider());
     }
 
     public static LoginManager get() {
@@ -100,6 +102,30 @@ public class LoginManager {
         openMethod(activity, method, callback);
     }
 
+    /**
+     * 弹快手网页登录框：走壳子统一弹窗（与网盘网页登录同款 PanLoginDialog，
+     * 中间弹窗、WebView 内完成快手网页登录），抓到的 Cookie 组校验后落盘托管。
+     * 异步，登录成功走 callback；用户直接关弹窗视为取消，不回调。
+     */
+    public void loginKuaishou(FragmentActivity activity, LoginCallback callback) {
+        if (activity == null || activity.isFinishing()) {
+            if (callback != null) callback.onError("界面不可用");
+            return;
+        }
+        PanLoginDialog.create()
+                .title("快手")
+                .loginUrl(KuaishouLoginProvider.LOGIN_URL)
+                .cookieDomain(KuaishouLoginProvider.COOKIE_DOMAIN)
+                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .hint("请在下方页面完成快手登录，然后点「完成登录」")
+                .cookieValidator(KuaishouLoginProvider::isCookieValid)
+                .onLogin(cookie -> {
+                    KuaishouLoginProvider.putCookie(cookie);
+                    if (callback != null) callback.onSuccess(KuaishouLoginProvider.ID, cookie);
+                })
+                .showLogin(activity);
+    }
+
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
         if (method == LoginMethod.COOKIE) {
             CookieImportDialog.create().callback(callback).show(activity);
@@ -148,6 +174,28 @@ public class LoginManager {
     /** 退出 115 登录 */
     public static void logout115() {
         get().logout("115");
+    }
+
+    /** 弹壳子统一的快手网页登录框（异步）。 */
+    public static void loginKuaishou() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null) return;
+        App.post(() -> get().loginKuaishou(activity, null));
+    }
+
+    /** 快手是否已登录（托管 Cookie 格式有效） */
+    public static boolean isKuaishouLoggedIn() {
+        return isLoggedIn(KuaishouLoginProvider.ID);
+    }
+
+    /** 快手登录 cookie，未登录返回空串（快手直播弹幕 provider 即读此口） */
+    public static String getKuaishouCookie() {
+        return getCookie(KuaishouLoginProvider.ID);
+    }
+
+    /** 退出快手登录 */
+    public static void logoutKuaishou() {
+        get().logout(KuaishouLoginProvider.ID);
     }
 
     /** 通用：某提供方是否已登录 */

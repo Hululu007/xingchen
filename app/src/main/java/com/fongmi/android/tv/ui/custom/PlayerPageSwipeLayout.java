@@ -213,6 +213,8 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         animate().translationY(target).setDuration(150).withEndAction(() -> {
             setTranslationY(0f);
             commitPending = false;
+            // 页面已销毁/已 detach 时不许替用户切歌（松手后立刻退页的迟到回调）
+            if (!isAttachedToWindow()) return;
             if (swipeListener != null) swipeListener.onPageSwipe(next);
         }).start();
     }
@@ -270,6 +272,8 @@ public class PlayerPageSwipeLayout extends FrameLayout {
 
     @Override
     protected void onDetachedFromWindow() {
+        // 提交动画也要随 detach 取消，只停弹簧挡不住 150ms 内的迟到提交
+        animate().cancel();
         stopSpring();
         super.onDetachedFromWindow();
     }

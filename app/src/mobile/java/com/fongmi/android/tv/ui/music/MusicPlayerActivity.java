@@ -370,10 +370,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             }
             if (rhythmSource == null) {
                 rhythmSource = new VisualizerRhythmSource(this);
-                if (cdDiscView != null) cdDiscView.setRhythmSource(rhythmSource);
-                if (binding != null && binding.fluidAmbient != null) {
-                    binding.fluidAmbient.setRhythmSource(rhythmSource);
-                }
+            }
+            // 注入不能只在首次创建走：applyTheme 每次都重建 cdDiscView，
+            // 只注一次的话主题切换后的新盘永远拿不到节拍源（beatA/beatB 恒 0）
+            if (cdDiscView != null) cdDiscView.setRhythmSource(rhythmSource);
+            if (binding != null && binding.fluidAmbient != null) {
+                binding.fluidAmbient.setRhythmSource(rhythmSource);
             }
             rhythmSource.start(MusicController.get().audioSessionId());
         } catch (Throwable ignored) {
@@ -387,6 +389,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         MusicController.get().removeListener(listener);
         MusicController.get().unbind();
         if (ambientAnimator != null) ambientAnimator.cancel();
+        // 暂停呼吸是无限循环动画，不取消会经 AnimationHandler 常驻、持住已销毁的本页
+        if (playBreathAnimator != null) {
+            playBreathAnimator.cancel();
+            playBreathAnimator = null;
+        }
         if (cdCollapseAnimator != null) cdCollapseAnimator.cancel();
         if (cdToneAnimator != null) cdToneAnimator.cancel();
         cancelCoverScaleSpring();

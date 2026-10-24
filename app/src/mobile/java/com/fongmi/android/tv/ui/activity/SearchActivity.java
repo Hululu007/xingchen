@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.text.TextUtils;
 
 import androidx.viewbinding.ViewBinding;
 
@@ -81,7 +82,9 @@ public class SearchActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         if (savedInstanceState == null) {
-            if (isDirect()) getSupportFragmentManager().beginTransaction().replace(R.id.container, CollectFragment.newInstance(getKeyword(), getSiteKey(), getPic(), getWallPic()), CollectFragment.class.getSimpleName()).commit();
+            // 直达只认有词的：CollectFragment 进页即无条件开搜，空词直达会变成「没输入就自己搜」
+            // （与 1.4.22 全局搜索空词自搜同型）。空词/纯空白一律回输入页，等用户输词再搜。
+            if (isDirect() && !TextUtils.isEmpty(getKeyword()) && !getKeyword().trim().isEmpty()) getSupportFragmentManager().beginTransaction().replace(R.id.container, CollectFragment.newInstance(getKeyword(), getSiteKey(), getPic(), getWallPic()), CollectFragment.class.getSimpleName()).commit();
             else getSupportFragmentManager().beginTransaction().replace(R.id.container, SearchFragment.newInstance(getKeyword(), getSiteKey(), getPic(), getWallPic()), SearchFragment.class.getSimpleName()).commit();
         }
     }

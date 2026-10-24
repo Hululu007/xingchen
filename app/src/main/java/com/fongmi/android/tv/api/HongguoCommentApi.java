@@ -99,6 +99,16 @@ public class HongguoCommentApi {
         return true;
     }
 
+    /**
+     * 头像地址放行判据：红果接口约半数头像是 http:// 明文下发（本机实测 301 升
+     * https 后全 200 真图，样本统计见 hongguo-avatar-partial-trace.md），旧守卫只认
+     * https:// 把这批在解析期清零、评论里成批只剩占位。http 与 https 均放行，
+     * 长度上限在调用处另判。
+     */
+    static boolean isAvatarUrl(String s) {
+        return s != null && (s.startsWith("https://") || s.startsWith("http://"));
+    }
+
     /** 从选集条目 URL（hg-episode-v1:<清晰度>:<vid>）拆单集 vid，拆不到返回空串。 */
     public static String episodeVid(String episodeUrl) {
         if (episodeUrl == null || !episodeUrl.startsWith("hg-episode-v1:")) return "";
@@ -188,7 +198,7 @@ public class HongguoCommentApi {
 
     // ---------- 解析（含回验闸） ----------
 
-    private static Page parseList(JSONObject result, String series, String group, String cursor, boolean seriesDim) throws Exception {
+    static Page parseList(JSONObject result, String series, String group, String cursor, boolean seriesDim) throws Exception {
         if (result == null || result.optInt("code", -1) != 0) return null;
         long previous = validateJsonCursor(cursor);
         JSONObject data = result.getJSONObject("data");
@@ -217,7 +227,7 @@ public class HongguoCommentApi {
             if (id.isEmpty() || id.length() > 120 || content.isEmpty() || !seen.add(id)) continue;
             JSONObject base = optBaseInfo(common);
             String avatar = base == null ? "" : base.optString("user_avatar");
-            if (avatar.length() > 4096 || !avatar.startsWith("https://")) avatar = "";
+            if (avatar.length() > 4096 || !isAvatarUrl(avatar)) avatar = "";
             JSONObject stat = comment.optJSONObject("stat");
             long likes = stat != null && stat.has("digg_count") ? stat.optLong("digg_count", 0) : likesOf(row, common, expand);
             long replyCount = stat == null ? 0 : Math.max(0, stat.optLong("reply_count", 0));
@@ -247,7 +257,7 @@ public class HongguoCommentApi {
         return new Page(items, Math.max(0, info.optLong("total", 0)), more ? next : "", more, score, Math.max(0, scoreCount));
     }
 
-    private static Page parseReplies(JSONObject result, String series, String group, String cursor) throws Exception {
+    static Page parseReplies(JSONObject result, String series, String group, String cursor) throws Exception {
         if (result == null || result.optInt("code", -1) != 0) return null;
         long previous = validateNumCursor(cursor);
         JSONObject data = result.getJSONObject("data");
@@ -282,7 +292,7 @@ public class HongguoCommentApi {
                 if (base != null) {
                     avatar = base.optString("user_avatar");
                     if (avatar.isEmpty()) avatar = base.optString("expand_user_avatar");
-                    if (avatar.length() > 4096 || !avatar.startsWith("https://")) avatar = "";
+                    if (avatar.length() > 4096 || !isAvatarUrl(avatar)) avatar = "";
                 }
                 JSONObject stat = row.optJSONObject("stat");
                 long likes = stat == null ? 0 : Math.max(0, stat.optLong("digg_count", 0));

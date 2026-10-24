@@ -234,9 +234,13 @@ public class HongguoCommentAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     });
 
     private static void loadAvatar(ImageView view, String url) {
+        loadAvatar(view, url, false);
+    }
+
+    private static void loadAvatar(ImageView view, String url, boolean retried) {
         view.setTag(url);
         if (url == null || url.isEmpty()) {
-            view.setImageResource(R.drawable.ic_logo);
+            view.setImageResource(R.drawable.ic_avatar_placeholder);
             return;
         }
         Bitmap cached = AVATAR_CACHE.get(url);
@@ -244,15 +248,23 @@ public class HongguoCommentAdapter extends RecyclerView.Adapter<RecyclerView.Vie
             view.setImageBitmap(cached);
             return;
         }
-        view.setImageResource(R.drawable.ic_logo);
+        view.setImageResource(R.drawable.ic_avatar_placeholder);
         AVATAR_EXECUTOR.execute(() -> {
             Bitmap bitmap = fetchAvatar(url);
-            if (bitmap == null) return;
-            AVATAR_CACHE.put(url, bitmap);
-            view.post(() -> {
-                // 列表复用守卫：view 已绑到别的评论就别把旧头像盖上去
-                if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
-            });
+            if (bitmap != null) {
+                AVATAR_CACHE.put(url, bitmap);
+                view.post(() -> {
+                    // 列表复用守卫：view 已绑到别的评论就别把旧头像盖上去
+                    if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
+                });
+            } else if (!retried) {
+                // 失败不入缓存、重绑时会重拉；但行停在屏上不滚动就永不翻身，
+                // 补一次绑定内延迟重试（只此一次）：排程后、触发时都再核 tag，
+                // view 已复用给别的评论就作罢；再失败保持占位，不再循环。
+                view.postDelayed(() -> {
+                    if (url.equals(view.getTag())) loadAvatar(view, url, true);
+                }, 1500);
+            }
         });
     }
 

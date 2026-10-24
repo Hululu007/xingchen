@@ -161,12 +161,12 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickDownload.setOnClickListener(v -> MusicDownloadActivity.startDownload(this));
         // 三彩卡入口：猜你喜欢页／榜单页／随心听页（歌单广场不在此卡，入口在五快捷「我的歌单」）
         binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
-        binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeCardCharts.setOnClickListener(v -> MusicChartsActivity.startCharts(this));
         binding.homeCardShuffle.setOnClickListener(v -> MusicRandomActivity.start(this));
         initMoodCard();
         // 榜单卡：「完整榜单」进榜单页；主封面播放钮从头播该榜；点行从该曲开播整榜
-        binding.homeChartMore.setOnClickListener(v -> MusicListActivity.startCharts(this));
-        binding.homeChartMoreIcon.setOnClickListener(v -> MusicListActivity.startCharts(this));
+        binding.homeChartMore.setOnClickListener(v -> MusicChartsActivity.startCharts(this));
+        binding.homeChartMoreIcon.setOnClickListener(v -> MusicChartsActivity.startCharts(this));
         binding.homeChartEmptyRetry.setOnClickListener(v -> {
             if (chartSel >= 0 && chartSel < chartTabs.size()) selectChart(chartSel, true);
         });

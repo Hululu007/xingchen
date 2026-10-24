@@ -104,8 +104,7 @@ public class MusicListActivity extends BaseActivity {
     private boolean sheetSearchWired;
     private boolean sheetSearchShown;
 
-    // 第 3 项：榜单列表页（焦点卡＋普通卡＋分区头）与榜单详情页（英雄卡＋排名行）
-    private final java.util.Map<String, List<MusicTrack>> chartPreviews = new java.util.HashMap<>();
+    // 第 3 项：榜单详情页（英雄卡＋排名行）
     private String chartPlatform = "";
     private String chartId = "";
     private String chartCover = "";
@@ -160,12 +159,6 @@ public class MusicListActivity extends BaseActivity {
     public static void startSheets(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "sheets");
-        activity.startActivity(i);
-    }
-
-    public static void startCharts(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "charts");
         activity.startActivity(i);
     }
 
@@ -288,7 +281,6 @@ public class MusicListActivity extends BaseActivity {
             tlp.weight = 1f;
             binding.tvBigTitle.setLayoutParams(tlp);
         }
-        binding.btnChartsRefresh.setOnClickListener(v -> loadCharts());
         binding.btnSort.setOnClickListener(v -> {
             if (mode.equals("search") && selectedCat != 0 && searchGroupType < 0) {
                 // 第 5 项：歌手／歌单／专辑分类是分组卡，排序只对歌曲列有意义，分组卡不支持排序
@@ -431,7 +423,7 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private boolean isCardMode() {
-        return mode.equals("sheets") || mode.equals("charts") || mode.equals("sites");
+        return mode.equals("sheets") || mode.equals("sites");
     }
 
     private void load() {
@@ -471,9 +463,6 @@ public class MusicListActivity extends BaseActivity {
         // 2026-10-22 搜索页重做：搜索模式大标题行隐藏——顶栏居中标题已是“搜索”，再留左侧大“搜索”就是截图里的双标题。
         binding.bigTitleRow.setVisibility((sheets || sheet || chartDetail || guess || mode.equals("search")) ? View.GONE : View.VISIBLE);
         binding.toolbar.setVisibility((mode.equals("sites") || sheets || chartDetail || guess) ? View.GONE : View.VISIBLE);
-        // M12：榜单模式只有榜卡、没有歌曲行，顺序播放钮点了只弹空提示，直接隐藏（不补池）。
-        if (mode.equals("charts")) binding.btnPlaySeq.setVisibility(View.GONE);
-        if (mode.equals("charts")) binding.btnPlayAll.setVisibility(View.GONE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         if (binding.searchCancel != null) binding.searchCancel.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
@@ -486,11 +475,6 @@ public class MusicListActivity extends BaseActivity {
             case "sheets":
                 bigTitle = getString(R.string.music_playlist);
                 loadSheets();
-                break;
-            case "charts":
-                bigTitle = getString(R.string.music_charts);
-                binding.btnChartsRefresh.setVisibility(View.VISIBLE);
-                loadCharts();
                 break;
             case "chartDetail":
                 loadChartDetail();
@@ -525,8 +509,6 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_search);
             case "sheets":
                 return getString(R.string.music_playlist);
-            case "charts":
-                return getString(R.string.music_charts);
             case "sites":
                 return getString(R.string.music_plugin_manage);
             case "guess":
@@ -1298,61 +1280,6 @@ public class MusicListActivity extends BaseActivity {
         return pool;
     }
 
-    /** 榜单只留酷我＋QQ（他定）：其它源（哔哩哔哩等）的榜一律不列，与首页榜单卡 QQ＞酷我口径一致。 */
-    private static boolean isChartSite(MusicSite s) {
-        if (s == null) return false;
-        String tag = ((s.platform == null ? "" : s.platform) + (s.name == null ? "" : s.name)).toLowerCase();
-        return tag.contains("qq") || tag.contains("tx") || tag.contains("kw") || tag.contains("酷我");
-    }
-
-    private void loadCharts() {
-        showLoading();
-        Task.execute(() -> {
-            List<MusicSite> sites = MusicRepository.sites();
-            List<MusicChart> charts = new ArrayList<>();
-            for (MusicSite s : sites) {
-                if (!isChartSite(s)) continue;
-                charts.addAll(MusicRepository.charts(s));
-            }
-            runOnUiThread(() -> {
-                cards.clear();
-                cards.addAll(charts);
-                chartPreviews.clear();
-                adapter.notifyDataSetChanged();
-                binding.tvBigTitle.setText(bigTitle);
-                // 第二波：榜单列表双标题去重（瓜子单顶栏口径）：顶栏 26sp「榜单」已是标题，大标题行 30sp 同名隐藏，
-                // 只留「N 个榜单」计数＋刷新钮作副标题／工具行（本页实例模式固定，不影响其它模式）
-                binding.tvBigTitle.setVisibility(View.GONE);
-                binding.tvBigCount.setText(charts.size() + " 个榜单");
-                binding.empty.setVisibility(charts.isEmpty() ? View.VISIBLE : View.GONE);
-                if (charts.isEmpty()) {
-                    binding.empty.setText(R.string.wave2_chart_empty);
-                    binding.empty.setOnClickListener(v -> loadCharts());
-                }
-                // 第二波：榜单条目 rawJson 同名字段映射（有源给值、无源留空；详情曲目数不冒充榜总曲数）
-                for (MusicChart c : charts) ListAdapter.fillChartMetaFromRaw(c);
-                // 详情图库预热：列表页一露面就从手机侧发请求把各酷我榜的详情图库热好（必须手机侧发才热到用户那个 colo）；
-                // 预热不阻塞、不解析结果，点进详情时多半已经热了；非酷我榜在路由层直接跳过
-                for (int i = 0; i < charts.size(); i++) {
-                    MusicRepository.prewarmKwChart(charts.get(i));
-                }
-                // 逐榜拉曲目当卡内预览（焦点 3 条、普通 2 条），到一条刷一条；失败的卡预览区留空，不编假数据
-                for (int i = 0; i < charts.size(); i++) {
-                    final MusicChart c = charts.get(i);
-                    final int idx = i;
-                    Task.execute(() -> {
-                        List<MusicTrack> r = MusicRepository.chartTracks(c);
-                        runOnUiThread(() -> {
-                            if (!mode.equals("charts")) return;
-                            chartPreviews.put(c.platform + ":" + c.id, r == null ? new ArrayList<>() : r);
-                            adapter.notifyItemChanged(idx == 0 ? 0 : idx + 1);
-                        });
-                    });
-                }
-            });
-        });
-    }
-
     /** 第 3 项：榜单详情开新页（系统返回回榜单列表；本页不放自己的返回箭头） */
     private void openChartDetail(MusicChart chart) {
         Intent i = new Intent(this, MusicListActivity.class);
@@ -1451,40 +1378,6 @@ public class MusicListActivity extends BaseActivity {
             cur.cover = s.cover;
             adapter.notifyItemChanged(idx + 1);
         }
-    }
-
-    /** 第 3 项：榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染底；取色失败保持默认白卡） */
-    private void tintChartCard(View cardRoot, MusicChart chart, int cornerDp) {
-        String key = chart.platform + ":" + chart.id;
-        cardRoot.setTag(key);
-        if (chart.cover == null || chart.cover.isEmpty()) return;
-        ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                if (!key.equals(cardRoot.getTag())) return;
-                Task.execute(() -> {
-                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                    int r = (int) (android.graphics.Color.red(dom) * 0.15f + 255 * 0.85f);
-                    int g = (int) (android.graphics.Color.green(dom) * 0.15f + 255 * 0.85f);
-                    int b = (int) (android.graphics.Color.blue(dom) * 0.15f + 255 * 0.85f);
-                    int tinted = android.graphics.Color.rgb(r, g, b);
-                    runOnUiThread(() -> {
-                        if (!key.equals(cardRoot.getTag())) return;
-                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-                        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                        d.setColor(tinted);
-                        d.setStroke(dp(1), 0x14000000);
-                        d.setCornerRadius(dp(cornerDp));
-                        cardRoot.setBackground(d);
-                    });
-                });
-            }
-
-            @Override
-            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-            }
-        });
     }
 
     /** 第 9 项：猜你喜欢英雄卡跟随首张封面取色淡染（榜单 tintChartCard 同款口径，圆角 20dp，失败回落白卡） */
@@ -3945,9 +3838,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
         private static final int TYPE_SHEET_TRACK = 10;
-        private static final int TYPE_CHART_FOCUS = 11;
-        private static final int TYPE_CHART_SECTION = 12;
-        private static final int TYPE_CHART_CARD = 13;
         private static final int TYPE_CHART_HERO = 14;
         private static final int TYPE_CHART_TRACK = 15;
         private static final int TYPE_GUESS_TITLE = 16;
@@ -3971,12 +3861,7 @@ public class MusicListActivity extends BaseActivity {
                 if (position == 2) return TYPE_SHEET_SECTION;
                 return TYPE_SHEET_TRACK;
             }
-            // 第 3 项：榜单列表＝焦点卡＋分区头＋普通卡；榜单详情＝英雄卡＋排名行
-            if (mode.equals("charts")) {
-                if (position == 0) return TYPE_CHART_FOCUS;
-                if (position == 1) return TYPE_CHART_SECTION;
-                return TYPE_CHART_CARD;
-            }
+            // 第 3 项：榜单详情＝英雄卡＋排名行
             if (mode.equals("chartDetail")) {
                 if (position == 0) return TYPE_CHART_HERO;
                 return TYPE_CHART_TRACK;
@@ -4050,15 +3935,6 @@ public class MusicListActivity extends BaseActivity {
             if (viewType == TYPE_SHEET_TRACK) {
                 return new SheetTrackHolder(inf.inflate(R.layout.item_music_sheet_track, parent, false));
             }
-            if (viewType == TYPE_CHART_FOCUS) {
-                return new ChartFocusHolder(inf.inflate(R.layout.item_music_chart_focus, parent, false));
-            }
-            if (viewType == TYPE_CHART_SECTION) {
-                return new ChartSectionHolder(inf.inflate(R.layout.item_music_chart_section, parent, false));
-            }
-            if (viewType == TYPE_CHART_CARD) {
-                return new ChartCardHolder(inf.inflate(R.layout.item_music_chart_card, parent, false));
-            }
             if (viewType == TYPE_CHART_HERO) {
                 return new ChartHeroHolder(inf.inflate(R.layout.item_music_chart_hero, parent, false));
             }
@@ -4099,13 +3975,7 @@ public class MusicListActivity extends BaseActivity {
                 else bindSheetTrack((SheetTrackHolder) h, trackIndex(position));
                 return;
             }
-            // 第 3 项：榜单列表与榜单详情
-            if (mode.equals("charts")) {
-                if (h instanceof ChartFocusHolder) bindChartFocus((ChartFocusHolder) h, (MusicChart) cards.get(0));
-                else if (h instanceof ChartSectionHolder) bindChartSection((ChartSectionHolder) h);
-                else bindChartCard((ChartCardHolder) h, (MusicChart) cards.get(position - 1));
-                return;
-            }
+            // 第 3 项：榜单详情
             if (mode.equals("chartDetail")) {
                 if (h instanceof ChartHeroHolder) bindChartHero((ChartHeroHolder) h);
                 else bindChartTrack((ChartTrackHolder) h, trackIndex(position));
@@ -4387,13 +4257,6 @@ public class MusicListActivity extends BaseActivity {
                     sheetLongPress(p);
                     return true;
                 });
-            } else if (o instanceof MusicChart) {
-                MusicChart c = (MusicChart) o;
-                h.name.setText(c.name);
-                h.status.setText("");
-                h.icon.setImageResource(R.drawable.ic_music_eq);
-                h.icon.setBackground(circle(0xFFA855F7));
-                h.itemView.setOnClickListener(v -> openChart(c));
             } else if (o instanceof SearchGroupCard) {
                 // 第 5 项：搜索分组卡（点卡进该组歌曲列，筛选条点 × 回分类）
                 SearchGroupCard g = (SearchGroupCard) o;
@@ -4416,11 +4279,6 @@ public class MusicListActivity extends BaseActivity {
                 h.itemView.setOnClickListener(v -> startSheet(MusicListActivity.this, g.id, g.name));
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        }
-
-        private void openChart(MusicChart chart) {
-            // 第 3 项：榜单详情开新页（旧的同页切 tracks 已废弃，详情有自己的英雄卡＋排名行）
-            openChartDetail(chart);
         }
 
         private void sheetLongPress(MusicPlaylist p) {
@@ -4998,35 +4856,6 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-    /** 第二波：榜单 accent 色（封面语气色；取色失败回落红 #FA243C；holder 复用以 tag 守卫） */
-    private void tintChartAccent(MusicChart chart, android.widget.TextView... views) {
-        String key = chart.platform + ":" + chart.id;
-        for (android.widget.TextView v : views) {
-            if (v == null) continue;
-            v.setTag(key);
-            v.setTextColor(0xFFFA243C);
-        }
-        if (chart.cover == null || chart.cover.isEmpty()) return;
-        ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                Task.execute(() -> {
-                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                    runOnUiThread(() -> {
-                        for (android.widget.TextView v : views) {
-                            if (v != null && key.equals(v.getTag())) v.setTextColor(dom);
-                        }
-                    });
-                });
-            }
-
-            @Override
-            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-            }
-        });
-    }
-
     /** 第二波：平台胶囊（瓜子尾行：半粗、accent 字、accent 0.14 底；普通卡内边距 7/3dp＋圆角 7dp，详情英雄卡 8/3dp＋圆角 8dp） */
     private void tintChartCapsule(MusicChart chart, android.widget.TextView capsule, int cornerDp) {
         if (capsule == null) return;
@@ -5059,96 +4888,6 @@ public class MusicListActivity extends BaseActivity {
             public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
             }
         });
-    }
-
-    /** 第二波：卡内预览行（瓜子 TopTrackPreview：「序号. 歌名 · 歌手」；歌手空时只剩序号＋歌名，不编空歌手） */
-    private static String previewText(MusicTrack t, int index) {
-        String title = t == null ? "" : t.displayTitle();
-        String artist = t == null ? "" : t.displayArtist();
-        String s = (index + 1) + ". " + title;
-        if (artist != null && !artist.isEmpty()) s += " · " + artist;
-        return s;
-    }
-
-    /** 第二波：榜单条目 rawJson 里同名字段映射（瓜子 TopListItem 字段名；只有源给了同名字段才填，无则留空） */
-    private static void fillChartMetaFromRaw(MusicChart c) {
-        if (c == null || c.rawJson == null || c.rawJson.isEmpty()) return;
-        try {
-            com.google.gson.JsonObject o = com.google.gson.JsonParser.parseString(c.rawJson).getAsJsonObject();
-            if (c.trackCount <= 0 && o.has("trackCount") && !o.get("trackCount").isJsonNull()) {
-                int n = o.get("trackCount").getAsInt();
-                if (n > 0) c.trackCount = n;
-            }
-            if ((c.updateFrequency == null || c.updateFrequency.isEmpty())
-                    && o.has("updateFrequency") && !o.get("updateFrequency").isJsonNull()) {
-                String s = o.get("updateFrequency").getAsString();
-                if (s != null && !s.isEmpty()) c.updateFrequency = s;
-            }
-            if ((c.description == null || c.description.isEmpty())) {
-                String d = null;
-                if (o.has("description") && !o.get("description").isJsonNull()) d = o.get("description").getAsString();
-                else if (o.has("desc") && !o.get("desc").isJsonNull()) d = o.get("desc").getAsString();
-                if (d != null && !d.isEmpty()) c.description = d;
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    class ChartFocusHolder extends RecyclerView.ViewHolder {
-        final View cardRoot;
-        final ImageView cover;
-        final TextView name;
-        final TextView preview0;
-        final TextView preview1;
-        final TextView preview2;
-        final TextView btnExplore;
-        final TextView focusLabel;
-        final TextView freq;
-
-        ChartFocusHolder(View v) {
-            super(v);
-            cardRoot = v.findViewById(R.id.chartCardRoot);
-            cover = v.findViewById(R.id.cover);
-            name = v.findViewById(R.id.name);
-            preview0 = v.findViewById(R.id.preview0);
-            preview1 = v.findViewById(R.id.preview1);
-            preview2 = v.findViewById(R.id.preview2);
-            btnExplore = v.findViewById(R.id.btnExplore);
-            focusLabel = v.findViewById(R.id.focusLabel);
-            freq = v.findViewById(R.id.chartFreq);
-        }
-    }
-
-    class ChartSectionHolder extends RecyclerView.ViewHolder {
-        final TextView count;
-
-        ChartSectionHolder(View v) {
-            super(v);
-            count = v.findViewById(R.id.count);
-        }
-    }
-
-    class ChartCardHolder extends RecyclerView.ViewHolder {
-        final View cardRoot;
-        final ImageView cover;
-        final TextView name;
-        final TextView preview0;
-        final TextView preview1;
-        final TextView capsule;
-        final TextView meta;
-        final TextView metaFallback;
-
-        ChartCardHolder(View v) {
-            super(v);
-            cardRoot = v.findViewById(R.id.chartCardRoot);
-            cover = v.findViewById(R.id.cover);
-            name = v.findViewById(R.id.name);
-            preview0 = v.findViewById(R.id.preview0);
-            preview1 = v.findViewById(R.id.preview1);
-            capsule = v.findViewById(R.id.chartCapsule);
-            meta = v.findViewById(R.id.chartMeta);
-            metaFallback = v.findViewById(R.id.chartMetaFallback);
-        }
     }
 
     class ChartHeroHolder extends RecyclerView.ViewHolder {
@@ -5203,113 +4942,6 @@ public class MusicListActivity extends BaseActivity {
             });
             cover.setClipToOutline(true);
         }
-    }
-
-    private void bindChartFocus(ChartFocusHolder h, MusicChart chart) {
-        h.name.setText(chart.name);
-        // 第二波：焦点榜名 24sp／800／字距 −0.6sp（24sp × −0.025em）；封面圆角 8→14dp（瓜子 TopListFeaturedCard）
-        h.name.getPaint().setFakeBoldText(true);
-        h.name.setLetterSpacing(-0.025f);
-        if (chart.cover == null || chart.cover.isEmpty()) {
-            try {
-                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
-            } catch (Throwable ignored) {
-            }
-            h.cover.setImageDrawable(null);
-            h.cover.setBackgroundColor(0xFFE5E5EA);
-        } else {
-            h.cover.setBackgroundColor(0x00000000);
-            loadCoverRounded(chart.name, chart.cover, h.cover, 14);
-        }
-        tintChartCard(h.cardRoot, chart, 20);
-        // 第二波：标签行顺序照瓜子（「此刻焦点」accent 色在前＋弹性空位＋「CHART SPOTLIGHT」在后）；
-        // 更新频率行 12sp 仅源给了值才显，无源留空不编。
-        if (h.focusLabel != null) {
-            h.focusLabel.setText("此刻焦点");
-            tintChartAccent(chart, h.focusLabel, h.btnExplore);
-        }
-        if (h.freq != null) {
-            if (chart.updateFrequency != null && !chart.updateFrequency.isEmpty()) {
-                h.freq.setVisibility(View.VISIBLE);
-                h.freq.setText(chart.updateFrequency);
-            } else {
-                h.freq.setVisibility(View.GONE);
-            }
-        }
-        List<MusicTrack> prev = chartPreviews.get(chart.platform + ":" + chart.id);
-        TextView[] views = {h.preview0, h.preview1, h.preview2};
-        for (int i = 0; i < views.length; i++) {
-            if (prev != null && i < prev.size() && prev.get(i) != null) {
-                views[i].setVisibility(View.VISIBLE);
-                views[i].setText(previewText(prev.get(i), i));
-            } else {
-                views[i].setVisibility(View.GONE);
-            }
-        }
-        // 第二波：「探索榜单」由深色胶囊改 accent 色文字 12sp 半粗（瓜子 TopListFeaturedCard 口径）
-        if (h.btnExplore != null) {
-            h.btnExplore.setText("探索榜单");
-            setSemiBold(h.btnExplore);
-        }
-        h.btnExplore.setOnClickListener(v -> openChart(chart));
-        h.itemView.setOnClickListener(v -> openChart(chart));
-    }
-
-    private void bindChartSection(ChartSectionHolder h) {
-        h.count.setText(cards.size() + " 个榜单");
-    }
-
-    private void bindChartCard(ChartCardHolder h, MusicChart chart) {
-        h.name.setText(chart.name);
-        // 第二波：普通榜名 17sp／800（瓜子 TopListCard；字距未抠到不设）；封面圆角 8→14dp
-        h.name.getPaint().setFakeBoldText(true);
-        if (chart.cover == null || chart.cover.isEmpty()) {
-            try {
-                com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
-            } catch (Throwable ignored) {
-            }
-            h.cover.setImageDrawable(null);
-            h.cover.setBackgroundColor(0xFFE5E5EA);
-        } else {
-            h.cover.setBackgroundColor(0x00000000);
-            loadCoverRounded(chart.name, chart.cover, h.cover, 14);
-        }
-        tintChartCard(h.cardRoot, chart, 16);
-        List<MusicTrack> prev = chartPreviews.get(chart.platform + ":" + chart.id);
-        TextView[] views = {h.preview0, h.preview1};
-        for (int i = 0; i < views.length; i++) {
-            if (prev != null && i < prev.size() && prev.get(i) != null) {
-                views[i].setVisibility(View.VISIBLE);
-                views[i].setText(previewText(prev.get(i), i));
-            } else {
-                views[i].setVisibility(View.GONE);
-            }
-        }
-        // 第二波：元信息行（平台胶囊 11sp 半粗＋accent 字／0.14 底＋内边距 7/3dp＋圆角 7dp；「N 首」＋更新频率仅源给了值才显，
-        // 无源时末行沿用瓜子无曲文案「实时更新热门歌曲」，不拿详情曲目数冒充榜总曲数）
-        if (h.capsule != null) {
-            String platName = LxPlatformSearch.platformName(chart.platform);
-            if (platName == null || platName.isEmpty()) platName = chart.platform == null ? "" : chart.platform;
-            if (platName.isEmpty()) {
-                h.capsule.setVisibility(View.GONE);
-            } else {
-                h.capsule.setVisibility(View.VISIBLE);
-                h.capsule.setText(platName);
-                setSemiBold(h.capsule);
-                tintChartCapsule(chart, h.capsule, 7);
-            }
-        }
-        if (h.meta != null) {
-            // 第二波：尾行只写源给出的数／频率；源没给数时不写「N 首」，改由下方兜底行写瓜子无曲文案
-            String m = "";
-            if (chart.trackCount > 0) m = chart.trackCount + " 首";
-            if (chart.updateFrequency != null && !chart.updateFrequency.isEmpty())
-                m += (m.isEmpty() ? "" : " · ") + chart.updateFrequency;
-            h.meta.setVisibility(m.isEmpty() ? View.GONE : View.VISIBLE);
-            h.meta.setText(m);
-        }
-        if (h.metaFallback != null) h.metaFallback.setVisibility(chart.trackCount > 0 ? View.GONE : View.VISIBLE);
-        h.itemView.setOnClickListener(v -> openChart(chart));
     }
 
     private void bindChartHero(ChartHeroHolder h) {
@@ -5592,7 +5224,6 @@ public class MusicListActivity extends BaseActivity {
         }
 
         public int getItemCount() {
-            if (mode.equals("charts")) return cards.isEmpty() ? 0 : 2 + (cards.size() - 1);
             if (mode.equals("chartDetail")) return 1 + tracks.size();
             if (mode.equals("guess")) return tracks.isEmpty() ? 0 : 3 + tracks.size();
             if (isCardMode()) return cards.size();

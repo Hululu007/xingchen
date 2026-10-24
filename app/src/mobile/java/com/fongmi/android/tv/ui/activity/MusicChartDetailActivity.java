@@ -271,8 +271,9 @@ public class MusicChartDetailActivity extends BaseActivity {
 
     // ================= 播放 =================
 
-    /** list 路由参数照旧口径（与壳 listRouteParams 在 chartDetail 下的取值逐字同：
-     * mode/keyword/sitePlatform/playlistId/title 五件，不新造 chart 字段重建） */
+    /** list 路由参数：mode/keyword/sitePlatform/playlistId/title 五件照旧口径，
+     * 另补 chartPlatform/chartId 两键——队列来源跳转靠这两键重建本页（只有 title 时
+     * 队列侧无从知道是哪张榜，只能落空页；扫查待裁 1 修复） */
     private java.util.Map<String, String> listRouteParams() {
         java.util.Map<String, String> params = new java.util.HashMap<>();
         params.put("mode", "chartDetail");
@@ -280,6 +281,8 @@ public class MusicChartDetailActivity extends BaseActivity {
         params.put("sitePlatform", "");
         params.put("playlistId", "-1");
         params.put("title", bigTitle == null ? "" : bigTitle);
+        params.put("chartPlatform", chartPlatform == null ? "" : chartPlatform);
+        params.put("chartId", chartId == null ? "" : chartId);
         return params;
     }
 

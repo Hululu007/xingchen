@@ -327,9 +327,10 @@ public class LabEnvActivity extends AppCompatActivity {
         });
         tile.addView(go);
 
-        // 开关行：自启、节点两组各占半行（标签＋开关），组内贴紧、两组分列左右，
-        // 不再横排硬挤。语义与存法与原来一致：拨动即存；节点对正在跑的服务
-        // 下次启动生效（不强制重启）
+        // 开关行只剩节点组（标签＋开关）：单服务「自启」开关已摘除——自启语义
+        // 归总开关（LabBoot 不再读单服务 autoStart 标记，总开关开则已部署一律
+        // 拉起），服务页不再摆能拨但不生效的假开关（扫查待裁 20，按总开关定案对齐）。
+        // 节点拨动即存，对正在跑的服务下次启动生效（不强制重启）
         LinearLayout swRow = new LinearLayout(this);
         swRow.setOrientation(LinearLayout.HORIZONTAL);
         swRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -337,30 +338,6 @@ public class LabEnvActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         swRowLp.topMargin = dp(11);
         swRow.setLayoutParams(swRowLp);
-
-        LinearLayout autoGroup = new LinearLayout(this);
-        autoGroup.setOrientation(LinearLayout.HORIZONTAL);
-        autoGroup.setGravity(Gravity.CENTER_VERTICAL);
-        autoGroup.setLayoutParams(new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        TextView swLab = new TextView(this);
-        swLab.setText("自启");
-        swLab.setTextSize(11);
-        swLab.setTextColor(LabSkin.TEXT_ON_DARK_DIM);
-        autoGroup.addView(swLab);
-        View sw = LabSkin.miniSwitch(this, LabRegistry.autoStartOf(s), on -> {
-            LabRegistry.Svc cur = LabRegistry.get(this).svc(s.id);
-            if (cur != null) {
-                cur.autoStart = on;
-                LabRegistry.get(this).upsertSvc(this, cur);
-            }
-        });
-        // 开关自带定尺寸 LayoutParams，不许覆盖；标签与开关之间用 5dp 间隔件
-        View swGap = new View(this);
-        swGap.setLayoutParams(new LinearLayout.LayoutParams(dp(5), 1));
-        autoGroup.addView(swGap);
-        autoGroup.addView(sw);
-        swRow.addView(autoGroup);
 
         LinearLayout nodeGroup = new LinearLayout(this);
         nodeGroup.setOrientation(LinearLayout.HORIZONTAL);

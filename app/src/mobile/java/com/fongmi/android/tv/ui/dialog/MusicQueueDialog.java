@@ -575,9 +575,11 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             String title = params.get("title");
             String keyword = params.get("keyword");
             String playlistId = params.get("playlistId");
+            String chartIdParam = params.get("chartId");
             boolean hasTarget = (playlistId != null && !playlistId.isEmpty() && !"-1".equals(playlistId))
                     || (keyword != null && !keyword.isEmpty())
-                    || (title != null && !title.isEmpty());
+                    || (title != null && !title.isEmpty())
+                    || (chartIdParam != null && !chartIdParam.isEmpty());
             if (!hasTarget) return null;
             long pid = -1;
             try {
@@ -621,6 +623,23 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 android.content.Intent i = new android.content.Intent(host,
                         com.fongmi.android.tv.ui.activity.MusicSearchActivity.class);
                 i.putExtra("keyword", keyword == null ? "" : keyword);
+                return i;
+            }
+            if ("chartDetail".equals(params.get("mode"))) {
+                // 扫查待裁 1：榜单详情入队时 routeParams 已补 chartPlatform/chartId，
+                // 来源跳转按 startChartDetail 契约重建本页（封面/描述/频率不在队列参数里，
+                // 传空、详情页容忍空值，与只凭标题重建的其余来源页同口径）。
+                String cp = params.get("chartPlatform");
+                String cid = params.get("chartId");
+                if (cp == null || cp.isEmpty() || cid == null || cid.isEmpty()) return null;
+                android.content.Intent i = new android.content.Intent(host,
+                        com.fongmi.android.tv.ui.activity.MusicChartDetailActivity.class);
+                i.putExtra("title", title == null ? "" : title);
+                i.putExtra("chartPlatform", cp);
+                i.putExtra("chartId", cid);
+                i.putExtra("chartCover", "");
+                i.putExtra("chartDesc", "");
+                i.putExtra("chartFreq", "");
                 return i;
             }
             if ("site".equals(params.get("mode"))) {

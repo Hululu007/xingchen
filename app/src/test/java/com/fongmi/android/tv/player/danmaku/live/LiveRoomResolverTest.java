@@ -167,4 +167,39 @@ public class LiveRoomResolverTest {
         assertTrue(LiveRoomResolver.resolve(snapshot("douyin_abc", "")).isEmpty());
         assertTrue(LiveRoomResolver.resolve(snapshot("douyin_12345678901234567890123", "")).isEmpty());
     }
+
+    @Test
+    public void kuaishouPrefixResolves() {
+        Optional<RoomRef> ref = LiveRoomResolver.resolve(snapshot("kuaishou_3xbjm6fvq23k6ec", ""));
+        assertTrue(ref.isPresent());
+        assertEquals(RoomRef.Platform.KUAISHOU, ref.get().platform());
+        assertEquals("3xbjm6fvq23k6ec", ref.get().roomId());
+        assertEquals("kuaishou:3xbjm6fvq23k6ec", ref.get().key());
+        // 带连字符的主播自定义 id（laoayi-88 形态）同样成立
+        assertEquals("laoayi-88", LiveRoomResolver.resolve(snapshot("kuaishou_laoayi-88", "")).get().roomId());
+    }
+
+    @Test
+    public void kuaishouLinkResolvesFromVodIdAndPlayUrl() {
+        assertEquals("3xw9zpeg8xyf432", LiveRoomResolver.resolve(snapshot("https://live.kuaishou.com/u/3xw9zpeg8xyf432", "")).get().roomId());
+        assertEquals("zzz8800555", LiveRoomResolver.resolve(snapshot("", "episode$https://live.kuaishou.com/u/zzz8800555?from=x")).get().roomId());
+    }
+
+    @Test
+    public void kuaishouBareDigitsNeverResolve() {
+        // 快手不设裸数字路：带快手语境的裸数字也不认（与虎牙/抖音同一防冒认口径）
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("site", "123456", "", "快手直播", "", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("SimpleLive", "123456", "", "快手直播", "某主播", "")).isEmpty());
+        // 快手 CDN 域名里的数字段不许被快手链接式冒认（链接式只认 /u/ 段）
+        assertTrue(LiveRoomResolver.resolve(snapshot("", "https://tx-origin.pull.yximgs.com/gifshow/1_B7BrugJfg.flv")).isEmpty());
+    }
+
+    @Test
+    public void kuaishouMalformedIdsDoNotResolve() {
+        assertTrue(LiveRoomResolver.resolve(snapshot("kuaishou_", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("kuaishou_有中文", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("kuaishou_123456789012345678901234567890123", "")).isEmpty());
+    }
 }

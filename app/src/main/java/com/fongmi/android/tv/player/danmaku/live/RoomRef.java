@@ -11,7 +11,8 @@ public record RoomRef(Platform platform, String roomId) {
         DOUYU,
         BILI,
         HUYA,
-        DOUYIN
+        DOUYIN,
+        KUAISHOU
     }
 
     public String key() {

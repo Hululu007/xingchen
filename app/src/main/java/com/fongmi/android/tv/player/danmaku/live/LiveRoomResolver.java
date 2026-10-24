@@ -17,6 +17,9 @@ import java.util.regex.Pattern;
  * 抖音：vod_id 前缀 douyin_{webRid} 与 live.douyin.com/{webRid} 链接形态（webRid 为纯数字串）；
  * 不设裸数字路，进房要先经房间页把 webRid 换成真实 room_id 并校验在播，
  * 都在 provider 预备步兜底。
+ * 快手：vod_id 前缀 kuaishou_{principalId} 与 live.kuaishou.com/u/{principalId} 链接形态
+ * （principalId 为字母/数字/连字符/下划线的主播 id，如 3x…、laoayi-88）；不设裸数字路，
+ * liveStreamId 换取与在播校验在 provider 预备步兜底。
  * 「数字即认」永不成立。识别不出返回 empty＝不接，绝不拿标题反查房间。
  */
 public final class LiveRoomResolver {
@@ -29,6 +32,8 @@ public final class LiveRoomResolver {
     private static final Pattern HUYA_LINK = Pattern.compile("(?:www\\.|m\\.)?huya\\.com/([0-9A-Za-z]{1,20})(?:[/?#]|$)");
     private static final Pattern DOUYIN_PREFIX = Pattern.compile("^douyin_(\\d{1,20})$");
     private static final Pattern DOUYIN_LINK = Pattern.compile("live\\.douyin\\.com/(\\d{1,20})(?:[/?#]|$)");
+    private static final Pattern KUAISHOU_PREFIX = Pattern.compile("^kuaishou_([0-9A-Za-z_-]{1,32})$");
+    private static final Pattern KUAISHOU_LINK = Pattern.compile("live\\.kuaishou\\.com/u/([0-9A-Za-z_-]{1,32})(?:[/?#]|$)");
     private static final Pattern BARE_DIGITS = Pattern.compile("^\\d{1,15}$");
 
     private LiveRoomResolver() {
@@ -60,7 +65,25 @@ public final class LiveRoomResolver {
         if (bili.isPresent()) return bili;
         Optional<RoomRef> huya = resolveHuya(snapshot);
         if (huya.isPresent()) return huya;
-        return resolveDouyin(snapshot);
+        Optional<RoomRef> douyin = resolveDouyin(snapshot);
+        if (douyin.isPresent()) return douyin;
+        return resolveKuaishou(snapshot);
+    }
+
+    private static Optional<RoomRef> resolveKuaishou(Snapshot snapshot) {
+        Matcher prefix = KUAISHOU_PREFIX.matcher(snapshot.vodId().trim());
+        if (prefix.matches()) return Optional.of(new RoomRef(RoomRef.Platform.KUAISHOU, prefix.group(1)));
+        String link = findKuaishouLink(snapshot.vodId());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.KUAISHOU, link));
+        link = findKuaishouLink(snapshot.playUrl());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.KUAISHOU, link));
+        return Optional.empty();
+    }
+
+    private static String findKuaishouLink(String text) {
+        if (text == null || text.isEmpty()) return null;
+        Matcher matcher = KUAISHOU_LINK.matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static Optional<RoomRef> resolveDouyin(Snapshot snapshot) {

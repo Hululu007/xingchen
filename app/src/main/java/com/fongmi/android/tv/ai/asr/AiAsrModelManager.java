@@ -23,12 +23,11 @@ public class AiAsrModelManager {
             "sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01.tar.bz2";
 
     /**
-     * 主下载地址（raw.githubusercontent.com；无 jsDelivr 的 20MB 单文件上限）。
-     * App 内实际走此地址下载模型 zip。
+     * 主下载地址（他的 Cloudflare Pages，xingchen-dl 项目 asr/ 目录，国内直连）。
+     * 2026-10-24 从 GitHub raw 迁来（raw 国内经常超时）。App 内实际走此地址下载模型 zip。
      */
     public static final String MODEL_URL_MIRROR =
-            "https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/" +
-            "model-zh.zip";
+            "https://xingchen-dl.pages.dev/asr/model-zh.zip";
 
     /** 备用下载地址（jsDelivr CDN；模型 zip 20,146,260 字节已贴近其 20MB 上限，主源失败时兜底重试） */
     public static final String MODEL_URL_BACKUP =

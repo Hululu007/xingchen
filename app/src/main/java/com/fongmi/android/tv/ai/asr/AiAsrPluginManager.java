@@ -25,13 +25,14 @@ import dalvik.system.DexClassLoader;
 public class AiAsrPluginManager {
 
     /**
-     * 插件托管主地址：raw.githubusercontent.com（无 jsDelivr 的 20MB 单文件上限，
-     * 23MB 的 arm64 .so 在 jsDelivr 会回 403「File size exceeded the configured limit of 20 MB」）。
+     * 插件托管主地址：他的 Cloudflare Pages（xingchen-dl 项目 asr/ 目录，国内直连）。
+     * 2026-10-24 从 GitHub raw 迁来——raw 国内经常超时，jsDelivr 又有 20MB 单文件上限
+     * （23MB 的 arm64 .so 回 403「File size exceeded the configured limit of 20 MB」），两路真机全灭过。
      */
-    public static final String PLUGIN_BASE_URL = "https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/";
+    public static final String PLUGIN_BASE_URL = "https://xingchen-dl.pages.dev/asr/";
 
-    /** 备用地址（jsDelivr CDN；超 20MB 的文件在此不可用，仅作小文件兜底） */
-    public static final String PLUGIN_MIRROR_URL = "https://cdn.jsdelivr.net/gh/XingChenApp/xingchen-asr@main/";
+    /** 备用地址（自有仓库 raw 兜底；jsDelivr 因 20MB 上限放不下 .so，插件文件不再走它） */
+    public static final String PLUGIN_MIRROR_URL = "https://raw.githubusercontent.com/XingChenApp/xingchen-asr/main/";
 
     private static final String DEX_NAME = "sherpa-plugin.dex";
     private static final String SO_NAME = "libsherpa-onnx-jni.so";

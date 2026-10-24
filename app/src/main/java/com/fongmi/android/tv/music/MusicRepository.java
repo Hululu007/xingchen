@@ -509,22 +509,10 @@ public class MusicRepository {
             }
         }
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
-        for (LocalTrackMeta.Query q : queries) {
-            for (MusicSource other : SOURCES) {
-                if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
-                try {
-                    MusicTrack hit = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
-                    if (hit == null) continue;
-                    String lrc = other.lyric(hit);
-                    if (lrc != null && !lrc.trim().isEmpty()) {
-                        clearLyricMiss(track);
-                        return lrc;
-                    }
-                } catch (Throwable t) {
-                    rethrowKeyIssue(t);
-                    SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
-                }
-            }
+        String crossLrc = lyricCrossSource(track, s, queries, force);
+        if (crossLrc != null) {
+            clearLyricMiss(track);
+            return crossLrc;
         }
         // 3. 歌词型插件直查：歌词网/歌词千寻的 search 只认 type="lyric"，
         //    前两步（源级搜歌）永远问不到它们；本地/设备歌的词主要靠这条。
@@ -543,6 +531,40 @@ public class MusicRepository {
         }
         // 二-28：整链跑完仍无词才记负缓存（提前收口的两处 return 在此之前，不记）
         markLyricMiss(track);
+        return null;
+    }
+
+    /**
+     * lyric() 步 2（跨源纯文本）：自动路径单遍原口径；手动搜词（force，二-8）与 rich 链
+     * 同口径——先精确遍（跨全部查询×全部源只认精确级），全程无精确命中才跑包含遍作次级回落。
+     */
+    private static String lyricCrossSource(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force) {
+        if (!force) return lyricCrossPass(track, self, queries, MATCH_ANY);
+        String exact = lyricCrossPass(track, self, queries, MATCH_EXACT);
+        if (exact != null) return exact;
+        return lyricCrossPass(track, self, queries, MATCH_CONTAINS);
+    }
+
+    /** lyric() 步 2 单遍：level 指定级别时只认该级对歌；密钥问题照原口径向上抛、中止整链 */
+    private static String lyricCrossPass(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, int level) {
+        for (LocalTrackMeta.Query q : queries) {
+            for (MusicSource other : SOURCES) {
+                if (other == self || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+                try {
+                    MusicTrack target = matchTarget(track, q.matchTitle);
+                    List<MusicTrack> candidates = other.search(q.keyword);
+                    MusicTrack hit = level == MATCH_ANY
+                            ? matchSong(target, candidates)
+                            : matchSongAtLevel(target, candidates, level);
+                    if (hit == null) continue;
+                    String lrc = other.lyric(hit);
+                    if (lrc != null && !lrc.trim().isEmpty()) return lrc;
+                } catch (Throwable t) {
+                    rethrowKeyIssue(t);
+                    SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
+                }
+            }
+        }
         return null;
     }
 
@@ -661,7 +683,7 @@ public class MusicRepository {
         // 抛出点都与串行版逐点一致，墙钟从各步之和降为最慢一步。步 2 收集器自带同口径
         // 探针桶，命中首选即停收，与串行版「note 返回即停」同点；主线程已返回后才跑完
         // 的预取结果直接丢弃、不回写任何状态，不改变任何选择。
-        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries);
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force);
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
         CrossCollect cross = prefetch.cross();
         for (MusicLyric lrc : cross.lyrics) {
@@ -909,32 +931,55 @@ public class MusicRepository {
         LxKeyIssue keyIssue;
     }
 
-    /** 步 2 收集（原串行循环的收集版）：查询序列外层×其它源内层，命中按原序入列、探针桶命中首选即停 */
-    private static CrossCollect collectCross(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries) {
+    /**
+     * 步 2 收集全程。自动取词（force＝false）：单遍原口径（每源 matchSong 先精确后包含），
+     * 行为与原串行版逐点一致。手动搜词（force，二-8）：先跑精确遍——跨全部查询×全部源
+     * 只认精确级对歌；精确遍有任一命中（或撞密钥问题）就不再跑包含遍，包含级只在
+     * 全程无精确命中时作次级回落。原松门槛正在此处：matchSong 的两段只在单个源的
+     * 候选表内分先后，跨源时排在前面的源一张包含级命中（如前缀歌）就会先入桶、
+     * 甚至命中首选立即返回，后面源的精确命中永远轮不到——单表内精确优先≠跨源精确优先。
+     */
+    private static CrossCollect collectCross(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force) {
         CrossCollect out = new CrossCollect();
         LyricPick probe = new LyricPick(MusicStore.getLyricPriority());
+        if (!force) {
+            collectCrossPass(track, self, queries, MATCH_ANY, probe, out);
+            return out;
+        }
+        collectCrossPass(track, self, queries, MATCH_EXACT, probe, out);
+        if (!out.lyrics.isEmpty() || out.keyIssue != null) return out;
+        collectCrossPass(track, self, queries, MATCH_CONTAINS, probe, out);
+        return out;
+    }
+
+    /** 步 2 单遍收集：查询序列外层×其它源内层，命中按原序入列、探针桶命中首选即停；level 指定级别时只认该级对歌 */
+    private static void collectCrossPass(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries,
+                                         int level, LyricPick probe, CrossCollect out) {
         for (LocalTrackMeta.Query q : queries) {
             for (MusicSource other : SOURCES) {
                 if (other == self || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
                 try {
-                    MusicTrack hitTrack = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
+                    MusicTrack target = matchTarget(track, q.matchTitle);
+                    List<MusicTrack> candidates = other.search(q.keyword);
+                    MusicTrack hitTrack = level == MATCH_ANY
+                            ? matchSong(target, candidates)
+                            : matchSongAtLevel(target, candidates, level);
                     if (hitTrack == null) continue;
                     MusicLyric lrc = normalizeRich(richOf(other, hitTrack));
                     if (lrc == null) continue;
                     out.lyrics.add(lrc);
-                    if (probe.note(lrc) != null) return out;
+                    if (probe.note(lrc) != null) return;
                 } catch (Throwable t) {
                     try {
                         rethrowKeyIssue(t);
                     } catch (LxKeyIssue k) {
                         out.keyIssue = k;
-                        return out;
+                        return;
                     }
                     SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
                 }
             }
         }
-        return out;
     }
 
     /** 步 3 收集（原串行循环的收集版）：逐个 FreeJs 源问歌词型插件，命中按源序入列 */
@@ -980,8 +1025,8 @@ public class MusicRepository {
             this.amll = amll;
         }
 
-        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries) {
-            Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries));
+        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force) {
+            Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force));
             Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
             Future<MusicLyric> cf = Task.largeExecutor().submit(() -> cfLyricWord(track));
             Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
@@ -1083,6 +1128,45 @@ public class MusicRepository {
         return lyricRichAllDetailed(track, force).versions;
     }
 
+    /**
+     * lyricRichAll 步 2 单遍收集：level 指定级别时只收该级对歌的版本（MATCH_ANY 走
+     * matchSong 原口径）。sink 非空时命中先进次级列（不入 seen、不进主列），由调用方
+     * 在全链收完后逐个过 addVersion 殿后追加；sink 为空时直接 addVersion 进主列。
+     * 返回 false＝本遍有源抛错（聚合记不完整，与原内联版 catch 后 complete＝false 同口径；
+     * 密钥问题照旧解包重抛、中止整链，与原内联版一致）。
+     */
+    private static boolean collectAllCrossPass(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries,
+                                               int level, List<LyricVersion> out, Set<String> seen, List<MusicLyric> sink) {
+        boolean complete = true;
+        for (LocalTrackMeta.Query q : queries) {
+            for (MusicSource other : SOURCES) {
+                if (other == self || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+                try {
+                    MusicTrack target = matchTarget(track, q.matchTitle);
+                    List<MusicTrack> candidates = other.search(q.keyword);
+                    MusicTrack hit = level == MATCH_ANY
+                            ? matchSong(target, candidates)
+                            : matchSongAtLevel(target, candidates, level);
+                    if (hit == null) continue;
+                    MusicLyric alt = normalizeRich(richOf(other, hit));
+                    if (alt != null && (alt.sourceName == null || alt.sourceName.isEmpty())) {
+                        alt.sourceName = siteNameForPlatform(hit.platform);
+                    }
+                    if (sink != null) {
+                        if (alt != null && alt.hasLyric()) sink.add(alt);
+                    } else {
+                        addVersion(out, seen, alt);
+                    }
+                } catch (Throwable t) {
+                    rethrowKeyIssue(t);
+                    complete = false;
+                    SpiderDebug.log("music", "lyricRichAll alt search error platform=%s %s", other.platform(), t.getMessage());
+                }
+            }
+        }
+        return complete;
+    }
+
     /** B8：与 lyricRichAll 同一条链，但带回是否完整（恢复判失效只认完整聚合）。 */
     public static LyricRichAllResult lyricRichAllDetailed(MusicTrack track, boolean force) {
         List<LyricVersion> out = new ArrayList<>();
@@ -1123,23 +1207,16 @@ public class MusicRepository {
             SpiderDebug.log("music", "lyricRichAll fallback error %s", t.getMessage());
         }
         // 2. 其它源（本地源跳过）：每源各收一命中；本地歌按查询序列逐级收（去重在 addVersion）
-        for (LocalTrackMeta.Query q : queries) {
-            for (MusicSource other : SOURCES) {
-                if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
-                try {
-                    MusicTrack hit = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
-                    if (hit == null) continue;
-                    MusicLyric alt = normalizeRich(richOf(other, hit));
-                    if (alt != null && (alt.sourceName == null || alt.sourceName.isEmpty())) {
-                        alt.sourceName = siteNameForPlatform(hit.platform);
-                    }
-                    addVersion(out, seen, alt);
-                } catch (Throwable t) {
-                    rethrowKeyIssue(t);
-                    complete = false;
-                    SpiderDebug.log("music", "lyricRichAll alt search error platform=%s %s", other.platform(), t.getMessage());
-                }
-            }
+        // 二-8：手动搜词（force）时本步分两级收——精确级先入主列，包含级先攒在次级列，
+        // 等全链收完、主列分区排定后才逐个过 addVersion 追加到最末（去重仍走 seen，
+        // 与主列／后续步同文版本不重复）：包含级版本仍可列给用户手动选，但不许排在
+        // 精确命中前面。自动路径（force＝false）单遍原口径、次级列恒空，行为不变。
+        List<MusicLyric> containsLyrics = new ArrayList<>();
+        if (force) {
+            if (!collectAllCrossPass(track, s, queries, MATCH_EXACT, out, seen, null)) complete = false;
+            if (!collectAllCrossPass(track, s, queries, MATCH_CONTAINS, out, seen, containsLyrics)) complete = false;
+        } else {
+            if (!collectAllCrossPass(track, s, queries, MATCH_ANY, out, seen, null)) complete = false;
         }
         // 3. 歌词型插件直查（与快路径同一步：逐个问 FreeJS 源的歌词插件，2026-10-22 前这里无条件 break 只问第一家）
         for (MusicSource other : SOURCES) {
@@ -1191,7 +1268,11 @@ public class MusicRepository {
         // 在线歌词优先级分区（稳定：桶内保链顺序；逐行＝行时间且无词时间，纯文本＝无词无行时间）。
         // followSource 不分区：原样返回收集序。AMLL 只认 getSource()＝"AMLL"，不判 format。
         String priority = MusicStore.getLyricPriority();
-        if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(priority)) return new LyricRichAllResult(out, complete);
+        if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(priority)) {
+            // 二-8：次级（包含级）版本殿后，跟随来源模式下同样不许排在精确命中前面
+            for (MusicLyric deferred : containsLyrics) addVersion(out, seen, deferred);
+            return new LyricRichAllResult(out, complete);
+        }
         List<LyricVersion> amll = new ArrayList<>();
         List<LyricVersion> word = new ArrayList<>();
         List<LyricVersion> line = new ArrayList<>();
@@ -1212,6 +1293,8 @@ public class MusicRepository {
             out.addAll(line);
         }
         out.addAll(plain);
+        // 二-8：次级（包含级）版本殿后追加（自动路径次级列恒空，此处为空操作）
+        for (MusicLyric deferred : containsLyrics) addVersion(out, seen, deferred);
         return new LyricRichAllResult(out, complete);
     }
 
@@ -1287,31 +1370,47 @@ public class MusicRepository {
         return lyric;
     }
 
+    /** 对歌级别：不中／包含级（歌名互含＋歌手关）／精确级（歌名归一化全等＋歌手关）；歌手关与 matchSong 原口径同一道（占位歌手不参与、有歌手时互含） */
+    public static final int MATCH_NONE = 0;
+    public static final int MATCH_CONTAINS = 1;
+    public static final int MATCH_EXACT = 2;
+    /** 不分级口径：matchSong 的「先精确遍、再包含遍」 */
+    private static final int MATCH_ANY = -1;
+
+    /** 单个候选的对歌级别（matchSong 两段判定的单候选版，判定条件逐项与原两段一致） */
+    public static int matchLevel(MusicTrack target, MusicTrack candidate) {
+        if (target == null || candidate == null) return MATCH_NONE;
+        String title = normalizeSong(target.title);
+        if (title.isEmpty()) return MATCH_NONE;
+        String ct = normalizeSong(candidate.title);
+        if (ct.isEmpty()) return MATCH_NONE;
+        // 占位歌手（<unknown>／unknown 类）从不参与对歌：它不是真歌手，拿它卡人只会把对的歌也拒掉
+        String artist = LocalTrackMeta.isPlaceholderArtist(target.artist) ? "" : normalizeSong(target.artist);
+        if (!artistMatch(artist, candidate.artist)) return MATCH_NONE;
+        if (ct.equals(title)) return MATCH_EXACT;
+        if (ct.contains(title) || title.contains(ct)) return MATCH_CONTAINS;
+        return MATCH_NONE;
+    }
+
+    /** 只认指定级别的第一个候选（保列表序）；无该级命中返回 null */
+    private static MusicTrack matchSongAtLevel(MusicTrack target, List<MusicTrack> candidates, int level) {
+        if (target == null || candidates == null) return null;
+        if (normalizeSong(target.title).isEmpty()) return null;
+        for (MusicTrack c : candidates) {
+            if (matchLevel(target, c) == level) return c;
+        }
+        return null;
+    }
+
     /** 歌名包含＋（有歌手时）歌手包含才认，防止拿错歌的词；归一化去标点/空白/大小写 */
     public static MusicTrack matchSong(MusicTrack target, List<MusicTrack> candidates) {
         if (target == null || candidates == null) return null;
-        String title = normalizeSong(target.title);
-        if (title.isEmpty()) return null;
-        // 占位歌手（<unknown>／unknown 类）从不参与对歌：它不是真歌手，拿它卡人只会把对的歌也拒掉
-        String artist = LocalTrackMeta.isPlaceholderArtist(target.artist) ? "" : normalizeSong(target.artist);
+        if (normalizeSong(target.title).isEmpty()) return null;
         // 先精确：归一化歌名完全相等才认（本地歌无歌手时尤其重要，否则“来不及爱你”会先撞上“来不及”这种前缀歌）
-        for (MusicTrack c : candidates) {
-            if (c == null) continue;
-            String ct = normalizeSong(c.title);
-            if (ct.isEmpty() || !ct.equals(title)) continue;
-            if (!artistMatch(artist, c.artist)) continue;
-            return c;
-        }
+        MusicTrack exact = matchSongAtLevel(target, candidates, MATCH_EXACT);
+        if (exact != null) return exact;
         // 再包含：歌名互含才认（旧口径，兜底）
-        for (MusicTrack c : candidates) {
-            if (c == null) continue;
-            String ct = normalizeSong(c.title);
-            if (ct.isEmpty()) continue;
-            if (!ct.contains(title) && !title.contains(ct)) continue;
-            if (!artistMatch(artist, c.artist)) continue;
-            return c;
-        }
-        return null;
+        return matchSongAtLevel(target, candidates, MATCH_CONTAINS);
     }
 
     /** 歌手对上：目标无歌手时不卡；候选无歌手时不卡；有歌手时双方归一化后互含才认（与旧口径一致） */

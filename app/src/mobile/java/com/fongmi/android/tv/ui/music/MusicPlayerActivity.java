@@ -131,6 +131,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean cdBackdropInit;
     private View cdBackdropView;
     private CdDiscView cdDiscView;
+    /** 律动包络源（X-15）：本页创建/启停，喂流体背景 level 与 CD 盘 beatA/beatB。 */
+    private VisualizerRhythmSource rhythmSource;
     private View cdDetailView;
     private CdLyricWindowView cdLyricView;
     private View cdBelowColView;
@@ -352,9 +354,32 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
     }
 
+    /**
+     * 律动包络源同步（X-15）：播放中按当前会话 id 启动（id 变了自动重挂），暂停即停。
+     * 源建立失败/无权限时其包络恒 0，消费侧退化基础速率——本方法只管接线，不弹窗不拦截。
+     */
+    private void syncRhythmSource() {
+        try {
+            if (!playing) {
+                if (rhythmSource != null) rhythmSource.stop();
+                return;
+            }
+            if (rhythmSource == null) {
+                rhythmSource = new VisualizerRhythmSource(this);
+                if (cdDiscView != null) cdDiscView.setRhythmSource(rhythmSource);
+                if (binding != null && binding.fluidAmbient != null) {
+                    binding.fluidAmbient.setRhythmSource(rhythmSource);
+                }
+            }
+            rhythmSource.start(MusicController.get().audioSessionId());
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (rhythmSource != null) rhythmSource.stop();
         MusicController.get().removeListener(listener);
         MusicController.get().unbind();
         if (ambientAnimator != null) ambientAnimator.cancel();
@@ -1493,6 +1518,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void setPlaying(boolean value) {
         playing = value;
+        syncRhythmSource();
         if (lyricView != null) lyricView.setPlaying(value);
         if (appleLyricView != null) appleLyricView.setPlaying(value);
         if (lyricPageView != null) lyricPageView.setPlaying(value);
@@ -1652,6 +1678,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void bindTrack(MusicTrack track) {
         lastBoundTrack = track;
+        syncRhythmSource();
         bindTrackViews(track);
         if (track == null) {
             if (lyricView != null) {

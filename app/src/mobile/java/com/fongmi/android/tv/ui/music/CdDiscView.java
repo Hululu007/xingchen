@@ -26,8 +26,9 @@ import androidx.annotation.Nullable;
  * spin＋＝boost×16°/s（boost＝1＋节拍.a×0.65＋节拍.b×0.3，歌词展开过渡中段 boost＝0）；
  * flow＋＝(12＋节拍.a×10＋节拍.b×65)°/s；caustic＋＝(28＋节拍.a×18＋节拍.b×110)°/s；
  * undertow＋＝−(8＋节拍.a×4＋节拍.b×18)°/s。初值 spin 0／flow 0／caustic 42／undertow 214。
- * 星辰侧无节拍包络源（dg0 的 a/b 无输入，与 FluidCoverAmbientView 律动未接通同口径），
- * a/b 恒 0 时四路退化为 boost 1、flow 12、caustic 28、undertow −8 °/s——公式在码、节拍项待源接通。
+ * 节拍 a/b 由播放页注入的 VisualizerRhythmSource 喂（X-15 已接：Visualizer 包络，
+ * 时间常数照 dg0 的 a 0.25／b 升 0.09 降 0.32）；无源/拿不到包络时 a/b 恒 0，
+ * 四路退化为 boost 1、flow 12、caustic 28、undertow −8 °/s。
  * 仅 playing 且系统动画开时推进（GZ running 门）；spin 恢复（暂停→播放）boost 600ms 爬升
  * （任务口径 Motor 恢复 600ms：以 boost 爬升实现转速恢复，非 GZ 字面常量，见报告）。
  * 光泽 sheen：播放起 700ms 淡入／暂停 450ms 淡出（CD_SHEEN_FADE_IN/OUT）。
@@ -68,6 +69,8 @@ public class CdDiscView extends View {
     private float surfaceMix;
     private ValueAnimator surfaceAnimator;
     private boolean playing;
+    /** 律动包络源（X-15）：播放页注入；空＝a/b 恒 0 走基础速率。 */
+    private VisualizerRhythmSource rhythmSource;
     private float spin;
     private float flow;
     private float caustic = 42f;
@@ -199,6 +202,11 @@ public class CdDiscView extends View {
         invalidate();
     }
 
+    /** 律动包络源注入（X-15）：播放页创建并管理其启停，本视图只读 beatA/beatB。 */
+    public void setRhythmSource(VisualizerRhythmSource source) {
+        rhythmSource = source;
+    }
+
     public void setPlaying(boolean value) {
         if (playing == value) return;
         playing = value;
@@ -252,7 +260,7 @@ public class CdDiscView extends View {
         }
     }
 
-    /** 四路推进（CdMotion 帧式：dt 钳 0.05s；节拍 a/b 无源恒 0，公式保留项见类注）。 */
+    /** 四路推进（CdMotion 帧式：dt 钳 0.05s；节拍 a/b 读律动源，无源恒 0，见类注）。 */
     private void stepFrame() {
         long now = SystemClock.uptimeMillis();
         if (lastFrameMs == 0) {
@@ -262,8 +270,9 @@ public class CdDiscView extends View {
         float dt = Math.min(0.05f, (now - lastFrameMs) / 1000f);
         lastFrameMs = now;
         if (!ValueAnimator.areAnimatorsEnabled()) return;
-        float beatA = 0f;
-        float beatB = 0f;
+        VisualizerRhythmSource rs = rhythmSource;
+        float beatA = rs == null ? 0f : rs.beatA();
+        float beatB = rs == null ? 0f : rs.beatB();
         float boost = 1f + beatA * 0.65f + beatB * 0.3f;
         if (boostRamp < 1f) {
             boostRamp = Math.min(1f, (now - boostRampStartMs) / 600f);

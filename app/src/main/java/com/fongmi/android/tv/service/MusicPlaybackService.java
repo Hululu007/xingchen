@@ -868,6 +868,18 @@ public class MusicPlaybackService extends MediaSessionService {
         return MusicStore.getSpeed();
     }
 
+    /**
+     * 当前播放器的音频会话 id（只读口，X-15）：供播放页律动包络挂 Visualizer。
+     * 无播放器/取不到时返回 0；不改任何播放行为。
+     */
+    public int getAudioSessionId() {
+        try {
+            return player == null ? 0 : player.getAudioSessionId();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** 音质切换后：当前歌按新音质重取直链，进度保留 */
     public void reloadCurrent() {
         int idx = queue.getIndex();

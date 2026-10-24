@@ -451,6 +451,12 @@ public class MusicController {
         return s == null ? MusicStore.getSpeed() : s.getSpeed();
     }
 
+    /** 音频会话 id（只读转发，X-15 律动包络用；服务不在时 0） */
+    public int audioSessionId() {
+        MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
+        return s == null ? 0 : s.getAudioSessionId();
+    }
+
     public void setMode(int mode) {
         runOnService(() -> service().setMode(mode));
     }

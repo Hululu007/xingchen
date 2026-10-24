@@ -9,7 +9,8 @@ public record RoomRef(Platform platform, String roomId) {
 
     public enum Platform {
         DOUYU,
-        BILI
+        BILI,
+        HUYA
     }
 
     public String key() {

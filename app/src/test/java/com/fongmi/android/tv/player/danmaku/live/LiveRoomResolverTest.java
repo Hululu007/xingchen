@@ -101,4 +101,37 @@ public class LiveRoomResolverTest {
         assertTrue(LiveRoomResolver.resolve(
                 new LiveRoomResolver.Snapshot("site", "123456", "", "哔哩直播", "斗鱼一哥跨界", "")).isPresent());
     }
+
+    @Test
+    public void huyaPrefixResolves() {
+        Optional<RoomRef> ref = LiveRoomResolver.resolve(snapshot("huya_998", ""));
+        assertTrue(ref.isPresent());
+        assertEquals(RoomRef.Platform.HUYA, ref.get().platform());
+        assertEquals("998", ref.get().roomId());
+        assertEquals("huya:998", ref.get().key());
+        // 字母短号房（主播自定义房号）同样成立
+        assertEquals("lpl", LiveRoomResolver.resolve(snapshot("huya_lpl", "")).get().roomId());
+    }
+
+    @Test
+    public void huyaLinkResolvesFromVodIdAndPlayUrl() {
+        assertEquals("998", LiveRoomResolver.resolve(snapshot("https://www.huya.com/998", "")).get().roomId());
+        assertEquals("518622", LiveRoomResolver.resolve(snapshot("", "episode$https://m.huya.com/518622?from=x")).get().roomId());
+    }
+
+    @Test
+    public void huyaBareDigitsNeverResolve() {
+        // 虎牙不设裸数字路：带虎牙语境的裸数字也不认（防冒认口径，与斗鱼/B站的强信号原则一致）
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("site", "123456", "", "虎牙直播", "", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(
+                new LiveRoomResolver.Snapshot("SimpleLive", "123456", "", "虎牙直播", "某主播", "")).isEmpty());
+    }
+
+    @Test
+    public void huyaMalformedIdsDoNotResolve() {
+        assertTrue(LiveRoomResolver.resolve(snapshot("huya_", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("huya_123456789012345678901", "")).isEmpty());
+        assertTrue(LiveRoomResolver.resolve(snapshot("huya_有中文", "")).isEmpty());
+    }
 }

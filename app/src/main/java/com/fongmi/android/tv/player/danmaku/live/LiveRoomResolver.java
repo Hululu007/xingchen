@@ -12,6 +12,8 @@ import java.util.regex.Pattern;
  * 真实号换算与在播校验在 provider 预备步兜底）；裸数字是最弱形态，只许在上下文
  * （源名/playFrom/标题含哔哩、B站、bilibili）明确指向 B站时才作候选；聚合源名 SimpleLive
  * 只是弱语境，上下文另有别家平台明文标记（斗鱼/虎牙/抖音/快手）时不许冒认。
+ * 虎牙：vod_id 前缀 huya_{房号}（房号可为数字或字母短号）与 huya.com/{房号} 链接形态
+ * （www/m 子域可有可无）；不设裸数字路，带房号的三件套提取与在播校验在 provider 预备步兜底。
  * 「数字即认」永不成立。识别不出返回 empty＝不接，绝不拿标题反查房间。
  */
 public final class LiveRoomResolver {
@@ -20,6 +22,8 @@ public final class LiveRoomResolver {
     private static final Pattern DOUYU_LINK = Pattern.compile("live\\.douyu\\.com/(\\d{1,15})(?:[/?#]|$)");
     private static final Pattern BILI_PREFIX = Pattern.compile("^bili_(\\d{1,15})$");
     private static final Pattern BILI_LINK = Pattern.compile("live\\.bilibili\\.com/(\\d{1,15})(?:[/?#]|$)");
+    private static final Pattern HUYA_PREFIX = Pattern.compile("^huya_([0-9A-Za-z]{1,20})$");
+    private static final Pattern HUYA_LINK = Pattern.compile("(?:www\\.|m\\.)?huya\\.com/([0-9A-Za-z]{1,20})(?:[/?#]|$)");
     private static final Pattern BARE_DIGITS = Pattern.compile("^\\d{1,15}$");
 
     private LiveRoomResolver() {
@@ -47,7 +51,25 @@ public final class LiveRoomResolver {
         if (snapshot == null) return Optional.empty();
         Optional<RoomRef> douyu = resolveDouyu(snapshot);
         if (douyu.isPresent()) return douyu;
-        return resolveBili(snapshot);
+        Optional<RoomRef> bili = resolveBili(snapshot);
+        if (bili.isPresent()) return bili;
+        return resolveHuya(snapshot);
+    }
+
+    private static Optional<RoomRef> resolveHuya(Snapshot snapshot) {
+        Matcher prefix = HUYA_PREFIX.matcher(snapshot.vodId().trim());
+        if (prefix.matches()) return Optional.of(new RoomRef(RoomRef.Platform.HUYA, prefix.group(1)));
+        String link = findHuyaLink(snapshot.vodId());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.HUYA, link));
+        link = findHuyaLink(snapshot.playUrl());
+        if (link != null) return Optional.of(new RoomRef(RoomRef.Platform.HUYA, link));
+        return Optional.empty();
+    }
+
+    private static String findHuyaLink(String text) {
+        if (text == null || text.isEmpty()) return null;
+        Matcher matcher = HUYA_LINK.matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static Optional<RoomRef> resolveBili(Snapshot snapshot) {

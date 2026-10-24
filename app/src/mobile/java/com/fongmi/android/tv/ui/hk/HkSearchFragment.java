@@ -276,10 +276,7 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
             results.addAll(oldResults);
             searchEngine.setStatus(4);
             EventBus.getDefault().post(new HkSearchStatusEvent(searchEngine, group));
-            String title = "没有找到你想要的噢-_-" + (smode == 1 ? "（当前为精准搜索模式）" : "");
-            if (oldResults.size() < 1 || !title.equals(oldResults.get(0).getTitle())) {
-                results.add(new SearchResult(title, ""));
-            }
+
         } else {
             autoOpen = checkAutoOpen();
             searchEngine.setStatus(2);

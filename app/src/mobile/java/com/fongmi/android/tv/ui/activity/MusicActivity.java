@@ -158,7 +158,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickSheets.setOnClickListener(v -> MusicListActivity.startSheets(this));
         binding.homeQuickDevice.setOnClickListener(v -> MusicDeviceActivity.startDevice(this));
         binding.homeQuickRecent.setOnClickListener(v -> showRecent());
-        binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
+        binding.homeQuickDownload.setOnClickListener(v -> MusicDownloadActivity.startDownload(this));
         // 三彩卡入口：猜你喜欢页／榜单页／随心听页（歌单广场不在此卡，入口在五快捷「我的歌单」）
         binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));

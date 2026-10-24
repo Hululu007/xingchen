@@ -93,12 +93,6 @@ public class MusicListActivity extends BaseActivity {
     /** 歌单页重做：歌单 id→前 4 张不重复曲目封面（马赛克用；loadSheets 时随曲目数一并取，行绑只读缓存，滚动不重复查）。 */
     private final java.util.Map<Long, java.util.List<String>> sheetCovers = new java.util.HashMap<>();
 
-    // 第 7 项尾巴下载页态：进行中任务行＋已完成多选（全选／删除所选）＋下载监听
-    private final List<MusicDownloadStore.LiveTask> dlTasks = new ArrayList<>();
-    /** 下载已完成全量（不受搜索过滤影响；显示列表 tracks 是过滤后的） */
-    private final List<MusicTrack> dlAllTracks = new ArrayList<>();
-    private String dlSearchKw = "";
-    private boolean dlSearchWired;
 
     // 第 6 项：收藏／历史英雄卡（GZ：拼贴 76dp＋大标题 28sp＋N 首 12sp＋播放全部／随机播放＋搜索框＋排序＋续播卡＋多选）
     private final List<MusicTrack> favHistAll = new ArrayList<>();
@@ -124,21 +118,9 @@ public class MusicListActivity extends BaseActivity {
     private String chartPlatform = "";
     private String chartId = "";
     private String chartCover = "";
-    private final Set<String> dlSelected = new java.util.HashSet<>();
-    private boolean dlListenerOn;
     private String mode = "tracks";
     /** onResume 首过标记（中-03）：首次由 initView 的 load() 负责，之后回页才重拉。 */
     private boolean resumedOnce = false;
-    private final com.fongmi.android.tv.utils.download.DownloadManager.Listener dlListener = task -> {
-        if (!mode.equals("download")) return;
-        runOnUiThread(() -> {
-            if (task.getStatus() == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_COMPLETED) {
-                loadDownloads();
-            } else {
-                refreshDlTasks();
-            }
-        });
-    };
 
     private String keyword = "";
     private String bigTitle = "";
@@ -174,12 +156,6 @@ public class MusicListActivity extends BaseActivity {
     public static void startSites(Activity activity) {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "sites");
-        activity.startActivity(i);
-    }
-
-    public static void startDownload(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "download");
         activity.startActivity(i);
     }
 
@@ -379,37 +355,6 @@ public class MusicListActivity extends BaseActivity {
         binding.btnPluginLocal.setOnClickListener(v -> pickLocalFile());
         binding.btnPluginOnline.setOnClickListener(v -> inputSiteUrl());
         binding.btnPluginSort.setOnClickListener(v -> showPluginSortDialog());
-        // 第 7 项尾巴：下载批量管理条（随机播放走通用工具条的 shuffle，不在这里重复造入口）
-        binding.btnDlSelect.setOnClickListener(v -> toggleDlSelect());
-        binding.btnDlPauseAll.setOnClickListener(v -> {
-            MusicDownloadStore.pauseAllLive();
-            refreshDlTasks();
-        });
-        binding.btnDlResumeAll.setOnClickListener(v -> {
-            MusicDownloadStore.resumeAllLive();
-            refreshDlTasks();
-        });
-        binding.btnDlCancelAll.setOnClickListener(v -> {
-            // GZ 批量取消确认文案（单任务版在任务行取消钮）
-            if (dlTasks.isEmpty()) return;
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle("取消下载")
-                    .setMessage("确定取消正在进行的 " + dlTasks.size() + " 个下载任务吗？已下载的临时内容将被删除，无法继续恢复。")
-                    .setPositiveButton("取消下载", (d, which) -> {
-                        MusicDownloadStore.cancelAllLive();
-                        refreshDlTasks();
-                    })
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show();
-        });
-        binding.btnDlClearFailed.setOnClickListener(v -> {
-            MusicDownloadStore.clearFailedLive();
-            refreshDlTasks();
-        });
-        binding.btnDlPlayAll.setOnClickListener(v -> {
-            if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
-            else playTrack(0);
-        });
         // 第 6 项：收藏／历史英雄卡操作行
         binding.btnFavHistPlayAll.setOnClickListener(v -> {
             if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
@@ -573,9 +518,6 @@ public class MusicListActivity extends BaseActivity {
             case "sheet":
                 loadSheetTracks();
                 break;
-            case "download":
-                loadDownloads();
-                break;
             default:
                 break;
         }
@@ -583,12 +525,6 @@ public class MusicListActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
-        if (dlListenerOn) {
-            try {
-                com.fongmi.android.tv.utils.download.DownloadManager.get().removeListener(dlListener);
-            } catch (Throwable ignored) {
-            }
-        }
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
         // 复核必-10：第二段升降序弹层的 post 必须随页销毁取消，不许页死后还弹。
@@ -609,11 +545,6 @@ public class MusicListActivity extends BaseActivity {
         if (binding.pluginAddRow != null) binding.pluginAddRow.setVisibility(View.GONE);
         if (binding.pluginInstalledHeader != null) binding.pluginInstalledHeader.setVisibility(View.GONE);
         if (binding.pluginEmptyCard != null) binding.pluginEmptyCard.setVisibility(View.GONE);
-        // 第 7 项尾巴：下载专属视图默认 GONE，非 download 模式必须保持不可见
-        if (binding.downloadStatsCard != null) binding.downloadStatsCard.setVisibility(View.GONE);
-        if (binding.downloadBatchBar != null) binding.downloadBatchBar.setVisibility(View.GONE);
-        if (binding.tvDlLiveHeader != null) binding.tvDlLiveHeader.setVisibility(View.GONE);
-        if (binding.etDlSearch != null) binding.etDlSearch.setVisibility(View.GONE);
         // 第 6 项：收藏／历史英雄卡默认 GONE，非 favorite/history 模式必须保持不可见；多选态复位
         if (binding.favHistHero != null) binding.favHistHero.setVisibility(View.GONE);
         favHistMulti = false;
@@ -695,10 +626,6 @@ public class MusicListActivity extends BaseActivity {
             case "sheet":
                 loadSheetTracks();
                 break;
-            case "download":
-                bigTitle = getString(R.string.music_downloaded);
-                loadDownloads();
-                break;
             case "sites":
                 bigTitle = getString(R.string.music_plugin_manage);
                 loadSites();
@@ -723,8 +650,6 @@ public class MusicListActivity extends BaseActivity {
                 return getString(R.string.music_favorite);
             case "charts":
                 return getString(R.string.music_charts);
-            case "download":
-                return getString(R.string.wave2_download_manage);
             case "sites":
                 return getString(R.string.music_plugin_manage);
             case "history":
@@ -2078,300 +2003,12 @@ public class MusicListActivity extends BaseActivity {
         });
     }
 
-    private void loadDownloads() {
-        showLoading();
-        registerDlListener();
-        if (binding.downloadStatsCard != null) binding.downloadStatsCard.setVisibility(View.VISIBLE);
-        if (binding.downloadBatchBar != null) binding.downloadBatchBar.setVisibility(View.VISIBLE);
-        if (binding.tvDlLiveHeader != null) binding.tvDlLiveHeader.setVisibility(View.VISIBLE);
-        if (binding.etDlSearch != null) {
-            binding.etDlSearch.setVisibility(View.VISIBLE);
-            if (!dlSearchWired) {
-                dlSearchWired = true;
-                binding.etDlSearch.addTextChangedListener(new android.text.TextWatcher() {
-                    @Override
-                    public void beforeTextChanged(CharSequence s, int st, int c, int a) {
-                    }
-
-                    @Override
-                    public void onTextChanged(CharSequence s, int st, int b, int c) {
-                    }
-
-                    @Override
-                    public void afterTextChanged(android.text.Editable s) {
-                        dlSearchKw = s == null ? "" : s.toString().trim();
-                        refreshDlDisplay();
-                    }
-                });
-            }
-        }
-        MusicDownloadStore.all(list -> {
-            refreshDlTasksData();
-            dlAllTracks.clear();
-            dlAllTracks.addAll(list);
-            refreshDlDisplay();
-            refreshDlStats();
-        });
-    }
-
-    /** 下载已完成列表按搜索词过滤（GZ「搜索已下载歌曲」；进行中任务行不受过滤影响） */
-    private void refreshDlDisplay() {
-        List<MusicTrack> show = new ArrayList<>();
-        for (MusicTrack t : dlAllTracks) {
-            if (dlSearchKw.isEmpty()) {
-                show.add(t);
-                continue;
-            }
-            String kw = dlSearchKw.toLowerCase(java.util.Locale.getDefault());
-            String title = t.title == null ? "" : t.title.toLowerCase(java.util.Locale.getDefault());
-            String artist = t.artist == null ? "" : t.artist.toLowerCase(java.util.Locale.getDefault());
-            if (title.contains(kw) || artist.contains(kw)) show.add(t);
-        }
-        showTracks(show);
-    }
-
-    private void registerDlListener() {
-        if (dlListenerOn) return;
-        dlListenerOn = true;
-        try {
-            com.fongmi.android.tv.utils.download.DownloadManager.get().addListener(dlListener);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 只重建进行中数据（不刷 UI；给 loadDownloads 里 showTracks 之前的空态判断用） */
-    private void refreshDlTasksData() {
-        dlTasks.clear();
-        try {
-            dlTasks.addAll(MusicDownloadStore.liveTasks());
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 重建进行中数据＋刷列表＋刷统计卡 */
-    private void refreshDlTasks() {
-        refreshDlTasksData();
-        refreshDlStats();
-        if (adapter != null) adapter.notifyDataSetChanged();
-    }
-
-    /** 下载概览统计卡（GZ：大数字 34sp＋首已下载、副行占用 X 11sp、失败红色 N 首下载失败 11sp；
-     * 进行中区标题三态：N 首正在下载／N 首等待继续／暂无进行中的下载） */
-    private void refreshDlStats() {
-        long size = 0;
-        for (MusicTrack t : dlAllTracks) {
-            try {
-                if (t.localPath != null && !t.localPath.isEmpty()) size += new java.io.File(t.localPath).length();
-            } catch (Throwable ignored) {
-            }
-        }
-        if (binding.tvDlBigNumber != null) binding.tvDlBigNumber.setText(String.valueOf(dlAllTracks.size()));
-        if (binding.tvDlSub != null) {
-            binding.tvDlSub.setText("占用 " + com.fongmi.android.tv.music.MusicCache.formatSize(size));
-        }
-        int failed = 0;
-        int downloading = 0;
-        int waiting = 0;
-        for (MusicDownloadStore.LiveTask t : dlTasks) {
-            if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_ERROR) failed++;
-            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_DOWNLOADING) downloading++;
-            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_WAITING
-                    || t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_PAUSED) waiting++;
-        }
-        if (binding.tvDlFailed != null) {
-            if (failed > 0) {
-                binding.tvDlFailed.setVisibility(View.VISIBLE);
-                binding.tvDlFailed.setText(failed + " 首下载失败");
-            } else binding.tvDlFailed.setVisibility(View.GONE);
-        }
-        if (binding.tvDlLiveHeader != null) {
-            // 本页对照修：GZ 进行中区三态分开；原先 waiting>0 时一律拼「0 首正在下载 · N 首等待继续」
-            if (dlTasks.isEmpty()) binding.tvDlLiveHeader.setText("暂无进行中的下载");
-            else if (downloading == 0) binding.tvDlLiveHeader.setText(waiting + " 首等待继续");
-            else if (waiting > 0) binding.tvDlLiveHeader.setText(downloading + " 首正在下载 · " + waiting + " 首等待继续");
-            else binding.tvDlLiveHeader.setText(downloading + " 首正在下载");
-        }
-    }
-
-    /** 全选钮文案：无选中＝全选，有选中＝删除所选 (N)（与歌单页多选的工具条互换口径一致） */
-    private void refreshDlSelectText() {
-        if (binding.btnDlSelect == null) return;
-        binding.btnDlSelect.setText(dlSelected.isEmpty() ? "全选" : "删除所选 (" + dlSelected.size() + ")");
-    }
-
-    private void toggleDlSelect() {
-        if (!dlSelected.isEmpty()) {
-            // 已有选中：按删除所选走删除二选一（记录／记录＋文件二选一，整批同选）
-            List<MusicTrack> sel = new ArrayList<>();
-            for (MusicTrack t : tracks) if (t.id != null && dlSelected.contains(t.id)) sel.add(t);
-            if (sel.isEmpty()) {
-                dlSelected.clear();
-                refreshDlSelectText();
-                if (adapter != null) adapter.notifyDataSetChanged();
-                return;
-            }
-            deleteDownloadBatch(sel);
-            return;
-        }
-        for (MusicTrack t : tracks) if (t.id != null) dlSelected.add(t.id);
-        refreshDlSelectText();
-        if (adapter != null) adapter.notifyDataSetChanged();
-    }
-
-    /** 批量删除二选一（GZ 弹层标题「删除下载」＋两项文案：删除本地文件／仅移出列表；
-     * 含义与旧的两项一致：删除本地文件＝记录＋文件一并删，仅移出列表＝只删记录、文件留着仍可被本地库扫描） */
-    private void deleteDownloadBatch(List<MusicTrack> sel) {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("删除下载")
-                .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
-                .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
-                    List<MusicTrack> copy = new ArrayList<>(sel);
-                    Runnable done = new Runnable() {
-                        int left = copy.size();
-
-                        @Override
-                        public void run() {
-                            if (--left <= 0) {
-                                dlSelected.clear();
-                                refreshDlSelectText();
-                                loadDownloads();
-                            }
-                        }
-                    };
-                    for (MusicTrack t : copy) {
-                        if (which == 1) MusicDownloadStore.deleteRecordOnly(t, done);
-                        else MusicDownloadStore.deleteLocal(t, done);
-                    }
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    /** 单首删除二选一（GZ 弹层标题「删除下载」＋两项文案；仅 download 模式的 ⋮ 菜单走这里；其它模式仍走旧的 confirmDeleteLocal） */
-    private void deleteDownloadTwoChoice(MusicTrack track) {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("删除下载")
-                .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
-                .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
-                    Runnable done = () -> {
-                        Notify.show(R.string.music_deleted);
-                        if (mode.equals("download")) loadDownloads();
-                    };
-                    if (which == 1) MusicDownloadStore.deleteRecordOnly(track, done);
-                    else MusicDownloadStore.deleteLocal(track, done);
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
     /** 外层时长格式化（与 adapter 内 fmt 同款，供详情弹层用） */
     private static String fmtMs(long ms) {
         if (ms <= 0) return "--:--";
         long s = ms / 1000;
         return String.format("%02d:%02d", s / 60, s % 60);
     }
-
-    /** 下载详情弹层（GZ 字段顺序：文件名／保存位置／格式／下载音质／文件大小／时长／音频规格／
-     * 下载时间／原始来源／附加文件／文件 URI；附加文件行值为「封面／歌词／无旁路文件」拼接；
-     * 原始来源无平台记录，只显「本地下载」不冒充；下载音质无档位记录，显实测码率） */
-    private void showDownloadDetail(MusicTrack track) {
-        Task.execute(() -> {
-            String createTime = "";
-            try {
-                com.fongmi.android.tv.bean.MusicDownload d = com.fongmi.android.tv.db.AppDatabase.get()
-                        .getMusicDownloadDao().findByTrackId(track.id);
-                if (d != null && d.getCreateTime() > 0) {
-                    createTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                            .format(new java.util.Date(d.getCreateTime()));
-                }
-            } catch (Throwable ignored) {
-            }
-            String path = track.localPath == null ? "" : track.localPath;
-            java.io.File f = path.isEmpty() ? null : new java.io.File(path);
-            String name = f == null ? track.displayTitle() : f.getName();
-            String ext = "";
-            int dot = name.lastIndexOf('.');
-            if (dot > 0 && dot < name.length() - 1) ext = name.substring(dot + 1).toUpperCase(java.util.Locale.US);
-            String bitrate = "未知";
-            try {
-                android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
-                mmr.setDataSource(path);
-                String br = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_BITRATE);
-                if (br != null && !br.isEmpty()) {
-                    long bps = Long.parseLong(br);
-                    if (bps > 0) bitrate = (bps / 1000) + "kbps";
-                }
-                try {
-                    mmr.release();
-                } catch (Throwable ignored) {
-                }
-            } catch (Throwable ignored) {
-            }
-            String size = f == null ? "未知"
-                    : com.fongmi.android.tv.music.MusicCache.formatSize(f.length());
-            String base = dot > 0 ? name.substring(0, dot) : name;
-            String parent = f == null ? "" : f.getParent();
-            boolean hasCoverSidecar = false;
-            boolean hasLrc = false;
-            if (parent != null) {
-                for (String e : new String[]{"jpg", "png", "jpeg"}) {
-                    if (new java.io.File(parent, base + "." + e).exists()) {
-                        hasCoverSidecar = true;
-                        break;
-                    }
-                }
-                hasLrc = new java.io.File(parent, base + ".lrc").exists();
-            }
-            // GZ 附加文件行值：封面／歌词／无旁路文件 三者拼接，不是独立的封面、歌词两行
-            java.util.List<String> extraParts = new java.util.ArrayList<>();
-            if (hasCoverSidecar) extraParts.add("封面");
-            if (hasLrc) extraParts.add("歌词");
-            if (extraParts.isEmpty()) extraParts.add("无旁路文件");
-            String fCreateTime = createTime;
-            String fExt = ext.isEmpty() ? "未知" : ext;
-            String fBitrate = bitrate;
-            String fSize = size;
-            // 音频规格：扩展名＋实测码率；都拿不到时按 GZ 空值口径显「设备未提供」
-            String fSpec = ext.isEmpty() && bitrate.equals("未知")
-                    ? "设备未提供"
-                    : (ext.isEmpty() ? "" : ext) + (bitrate.equals("未知") ? "" : " · " + bitrate);
-            String fExtras = android.text.TextUtils.join("／", extraParts);
-            String fPath = path.isEmpty() ? "未知" : path;
-            runOnUiThread(() -> {
-                LinearLayout box = new LinearLayout(this);
-                box.setOrientation(LinearLayout.VERTICAL);
-                int pad = dp(20);
-                box.setPadding(pad, pad, pad, pad);
-                String[][] rows = {
-                        {"文件名", name},
-                        {"保存位置", fPath},
-                        {"格式", fExt},
-                        {"下载音质", fBitrate},
-                        {"文件大小", fSize},
-                        {"时长", fmtMs(track.duration)},
-                        {"音频规格", fSpec},
-                        {"下载时间", fCreateTime.isEmpty() ? "未知" : fCreateTime},
-                        {"原始来源", "本地下载"},
-                        {"附加文件", fExtras},
-                        {"文件 URI", fPath.isEmpty() ? "未知" : "file://" + fPath},
-                };
-                for (String[] r : rows) {
-                    TextView tv = new TextView(this);
-                    tv.setText(r[0] + "：" + r[1]);
-                    tv.setTextSize(14);
-                    tv.setTextColor(0xFF1C1C1E);
-                    tv.setPadding(0, dp(3), 0, dp(3));
-                    box.addView(tv);
-                }
-                new MaterialAlertDialogBuilder(this)
-                        .setTitle(track.displayTitle())
-                        .setView(box)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
-            });
-        });
-    }
-
 
     /** 第 5 项：搜索分组卡（1 歌手组／3 专辑组；点卡进该组歌曲列） */
     private static class SearchGroupCard {
@@ -3582,18 +3219,10 @@ public class MusicListActivity extends BaseActivity {
             binding.tvBigTitle.setText(bigTitle);
             binding.tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
             refreshSortLabel();
-            // 第 7 项尾巴：download 模式有进行中任务时不显空态（已完成为空不等于没内容）
-            boolean showEmpty = tracks.isEmpty()
-                    && !(mode.equals("download") && !dlTasks.isEmpty());
+            boolean showEmpty = tracks.isEmpty();
             binding.empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
-            // 本页对照修：下载空态用 GZ 文案，不许再套通用「还没有在播的歌」；
-            // 搜已下载搜不到时走通用搜不到文案
             // 第三波 A1：搜索模式空文案由 showCategoryResults 一次写定，showTracks 只管显隐，不再事后覆盖
-            if (tracks.isEmpty() && mode.equals("download")) {
-                binding.empty.setText(dlSearchKw.isEmpty()
-                        ? "还没有下载的歌曲\n搜索并下载你喜欢的音乐"
-                        : getString(R.string.music_no_result));
-            } else if (tracks.isEmpty() && !mode.equals("search")) binding.empty.setText(R.string.music_no_track);
+            if (tracks.isEmpty() && !mode.equals("search")) binding.empty.setText(R.string.music_no_track);
         });
     }
 
@@ -3742,7 +3371,7 @@ public class MusicListActivity extends BaseActivity {
 
     /**
      * tracks 下标 → adapter 位置（trackIndex 的逆映射，见 ListAdapter.trackIndex）：
-     * 歌单详情＋3、榜单详情＋1、猜你喜欢＋3、下载＝任务数＋已完成区头 1＋下标、
+     * 歌单详情＋3、榜单详情＋1、猜你喜欢＋3、
      * 其余模式＝下标。卡片视图（歌单／榜单列表）
      * 其余模式＝下标＋设备头（本地页 1、其它 0）。卡片视图（本地分组卡／歌单／榜单列表）
      * 下没有歌曲行，返回 -1 不刷行。
@@ -3752,7 +3381,6 @@ public class MusicListActivity extends BaseActivity {
         if (mode.equals("sheet")) return trackIdx + 3;
         if (mode.equals("chartDetail")) return trackIdx + 1;
         if (mode.equals("guess")) return trackIdx + 3;
-        if (mode.equals("download")) return dlTasks.size() + 1 + trackIdx;
         return trackIdx;
     }
 
@@ -3813,17 +3441,11 @@ public class MusicListActivity extends BaseActivity {
             int downloadIdx = -1;
             int removeIdx = -1;
             int deleteLocalIdx = -1;
-            int detailIdx = -1;
             int removeHistIdx = -1;
             if (local) {
                 // 已下载歌曲：不给"下载"（已是本地），给"删除本地文件"
                 deleteLocalIdx = opts.size();
                 opts.add(getString(R.string.music_download_delete));
-                // 第 7 项尾巴：仅 download 模式给详情弹层入口
-                if (mode.equals("download")) {
-                    detailIdx = opts.size();
-                    opts.add("详情");
-                }
             } else if (device) {
                 // 设备歌曲：本来就在手机里，不给"下载"
                 if (mode.equals("sheet")) {
@@ -3841,7 +3463,6 @@ public class MusicListActivity extends BaseActivity {
             int dIdx = downloadIdx;
             int rIdx = removeIdx;
             int delIdx = deleteLocalIdx;
-            int detIdx = detailIdx;
             // 第 6 项：历史页行级移除（GZ：历史页有「移除／移除历史」行级操作）
             if (mode.equals("history")) {
                 removeHistIdx = opts.size();
@@ -3862,11 +3483,7 @@ public class MusicListActivity extends BaseActivity {
                             java.util.Collections.singleton(track.id));
                     loadHistory();
                 }
-                else if (idx == detIdx) showDownloadDetail(track);
-                else if (idx == delIdx) {
-                    if (mode.equals("download")) deleteDownloadTwoChoice(track);
-                    else confirmDeleteLocal(track);
-                }
+                else if (idx == delIdx) confirmDeleteLocal(track);
             });
         });
     }
@@ -3878,7 +3495,6 @@ public class MusicListActivity extends BaseActivity {
                 .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
                         MusicDownloadStore.deleteLocal(track, () -> {
                             Notify.show(R.string.music_deleted);
-                            if (mode.equals("download")) loadDownloads();
                         }))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
@@ -4663,7 +4279,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_PLUGIN = 2;
         private static final int TYPE_HEADER = 3;
         private static final int TYPE_SHEET = 4;
-        private static final int TYPE_DL_TASK = 5;
         private static final int TYPE_SHEET_HERO = 7;
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
@@ -4679,8 +4294,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_GUESS_TRACK = 19;
         /** 第二波：插件分组头（sites 列表内插项） */
         private static final int TYPE_PLUGIN_GROUP = 20;
-        /** 第二波：下载已完成区头（进行中任务之后、已完成列表之前） */
-        private static final int TYPE_DL_SECTION = 21;
 
         /** 本页无列表内头行（旧本地页的导入行已随本地页拆出）。 */
         private int headerCount() {
@@ -4713,9 +4326,6 @@ public class MusicListActivity extends BaseActivity {
                 if (position == 2) return TYPE_GUESS_SECTION;
                 return TYPE_GUESS_TRACK;
             }
-            if (mode.equals("download") && position < dlTasks.size()) return TYPE_DL_TASK;
-            // 第二波：下载已完成区头（仅已完成非空时插在任务之后；空时不占位，空态文案管）
-            if (mode.equals("download") && !tracks.isEmpty() && position == dlTasks.size()) return TYPE_DL_SECTION;
             if (isCardMode()) {
                 // 第二波：插件分组头（sites 列表内插项，非插件行）
                 if (mode.equals("sites") && cards.get(position) instanceof PluginGroup) return TYPE_PLUGIN_GROUP;
@@ -4732,20 +4342,6 @@ public class MusicListActivity extends BaseActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_DL_TASK) {
-                return new DlTaskHolder(inf.inflate(R.layout.item_music_download_task, parent, false));
-            }
-            if (viewType == TYPE_DL_SECTION) {
-                // 第二波：下载已完成区头（纯程序化 TextView，不另起布局文件；字号沿用歌单区头 17sp，瓜子该区头字号未抠到）
-                TextView tv = new TextView(parent.getContext());
-                tv.setTextSize(17);
-                tv.setTypeface(null, android.graphics.Typeface.BOLD);
-                tv.setTextColor(0xFF1C1C1E);
-                tv.setPadding(dp(4), dp(12), dp(4), dp(8));
-                tv.setLayoutParams(new RecyclerView.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                return new DlSectionHolder(tv);
-            }
             if (viewType == TYPE_PLUGIN_GROUP) {
                 // 瓜子分组头（图 112927）：无卡底、蓝点＋组名＋右端计数；旧卡片＋箭头形制与瓜子不符，已改；
                 // 分组头不可折叠（旧箭头仅装饰），改后无点击行为。
@@ -4861,14 +4457,7 @@ public class MusicListActivity extends BaseActivity {
                 else bindGuessTrack((GuessTrackHolder) h, trackIndex(position));
                 return;
             }
-            if (h instanceof DlTaskHolder) bindDlTask((DlTaskHolder) h, position);
-            else if (h instanceof DlSectionHolder) {
-                // 第二波：下载已完成区头（搜时「搜索结果」，平时「全部歌曲」；瓜子 DownloadsScreen 区头口径）
-                ((DlSectionHolder) h).title.setText(dlSearchKw.isEmpty()
-                        ? getString(R.string.wave2_section_all_songs)
-                        : getString(R.string.wave2_section_search_result));
-            }
-            else if (h instanceof GroupHolder) {
+            if (h instanceof GroupHolder) {
                 // 第二波：插件分组头（cards 内插项，位置即 cards 下标）；右端计数＝其后连续插件卡数
                 Object o = cards.get(position);
                 ((GroupHolder) h).title.setText(o instanceof PluginGroup ? ((PluginGroup) o).title : "");
@@ -4885,14 +4474,8 @@ public class MusicListActivity extends BaseActivity {
             else bindTrack((TrackHolder) h, trackIndex(position));
         }
 
-        /** 歌曲行在列表里的下标：download 模式前面有进行中任务行，要减掉；歌单详情页前面有英雄卡／操作行／区头 3 行；其它模式减头行数 */
+        /** 歌曲行在列表里的下标：歌单详情页前面有英雄卡／操作行／区头 3 行；其它模式减头行数 */
         private int trackIndex(int position) {
-            if (mode.equals("download")) {
-                // 第二波：已完成区头占 1 位（仅已完成非空时存在；区头位本身不走 trackIndex）
-                int idx = position - dlTasks.size();
-                if (!tracks.isEmpty() && position > dlTasks.size()) idx--;
-                return idx;
-            }
             if (mode.equals("sheet")) return position - 3;
             if (mode.equals("chartDetail")) return position - 1;
             if (mode.equals("guess")) return position - 3;
@@ -5206,9 +4789,6 @@ public class MusicListActivity extends BaseActivity {
             // 共用行口径（批 5 F1/F2）：歌名 15sp 粗 #1A1A1A，在播行红名；此前代码侧写 #1C1C1E 与布局口径不一致，一并对齐
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
-            // 第 7 项尾巴：下载多选态（选中行同正在播行的底）
-            boolean dlSel = mode.equals("download") && t.id != null && dlSelected.contains(t.id);
-            if (dlSel) h.itemView.setBackgroundResource(R.drawable.card_music_current);
             if (mode.equals("history") && isTrackCached(t)) {
                 // 第二波：历史行「已缓存」标签（瓜子 HistoryScreenKt 内边距 7/3dp、圆角 8dp；
                 // 口径确证：瓜子已缓存＝音频已落本地；星辰判定＝非设备库曲目且 localPath 文件真实存在——
@@ -5231,18 +4811,6 @@ public class MusicListActivity extends BaseActivity {
             } else {
                 h.badge.setVisibility(View.GONE);
             }
-            if (mode.equals("download")) {
-                // 第 7 项尾巴：已下载行第二行＝歌手 · 已下载 · 大小（实测文件大小）
-                String size = "";
-                try {
-                    if (t.localPath != null && !t.localPath.isEmpty()) {
-                        size = com.fongmi.android.tv.music.MusicCache.formatSize(
-                                new java.io.File(t.localPath).length());
-                    }
-                } catch (Throwable ignored) {
-                }
-                h.artist.setText(artistDisplay(t.displayArtist()) + " · 已下载" + (size.isEmpty() ? "" : " · " + size));
-            } else {
                 // 第三波 R1/R2：通用行第二行统一拼“歌手 · 专辑”（有专辑才拼，与本地／歌单行
                 // 口径一致）；当前行统一加在播前缀（正在播放／已暂停，与收藏／历史行口径一致，
                 // 选了“前缀”口径，未做封面在播动效）。
@@ -5258,7 +4826,6 @@ public class MusicListActivity extends BaseActivity {
                     if (!src.isEmpty()) second.append(" · ").append(src);
                 }
                 h.artist.setText(second.toString());
-            }
             // 本地行路径行（批 5 F2）：仅本地模式且路径真实存在时显所在目录，其余一律 GONE（回收行防串显）
             if (h.path != null) {
                 String dir = null;
@@ -5286,21 +4853,7 @@ public class MusicListActivity extends BaseActivity {
                 // ImgUtil.loadRounded 写死 8dp，走本页 12dp helper；横内边距 4→14dp 另见 item_music_track.xml）
                 loadCoverRounded(t.displayTitle(), t.cover, h.cover, 10);
             }
-            if (mode.equals("download") && !dlSelected.isEmpty()) {
-                // 多选态下行点按变勾选（与歌单页多选口径一致）；⋮ 仍进菜单（详情／删除）
-                h.itemView.setOnClickListener(v -> {
-                    if (t.id != null) {
-                        if (dlSelected.contains(t.id)) dlSelected.remove(t.id);
-                        else dlSelected.add(t.id);
-                    }
-                    refreshDlSelectText();
-                    if (adapter != null) adapter.notifyDataSetChanged();
-                });
-                h.more.setImageResource(R.drawable.ic_music_more);
-                int p12d = dp(12);
-                h.more.setPadding(p12d, p12d, p12d, p12d);
-                h.more.setOnClickListener(v -> onMore(t, position));
-            } else if (favHistMulti && (mode.equals("favorite") || mode.equals("history"))) {
+            if (favHistMulti && (mode.equals("favorite") || mode.equals("history"))) {
                 // 第 6 项：收藏／历史多选态（行点按变勾选；行尾 24dp 选中圆圈，选中红底、未选灰框）
                 boolean sel = t.id != null && favHistSelected.contains(t.id);
                 android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
@@ -5330,52 +4883,6 @@ public class MusicListActivity extends BaseActivity {
                 h.more.setPadding(p12, p12, p12, p12);
                 h.more.setOnClickListener(v -> onMore(t, position));
             }
-        }
-
-        /** 第 7 项尾巴：进行中任务行绑定（名＋GZ 状态文案＋进度＋34dp 圆钮：暂停／继续／取消，图标 20dp；瓜子 DownloadsScreenKt 圆钮口径） */
-        private void bindDlTask(DlTaskHolder h, int position) {
-            MusicDownloadStore.LiveTask t = dlTasks.get(position);
-            h.name.setText(t.name == null ? "" : t.name);
-            h.status.setText(t.statusText());
-            h.progress.setProgress(Math.max(0, Math.min(100, t.progress)));
-            int st = t.status;
-            if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_PAUSED) {
-                h.btnPause.setVisibility(View.VISIBLE);
-                h.btnPause.setImageResource(R.drawable.ic_music_play);
-                h.btnPause.setContentDescription("继续下载");
-                h.btnPause.setOnClickListener(v -> {
-                    com.fongmi.android.tv.utils.download.DownloadManager.get().resume(t.taskId);
-                    refreshDlTasks();
-                });
-            } else if (st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_WAITING
-                    || st == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_DOWNLOADING) {
-                h.btnPause.setVisibility(View.VISIBLE);
-                h.btnPause.setImageResource(R.drawable.ic_music_pause);
-                h.btnPause.setContentDescription("暂停下载");
-                h.btnPause.setOnClickListener(v -> {
-                    com.fongmi.android.tv.utils.download.DownloadManager.get().pause(t.taskId);
-                    refreshDlTasks();
-                });
-            } else {
-                h.btnPause.setVisibility(View.GONE);
-            }
-            // 下载页重做补齐：两圆钮按压 0.9（布局自留的未实现项）；setOnTouchListener 与点击监听共存（返回 false 不吞点击）。
-            pressScale(h.btnPause, 0.9f);
-            pressScale(h.btnCancel, 0.9f);
-            h.btnCancel.setImageResource(R.drawable.ic_music_close);
-            h.btnCancel.setContentDescription("取消下载");
-            h.btnCancel.setOnClickListener(v -> {
-                // GZ 单任务取消确认文案
-                new MaterialAlertDialogBuilder(MusicListActivity.this)
-                        .setTitle("取消下载")
-                        .setMessage("确定取消「" + (t.name == null ? "" : t.name) + "」的下载吗？已下载的临时内容将被删除，无法继续恢复。")
-                        .setPositiveButton("取消下载", (d, which) -> {
-                            MusicDownloadStore.cancelLive(t.taskId);
-                            refreshDlTasks();
-                        })
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show();
-            });
         }
 
         private String fmt(long ms) {
@@ -6475,36 +5982,8 @@ public class MusicListActivity extends BaseActivity {
             if (mode.equals("chartDetail")) return 1 + tracks.size();
             if (mode.equals("guess")) return tracks.isEmpty() ? 0 : 3 + tracks.size();
             if (isCardMode()) return cards.size();
-            if (mode.equals("download")) return dlTasks.size() + tracks.size() + (tracks.isEmpty() ? 0 : 1);
             if (mode.equals("sheet")) return 3 + tracks.size();
             return tracks.size() + headerCount();
-        }
-
-        class DlTaskHolder extends RecyclerView.ViewHolder {
-            final TextView name;
-            final TextView status;
-            final android.widget.ProgressBar progress;
-            final android.widget.ImageView btnPause;
-            final android.widget.ImageView btnCancel;
-
-            DlTaskHolder(View v) {
-                super(v);
-                name = v.findViewById(R.id.name);
-                status = v.findViewById(R.id.status);
-                progress = v.findViewById(R.id.progress);
-                btnPause = v.findViewById(R.id.btnPause);
-                btnCancel = v.findViewById(R.id.btnCancel);
-            }
-        }
-
-        /** 第二波：下载已完成区头 holder（程序化 TextView） */
-        class DlSectionHolder extends RecyclerView.ViewHolder {
-            final TextView title;
-
-            DlSectionHolder(View v) {
-                super(v);
-                title = (TextView) v;
-            }
         }
 
         /** 第二波：插件分组头 holder（程序化 TextView） */

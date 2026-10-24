@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
@@ -56,6 +57,16 @@ public class CdDiscView extends View {
     private static final int RING_K_DARK = 0x4DFFFFFF;
     private static final int RING_L_LIGHT = 0xFF6F7E8D;
     private static final int RING_L_DARK = 0xFF1A1F26;
+    // grooves 色（a21.g/h 抠实）：LIGHT g＝#526170 α0.10、h＝白 α0.16；DARK g＝#04060A α0.42、h＝白 α0.10
+    private static final int GROOVE_G_LIGHT = 0x1A526170;
+    private static final int GROOVE_G_DARK = 0x6B04060A;
+    private static final int GROOVE_H_LIGHT = 0x29FFFFFF;
+    private static final int GROOVE_H_DARK = 0x1AFFFFFF;
+    // 三层扫光样式 CdSheenLayerStyle（抠实）：{alpha, sharpen, whiteMix, warpX, warpY}
+    private static final float[][] SHEEN_STYLES = {
+            {0.06f, 1.35f, 0.30f, -0.003f, 0.004f},
+            {0.10f, 2.6f, 0.55f, 0.005f, -0.004f},
+            {0.12f, 8.0f, 0.82f, 0.008f, -0.006f}};
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -327,16 +338,8 @@ public class CdDiscView extends View {
         canvas.rotate(undertow, cx, cy);
         canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius, 0f, 110f, true, paint);
         canvas.restore();
-        // sheen 光泽：白色扇段，alpha 随播放态淡入淡出
-        if (sheenAlpha > 0.01f) {
-            paint.setColor(0xFFFFFFFF);
-            paint.setAlpha(Math.round(46f * sheenAlpha));
-            canvas.save();
-            canvas.rotate(flow * 0.5f, cx, cy);
-            canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius, -30f, 70f, true, paint);
-            canvas.restore();
-            paint.setAlpha(255);
-        }
+        // sheen 光泽＋切歌扫光：三层旋转扫光渐变（见 drawSheenLayers 注；旧单扇近似已作废）
+        drawSheenLayers(canvas, cx, cy, radius, sweep[2]);
 
         float coverR = radius * COVER_RATIO;
         // 旧封面（扫光进行中作 base）
@@ -345,27 +348,29 @@ public class CdDiscView extends View {
         if (incomingCover != null && sweepMix < 1f) {
             drawCover(canvas, incomingCover, cx, cy, coverR,
                     spin + (1f - sweepMix) * sweepDir * 6f, sweepMix);
-            // 扫光扇：角度＝sweepBase＋mix×方向×90°、光强＝max(0, sin(mix×π)×0.65)
-            float presence = Math.max(0f, (float) Math.sin(sweepMix * Math.PI) * 0.65f);
-            if (presence > 0.01f) {
-                paint.setColor(0xFFFFFFFF);
-                paint.setAlpha(Math.round(255f * presence * 0.5f));
-                float sweepAngle = sweepBase + sweepMix * sweepDir * 90f;
-                canvas.save();
-                canvas.rotate(sweepAngle, cx, cy);
-                canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius, -14f, 28f, true, paint);
-                canvas.restore();
-                paint.setAlpha(255);
-            }
+            // 扫光不在此处另画：存在量已并入 drawSheenLayers 的 provider（sweepPresence 支）
         }
-        // CD 纹理：封面外圈的细同心环（盘面 grooves，以盘径比例画，无固定 dp）
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(dark ? 0x33FFFFFF : 0x22000000);
+        // CD 纹理 grooves（2026-10-25 深挖抠实，CdArtworkKt.b 公式）：以封面半径 R＝coverR 为锚，
+        // step＝0.655R/44；两套交错（offset 0／0.5）各迭代 44 次，r＝(i＋off)×step＋0.34R，
+        // 入选 r＜0.995R 且 r＋stroke/2＞内界 0.68R（代入后每套 21 环、共 42 环）；
+        // stroke＝density×0.35×(盘径dp/112)；两套依次以 a21.g／a21.h 色描边（GZ 另有 clamp01 动效
+        // provider 乘 alpha，其身份未逐位定名，本落码按盘面恒在场取 1，报告明记）。
         float density = getResources().getDisplayMetrics().density;
-        paint.setStrokeWidth(Math.max(1f, density * 0.7f));
-        for (int i = 1; i <= 3; i++) {
-            float r = coverR + (radius - coverR) * i / 4f;
-            canvas.drawCircle(cx, cy, r, paint);
+        float grooveStep = 0.655f * coverR / 44f;
+        float grooveStroke = density * 0.35f * ((radius * 2f / density) / 112f);
+        float grooveInner = 0.68f * coverR;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(grooveStroke);
+        for (int pass = 0; pass < 2; pass++) {
+            paint.setColor(mixArgb(pass == 0 ? GROOVE_G_LIGHT : GROOVE_H_LIGHT,
+                    pass == 0 ? GROOVE_G_DARK : GROOVE_H_DARK, surfaceMix));
+            float off = pass == 0 ? 0f : 0.5f;
+            for (int i = 0; i < 44; i++) {
+                float r = (i + off) * grooveStep + 0.34f * coverR;
+                if (r < 0.995f * coverR && r + grooveStroke / 2f > grooveInner) {
+                    canvas.drawCircle(cx, cy, r, paint);
+                }
+            }
         }
         // 中心孔＋hub 圆环描边（a21.k/l 两环，半径按盘径比例）
         paint.setStyle(Paint.Style.FILL);
@@ -378,6 +383,43 @@ public class CdDiscView extends View {
         paint.setColor(ringL);
         canvas.drawCircle(cx, cy, radius * 0.115f, paint);
         paint.setStyle(Paint.Style.FILL);
+    }
+
+    /**
+     * 扫光/光泽三层（2026-10-25 深挖抠实，代旧单扇近似）：存在量 provider＝max(稳态 sheen 动画值,
+     * sweepPresence)，sweepPresence＝max(0, sin(mix·π))×0.65——旧落码的「255×presence×0.5」与
+     * 「46×sheenAlpha」两系数经全链核对在 GZ 链中不存在，作废。每层＝25 停点旋转扫光渐变：
+     * 停点色＝盘面调色（sweep 中档）向白混 whiteMix，alpha＝样式alpha×provider×pow((cos(2πt)+1)/2, sharpen)；
+     * 层旋转＝flow×0.5＋sweepDegrees（sweepBase＋mix×方向×90）——GZ 原式为两相位和＋sweepDegrees，
+     * 相位配对未逐位定名，以星辰既有 sheen 相位承接（报告明记）；层缩放＝1＋warp×provider。
+     */
+    private void drawSheenLayers(Canvas canvas, float cx, float cy, float radius, int tone) {
+        float sweepPresence = Math.max(0f, (float) Math.sin(sweepMix * Math.PI) * 0.65f);
+        float provider = Math.min(1f, Math.max(sheenAlpha, sweepPresence));
+        if (provider <= 0.001f) return;
+        float rotation = flow * 0.5f + sweepBase + sweepMix * sweepDir * 90f;
+        int[] colors = new int[25];
+        float[] stops = new float[25];
+        for (float[] st : SHEEN_STYLES) {
+            int rgb = mixArgb(tone, 0xFFFFFFFF, st[2]) & 0x00FFFFFF;
+            for (int i = 0; i < 25; i++) {
+                float t = i / 24f;
+                double shape = Math.pow((Math.cos(2 * Math.PI * t) + 1) / 2, st[1]);
+                int a = Math.round(255f * st[0] * provider * (float) shape);
+                colors[i] = (a << 24) | rgb;
+                stops[i] = t;
+            }
+            SweepGradient grad = new SweepGradient(cx, cy, colors, stops);
+            Matrix m = new Matrix();
+            m.setRotate(rotation, cx, cy);
+            m.postScale(1f + st[3] * provider, 1f + st[4] * provider, cx, cy);
+            grad.setLocalMatrix(m);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(grad);
+            canvas.drawCircle(cx, cy, radius, paint);
+            paint.setShader(null);
+        }
+        paint.setAlpha(255);
     }
 
     private void drawCover(Canvas canvas, @Nullable Bitmap bitmap, float cx, float cy, float r, float rotation, float alpha) {

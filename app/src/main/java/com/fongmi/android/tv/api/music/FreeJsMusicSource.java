@@ -206,24 +206,42 @@ public class FreeJsMusicSource implements MusicSource {
      * 是步骤 0 本源直取的搜歌重试，不走被屏蔽插件过滤（步骤 0 本源直取亦不过滤）。
      */
     public MusicLyric lyricFallbackRich(MusicTrack track) {
+        return lyricFallbackRichAtLevel(track, com.fongmi.android.tv.music.MusicRepository.MATCH_ANY);
+    }
+
+    /**
+     * 待裁12：lyricFallbackRich 的级别版——手动搜词（force）时仓库按对歌级别分遍调用
+     * （先 MATCH_EXACT、后 MATCH_CONTAINS），步 1 的包含级命中不许抢跑步 2 的精确遍；
+     * MATCH_ANY 即原口径（matchSong 表内先精确后包含），自动路径行为不变。
+     */
+    public MusicLyric lyricFallbackRichAtLevel(MusicTrack track, int level) {
         if (track == null) return null;
         List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
                 com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
         if (queries.isEmpty()) return null;
         String own = pluginOf(track);
-        MusicLyric first = lyricFallbackRichPass(track, queries, own, false);
+        MusicLyric first = lyricFallbackRichPass(track, queries, own, false, level);
         if (first != null && first.hasBodyText()) return first;
         if (own != null) {
-            MusicLyric second = lyricFallbackRichPass(track, queries, own, true);
+            MusicLyric second = lyricFallbackRichPass(track, queries, own, true, level);
             if (second != null && second.hasBodyText()) return second;
             if (first == null) first = second;
         }
         return first;
     }
 
-    /** lyricFallbackRich 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件。 */
+    /** 按对歌级别在本源内对歌：MATCH_ANY 走 matchSong 原口径（表内先精确后包含），指定级别时只认该级。 */
+    private static MusicTrack matchAtLevel(MusicTrack track, String matchTitle, List<MusicTrack> candidates, int level) {
+        MusicTrack target = com.fongmi.android.tv.music.MusicRepository.matchTarget(track, matchTitle);
+        if (level == com.fongmi.android.tv.music.MusicRepository.MATCH_ANY) {
+            return com.fongmi.android.tv.music.MusicRepository.matchSong(target, candidates);
+        }
+        return com.fongmi.android.tv.music.MusicRepository.matchSongAtLevel(target, candidates, level);
+    }
+
+    /** lyricFallbackRich 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件；level 为对歌级别（MATCH_ANY 走 matchSong 原口径）。 */
     private MusicLyric lyricFallbackRichPass(MusicTrack track,
-            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn) {
+            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn, int level) {
         MusicLyric romajiOnly = null;
         try {
             for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
@@ -248,8 +266,7 @@ public class FreeJsMusicSource implements MusicSource {
                     } catch (Throwable ignored) {
                         continue;
                     }
-                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
-                            com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                    MusicTrack hit = matchAtLevel(track, q.matchTitle, candidates, level);
                     if (hit == null) continue;
                     try {
                         MusicLyric l = b.getLyric(hit);
@@ -423,20 +440,25 @@ public class FreeJsMusicSource implements MusicSource {
      * 第 1 步漏词修同 lyricFallbackRich：查询序列外层＋自己插件第二遍（第一遍无命中时）。
      */
     public String lyricFallback(MusicTrack track) {
+        return lyricFallbackAtLevel(track, com.fongmi.android.tv.music.MusicRepository.MATCH_ANY);
+    }
+
+    /** 待裁12：lyricFallback 的级别版（口径同 lyricFallbackRichAtLevel）。 */
+    public String lyricFallbackAtLevel(MusicTrack track, int level) {
         if (track == null) return null;
         List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries =
                 com.fongmi.android.tv.utils.LocalTrackMeta.queries(track.title, track.artist, track.platform);
         if (queries.isEmpty()) return null;
         String own = pluginOf(track);
-        String hit = lyricFallbackPass(track, queries, own, false);
+        String hit = lyricFallbackPass(track, queries, own, false, level);
         if (hit != null) return hit;
-        if (own != null) return lyricFallbackPass(track, queries, own, true);
+        if (own != null) return lyricFallbackPass(track, queries, own, true, level);
         return null;
     }
 
-    /** lyricFallback 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件。 */
+    /** lyricFallback 单遍：queries 外层 × 插件内层；onlyOwn 时只搜自己插件；level 为对歌级别（MATCH_ANY 走 matchSong 原口径）。 */
     private String lyricFallbackPass(MusicTrack track,
-            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn) {
+            List<com.fongmi.android.tv.utils.LocalTrackMeta.Query> queries, String own, boolean onlyOwn, int level) {
         try {
             for (com.fongmi.android.tv.utils.LocalTrackMeta.Query q : queries) {
                 for (MusicSite site : MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS)) {
@@ -460,8 +482,7 @@ public class FreeJsMusicSource implements MusicSource {
                     } catch (Throwable ignored) {
                         continue;
                     }
-                    MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.matchSong(
-                            com.fongmi.android.tv.music.MusicRepository.matchTarget(track, q.matchTitle), candidates);
+                    MusicTrack hit = matchAtLevel(track, q.matchTitle, candidates, level);
                     if (hit == null) continue;
                     try {
                         MusicLyric l = b.getLyric(hit);

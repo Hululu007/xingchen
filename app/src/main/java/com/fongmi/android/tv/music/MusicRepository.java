@@ -69,31 +69,79 @@ public class MusicRepository {
      */
     private static final long LYRIC_MISS_TTL_MS = 60_000;
     private static final int LYRIC_MISS_MAX = 200;
-    private static final Map<String, Long> LYRIC_MISS_AT = new LinkedHashMap<String, Long>(64, 0.75f, true) {
+
+    /**
+     * 负缓存条目带作用域（待裁13）：rich＝完整链 lyricRich 整链无词；窄＝纯文本链
+     * lyric() 整链无词。完整链比纯文本链多跑 Worker／平台／酷我／AMLL 四步，
+     * 窄链记的负不许挡宽链（下载旁路先走 lyric() 记负、随后点播走 lyricRich 被
+     * 未跑先判无词，即此病）；宽链记的负覆盖窄链全部步，窄链可以认。
+     */
+    private static class LyricMiss {
+        final long at;
+        final boolean rich;
+
+        LyricMiss(boolean rich) {
+            this.at = System.currentTimeMillis();
+            this.rich = rich;
+        }
+    }
+
+    private static final Map<String, LyricMiss> LYRIC_MISS_AT = new LinkedHashMap<String, LyricMiss>(64, 0.75f, true) {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, LyricMiss> eldest) {
             return size() > LYRIC_MISS_MAX;
         }
     };
 
-    private static boolean lyricMissedRecently(MusicTrack track) {
+    private static LyricMiss lyricMissed(MusicTrack track) {
         String key = MusicLyricCache.key(track);
-        if (key == null) return false;
+        if (key == null) return null;
         synchronized (LYRIC_MISS_AT) {
-            Long at = LYRIC_MISS_AT.get(key);
-            if (at == null) return false;
-            if (System.currentTimeMillis() - at <= LYRIC_MISS_TTL_MS) return true;
+            LyricMiss m = LYRIC_MISS_AT.get(key);
+            if (m == null) return null;
+            if (System.currentTimeMillis() - m.at <= LYRIC_MISS_TTL_MS) return m;
             LYRIC_MISS_AT.remove(key);
-            return false;
+            return null;
         }
     }
 
-    private static void markLyricMiss(MusicTrack track) {
+    /** 纯文本链查负：任一作用域的新鲜负都挡（宽链确认无词 ⇒ 窄链必无词）。 */
+    private static boolean lyricMissedRecently(MusicTrack track) {
+        return lyricMissed(track) != null;
+    }
+
+    /** 完整链查负：只认 rich 作用域的新鲜负，窄链的负不挡宽链独有步。 */
+    private static boolean lyricRichMissedRecently(MusicTrack track) {
+        LyricMiss m = lyricMissed(track);
+        return m != null && m.rich;
+    }
+
+    private static void markLyricMiss(MusicTrack track, boolean rich) {
         String key = MusicLyricCache.key(track);
         if (key == null) return;
         synchronized (LYRIC_MISS_AT) {
-            LYRIC_MISS_AT.put(key, System.currentTimeMillis());
+            LYRIC_MISS_AT.put(key, new LyricMiss(rich));
         }
+    }
+
+    /**
+     * 取词调用代次（待裁14／15）：每次取词进入整链前登记一代，全局最新代次＝最近
+     * 一次取词请求。被新请求顶替的旧调用（切歌后上一首的在途链、同曲并发的先行者）
+     * 在检查点发现自己已非最新后：预取不再等、迟到结果直接弃；收尾不写负缓存、
+     * 不清正缓存——旧调用的迟到空结果不许压掉新调用的状态。
+     */
+    private static final java.util.concurrent.atomic.AtomicLong LYRIC_CALL_GEN =
+            new java.util.concurrent.atomic.AtomicLong();
+    private static volatile long lyricLatestGen;
+
+    private static long beginLyricCall() {
+        long gen = LYRIC_CALL_GEN.incrementAndGet();
+        lyricLatestGen = gen;
+        return gen;
+    }
+
+    private static boolean isLatestLyricCall(long gen) {
+        return gen == lyricLatestGen;
     }
 
     private static void clearLyricMiss(MusicTrack track) {
@@ -476,8 +524,6 @@ public class MusicRepository {
         if (track == null) return null;
         MusicSource s = find(track.platform);
         if (s == null) return null;
-        // 二-28 负缓存：刚整链确认无词的歌短期内不重走全链（手动重搜 force 不读）
-        if (!force && lyricMissedRecently(track)) return null;
         String own = null;
         try {
             own = s.lyric(track);
@@ -495,24 +541,38 @@ public class MusicRepository {
         if (!force && !MusicStore.isLyricFallback()) return null;
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
         if (queries.isEmpty()) return null;
+        // 二-28 负缓存后移（待裁19）：负判只拦整链重走，本源直取已在上方先行——
+        // 本源新出现的词（本地 .lrc 刚放好／插件刚恢复）不被 60 秒旧判挡在门外。
+        // 手动重搜 force 不读，口径不变。
+        if (!force && lyricMissedRecently(track)) return null;
+        long gen = beginLyricCall();
 
-        // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
-        if (s instanceof FreeJsMusicSource) {
-            try {
-                String fb = ((FreeJsMusicSource) s).lyricFallback(track);
-                if (fb != null && !fb.trim().isEmpty()) {
-                    clearLyricMiss(track);
-                    return fb;
-                }
-            } catch (Throwable t) {
-                SpiderDebug.log("music", "lyric fallback error %s", t.getMessage());
+        if (force) {
+            // 手动搜词：步 1／2 按对歌级别跨步分遍（待裁12，lyricForcePhased）
+            String phased = lyricForcePhased(track, s, queries);
+            if (phased != null) {
+                clearLyricMiss(track);
+                return phased;
             }
-        }
-        // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
-        String crossLrc = lyricCrossSource(track, s, queries, force);
-        if (crossLrc != null) {
-            clearLyricMiss(track);
-            return crossLrc;
+        } else {
+            // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
+            if (s instanceof FreeJsMusicSource) {
+                try {
+                    String fb = ((FreeJsMusicSource) s).lyricFallback(track);
+                    if (fb != null && !fb.trim().isEmpty()) {
+                        clearLyricMiss(track);
+                        return fb;
+                    }
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyric fallback error %s", t.getMessage());
+                }
+            }
+            // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
+            String crossLrc = lyricCrossSource(track, s, queries, false);
+            if (crossLrc != null) {
+                clearLyricMiss(track);
+                return crossLrc;
+            }
         }
         // 3. 歌词型插件直查：歌词网/歌词千寻的 search 只认 type="lyric"，
         //    前两步（源级搜歌）永远问不到它们；本地/设备歌的词主要靠这条。
@@ -529,9 +589,40 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
             }
         }
-        // 二-28：整链跑完仍无词才记负缓存（提前收口的两处 return 在此之前，不记）
-        markLyricMiss(track);
+        // 二-28：整链跑完仍无词才记负缓存（提前收口的两处 return 在此之前，不记）；
+        // 待裁15：被新请求顶替的旧调用不写（迟到的空结果不压新调用状态）
+        if (isLatestLyricCall(gen)) markLyricMiss(track, false);
         return null;
+    }
+
+    /**
+     * 待裁12：手动搜词（force）时步 1（本源内部插件）与步 2（跨源）的级别分遍。
+     * 原串行口径下步 1 整步先行：某插件一张包含级逐字命中会先返回，步 2 其它源的
+     * 精确级命中永远轮不到——二-8 的「精确优先」只在单个源的候选表内成立、跨步落空。
+     * 本遍把两步按级别拆开：精确遍跨两步先行（步 1 精确→步 2 精确），任一精确命中
+     * 即收；全程无精确命中才按原步序跑包含遍（步 1 包含→步 2 包含）作次级回落。
+     * 总序不变：步序仍 1 先于 2、级别只在同为搜歌对歌的两步之间分遍。
+     */
+    private static String lyricForcePhased(MusicTrack track, MusicSource s, List<LocalTrackMeta.Query> queries) {
+        if (s instanceof FreeJsMusicSource) {
+            try {
+                String fb = ((FreeJsMusicSource) s).lyricFallbackAtLevel(track, MATCH_EXACT);
+                if (fb != null && !fb.trim().isEmpty()) return fb;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric fallback exact error %s", t.getMessage());
+            }
+        }
+        String exact = lyricCrossPass(track, s, queries, MATCH_EXACT);
+        if (exact != null) return exact;
+        if (s instanceof FreeJsMusicSource) {
+            try {
+                String fb = ((FreeJsMusicSource) s).lyricFallbackAtLevel(track, MATCH_CONTAINS);
+                if (fb != null && !fb.trim().isEmpty()) return fb;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric fallback contains error %s", t.getMessage());
+            }
+        }
+        return lyricCrossPass(track, s, queries, MATCH_CONTAINS);
     }
 
     /**
@@ -642,9 +733,6 @@ public class MusicRepository {
         }
         MusicSource s = find(track.platform);
         if (s == null) return null;
-        // 二-28 负缓存：刚整链确认无词的歌短期内不重走全链（手动重搜 force 不读、照常整链；
-        // 手动选版恢复在上方已先行处理，不受本缓存影响）
-        if (!force && lyricMissedRecently(track)) return null;
         LyricPick pick = new LyricPick(MusicStore.getLyricPriority());
         MusicLyric own = null;
         try {
@@ -667,11 +755,23 @@ public class MusicRepository {
         if (!force && !MusicStore.isLyricFallback()) return own != null && own.hasLyric() ? own : null;
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
         if (queries.isEmpty()) return own != null && own.hasLyric() ? own : null;
+        // 二-28 负缓存后移＋分域（待裁13／19）：本源直取已在上方先行（本源新词不被旧判
+        // 挡住），负判只拦整链重走；且只认 rich 作用域的负——纯文本链 lyric() 记的负
+        // 覆盖不到本链独有的 Worker／平台／酷我／AMLL 四步，不许未跑先判无词。
+        // 手动重搜 force 不读、手动选版恢复在更上方已先行处理，口径不变。
+        if (!force && lyricRichMissedRecently(track)) return own != null && own.hasLyric() ? own : null;
+        long gen = beginLyricCall();
+        boolean exactPhaseRaw = false;
 
         // 1. 本源内部的其它插件（FreeJS 多插件，启用顺序）
+        // 手动搜词（force）本步先只跑精确级（待裁12）：步 1 的包含级命中不许抢在
+        // 步 2 精确遍前面；包含级在步 2 精确遍之后按步序补跑（见预取段后）。
         if (s instanceof FreeJsMusicSource) {
             try {
-                MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRich(track));
+                MusicLyric fb = normalizeRich(force
+                        ? ((FreeJsMusicSource) s).lyricFallbackRichAtLevel(track, MATCH_EXACT)
+                        : ((FreeJsMusicSource) s).lyricFallbackRich(track));
+                if (force && hasRaw(fb)) exactPhaseRaw = true;
                 hit = pick.note(fb);
                 if (hit != null) {
                     clearLyricMiss(track);
@@ -688,23 +788,62 @@ public class MusicRepository {
         // 抛出点都与串行版逐点一致，墙钟从各步之和降为最慢一步。步 2 收集器自带同口径
         // 探针桶，命中首选即停收，与串行版「note 返回即停」同点；主线程已返回后才跑完
         // 的预取结果直接丢弃、不回写任何状态，不改变任何选择。
-        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force);
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen);
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
+        // force 时预取内的步 2 只跑精确遍（exactOnly），包含遍在下方与步 1 包含级同段补跑。
         CrossCollect cross = prefetch.cross();
+        if (force && hasRawEntry(cross.lyrics)) exactPhaseRaw = true;
         for (MusicLyric lrc : cross.lyrics) {
             hit = pick.note(lrc);
             if (hit != null) {
+                prefetch.abandon();
                 clearLyricMiss(track);
                 return hit;
             }
         }
         // 串行版在抛密钥问题的那个源处中止本步并向上抛；收集器把该点记在 keyIssue 里，
         // 前面各源的命中已按原序 note 完（若已命中首选上面已返回、与串行版同点不抛）。
-        if (cross.keyIssue != null) throw cross.keyIssue;
+        if (cross.keyIssue != null) {
+            prefetch.abandon();
+            throw cross.keyIssue;
+        }
+        // 待裁12 包含遍（仅 force）：精确遍（步 1 精确＋步 2 精确）全程无带正文命中才跑，
+        // 与 collectCross 原「有精确命中不再跑包含遍」同一收口判据（hasRawEntry）；
+        // 段内步序仍步 1 先于步 2。被新请求顶替的旧调用不再补跑（结果必被弃）。
+        if (force && !exactPhaseRaw && isLatestLyricCall(gen)) {
+            if (s instanceof FreeJsMusicSource) {
+                try {
+                    MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRichAtLevel(track, MATCH_CONTAINS));
+                    hit = pick.note(fb);
+                    if (hit != null) {
+                        prefetch.abandon();
+                        clearLyricMiss(track);
+                        return hit;
+                    }
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyricRich fallback contains error %s", t.getMessage());
+                }
+            }
+            CrossCollect cc2 = new CrossCollect();
+            collectCrossPass(track, s, queries, MATCH_CONTAINS, new LyricPick(MusicStore.getLyricPriority()), cc2);
+            for (MusicLyric lrc : cc2.lyrics) {
+                hit = pick.note(lrc);
+                if (hit != null) {
+                    prefetch.abandon();
+                    clearLyricMiss(track);
+                    return hit;
+                }
+            }
+            if (cc2.keyIssue != null) {
+                prefetch.abandon();
+                throw cc2.keyIssue;
+            }
+        }
         // 3. 歌词型插件直查（与 lyric() 同一步、同口径）
         for (MusicLyric lrc : prefetch.pluginLyrics()) {
             hit = pick.note(lrc);
             if (hit != null) {
+                prefetch.abandon();
                 clearLyricMiss(track);
                 return hit;
             }
@@ -713,12 +852,14 @@ public class MusicRepository {
         // 弱网／超时回空，不阻塞回落；回包口径不动。
         hit = pick.note(prefetch.cf());
         if (hit != null) {
+            prefetch.abandon();
             clearLyricMiss(track);
             return hit;
         }
         // 5. 平台直连回落（Worker 不可用时才走：酷狗 KRC → QQ QRC → 网易云 YRC）：只认词级，行级不截断
         hit = pick.note(prefetch.platform());
         if (hit != null) {
+            prefetch.abandon();
             clearLyricMiss(track);
             return hit;
         }
@@ -728,6 +869,7 @@ public class MusicRepository {
         // 默认逐字模式下不截断链（词版仍优先），最终 pick 无词版时回落本版，歌不再无词可显。
         hit = pick.note(prefetch.kuwo());
         if (hit != null) {
+            prefetch.abandon();
             clearLyricMiss(track);
             return hit;
         }
@@ -735,13 +877,19 @@ public class MusicRepository {
         // S6 门控：开关关时预取不提交本步（结果为空），默认开，行为与原来一致
         hit = pick.note(prefetch.amll());
         if (hit != null) {
+            prefetch.abandon();
             clearLyricMiss(track);
             return hit;
         }
         MusicLyric result = pick.pick(own);
-        // 二-28：整链跑完仍无词才记负缓存（提前收口的 return 在此之前，不记）
-        if (result != null) clearLyricMiss(track);
-        else markLyricMiss(track);
+        prefetch.abandon();
+        // 二-28：整链跑完仍无词才记负缓存（提前收口的 return 在此之前，不记）；
+        // 待裁15：被新请求顶替的旧调用收尾不写缓存——迟到的空结果不许压掉新调用的
+        // 正结果、迟到的命中也不许清新调用刚记的负，以最新请求的状态为准。
+        if (isLatestLyricCall(gen)) {
+            if (result != null) clearLyricMiss(track);
+            else markLyricMiss(track, true);
+        }
         return result;
     }
 
@@ -944,7 +1092,12 @@ public class MusicRepository {
      * 候选表内分先后，跨源时排在前面的源一张包含级命中（如前缀歌）就会先入桶、
      * 甚至命中首选立即返回，后面源的精确命中永远轮不到——单表内精确优先≠跨源精确优先。
      */
-    private static CrossCollect collectCross(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force) {
+    /**
+     * 步 2 收集。exactOnly（待裁12）：LyricPrefetch 在 force 时传 true——本收集只跑
+     * 精确遍，包含遍由 lyricRich 在步 1 包含级之后按步序补跑（跨步精确优先）；
+     * 非 force 时 exactOnly 不起作用（单遍 MATCH_ANY 原口径）。
+     */
+    private static CrossCollect collectCross(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, boolean exactOnly) {
         CrossCollect out = new CrossCollect();
         LyricPick probe = new LyricPick(MusicStore.getLyricPriority());
         if (!force) {
@@ -953,6 +1106,7 @@ public class MusicRepository {
         }
         collectCrossPass(track, self, queries, MATCH_EXACT, probe, out);
         if (out.keyIssue != null || hasRawEntry(out.lyrics)) return out;
+        if (exactOnly) return out;
         collectCrossPass(track, self, queries, MATCH_CONTAINS, probe, out);
         return out;
     }
@@ -1022,6 +1176,13 @@ public class MusicRepository {
      * try/catch 收口搬进各自任务内，日志文案与原来一致。
      */
     private static class LyricPrefetch {
+        /**
+         * 待裁18：单步等待总封顶——高于最慢一步的内部封顶（Worker 连接 10 秒＋读 25 秒），
+         * 只作防挂死的天花板，不替代各步自己的超时；超时按该步无结果处理并撤下任务。
+         */
+        private static final long AWAIT_CAP_MS = 45_000;
+
+        private final long gen;
         private final Future<CrossCollect> cross;
         private final Future<List<MusicLyric>> plugins;
         private final Future<MusicLyric> cf;
@@ -1029,9 +1190,10 @@ public class MusicRepository {
         private final Future<MusicLyric> kuwo;
         private final Future<MusicLyric> amll;
 
-        private LyricPrefetch(Future<CrossCollect> cross, Future<List<MusicLyric>> plugins,
+        private LyricPrefetch(long gen, Future<CrossCollect> cross, Future<List<MusicLyric>> plugins,
                               Future<MusicLyric> cf, Future<MusicLyric> platform,
                               Future<MusicLyric> kuwo, Future<MusicLyric> amll) {
+            this.gen = gen;
             this.cross = cross;
             this.plugins = plugins;
             this.cf = cf;
@@ -1040,8 +1202,8 @@ public class MusicRepository {
             this.amll = amll;
         }
 
-        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force) {
-            Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force));
+        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, long gen) {
+            Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force, force));
             Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
             Future<MusicLyric> cf = Task.largeExecutor().submit(() -> cfLyricWord(track));
             Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
@@ -1070,7 +1232,7 @@ public class MusicRepository {
                         }
                     })
                     : null;
-            return new LyricPrefetch(cross, plugins, cf, platform, kuwo, amll);
+            return new LyricPrefetch(gen, cross, plugins, cf, platform, kuwo, amll);
         }
 
         CrossCollect cross() {
@@ -1099,17 +1261,40 @@ public class MusicRepository {
             return amll == null ? null : await(amll);
         }
 
-        private static <T> T await(Future<T> f) {
+        private <T> T await(Future<T> f) {
             if (f == null) return null;
+            // 待裁14：本代次已被新取词请求顶替——不等了，撤下任务、迟到结果直接弃，
+            // 不许孤儿任务继续占线程池与桥队列拖住新歌的取词。
+            if (!isLatestLyricCall(gen)) {
+                f.cancel(true);
+                return null;
+            }
             try {
-                return f.get();
+                return f.get(AWAIT_CAP_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
             } catch (Throwable t) {
+                // 含超时（TimeoutException）与被撤（CancellationException）：按该步无结果处理
+                f.cancel(true);
                 SpiderDebug.log("music", "lyric prefetch error %s", t.getMessage());
                 return null;
             }
+        }
+
+        /** 待裁14：调用方已收口（命中／中止／被顶替）——还没轮到的预取任务全部撤下，
+         * 结果本就按既定口径丢弃不回写，撤下只是不让它们白占线程池与桥队列。 */
+        void abandon() {
+            cancelQuietly(cross);
+            cancelQuietly(plugins);
+            cancelQuietly(cf);
+            cancelQuietly(platform);
+            cancelQuietly(kuwo);
+            cancelQuietly(amll);
+        }
+
+        private static void cancelQuietly(Future<?> f) {
+            if (f != null) f.cancel(true);
         }
     }
 
@@ -1390,7 +1575,7 @@ public class MusicRepository {
     public static final int MATCH_CONTAINS = 1;
     public static final int MATCH_EXACT = 2;
     /** 不分级口径：matchSong 的「先精确遍、再包含遍」 */
-    private static final int MATCH_ANY = -1;
+    public static final int MATCH_ANY = -1;
 
     /** 单个候选的对歌级别（matchSong 两段判定的单候选版，判定条件逐项与原两段一致） */
     public static int matchLevel(MusicTrack target, MusicTrack candidate) {
@@ -1408,7 +1593,7 @@ public class MusicRepository {
     }
 
     /** 只认指定级别的第一个候选（保列表序）；无该级命中返回 null */
-    private static MusicTrack matchSongAtLevel(MusicTrack target, List<MusicTrack> candidates, int level) {
+    public static MusicTrack matchSongAtLevel(MusicTrack target, List<MusicTrack> candidates, int level) {
         if (target == null || candidates == null) return null;
         if (normalizeSong(target.title).isEmpty()) return null;
         for (MusicTrack c : candidates) {

@@ -2,6 +2,7 @@ package com.fongmi.android.tv.player.danmaku;
 
 import com.github.catvod.net.OkHttp;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,9 +49,18 @@ public final class LiveDanmakuWebSocketClient {
     }
 
     public synchronized WebSocket newWebSocket(String url, WebSocketListener listener) {
+        return newWebSocket(url, null, listener);
+    }
+
+    public synchronized WebSocket newWebSocket(String url, Map<String, String> headers, WebSocketListener listener) {
         if (released) throw new IllegalStateException("WebSocket client is released");
-        Request request = new Request.Builder().url(url).build();
-        return client.newWebSocket(request, listener);
+        Request.Builder builder = new Request.Builder().url(url);
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) builder.header(entry.getKey(), entry.getValue());
+            }
+        }
+        return client.newWebSocket(builder.build(), listener);
     }
 
     public synchronized void release() {

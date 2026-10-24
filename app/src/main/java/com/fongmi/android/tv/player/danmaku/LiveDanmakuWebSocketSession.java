@@ -4,6 +4,8 @@ import android.content.Context;
 
 import androidx.annotation.Nullable;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -13,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
+import okio.ByteString;
 
 public final class LiveDanmakuWebSocketSession {
 
@@ -25,9 +28,13 @@ public final class LiveDanmakuWebSocketSession {
     private final Listener listener;
     private WebSocket webSocket;
     private String targetUrl;
+    private String targetKey;
+    private Map<String, String> connectHeaders = Map.of();
+    private FrameHooks frameHooks;
     private State state = State.IDLE;
     private ScheduledFuture<?> retryFuture;
     private ScheduledFuture<?> stableFuture;
+    private ScheduledFuture<?> heartbeatFuture;
     private long generation;
     private int retryAttempt;
     private boolean released;
@@ -49,13 +56,24 @@ public final class LiveDanmakuWebSocketSession {
     }
 
     public long connect(String url) {
+        return connect(url, null, null, null);
+    }
+
+    /**
+     * 平台直连入口：同一 ws 地址可服务多个逻辑目标（如斗鱼各房间共用一个地址），
+     * 用 sessionKey 区分逻辑目标；headers 与 frameHooks 随连接走，重连时原样复用。
+     * 网关文本路仍走 {@link #connect(String)}，行为不变。
+     */
+    public long connect(String url, Map<String, String> headers, String sessionKey, FrameHooks hooks) {
         if (url == null || url.isBlank()) return generation();
         String sourceUrl = url.trim();
+        String sourceKey = sessionKey == null || sessionKey.isBlank() ? sourceUrl : sessionKey;
+        Map<String, String> sourceHeaders = headers == null ? Map.of() : Map.copyOf(headers);
         WebSocket previous;
         long currentGeneration;
         synchronized (this) {
             if (released) return generation;
-            if (sourceUrl.equals(targetUrl) && (state == State.CONNECTING || state == State.OPEN)) return generation;
+            if (sourceUrl.equals(targetUrl) && sourceKey.equals(targetKey) && sourceHeaders.equals(connectHeaders) && (state == State.CONNECTING || state == State.OPEN)) return generation;
             previous = webSocket;
             webSocket = null;
             cancelScheduledLocked();
@@ -63,6 +81,9 @@ public final class LiveDanmakuWebSocketSession {
             generation++;
             currentGeneration = generation;
             targetUrl = sourceUrl;
+            targetKey = sourceKey;
+            connectHeaders = sourceHeaders;
+            frameHooks = hooks;
             state = State.CONNECTING;
         }
         closeSocket(previous, "replace");
@@ -82,6 +103,9 @@ public final class LiveDanmakuWebSocketSession {
             webSocket = null;
             stoppedUrl = targetUrl;
             targetUrl = null;
+            targetKey = null;
+            connectHeaders = Map.of();
+            frameHooks = null;
             cancelScheduledLocked();
             retryAttempt = 0;
             generation++;
@@ -103,6 +127,9 @@ public final class LiveDanmakuWebSocketSession {
             webSocket = null;
             releasedUrl = targetUrl;
             targetUrl = null;
+            targetKey = null;
+            connectHeaders = Map.of();
+            frameHooks = null;
             cancelScheduledLocked();
             generation++;
             releasedGeneration = generation;
@@ -145,10 +172,34 @@ public final class LiveDanmakuWebSocketSession {
         return generation;
     }
 
+    public boolean send(byte[] data) {
+        if (data == null) return false;
+        WebSocket socket;
+        synchronized (this) {
+            if (released || state != State.OPEN) return false;
+            socket = webSocket;
+        }
+        return socket != null && socket.send(ByteString.of(data));
+    }
+
+    public boolean send(String text) {
+        if (text == null) return false;
+        WebSocket socket;
+        synchronized (this) {
+            if (released || state != State.OPEN) return false;
+            socket = webSocket;
+        }
+        return socket != null && socket.send(text);
+    }
+
     private void openSocket(long callbackGeneration, String sourceUrl) {
         WebSocket created;
         try {
-            created = client.newWebSocket(sourceUrl, new SessionListener(callbackGeneration, sourceUrl));
+            Map<String, String> headers;
+            synchronized (this) {
+                headers = connectHeaders;
+            }
+            created = client.newWebSocket(sourceUrl, headers, new SessionListener(callbackGeneration, sourceUrl));
         } catch (Throwable error) {
             handleTermination(null, callbackGeneration, sourceUrl, -1, errorName(error), LiveDanmakuRetryPolicy.shouldRetryFailure(error, -1));
             return;
@@ -182,6 +233,52 @@ public final class LiveDanmakuWebSocketSession {
         }
     }
 
+    private void deliverOpenHooks(WebSocket socket, long callbackGeneration) {
+        FrameHooks hooks;
+        synchronized (this) {
+            if (released || generation != callbackGeneration || state != State.OPEN || socket != webSocket) return;
+            hooks = frameHooks;
+            if (hooks == null) return;
+            cancelHeartbeatLocked();
+            long intervalMs = hooks.heartbeatIntervalMs();
+            if (intervalMs > 0) {
+                heartbeatFuture = scheduler.scheduleWithFixedDelay(() -> sendHeartbeat(callbackGeneration), intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+            }
+        }
+        List<byte[]> frames;
+        try {
+            frames = hooks.onOpenFrames();
+        } catch (Throwable error) {
+            return;
+        }
+        if (frames == null) return;
+        for (byte[] frame : frames) {
+            if (frame == null) continue;
+            synchronized (this) {
+                if (released || generation != callbackGeneration || state != State.OPEN || socket != webSocket) return;
+            }
+            if (!socket.send(ByteString.of(frame))) return;
+        }
+    }
+
+    private void sendHeartbeat(long expectedGeneration) {
+        FrameHooks hooks;
+        WebSocket socket;
+        synchronized (this) {
+            if (released || generation != expectedGeneration || state != State.OPEN) return;
+            hooks = frameHooks;
+            socket = webSocket;
+        }
+        if (hooks == null || socket == null) return;
+        byte[] frame;
+        try {
+            frame = hooks.heartbeatFrame();
+        } catch (Throwable error) {
+            return;
+        }
+        if (frame != null) socket.send(ByteString.of(frame));
+    }
+
     private void handleTermination(WebSocket socket, long callbackGeneration, String sourceUrl, int code, String detail, boolean retryable) {
         long delayMs = -1L;
         State nextState;
@@ -190,6 +287,7 @@ public final class LiveDanmakuWebSocketSession {
             if (webSocket != null && socket != webSocket) return;
             webSocket = null;
             cancelStableLocked();
+            cancelHeartbeatLocked();
             if (retryable && sourceUrl.equals(targetUrl)) {
                 delayMs = LiveDanmakuRetryPolicy.nextDelayMs(retryAttempt++, ThreadLocalRandom.current().nextDouble());
                 state = State.RETRY_WAIT;
@@ -231,6 +329,12 @@ public final class LiveDanmakuWebSocketSession {
     private void cancelScheduledLocked() {
         cancelRetryLocked();
         cancelStableLocked();
+        cancelHeartbeatLocked();
+    }
+
+    private void cancelHeartbeatLocked() {
+        if (heartbeatFuture != null) heartbeatFuture.cancel(false);
+        heartbeatFuture = null;
     }
 
     private void cancelRetryLocked() {
@@ -272,12 +376,21 @@ public final class LiveDanmakuWebSocketSession {
 
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
-            if (markOpen(webSocket, callbackGeneration)) notifyState(State.OPEN, callbackGeneration, sourceUrl, response.code(), "open");
+            if (markOpen(webSocket, callbackGeneration)) {
+                notifyState(State.OPEN, callbackGeneration, sourceUrl, response.code(), "open");
+                deliverOpenHooks(webSocket, callbackGeneration);
+                listener.onOpen(callbackGeneration);
+            }
         }
 
         @Override
         public void onMessage(WebSocket webSocket, String text) {
             if (isCurrent(webSocket, callbackGeneration)) listener.onMessage(callbackGeneration, text);
+        }
+
+        @Override
+        public void onMessage(WebSocket webSocket, ByteString bytes) {
+            if (isCurrent(webSocket, callbackGeneration)) listener.onMessage(callbackGeneration, bytes.toByteArray());
         }
 
         @Override
@@ -311,5 +424,24 @@ public final class LiveDanmakuWebSocketSession {
         void onStateChanged(State state, long generation, String url, int code, String detail);
 
         void onMessage(long generation, String text);
+
+        default void onMessage(long generation, byte[] bytes) {
+        }
+
+        default void onOpen(long generation) {
+        }
+    }
+
+    /**
+     * 平台协议的连接钩子：连上后要发的进房帧与周期心跳帧都由 provider 给，
+     * 会话层只负责按连接代际准时投递（与重试共用同一调度线程，生命周期一处管）。
+     */
+    public interface FrameHooks {
+
+        List<byte[]> onOpenFrames();
+
+        byte[] heartbeatFrame();
+
+        long heartbeatIntervalMs();
     }
 }

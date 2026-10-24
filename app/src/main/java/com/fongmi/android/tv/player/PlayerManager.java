@@ -64,6 +64,8 @@ import com.fongmi.android.tv.player.danmaku.LiveDanmakuMessage;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuMetrics;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuParser;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuWebSocketSession;
+import com.fongmi.android.tv.player.danmaku.live.LiveDanmakuCoordinator;
+import com.fongmi.android.tv.player.danmaku.live.LiveRoomResolver;
 import com.fongmi.android.tv.player.lut.DynamicLutEffect;
 import com.fongmi.android.tv.player.lut.LutEffectFactory;
 import com.fongmi.android.tv.player.lut.LutEligibility;
@@ -186,6 +188,7 @@ public class PlayerManager implements ParseCallback {
     private final LiveDanmakuMetrics liveDanmakuMetrics;
     private DanmakuController danmakuController;
     private LiveDanmakuWebSocketSession liveDanmakuSession;
+    private final LiveDanmakuCoordinator liveDanmakuCoordinator;
     private PlayerEngine engine;
     private VideoSize videoSize;
     private ParseJob parseJob;
@@ -301,6 +304,27 @@ public class PlayerManager implements ParseCallback {
         this.liveDanmakuBuffer = new LiveDanmakuBuffer();
         this.liveDanmakuMetrics = new LiveDanmakuMetrics();
         this.liveDanmakuBatcher = new LiveDanmakuBatcher(liveDanmakuBuffer, this::onLiveDanmakuBatch);
+        this.liveDanmakuCoordinator = new LiveDanmakuCoordinator(new LiveDanmakuCoordinator.Host() {
+            @Override
+            public void onState(LiveDanmakuWebSocketSession.State state, long generation, String targetTag, int code, String detail) {
+                onPlatformLiveState(state, generation, targetTag, code, detail);
+            }
+
+            @Override
+            public void onMessages(long generation, List<LiveDanmakuMessage> messages) {
+                onPlatformLiveMessages(generation, messages);
+            }
+
+            @Override
+            public void onOnline(long generation, long online) {
+                onPlatformLiveOnline(generation, online);
+            }
+
+            @Override
+            public boolean isForeground() {
+                return danmakuForeground;
+            }
+        });
         this.dynamicLutEffect = new DynamicLutEffect();
         this.audioFocusChangeListener = this::onNativeAudioFocusChanged;
         this.noisyReceiver = new BroadcastReceiver() {
@@ -335,6 +359,7 @@ public class PlayerManager implements ParseCallback {
         resumeMusicPausedByVideo();
         clearDanmaku("release");
         releaseLiveDanmakuSession();
+        liveDanmakuCoordinator.release();
         liveDanmakuBatcher.release();
         App.removeCallbacks(liveDanmakuMetricsRunnable);
         if (danmakuController != null) danmakuController.setListener(null);
@@ -935,8 +960,11 @@ public class PlayerManager implements ParseCallback {
         if (danmakuController != null) danmakuController.setEnabled(enabled);
         if (!enabled) {
             stopLiveDanmakuSession("hidden");
+            liveDanmakuCoordinator.suspend("hidden");
         } else if (danmakuForeground && DanmakuUrlPolicy.classify(currentDanmakuUrl).isLive()) {
             connectLiveDanmakuSession(currentDanmakuUrl);
+        } else if (danmakuForeground) {
+            liveDanmakuCoordinator.resume();
         }
     }
 
@@ -946,8 +974,11 @@ public class PlayerManager implements ParseCallback {
         if (!foreground) {
             stopLiveDanmakuSession("background");
             discardLiveDanmakuPending();
+            liveDanmakuCoordinator.suspend("background");
         } else if (DanmakuSetting.isShow() && DanmakuUrlPolicy.classify(currentDanmakuUrl).isLive()) {
             connectLiveDanmakuSession(currentDanmakuUrl);
+        } else if (DanmakuSetting.isShow()) {
+            liveDanmakuCoordinator.resume();
         }
     }
 
@@ -3812,6 +3843,7 @@ public class PlayerManager implements ParseCallback {
         App.removeCallbacks(runnable);
         setDanmakus(spec.getDanmakus());
         autoSearchDanmaku();
+        maybeStartLivePlatformDanmaku();
         prepareLutPipeline();
         initTrack = false;
         waitingLutBeforePlay = false;
@@ -4555,10 +4587,12 @@ public class PlayerManager implements ParseCallback {
             danmakuLoadStartedAtMs = 0;
             danmakuLoadInProgress = false;
             if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "select live source pending websocket connection %s", DanmakuUrlPolicy.logSummary(url));
+            liveDanmakuCoordinator.stop("gateway_source");
             if (danmakuForeground && DanmakuSetting.isShow()) connectLiveDanmakuSession(url);
             return;
         }
         stopLiveDanmakuSession("static_source");
+        liveDanmakuCoordinator.stop("static_source");
         loadingDanmakuKey = key;
         danmakuLoadStartedAtMs = SystemClock.elapsedRealtime();
         danmakuLoadInProgress = true;
@@ -4591,6 +4625,7 @@ public class PlayerManager implements ParseCallback {
     private void clearDanmaku(String reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "clear reason=%s current=%s", reason, DanmakuUrlPolicy.logSummary(currentDanmakuUrl));
         stopLiveDanmakuSession(reason);
+        liveDanmakuCoordinator.stop(reason);
         liveDanmakuBatcher.clear();
         liveDanmakuBuffer.clear();
         if (danmakuController != null) danmakuController.clearItems();
@@ -4654,6 +4689,62 @@ public class PlayerManager implements ParseCallback {
         if (liveDanmakuSession == null) return;
         liveDanmakuSession.release();
         liveDanmakuSession = null;
+    }
+
+    /**
+     * 平台直连直播弹幕旁路触发（设计第五节缺口 4）：spec 自带 LIVE 网关弹幕源时网关路优先、
+     * 本路不启；否则把装配点信号快照交给 Coordinator 识别，命中平台房间才直连。
+     * 只加旁路调用，不改 setDanmakus/autoSearchDanmaku 与起播主链语义。
+     */
+    private void maybeStartLivePlatformDanmaku() {
+        if (spec == null) return;
+        if (DanmakuUrlPolicy.classify(currentDanmakuUrl).isLive()) return;
+        com.fongmi.android.tv.bean.Vod vod = spec.getParseResult() == null ? null : spec.getParseResult().getVod();
+        MediaMetadata metadata = spec.getMetadata();
+        String title = metadata == null || metadata.title == null ? "" : metadata.title.toString();
+        LiveRoomResolver.Snapshot snapshot = new LiveRoomResolver.Snapshot(
+                spec.getKey(),
+                vod == null ? "" : vod.getId(),
+                vod == null ? "" : vod.getPlayUrl(),
+                vod == null ? "" : vod.getPlayFrom(),
+                vod == null ? title : vod.getName(),
+                spec.getUrl());
+        liveDanmakuCoordinator.onPlayback(snapshot);
+    }
+
+    private void onPlatformLiveState(LiveDanmakuWebSocketSession.State state, long generation, String targetTag, int code, String detail) {
+        liveDanmakuGeneration = generation;
+        liveDanmakuMetrics.onState(state, code, SystemClock.elapsedRealtime());
+        if (state == LiveDanmakuWebSocketSession.State.CONNECTING) {
+            liveDanmakuBuffer.reset(generation);
+            liveDanmakuBatcher.reset(generation);
+        } else if (state == LiveDanmakuWebSocketSession.State.RETRY_WAIT || state == LiveDanmakuWebSocketSession.State.STOPPED || state == LiveDanmakuWebSocketSession.State.RELEASED) {
+            liveDanmakuBatcher.clear();
+            liveDanmakuBuffer.clear();
+        }
+        if (state != LiveDanmakuWebSocketSession.State.OPEN) {
+            App.post(() -> logLiveDanmakuMetrics("state_" + state, false));
+            clearLiveDanmakuRenderer(generation);
+        }
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku-live", "state=%s generation=%d code=%d detail=%s target=%s", state, generation, code, detail, targetTag);
+    }
+
+    private void onPlatformLiveMessages(long generation, List<LiveDanmakuMessage> messages) {
+        if (generation != liveDanmakuGeneration || messages.isEmpty()) return;
+        liveDanmakuMetrics.onFrame();
+        if (!liveDanmakuPlaybackActive) return;
+        boolean drained = false;
+        for (LiveDanmakuMessage message : messages) {
+            LiveDanmakuBuffer.OfferResult offer = liveDanmakuBuffer.offer(message);
+            liveDanmakuMetrics.onOffer(offer);
+            if (offer != LiveDanmakuBuffer.OfferResult.STALE) drained = true;
+        }
+        if (drained) liveDanmakuBatcher.requestDrain(generation);
+    }
+
+    private void onPlatformLiveOnline(long generation, long online) {
+        if (generation != liveDanmakuGeneration) return;
+        liveDanmakuBuffer.updateOnline(generation, online);
     }
 
     private void onLiveDanmakuBatch(long generation, List<LiveDanmakuMessage> messages) {

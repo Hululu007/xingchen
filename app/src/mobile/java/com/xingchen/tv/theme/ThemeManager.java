@@ -130,9 +130,16 @@ public class ThemeManager {
                 || actName.endsWith(".ui.activity.HkRuleSearchActivity");
     }
 
+    // 音乐独立页（与海阔页同口径：自带底、不跟主壁纸走）：不贴星辰壁纸，
+    // 窗口底落页面自己的玻璃基色。逐页独立化时往此名单加页，第一页＝音乐首页。
+    private boolean isMusicPage(Activity activity) {
+        String actName = activity.getClass().getName();
+        return actName.endsWith(".ui.activity.MusicActivity");
+    }
+
     // 同步贴：只用已有图源（当前缓存优先，其次上一张），不解码。
     private void applyCachedNow(Activity activity) {
-        if (activity == null || isHkPage(activity)) return;
+        if (activity == null || isHkPage(activity) || isMusicPage(activity)) return;
         if (theme == null) theme = XingChenTheme.load(activity);
         android.graphics.drawable.Drawable dw = null;
         if (currentCacheKey().equals(sCachedKey)) dw = freshDrawableFromCache(activity);
@@ -201,6 +208,16 @@ public class ThemeManager {
                 try {
                     activity.getWindow().setBackgroundDrawable(
                             new android.graphics.drawable.ColorDrawable(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar)));
+                } catch (Exception ignored) {}
+                return;
+            }
+            // 音乐独立页同口径：窗口底落页面自己的玻璃基色，转场/冷启/overscroll
+            // 都不透主壁纸；主题层已先落同色兜底首帧。色值与 @color/music_page_base、
+            // MusicGlassBackgroundView.BASE 三处同值（0xFFFAFAFC），改色须三处同改。
+            if (isMusicPage(activity)) {
+                try {
+                    activity.getWindow().setBackgroundDrawable(
+                            new android.graphics.drawable.ColorDrawable(0xFFFAFAFC));
                 } catch (Exception ignored) {}
                 return;
             }

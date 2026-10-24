@@ -123,7 +123,8 @@
         <activity
             android:name=".ui.activity.MusicActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.Music" />
 
         <activity
             android:name=".ui.activity.MusicListActivity"

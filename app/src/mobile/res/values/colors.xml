@@ -13,4 +13,7 @@
     <color name="hk_status_bar">#FFF4F6F8</color>
     <!-- 播放器点缀金（定稿 #F2B33D）：进度已播段/选中态/打点态 -->
     <color name="player_gold">#FFF2B33D</color>
+    <!-- 音乐独立页自有实底基色：与 MusicGlassBackgroundView.BASE（0xFFFAFAFC）同值，
+         音乐页窗口底/主题底一律取它，页面自己的底从窗口层起，不借主壁纸 -->
+    <color name="music_page_base">#FFFAFAFC</color>
 </resources>

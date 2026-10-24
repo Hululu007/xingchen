@@ -24,6 +24,14 @@
         <item name="android:windowBackground">#000000</item>
     </style>
 
+    <!-- 音乐独立页专属主题（第一页＝音乐首页）：窗口底就是页面自己的玻璃基色，
+         冷启首帧/转场/ overscroll 都不许透出主壁纸或黑底；运行时 ThemeManager 对本页豁免贴壁纸、只落此色 -->
+    <style name="Theme.XingChen.Music" parent="Theme.App">
+        <item name="android:windowBackground">@color/music_page_base</item>
+        <item name="android:colorBackground">@color/music_page_base</item>
+        <item name="android:windowSplashScreenBackground">@color/music_page_base</item>
+    </style>
+
     <style name="Theme.Crash" parent="Theme.XingChen">
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

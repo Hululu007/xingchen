@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  */
 public final class LabImportCompat {
 
-    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE, WEBHTV_ITEM, NODE_PROJECT }
+    public enum Kind { WEBHTV_COMMAND, TERMUX_LIST, BARE_SCRIPT, LAB_JSON, SITE_SOURCE, WEBHTV_ITEM, NODE_PROJECT, NODE_BUNDLE }
 
     /** 归一后的一个服务（安装前形态） */
     public static class ImportItem {
@@ -713,6 +713,124 @@ public final class LabImportCompat {
         it.needsReview = addLine(it.needsReview,
                 "项目依赖（node_modules）在包里才能直接跑；包里没有的话，先开这个服务的终端执行 npm install");
         return it;
+    }
+
+    // ---------------- 路8：远程 Node bundle（.js.md5 指针形态） ----------------
+
+    /**
+     * Node bundle 指针形态：网址以 .js.md5 结尾（如 …/cat/index.js.md5），本体只是
+     * 32 位 MD5，真身是同目录去掉 .md5 的那个 .js。链接路在 LabPasteImportActivity
+     * 里据此跟随指针拉整包，这里只管判定与造条目（纯逻辑，可离线单测）。
+     */
+    public static boolean isNodeBundleUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        int q = u.indexOf('?');
+        if (q >= 0) u = u.substring(0, q);
+        int h = u.indexOf('#');
+        if (h >= 0) u = u.substring(0, h);
+        return u.toLowerCase().endsWith(".js.md5");
+    }
+
+    /** 指针本体判定：去掉空白后第一段是 32 位十六进制 MD5（有的写法哈希后还跟文件名） */
+    public static boolean isMd5Pointer(String content) {
+        if (content == null) return false;
+        String t = content.trim();
+        if (t.isEmpty()) return false;
+        return t.split("\\s+")[0].matches("(?i)[0-9a-f]{32}");
+    }
+
+    /** MD5 十六进制（小写），指针校验用 */
+    public static String md5Hex(byte[] data) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+        byte[] d = md.digest(data == null ? new byte[0] : data);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : d) sb.append(String.format("%02x", b & 0xff));
+        return sb.toString();
+    }
+
+    /** 指针网址 → 真身文件名（index.js.md5 → index.js） */
+    public static String nodeBundleMainName(String url) {
+        String seg = lastUrlSegment(url);
+        if (seg.toLowerCase().endsWith(".md5")) seg = seg.substring(0, seg.length() - 4);
+        return seg.isEmpty() ? "index.js" : seg;
+    }
+
+    /** 真身文件名 → 同目录配置文件名（index.js → index.config.js） */
+    public static String nodeBundleConfigName(String mainName) {
+        if (mainName != null && mainName.toLowerCase().endsWith(".js")) {
+            return mainName.substring(0, mainName.length() - 3) + ".config.js";
+        }
+        return "index.config.js";
+    }
+
+    /** 指针网址 → 同目录基址（以 / 结尾），拼真身/配置地址用 */
+    public static String nodeBundleBaseUrl(String url) {
+        String u = url == null ? "" : url.trim();
+        int q = u.indexOf('?');
+        if (q >= 0) u = u.substring(0, q);
+        int i = u.lastIndexOf('/');
+        return i >= 0 ? u.substring(0, i + 1) : u + "/";
+    }
+
+    private static String lastUrlSegment(String url) {
+        if (url == null) return "";
+        String u = url.trim();
+        int q = u.indexOf('?');
+        if (q >= 0) u = u.substring(0, q);
+        int i = u.lastIndexOf('/');
+        return i >= 0 ? u.substring(i + 1) : u;
+    }
+
+    private static String urlHost(String url) {
+        if (url == null) return "";
+        String u = url.trim();
+        int p = u.indexOf("://");
+        if (p >= 0) u = u.substring(p + 3);
+        int s = u.indexOf('/');
+        if (s >= 0) u = u.substring(0, s);
+        int c = u.indexOf(':');
+        if (c >= 0) u = u.substring(0, c);
+        return u;
+    }
+
+    /**
+     * Node bundle → 一条服务。成立前提：调用方已按指针把真身拉下并验过 MD5。
+     * 启动命令必须带 PORT={port} 前缀：实验室 applyEnv 不注入 PORT，
+     * 不带的话包按自己的缺省端口听，和服务页登记的分配端口对不上。
+     * 同目录配置裸跑时不被读（只被宿主调 start(config) 的那条路消费），仍一并落盘备用。
+     */
+    public static ImportItem fromNodeBundle(String url, byte[] mainBytes, byte[] configBytes) {
+        ImportItem it = new ImportItem();
+        it.kind = Kind.NODE_BUNDLE;
+        String mainName = nodeBundleMainName(url);
+        String host = urlHost(url);
+        it.id = "nodebundle_" + sanitize((host.isEmpty() ? mainName : host + "_" + mainName).replace('.', '_'));
+        it.name = "Node 服务包" + (host.isEmpty() ? "" : "（" + host + "）");
+        it.desc = "";
+        it.runtime = "nodejs";
+        it.background = true;
+        it.autoStart = false;
+        it.portPolicy = "auto";
+        it.assetName = mainName;
+        it.assetBytes = mainBytes;
+        if (configBytes != null && configBytes.length > 0) {
+            it.extraFiles = new LinkedHashMap<>();
+            it.extraFiles.put(nodeBundleConfigName(mainName), configBytes);
+        }
+        it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/" + mainName;
+        it.needsReview = addLine(it.needsReview,
+                "这是按 .md5 指针拉下来的远程 Node 服务包，整包已部署成本地服务；同目录的配置文件也一并放进包里备用了（裸跑不读它）");
+        return it;
+    }
+
+    /** Node bundle 的识别结果（一包一条服务） */
+    public static ParseResult nodeBundleResult(String url, byte[] mainBytes, byte[] configBytes) {
+        ParseResult r = new ParseResult();
+        r.kind = Kind.NODE_BUNDLE;
+        r.items.add(fromNodeBundle(url, mainBytes, configBytes));
+        r.note = "认出来了：Node 服务包（" + nodeBundleMainName(url) + "，整包按 .md5 指针拉下来的）";
+        return r;
     }
 
     // ---------------- .lab.7z 离线包（上游导出布局） ----------------

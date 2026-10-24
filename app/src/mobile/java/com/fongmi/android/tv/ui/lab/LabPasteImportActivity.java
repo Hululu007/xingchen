@@ -291,6 +291,8 @@ public class LabPasteImportActivity extends AppCompatActivity {
                     try {
                         // 链接也可能是 .lab.7z 离线包：先看魔数/后缀
                         if (dispatchSevenZ(spool, t)) return;
+                        // Node bundle 指针（.js.md5）：本体只是 MD5，跟随指针拉整包
+                        if (dispatchNodeBundle(spool, t)) return;
                         if (spool.length() > 2 * 1024 * 1024) throw new Exception("这个文件太大了，下不动");
                         src = new String(readAll(new java.io.FileInputStream(spool),
                                 2 * 1024 * 1024), StandardCharsets.UTF_8);
@@ -376,6 +378,58 @@ public class LabPasteImportActivity extends AppCompatActivity {
         final LabImportCompat.ParseResult r;
         try (InputStream in = new java.io.FileInputStream(spool)) {
             r = LabImportCompat.parseSevenZ(in);
+        }
+        runOnUiThread(() -> showResult(r));
+        return true;
+    }
+
+    /**
+     * Node bundle 分发：链接是 .js.md5 指针时命中——指针本体只是 32 位 MD5，
+     * 按同目录拉真身 .js（走 30MB 归档口径，不走 2MB 文本路）、验 MD5，
+     * 再捎上同目录配置文件，造一条服务交回现有安装链，返回 true。
+     * 不是指针形态返回 false 交回文本路；是指针但拉不下/验不过则抛人话错，不装哑巴。
+     * 配置文件裸跑不读它：拉到就一并落盘备用，拉不到不拦整包（记一条提示）。
+     */
+    private boolean dispatchNodeBundle(java.io.File md5Spool, String url) throws Exception {
+        if (!LabImportCompat.isNodeBundleUrl(url)) return false;
+        String pointer = new String(readAll(new java.io.FileInputStream(md5Spool),
+                1024), StandardCharsets.UTF_8);
+        if (!LabImportCompat.isMd5Pointer(pointer)) return false;
+        String expect = pointer.trim().split("\\s+")[0].toLowerCase();
+        String base = LabImportCompat.nodeBundleBaseUrl(url);
+        String mainName = LabImportCompat.nodeBundleMainName(url);
+        showStatusOnUi("认出来了：Node 服务包，正在拉整包…");
+        java.io.File jsSpool = downloadFile(base + mainName, 30 * 1024 * 1024);
+        final byte[] mainBytes;
+        try {
+            mainBytes = readAll(new java.io.FileInputStream(jsSpool), 30 * 1024 * 1024);
+        } finally {
+            jsSpool.delete();
+        }
+        String actual = LabImportCompat.md5Hex(mainBytes);
+        if (!expect.equals(actual)) {
+            throw new Exception("这个服务包校验对不上：指针里写的 MD5 是 " + expect
+                    + "，拉下来的文件算出来是 " + actual + "，先别装——可能是文件没传完，或者那边的包被换过了");
+        }
+        byte[] configBytes = null;
+        boolean configMissed = false;
+        try {
+            java.io.File cfgSpool = downloadFile(base + LabImportCompat.nodeBundleConfigName(mainName),
+                    2 * 1024 * 1024);
+            try {
+                configBytes = readAll(new java.io.FileInputStream(cfgSpool), 2 * 1024 * 1024);
+            } finally {
+                cfgSpool.delete();
+            }
+        } catch (Exception ignored) {
+            configMissed = true;
+        }
+        final LabImportCompat.ParseResult r =
+                LabImportCompat.nodeBundleResult(url, mainBytes, configBytes);
+        if (configMissed) {
+            LabImportCompat.ImportItem it = r.items.get(0);
+            it.needsReview = LabImportCompat.addLine(it.needsReview,
+                    "同目录的配置文件这次没拉到（包裸跑不读它，不影响先用；以后要用配置再补）");
         }
         runOnUiThread(() -> showResult(r));
         return true;

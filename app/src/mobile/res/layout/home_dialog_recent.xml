@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 播放历史承接弹窗（树内无 recent 列表页，按 MusicListActivity 现行「列表点歌」模式承接） -->
+<!-- 播放历史承接弹窗（树内无 recent 列表页，按各音乐列表独立页现行「列表点歌」模式承接） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"

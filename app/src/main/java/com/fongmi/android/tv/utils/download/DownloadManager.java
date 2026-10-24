@@ -34,7 +34,7 @@ public class DownloadManager {
     private final List<Listener> listeners = new ArrayList<>();
 
     // C-25: 暂停屏障。pause() 的现树调用方全在主线程（DownloadTaskAdapter /
-    // MusicListActivity 的点按、pauseAllLive），同步等旧线程会卡界面，所以
+    // MusicDownloadActivity 的点按、pauseAllLive），同步等旧线程会卡界面，所以
     // pause 只摘除+cancel 并在此登记屏障；resume 时先查屏障：已收尾才放行，
     // 没收尾就转到后台线程有界等待（上限 STOP_WAIT_TIMEOUT_MS），等到了
     // 才真正 start，超时则保持暂停并给中文提示，绝不让新旧两个下载器

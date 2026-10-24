@@ -5,7 +5,7 @@
      （etKeyword＋取消）＋分类横排 tabRow＋计数条／组筛选条＋结果工具条
      （随机／顺序／来源／排序）＋搜索落地页 searchLanding（最近搜索／热门搜索／猜你想搜）
      ＋结果列表 recycler＋空态覆盖层。
-     各块照 activity_music_list.xml 原块逐字搬（id 全复用、无新 id）；
+     各块照旧列表布局原块逐字搬（id 全复用、无新 id）；
      旧页大标题行在 search 下恒隐藏、本页不带。
      根与背景层照旧：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回／搜索框行「取消」；界面只放名字和状态，无介绍文字。 -->

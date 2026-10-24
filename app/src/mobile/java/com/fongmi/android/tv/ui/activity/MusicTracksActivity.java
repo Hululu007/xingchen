@@ -41,7 +41,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 通用歌曲列表独立页（拆页 p11）：旧 MusicListActivity 的默认 mode（tracks，
+ * 通用歌曲列表独立页（拆页 p11）：旧列表壳的默认 mode（tracks，
  * 无 mode／未知 mode 的落点）。旧口径实证：本页没有数据源加载——进页恒
  * showTracks(空表)，顶栏标题＝music_playlist、大标题＝title extra、计数 0 首、
  * 空态「还没有在播的歌」；工具条（随机播放／播放全部／排序）与行播放／行菜单

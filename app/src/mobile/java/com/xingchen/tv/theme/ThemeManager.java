@@ -132,7 +132,7 @@ public class ThemeManager {
 
     // 音乐独立页（与海阔页同口径：自带底、不跟主壁纸走）：不贴星辰壁纸，
     // 窗口底落页面自己的基色。判定按包内前缀泛化：.ui.activity.Music* 全算
-    // （MusicActivity/MusicListActivity/MusicSettingsActivity/MusicCloudActivity/
+    // （MusicActivity/MusicPluginsActivity/MusicSettingsActivity/MusicCloudActivity/
     // MusicRandomActivity 及后续同包新页）；播放页在 .ui.music 包，不在此列。
     private boolean isMusicPage(Activity activity) {
         String actName = activity.getClass().getName();

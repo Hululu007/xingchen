@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 我的歌单列表独立页（拆页 p8，2026-10-25）：从 MusicListActivity 的 sheets 模式拆出。
+<!-- 我的歌单列表独立页（拆页 p8，2026-10-25）：从旧列表壳的 sheets 模式拆出。
      构成照旧页 sheets 模式实际引用子集：搜索条（操作行搜索钮切换显隐）＋GZ 页头（YOUR PLAYLISTS
      ＋大标题＋多选／全部 pill）＋操作行（新建／导入／搜索圆钮）＋歌单页空态块＋工具条
      （仅多选态可见：删除所选）＋列表（歌单行复用 item_music_playlist_row）＋空态覆盖层（加载态共用）。
      旧页顶栏在 sheets 下恒隐藏、本页不带。
-     根与背景层照 activity_music_list.xml：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
+     根与背景层照旧列表布局：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

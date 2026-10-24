@@ -819,7 +819,7 @@ public class MusicActivity extends BaseActivity {
         card.addView(menuRow(R.drawable.ic_music_puzzle, 0xFFAF52DE,
                 getString(R.string.music_plugin_manage),
                 pluginCount + " " + getString(R.string.music_plugins),
-                () -> dismissThen.accept(() -> MusicListActivity.startSites(this))));
+                () -> dismissThen.accept(() -> MusicPluginsActivity.startSites(this))));
         View divider = new View(this);
         divider.setBackgroundColor(0x14000000);
         LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(

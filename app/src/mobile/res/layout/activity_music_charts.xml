@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 榜单列表独立页（拆页 p5，2026-10-25）：从 MusicListActivity 的 charts 模式拆出。
+<!-- 榜单列表独立页（拆页 p5，2026-10-25）：从旧列表壳的 charts 模式拆出。
      构成照旧页 charts 模式实际引用子集：顶栏（标题＋搜索钮）＋大标题行（标题代码隐藏、
      只留「N 个榜单」计数＋刷新钮）＋工具栏（播放全部／顺序播放代码恒隐藏、只留排序键）
      ＋列表（焦点卡＋分区头＋普通卡，行布局复用 item_music_chart_*）＋空态覆盖层。
-     根与背景层照 activity_music_list.xml：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
+     根与背景层照旧列表布局：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

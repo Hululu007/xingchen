@@ -43,7 +43,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 单源歌曲独立页（拆页 p12）：旧 MusicListActivity 的 mode=site。
+ * 单源歌曲独立页（拆页 p12）：旧列表壳的 mode=site。
  * 数据来源（旧 loadSiteTracks 实证）：先进页显「正在加载…」，子线程在
  * MusicRepository.sites() 里按 sitePlatform 找到目标源、取 MusicRepository.tracks(源)
  * 全量曲目（无分页、无分类，一次取全），回主线程 showTracks；源不存在或取曲失败

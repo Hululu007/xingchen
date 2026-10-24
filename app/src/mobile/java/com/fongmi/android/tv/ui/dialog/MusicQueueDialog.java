@@ -543,8 +543,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
 
     /**
      * B7／D14：route → 来源页落点。树内入队来源的落点表（只改本对话框，不动入队侧）：
-     * home＝首页（榜单卡／随心听／心情电台都在首页）；list＝列表页（参数与 MusicListActivity onCreate 读的
-     * intent extras 同名同值，可重建本页；无标题／关键词／歌单 id 三者时无落点，不跳空页，调用方给提示）；
+     * home＝首页（榜单卡／随心听／心情电台都在首页）；list＝列表页（参数与各列表独立页进页读的
+     * intent extras 同名同值，可重建来源页；无标题／关键词／歌单 id 三者时无落点，不跳空页，调用方给提示）；
      * 其余非空 route（树内目前没有第三条入队 route，未来入队侧新增 route 时先在这里补落点再发）
      * 返回空，调用方按 D14 给提示，不静默隐藏；route 空＝无跳转落点（云盘／无来源入队等），只展示。
      */
@@ -591,6 +591,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             if ("guess".equals(params.get("mode"))) {
                 return new android.content.Intent(host,
                         com.fongmi.android.tv.ui.activity.MusicGuessActivity.class);
+            }
+            if ("sheets".equals(params.get("mode"))) {
+                // 拆页 p13 总收口：sheets 已独立成页（p8），队列来源落点补指 MusicPlaylistsActivity；
+                // 该页无 extras（自足页），五件参数不消费，与其 startSheets 契约一致。
+                return new android.content.Intent(host,
+                        com.fongmi.android.tv.ui.activity.MusicPlaylistsActivity.class);
             }
             if ("sheet".equals(params.get("mode"))) {
                 android.content.Intent i = new android.content.Intent(host,

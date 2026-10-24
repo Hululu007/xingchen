@@ -567,6 +567,7 @@ public class MusicDownloadActivity extends BaseActivity {
             String fExtras = android.text.TextUtils.join("／", extraParts);
             String fPath = path.isEmpty() ? "未知" : path;
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 LinearLayout box = new LinearLayout(this);
                 box.setOrientation(LinearLayout.VERTICAL);
                 int pad = dp(20);

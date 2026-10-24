@@ -343,6 +343,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             }
             final List<String> years = data;
             App.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (years == null || years.isEmpty()) {
                     Notify.show(R.string.emby_empty_list);
                     return;
@@ -382,6 +383,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             }
             final List<String> ratings = data;
             App.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (ratings == null || ratings.isEmpty()) {
                     Notify.show(R.string.emby_empty_list);
                     return;
@@ -407,6 +409,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             }
             final List<String> tags = data;
             App.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (tags == null || tags.isEmpty()) {
                     Notify.show(R.string.emby_empty_list);
                     return;

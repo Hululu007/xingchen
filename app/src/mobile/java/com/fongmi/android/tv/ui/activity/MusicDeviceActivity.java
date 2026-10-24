@@ -1048,6 +1048,7 @@ public class MusicDeviceActivity extends BaseActivity {
             final int fOk = ok;
             final List<String> fFailed = failed;
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (!fFailed.isEmpty()) {
                     StringBuilder sb = new StringBuilder();
                     if (fOk > 0) sb.append("成功 ").append(fOk).append(" 首\n\n");

@@ -1035,6 +1035,7 @@ public class MusicPluginsActivity extends BaseActivity {
                 Task.execute(() -> {
                     String v = MusicSourceManager.get().checkUpdate(site);
                     runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
                         if (v == null) {
                             Notify.show(R.string.music_plugin_latest);
                             return;

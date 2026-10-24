@@ -858,6 +858,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 }
             }
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (unsupported.isEmpty()) {
                     importLxmcPlaylists(lists, 0, 0, 0, unsupported);
                     return;

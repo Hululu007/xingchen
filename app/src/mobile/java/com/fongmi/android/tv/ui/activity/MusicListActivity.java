@@ -70,7 +70,7 @@ public class MusicListActivity extends BaseActivity {
     private final List<MusicTrack> tracks = new ArrayList<>();
     private final List<Object> cards = new ArrayList<>();
     private ListAdapter adapter;
-    private String mode = "tracks";
+    private String mode = "sites";
     /** onResume 首过标记（中-03）：首次由 initView 的 load() 负责，之后回页才重拉。 */
     private boolean resumedOnce = false;
 
@@ -124,7 +124,10 @@ public class MusicListActivity extends BaseActivity {
         MusicController.get().bind(this);
         Intent i = getIntent();
         mode = i.getStringExtra("mode");
-        if (mode == null) mode = "tracks";
+        // 拆页 p11：tracks（无 mode／未知 mode 的默认落点）已独立成页 MusicTracksActivity，
+        // 本壳只剩 site/sites 两 mode；落到本壳的无 mode／未知 mode 一律归 sites
+        // （插件管理是无需 extras 的自足页），不许再落已删的默认支把壳改瘫。
+        if (!"site".equals(mode) && !"sites".equals(mode)) mode = "sites";
         keyword = i.getStringExtra("keyword");
         if (keyword == null) keyword = "";
         sitePlatform = i.getStringExtra("sitePlatform");
@@ -269,11 +272,9 @@ public class MusicListActivity extends BaseActivity {
                 loadSiteTracks();
                 break;
             case "sites":
+            default:
                 bigTitle = getString(R.string.music_plugin_manage);
                 loadSites();
-                break;
-            default:
-                showTracks(new ArrayList<>());
                 break;
         }
     }

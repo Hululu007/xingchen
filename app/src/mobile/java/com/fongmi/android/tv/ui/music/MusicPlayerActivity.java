@@ -191,6 +191,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private Bitmap bgSoftBitmap;
     private String bgSoftUrl;
     private String bgAppliedUrl;
+    /** 全屏歌词页糊底自合成去重（流体路径）：正在为哪张封面合成，防重复起线程。 */
+    private String lyricBgBuildUrl;
     private int lastSkipDirection = 1;
 
     private final List<LyricsLine> lyricMains = new ArrayList<>();
@@ -458,15 +460,94 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (!themed) applyFluidBg();
     }
 
-    /** 全屏歌词页接线：队列键＝播放列表弹窗（录屏 f003 实证）、暂停键＝Controller.toggle()、点行＝seek；
-     * ☰ 菜单键未抠明，只画不接线（MusicLyricPageView 内 clickable=false，见批 2 报告）。 */
+    /** 全屏歌词页接线（112930 定案形态）：Tr 钮＝主歌词三选菜单、点行＝seek。
+     * 旧形态的队列／暂停键随页眉改版摘除（那是瓜子另一歌词面的键组，本页定案只有 Tr）。 */
     private void setupLyricPage() {
         lyricPageView = binding.lyricPage == null ? null : binding.lyricPage.getRoot();
         if (lyricPageView == null) return;
-        lyricPageView.setOnQueueClickListener(v -> MusicQueueDialog.show(this));
-        lyricPageView.setOnPlayClickListener(v -> MusicController.get().toggle());
+        lyricPageView.setOnTrClickListener(v -> showLyricPrimaryMenu(v));
         lyricPageView.setOnLineClickListener((index, positionMs) ->
                 MusicController.get().seekTo(positionMs));
+    }
+
+    /**
+     * 主歌词三选菜单（2026-10-22 定案：Tr 钮点开小菜单，原文恒有、翻译／音译有数据才出、当前打勾；
+     * 选后写 music_lyric_primary 并整页重喂——内嵌与全屏同刷）。深色玻璃面（弹窗不用白底）。
+     */
+    private void showLyricPrimaryMenu(View anchor) {
+        int current = MusicPlayerSettings.getLyricPrimary();
+        List<int[]> kinds = new ArrayList<>();
+        kinds.add(new int[]{0, R.string.music_primary_original});
+        if (hasNonEmpty(lyricTrans)) kinds.add(new int[]{1, R.string.music_primary_translation});
+        if (hasNonEmpty(lyricRomas)) kinds.add(new int[]{2, R.string.music_primary_romanization});
+        float density = getResources().getDisplayMetrics().density;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(6f * density);
+        panel.setPadding(pad, pad, pad, pad);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xE61C1C1E);
+        bg.setCornerRadius(14f * density);
+        bg.setStroke(Math.max(1, Math.round(density)), 0x33FFFFFF);
+        panel.setBackground(bg);
+        android.widget.PopupWindow popup = new android.widget.PopupWindow(
+                panel, Math.round(168f * density), android.view.ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        for (int[] kind : kinds) {
+            TextView row = new TextView(this);
+            row.setText(getString(kind[1]) + (kind[0] == current ? "  ✓" : ""));
+            row.setTextColor(0xFFFFFFFF);
+            row.setTextSize(15f);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(Math.round(14f * density), Math.round(10f * density),
+                    Math.round(14f * density), Math.round(10f * density));
+            row.setOnClickListener(v -> {
+                popup.dismiss();
+                if (kind[0] != current) {
+                    MusicStore.setLyricPrimary(kind[0]);
+                    feedLyricView();
+                }
+            });
+            panel.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        popup.showAsDropDown(anchor, Math.round(-128f * density), Math.round(6f * density));
+    }
+
+    /**
+     * 全屏歌词页背景同步（定案：歌词页也是封面模糊底）：优先复用整页糊底的成品位图（ivBgBlur）；
+     * 流体路径下按同配方（buildBlurredAmbient）现合成；糊底未就绪时页内先贴实图占位，
+     * 合成完成由 refreshBlurredAmbient 末尾再同步一次。
+     */
+    private void applyLyricPageBackground() {
+        if (lyricPageView == null || binding == null) return;
+        MusicTrack cur = MusicController.get().current();
+        String cover = cur == null ? null : effectiveCover(cur);
+        if (cover == null || cover.isEmpty()) return;
+        if (!MusicPlayerSettings.isFluidBg() && binding.ivBgBlur != null
+                && binding.ivBgBlur.getDrawable() != null && cover.equals(bgAppliedUrl)) {
+            lyricPageView.setCoverDrawable(binding.ivBgBlur.getDrawable());
+            return;
+        }
+        if (!lyricPageVisible || bgSoftBitmap == null || !cover.equals(bgSoftUrl)) return;
+        if (cover.equals(lyricBgBuildUrl)) return;
+        int vw = lyricPageView.getWidth();
+        int vh = lyricPageView.getHeight();
+        if (vw <= 0 || vh <= 0) return;
+        lyricBgBuildUrl = cover;
+        Bitmap src = bgSoftBitmap;
+        int ambient = ambientColor;
+        Task.execute(() -> {
+            Bitmap out = buildBlurredAmbient(src, vw, vh, ambient);
+            if (out == null) return;
+            runOnUiThread(() -> {
+                if (destroyed || lyricPageView == null) return;
+                MusicTrack c = MusicController.get().current();
+                if (c == null || !cover.equals(effectiveCover(c))) return;
+                lyricPageView.setCoverDrawable(new BitmapDrawable(getResources(), out));
+            });
+        });
     }
 
     private void showLyricPage() {
@@ -474,10 +555,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         lyricPageVisible = true;
         lyricPageView.setVisibility(View.VISIBLE);
         lyricPageView.setToneColor(ambientColor);
+        // 开页副行复位全显（2026-10-22 定案）：翻译/音译显隐复位为开、有数据即显，
+        // 不许再出现「不进设置就永远看不到音译」。须在 feedLyricView 之前落。
+        if (!MusicStore.isShowTranslation()) MusicStore.setShowTranslation(true);
+        if (!MusicStore.isShowRomanization()) MusicStore.setShowRomanization(true);
         MusicTrack track = MusicController.get().current();
         if (track != null) {
-            lyricPageView.setTrackInfo(track.displayTitle(), track.displayArtist(), track.album);
+            lyricPageView.setTrackInfo(track.displayTitle(), track.displayArtist());
             lyricPageView.setCover(effectiveCover(track), track.displayTitle());
+            applyLyricPageBackground();
         }
         feedLyricView();
         lyricPageView.setPlaying(playing);
@@ -1628,9 +1714,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         paintTransportState(track);
         refreshInfoContent();
         if (lyricPageView != null) {
-            lyricPageView.setTrackInfo(newTitle, newArtist, track == null ? null : track.album);
+            lyricBgBuildUrl = null;
+            lyricPageView.setTrackInfo(newTitle, newArtist);
             lyricPageView.setCover(effectiveCover(track), newTitle);
             lyricPageView.setToneColor(ambientColor);
+            applyLyricPageBackground();
         }
         bindCovers(track);
     }
@@ -2060,6 +2148,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         binding.ivBgBlur.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
                     }
                     bgAppliedUrl = url;
+                    // 糊底就绪：全屏歌词页若开着，背景同步换糊版（此前是实图占位）。
+                    if (lyricPageVisible) applyLyricPageBackground();
                 });
             });
         });

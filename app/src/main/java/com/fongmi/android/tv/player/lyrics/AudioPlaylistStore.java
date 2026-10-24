@@ -42,7 +42,17 @@ public final class AudioPlaylistStore {
         }
     }
 
-    /** 逐字段解析歌单 JSON：Playlist 只读 id／name 标量，items 数组用 ENTRY_LIST_TYPE 显式定型。 */
+    /**
+     * 逐字段解析歌单 JSON：Playlist 只读 id／name 标量，items 数组用 ENTRY_LIST_TYPE 显式定型。
+     * 存量救援（1.4.27 查修批）：1.4.26 及更早的 R8 成品没有保名，save() 反射写盘写的是
+     * 改名键（Playlist a/b/c、Entry a–g），字面键读回全取不到、只剩幻影歌单，且第一次
+     * 写回就把存量覆盖掉。映射真值取自 1.4.26 成品反编译（类 Ltl;/Lsl;/Lql;/Lrl;）的
+     * 代码语义锚点＋声明序交叉验证：Playlist a=id（与 active 键比对、create 里赋 UUID）、
+     * b=name（赋默认歌单名）、c=items（List）；Entry a=name、b=url（normalize 里与
+     * name/title 互填、upsert 按它判重、空即丢弃）、c=playFlag、d=title、e=artist、
+     * f=pic、g=lyrics。对象没有字面 id 键但有 a 键时按存量格式逐键回落读；救回后
+     * 下一次 save() 按现行格式写盘、自动完成迁移。现行格式数据一字不走此路。
+     */
     private static List<Playlist> parsePlaylists(String json) {
         if (json == null || json.trim().isEmpty()) return null;
         com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(json);
@@ -51,17 +61,41 @@ public final class AudioPlaylistStore {
         for (com.google.gson.JsonElement el : root.getAsJsonArray()) {
             if (el == null || !el.isJsonObject()) continue;
             com.google.gson.JsonObject obj = el.getAsJsonObject();
+            boolean legacy = !obj.has("id") && obj.has("a");
             Playlist item = new Playlist();
-            item.id = optString(obj, "id");
-            item.name = optString(obj, "name");
-            com.google.gson.JsonElement itemsEl = obj.get("items");
+            item.id = optString(obj, legacy ? "a" : "id");
+            item.name = optString(obj, legacy ? "b" : "name");
+            com.google.gson.JsonElement itemsEl = obj.get(legacy ? "c" : "items");
             if (itemsEl != null && itemsEl.isJsonArray()) {
-                List<Entry> entries = App.gson().fromJson(itemsEl, ENTRY_LIST_TYPE);
-                item.items = entries == null ? new ArrayList<>() : entries;
+                if (legacy) {
+                    item.items = parseLegacyEntries(itemsEl.getAsJsonArray());
+                } else {
+                    List<Entry> entries = App.gson().fromJson(itemsEl, ENTRY_LIST_TYPE);
+                    item.items = entries == null ? new ArrayList<>() : entries;
+                }
             } else {
                 item.items = new ArrayList<>();
             }
             result.add(item);
+        }
+        return result;
+    }
+
+    /** 存量 Entry 逐键回落读（键映射见 parsePlaylists 注）。 */
+    private static List<Entry> parseLegacyEntries(com.google.gson.JsonArray array) {
+        List<Entry> result = new ArrayList<>();
+        for (com.google.gson.JsonElement el : array) {
+            if (el == null || !el.isJsonObject()) continue;
+            com.google.gson.JsonObject obj = el.getAsJsonObject();
+            Entry entry = new Entry();
+            entry.name = optString(obj, "a");
+            entry.url = optString(obj, "b");
+            entry.playFlag = optString(obj, "c");
+            entry.title = optString(obj, "d");
+            entry.artist = optString(obj, "e");
+            entry.pic = optString(obj, "f");
+            entry.lyrics = optString(obj, "g");
+            result.add(entry);
         }
         return result;
     }
@@ -178,6 +212,20 @@ public final class AudioPlaylistStore {
                         || !entry.getValue().isJsonObject()) continue;
                 try {
                     Metadata item = App.gson().fromJson(entry.getValue(), Metadata.class);
+                    if (item != null && TextUtils.isEmpty(item.title)
+                            && entry.getValue().getAsJsonObject().has("a")) {
+                        // 存量救援（同 parsePlaylists）：1.4.26 成品写的是改名键
+                        // a=title、b=artist、c=updatedAt（Lrl; 语义锚点＋类型核对），
+                        // 字面读回 title 恒空会被整项丢掉，按改名键回落读。
+                        com.google.gson.JsonObject raw = entry.getValue().getAsJsonObject();
+                        item.title = optString(raw, "a");
+                        item.artist = optString(raw, "b");
+                        try {
+                            item.updatedAt = raw.has("c") ? raw.get("c").getAsLong() : 0L;
+                        } catch (Exception ignored2) {
+                            item.updatedAt = 0L;
+                        }
+                    }
                     if (item == null || TextUtils.isEmpty(item.title)) continue;
                     result.put(entry.getKey(), item);
                 } catch (Exception ignored) {

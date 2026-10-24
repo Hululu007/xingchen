@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public class LyricsRepository {
 
@@ -35,6 +36,9 @@ public class LyricsRepository {
     private static final String TAG = "lyrics";
     private static final long AUTO_LOAD_TIMEOUT_MS = 7000;
     private static final long AUTO_LOAD_SLOW_GRACE_MS = 1200;
+    /** 全仓统一封顶（X-29）：取词 18 秒、搜索 22 秒，聚合路与单源直调同口径。 */
+    public static final long LOAD_TIMEOUT_MS = 18000;
+    public static final long SEARCH_TIMEOUT_MS = 22000;
     private final LrcLibClient client = new LrcLibClient();
     private final KuwoClient kuwo = new KuwoClient();
     private final KugouClient kugou = new KugouClient();
@@ -196,7 +200,7 @@ public class LyricsRepository {
         addSearch(futures, "Kugou", () -> one(kugou.find(request)));
         addSearch(futures, "Migu", () -> one(migu.find(request)));
         addSearch(futures, "LRCLIB", () -> one(matcher.best(request, client.findCandidates(request))));
-        collectSearch(results, futures, 18000, "load");
+        collectSearch(results, futures, LOAD_TIMEOUT_MS, "load");
         List<LyricsResult> sorted = sorted(request, results, 24);
         if (SpiderDebug.isEnabled()) logCandidates(request, "load", sorted);
         return sorted.isEmpty() ? null : sorted.get(0);
@@ -295,13 +299,13 @@ public class LyricsRepository {
         LyricsResult local = readLocal(request);
         switch (sourceMode) {
             case LyricsSetting.SOURCE_LOCAL -> add(results, local);
-            case LyricsSetting.SOURCE_TTML -> add(results, ttml.find(request));
-            case LyricsSetting.SOURCE_QQ -> addAll(results, qqMusic.findAll(request, 8));
-            case LyricsSetting.SOURCE_NETEASE -> addAll(results, netease.findAll(request, 8));
-            case LyricsSetting.SOURCE_KUWO -> addAll(results, kuwo.findAll(request, 8));
-            case LyricsSetting.SOURCE_LRCLIB -> addAll(results, matcher.all(request, client.findCandidates(request), 8));
-            case LyricsSetting.SOURCE_KUGOU -> addAll(results, kugou.findAll(request, 8));
-            case LyricsSetting.SOURCE_MIGU -> addAll(results, migu.findAll(request, 8));
+            case LyricsSetting.SOURCE_TTML -> addAll(results, searchCapped("AMLL TTML", () -> one(ttml.find(request))));
+            case LyricsSetting.SOURCE_QQ -> addAll(results, searchCapped("QQMusic", () -> qqMusic.findAll(request, 8)));
+            case LyricsSetting.SOURCE_NETEASE -> addAll(results, searchCapped("Netease", () -> netease.findAll(request, 8)));
+            case LyricsSetting.SOURCE_KUWO -> addAll(results, searchCapped("Kuwo", () -> kuwo.findAll(request, 8)));
+            case LyricsSetting.SOURCE_LRCLIB -> addAll(results, searchCapped("LRCLIB", () -> matcher.all(request, client.findCandidates(request), 8)));
+            case LyricsSetting.SOURCE_KUGOU -> addAll(results, searchCapped("Kugou", () -> kugou.findAll(request, 8)));
+            case LyricsSetting.SOURCE_MIGU -> addAll(results, searchCapped("Migu", () -> migu.findAll(request, 8)));
             default -> {
                 add(results, local);
                 addSearch(futures, "QQMusic", () -> qqMusic.findAll(request, 4));
@@ -335,13 +339,13 @@ public class LyricsRepository {
     private LyricsResult loadSource(LyricsRequest request, int sourceMode, LyricsResult local) {
         LyricsResult result = switch (sourceMode) {
             case LyricsSetting.SOURCE_LOCAL -> local;
-            case LyricsSetting.SOURCE_TTML -> ttml.find(request);
-            case LyricsSetting.SOURCE_QQ -> qqMusic.find(request);
-            case LyricsSetting.SOURCE_NETEASE -> netease.find(request);
-            case LyricsSetting.SOURCE_KUWO -> kuwo.find(request);
-            case LyricsSetting.SOURCE_LRCLIB -> matcher.best(request, client.findCandidates(request));
-            case LyricsSetting.SOURCE_KUGOU -> kugou.find(request);
-            case LyricsSetting.SOURCE_MIGU -> migu.find(request);
+            case LyricsSetting.SOURCE_TTML -> loadOneCapped("AMLL TTML", () -> one(ttml.find(request)));
+            case LyricsSetting.SOURCE_QQ -> loadOneCapped("QQMusic", () -> one(qqMusic.find(request)));
+            case LyricsSetting.SOURCE_NETEASE -> loadOneCapped("Netease", () -> one(netease.find(request)));
+            case LyricsSetting.SOURCE_KUWO -> loadOneCapped("Kuwo", () -> one(kuwo.find(request)));
+            case LyricsSetting.SOURCE_LRCLIB -> loadOneCapped("LRCLIB", () -> one(matcher.best(request, client.findCandidates(request))));
+            case LyricsSetting.SOURCE_KUGOU -> loadOneCapped("Kugou", () -> one(kugou.find(request)));
+            case LyricsSetting.SOURCE_MIGU -> loadOneCapped("Migu", () -> one(migu.find(request)));
             default -> null;
         };
         if (result != null && result.isValid()) writeCache(request, sourceMode, result);
@@ -409,7 +413,7 @@ public class LyricsRepository {
         return false;
     }
 
-    private void addSearch(List<SearchFuture> futures, String source, SearchAction action) {
+    private static void addSearch(List<SearchFuture> futures, String source, SearchAction action) {
         long start = System.currentTimeMillis();
         futures.add(new SearchFuture(source, Task.largeExecutor().submit(() -> {
             try {
@@ -421,11 +425,53 @@ public class LyricsRepository {
         }), start));
     }
 
-    private void collectSearch(List<LyricsResult> results, List<SearchFuture> futures) {
-        collectSearch(results, futures, 22000, "search");
+    private static void collectSearch(List<LyricsResult> results, List<SearchFuture> futures) {
+        collectSearch(results, futures, SEARCH_TIMEOUT_MS, "search");
     }
 
-    private void collectSearch(List<LyricsResult> results, List<SearchFuture> futures, long timeoutMs, String operation) {
+    /** 单源取词封顶（X-29）：单源路不许再直调 client 绕过总上限，与聚合路共用
+     * SearchFuture/collectSearch 机制与超时语义，超时只收已到结果（无则 null）。 */
+    private LyricsResult loadOneCapped(String source, SearchAction action) {
+        ArrayList<LyricsResult> results = new ArrayList<>();
+        ArrayList<SearchFuture> futures = new ArrayList<>();
+        addSearch(futures, source, action);
+        collectSearch(results, futures, LOAD_TIMEOUT_MS, "load");
+        return results.isEmpty() ? null : results.get(0);
+    }
+
+    /** 单源搜索封顶（X-29）：同 loadOneCapped，搜索口径 22 秒，超时只收已到结果。 */
+    private List<LyricsResult> searchCapped(String source, SearchAction action) {
+        ArrayList<LyricsResult> results = new ArrayList<>();
+        ArrayList<SearchFuture> futures = new ArrayList<>();
+        addSearch(futures, source, action);
+        collectSearch(results, futures, SEARCH_TIMEOUT_MS, "search");
+        return results;
+    }
+
+    /** 从现在起 timeoutMs 毫秒后的绝对截止时刻（X-29 补账：包外串行链先取一个
+     * 截止时刻，整链共用，再逐段传给 runWithDeadline，预算按整链算不是每源一份）。 */
+    public static long deadlineAfter(long timeoutMs) {
+        return System.currentTimeMillis() + Math.max(0, timeoutMs);
+    }
+
+    /** 包外取词链的封顶调用帮手（X-29 补账）：与仓内单源路同机制——addSearch
+     * （Task.largeExecutor 提交，异常吞成空结果）＋collectSearch（轮询到截止时刻、
+     * 超时 cancel(true)、只收已到结果），不另造超时语义。剩余预算＝截止时刻减当前
+     * 时刻，逐段调用自然递减；预算已耗尽时不再提交、直接返回空表。永不返回 null。 */
+    public static List<LyricsResult> runWithDeadline(String source, long deadlineMs, Supplier<List<LyricsResult>> action) {
+        ArrayList<LyricsResult> results = new ArrayList<>();
+        long remaining = deadlineMs - System.currentTimeMillis();
+        if (action == null || remaining <= 0) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log(TAG, "capped source=%s timeout", source);
+            return results;
+        }
+        ArrayList<SearchFuture> futures = new ArrayList<>();
+        addSearch(futures, source, action::get);
+        collectSearch(results, futures, remaining, "capped");
+        return results;
+    }
+
+    private static void collectSearch(List<LyricsResult> results, List<SearchFuture> futures, long timeoutMs, String operation) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (!futures.isEmpty() && System.currentTimeMillis() < deadline) {
             boolean changed = false;
@@ -451,7 +497,7 @@ public class LyricsRepository {
     }
 
     private void collectSearchProgressive(LyricsRequest request, int sourceMode, List<LyricsResult> results, List<SearchFuture> futures, SearchCallback callback) {
-        long deadline = System.currentTimeMillis() + 22000;
+        long deadline = System.currentTimeMillis() + SEARCH_TIMEOUT_MS;
         String lastKey = resultListKey(sorted(request, results, 24));
         while (!futures.isEmpty() && System.currentTimeMillis() < deadline) {
             boolean changed = false;
@@ -492,7 +538,7 @@ public class LyricsRepository {
         return builder.toString();
     }
 
-    private void sleepSearch() {
+    private static void sleepSearch() {
         try {
             Thread.sleep(120);
         } catch (InterruptedException e) {
@@ -511,11 +557,11 @@ public class LyricsRepository {
         return results;
     }
 
-    private void add(List<LyricsResult> results, LyricsResult result) {
+    private static void add(List<LyricsResult> results, LyricsResult result) {
         if (result != null && result.isValid()) results.add(result);
     }
 
-    private void addAll(List<LyricsResult> results, List<LyricsResult> items) {
+    private static void addAll(List<LyricsResult> results, List<LyricsResult> items) {
         if (items == null) return;
         for (LyricsResult item : items) add(results, item);
     }
@@ -556,6 +602,7 @@ public class LyricsRepository {
                 safe(result.getSource()),
                 LyricsMatcher.normalize(result.getTrackName()),
                 LyricsMatcher.normalize(result.getArtistName()),
+                LyricsMatcher.normalize(result.getAlbumName()),
                 String.valueOf(duration));
     }
 

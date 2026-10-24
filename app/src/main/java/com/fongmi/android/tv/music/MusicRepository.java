@@ -19,6 +19,7 @@ import com.fongmi.android.tv.api.music.KwChartSource;
 import com.fongmi.android.tv.api.music.QqChartSource;
 import com.fongmi.android.tv.player.lyrics.KuwoClient;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
+import com.fongmi.android.tv.player.lyrics.LyricsRepository;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.player.lyrics.LyricsRequest;
 import com.fongmi.android.tv.player.lyrics.LyricsResult;
@@ -676,7 +677,10 @@ public class MusicRepository {
             if (track == null || track.title == null || track.title.trim().isEmpty()) return null;
             String artist = track.artist == null ? "" : track.artist.trim();
             LyricsRequest req = new LyricsRequest("", "", track.title.trim(), artist, "", track.duration);
-            List<LyricsResult> results = new KuwoClient().findAll(req, 1);
+            // 取词口径总封顶 18 秒（X-29 补账）：经 LyricsRepository 封顶帮手调，不再直调无封顶
+            List<LyricsResult> results = LyricsRepository.runWithDeadline("Kuwo",
+                    LyricsRepository.deadlineAfter(LyricsRepository.LOAD_TIMEOUT_MS),
+                    () -> new KuwoClient().findAll(req, 1));
             if (results == null || results.isEmpty()) return null;
             for (LyricsResult r : results) {
                 if (r == null) continue;

@@ -5,6 +5,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.player.lyrics.KugouClient;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
+import com.fongmi.android.tv.player.lyrics.LyricsRepository;
 import com.fongmi.android.tv.player.lyrics.LyricsRequest;
 import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.player.lyrics.NeteaseClient;
@@ -26,25 +27,29 @@ public class PlatformWordLyricSource {
     private final QqMusicClient qq = new QqMusicClient();
     private final NeteaseClient netease = new NeteaseClient();
 
-    /** 首个词级命中（快路径用）；无词级返回空 */
+    /** 首个词级命中（快路径用）；无词级返回空。三源串行共用一个总预算（X-29 补账：
+     * 取词口径 18 秒整链封顶，剩余预算逐源递减，不是每源一份）。 */
     public MusicLyric lyricRich(MusicTrack track) {
         LyricsRequest request = requestOf(track);
         if (request == null) return null;
-        MusicLyric lyric = firstWord(safeFind(request, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC");
+        long deadline = LyricsRepository.deadlineAfter(LyricsRepository.LOAD_TIMEOUT_MS);
+        MusicLyric lyric = firstWord(safeFind(request, deadline, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC");
         if (lyric != null) return lyric;
-        lyric = firstWord(safeFind(request, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC");
+        lyric = firstWord(safeFind(request, deadline, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC");
         if (lyric != null) return lyric;
-        return firstWord(safeFind(request, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC");
+        return firstWord(safeFind(request, deadline, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC");
     }
 
-    /** 每平台各收一词级版（版本聚合用；行级不收） */
+    /** 每平台各收一词级版（版本聚合用；行级不收）。三源串行共用一个总预算
+     * （X-29 补账：全量聚合口径 22 秒整链封顶，剩余预算逐源递减）。 */
     public List<MusicLyric> lyricRichAll(MusicTrack track) {
         List<MusicLyric> out = new ArrayList<>();
         LyricsRequest request = requestOf(track);
         if (request == null) return out;
-        addWord(out, safeFind(request, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC");
-        addWord(out, safeFind(request, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC");
-        addWord(out, safeFind(request, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC");
+        long deadline = LyricsRepository.deadlineAfter(LyricsRepository.SEARCH_TIMEOUT_MS);
+        addWord(out, safeFind(request, deadline, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC");
+        addWord(out, safeFind(request, deadline, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC");
+        addWord(out, safeFind(request, deadline, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC");
         return out;
     }
 
@@ -52,9 +57,9 @@ public class PlatformWordLyricSource {
         List<LyricsResult> find(LyricsRequest request);
     }
 
-    private List<LyricsResult> safeFind(LyricsRequest request, Finder finder, String name) {
+    private List<LyricsResult> safeFind(LyricsRequest request, long deadline, Finder finder, String name) {
         try {
-            List<LyricsResult> results = finder.find(request);
+            List<LyricsResult> results = LyricsRepository.runWithDeadline(name, deadline, () -> finder.find(request));
             return results == null ? new ArrayList<>() : results;
         } catch (Throwable t) {
             SpiderDebug.log("music", "platform word find error client=%s %s", name, t.getMessage());

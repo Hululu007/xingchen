@@ -146,12 +146,16 @@ public class LyricsRequest {
     }
 
     public String stableSignature() {
+        // D-19：键必须带齐歌名＋歌手＋专辑＋时长，防同名同歌手不同版本贴错词；
+        // 此前两支都缺时长（只有 legacy signature() 带）。版本号随构成升一档，
+        // 旧键文件命中不上、只会重取一次并按新键重写。
         String mediaKey = identityText(key);
         String titleKey = identityText(title);
         String artistKey = identityText(artist);
         String albumKey = identityText(album);
-        if (!TextUtils.isEmpty(mediaKey)) return Util.md5("lyrics-v3|key-meta|" + mediaKey + "|" + titleKey + "|" + artistKey + "|" + albumKey);
-        return Util.md5("lyrics-v2|meta|" + titleKey + "|" + artistKey + "|" + albumKey);
+        String durationKey = String.valueOf(getDurationSec());
+        if (!TextUtils.isEmpty(mediaKey)) return Util.md5("lyrics-v4|key-meta|" + mediaKey + "|" + titleKey + "|" + artistKey + "|" + albumKey + "|" + durationKey);
+        return Util.md5("lyrics-v3|meta|" + titleKey + "|" + artistKey + "|" + albumKey + "|" + durationKey);
     }
 
     public String searchSignature() {

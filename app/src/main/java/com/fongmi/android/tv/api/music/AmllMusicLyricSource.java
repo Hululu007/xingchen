@@ -2,9 +2,12 @@ package com.fongmi.android.tv.api.music;
 
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.player.lyrics.LyricsRepository;
 import com.fongmi.android.tv.player.lyrics.LyricsRequest;
 import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.player.lyrics.TtmlClient;
+
+import java.util.List;
 
 /**
  * AMLL 歌词来源（B8）：音乐侧自己的 AMLL 接入。取数复用视频侧 TtmlClient（网易搜歌＋
@@ -28,7 +31,15 @@ public class AmllMusicLyricSource {
         }
         if (title.isEmpty()) return null;
         try {
-            LyricsResult r = client.find(new LyricsRequest("", "", title, artist, "", track.duration));
+            // 取词口径总封顶 18 秒（X-29 补账）：经 LyricsRepository 封顶帮手调，不再直调无封顶
+            LyricsRequest request = new LyricsRequest("", "", title, artist, "", track.duration);
+            List<LyricsResult> capped = LyricsRepository.runWithDeadline("AMLL TTML",
+                    LyricsRepository.deadlineAfter(LyricsRepository.LOAD_TIMEOUT_MS),
+                    () -> {
+                        LyricsResult found = client.find(request);
+                        return found == null ? List.of() : List.of(found);
+                    });
+            LyricsResult r = capped.isEmpty() ? null : capped.get(0);
             if (r == null || r.getLyrics() == null || r.getLyrics().trim().isEmpty()) return null;
             MusicLyric lyric = new MusicLyric(r.getLyrics());
             lyric.format = "AMLL";

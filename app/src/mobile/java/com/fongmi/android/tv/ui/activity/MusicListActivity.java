@@ -32,8 +32,6 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
-import com.fongmi.android.tv.api.music.PlaylistImporter;
-import com.fongmi.android.tv.api.music.AccountPlaylistFetcher;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
@@ -48,8 +46,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
-import com.fongmi.android.tv.ui.dialog.AccountPlaylistDialog;
-import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -84,15 +80,6 @@ public class MusicListActivity extends BaseActivity {
     private final List<MusicTrack> tracks = new ArrayList<>();
     private final List<Object> cards = new ArrayList<>();
     private ListAdapter adapter;
-    // 第 11 项歌单页态：多选批量删除＋歌单名搜索过滤（星辰歌单全是本地自建，无平台属性，筛选只有“全部”）
-    private boolean sheetsMulti;
-    private final Set<Long> sheetsSelected = new java.util.HashSet<>();
-    private final List<MusicPlaylist> allSheets = new ArrayList<>();
-
-    /** 歌单页重做：歌单 id→前 4 张不重复曲目封面（马赛克用；loadSheets 时随曲目数一并取，行绑只读缓存，滚动不重复查）。 */
-    private final java.util.Map<Long, java.util.List<String>> sheetCovers = new java.util.HashMap<>();
-
-
     // 第 1 项：歌单详情页（GZ：英雄卡＋操作行＋区头＋歌曲行＋排序弹层＋更多表；同步到云端需账号，排除只列不建）
     private static final int REQ_SHEET_COVER = 4314;
     private final List<MusicTrack> sheetAll = new ArrayList<>();
@@ -148,12 +135,6 @@ public class MusicListActivity extends BaseActivity {
         Intent i = new Intent(activity, MusicListActivity.class);
         i.putExtra("mode", "search");
         i.putExtra("keyword", keyword == null ? "" : keyword);
-        activity.startActivity(i);
-    }
-
-    public static void startSheets(Activity activity) {
-        Intent i = new Intent(activity, MusicListActivity.class);
-        i.putExtra("mode", "sheets");
         activity.startActivity(i);
     }
 
@@ -270,19 +251,6 @@ public class MusicListActivity extends BaseActivity {
                 Notify.show("分组不支持排序");
             } else showGenericSortDialog();
         });
-        // 第 11 项歌单页头／操作行（仅 sheets 模式可见，其余模式布局里 GONE）
-        binding.btnSheetsNew.setOnClickListener(v -> inputPlaylistName(name ->
-                MusicLibrary.createPlaylist(name, p -> loadSheets())));
-        binding.btnSheetsImport.setOnClickListener(v -> showImportPlaylistDialog());
-        binding.btnSheetsSearch.setOnClickListener(v -> {
-            boolean show = binding.searchBar.getVisibility() != View.VISIBLE;
-            binding.searchBar.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (!show) applySheetsFilter();
-        });
-        binding.btnSheetsMulti.setOnClickListener(v -> setSheetsMulti(!sheetsMulti));
-        binding.btnSheetsFilter.setOnClickListener(v ->
-                MusicOptionsDialog.show(this, "歌单筛选",
-                        java.util.Collections.singletonList("全部"), 0, idx -> applySheetsFilter()));
         // 对照表 P4：页内两入口按钮直连现有 pickLocalFile／inputSiteUrl，不再走二选一弹窗
         binding.btnPluginLocal.setOnClickListener(v -> pickLocalFile());
         binding.btnPluginOnline.setOnClickListener(v -> inputSiteUrl());
@@ -328,8 +296,7 @@ public class MusicListActivity extends BaseActivity {
         binding.etKeyword.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
-                if (mode.equals("sheets")) applySheetsFilter();
-                else doSearch();
+                doSearch();
                 return true;
             }
             return false;
@@ -385,9 +352,6 @@ public class MusicListActivity extends BaseActivity {
             return;
         }
         switch (mode) {
-            case "sheets":
-                loadSheets();
-                break;
             case "sheet":
                 loadSheetTracks();
                 break;
@@ -406,7 +370,7 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private boolean isCardMode() {
-        return mode.equals("sheets") || mode.equals("sites");
+        return mode.equals("sites");
     }
 
     private void load() {
@@ -427,34 +391,27 @@ public class MusicListActivity extends BaseActivity {
         sheetSearchKw = "";
         binding.tvTitle.setText(titleForMode());
         // 第 11 项：sheets 模式用 GZ 页头（YOUR PLAYLISTS＋大标题＋操作行），顶栏居中标题与大标题行、随机播放行都隐藏
-        boolean sheets = mode.equals("sheets");
         boolean sheet = mode.equals("sheet");
-        binding.headerBar.setVisibility(sheets ? View.GONE : View.VISIBLE);
-        binding.sheetsHeader.setVisibility(sheets ? View.VISIBLE : View.GONE);
-        binding.sheetsOpRow.setVisibility(sheets ? View.VISIBLE : View.GONE);
-        // 非 sheets 时空态块复位藏起，空态显隐由 refreshSheetsEmpty 管。
+        binding.headerBar.setVisibility(View.VISIBLE);
+        // 歌单页空态块已随歌单页拆出，本页只复位藏起。
         // 批 5 F2：背景全模式收口——原 AuroraBackgroundView（仅 sheets/sites 可见）摘除，
         // 列表族各模式（收藏／歌单／歌单详情／本地／历史／下载／榜单／歌单广场／搜索／插件）一律用
         // 全域统一 MusicGlassBackgroundView（与首页同一份实现），内容层透明、根底 home_bg_page 只作兜底。
         if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(View.VISIBLE);
-        if (!sheets) binding.sheetsEmpty.setVisibility(View.GONE);
+        binding.sheetsEmpty.setVisibility(View.GONE);
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
         // 2026-10-22 搜索页重做：搜索模式大标题行隐藏——顶栏居中标题已是“搜索”，再留左侧大“搜索”就是截图里的双标题。
-        binding.bigTitleRow.setVisibility((sheets || sheet || mode.equals("search")) ? View.GONE : View.VISIBLE);
-        binding.toolbar.setVisibility((mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
+        binding.bigTitleRow.setVisibility((sheet || mode.equals("search")) ? View.GONE : View.VISIBLE);
+        binding.toolbar.setVisibility(mode.equals("sites") ? View.GONE : View.VISIBLE);
         binding.searchBar.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
         if (binding.searchCancel != null) binding.searchCancel.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
-        binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites") || sheets) ? View.GONE : View.VISIBLE);
+        binding.btnSearch.setVisibility((mode.equals("search") || mode.equals("sites")) ? View.GONE : View.VISIBLE);
         if (!keyword.isEmpty()) {
             binding.etKeyword.setText(keyword);
             doSearch();
             return;
         }
         switch (mode) {
-            case "sheets":
-                bigTitle = getString(R.string.music_playlist);
-                loadSheets();
-                break;
             case "site":
                 loadSiteTracks();
                 break;
@@ -479,8 +436,6 @@ public class MusicListActivity extends BaseActivity {
         switch (mode) {
             case "search":
                 return getString(R.string.music_search);
-            case "sheets":
-                return getString(R.string.music_playlist);
             case "sites":
                 return getString(R.string.music_plugin_manage);
             default:
@@ -1077,126 +1032,6 @@ public class MusicListActivity extends BaseActivity {
         }
     }
 
-    private void loadSheets() {
-        showLoading();
-        MusicLibrary.playlists(list -> {
-            allSheets.clear();
-            sheetCovers.clear();
-            allSheets.addAll(list);
-            runOnUiThread(() -> {
-                binding.sheetsTitle.setText(bigTitle);
-                applySheetsFilter();
-                refreshSheetsEmpty();
-                // 异步补每个歌单的曲目数（按 id 在当前过滤后列表里定位，不依赖加载时下标）
-                for (MusicPlaylist p : list) {
-                    MusicLibrary.playlistTrackCount(p.getId(), n -> {
-                        p.trackCount = n;
-                        for (int i = 0; i < cards.size(); i++) {
-                            if (cards.get(i) instanceof MusicPlaylist
-                                    && ((MusicPlaylist) cards.get(i)).getId() == p.getId()) {
-                                adapter.notifyItemChanged(i);
-                                break;
-                            }
-                        }
-                    });
-                    // 歌单页重做：同循环取前 4 张封面进马赛克缓存（与曲目数同定位口径；空歌单记空表，行绑回落图标）
-                    MusicLibrary.playlistTracks(p.getId(), tracks -> {
-                        java.util.List<String> covers = new java.util.ArrayList<>();
-                        if (tracks != null) {
-                            for (MusicTrack t : tracks) {
-                                if (t != null && t.cover != null && !t.cover.isEmpty() && !covers.contains(t.cover)) {
-                                    covers.add(t.cover);
-                                    if (covers.size() >= 4) break;
-                                }
-                            }
-                        }
-                        sheetCovers.put(p.getId(), covers);
-                        runOnUiThread(() -> {
-                            for (int i = 0; i < cards.size(); i++) {
-                                if (cards.get(i) instanceof MusicPlaylist
-                                        && ((MusicPlaylist) cards.get(i)).getId() == p.getId()) {
-                                    adapter.notifyItemChanged(i);
-                                    break;
-                                }
-                            }
-                        });
-                    });
-                }
-            });
-        });
-    }
-
-    /** 第 11 项：歌单名过滤（操作行搜索钮切出的搜索框内关键字，空则全量；新建／导入卡已由操作行替代，不再进列表） */
-    private void applySheetsFilter() {
-        String q = binding.etKeyword.getText() == null ? ""
-                : binding.etKeyword.getText().toString().trim();
-        cards.clear();
-        for (MusicPlaylist p : allSheets) {
-            if (q.isEmpty() || (p.getName() != null && p.getName().contains(q))) cards.add(p);
-        }
-        if (adapter != null) adapter.notifyDataSetChanged();
-        refreshSheetsEmpty();
-    }
-
-    /** 歌单页空态（瓜子 EmptyPlaylistsHint 口径）：歌单总数为 0 时显图标＋两行空态；
-     * 搜索过滤无匹配时同块改纯文本态（无图标、无副标题，文案“没找到匹配的歌单”）；
-     * 有歌单时整块藏。旧代码 loadSheets 里无条件 empty GONE 是空态全空的根因，不许再写死。
-     * 瓜子多选 pill 空列表时置灰禁用（enabled＝过滤后列表非空，禁用 alpha 0.4），同这里一并管；
-     * 非 sheets 模式只复位藏空态块，不动其它模式的 empty（各模式自己管）。 */
-    private void refreshSheetsEmpty() {
-        binding.sheetsEmpty.setVisibility(View.GONE);
-        if (!mode.equals("sheets")) return;
-        binding.empty.setVisibility(View.GONE);
-        String q = binding.etKeyword.getText() == null ? ""
-                : binding.etKeyword.getText().toString().trim();
-        boolean noSheets = allSheets.isEmpty() && q.isEmpty();
-        if (noSheets) {
-            binding.sheetsEmptyIcon.setVisibility(View.VISIBLE);
-            binding.sheetsEmptyTitle.setText(R.string.music_no_playlist);
-            binding.sheetsEmptySub.setVisibility(View.VISIBLE);
-            binding.sheetsEmpty.setVisibility(View.VISIBLE);
-        } else if (cards.isEmpty()) {
-            binding.sheetsEmptyIcon.setVisibility(View.GONE);
-            binding.sheetsEmptyTitle.setText(R.string.music_no_match_playlist);
-            // 第二波：搜索无匹配补引导半句（瓜子 EmptyPlaylistsHint 后半句「或切到其他平台」是瓜子跨平台歌单搜索口径，
-            // 星辰歌单搜索只搜本地歌单、无平台可切，故只取前半句，不编平台切换）
-            binding.sheetsEmptySub.setVisibility(View.VISIBLE);
-            binding.sheetsEmptySub.setText("换个关键词试试");
-            binding.sheetsEmpty.setVisibility(View.VISIBLE);
-        }
-        boolean multiEnabled = !cards.isEmpty();
-        binding.btnSheetsMulti.setEnabled(multiEnabled);
-        binding.btnSheetsMulti.setAlpha(multiEnabled ? 1f : 0.4f);
-    }
-
-    /** 第 11 项：多选开关——开则行点按变勾选、工具条变“删除所选 (N)”；关则清空勾选恢复正常 */
-    private void setSheetsMulti(boolean on) {
-        sheetsMulti = on;
-        if (!on) sheetsSelected.clear();
-        binding.btnSheetsMulti.setText(on ? "取消多选" : "多选");
-        binding.btnSheetsMulti.setTextColor(on ? 0xFFFA243C : 0xFF1C1C1E);
-        binding.toolbar.setVisibility(on ? View.VISIBLE : View.GONE);
-        binding.btnSort.setVisibility(on ? View.GONE : View.VISIBLE);
-        binding.tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
-        binding.ivPlayAllIcon.setImageResource(on ? R.drawable.ic_music_delete
-                : R.drawable.ic_music_shuffle);
-        binding.btnPlayAll.setOnClickListener(on ? v -> deleteSheetsSelected()
-                : v -> shufflePlay());
-        if (adapter != null) adapter.notifyDataSetChanged();
-    }
-
-    private void deleteSheetsSelected() {
-        if (sheetsSelected.isEmpty()) {
-            Notify.show("请先选歌单");
-            return;
-        }
-        List<Long> ids = new ArrayList<>(sheetsSelected);
-        sheetsSelected.clear();
-        for (Long id : ids) MusicLibrary.deletePlaylist(id, null);
-        setSheetsMulti(false);
-        loadSheets();
-    }
-
     private void loadSiteTracks() {
         showLoading();
         Task.execute(() -> {
@@ -1724,7 +1559,6 @@ public class MusicListActivity extends BaseActivity {
     }
 
     private static final int REQ_PICK_PLUGIN = 4213;
-    private static final int REQ_PICK_LXMC = 4214;
 
     private void pickLocalFile() {
         // 第三波 B①现状：单文件选择（未开 EXTRA_ALLOW_MULTIPLE），一次只装一个插件文件
@@ -1760,12 +1594,6 @@ public class MusicListActivity extends BaseActivity {
                         runOnUiThread(() -> Notify.show("封面设置失败"));
                     }
                 });
-            }
-            return;
-        }
-        if (requestCode == REQ_PICK_LXMC) {
-            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                runLxmcImport(data.getData());
             }
             return;
         }
@@ -2742,12 +2570,6 @@ public class MusicListActivity extends BaseActivity {
         return -1;
     }
 
-    private static class NewPlaylistCard {
-    }
-
-    private static class ImportPlaylistCard {
-    }
-
     // ================= ⋮ 菜单 =================
 
     /** 第 1 项：下载（从通用 ⋮ 菜单抽出来的同一段逻辑：每次询问档时先选档，否则直接下载；原在 ListAdapter 内，onMore 菜单调不到，挪到外层） */
@@ -2868,7 +2690,6 @@ public class MusicListActivity extends BaseActivity {
                     inputPlaylistName(name -> MusicLibrary.createPlaylist(name, p -> {
                         MusicLibrary.addToPlaylist(p.getId(), track, added ->
                                 Notify.show(added ? R.string.music_added : R.string.music_already_in));
-                        if (mode.equals("sheets")) loadSheets();
                     }));
                 }
             });
@@ -2973,639 +2794,6 @@ public class MusicListActivity extends BaseActivity {
         dialog.show();
     }
 
-    // ================= 导入歌单 =================
-
-    /** 粘贴弹窗：点导入后不关窗，后台拉取，失败原因就显示在输入框下方 */
-    /** 第 11 项：GZ 导入歌单大面板（替代旧小 dialog；分享链接导入与 .lxmc 导入复用现有逻辑） */
-    private void showImportPlaylistDialog() {
-        MusicPlaylistImportDialog.show(this, new MusicPlaylistImportDialog.Listener() {
-            @Override
-            public void onImportText(String text, MusicPlaylistImportDialog dialog) {
-                runPlaylistImportNew(text, dialog);
-            }
-
-            @Override
-            public void onLxmc() {
-                pickLxmcFile();
-            }
-
-            @Override
-            public void onAccountImport(String platform) {
-                showAccountLoginDialog(platform);
-            }
-        });
-    }
-
-    private void runPlaylistImportNew(String text, MusicPlaylistImportDialog dialog) {
-        String input = text == null ? "" : text.trim();
-        if (input.isEmpty()) {
-            dialog.setError(R.string.music_import_err_paste_empty);
-            return;
-        }
-        dialog.setBusy(true);
-        Task.execute(() -> {
-            PlaylistImporter.Result result = null;
-            PlaylistImporter.Fail fail = null;
-            boolean lxOk = false;
-            try {
-                result = PlaylistImporter.importFromText(input);
-                lxOk = PlaylistImporter.hasLxSupport(result.platformKey);
-            } catch (PlaylistImporter.ImportException e) {
-                fail = e.fail;
-            } catch (Throwable t) {
-                fail = PlaylistImporter.Fail.NETWORK;
-            }
-            PlaylistImporter.Result r = result;
-            PlaylistImporter.Fail f = fail;
-            boolean lx = lxOk;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (f != null || r == null) {
-                    dialog.setBusy(false);
-                    dialog.setError(importErrorText(f == null ? PlaylistImporter.Fail.NETWORK : f));
-                    return;
-                }
-                // 第三波 G-B5：无落雪支撑时导入前二次确认（原先只在提示尾巴追加，歌单仍照常落库）
-                Runnable doImport = () -> MusicLibrary.importPlaylist(r.name, r.tracks, res -> {
-                    if (res.inserted <= 0) {
-                        if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
-                        dialog.setBusy(false);
-                        dialog.setError(R.string.music_import_err_empty);
-                        return;
-                    }
-                    dialog.dismissAllowingStateLoss();
-                    loadSheets();
-                    String msg;
-                    if (r.total > res.inserted) {
-                        msg = getString(R.string.music_import_partial, res.inserted, r.total - res.inserted);
-                    } else {
-                        msg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
-                    }
-                    if (!lx) {
-                        msg += "，" + getString(R.string.music_import_need_lx,
-                                LxPlatformSearch.platformName(r.platformKey));
-                    }
-                    Notify.show(msg);
-                });
-                if (!lx) {
-                    dialog.setBusy(false);
-                    new MaterialAlertDialogBuilder(MusicListActivity.this)
-                            .setTitle("需要落雪脚本")
-                            .setMessage("这些歌需要装支持"
-                                    + LxPlatformSearch.platformName(r.platformKey)
-                                    + "的落雪源才能播，当前没装，仍要导入吗？")
-                            .setPositiveButton("仍要导入", (d, w) -> doImport.run())
-                            .setNegativeButton(android.R.string.cancel, null)
-                            .show();
-                } else {
-                    doImport.run();
-                }
-            });
-        });
-    }
-
-    /**
-     * 第 11 项：登录账号导入——只放开这一处。登录页照 GZ：WebView 载平台站、开第三方 Cookie、
-     * GZ 提示原文、“完成，获取Cookie”钮。Cookie 读到后：手机直接调平台公开接口拉“我的歌单”列表
-     * （AccountPlaylistFetcher，Cookie 不出手机、不走任何第三方服务器），点某张走 PlaylistImporter
-     * 现有导入链进歌单页；失败报真实原因，不编假导入。
-     */
-    /** 第三波 G-B3：已登录账号行＋退出入口（登录入口即管理入口，树内无独立账号页）。
-     * CookieManager 是 WebView 的持久 Cookie 存贮：此前登过且 Cookie 还在时，不再弹
-     * WebView，直接给“已登录”态＋[拉取歌单／退出账号]；退出只清对应域 Cookie（按
-     * Cookie 串里的名逐个写过期值，不动另一平台），随后 flush 落盘。 */
-    private void showAccountLoginDialog(String platform) {
-        boolean netease = "netease".equals(platform);
-        String url = netease ? "https://music.163.com/" : "https://y.qq.com/";
-        String title = "登录 " + (netease ? "网易云音乐" : "QQ音乐");
-        String existing = null;
-        try {
-            existing = android.webkit.CookieManager.getInstance().getCookie(url);
-        } catch (Throwable ignored) {
-        }
-        if (existing != null && !existing.trim().isEmpty()) {
-            String cookie = existing;
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle("已登录账号（" + (netease ? "网易云音乐" : "QQ音乐") + "）")
-                    .setMessage("登录 Cookie 已保存在本机，可直接拉取歌单；退出将只清该平台的 Cookie。")
-                    .setPositiveButton("拉取歌单", (d, w) -> fetchAccountSheets(platform, cookie))
-                    .setNeutralButton("退出账号", (d, w) -> {
-                        try {
-                            android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
-                            for (String part : cookie.split(";")) {
-                                String name = part.trim().split("=", 2)[0].trim();
-                                if (!name.isEmpty()) cm.setCookie(url, name + "=; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
-                            }
-                            cm.flush();
-                        } catch (Throwable ignored) {
-                        }
-                        Notify.show("已退出" + (netease ? "网易云音乐" : "QQ音乐") + "账号");
-                    })
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show();
-            return;
-        }
-        android.webkit.WebView web = new android.webkit.WebView(this);
-        android.webkit.WebSettings st = web.getSettings();
-        st.setJavaScriptEnabled(true);
-        st.setDomStorageEnabled(true);
-        android.webkit.CookieManager.getInstance().setAcceptCookie(true);
-        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.loadUrl(url);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        TextView tip = new TextView(this);
-        tip.setText("请在网页中使用桌面版登录（可用手机端 App 扫码，或账号密码登录），登录完成后点下方按钮");
-        tip.setTextSize(13);
-        tip.setTextColor(0xFF8E8E93);
-        int pad = dp(16);
-        box.setPadding(pad, pad, pad, 0);
-        box.addView(tip);
-        box.addView(web, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(title)
-                .setView(box)
-                .setPositiveButton("完成，获取Cookie", null)
-                .setNegativeButton(android.R.string.cancel, null)
-                .create();
-        dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
-                .setOnClickListener(v -> {
-                    String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
-                    if (cookie == null || cookie.isEmpty()) {
-                        Notify.show("未读到登录 Cookie，请先在网页里登录");
-                        return;
-                    }
-                    try {
-                        android.webkit.CookieManager.getInstance().flush();
-                    } catch (Throwable ignored) {
-                    }
-                    dialog.dismiss();
-                    fetchAccountSheets(platform, cookie);
-                }));
-        dialog.show();
-    }
-
-    /** 登录账号导入：Cookie 读到后，手机直接调平台公开接口拉“我的歌单”列表，点某张走现有导入链 */
-    private void fetchAccountSheets(String platform, String cookie) {
-        boolean netease = "netease".equals(platform);
-        String platformKey = netease ? LxPlatformSearch.WY : LxPlatformSearch.QQ;
-        String platformName = netease ? "网易云音乐" : "QQ音乐";
-        Notify.show("正在拉取" + platformName + "歌单…");
-        Task.execute(() -> {
-            List<AccountPlaylistFetcher.Sheet> sheets = null;
-            String reason = null;
-            try {
-                sheets = netease ? AccountPlaylistFetcher.fetchNetease(cookie) : AccountPlaylistFetcher.fetchQq(cookie);
-            } catch (AccountPlaylistFetcher.FetchException e) {
-                reason = e.getMessage();
-            } catch (Throwable t) {
-                reason = "网络错误";
-            }
-            List<AccountPlaylistFetcher.Sheet> result = sheets;
-            String failReason = reason;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (failReason != null) {
-                    Notify.show(failReason);
-                    return;
-                }
-                if (result == null || result.isEmpty()) {
-                    Notify.show("该账号下没有歌单");
-                    return;
-                }
-                AccountPlaylistDialog.show(this, platformName + "歌单（" + result.size() + "）", result,
-                        sheet -> importAccountSheet(platformKey, sheet));
-            });
-        });
-    }
-
-    /** 登录账号导入：点某张“我的歌单”，走 PlaylistImporter 现有导入链进歌单页 */
-    private void importAccountSheet(String platformKey, AccountPlaylistFetcher.Sheet sheet) {
-        String displayName = sheet.name == null || sheet.name.isEmpty() ? sheet.id : sheet.name;
-        Notify.show("正在导入“" + displayName + "”…");
-        Task.execute(() -> {
-            PlaylistImporter.Result r = null;
-            PlaylistImporter.Fail f = null;
-            boolean lxOk = false;
-            try {
-                r = PlaylistImporter.importFromId(platformKey, sheet.id);
-                lxOk = PlaylistImporter.hasLxSupport(r.platformKey);
-            } catch (PlaylistImporter.ImportException e) {
-                f = e.fail;
-            } catch (Throwable t) {
-                f = PlaylistImporter.Fail.NETWORK;
-            }
-            PlaylistImporter.Result result = r;
-            PlaylistImporter.Fail fail = f;
-            boolean lx = lxOk;
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (fail != null || result == null) {
-                    Notify.show(importErrorText(fail == null ? PlaylistImporter.Fail.NETWORK : fail));
-                    return;
-                }
-                MusicLibrary.importPlaylist(result.name, result.tracks, res -> {
-                    if (res.inserted <= 0) {
-                        if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
-                        Notify.show(importErrorText(PlaylistImporter.Fail.EMPTY));
-                        return;
-                    }
-                    loadSheets();
-                    String baseMsg;
-                    if (result.total > res.inserted) {
-                        baseMsg = getString(R.string.music_import_partial, res.inserted, result.total - res.inserted);
-                    } else {
-                        baseMsg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
-                    }
-                    if (!lx) {
-                        baseMsg += "，" + getString(R.string.music_import_need_lx,
-                                LxPlatformSearch.platformName(result.platformKey));
-                    }
-                    // 第三波 G-B2：收藏音乐一步——AccountPlaylistFetcher 没有“我喜欢”
-                    // 独立接口，收藏只能落在已拉到的歌单里：当导入的正是平台惯用的
-                    // 喜欢歌单（网易云“我喜欢的音乐”／QQ“我喜欢”）时，把同批曲目
-                    // 按收藏落库口径（MusicLibrary.setFavorite，与行内收藏同一 dao）
-                    // 批量写入收藏；其它歌单不触发本步。喜欢歌单若不在拉到的列表里，
-                    // 本步无从触发，见交回（不编独立喜欢接口）。
-                    String likedName = sheet.name == null ? "" : sheet.name.trim();
-                    boolean likedSheet = "我喜欢的音乐".equals(likedName) || "我喜欢".equals(likedName);
-                    if (!likedSheet || result.tracks == null || result.tracks.isEmpty()) {
-                        Notify.show(baseMsg);
-                        return;
-                    }
-                    String finalMsg = baseMsg;
-                    java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(0);
-                    int total = result.tracks.size();
-                    for (MusicTrack favTrack : result.tracks) {
-                        MusicLibrary.setFavorite(favTrack, true, () -> {
-                            // 复核必-13：total 是导入源全量，去重后真实入库数可能更少，不许拿全量冒充入库数；
-                            // 不按 insert 返回值重算（不改 dao 口径），提示去掉数字。
-                            if (done.incrementAndGet() >= total) {
-                                Notify.show(finalMsg + "，已同步收藏");
-                            }
-                        });
-                    }
-                });
-            });
-        });
-    }
-
-    private int importErrorText(PlaylistImporter.Fail fail) {
-        switch (fail) {
-            case UNRECOGNIZED:
-                return R.string.music_import_err_unrecognized;
-            case NOT_FOUND:
-                return R.string.music_import_err_notfound;
-            case EMPTY:
-                return R.string.music_import_err_empty;
-            default:
-                return R.string.music_import_err_network;
-        }
-    }
-
-    // ================= 洛雪 .lxmc 文件导入 =================
-
-    /** .lxmc 解析出的一个歌单（瓜子 LxPlaylistParser 的两种结构：备份多歌单／单歌单） */
-    private static class LxmcPlaylist {
-        final String name;
-        final List<MusicTrack> tracks;
-
-        LxmcPlaylist(String name, List<MusicTrack> tracks) {
-            this.name = name;
-            this.tracks = tracks;
-        }
-    }
-
-    private void pickLxmcFile() {
-        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        startActivityForResult(Intent.createChooser(i, "从洛雪 .lxmc 文件导入"), REQ_PICK_LXMC);
-    }
-
-    private void runLxmcImport(Uri uri) {
-        Task.execute(() -> {
-            List<LxmcPlaylist> lists;
-            try {
-                byte[] bytes = readAllCappedLxmc(uri);
-                lists = parseLxmc(bytes);
-            } catch (Exception e) {
-                runOnUiThread(() -> Notify.show(e.getMessage() == null ? "不是有效的 LX 歌单文件" : e.getMessage()));
-                return;
-            }
-            // 落雪源支撑情况在子线程先算好（hasLxSupport 要枚举落雪插件，不上主线程）
-            Set<String> unsupported = new java.util.LinkedHashSet<>();
-            for (LxmcPlaylist p : lists) {
-                for (MusicTrack t : p.tracks) {
-                    String key = lxmcPlatformKey(t);
-                    if (!key.isEmpty() && !unsupported.contains(key) && !PlaylistImporter.hasLxSupport(key)) {
-                        unsupported.add(key);
-                    }
-                }
-            }
-            runOnUiThread(() -> {
-                if (unsupported.isEmpty()) {
-                    importLxmcPlaylists(lists, 0, 0, 0, unsupported);
-                    return;
-                }
-                // 第三波 G-B5：.lxmc 无支撑平台时导入前二次确认
-                java.util.List<String> names = new java.util.ArrayList<>();
-                for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
-                new MaterialAlertDialogBuilder(MusicListActivity.this)
-                        .setTitle("需要落雪脚本")
-                        .setMessage("这些歌需要装支持" + android.text.TextUtils.join("、", names)
-                                + "的落雪源才能播，当前没装，仍要导入吗？")
-                        .setPositiveButton("仍要导入", (d, w) -> importLxmcPlaylists(lists, 0, 0, 0, unsupported))
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show();
-            });
-        });
-    }
-
-    /** 从落雪歌 id 反推平台键：id 形如 lx:<平台键>:<原生 id> */
-    private static String lxmcPlatformKey(MusicTrack t) {
-        if (t == null || t.id == null) return "";
-        String[] parts = t.id.split(":", 3);
-        return parts.length >= 2 ? parts[1] : "";
-    }
-
-    /** 逐个落库（MusicLibrary.importPlaylist 自带主线程回调，串行避免提示乱序） */
-    private void importLxmcPlaylists(List<LxmcPlaylist> lists, int idx, int imported, int inserted, Set<String> unsupported) {
-        if (idx >= lists.size()) {
-            if (inserted <= 0) {
-                Notify.show(R.string.music_import_err_empty);
-                return;
-            }
-            loadSheets();
-            String msg = "已导入 " + imported + " 个歌单，共 " + inserted + " 首";
-            if (!unsupported.isEmpty()) {
-                List<String> names = new ArrayList<>();
-                for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
-                StringBuilder joined = new StringBuilder();
-                for (String n : names) {
-                    if (joined.length() > 0) joined.append("、");
-                    joined.append(n);
-                }
-                msg += "，" + getString(R.string.music_import_need_lx, joined.toString());
-            }
-            Notify.show(msg);
-            return;
-        }
-        LxmcPlaylist p = lists.get(idx);
-        if (p.tracks.isEmpty()) {
-            importLxmcPlaylists(lists, idx + 1, imported, inserted, unsupported);
-            return;
-        }
-        MusicLibrary.importPlaylist(p.name, p.tracks, res ->
-                importLxmcPlaylists(lists, idx + 1, imported + 1, inserted + res.inserted, unsupported));
-    }
-
-    /** 带上限的整读（.lxmc 原文件不大，64MB 封顶；解压后上限另在解析里按瓜子 64MB 卡） */
-    private byte[] readAllCappedLxmc(Uri uri) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new IllegalStateException("读不到这个文件");
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                if (bos.size() + n > 64 * 1024 * 1024) throw new Exception("文件太大（超 64MB），跳过");
-                bos.write(buf, 0, n);
-            }
-            return bos.toByteArray();
-        }
-    }
-
-    /**
-     * .lxmc 格式（瓜子 LxPlaylistParser.parse／decodeText／parseBackup／parsePart 原样）：
-     * 文件体＝明文 UTF-8 JSON，或首两字节 0x1F8B 的 GZIP（解压后超 64MB 拒收）；
-     * 根对象须有 data 对象；data.lists 在＝备份形（defaultList／loveList／tempList 三固定歌单＋
-     * userList 自建歌单数组）；否则 data.list／name 在＝单歌单形；其余结构拒收。
-     * 曲目字段：id／name／singer／source／interval（mm:ss）／meta（albumName／picUrl／平台原生 id）；
-     * source 只认 wy／tx／kg／kw／mg（与星辰落雪平台键同串），soda 等无星辰源的按瓜子「无映射源丢弃」处理。
-     */
-    private static List<LxmcPlaylist> parseLxmc(byte[] bytes) throws Exception {
-        if (bytes == null || bytes.length == 0) throw new Exception("文件为空");
-        String text;
-        if (bytes.length >= 2 && (((bytes[0] & 0xFF) << 8) | (bytes[1] & 0xFF)) == 0x1F8B) {
-            try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(bytes));
-                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                byte[] buf = new byte[8192];
-                int total = 0;
-                int n;
-                while ((n = gzip.read(buf)) > 0) {
-                    total += n;
-                    if (total > 64 * 1024 * 1024) throw new IllegalArgumentException("文件解压后过大，暂不支持");
-                    bos.write(buf, 0, n);
-                }
-                text = new String(bos.toByteArray(), "UTF-8");
-            } catch (IllegalArgumentException e) {
-                throw e;
-            } catch (Exception e) {
-                throw new IllegalArgumentException("文件解压失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
-            }
-        } else {
-            text = new String(bytes, "UTF-8");
-        }
-        if (text.trim().isEmpty()) throw new Exception("文件内容为空");
-        JsonObject root;
-        try {
-            root = JsonParser.parseString(text).getAsJsonObject();
-        } catch (Exception e) {
-            throw new Exception("不是有效的 LX 歌单文件（JSON 解析失败）");
-        }
-        if (!root.has("data") || !root.get("data").isJsonObject()) {
-            throw new Exception("不是有效的 LX 歌单文件（缺少 data）");
-        }
-        JsonObject data = root.getAsJsonObject("data");
-        List<LxmcPlaylist> out = new ArrayList<>();
-        if (data.has("lists") && data.get("lists").isJsonObject()) {
-            JsonObject lists = data.getAsJsonObject("lists");
-            addLxmcList(out, lists, "defaultList", "试听列表");
-            addLxmcList(out, lists, "loveList", "我的收藏");
-            addLxmcList(out, lists, "tempList", "临时列表");
-            if (lists.has("userList") && lists.get("userList").isJsonArray()) {
-                for (JsonElement el : lists.getAsJsonArray("userList")) {
-                    if (!el.isJsonObject()) continue;
-                    JsonObject o = el.getAsJsonObject();
-                    String name = lxmcStr(o, "name");
-                    if (name.isEmpty()) name = lxmcStr(o, "id");
-                    if (name.isEmpty()) name = "LX 自建歌单";
-                    out.add(new LxmcPlaylist(name, lxmcTracks(lxmcArr(o, "list"))));
-                }
-            }
-            return out;
-        }
-        if (data.has("list") || data.has("name")) {
-            String name = lxmcStr(data, "name");
-            if (name.isEmpty()) name = "LX 歌单";
-            out.add(new LxmcPlaylist(name, lxmcTracks(lxmcArr(data, "list"))));
-            return out;
-        }
-        throw new Exception("暂不支持的 LX 歌单文件结构");
-    }
-
-    private static void addLxmcList(List<LxmcPlaylist> out, JsonObject lists, String key, String name) {
-        if (lists.has(key) && lists.get(key).isJsonArray()) {
-            out.add(new LxmcPlaylist(name, lxmcTracks(lists.getAsJsonArray(key))));
-        }
-    }
-
-    private static JsonArray lxmcArr(JsonObject o, String key) {
-        if (o != null && o.has(key) && o.get(key).isJsonArray()) return o.getAsJsonArray(key);
-        return new JsonArray();
-    }
-
-    private static List<MusicTrack> lxmcTracks(JsonArray arr) {
-        List<MusicTrack> out = new ArrayList<>();
-        for (JsonElement el : arr) {
-            if (!el.isJsonObject()) continue;
-            MusicTrack t = lxmcTrack(el.getAsJsonObject());
-            if (t != null) out.add(t);
-        }
-        return out;
-    }
-
-    /**
-     * 单曲映射（瓜子 toSearchSong／resolvePlatformId 原样）：
-     * 名空或源无映射直接丢弃；平台原生 id 按源取首个非空候选，meta 里都没有时回退曲目 id
-     * （带「平台键_」前缀的剥掉前缀）；_item＝meta 全字段＋按星辰搜索条目惯例补的规范 id 字段，
-     * 取链时落雪脚本按各自习惯读，通用字段由 LxMusicSource.musicInfo 另补。
-     */
-    private static MusicTrack lxmcTrack(JsonObject o) {
-        String name = lxmcStr(o, "name");
-        if (name.isEmpty()) return null;
-        String source = lxmcStr(o, "source");
-        if (!"wy".equals(source) && !"tx".equals(source) && !"kg".equals(source)
-                && !"kw".equals(source) && !"mg".equals(source)) {
-            return null;
-        }
-        JsonObject meta = o.has("meta") && o.get("meta").isJsonObject()
-                ? o.getAsJsonObject("meta") : new JsonObject();
-        String rawId = lxmcPlatformId(source, meta);
-        if (rawId.isEmpty()) {
-            String id = lxmcStr(o, "id");
-            if (id.startsWith(source + "_")) id = id.substring(source.length() + 1);
-            rawId = id;
-        }
-        if (rawId.isEmpty()) return null;
-        MusicTrack t = new MusicTrack();
-        t.id = "lx:" + source + ":" + rawId;
-        t.title = name;
-        t.artist = lxmcStr(o, "singer");
-        t.album = lxmcStr(meta, "albumName");
-        t.cover = lxmcStr(meta, "picUrl");
-        t.duration = lxmcIntervalMs(lxmcStr(o, "interval"));
-        t.platform = LxMusicSource.PLATFORM;
-        JsonObject item = meta.deepCopy();
-        switch (source) {
-            case "tx":
-                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
-                break;
-            case "kw":
-                if (lxmcStr(item, "rid").isEmpty()) item.addProperty("rid", rawId);
-                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
-                break;
-            case "kg":
-                if (lxmcStr(item, "hash").isEmpty()) item.addProperty("hash", rawId);
-                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
-                break;
-            case "wy":
-                if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
-                if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
-                break;
-            default: // mg
-                if (rawId.contains(":")) {
-                    String[] parts = rawId.split(":", 2);
-                    if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", parts[0]);
-                    if (lxmcStr(item, "copyrightId").isEmpty()) item.addProperty("copyrightId", parts[1]);
-                    if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
-                } else {
-                    if (lxmcStr(item, "songmid").isEmpty()) item.addProperty("songmid", rawId);
-                    if (lxmcStr(item, "id").isEmpty()) item.addProperty("id", rawId);
-                }
-                break;
-        }
-        JsonObject wrap = new JsonObject();
-        wrap.addProperty("_platform", source);
-        wrap.add("_item", item);
-        t.rawJson = wrap.toString();
-        return t;
-    }
-
-    /** 平台原生 id 候选顺序（瓜子 resolvePlatformId 原样） */
-    private static String lxmcPlatformId(String source, JsonObject meta) {
-        switch (source) {
-            case "tx": {
-                String songId = lxmcStr(meta, "songId");
-                // 瓜子：songId 含字母才进候选，全数字时跳过它
-                boolean songIdOk = false;
-                for (int i = 0; i < songId.length(); i++) {
-                    if (Character.isLetter(songId.charAt(i))) {
-                        songIdOk = true;
-                        break;
-                    }
-                }
-                return lxmcFirst(lxmcStr(meta, "songmid"), lxmcStr(meta, "mid"),
-                        songIdOk ? songId : "", lxmcStr(meta, "strMediaMid"));
-            }
-            case "kw":
-                return lxmcFirst(lxmcStr(meta, "rid"), lxmcStr(meta, "hash"), lxmcFirstQualityHash(meta));
-            case "kg":
-                return lxmcFirst(lxmcStr(meta, "hash"), lxmcFirstQualityHash(meta));
-            case "wy":
-                return lxmcFirst(lxmcStr(meta, "songId"), lxmcStr(meta, "id"));
-            default: { // mg
-                String contentId = lxmcStr(meta, "contentId");
-                String copyrightId = lxmcStr(meta, "copyrightId");
-                if (!contentId.isEmpty() && !copyrightId.isEmpty()) return contentId + ":" + copyrightId;
-                return lxmcFirst(contentId, copyrightId);
-            }
-        }
-    }
-
-    /** 瓜子 firstQualityHash：qualitys 数组里优先 type＝128k 的 hash，否则首个非空 hash */
-    private static String lxmcFirstQualityHash(JsonObject meta) {
-        if (!meta.has("qualitys") || !meta.get("qualitys").isJsonArray()) return "";
-        String first = "";
-        for (JsonElement el : meta.getAsJsonArray("qualitys")) {
-            if (!el.isJsonObject()) continue;
-            JsonObject q = el.getAsJsonObject();
-            String hash = lxmcStr(q, "hash");
-            if (hash.isEmpty()) continue;
-            if ("128k".equals(lxmcStr(q, "type"))) return hash;
-            if (first.isEmpty()) first = hash;
-        }
-        return first;
-    }
-
-    /** 瓜子 parseIntervalMs：取首个 mm:ss 匹配，转毫秒；无匹配为 0 */
-    private static long lxmcIntervalMs(String interval) {
-        if (interval == null) return 0;
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{1,3}):(\\d{1,2})").matcher(interval);
-        if (!m.find()) return 0;
-        try {
-            long min = Long.parseLong(m.group(1));
-            long sec = Long.parseLong(m.group(2));
-            return (min * 60 + sec) * 1000;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static String lxmcFirst(String... vals) {
-        for (String v : vals) if (v != null && !v.isEmpty()) return v;
-        return "";
-    }
-
-    private static String lxmcStr(JsonObject o, String key) {
-        try {
-            if (o != null && o.has(key) && !o.get(key).isJsonNull()) return o.get(key).getAsString();
-        } catch (Exception ignored) {
-        }
-        return "";
-    }
-
     // ================= 列表 =================
 
     private class ListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -3614,7 +2802,6 @@ public class MusicListActivity extends BaseActivity {
         private static final int TYPE_CARD = 1;
         private static final int TYPE_PLUGIN = 2;
         private static final int TYPE_HEADER = 3;
-        private static final int TYPE_SHEET = 4;
         private static final int TYPE_SHEET_HERO = 7;
         private static final int TYPE_SHEET_ACTIONS = 8;
         private static final int TYPE_SHEET_SECTION = 9;
@@ -3641,8 +2828,6 @@ public class MusicListActivity extends BaseActivity {
                 if (mode.equals("sites") && cards.get(position) instanceof PluginGroup) return TYPE_PLUGIN_GROUP;
                 // 插件管理页里插件行用专用布局（名＋版本＋格式标签＋开关＋⋮），添加卡仍走通用卡
                 if (mode.equals("sites") && cards.get(position) instanceof MusicSite) return TYPE_PLUGIN;
-                // 歌单页用 GZ 歌单行（50dp 格＋名 14sp＋“N 首”11sp＋播放圆钮＋⋮），榜单页仍走通用卡
-                if (mode.equals("sheets") && cards.get(position) instanceof MusicPlaylist) return TYPE_SHEET;
                 return TYPE_CARD;
             }
             return TYPE_TRACK;
@@ -3701,9 +2886,6 @@ public class MusicListActivity extends BaseActivity {
             if (viewType == TYPE_PLUGIN) {
                 return new PluginHolder(inf.inflate(R.layout.item_music_plugin, parent, false));
             }
-            if (viewType == TYPE_SHEET) {
-                return new PlaylistHolder(inf.inflate(R.layout.item_music_playlist_row, parent, false));
-            }
             if (viewType == TYPE_CARD || viewType == TYPE_HEADER) {
                 return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
             }
@@ -3732,7 +2914,6 @@ public class MusicListActivity extends BaseActivity {
                 ((GroupHolder) h).count.setText(String.valueOf(n));
             }
             else if (h instanceof PluginHolder) bindPlugin((PluginHolder) h, position);
-            else if (h instanceof PlaylistHolder) bindPlaylistRow((PlaylistHolder) h, position);
             else if (h instanceof CardHolder) bindCard((CardHolder) h, position);
             else bindTrack((TrackHolder) h, trackIndex(position));
         }
@@ -3865,95 +3046,6 @@ public class MusicListActivity extends BaseActivity {
             }
         }
 
-        /** 第 11 项：GZ 歌单行绑定（多选态下行点按变勾选，播放钮播整单，⋮走重命名／删除） */
-        /** 歌单马赛克格加载：纯铺满裁切，不套圆角（圆角由 coverBox 的 clipToOutline 一次裁）。 */
-        private void loadMosaicCover(String url, android.widget.ImageView view) {
-            try {
-                com.bumptech.glide.Glide.with(view).clear(view);
-                com.bumptech.glide.Glide.with(view).load(url).centerCrop().into(view);
-            } catch (Throwable ignored) {
-            }
-        }
-
-        private void bindPlaylistRow(PlaylistHolder h, int position) {
-            MusicPlaylist p = (MusicPlaylist) cards.get(position);
-            boolean sel = sheetsSelected.contains(p.getId());
-            h.name.setText(p.getName());
-            String count = p.trackCount >= 0 ? p.trackCount + " 首" : "";
-            h.status.setText(count + (sel ? " · 已选" : ""));
-            // 第三行（批 5 F2）：最近更新时间（真数据；旧存量无值时整行 GONE，不编日期）
-            if (h.meta != null) {
-                long upd = p.getUpdateTime();
-                if (upd > 0) {
-                    h.meta.setVisibility(View.VISIBLE);
-                    h.meta.setText("更新于 " + new java.text.SimpleDateFormat("yyyy-MM-dd",
-                            java.util.Locale.getDefault()).format(new java.util.Date(upd)));
-                } else {
-                    h.meta.setVisibility(View.GONE);
-                    h.meta.setText("");
-                }
-            }
-            // 歌单页重做：封面＝瓜子 CoverMosaic 口径。缓存有封面走马赛克（1 张铺满、2 张以上 2×2，
-            // 缺格露底灰）；无封面（空歌单／缓存未到）回落原彩色圆盘图标。回收行先清在途加载，防旧图迟到。
-            java.util.List<String> covers = sheetCovers.get(p.getId());
-            boolean mosaic = covers != null && !covers.isEmpty();
-            h.coverBox.setBackgroundResource(mosaic ? R.drawable.bg_playlist_mosaic : 0);
-            h.coverBox.setClipToOutline(mosaic);
-            if (!mosaic) {
-                h.icon.setVisibility(View.VISIBLE);
-                h.mosaicSingle.setVisibility(View.GONE);
-                h.mosaicGrid.setVisibility(View.GONE);
-                h.icon.setImageResource(R.drawable.ic_music_queue);
-                h.icon.setBackground(circle(sel ? 0xFFFA243C : 0xFF3B82F6));
-            } else {
-                h.icon.setVisibility(View.GONE);
-                if (covers.size() == 1) {
-                    h.mosaicSingle.setVisibility(View.VISIBLE);
-                    h.mosaicGrid.setVisibility(View.GONE);
-                    loadMosaicCover(covers.get(0), h.mosaicSingle);
-                } else {
-                    h.mosaicSingle.setVisibility(View.GONE);
-                    h.mosaicGrid.setVisibility(View.VISIBLE);
-                    android.widget.ImageView[] qs = {h.mosaic1, h.mosaic2, h.mosaic3, h.mosaic4};
-                    for (int qi = 0; qi < 4; qi++) {
-                        if (qi < covers.size()) loadMosaicCover(covers.get(qi), qs[qi]);
-                        else {
-                            try {
-                                com.bumptech.glide.Glide.with(qs[qi]).clear(qs[qi]);
-                            } catch (Throwable ignored) {
-                            }
-                            qs[qi].setImageDrawable(null);
-                        }
-                    }
-                }
-            }
-            h.rowPlay.setBackground(circle(0xFFFA243C));
-            h.rowPlay.setVisibility(sheetsMulti ? View.GONE : View.VISIBLE);
-            h.rowMore.setVisibility(sheetsMulti ? View.GONE : View.VISIBLE);
-            View.OnClickListener toggle = v -> {
-                if (sheetsSelected.contains(p.getId())) sheetsSelected.remove(p.getId());
-                else sheetsSelected.add(p.getId());
-                binding.tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
-                int pos = h.getBindingAdapterPosition();
-                if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) adapter.notifyItemChanged(pos);
-            };
-            h.itemView.setOnClickListener(sheetsMulti ? toggle
-                    : v -> startSheet(MusicListActivity.this, p.getId(), p.getName()));
-            h.itemView.setOnLongClickListener(v -> {
-                if (sheetsMulti) return false;
-                sheetLongPress(p);
-                return true;
-            });
-            h.rowPlay.setOnClickListener(v -> MusicLibrary.playlistTracks(p.getId(), list -> {
-                if (list == null || list.isEmpty()) {
-                    Notify.show(R.string.music_no_track);
-                    return;
-                }
-                MusicController.get().play(new ArrayList<>(list), 0, p.getName(), "list", listRouteParams());
-            }));
-            h.rowMore.setOnClickListener(v -> sheetLongPress(p));
-        }
-
         private void bindCard(CardHolder h, int position) {
             // 本地页回炉：回收行先复位（图标显、马赛克位藏），各分支只在需要时开马赛克，防旧图残留到别的卡。
             h.icon.setVisibility(View.VISIBLE);
@@ -3962,31 +3054,7 @@ public class MusicListActivity extends BaseActivity {
             h.coverBox.setBackgroundResource(0);
             h.coverBox.setClipToOutline(false);
             Object o = cards.get(position);
-            if (o instanceof NewPlaylistCard) {
-                h.name.setText(R.string.music_new_playlist);
-                h.status.setText("");
-                h.icon.setImageResource(R.drawable.ic_music_plus);
-                h.icon.setBackground(circle(0xFF22C55E));
-                h.itemView.setOnClickListener(v -> inputPlaylistName(name ->
-                        MusicLibrary.createPlaylist(name, p -> loadSheets())));
-            } else if (o instanceof ImportPlaylistCard) {
-                h.name.setText(R.string.music_import_playlist);
-                h.status.setText("");
-                h.icon.setImageResource(R.drawable.ic_music_download);
-                h.icon.setBackground(circle(0xFFFA243C));
-                h.itemView.setOnClickListener(v -> showImportPlaylistDialog());
-            } else if (o instanceof MusicPlaylist) {
-                MusicPlaylist p = (MusicPlaylist) o;
-                h.name.setText(p.getName());
-                h.status.setText(p.trackCount >= 0 ? p.trackCount + " 首" : "");
-                h.icon.setImageResource(R.drawable.ic_music_queue);
-                h.icon.setBackground(circle(0xFF3B82F6));
-                h.itemView.setOnClickListener(v -> startSheet(MusicListActivity.this, p.getId(), p.getName()));
-                h.itemView.setOnLongClickListener(v -> {
-                    sheetLongPress(p);
-                    return true;
-                });
-            } else if (o instanceof SearchGroupCard) {
+            if (o instanceof SearchGroupCard) {
                 // 第 5 项：搜索分组卡（点卡进该组歌曲列，筛选条点 × 回分类）
                 SearchGroupCard g = (SearchGroupCard) o;
                 h.name.setText(g.key);
@@ -4008,19 +3076,6 @@ public class MusicListActivity extends BaseActivity {
                 h.itemView.setOnClickListener(v -> startSheet(MusicListActivity.this, g.id, g.name));
             }
             h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        }
-
-        private void sheetLongPress(MusicPlaylist p) {
-            List<String> opts = new ArrayList<>();
-            opts.add("重命名");
-            opts.add("删除歌单");
-            MusicOptionsDialog.show(MusicListActivity.this, p.getName(), opts, -1, idx -> {
-                if (idx == 0) {
-                    inputPlaylistName(name -> MusicLibrary.renamePlaylist(p.getId(), name, () -> loadSheets()));
-                } else {
-                    MusicLibrary.deletePlaylist(p.getId(), () -> loadSheets());
-                }
-            });
         }
 
         private GradientDrawable circle(int color) {
@@ -4648,39 +3703,6 @@ public class MusicListActivity extends BaseActivity {
                 mosaic4 = v.findViewById(R.id.mosaic4);
                 name = v.findViewById(R.id.name);
                 status = v.findViewById(R.id.status);
-            }
-        }
-
-        class PlaylistHolder extends RecyclerView.ViewHolder {
-            final View coverBox;
-            final ImageView icon;
-            final ImageView mosaicSingle;
-            final View mosaicGrid;
-            final ImageView mosaic1;
-            final ImageView mosaic2;
-            final ImageView mosaic3;
-            final ImageView mosaic4;
-            final TextView name;
-            final TextView status;
-            final TextView meta;
-            final ImageView rowPlay;
-            final ImageView rowMore;
-
-            PlaylistHolder(View v) {
-                super(v);
-                coverBox = v.findViewById(R.id.coverBox);
-                icon = v.findViewById(R.id.icon);
-                mosaicSingle = v.findViewById(R.id.mosaicSingle);
-                mosaicGrid = v.findViewById(R.id.mosaicGrid);
-                mosaic1 = v.findViewById(R.id.mosaic1);
-                mosaic2 = v.findViewById(R.id.mosaic2);
-                mosaic3 = v.findViewById(R.id.mosaic3);
-                mosaic4 = v.findViewById(R.id.mosaic4);
-                name = v.findViewById(R.id.name);
-                status = v.findViewById(R.id.status);
-                meta = v.findViewById(R.id.meta);
-                rowPlay = v.findViewById(R.id.rowPlay);
-                rowMore = v.findViewById(R.id.rowMore);
             }
         }
 

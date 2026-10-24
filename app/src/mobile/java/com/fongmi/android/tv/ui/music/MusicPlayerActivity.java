@@ -1574,6 +1574,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             }
             if (cdLyricView != null) cdLyricView.clearLines();
             if (shelfLyricView != null) shelfLyricView.clearLines();
+            if (appleLyricView != null) appleLyricView.clearLines();
             if (lyricPageView != null) {
                 lyricPageView.setLyricData(new ArrayList<>(), new ArrayList<>(), false);
                 lyricPageView.setEmptyText(getString(R.string.music_lyric_chip_none));
@@ -2628,7 +2629,17 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         currentLyricVersions.clear();
         currentLyricFormat = null;
         currentLyricKey = null;
-        if (!force && lyricView != null) lyricView.clearLines();
+        if (!force) {
+            // 切歌同步（他定「不许还挂着上一首的脸」）：全部歌词面同步清旧词，不许只清内嵌面、
+            // 其余面（CD／唱片架／Apple／全屏页）残留上一首的词等异步取词回来才覆盖。
+            if (lyricView != null) lyricView.clearLines();
+            if (cdLyricView != null) cdLyricView.clearLines();
+            if (shelfLyricView != null) shelfLyricView.clearLines();
+            if (appleLyricView != null) appleLyricView.clearLines();
+            if (lyricPageView != null) {
+                lyricPageView.setLyricData(new ArrayList<>(), new ArrayList<>(), false);
+            }
+        }
         updateLyricChipLabel(null);
         Task.execute(() -> {
             List<LyricsLine> mains = new ArrayList<>();

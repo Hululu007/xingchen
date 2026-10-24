@@ -3,12 +3,17 @@ package com.fongmi.android.tv.api;
 import org.json.JSONObject;
 import org.junit.Test;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -131,6 +136,56 @@ public class HongguoDanmakuApiTest {
         JSONObject bad = new JSONObject("{\"code\":110001,\"data\":{}}");
         assertNull(HongguoDanmakuApi.parseWindow(bad, SERIES, VID));
         assertNull(HongguoDanmakuApi.parseWindow(null, SERIES, VID));
+    }
+
+    @Test
+    public void parseWindowSkipsZeroBookIdLeg() throws Exception {
+        // 601 真人行 book_id 恒为 "0"（未带书籍归属）：此腿跳过，窗口照常产出，不许整窗作废
+        HongguoDanmakuApi.Window window = HongguoDanmakuApi.parseWindow(windowJson("0", VID, true, 30000), SERIES, VID);
+        assertTrue(window != null);
+        assertEquals(1, window.items.size());
+        assertEquals(2163L, window.items.get(0).offsetMs);
+    }
+
+    // ---------- 真样本回归（第一步实打落盘的 601 首窗响应） ----------
+
+    private String readResource(String resource) throws Exception {
+        InputStream stream = getClass().getResourceAsStream(resource);
+        assertNotNull(stream);
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    @Test
+    public void parseWindowAcceptsRealSample() throws Exception {
+        // 真样本形态：第 0 行是平台活动行（book_id＝本剧），第 1~4 行真人弹幕 book_id 全为 "0"。
+        // 旧闸照评论语义判 0≠seriesId 整窗作废、真机每窗必废——此样本必须整窗过、5 条全入。
+        JSONObject sample = new JSONObject(readResource("/hongguo-danmaku-window0.json"));
+        HongguoDanmakuApi.Window window = HongguoDanmakuApi.parseWindow(sample, SERIES, VID);
+        assertTrue(window != null);
+        assertEquals(5, window.items.size());
+        long[] offsets = {0, 2163, 10686, 14890, 20187};
+        for (int i = 0; i < offsets.length; i++) assertEquals(offsets[i], window.items.get(i).offsetMs);
+        assertTrue(window.hasMore);
+        assertEquals(30000L, window.nextStart);
+    }
+
+    @Test
+    public void collectProducesFromRealSampleFirstWindow() throws Exception {
+        // 真样本当第一窗喂进拉取循环：首窗即产出 5 条并触发增长回调，不再恒空收场
+        JSONObject sample = new JSONObject(readResource("/hongguo-danmaku-window0.json"));
+        HongguoDanmakuApi.Window first = HongguoDanmakuApi.parseWindow(sample, SERIES, VID);
+        assertTrue(first != null);
+        ScriptedSource source = new ScriptedSource(List.of(first));
+        List<List<HongguoDanmakuApi.Item>> growth = new ArrayList<>();
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(source, 0, growth::add);
+        assertEquals(5, all.size());
+        assertEquals(1, growth.size());
+        assertEquals(5, growth.get(0).size());
     }
 
     // ---------- 增量拉取循环（collectWindows） ----------

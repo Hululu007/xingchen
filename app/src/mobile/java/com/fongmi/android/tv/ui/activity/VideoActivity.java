@@ -2723,11 +2723,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         String key = mCommentPrefetchKey;
         String seriesId = mHongguoSeriesId;
         List<Danmaku> siteDanmakus = result.getDanmaku();
+        SpiderDebug.log("hongguo-danmaku", "prepare submit vid=%s series=%s", vid, seriesId);
         mHongguoExecutor.execute(() -> {
             Danmaku item = HongguoDanmakuApi.fetchToFile(seriesId, vid, 0,
                     partial -> App.post(() -> onHongguoDanmakuReady(key, vid, siteDanmakus, partial)));
             App.post(() -> {
                 if (vid.equals(mHongguoDanmakuPending)) mHongguoDanmakuPending = "";
+                SpiderDebug.log("hongguo-danmaku", "prepare done vid=%s item=%s", vid, item != null);
                 if (item == null) return;
                 mHongguoDanmakuVid = vid;
                 onHongguoDanmakuReady(key, vid, siteDanmakus, item);
@@ -2755,6 +2757,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (nextVid.isEmpty() || nextVid.equals(mHongguoDanmakuPrefetchVid)) return;
         mHongguoDanmakuPrefetchVid = nextVid;
         String seriesId = mHongguoSeriesId;
+        SpiderDebug.log("hongguo-danmaku", "prefetch submit vid=%s series=%s", nextVid, seriesId);
         mHongguoExecutor.execute(() -> HongguoDanmakuApi.fetchToFile(seriesId, nextVid, 0));
     }
 
@@ -2763,13 +2766,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (isFinishing() || isDestroyed() || !key.equals(mCommentPrefetchKey)) return;
         Episode current = getEpisode();
         if (current == null || !vid.equals(HongguoCommentApi.episodeVid(current.getUrl()))) return;
+        SpiderDebug.log("hongguo-danmaku", "ready vid=%s selected=%s siteEmpty=%s", vid, isHongguoDanmakuSelected(item), siteDanmakus.isEmpty());
         if (isHongguoDanmakuSelected(item)) {
             // 文件已增量长大：强制重读，用户正看的这份才跟得上
             player().reloadDanmaku(item);
             return;
         }
         // 源弹幕优先的既有口径：本站没给弹幕、且当前没挂任何弹幕时才自动挂上；否则只进列表供用户在弹幕面板里选
-        if (siteDanmakus.isEmpty() && !player().haveDanmaku()) player().setDanmaku(item);
+        if (siteDanmakus.isEmpty() && !player().haveDanmaku()) {
+            SpiderDebug.log("hongguo-danmaku", "attach vid=%s", vid);
+            player().setDanmaku(item);
+        }
         else if (!siteDanmakus.contains(item)) siteDanmakus.add(item);
     }
 

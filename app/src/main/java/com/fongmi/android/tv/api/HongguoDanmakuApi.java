@@ -2,6 +2,7 @@ package com.fongmi.android.tv.api;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Danmaku;
+import com.github.catvod.crawler.SpiderDebug;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -28,8 +29,9 @@ import java.util.regex.Pattern;
  * 增量口径（douyu-live-danmaku-noshow-trace.md 第五节修法）：已拉到的窗先落盘先挂，
  * 任一窗失败只停在已得部分、不整集连坐；全程零条才按无弹幕返回 null。
  * 缓存复用口径：一次拉取「自然收尾」（服务端没更多/时长到头/游标停/撞上限，且无一窗
- * 失败）就在同目录落 {vid}.done 完成标记；下次 fetch 命中标记直接用现成文件（有文件
- * 给文件、没文件是已知空集），不再重复拉。没标记的半截文件当种子：重拉时与旧货合并
+ * 失败）就在同目录落 {vid}.done 完成标记，标记内容区分两种收尾——有条目写 '1'、真零行
+ * 空集写 '0'，免得日后把「拉过但真没有」与「拉满了」混作一谈；下次 fetch 命中标记直接
+ * 用现成文件（有文件给文件、没文件是已知空集），不再重复拉。没标记的半截文件当种子：重拉时与旧货合并
  * 去重继续长大，拉失败也不缩水；中断/失败不记完成，下次进来接着补。
  * 预拉（下一集）与本集制备走同一条 fetchToFile：预拉只落盘、永不挂载，
  * 挂载只在播放侧按当前集 vid 裁定（VideoActivity.onHongguoDanmakuReady 复核当前集）。
@@ -153,6 +155,14 @@ public class HongguoDanmakuApi {
         return sb.toString();
     }
 
+    /** 调试打点（hongguo 两 API 原本零日志，真机定案只能靠样本回放）：只记日志、绝不影响行为——日志通道自身出问题也吞掉，本类的失败静默纪律优先。 */
+    private static void log(String msg, Object... args) {
+        try {
+            SpiderDebug.log("hongguo-danmaku", msg, args);
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ---------- 抓取 ----------
 
     /**
@@ -231,7 +241,9 @@ public class HongguoDanmakuApi {
         // 完整缓存免重复拉：标记与文件同目录同生死，标记在就算拉满过
         if (hasCompleteCache(vid)) {
             File file = cacheFile(vid);
-            return file != null && file.length() > 0 ? toDanmaku(file) : null;
+            Danmaku cached = file != null && file.length() > 0 ? toDanmaku(file) : null;
+            log("fetch cache-hit vid=%s item=%s", vid, cached != null);
+            return cached;
         }
         // 半截文件当种子：旧货先入账，重拉在其上继续长，拉失败也不缩水
         List<Item> seed = readCacheItems(vid);
@@ -251,6 +263,7 @@ public class HongguoDanmakuApi {
                                 .put("need_danmaku_guide_type", new JSONArray().put(1).put(3).put(4).put(2)));
                 return parseWindow(HongguoCommentApi.post("comment/list/" + vid, payload, 601, 1000), seriesId, vid);
             } catch (Exception e) {
+                log("window fetch failed vid=%s start=%d err=%s", vid, start, e.getClass().getSimpleName());
                 return null;
             }
         }, durationMs, snapshot -> {
@@ -263,12 +276,14 @@ public class HongguoDanmakuApi {
         List<Item> all = outcome.items;
         if (all.isEmpty()) {
             // 自然收尾且真空集：记完成免得每次起播白跑全程；失败中断的不记，下次还能补
-            if (outcome.complete) markComplete(vid);
+            if (outcome.complete) markComplete(vid, true);
+            log("fetch done vid=%s items=0 complete=%s", vid, outcome.complete);
             return null;
         }
         Danmaku item = ready[0] != null ? ready[0] : writeItem(vid, all);
         // 记完成的门槛：自然收尾且最终文件真落了盘——半截（失败收尾）不记，下次继续增量补
-        if (outcome.complete && item != null) markComplete(vid);
+        if (outcome.complete && item != null) markComplete(vid, false);
+        log("fetch done vid=%s items=%d complete=%s item=%s", vid, all.size(), outcome.complete, item != null);
         return item;
     }
 
@@ -309,14 +324,15 @@ public class HongguoDanmakuApi {
         return marker != null && marker.isFile();
     }
 
-    private static void markComplete(String vid) {
+    /** 落完成标记：内容区分收尾形态——有条目的完整集写 '1'、真零行空集写 '0'，只凭标记在不在分不出这两者，日后排查别再误判。 */
+    private static void markComplete(String vid, boolean empty) {
         try {
             File marker = markerFile(vid);
             if (marker == null) return;
             File parent = marker.getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) return;
             try (FileOutputStream out = new FileOutputStream(marker)) {
-                out.write(1);
+                out.write(empty ? '0' : '1');
             }
         } catch (Throwable ignored) {
         }
@@ -369,7 +385,14 @@ public class HongguoDanmakuApi {
     /** 解析一窗响应；code≠0 或归属回验不过返回 null——回验只管本窗，本窗数据整窗丢弃，先前已验过的窗不受牵连（collectWindows 按已得部分收尾）。 */
     static Window parseWindow(JSONObject result, String seriesId, String vid) {
         try {
-            if (result == null || result.optInt("code", -1) != 0) return null;
+            if (result == null) {
+                log("gate reject vid=%s reason=no-result", vid);
+                return null;
+            }
+            if (result.optInt("code", -1) != 0) {
+                log("gate reject vid=%s reason=code=%d", vid, result.optInt("code", -1));
+                return null;
+            }
             JSONObject data = result.getJSONObject("data");
             JSONObject info = data.getJSONObject("common_list_info");
             boolean more = info.optBoolean("has_more", false);
@@ -386,9 +409,20 @@ public class HongguoDanmakuApi {
                     JSONObject common = comment.optJSONObject("common");
                     JSONObject expand = comment.optJSONObject("expand");
                     if (common == null || expand == null) continue;
-                    // 回验闸：归属对不上整窗作废，防误抓别家弹幕（与评论侧同一道闸）
-                    if (common.has("group_id") && !vid.equals(common.optString("group_id"))) return null;
-                    if (expand.has("book_id") && !seriesId.equals(expand.optString("book_id"))) return null;
+                    // 回验闸 group_id 腿：归属对不上整窗作废，防误抓别家弹幕（与评论侧同一道闸）。
+                    // 窗口本就是按 group_id=vid 定向请求的，此腿对得上是请求寻址的本集 id，作废语义成立。
+                    if (common.has("group_id") && !vid.equals(common.optString("group_id"))) {
+                        log("gate reject vid=%s leg=group got=%s", vid, common.optString("group_id"));
+                        return null;
+                    }
+                    // book_id 腿只拦硬冲突：601 弹幕载荷不守评论侧的字段语义——真人行 book_id
+                    // 恒为 0（只有平台插入行带真值），0/空/缺失＝该行未带书籍归属，跳过此腿；
+                    // 只有带了真 id 又与本剧对不上才整窗作废。照评论语义判 0 会把每窗全废（真机实证）。
+                    String bookId = expand.optString("book_id", "");
+                    if (HongguoCommentApi.isId(bookId) && !seriesId.equals(bookId)) {
+                        log("gate reject vid=%s leg=book got=%s", vid, bookId);
+                        return null;
+                    }
                     JSONObject contentObj = common.optJSONObject("content");
                     String text = contentObj == null ? "" : contentObj.optString("text").trim();
                     long offset = expand.optLong("offset_time", -1);

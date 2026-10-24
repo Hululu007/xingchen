@@ -397,27 +397,15 @@ public class MusicSettingsActivity extends BaseActivity {
         for (int i = 0; i < ids.length; i++) if (ids[i].equals(theme)) cur = i;
         MusicOptionsDialog.show(this, "播放页主题", opts, cur, idx -> {
             com.fongmi.android.tv.ui.music.MusicPlayerSettings.setTheme(ids[idx]);
-            syncCdSurfaceKey(ids[idx]);
             refreshThemeText();
             refreshCdSurfaceText();
         });
     }
 
-    /** CD 三 id 与旧表面键 music_cd_surface 同步（批 4 工具面板同款口径；非 CD 主题不动此键） */
-    private static void syncCdSurfaceKey(String themeId) {
-        if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD.equals(themeId)) {
-            MusicStore.setCdSurface(MusicStore.CD_SURFACE_LIGHT);
-        } else if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(themeId)) {
-            MusicStore.setCdSurface(MusicStore.CD_SURFACE_DARK);
-        } else if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(themeId)) {
-            MusicStore.setCdSurface(MusicStore.CD_SURFACE_AUTO);
-        }
-    }
-
     /** 批 6 接线：流光 CD 盘面行改走主题 id（播放页只认主题 id 推导表面，旧键 music_cd_surface
      * 无任何播放侧读取方——旧行是写了没人读的假选项）。选表面＝切到对应 CD 主题变体；
      * 当前主题不是 CD 时右侧值显「未启用」，选任一档即切到该 CD 变体（与瓜子三 id 模型一致）。
-     * 旧键继续同步写（syncCdSurfaceKey），存量值不丢。 */
+     * 旧表面键 music_cd_surface 已整组摘除（扫查待裁 25：只写不读的纯残留，主题 id 是唯一真状态）。 */
     private void refreshCdSurfaceText() {
         String t = com.fongmi.android.tv.ui.music.MusicPlayerSettings.getTheme();
         if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD.equals(t)) {
@@ -444,7 +432,6 @@ public class MusicSettingsActivity extends BaseActivity {
         for (int i = 0; i < ids.length; i++) if (ids[i].equals(theme)) cur = i;
         MusicOptionsDialog.show(this, "流光 CD 盘面", opts, cur, idx -> {
             com.fongmi.android.tv.ui.music.MusicPlayerSettings.setTheme(ids[idx]);
-            syncCdSurfaceKey(ids[idx]);
             refreshCdSurfaceText();
             refreshThemeText();
         });

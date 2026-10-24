@@ -22,7 +22,6 @@ public class MusicStore {
 
     private static final String K_MODE = "music_mode";
     private static final String K_QUALITY = "music_quality";
-    private static final String K_SORT_HOME = "music_sort_home";
     private static final String K_SORT_LIST = "music_sort_list";
     private static final String K_QUEUE = "music_last_queue";
     private static final String K_INDEX = "music_last_index";
@@ -258,15 +257,6 @@ public class MusicStore {
             default:
                 return "320k";
         }
-    }
-
-    /** 首页源排序：0 默认 1 名称 2 状态 */
-    public static int getHomeSort() {
-        return Prefers.getInt(K_SORT_HOME, 0);
-    }
-
-    public static void setHomeSort(int sort) {
-        Prefers.put(K_SORT_HOME, sort);
     }
 
     /** 列表排序：0 默认 1 标题 2 歌手 3 时长；第三波 R4：升降方向（默认升序） */
@@ -768,13 +758,6 @@ public class MusicStore {
     public static final String THEME_LUMINOUS_CD = "luminous_cd";
     public static final String THEME_RECORD_SHELF = "record_shelf";
 
-    /** 流光 CD 表面：浅色 */
-    public static final int CD_SURFACE_LIGHT = 0;
-    /** 流光 CD 表面：深色 */
-    public static final int CD_SURFACE_DARK = 1;
-    /** 流光 CD 表面：自动 */
-    public static final int CD_SURFACE_AUTO = 2;
-
     /** 歌词粗细：标准 */
     public static final int LYRIC_WEIGHT_NORMAL = 0;
     /** 歌词粗细：加粗 */
@@ -797,7 +780,6 @@ public class MusicStore {
     public static final int LYRIC_PRIMARY_ROMANIZATION = 2;
 
     private static final String K_PLAYER_THEME = "music_player_theme";
-    private static final String K_CD_SURFACE = "music_cd_surface";
     private static final String K_LYRIC_FONT_SIZE = "music_lyric_font_size";
     private static final String K_LYRIC_WEIGHT = "music_lyric_weight";
     private static final String K_LYRIC_ALIGN = "music_lyric_align";
@@ -830,15 +812,6 @@ public class MusicStore {
         } else {
             Prefers.put(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
         }
-    }
-
-    /** 流光 CD 表面：0 浅 1 深 2 自动（默认自动） */
-    public static int getCdSurface() {
-        return Prefers.getInt(K_CD_SURFACE, CD_SURFACE_AUTO);
-    }
-
-    public static void setCdSurface(int surface) {
-        Prefers.put(K_CD_SURFACE, Math.max(CD_SURFACE_LIGHT, Math.min(CD_SURFACE_AUTO, surface)));
     }
 
     /** L5：歌词字号拆双键。旧键 music_lyric_font_size 即全屏键（已有键不动、只改默认与口径）：
@@ -970,8 +943,6 @@ public class MusicStore {
     private static final String K_LEFT_HAND = "music_left_hand_landscape";
     /** 动态流体背景（A4；默认关） */
     private static final String K_FLUID_BG = "music_fluid_bg";
-    /** 音乐律动（A4；默认关） */
-    private static final String K_RHYTHM = "music_rhythm";
     /** 插件检测结果表（C4；srcUrl → MusicPluginTest 的 JSON） */
     private static final String K_PLUGIN_TESTS = "music_plugin_tests";
     /** 取链耗时表（C5；平台 → 插件 srcUrl → 最近取链耗时 ms 的 JSON） */
@@ -1001,14 +972,6 @@ public class MusicStore {
 
     public static void setFluidBg(boolean on) {
         Prefers.put(K_FLUID_BG, on);
-    }
-
-    public static boolean isRhythm() {
-        return Prefers.getBoolean(K_RHYTHM, false);
-    }
-
-    public static void setRhythm(boolean on) {
-        Prefers.put(K_RHYTHM, on);
     }
 
     /** 插件检测结果表（读不到／解析失败返回空表，不抛） */

@@ -1114,10 +1114,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             if (i > 0) lp.setMarginStart(dp(12));
             row.addView(themeCard(id, THEME_NAMES[i], THEME_COLORS[i], THEME_LAYOUTS[i], id.equals(cur), v -> {
                 MusicPlayerSettings.setTheme(id);
-                // 存量表面键同步（设置页批 6 前仍读 music_cd_surface）：CD 三 id 落对应表面档，其余主题不动此键
-                if (MusicPlayerSettings.THEME_LUMINOUS_CD.equals(id)) MusicStore.setCdSurface(0);
-                else if (MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(id)) MusicStore.setCdSurface(1);
-                else if (MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(id)) MusicStore.setCdSurface(2);
+                // 旧表面键 music_cd_surface 已摘除（扫查待裁 25），主题 id 即唯一真状态，不再同步写
                 if (listener != null) listener.onThemeChanged();
                 showPanel(PANEL_THEME);
             }), lp);

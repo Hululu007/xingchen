@@ -25,14 +25,18 @@ import com.fongmi.android.tv.player.lyrics.LyricsRequest;
 import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.utils.LocalTrackMeta;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Future;
 
 /**
  * 音乐源门面：播放器/UI 只调这里，内部再找源实现。
@@ -54,6 +58,51 @@ public class MusicRepository {
     private static final Object DEAD_PLAY_URL_LOCK = new Object();
     private static String deadPlayUrlTrackKey = "";
     private static final Set<String> deadAssignedPlayUrlPlugins = new HashSet<>();
+
+    /**
+     * 二-28 负结果短期缓存：整链跑完确认无词的歌，60 秒内再取词直接回空，不重走全链
+     * （本地无词歌每次进播放页都整链串行重跑，是「歌词出现晚、无词也晚」的尾巴；
+     * 且播放页 lyricRich 空后还要再走一遍 lyric() 纯文本链，不拦就是双倍整链）。
+     * 只记「整链无词」这一种结论：歌词缺失开关关／查询为空的提前收口不记；
+     * 手动重搜（force）不读本缓存、整链照跑，跑完按结果刷新；任一步命中即清。
+     * 键与 MusicLyricCache 同一身份口径（platform:id／本地路径／标题回退键）。
+     */
+    private static final long LYRIC_MISS_TTL_MS = 60_000;
+    private static final int LYRIC_MISS_MAX = 200;
+    private static final Map<String, Long> LYRIC_MISS_AT = new LinkedHashMap<String, Long>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+            return size() > LYRIC_MISS_MAX;
+        }
+    };
+
+    private static boolean lyricMissedRecently(MusicTrack track) {
+        String key = MusicLyricCache.key(track);
+        if (key == null) return false;
+        synchronized (LYRIC_MISS_AT) {
+            Long at = LYRIC_MISS_AT.get(key);
+            if (at == null) return false;
+            if (System.currentTimeMillis() - at <= LYRIC_MISS_TTL_MS) return true;
+            LYRIC_MISS_AT.remove(key);
+            return false;
+        }
+    }
+
+    private static void markLyricMiss(MusicTrack track) {
+        String key = MusicLyricCache.key(track);
+        if (key == null) return;
+        synchronized (LYRIC_MISS_AT) {
+            LYRIC_MISS_AT.put(key, System.currentTimeMillis());
+        }
+    }
+
+    private static void clearLyricMiss(MusicTrack track) {
+        String key = MusicLyricCache.key(track);
+        if (key == null) return;
+        synchronized (LYRIC_MISS_AT) {
+            LYRIC_MISS_AT.remove(key);
+        }
+    }
 
     /** P-3d＋第二波堵-4：新一次取链开始时清掉上次取链的死插件记录（仓库层＋Lx＋FreeJs 三处一起清）。 */
     public static void clearDeadPlayUrlAttempt() {
@@ -427,6 +476,8 @@ public class MusicRepository {
         if (track == null) return null;
         MusicSource s = find(track.platform);
         if (s == null) return null;
+        // 二-28 负缓存：刚整链确认无词的歌短期内不重走全链（手动重搜 force 不读）
+        if (!force && lyricMissedRecently(track)) return null;
         String own = null;
         try {
             own = s.lyric(track);
@@ -434,7 +485,10 @@ public class MusicRepository {
             rethrowKeyIssue(t);
             SpiderDebug.log("music", "lyric error platform=%s %s", track.platform, t.getMessage());
         }
-        if (own != null && !own.trim().isEmpty()) return own;
+        if (own != null && !own.trim().isEmpty()) {
+            clearLyricMiss(track);
+            return own;
+        }
 
         // 「歌词缺失自动搜索」：当前源没词（或报错）时，按源顺序拿其它插件/源用歌名+歌手搜歌词补上
         // 本地歌查询序列按净歌名逐级降级（文件名后缀／发行组后缀／占位歌手已清洗）；在线歌序列只有一个原样查询，行为不动
@@ -446,7 +500,10 @@ public class MusicRepository {
         if (s instanceof FreeJsMusicSource) {
             try {
                 String fb = ((FreeJsMusicSource) s).lyricFallback(track);
-                if (fb != null && !fb.trim().isEmpty()) return fb;
+                if (fb != null && !fb.trim().isEmpty()) {
+                    clearLyricMiss(track);
+                    return fb;
+                }
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyric fallback error %s", t.getMessage());
             }
@@ -459,7 +516,10 @@ public class MusicRepository {
                     MusicTrack hit = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
                     if (hit == null) continue;
                     String lrc = other.lyric(hit);
-                    if (lrc != null && !lrc.trim().isEmpty()) return lrc;
+                    if (lrc != null && !lrc.trim().isEmpty()) {
+                        clearLyricMiss(track);
+                        return lrc;
+                    }
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
                     SpiderDebug.log("music", "lyric alt search error platform=%s %s", other.platform(), t.getMessage());
@@ -473,11 +533,16 @@ public class MusicRepository {
             if (!(other instanceof FreeJsMusicSource)) continue;
             try {
                 String lrc = ((FreeJsMusicSource) other).lyricFromLyricPlugins(track);
-                if (lrc != null && !lrc.trim().isEmpty()) return lrc;
+                if (lrc != null && !lrc.trim().isEmpty()) {
+                    clearLyricMiss(track);
+                    return lrc;
+                }
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
             }
         }
+        // 二-28：整链跑完仍无词才记负缓存（提前收口的两处 return 在此之前，不记）
+        markLyricMiss(track);
         return null;
     }
 
@@ -555,6 +620,9 @@ public class MusicRepository {
         }
         MusicSource s = find(track.platform);
         if (s == null) return null;
+        // 二-28 负缓存：刚整链确认无词的歌短期内不重走全链（手动重搜 force 不读、照常整链；
+        // 手动选版恢复在上方已先行处理，不受本缓存影响）
+        if (!force && lyricMissedRecently(track)) return null;
         LyricPick pick = new LyricPick(MusicStore.getLyricPriority());
         MusicLyric own = null;
         try {
@@ -564,7 +632,10 @@ public class MusicRepository {
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
         MusicLyric hit = pick.note(own);
-        if (hit != null) return hit;
+        if (hit != null) {
+            clearLyricMiss(track);
+            return hit;
+        }
 
         if (!force && !MusicStore.isLyricFallback()) return own != null && own.hasLyric() ? own : null;
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
@@ -575,73 +646,76 @@ public class MusicRepository {
             try {
                 MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRich(track));
                 hit = pick.note(fb);
-                if (hit != null) return hit;
+                if (hit != null) {
+                    clearLyricMiss(track);
+                    return hit;
+                }
             } catch (Throwable t) {
                 SpiderDebug.log("music", "lyricRich fallback error %s", t.getMessage());
             }
         }
+        // 二-28 并行预取：步 2–6 彼此独立（入参只有 track、各步内部自带封顶——平台直连
+        // 整链 18 秒／酷我 18 秒／AMLL 18 秒／Worker 连接 10 秒＋读 25 秒／桥调用 30 秒），
+        // 原串行版最坏要把这些封顶逐个加满才出词；现一次并行发出（LyricPrefetch），
+        // 回来后仍按原步序逐个取结果、逐个 note：pick 桶的首命中、立即返回点、密钥问题
+        // 抛出点都与串行版逐点一致，墙钟从各步之和降为最慢一步。步 2 收集器自带同口径
+        // 探针桶，命中首选即停收，与串行版「note 返回即停」同点；主线程已返回后才跑完
+        // 的预取结果直接丢弃、不回写任何状态，不改变任何选择。
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries);
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
-        for (LocalTrackMeta.Query q : queries) {
-            for (MusicSource other : SOURCES) {
-                if (other == s || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
-                try {
-                    MusicTrack hitTrack = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
-                    if (hitTrack == null) continue;
-                    MusicLyric lrc = normalizeRich(richOf(other, hitTrack));
-                    hit = pick.note(lrc);
-                    if (hit != null) return hit;
-                } catch (Throwable t) {
-                    rethrowKeyIssue(t);
-                    SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
-                }
+        CrossCollect cross = prefetch.cross();
+        for (MusicLyric lrc : cross.lyrics) {
+            hit = pick.note(lrc);
+            if (hit != null) {
+                clearLyricMiss(track);
+                return hit;
             }
         }
+        // 串行版在抛密钥问题的那个源处中止本步并向上抛；收集器把该点记在 keyIssue 里，
+        // 前面各源的命中已按原序 note 完（若已命中首选上面已返回、与串行版同点不抛）。
+        if (cross.keyIssue != null) throw cross.keyIssue;
         // 3. 歌词型插件直查（与 lyric() 同一步、同口径）
-        for (MusicSource other : SOURCES) {
-            if (!(other instanceof FreeJsMusicSource)) continue;
-            try {
-                MusicLyric lrc = normalizeRich(((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track));
-                hit = pick.note(lrc);
-                if (hit != null) return hit;
-            } catch (Throwable t) {
-                SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
+        for (MusicLyric lrc : prefetch.pluginLyrics()) {
+            hit = pick.note(lrc);
+            if (hit != null) {
+                clearLyricMiss(track);
+                return hit;
             }
         }
         // 4. Worker 聚合（主来源，已接线）：cfLyricWord 只认本地解析逐字，
         // 弱网／超时回空，不阻塞回落；回包口径不动。
-        MusicLyric cf = cfLyricWord(track);
-        hit = pick.note(cf);
-        if (hit != null) return hit;
+        hit = pick.note(prefetch.cf());
+        if (hit != null) {
+            clearLyricMiss(track);
+            return hit;
+        }
         // 5. 平台直连回落（Worker 不可用时才走：酷狗 KRC → QQ QRC → 网易云 YRC）：只认词级，行级不截断
-        try {
-            MusicLyric platform = new PlatformWordLyricSource().lyricRich(track);
-            hit = pick.note(platform);
-            if (hit != null) return hit;
-        } catch (Throwable t) {
-            SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
+        hit = pick.note(prefetch.platform());
+        if (hit != null) {
+            clearLyricMiss(track);
+            return hit;
         }
         // 5.5 酷我行级直连（lrclist 崩的宿主侧根治）：元力 KW 插件 getLyric 在酷我接口回空时
         // 对 null 读 lrclist 抛未处理拒绝，宿主改不了远端混淆插件；本步用宿主自有 KuwoClient
         // （空数据已判空回空串，绝不崩）按歌名直取行级词，记进 pick 的行级／首版桶——
         // 默认逐字模式下不截断链（词版仍优先），最终 pick 无词版时回落本版，歌不再无词可显。
-        try {
-            hit = pick.note(kuwoLineLyric(track));
-            if (hit != null) return hit;
-        } catch (Throwable t) {
-            SpiderDebug.log("music", "lyricRich kuwo line error %s", t.getMessage());
+        hit = pick.note(prefetch.kuwo());
+        if (hit != null) {
+            clearLyricMiss(track);
+            return hit;
         }
         // 6. AMLL（B8）：最后兜底，AMLL 档带档位元数据；无命中返回空，不冒充
-        // S6 门控：AMLL 开关关时跳过本步；默认开，行为与原来一致
-        if (MusicStore.isAmllEnabled()) {
-            try {
-                MusicLyric amll = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
-                hit = pick.note(amll);
-                if (hit != null) return hit;
-            } catch (Throwable t) {
-                SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
-            }
+        // S6 门控：开关关时预取不提交本步（结果为空），默认开，行为与原来一致
+        hit = pick.note(prefetch.amll());
+        if (hit != null) {
+            clearLyricMiss(track);
+            return hit;
         }
-        return pick.pick(own);
+        MusicLyric result = pick.pick(own);
+        // 二-28：整链跑完仍无词才记负缓存（提前收口的 return 在此之前，不记）
+        if (result != null) clearLyricMiss(track);
+        else markLyricMiss(track);
+        return result;
     }
 
     /**
@@ -821,6 +895,161 @@ public class MusicRepository {
             if (firstRaw != null) return firstRaw;
             if (own != null && own.hasLyric()) return own;
             return null;
+        }
+    }
+
+    /**
+     * 二-28：步 2（跨源）收集结果——按链序收集的各源命中＋（若有）中止收集的密钥问题。
+     * 收集器按串行版同一点停：探针桶 note 返回首选即停收；某源抛密钥问题时，
+     * 先收的命中照常在列表里，调用方按原序 note 完后在同一点把密钥问题抛出去，
+     * 与串行版「在那个源处中止并向上抛」逐点一致。
+     */
+    private static class CrossCollect {
+        final List<MusicLyric> lyrics = new ArrayList<>();
+        LxKeyIssue keyIssue;
+    }
+
+    /** 步 2 收集（原串行循环的收集版）：查询序列外层×其它源内层，命中按原序入列、探针桶命中首选即停 */
+    private static CrossCollect collectCross(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries) {
+        CrossCollect out = new CrossCollect();
+        LyricPick probe = new LyricPick(MusicStore.getLyricPriority());
+        for (LocalTrackMeta.Query q : queries) {
+            for (MusicSource other : SOURCES) {
+                if (other == self || LocalMusicSource.PLATFORM.equals(other.platform())) continue;
+                try {
+                    MusicTrack hitTrack = matchSong(matchTarget(track, q.matchTitle), other.search(q.keyword));
+                    if (hitTrack == null) continue;
+                    MusicLyric lrc = normalizeRich(richOf(other, hitTrack));
+                    if (lrc == null) continue;
+                    out.lyrics.add(lrc);
+                    if (probe.note(lrc) != null) return out;
+                } catch (Throwable t) {
+                    try {
+                        rethrowKeyIssue(t);
+                    } catch (LxKeyIssue k) {
+                        out.keyIssue = k;
+                        return out;
+                    }
+                    SpiderDebug.log("music", "lyricRich alt search error platform=%s %s", other.platform(), t.getMessage());
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 步 3 收集（原串行循环的收集版）：逐个 FreeJs 源问歌词型插件，命中按源序入列 */
+    private static List<MusicLyric> collectLyricPlugins(MusicTrack track) {
+        List<MusicLyric> out = new ArrayList<>();
+        for (MusicSource other : SOURCES) {
+            if (!(other instanceof FreeJsMusicSource)) continue;
+            try {
+                MusicLyric lrc = normalizeRich(((FreeJsMusicSource) other).lyricFromLyricPluginsRich(track));
+                if (lrc != null) out.add(lrc);
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyricRich plugin search error %s", t.getMessage());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 二-28 歌词回退链并行预取：步 2（跨源收集）／3（歌词型插件）／4（Worker）／5（平台
+     * 直连）／5.5（酷我行级）／6（AMLL）互不依赖，一次性提交 Task.largeExecutor 并行跑，
+     * lyricRich 仍按原步序逐个 await＋note。线程安全：FreeJS 桥每插件独占单线程
+     * QuickJS 上下文，并行步对同桥的调用在桥内单线程执行器排队、不并发进 JS；
+     * Worker／平台／酷我／AMLL 客户端都是每次调用新建实例，无共享可变状态；
+     * SOURCES 是 CopyOnWriteArrayList，只读遍历安全。步 5／5.5／6 原串行版的
+     * try/catch 收口搬进各自任务内，日志文案与原来一致。
+     */
+    private static class LyricPrefetch {
+        private final Future<CrossCollect> cross;
+        private final Future<List<MusicLyric>> plugins;
+        private final Future<MusicLyric> cf;
+        private final Future<MusicLyric> platform;
+        private final Future<MusicLyric> kuwo;
+        private final Future<MusicLyric> amll;
+
+        private LyricPrefetch(Future<CrossCollect> cross, Future<List<MusicLyric>> plugins,
+                              Future<MusicLyric> cf, Future<MusicLyric> platform,
+                              Future<MusicLyric> kuwo, Future<MusicLyric> amll) {
+            this.cross = cross;
+            this.plugins = plugins;
+            this.cf = cf;
+            this.platform = platform;
+            this.kuwo = kuwo;
+            this.amll = amll;
+        }
+
+        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries) {
+            Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries));
+            Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
+            Future<MusicLyric> cf = Task.largeExecutor().submit(() -> cfLyricWord(track));
+            Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
+                try {
+                    return new PlatformWordLyricSource().lyricRich(track);
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
+                    return null;
+                }
+            });
+            Future<MusicLyric> kuwo = Task.largeExecutor().submit(() -> {
+                try {
+                    return kuwoLineLyric(track);
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyricRich kuwo line error %s", t.getMessage());
+                    return null;
+                }
+            });
+            Future<MusicLyric> amll = MusicStore.isAmllEnabled()
+                    ? Task.largeExecutor().submit(() -> {
+                        try {
+                            return normalizeRich(new AmllMusicLyricSource().lyricRich(track));
+                        } catch (Throwable t) {
+                            SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
+                            return null;
+                        }
+                    })
+                    : null;
+            return new LyricPrefetch(cross, plugins, cf, platform, kuwo, amll);
+        }
+
+        CrossCollect cross() {
+            CrossCollect r = await(cross);
+            return r != null ? r : new CrossCollect();
+        }
+
+        List<MusicLyric> pluginLyrics() {
+            List<MusicLyric> r = await(plugins);
+            return r != null ? r : Collections.emptyList();
+        }
+
+        MusicLyric cf() {
+            return await(cf);
+        }
+
+        MusicLyric platform() {
+            return await(platform);
+        }
+
+        MusicLyric kuwo() {
+            return await(kuwo);
+        }
+
+        MusicLyric amll() {
+            return amll == null ? null : await(amll);
+        }
+
+        private static <T> T await(Future<T> f) {
+            if (f == null) return null;
+            try {
+                return f.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "lyric prefetch error %s", t.getMessage());
+                return null;
+            }
         }
     }
 

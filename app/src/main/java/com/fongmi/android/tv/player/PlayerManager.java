@@ -634,6 +634,11 @@ public class PlayerManager implements ParseCallback {
         return getDanmakus() != null && getDanmakus().stream().anyMatch(Danmaku::isSelected);
     }
 
+    /** 直播弹幕已挂载（与管线自身的连会话判定同口径：当前弹幕地址分级为 live）；点播弹幕不在此列，走 haveDanmaku()。 */
+    public boolean haveLiveDanmaku() {
+        return !TextUtils.isEmpty(currentDanmakuUrl) && DanmakuUrlPolicy.classify(currentDanmakuUrl).isLive();
+    }
+
     public boolean canSetOpening(long position, long duration) {
         return position > 0 && duration > 0 && position <= Constant.getOpEdLimit(duration);
     }

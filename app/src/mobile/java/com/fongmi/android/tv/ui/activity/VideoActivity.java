@@ -3959,7 +3959,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /** 新增：右上角弹幕/字幕细设入口（横屏全屏＋竖屏全屏） */
     private void onFineSetting() {
         // 细设只列当前真有的：没弹幕不列弹幕细设；没字幕轨且非点播不列字幕细设（与字幕键同一闸门）；只剩一项直接打开
-        boolean hasDanmaku = player().haveDanmaku();
+        // 直播弹幕（js_simple_live 等源经本页播直播）不在点播弹幕源列表里，haveDanmaku() 恒假——须并上 haveLiveDanmaku()，否则直播态点齿轮空转
+        boolean hasDanmaku = player().haveDanmaku() || player().haveLiveDanmaku();
         boolean hasSubtitle = player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod();
         if (hasDanmaku && !hasSubtitle) {
             DanmakuSettingDialog.create().player(player()).show(this);
@@ -6332,8 +6333,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 竖屏套按实际屏幕方向定：屏幕横了走横屏套（哪怕视频本身是竖的短剧），不按视频宽高
         boolean isVerticalFullscreen = isFullscreen() && !isActualLand();
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
-        // 细设入口（右上角同款）：横屏全屏＋竖屏全屏＋竖屏非全屏（详情页内嵌播放）均显示——详情页无独立播放页，非全屏态够不着等于详情页够不着；细设两项（弹幕/字幕）都无对象时入口一并藏（该藏的藏）
-        mBinding.control.fineSetting.setVisibility(!isLock() && (player().haveDanmaku() || player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
+        // 细设入口（右上角同款）：横屏全屏＋竖屏全屏＋竖屏非全屏（详情页内嵌播放）均显示——详情页无独立播放页，非全屏态够不着等于详情页够不着；细设两项（弹幕/字幕）都无对象时入口一并藏（该藏的藏）；直播弹幕经 haveLiveDanmaku() 并入弹幕对象（直播间在本页承载，见 onFineSetting 注）
+        mBinding.control.fineSetting.setVisibility(!isLock() && (player().haveDanmaku() || player().haveLiveDanmaku() || player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.fullscreen.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);

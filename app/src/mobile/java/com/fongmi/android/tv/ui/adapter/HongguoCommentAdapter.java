@@ -1,26 +1,37 @@
 package com.fongmi.android.tv.ui.adapter;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Path;
+import android.util.LruCache;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.HongguoCommentApi;
 import com.fongmi.android.tv.databinding.AdapterHongguoCommentBinding;
 import com.fongmi.android.tv.databinding.AdapterHongguoFooterBinding;
 import com.fongmi.android.tv.databinding.AdapterHongguoReplyBinding;
+import com.github.catvod.net.OkHttp;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import okhttp3.Request;
+import okhttp3.Response;
 
 /**
  * 红果评论列表 Adapter：评论行（头像/名字/时间/正文/评分/点赞/回复）＋页脚行
@@ -135,12 +146,7 @@ public class HongguoCommentAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         HongguoCommentApi.Comment item = mItems.get(position);
         AdapterHongguoCommentBinding binding = commentHolder.binding;
         Context context = binding.getRoot().getContext();
-        if (!item.avatar.isEmpty()) {
-            Glide.with(binding.avatar).load(item.avatar).circleCrop()
-                    .placeholder(R.drawable.ic_logo).error(R.drawable.ic_logo).into(binding.avatar);
-        } else {
-            binding.avatar.setImageResource(R.drawable.ic_logo);
-        }
+        loadAvatar(binding.avatar, item.avatar);
         binding.author.setText(item.author);
         binding.time.setText(formatTime(item.created));
         if (item.score != null && !item.score.isEmpty()) {
@@ -206,6 +212,84 @@ public class HongguoCommentAdapter extends RecyclerView.Adapter<RecyclerView.Vie
             foot.setOnClickListener(v -> listener.onMoreReplies(item));
             container.addView(foot);
         }
+    }
+
+    // ---------- 头像加载（HEIC 专用路，不走 Glide） ----------
+
+    /**
+     * 红果头像不能走 Glide：fqnovelpic 对头像一律回 image/heic（地址写 jpeg、请求带
+     * Accept 协商都改不了，主会话实测在案），而壳子的 Glide 5.0.7 在 header 解析层
+     * 根本没有 HEIF 类型（ImageType 枚举无 HEIF、DefaultImageHeaderParser 只嗅 AVIF
+     * 品牌，字节码实证见 danmaku-avatar-dialog-fixes.md），HEIC 头像必然解不出、只剩占位，
+     * jpeg/png 的能出——正是用户看到的「有些头像加载不出来」。
+     * 改走原始字节＋平台 BitmapFactory 解码（Android 10+ 平台原生支持 HEIF）再圆形裁切，
+     * jpeg/png 同路走；只动评论头像这一处，封面加载链不牵连。失败保留默认占位，不白空。
+     */
+    private static final int AVATAR_PX = 144;
+    private static final LruCache<String, Bitmap> AVATAR_CACHE = new LruCache<>(96);
+    private static final ExecutorService AVATAR_EXECUTOR = Executors.newFixedThreadPool(3, runnable -> {
+        Thread thread = new Thread(runnable, "hongguo-avatar");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private static void loadAvatar(ImageView view, String url) {
+        view.setTag(url);
+        if (url == null || url.isEmpty()) {
+            view.setImageResource(R.drawable.ic_logo);
+            return;
+        }
+        Bitmap cached = AVATAR_CACHE.get(url);
+        if (cached != null) {
+            view.setImageBitmap(cached);
+            return;
+        }
+        view.setImageResource(R.drawable.ic_logo);
+        AVATAR_EXECUTOR.execute(() -> {
+            Bitmap bitmap = fetchAvatar(url);
+            if (bitmap == null) return;
+            AVATAR_CACHE.put(url, bitmap);
+            view.post(() -> {
+                // 列表复用守卫：view 已绑到别的评论就别把旧头像盖上去
+                if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
+            });
+        });
+    }
+
+    private static Bitmap fetchAvatar(String url) {
+        try {
+            Request request = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
+            try (Response response = OkHttp.client().newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) return null;
+                byte[] bytes = response.body().bytes();
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                int sample = 1;
+                while (bounds.outWidth / (sample * 2) >= AVATAR_PX && bounds.outHeight / (sample * 2) >= AVATAR_PX) sample *= 2;
+                opts.inSampleSize = sample;
+                Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+                return decoded == null ? null : circleCrop(decoded);
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 中心方裁＋圆形遮罩（等价原 Glide circleCrop 的观感）。 */
+    private static Bitmap circleCrop(Bitmap src) {
+        int size = Math.min(src.getWidth(), src.getHeight());
+        if (size <= 0) return src;
+        Bitmap square = Bitmap.createBitmap(src, (src.getWidth() - size) / 2, (src.getHeight() - size) / 2, size, size);
+        Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(out);
+        Path path = new Path();
+        path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CCW);
+        canvas.clipPath(path);
+        canvas.drawBitmap(square, 0, 0, null);
+        return out;
     }
 
     static String formatTime(long epochSeconds) {

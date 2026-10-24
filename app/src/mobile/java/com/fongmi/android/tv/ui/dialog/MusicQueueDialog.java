@@ -140,6 +140,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             behavior.setExpandedOffset(Math.max(0, getContext().getResources().getDisplayMetrics().heightPixels - maxH));
         }
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        // 二-35 断点修复：updateSheetHeight 此前只有 refresh() 一条触发路，而首跑 refresh 在
+        // initView 里、sheetBehavior 还是空（setBehavior 在 onShow 才跑），被守卫吞掉；
+        // 之后监听又不回放当前态，开面板后没有任何路径再调它——面板遂永久停在首帧的 0.68
+        // 锚点上，少歌时（如 2 首）列表下方留大片白。行为就位后在此补触发这唯一的高度 owner，
+        // 它内部 root.post 的测量拍与 initView 里 recycler.post 滚动同款时序假设。
+        updateSheetHeight();
     }
 
     @Override
@@ -321,6 +327,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 return;
             }
             int rootH = root.getHeight();
+            if (rootH == 0) {
+                // 二-35：首帧（onShow 触发）视图可能尚未布局、实高为 0——旧拍在此静默放弃且无重试，
+                // 面板停在 0.68 锚点。下一拍再测（布局必随窗口显示跟上；面板销毁时 binding 空守卫截断）。
+                root.post(this::updateSheetHeight);
+                return;
+            }
             int recH = binding.recycler.getHeight();
             int finalH = rootH;
             if (rootH > maxH && recH > 0) {

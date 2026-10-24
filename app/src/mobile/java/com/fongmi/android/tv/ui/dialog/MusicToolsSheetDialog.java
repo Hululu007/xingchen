@@ -253,6 +253,22 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             }
         } catch (Throwable ignored) {
         }
+        // 返回键两段：处于子面板时先回主面板，再按一次才关整个面板
+        // （子面板头 ‹ 已摘除，回主面板的路统一走系统返回；原行为是任意面板按返回直接关整窗）。
+        try {
+            if (getDialog() != null) {
+                getDialog().setOnKeyListener((d, keyCode, event) -> {
+                    if (keyCode == android.view.KeyEvent.KEYCODE_BACK
+                            && event.getAction() == android.view.KeyEvent.ACTION_UP
+                            && currentPanel != PANEL_MAIN) {
+                        showPanel(PANEL_MAIN);
+                        return true;
+                    }
+                    return false;
+                });
+            }
+        } catch (Throwable ignored) {
+        }
         // T9：切歌重建主面板（注册在 showPanel 之前，首面板即受监听）。
         MusicController.get().addListener(toolsListener);
         showPanel(initialPanel);
@@ -1810,29 +1826,19 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // ================= 通用构建件 =================
 
-    /** 子面板头（GlassSheetPanelKt SheetSubPanelHeader）：高 44dp，左圆形钮 40dp（20dp 矢量 ‹ 图标，按压缩放 0.9，回主面板）
-     * ＋标题 17sp/800（字距 −0.3sp）＋右圆形钮 40dp（18dp ✕ 图标，按压缩放 0.9，关面板） */
+    /** 子面板头：高 44dp，标题 17sp/800（字距 −0.3sp）左对齐＋右圆形钮 40dp（18dp ✕ 图标，按压缩放 0.9，关面板）。
+     * 左侧 ‹ 返回钮已摘除（2026-10-25 用户定性：瓜子没有这个、页面不放 ‹），回主面板走系统返回键（见 initView 的 OnKeyListener）。 */
     private View subHeader(String title) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-        ImageView back = new ImageView(getContext());
-        back.setImageResource(R.drawable.ic_music_chevron_left);
-        back.setImageTintList(ColorStateList.valueOf(COLOR_TEXT));
-        back.setPadding(dp(10), dp(10), dp(10), dp(10));
-        back.setBackgroundResource(R.drawable.bg_music_glass_circle);
-        back.setContentDescription(getString(R.string.music_back));
-        back.setOnClickListener(v -> showPanel(PANEL_MAIN));
-        attachPress(back, 0.9f);
-        row.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
         TextView tv = text(title, 17, COLOR_TEXT, true);
         applyWeight(tv, 800);
         tv.setLetterSpacing(-0.0176f);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        tlp.setMarginStart(dp(8));
         row.addView(tv, tlp);
         ImageView close = new ImageView(getContext());
         close.setImageResource(R.drawable.ic_music_close);

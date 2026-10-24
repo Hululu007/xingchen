@@ -154,7 +154,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
         binding.notifPermGo.setOnClickListener(v -> openAppNotificationSettings());
         // 五快捷真跳
-        binding.homeQuickFavorite.setOnClickListener(v -> MusicListActivity.startFavorite(this));
+        binding.homeQuickFavorite.setOnClickListener(v -> MusicFavoriteActivity.startFavorite(this));
         binding.homeQuickSheets.setOnClickListener(v -> MusicListActivity.startSheets(this));
         binding.homeQuickDevice.setOnClickListener(v -> MusicDeviceActivity.startDevice(this));
         binding.homeQuickRecent.setOnClickListener(v -> showRecent());

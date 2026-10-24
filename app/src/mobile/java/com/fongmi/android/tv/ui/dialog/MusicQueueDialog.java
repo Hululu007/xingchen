@@ -584,6 +584,10 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 return new android.content.Intent(host,
                         com.fongmi.android.tv.ui.activity.MusicHistoryActivity.class);
             }
+            if ("favorite".equals(params.get("mode"))) {
+                return new android.content.Intent(host,
+                        com.fongmi.android.tv.ui.activity.MusicFavoriteActivity.class);
+            }
             android.content.Intent i = new android.content.Intent(host,
                     com.fongmi.android.tv.ui.activity.MusicListActivity.class);
             i.putExtra("mode", params.get("mode"));

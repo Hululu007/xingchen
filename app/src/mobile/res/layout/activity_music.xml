@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐首页 v7 定稿：浅色底／标题＋搜索胶囊＋⋮／五快捷白卡／三张渐变入口卡／心情电台卡。
-     底部迷你条是 ListenMiniBar 悬浮条（只在音乐首页显示），本页不内嵌。
+<!-- 音乐首页（第十稿定稿构成；本文件为首页收官从零重写，2026-10-25）：
+     液态玻璃全屏背景（MusicGlassBackgroundView 独立一层）＋滚动内容层。
+     顺序定死：标题 → 搜索胶囊＋⋮ → 通知权限提示条（未授权才显） → 五快捷独立玻璃片
+     → 继续播放 → 三彩卡 → 心情电台卡 → 榜单卡 → 聆听报告卡 → 底部留白（给悬浮迷你条）。
+     离边 16dp 由 MusicActivity 代码打在滚动层（左右 16dp、顶＝状态栏高＋12dp、底 16dp），
+     背景层不吃内边距、全屏铺满；本文件不许再写根内边距。
      无返回箭头（铁律），界面只放名字和状态，无介绍文字。
-     离边口径（2026-10-21 15:28 纠正，前令作废）：16dp 指卡片离屏两边的边距，不是圆角——
-     根布局左右内边距 16dp（代码侧再按状态栏高垫顶，见 MusicActivity）；圆角一律不动
-     （搜索胶囊 24dp、三彩卡 20dp、五快捷 16dp，均为现状保持）。
-     根布局不吃 fitsSystemWindows：旧版 fitsSystemWindows=true 时系统左右 inset（0）会盖掉 XML 的边距，
-     实机卡片贴边；改由代码固定 16dp 离边＋状态栏高垫顶。
-     首页顺序定死：标题 → 搜索胶囊条 → 五快捷白卡 → 三彩卡 → 心情电台卡 → 榜单白卡。 -->
+     底部迷你条是 ListenMiniBar 悬浮条（只在音乐首页显示），本页不内嵌。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- 全域统一背景（批 5 F1）：MusicGlassBackgroundView 单一实现，后批各页同款复用 -->
+    <!-- 液态玻璃全屏背景：单一实现 MusicGlassBackgroundView，后批各页同款复用 -->
     <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
         android:id="@+id/homeGlassBg"
         android:layout_width="match_parent"
@@ -24,21 +23,15 @@
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
     android:scrollbars="none">
-    <!-- 内层承内容：边距由 MusicActivity 代码打在 ScrollView 根上（左右 16dp、顶＝状态栏高＋12dp、底 16dp），
-         这里不许再写内边距，否则双倍。ScrollView 量测链是不定高（UNSPECIFIED）：三彩卡里的光晕
-         （match_parent）首遍量 0 不撑卡高，卡高由文字列定约 124dp；FrameLayout 二次测量再把光晕铺满卡面。
-         之前卡被拉满屏，就是根 LinearLayout 的 AT_MOST 剩余高度经 match_parent 光晕传进卡里。 -->
+    <!-- ScrollView 量测链是不定高（UNSPECIFIED）：三彩卡里的光晕（match_parent）首遍量 0
+         不撑卡高，卡高由文字列定；FrameLayout 二次测量再把光晕铺满卡面。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-    <!-- ⓪ 首页标题（GZ HomeTopBar 样式：28sp／800／字距 -0.8／颜色 #1C1C1E／下 2dp；
-         文案按他亲口定用“星辰音乐”（不用 GZ 的“发现好音乐”）；另加歌词同款斜度 skewX(-0.12f)；
-         顶距＝代码垫顶（状态栏高＋12dp）＋标题上边距 8dp（他 18:06 令整体下移一档，用户审美令高于 GZ 值）；
-         搜索条下移量＝标题块高度（28sp 行高约 34dp＋下 2dp，约 36dp，真机实测为准） -->
-    <!-- 批 5 F2／第十稿顶行：渐变标题字＋小金星＋右上角黑胶唱片斜探出画面；
-         F1 按 brief 加的头像占位＋问候副行在定稿（对照单 §九与第十稿构成）里没有，摘除 -->
+    <!-- ⓪ 顶行：渐变标题字（24sp／800／字距 -0.029／斜度 skewX(-0.12f) 代码侧）＋小金星
+         ＋右上角黑胶唱片斜探出画面；顶距＝代码垫顶（状态栏高＋12dp）＋标题上边距 8dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -81,7 +74,7 @@
             android:rotation="24" />
     </LinearLayout>
 
-    <!-- ① 搜索条＋右侧 ⋮（高 48dp、圆角 24dp 保持不动；上距 8dp＝他 18:07 令标题与搜索框拉开，用户审美令） -->
+    <!-- ① 搜索胶囊（高 48dp、玻璃圆角 24dp）＋右侧 ⋮ 独立点击区；上距 8dp -->
     <LinearLayout
         android:id="@+id/homeSearchBar"
         android:layout_width="match_parent"
@@ -123,8 +116,7 @@
             android:src="@drawable/home_ic_more_vert" />
     </LinearLayout>
 
-    <!-- ⓪½ 通知权限提示条：没授权时才出现（默认 gone，MusicActivity.onResume 按权限实读切换）；
-         深底白字＋黄钮，不用白底；已授权永远不出现、不占位 -->
+    <!-- 通知权限提示条：没授权时才出现（默认 gone，onResume 按权限实读切换）；深底白字＋黄钮 -->
     <LinearLayout
         android:id="@+id/notifPermStrip"
         android:layout_width="match_parent"
@@ -165,16 +157,13 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- ② 五快捷：一张玻璃白卡内五格（第十稿定案「五入一卡」，不许拆成五张独立方格——
-         1.4.27 真机截图里五格各带一张玻璃片、与定案不符，本批并卡）；格内图标＋名字＋数量
-         （皮照参照图 112782_4：柔和粉彩图标、标签粗黑、数字浅灰） -->
+    <!-- ② 五快捷：五片独立玻璃片一行（第十稿定稿形态：bg_music_glass_chip、片间 6dp、
+         本地音乐居中第三；2026-10-21 的「一卡五入」旧摆法已被第十稿改掉，
+         1.4.27 查修批曾误并回一卡，收官按第十稿改回五片）；格内彩色图标＋名字＋真实数量 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
-        android:background="@drawable/bg_music_glass_white_card"
-        android:elevation="2dp"
-        android:padding="6dp"
         android:orientation="horizontal">
 
         <LinearLayout
@@ -182,6 +171,8 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -220,6 +211,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -258,6 +252,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -296,6 +293,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -334,6 +334,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_music_glass_chip"
+            android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
             android:clickable="true"
@@ -368,9 +371,8 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 继续播放白卡（批 5 F2 按第十稿改回四封面横排，压过 F1 的单曲形态）：
-         头行「继续播放」标＋右上圆播放键；下行最近播放前 4 首封面横排（代码填充 homeContinueCovers），
-         点封面播该首（以历史为队列续接）、圆键续最近一首；不足 4 首按实数显、零首整卡 GONE 不留空洞 -->
+    <!-- 继续播放白卡：头行「继续播放」标＋右上圆播放键；下行最近播放前 4 首封面横排
+         （代码填充 homeContinueCovers），点封面播该首、圆键续播；零首整卡 GONE 不留空洞 -->
     <LinearLayout
         android:id="@+id/homeContinueCard"
         android:layout_width="match_parent"
@@ -428,9 +430,8 @@
             android:orientation="horizontal" />
     </LinearLayout>
 
-    <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动）
-         卡内间隔＝权重 Spacer：Spacer 高＝基准参量（非汽车 30dp／汽车 48dp，见 values[-car]/dimens.xml）
-         ＋权重 1 撑满剩余空间；卡 FrameLayout 与内列改 match_parent，使权重有撑满空间、图标底对齐 -->
+    <!-- ③ 三张渐变入口卡横排（上距 40dp、卡间 10dp）；卡内间隔＝权重 Spacer
+         （高＝@dimen/home_entry_icon_spacer 基准参量＋权重 1 撑满），图标底对齐 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -482,7 +483,7 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <!-- 封面堆（批 5 F2／第十稿）：三张封面错位叠放，数据由代码填（榜单前 3 封面，无数据时回落历史封面，再无则不显） -->
+            <!-- 封面堆：三张封面错位叠放，数据由代码填（榜单前 3 封面，无数据时回落历史封面，再无则不显） -->
             <FrameLayout
                 android:id="@+id/homeGuessStack"
                 android:layout_width="52dp"
@@ -567,7 +568,7 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <!-- 前三名小列表（批 5 F2／第十稿）：数据由代码填（当前榜签前 3 名），无数据整列不显 -->
+            <!-- 前三名小列表：数据由代码填（当前榜签前 3 名），无数据整列不显 -->
             <LinearLayout
                 android:id="@+id/homeCardChartList"
                 android:layout_width="wrap_content"
@@ -655,7 +656,7 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <!-- 发光播放盘（批 5 F2／第十稿）：柔光晕＋深墨盘＋白三角，整卡点按仍进随心听页 -->
+            <!-- 发光播放盘：柔光晕＋深墨盘＋白三角，整卡点按仍进随心听页 -->
             <FrameLayout
                 android:layout_width="44dp"
                 android:layout_height="44dp">
@@ -677,15 +678,11 @@
         </FrameLayout>
     </LinearLayout>
 
-    <!-- 心情电台卡（GZ MoodRadioPanel：圆角 20dp、横向三色渐变（按选中心情换色，向白混合 0.08/0.20/0.32，代码侧算）、
-         区头 10sp/600/字距0.1/行高14sp＋12dp 箭头标、当前心情大字 22sp/700/字距-0.4/行高28sp、
-         文案 11sp/行高16sp、纵向间距 6dp、波形区宽 0.44 比例×高 92dp（播放振幅 1.0／暂停 0.35）、
-         pills 行间距 8dp、行边距 12/0/12/12dp、pill 高 36dp、内边距 12/8dp、圆点 5dp、文字 12sp/行高16sp、
-         选中字重700底 tone 0.18、未选中字重500、播放钮 40dp 圆、横向渐变 tone→tone 向白混合 0.22、
-         图标播放中 18dp／未播放 24dp、按压缩放 0.9；卡前间隔 20dp（GZ）；
-         卡内边距／波形色／钮旁状态文字号未抠到，星辰侧自定 16dp／tone 0.7／11sp；
-         队列标题「心情电台 · XX」、搜不到 toast 同款；默认选中＝上次选择（prefs），无则怀旧；
-         “是本心情”判定＝ prefs 快照与现队列同序同曲（同随心听副题口径），不留假态） -->
+    <!-- 心情电台卡（瓜子 MoodRadioPanel：圆角 20dp、横向三色渐变按选中心情换色（代码侧算，
+         向白混合 0.08/0.20/0.32）、区头 10sp/600、当前心情大字 22sp/700、文案 11sp、
+         波形区宽 0.44 比例×高 92dp、pills 行边距 12/0/12/12dp、pill 高 36dp（代码侧建）、
+         播放钮 40dp 圆、横向渐变 tone→向白混合 0.22（代码侧算）；卡前间隔 20dp；
+         卡内边距／波形色／钮旁状态文字号未抠到，星辰侧自定 16dp／tone／11sp） -->
     <LinearLayout
         android:id="@+id/homeMoodCard"
         android:layout_width="match_parent"
@@ -804,8 +801,8 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- ④ 榜单白卡（用户 06:20 令，形态照参照图 112784_6：卡头榜名＋完整榜单、
-         左封面叠放带播放三角、右前 3 名、底榜签行；数据只用酷我＋QQ 真榜，取不到整卡隐藏） -->
+    <!-- ④ 榜单卡（卡头榜名＋完整榜单、左封面叠放带播放钮、右前 3 名、底榜签行；
+         数据只用酷我＋QQ 真榜，签表拉空整卡隐藏；默认 gone，代码按状态显） -->
     <LinearLayout
         android:id="@+id/homeChartCard"
         android:layout_width="match_parent"
@@ -1055,8 +1052,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 第二波：榜单卡空态（瓜子 HomeRankingCardKt：「暂未获取到榜单」12sp／行高 18sp＋「点击重试」11sp／行高 16sp accent 色、按压 0.96；
-             星辰侧无现成按压 helper，按压缩放未实现；签行保留可切榜） -->
+        <!-- 榜单卡空态：「暂未获取到榜单」12sp／行高 18sp＋「点击重试」11sp／行高 16sp accent 色；签行保留可切榜 -->
         <LinearLayout
             android:id="@+id/homeChartEmpty"
             android:layout_width="match_parent"
@@ -1086,7 +1082,7 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 第二波：榜单卡加载态（瓜子 HomeRankingCardKt：「正在加载榜单」＋16dp 转圈；加载文字字号未完全解码，沿用空态 12sp） -->
+        <!-- 榜单卡加载态：「正在加载榜单」12sp＋16dp 转圈 -->
         <LinearLayout
             android:id="@+id/homeChartLoading"
             android:layout_width="match_parent"
@@ -1118,7 +1114,7 @@
             android:orientation="horizontal" />
     </LinearLayout>
 
-    <!-- 第二波：聆听报告卡（只用本地数据：播放记录数＋收藏数＋最爱歌手；记录为空时代码隐藏整卡，不编假数据） -->
+    <!-- 聆听报告卡（只用本地数据：播放记录数＋收藏数＋最爱歌手；记录为空时代码隐藏整卡，不编假数据） -->
     <LinearLayout
         android:id="@+id/homeReportCard"
         android:layout_width="match_parent"
@@ -1154,9 +1150,7 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- 底部留白：给悬浮迷你条让位（条只在有音乐会话时出现）。
-         条高 76dp（56＋上下各 10）＋底边距（导航 inset＋12dp），手势导航下约 104dp；
-         定高留白，不用 weight（ScrollView 不定高下 weight 无效），滚到底时榜单卡正好露在条上方。 -->
+    <!-- 底部留白：给悬浮迷你条让位（条高 76dp＋底边距，手势导航下约 104dp）；定高留白，滚到底时上方卡片正好露在条上方 -->
     <Space
         android:layout_width="match_parent"
         android:layout_height="104dp" />

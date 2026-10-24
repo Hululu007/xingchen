@@ -444,5 +444,14 @@
     <string name="music_unknown_album">未知专辑</string>
     <string name="music_info_chip_translation">翻译</string>
     <string name="music_info_chip_roma">罗马音</string>
+    <string name="music_collapse">收起</string>
+    <string name="music_tools">播放工具</string>
+    <string name="music_cd_surface">切换流光 CD 表面</string>
+    <string name="music_cd_surface_light">浅色流光 CD</string>
+    <string name="music_cd_surface_dark">深色流光 CD</string>
+    <string name="music_cd_surface_auto">跟随系统流光 CD</string>
+    <string name="music_lyric_version">歌词版本</string>
+    <string name="music_mode">播放模式</string>
+    <string name="music_play_pause">播放/暂停</string>
 
 </resources>

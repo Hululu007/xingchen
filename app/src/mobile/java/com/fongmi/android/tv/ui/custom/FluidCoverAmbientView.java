@@ -27,6 +27,8 @@ public class FluidCoverAmbientView extends View {
     private final int[] colors = {0xFF2E3A4E, 0xFF4A6FA5, 0xFF8E6FB8};
     private MusicRhythmSource rhythmSource;
     private long startMs;
+    /** 漂移速度倍率（批 3 D 路补：默认 1.0 与补 API 前逐字一致；仅音乐播放页从设置键下发）。 */
+    private float speedFactor = 1.0f;
 
     public FluidCoverAmbientView(Context context) {
         super(context);
@@ -53,6 +55,15 @@ public class FluidCoverAmbientView extends View {
     /** 律动信号源（可空；空＝未接通，level 取 0） */
     public void setRhythmSource(MusicRhythmSource source) {
         rhythmSource = source;
+    }
+
+    /** 漂移速度倍率：只缩放相位时间轴、不改 startMs 语义；≤0 视为 1.0。默认 1.0＝旧行为。 */
+    public void setSpeed(float factor) {
+        speedFactor = factor > 0f ? factor : 1.0f;
+    }
+
+    public float speed() {
+        return speedFactor;
     }
 
     private float level() {
@@ -85,7 +96,7 @@ public class FluidCoverAmbientView extends View {
         float w = getWidth();
         float h = getHeight();
         if (w <= 0 || h <= 0) return;
-        float t = (SystemClock.uptimeMillis() - startMs) / 1000f;
+        float t = (SystemClock.uptimeMillis() - startMs) / 1000f * speedFactor;
         float sin = (float) Math.sin(t * 0.45f);
         float cos = (float) Math.cos(t * 0.45f);
         float level = level();

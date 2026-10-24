@@ -6,6 +6,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -73,8 +74,8 @@ import jp.wasabeef.glide.transformations.internal.FastBlur;
 /**
  * 音乐播放页（批 1 重建，ui.music 新包）：骨架＝氛围背景层（糊底／流体双路径）＋主题容器
  * （PlayerPageSwipeLayout 页级竖滑切歌层）＋爱心粒子层；主题分发按 MusicPlayerSettings
- * 主题 id：classic（批 1）、cover_immersive 封面卡片＋apple_music（批 3）已实现，
- * luminous_cd 三 id 与 record_shelf 暂落 classic 渲染（批 3 D 路）。
+ * 主题 id：classic（批 1）、cover_immersive 封面卡片＋apple_music（批 3 C 路）、
+ * luminous_cd 三 id 流光 CD＋record_shelf 黑胶唱片架（批 3 D 路）五主题全实现。
  * 播放只走 MusicController（未绑定积压重放机制在 Controller 内，服务没就绪不直调、不崩）。
  */
 public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost {
@@ -111,6 +112,48 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ===== 批 3：封面卡片／Apple 共用装配字段（按主题 grab，未命中的保持 null，全部消费点空守卫） =====
     private boolean coverTheme;
     private boolean appleTheme;
+    // ===== 批 3 D 路：流光 CD／黑胶唱片架字段（按主题 grab，未命中的保持 null，消费点全空守卫） =====
+    private boolean cdTheme;
+    private boolean shelfTheme;
+    /** CD 表面：0 LIGHT／1 DARK／2 AUTO（主题 id 决定初值，五图标键循环切换并回写主题 id）。 */
+    private int cdSurfaceMode;
+    private boolean cdDarkSurface;
+    /** 表面键切换触发的 applyTheme：保留渐变起点走 500ms 混色补间，不硬切。 */
+    private boolean cdSurfaceSwitchPending;
+    private boolean cdExpanded;
+    private boolean cdInfoMode;
+    private ValueAnimator cdCollapseAnimator;
+    private ValueAnimator cdToneAnimator;
+    private final int[] cdBackdropFrom = new int[4];
+    private final int[] cdBackdropTo = new int[4];
+    private boolean cdBackdropInit;
+    private View cdBackdropView;
+    private CdDiscView cdDiscView;
+    private View cdDetailView;
+    private CdLyricWindowView cdLyricView;
+    private View cdBelowColView;
+    private View cdSummaryBoxView;
+    private TextView cdSummaryMainView;
+    private TextView cdSummarySubView;
+    private CdSeekBarView cdSeekView;
+    private TextView cdPositionView;
+    private TextView cdDurationView;
+    private TextView cdTitleView;
+    private ImageView cdPlayView;
+    private ImageView cdBtnModeView;
+    private ImageView cdBtnFavView;
+    private String cdSummaryShown = "";
+    private ShelfStageView shelfStageView;
+    private ShelfLyricView shelfLyricView;
+    private CdSeekBarView shelfSeekView;
+    private TextView shelfPositionView;
+    private TextView shelfDurationView;
+    private ImageView shelfPlayView;
+    private ImageView shelfBtnModeView;
+    private Bitmap shelfBmpPrev;
+    private Bitmap shelfBmpCur;
+    private Bitmap shelfBmpNext;
+    private int shelfCoverGen;
     private View coverStackView;
     private View expandedColView;
     private ImageView coverBack1View;
@@ -181,6 +224,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         @Override
         public void onPlayingChanged(boolean value) {
             runOnUiThread(() -> setPlaying(value));
+        }
+
+        @Override
+        public void onModeChanged(int mode) {
+            runOnUiThread(() -> paintCdModeIcon());
         }
 
         @Override
@@ -295,6 +343,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         MusicController.get().removeListener(listener);
         MusicController.get().unbind();
         if (ambientAnimator != null) ambientAnimator.cancel();
+        if (cdCollapseAnimator != null) cdCollapseAnimator.cancel();
+        if (cdToneAnimator != null) cdToneAnimator.cancel();
         cancelCoverScaleSpring();
         super.onDestroy();
     }
@@ -317,9 +367,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 主题装配 =================
 
     /**
-     * 主题分发：按 MusicPlayerSettings 主题 id 选渲染。classic（批 1）、
-     * cover_immersive 封面卡片与 apple_music（批 3 C 路）各自布局；
-     * luminous_cd／luminous_cd_dark／luminous_cd_auto／record_shelf 暂落 classic 渲染（批 3 D 路）。
+     * 主题分发：按 MusicPlayerSettings 主题 id 选渲染，五主题各一份布局
+     * （classic 批 1、cover_immersive＋apple_music 批 3 C 路、luminous_cd 三 id＋record_shelf 批 3 D 路）。
      * 主题切换直切、无过渡动画（§19-9 瓜子无字面值）；氛围色 450ms 与切歌转场照旧。
      */
     private void applyTheme() {
@@ -328,12 +377,32 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         binding.themeContainer.removeAllViews();
         coverTheme = THEME_IMMERSIVE.equals(theme);
         appleTheme = THEME_APPLE.equals(theme);
-        // 竖滑切歌是经典/封面卡片的页级手势；Apple 是横滑 pager＋歌词页竖滚，关掉避免抢手势
-        binding.themeContainer.setSwipeEnabled(!appleTheme);
+        cdTheme = MusicPlayerSettings.THEME_LUMINOUS_CD.equals(theme)
+                || MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(theme)
+                || MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(theme);
+        shelfTheme = THEME_SHELF.equals(theme);
+        if (cdTheme) {
+            cdSurfaceMode = MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(theme) ? 1
+                    : MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(theme) ? 2 : 0;
+            cdDarkSurface = resolveCdDarkSurface();
+        }
+        // 竖滑切歌是经典/封面卡片/CD 的页级手势；Apple 是横滑 pager＋歌词页竖滚，
+        // 唱片架切歌走舞台内横滑——两家都关页级竖滑避免抢手势（架口径与经典不同处见 D 路报告）
+        binding.themeContainer.setSwipeEnabled(!(appleTheme || shelfTheme));
         coverExpanded = false;
         coverInfoMode = false;
+        cdExpanded = false;
+        cdInfoMode = false;
+        cdCollapseValue = 0f;
+        if (!cdSurfaceSwitchPending) cdBackdropInit = false;
+        if (cdCollapseAnimator != null) {
+            cdCollapseAnimator.cancel();
+            cdCollapseAnimator = null;
+        }
         int layout = coverTheme ? R.layout.music_player_theme_cover
                 : appleTheme ? R.layout.music_player_theme_apple
+                : cdTheme ? R.layout.music_player_theme_cd
+                : shelfTheme ? R.layout.music_player_theme_shelf
                 : R.layout.music_player_theme_classic;
         themeRoot = LayoutInflater.from(this).inflate(layout, binding.themeContainer, false);
         binding.themeContainer.addView(themeRoot);
@@ -346,6 +415,34 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         setPlaying(playing);
         refreshQualityValue();
         applyFluidBg();
+        applySkeletonForTheme();
+    }
+
+    /** CD 表面实际明暗：LIGHT=false、DARK=true、AUTO＝跟随系统夜间模式。 */
+    private boolean resolveCdDarkSurface() {
+        if (cdSurfaceMode == 1) return true;
+        if (cdSurfaceMode == 2) {
+            int night = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+            return night == Configuration.UI_MODE_NIGHT_YES;
+        }
+        return false;
+    }
+
+    /**
+     * 骨架层按主题收口：CD（取色渐变自带底）与唱片架（纯色底 #F1F0ED）不用骨架的糊底/流体/罩层，
+     * 全部隐藏防透出；其余主题恢复骨架原状（流体开关由 applyFluidBg 管）。骨架文件本身不改。
+     */
+    private void applySkeletonForTheme() {
+        boolean themed = cdTheme || shelfTheme;
+        if (binding.ivBgBlur != null) binding.ivBgBlur.setVisibility(themed ? View.GONE : View.VISIBLE);
+        if (binding.fluidAmbient != null && themed) binding.fluidAmbient.setVisibility(View.GONE);
+        if (binding.viewVeil != null && themed) binding.viewVeil.setVisibility(View.GONE);
+        if (binding.swipeHint != null) {
+            // CD 浅底上切歌提示不能用骨架的白字（字体看得清铁律）：走当前表面 ink；深底主题恢复白
+            binding.swipeHint.setTextColor(cdTheme
+                    ? (cdDarkSurface ? 0xFFF2F2F7 : 0xFF282D36) : 0xFFFFFFFF);
+        }
+        if (!themed) applyFluidBg();
     }
 
     /** 全屏歌词页接线：队列键＝播放列表弹窗（录屏 f003 实证）、暂停键＝Controller.toggle()、点行＝seek；
@@ -419,6 +516,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     coverStackView.getLocationInWindow(loc);
                     swipeDownInCoverArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + coverStackView.getWidth()
                             && ev.getY() >= loc[1] && ev.getY() <= loc[1] + coverStackView.getHeight();
+                }
+                // 唱片架主题：起点落在舞台内时，横滑归舞台自己的横滑翻页，不触发右划进歌词页（同豁免口径）
+                if (shelfTheme && shelfStageView != null && shelfStageView.getVisibility() == View.VISIBLE) {
+                    int[] loc = new int[2];
+                    shelfStageView.getLocationInWindow(loc);
+                    swipeDownInCoverArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + shelfStageView.getWidth()
+                            && ev.getY() >= loc[1] && ev.getY() <= loc[1] + shelfStageView.getHeight();
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
@@ -501,6 +605,38 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         infoContentView = find(R.id.tpInfoContent);
         appleLyricView = find(R.id.tpAppleLyric);
         volumeSliderView = find(R.id.tpVolumeSlider);
+        // 批 3 D 路（classic/cover/apple 下全 null）
+        cdBackdropView = find(R.id.tpCdBackdrop);
+        cdDiscView = find(R.id.tpCdDisc);
+        cdDetailView = find(R.id.tpCdDetail);
+        cdLyricView = find(R.id.tpCdLyric);
+        cdBelowColView = find(R.id.tpCdBelowCol);
+        cdSummaryBoxView = find(R.id.tpCdSummaryBox);
+        cdSummaryMainView = find(R.id.tpCdSummaryMain);
+        cdSummarySubView = find(R.id.tpCdSummarySub);
+        cdSeekView = find(R.id.tpCdSeek);
+        cdPositionView = find(R.id.tpCdPosition);
+        cdDurationView = find(R.id.tpCdDuration);
+        cdTitleView = titleView;
+        cdPlayView = find(R.id.tpCdPlay);
+        cdBtnModeView = find(R.id.tpCdBtnMode);
+        cdBtnFavView = find(R.id.tpCdBtnFav);
+        shelfStageView = find(R.id.tpShelfStage);
+        shelfLyricView = find(R.id.tpShelfLyric);
+        shelfSeekView = find(R.id.tpShelfSeek);
+        shelfPositionView = find(R.id.tpShelfPosition);
+        shelfDurationView = find(R.id.tpShelfDuration);
+        shelfPlayView = find(R.id.tpShelfPlay);
+        shelfBtnModeView = find(R.id.tpShelfBtnMode);
+        if (shelfStageView != null) {
+            // X-14：舞台高布局期定死（stage−23dp 公式）；仅竖版固定高布局才写，横版权重布局不动
+            android.view.ViewGroup.LayoutParams lp = shelfStageView.getLayoutParams();
+            if (lp != null && lp.height > 0) {
+                lp.height = Math.round(shelfStageView.stageHeightDp()
+                        * getResources().getDisplayMetrics().density);
+                shelfStageView.setLayoutParams(lp);
+            }
+        }
         if (coverStackView != null) {
             CoverStackView.roundCard(coverBack1View, 22f, this);
             CoverStackView.roundCard(coverBack2View, 22f, this);
@@ -617,10 +753,446 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         wireBatch3Views();
     }
 
-    /** 批 3 两主题接线（classic 下控件全 null、整段跳过）。 */
+    /** 批 3 四主题接线（classic 下控件全 null、整段跳过）。 */
     private void wireBatch3Views() {
         if (coverTheme) wireCoverTheme();
         if (appleTheme) wireAppleTheme();
+        if (cdTheme) wireCdTheme();
+        if (shelfTheme) wireShelfTheme();
+    }
+
+    // ================= 批 3 D 路：流光 CD 接线 =================
+
+    private void wireCdTheme() {
+        View close = find(R.id.tpBtnClose);
+        if (close != null) {
+            close.setOnClickListener(v -> finish());
+            attachPressScale(close, 0.9f);
+        }
+        View tools = find(R.id.tpBtnTools);
+        if (tools != null) {
+            tools.setOnClickListener(v -> showToolsSheet());
+            attachPressScale(tools, 0.9f);
+        }
+        if (cdTitleView != null) cdTitleView.setSelected(true);
+        if (cdPlayView != null) {
+            cdPlayView.setOnClickListener(v -> MusicController.get().toggle());
+            attachPressScale(cdPlayView, 0.9f);
+        }
+        View prev = find(R.id.tpCdBtnPrev);
+        if (prev != null) {
+            prev.setOnClickListener(v -> {
+                lastSkipDirection = -1;
+                MusicController.get().prev();
+            });
+            attachPressScale(prev, 0.9f);
+        }
+        View next = find(R.id.tpCdBtnNext);
+        if (next != null) {
+            next.setOnClickListener(v -> {
+                lastSkipDirection = 1;
+                MusicController.get().next();
+            });
+            attachPressScale(next, 0.9f);
+        }
+        if (cdBtnModeView != null) {
+            cdBtnModeView.setOnClickListener(v -> {
+                MusicController.get().cycleMode();
+                paintCdModeIcon();
+            });
+            attachPressScale(cdBtnModeView, 0.9f);
+        }
+        View queue = find(R.id.tpCdBtnQueue);
+        if (queue != null) {
+            queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+            attachPressScale(queue, 0.9f);
+        }
+        View info = find(R.id.tpCdBtnInfo);
+        if (info != null) {
+            info.setOnClickListener(v -> setCdInfoMode(!cdInfoMode));
+            attachPressScale(info, 0.9f);
+        }
+        View quality = find(R.id.tpCdBtnQuality);
+        if (quality != null) {
+            quality.setOnClickListener(v -> showQualityDialog());
+            attachPressScale(quality, 0.9f);
+        }
+        View lyricVer = find(R.id.tpCdBtnLyricVer);
+        if (lyricVer != null) {
+            lyricVer.setOnClickListener(v -> showToolsSheetLyric());
+            attachPressScale(lyricVer, 0.9f);
+        }
+        if (cdBtnFavView != null) {
+            cdBtnFavView.setOnClickListener(v -> toggleFavorite());
+            attachPressScale(cdBtnFavView, 0.9f);
+        }
+        View surface = find(R.id.tpCdBtnSurface);
+        if (surface != null) {
+            surface.setOnClickListener(v -> cycleCdSurface());
+            attachPressScale(surface, 0.9f);
+        }
+        // 点摘要行＝展开歌词窗（§4 CdLyricSummary 点击走 LYRICS 详情并展开）；展开态点歌词窗空白区收起由窗自身点击处理
+        if (cdSummaryBoxView != null) {
+            cdSummaryBoxView.setOnClickListener(v -> {
+                if (cdInfoMode) setCdInfoMode(false);
+                setCdExpanded(true);
+            });
+        }
+        if (cdLyricView != null) {
+            cdLyricView.setOnLineClickListener((index, positionMs) ->
+                    MusicController.get().seekTo(positionMs));
+            cdLyricView.setOnClickListener(v -> {
+                if (cdExpanded && !cdInfoMode) setCdExpanded(false);
+            });
+        }
+        if (cdSeekView != null) {
+            cdSeekView.setOnSeekListener(new CdSeekBarView.OnSeekListener() {
+                @Override
+                public void onSeeking(float fraction) {
+                    long dur = MusicController.get().duration();
+                    if (cdPositionView != null) cdPositionView.setText(formatTime(Math.round(dur * fraction)));
+                }
+
+                @Override
+                public void onSeekCommit(float fraction) {
+                    long dur = MusicController.get().duration();
+                    if (dur > 0) MusicController.get().seekTo(Math.round(dur * fraction));
+                }
+            });
+        }
+        paintCdModeIcon();
+        // 表面键切换进来时走 500ms 混色补间（渐变＋盘面材质），普通进页直落目标色
+        boolean animateSurface = cdSurfaceSwitchPending;
+        cdSurfaceSwitchPending = false;
+        applyCdPalette(animateSurface);
+    }
+
+    /** 五图标模式键图标：按 MusicController 模式刷（映射照工具面板 mode 序核对：0 顺序／1 单曲／2 循环／3 随机）。 */
+    private void paintCdModeIcon() {
+        if (cdBtnModeView != null) cdBtnModeView.setImageResource(modeIconRes());
+        if (shelfBtnModeView != null) shelfBtnModeView.setImageResource(modeIconRes());
+    }
+
+    private int modeIconRes() {
+        int mode;
+        try {
+            mode = MusicController.get().getMode();
+        } catch (Throwable ignored) {
+            mode = 0;
+        }
+        switch (mode) {
+            case 1:
+                return R.drawable.ic_music_repeat_one;
+            case 2:
+                return R.drawable.ic_music_repeat;
+            case 3:
+                return R.drawable.ic_music_shuffle;
+            default:
+                return R.drawable.ic_music_sequential;
+        }
+    }
+
+    /** 表面键循环 LIGHT→DARK→AUTO→LIGHT：回写主题 id 并整页重装（GZ setPlayerTheme(next.themeId()) 同路）。 */
+    private void cycleCdSurface() {
+        int next = (cdSurfaceMode + 1) % 3;
+        cdSurfaceSwitchPending = true;
+        MusicPlayerSettings.setTheme(next == 1 ? MusicPlayerSettings.THEME_LUMINOUS_CD_DARK
+                : next == 2 ? MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO
+                : MusicPlayerSettings.THEME_LUMINOUS_CD);
+        Notify.show(next == 1 ? R.string.music_cd_surface_dark
+                : next == 2 ? R.string.music_cd_surface_auto : R.string.music_cd_surface_light);
+        applyTheme();
+    }
+
+    /**
+     * CD 色板落码（CdPalette 源码值）：Pearl(LIGHT) base #F4F2EE／mist #E9EFF5／ink #282D36／muted #747D89；
+     * Space(DARK) base＝mist #14161C／ink #F2F2F7／muted #8E96A3。任务简述的 #F1F0ED/#12100E 与源码不符，
+     * 以源码为准（#F1F0ED 是唱片架底色），差异见 D 路报告。
+     * 背景四段渐变（停点 0/0.34/0.68/1）：色式照 LuminousCdContent——
+     * fresh＝lerp(base, tone, 0.22)；s0＝lerp(base, fresh, 0.92)；
+     * s.34＝lerp(base, fresh, mixF(0.48, 0.73, bgMix))；s.68＝lerp(base, lerp(base, tone, 0.12), bgMix)；
+     * s1＝lerp(mist, lerp(base, tone, 0.08), bgMix)；bgMix：LIGHT 0／DARK 1（混色走 RGB 近似，GZ 为 OkLab，见报告）。
+     * 取色 tone＝封面主色经 CoverColor.toneAdjust（HSV 归一式与 §4 同式）；无封面回落 #8E8E93。
+     * 取色变化 500ms 补间刷渐变（§4 500ms ValueAnimator）；表面切换的 500ms 混色补间走同一动画器
+     * （animate=true 时从当前四色混到新表面四色，GZ CD_SURFACE_SWITCH_SPEC 500ms）。
+     */
+    private void applyCdPalette(boolean animate) {
+        if (!cdTheme) return;
+        boolean dark = cdDarkSurface;
+        int base = dark ? 0xFF14161C : 0xFFF4F2EE;
+        int mist = dark ? 0xFF14161C : 0xFFE9EFF5;
+        int ink = dark ? 0xFFF2F2F7 : 0xFF282D36;
+        int muted = dark ? 0xFF8E96A3 : 0xFF747D89;
+        float bgMix = dark ? 1f : 0f;
+        int tone = currentCdTone();
+        int fresh = lerpColor(base, tone, 0.22f);
+        int[] target = new int[4];
+        target[0] = lerpColor(base, fresh, 0.92f);
+        target[1] = lerpColor(base, fresh, dark ? 0.73f : 0.48f);
+        target[2] = lerpColor(base, lerpColor(base, tone, 0.12f), bgMix);
+        target[3] = lerpColor(mist, lerpColor(base, tone, 0.08f), bgMix);
+        System.arraycopy(target, 0, cdBackdropTo, 0, 4);
+        if (cdToneAnimator != null) cdToneAnimator.cancel();
+        if (!animate || !cdBackdropInit || cdBackdropView == null) {
+            System.arraycopy(target, 0, cdBackdropFrom, 0, 4);
+            cdBackdropInit = true;
+            paintCdBackdrop(1f);
+        } else {
+            // 从当前呈现色起混（cdBackdropFrom 在上次 paint 时已是呈现值，直接作起点）
+            cdToneAnimator = ValueAnimator.ofFloat(0f, 1f);
+            cdToneAnimator.setDuration(500);
+            cdToneAnimator.addUpdateListener(a -> paintCdBackdrop((float) a.getAnimatedValue()));
+            cdToneAnimator.start();
+        }
+        // 元素色（顶行/摘要/时间/图标 tint 统一走 ink/muted 系）
+        if (titleView != null) titleView.setTextColor(ink);
+        if (artistView != null) artistView.setTextColor(muted);
+        if (cdSummaryMainView != null) cdSummaryMainView.setTextColor(ink);
+        if (cdSummarySubView != null) cdSummarySubView.setTextColor(withAlpha(muted, 0.85f));
+        int timeColor = withAlpha(muted, 0.74f);
+        if (cdPositionView != null) cdPositionView.setTextColor(timeColor);
+        if (cdDurationView != null) cdDurationView.setTextColor(timeColor);
+        int accent = cdAccentColor(tone, ink, dark);
+        if (cdSeekView != null) cdSeekView.setColors(withAlpha(ink, 0.18f), accent);
+        if (cdLyricView != null) cdLyricView.setInkColor(ink);
+        if (cdDiscView != null) {
+            cdDiscView.setDarkSurface(dark);
+            cdDiscView.setCoverTone(tone);
+        }
+        tintCdIcons(ink);
+        paintFavoriteIcons();
+        // 底距 max(16dp, 安全区)：安全区取导航栏 inset 近似（窗口 decor 底 inset 无现成值时用 16dp 底）
+        View pad = find(R.id.tpCdBottomPad);
+        if (pad != null) {
+            int nav = navBarHeightPx();
+            int want = Math.max(dpI(16), nav);
+            android.view.ViewGroup.LayoutParams lp = pad.getLayoutParams();
+            if (lp != null && lp.height != want) {
+                lp.height = want;
+                pad.setLayoutParams(lp);
+            }
+        }
+    }
+
+    private int currentCdTone() {
+        MusicTrack track = MusicController.get().current();
+        if (track == null || effectiveCover(track) == null) return 0xFF8E8E93;
+        return CoverColor.toneAdjust(dominantColor);
+    }
+
+    /** CD accent：封面 tone 向 ink 混 0.52 后按表面亮度上限钳制（LIGHT 1.0 不钳／DARK 0.45，CdPalette.m95accent 口径近似）。 */
+    private int cdAccentColor(int tone, int ink, boolean dark) {
+        int mixed = lerpColor(tone, ink, 0.52f);
+        if (!dark) return mixed;
+        float[] hsv = new float[3];
+        Color.colorToHSV(mixed, hsv);
+        if (hsv[2] > 0.45f) {
+            hsv[2] = 0.45f;
+            return Color.HSVToColor(hsv);
+        }
+        return mixed;
+    }
+
+    private void paintCdBackdrop(float mix) {
+        if (cdBackdropView == null) return;
+        int[] colors = new int[4];
+        for (int i = 0; i < 4; i++) {
+            colors[i] = lerpColor(cdBackdropFrom[i], cdBackdropTo[i], mix);
+        }
+        GradientDrawable gradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors);
+        gradient.setGradientType(GradientDrawable.LINEAR_GRADIENT);
+        // 停点：GradientDrawable 四色等距分布＝0/0.333/0.667/1，瓜子为 0/0.34/0.68/1——偏差 ≤0.013，
+        // 视觉不可辨，记为已知近似（报告有载）。
+        cdBackdropView.setBackground(gradient);
+        if (mix >= 1f) System.arraycopy(cdBackdropTo, 0, cdBackdropFrom, 0, 4);
+    }
+
+    private void tintCdIcons(int ink) {
+        ColorStateList tint = ColorStateList.valueOf(ink);
+        int[] ids = {R.id.tpBtnClose, R.id.tpBtnTools, R.id.tpCdBtnInfo, R.id.tpCdBtnQuality,
+                R.id.tpCdBtnLyricVer, R.id.tpCdBtnSurface, R.id.tpCdBtnMode, R.id.tpCdBtnPrev,
+                R.id.tpCdBtnNext, R.id.tpCdBtnQueue, R.id.tpCdPlay};
+        for (int id : ids) {
+            View v = find(id);
+            if (v instanceof ImageView) ((ImageView) v).setImageTintList(tint);
+        }
+        if (cdBtnFavView != null && !favorited) cdBtnFavView.setImageTintList(tint);
+    }
+
+    private static int lerpColor(int from, int to, float f) {
+        float t = Math.max(0f, Math.min(1f, f));
+        int a = Math.round(Color.alpha(from) + (Color.alpha(to) - Color.alpha(from)) * t);
+        int r = Math.round(Color.red(from) + (Color.red(to) - Color.red(from)) * t);
+        int g = Math.round(Color.green(from) + (Color.green(to) - Color.green(from)) * t);
+        int b = Math.round(Color.blue(from) + (Color.blue(to) - Color.blue(from)) * t);
+        return Color.argb(a, r, g, b);
+    }
+
+    private static int withAlpha(int color, float alpha) {
+        return Color.argb(Math.round(255f * Math.max(0f, Math.min(1f, alpha))),
+                Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    private int navBarHeightPx() {
+        int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+    }
+
+    /** CD 展开/收起（§4：展开 600ms／收起 500ms；盘下整列 alpha＝clamp(1−1.6c)、展开区 alpha＝clamp((c−0.15)/0.85)、顶行标题 alpha＝clamp(1−1.4c)＋上移 20dp×c）。 */
+    private void setCdExpanded(boolean expanded) {
+        if (!cdTheme || cdExpanded == expanded) return;
+        cdExpanded = expanded;
+        if (cdCollapseAnimator != null) cdCollapseAnimator.cancel();
+        float from = currentCdCollapse();
+        float to = expanded ? 1f : 0f;
+        cdCollapseAnimator = ValueAnimator.ofFloat(from, to);
+        cdCollapseAnimator.setDuration(expanded ? 600 : 500);
+        cdCollapseAnimator.addUpdateListener(a -> applyCdCollapse((float) a.getAnimatedValue()));
+        cdCollapseAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (!cdExpanded && cdDetailView != null) cdDetailView.setVisibility(View.GONE);
+            }
+        });
+        if (expanded && cdDetailView != null) cdDetailView.setVisibility(View.VISIBLE);
+        applyCdCollapse(from);
+        cdCollapseAnimator.start();
+    }
+
+    private float cdCollapseValue;
+
+    private float currentCdCollapse() {
+        return cdCollapseValue;
+    }
+
+    private void applyCdCollapse(float c) {
+        cdCollapseValue = c;
+        if (cdBelowColView != null) {
+            cdBelowColView.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.6f * c)));
+            cdBelowColView.setVisibility(c >= 0.99f ? View.INVISIBLE : View.VISIBLE);
+        }
+        if (cdDetailView != null) {
+            cdDetailView.setAlpha(Math.max(0f, Math.min(1f, (c - 0.15f) / 0.85f)));
+        }
+        View topRow = titleView == null ? null : (View) titleView.getParent();
+        View topBar = topRow == null ? null : (View) topRow.getParent();
+        if (topBar != null) {
+            topBar.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.4f * c)));
+            topBar.setTranslationY(-20f * getResources().getDisplayMetrics().density * c);
+        }
+    }
+
+    /** CD 信息态：展开窗内歌词↔信息切换（GZ LYRICS/SONG_INFO 两态）；信息内容复用 refreshInfoContent 构建。 */
+    private void setCdInfoMode(boolean info) {
+        if (!cdTheme) return;
+        cdInfoMode = info;
+        if (infoScrollView != null) infoScrollView.setVisibility(info ? View.VISIBLE : View.GONE);
+        if (cdLyricView != null) cdLyricView.setVisibility(info ? View.GONE : View.VISIBLE);
+        if (info) {
+            if (!cdExpanded) setCdExpanded(true);
+            refreshInfoContent();
+        }
+    }
+
+    // ================= 批 3 D 路：黑胶唱片架接线 =================
+
+    private void wireShelfTheme() {
+        View close = find(R.id.tpBtnClose);
+        if (close != null) {
+            close.setOnClickListener(v -> finish());
+            attachPressScale(close, 0.9f);
+        }
+        View tools = find(R.id.tpBtnTools);
+        if (tools != null) {
+            tools.setOnClickListener(v -> showToolsSheet());
+            attachPressScale(tools, 0.9f);
+        }
+        if (titleView != null) titleView.setSelected(true);
+        if (shelfPlayView != null) {
+            shelfPlayView.setOnClickListener(v -> MusicController.get().toggle());
+            attachPressScale(shelfPlayView, 0.9f);
+        }
+        View prev = find(R.id.tpShelfBtnPrev);
+        if (prev != null) {
+            prev.setOnClickListener(v -> {
+                lastSkipDirection = -1;
+                MusicController.get().prev();
+            });
+            attachPressScale(prev, 0.9f);
+        }
+        View next = find(R.id.tpShelfBtnNext);
+        if (next != null) {
+            next.setOnClickListener(v -> {
+                lastSkipDirection = 1;
+                MusicController.get().next();
+            });
+            attachPressScale(next, 0.9f);
+        }
+        if (shelfBtnModeView != null) {
+            shelfBtnModeView.setOnClickListener(v -> {
+                MusicController.get().cycleMode();
+                paintCdModeIcon();
+            });
+            attachPressScale(shelfBtnModeView, 0.9f);
+        }
+        View queue = find(R.id.tpShelfBtnQueue);
+        if (queue != null) {
+            queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+            attachPressScale(queue, 0.9f);
+        }
+        if (shelfSeekView != null) {
+            // 进度色（§5）：底轨 ShelfInk×0.12、填充＝语气色混 ShelfInk 0.65（h0，与歌词面同色）
+            shelfSeekView.setColors(withAlpha(ShelfStageView.SHELF_INK, 0.12f), shelfToneColor());
+            shelfSeekView.setOnSeekListener(new CdSeekBarView.OnSeekListener() {
+                @Override
+                public void onSeeking(float fraction) {
+                    long dur = MusicController.get().duration();
+                    if (shelfPositionView != null) shelfPositionView.setText(formatTime(Math.round(dur * fraction)));
+                }
+
+                @Override
+                public void onSeekCommit(float fraction) {
+                    long dur = MusicController.get().duration();
+                    if (dur > 0) MusicController.get().seekTo(Math.round(dur * fraction));
+                }
+            });
+        }
+        if (shelfStageView != null) {
+            shelfStageView.setListener(new ShelfStageView.Listener() {
+                @Override
+                public void onSwipeCommit(boolean next) {
+                    lastSkipDirection = next ? 1 : -1;
+                    if (next) MusicController.get().next();
+                    else MusicController.get().prev();
+                }
+
+                @Override
+                public void onDiscTap() {
+                    // 收藏＝点唱片本身（§5：仅槽 0 且无滑动动画时，视图侧已守门）
+                    toggleFavorite();
+                }
+            });
+        }
+        if (shelfLyricView != null) {
+            shelfLyricView.setOnLineClickListener((index, positionMs) ->
+                    MusicController.get().seekTo(positionMs));
+            shelfLyricView.setPaletteColors(shelfToneColor(), 0xFF86857E);
+        }
+        // 架图标 tint 统一 ShelfInk（矢量自带灰蓝 tint 必须覆盖，经典布局同口径）
+        ColorStateList ink = ColorStateList.valueOf(ShelfStageView.SHELF_INK);
+        int[] ids = {R.id.tpBtnClose, R.id.tpBtnTools, R.id.tpShelfBtnMode, R.id.tpShelfBtnPrev,
+                R.id.tpShelfBtnNext, R.id.tpShelfBtnQueue, R.id.tpShelfPlay};
+        for (int id : ids) {
+            View v = find(id);
+            if (v instanceof ImageView) ((ImageView) v).setImageTintList(ink);
+        }
+        paintCdModeIcon();
+    }
+
+    /** 唱片架语气色 h0：封面 tone 向 ShelfInk 混 0.65（§5 palette／进度填充同源）。 */
+    private int shelfToneColor() {
+        int tone = CoverColor.toneAdjust(dominantColor);
+        return lerpColor(tone, ShelfStageView.SHELF_INK, 0.65f);
     }
 
     private void wireCoverTheme() {
@@ -820,6 +1392,26 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (lyricView != null) lyricView.setPlaying(value);
         if (appleLyricView != null) appleLyricView.setPlaying(value);
         if (lyricPageView != null) lyricPageView.setPlaying(value);
+        if (cdTheme) {
+            // CD 主控播放键：盒 68dp；图标播放态（显暂停）54dp／暂停态（显播放）58dp——padding (68−54)/2=7／(68−58)/2=5
+            if (cdPlayView != null) {
+                cdPlayView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+                int pad = Math.round((value ? 7f : 5f) * getResources().getDisplayMetrics().density);
+                cdPlayView.setPadding(pad, pad, pad, pad);
+            }
+            if (cdDiscView != null) cdDiscView.setPlaying(value);
+            if (cdLyricView != null) cdLyricView.setPlaying(value);
+            return;
+        }
+        if (shelfTheme) {
+            // 唱片架播放键：盒 68dp、图标 52dp 两态同尺寸（布局 padding 8dp 已给）
+            if (shelfPlayView != null) {
+                shelfPlayView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+            }
+            if (shelfStageView != null) shelfStageView.setPlaying(value);
+            if (shelfLyricView != null) shelfLyricView.setPlaying(value);
+            return;
+        }
         // 封面卡片玻璃条播放键（盒 40dp、图标 24dp 由布局给）
         if (glassPlayView != null) {
             glassPlayView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
@@ -874,6 +1466,29 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (appleLyricView != null) {
             appleLyricView.setPosition(position + MusicPlayerSettings.getLyricOffsetMs());
         }
+        if (cdTheme) {
+            long shifted = position + MusicPlayerSettings.getLyricOffsetMs();
+            if (cdLyricView != null) cdLyricView.setPosition(shifted);
+            if (cdSeekView != null && duration > 0) {
+                cdSeekView.setFraction(position / (float) duration);
+                if (!cdSeekView.isDragging() && cdPositionView != null) {
+                    cdPositionView.setText(formatTime(position));
+                }
+                if (cdDurationView != null) cdDurationView.setText(formatTime(duration));
+            }
+            updateCdSummary();
+        }
+        if (shelfTheme) {
+            long shifted = position + MusicPlayerSettings.getLyricOffsetMs();
+            if (shelfLyricView != null) shelfLyricView.setPosition(shifted);
+            if (shelfSeekView != null && duration > 0) {
+                shelfSeekView.setFraction(position / (float) duration);
+                if (!shelfSeekView.isDragging() && shelfPositionView != null) {
+                    shelfPositionView.setText(formatTime(position));
+                }
+                if (shelfDurationView != null) shelfDurationView.setText(formatTime(duration));
+            }
+        }
         updateGlassLyricLine();
         if (lyricPageView != null) {
             lyricPageView.setLyricPosition(position + MusicPlayerSettings.getLyricOffsetMs());
@@ -899,6 +1514,33 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
     }
 
+    /** CD 摘要行（§4 CdLyricSummary）：主行＝当前歌词行预览 16sp 粗、副行＝当前行副文本（翻译）12sp；无词时主行走无词提示。 */
+    private void updateCdSummary() {
+        if (cdSummaryMainView == null) return;
+        String main;
+        String sub = "";
+        if (lyricMains.isEmpty()) {
+            main = getString(R.string.music_no_lyric);
+        } else {
+            int idx = cdLyricView == null ? -1 : cdLyricView.currentIndex();
+            if (idx < 0) idx = 0;
+            if (idx >= lyricMains.size()) idx = lyricMains.size() - 1;
+            main = lyricMains.get(idx).getText();
+            if (main == null) main = "";
+            List<String> subs = subLines();
+            if (idx < subs.size() && subs.get(idx) != null) sub = subs.get(idx);
+        }
+        String key = main + "\u0001" + sub;
+        if (!key.equals(cdSummaryShown)) {
+            cdSummaryShown = key;
+            cdSummaryMainView.setText(main);
+            if (cdSummarySubView != null) {
+                cdSummarySubView.setText(sub);
+                cdSummarySubView.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+        }
+    }
+
     // ================= 歌曲绑定 =================
 
     private void bindTrack(MusicTrack track) {
@@ -909,6 +1551,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 lyricView.clearLines();
                 lyricView.setEmptyText(getString(R.string.music_lyric_chip_none));
             }
+            if (cdLyricView != null) cdLyricView.clearLines();
+            if (shelfLyricView != null) shelfLyricView.clearLines();
             if (lyricPageView != null) {
                 lyricPageView.setLyricData(new ArrayList<>(), new ArrayList<>(), false);
                 lyricPageView.setEmptyText(getString(R.string.music_lyric_chip_none));
@@ -932,6 +1576,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (coverTheme) {
                 // 封面卡片歌手色（§3）：可点（有歌手名）白 0.65／不可点 0.55
                 artistView.setTextColor(newArtist == null || newArtist.isEmpty() ? 0x8CFFFFFF : 0xA6FFFFFF);
+            } else if (cdTheme) {
+                // CD 歌手色＝当前表面 muted（applyCdPalette 同步刷，此处为绑定时序兜底同值）
+                artistView.setTextColor(cdDarkSurface ? 0xFF8E96A3 : 0xFF747D89);
+            } else if (shelfTheme) {
+                // 唱片架歌手色＝ShelfMuted（布局同值，防落进经典白系分支）
+                artistView.setTextColor(0xFF86857E);
             } else if (appleTheme) {
                 // Apple 歌手色（§2）：白 0.60 固定
                 artistView.setTextColor(0x99FFFFFF);
@@ -1011,6 +1661,14 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         if (appleTheme) {
             bindAppleCovers(track, cover, title);
+            return;
+        }
+        if (cdTheme) {
+            bindCdCovers(track, cover);
+            return;
+        }
+        if (shelfTheme) {
+            bindShelfCovers(track);
             return;
         }
         // 出场层：切歌前把旧封面暂存（首绑旧层无图不建出场动画）——CoverTransitionSpec.Classic 出场侧
@@ -1153,6 +1811,113 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
     }
 
+    /**
+     * 流光 CD 封面装配：位图喂 CdDiscView（有旧图走切歌扫光、方向取 lastSkipDirection；
+     * 无封面地址＝盘面走 tone 素色，没地址才素图、无图不扫——封面占位定案：有地址加载失败保持现状不换素图，
+     * 异步回调以 cover 地址核对当前曲，防迟到回填）。背景取色仍走 updateBackground 主链
+     * （dominantColor 更新点回调 refreshToneDrivenSurfaces 刷 CD 渐变）。
+     */
+    private void bindCdCovers(MusicTrack track, String cover) {
+        updateBackground(track);
+        if (cdDiscView == null) return;
+        if (track == null || cover == null || cover.isEmpty()) {
+            cdDiscView.setCoverBitmap(null, 1);
+            return;
+        }
+        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                if (destroyed || !cdTheme) return;
+                MusicTrack cur = MusicController.get().current();
+                if (cur == null || !cover.equals(effectiveCover(cur))) return;
+                cdDiscView.setCoverBitmap(resource, lastSkipDirection);
+            }
+
+            @Override
+            public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                // 有地址失败：不换素图、不清盘（占位定案）
+            }
+        });
+    }
+
+    /**
+     * 唱片架三槽封面装配（X-14）：三槽位图异步加载后一次喂入 ShelfStageView.setCovers，
+     * 只换内容不动布局；代次守卫防迟到回填串歌。无相邻曲时该槽 exists=false 不绘。
+     */
+    private void bindShelfCovers(MusicTrack track) {
+        updateBackground(track);
+        if (shelfStageView == null) return;
+        shelfCoverGen++;
+        final int gen = shelfCoverGen;
+        shelfBmpPrev = null;
+        shelfBmpCur = null;
+        shelfBmpNext = null;
+        MusicTrack prev = null;
+        MusicTrack next = null;
+        try {
+            List<MusicTrack> queue = MusicController.get().queue();
+            int prevIdx = MusicController.get().queuePrevIndex();
+            int nextIdx = MusicController.get().queueNextIndex();
+            if (queue != null) {
+                if (prevIdx >= 0 && prevIdx < queue.size()) prev = queue.get(prevIdx);
+                if (nextIdx >= 0 && nextIdx < queue.size()) next = queue.get(nextIdx);
+            }
+        } catch (Throwable ignored) {
+        }
+        final MusicTrack prevTrack = prev;
+        final MusicTrack nextTrack = next;
+        final String title = track == null ? "" : track.displayTitle();
+        shelfStageView.setCovers(null, null, null, prevTrack != null, nextTrack != null, title);
+        loadShelfSlot(track, gen, 0, title);
+        loadShelfSlot(prevTrack, gen, -1, title);
+        loadShelfSlot(nextTrack, gen, 1, title);
+        refreshShelfToneSurfaces();
+    }
+
+    private void loadShelfSlot(MusicTrack slotTrack, int gen, int slot, String title) {
+        if (slotTrack == null) return;
+        String cover = effectiveCover(slotTrack);
+        if (cover == null || cover.isEmpty()) return;
+        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                if (destroyed || !shelfTheme || gen != shelfCoverGen || shelfStageView == null) return;
+                if (slot == 0) shelfBmpCur = resource;
+                else if (slot < 0) shelfBmpPrev = resource;
+                else shelfBmpNext = resource;
+                shelfStageView.setCovers(shelfBmpPrev, shelfBmpCur, shelfBmpNext,
+                        hasShelfNeighbor(-1), hasShelfNeighbor(1), title);
+            }
+
+            @Override
+            public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                // 有地址失败：该槽保持无图素底（占位定案，不换别图）
+            }
+        });
+    }
+
+    private boolean hasShelfNeighbor(int dir) {
+        try {
+            return dir < 0 ? MusicController.get().queuePrevIndex() >= 0
+                    : MusicController.get().queueNextIndex() >= 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** 取色驱动面刷新：CD 渐变（500ms 补间）／唱片架歌词 palette 与进度填充（h0 随 tone 变）。 */
+    private void refreshToneDrivenSurfaces() {
+        if (cdTheme) applyCdPalette(true);
+        if (shelfTheme) refreshShelfToneSurfaces();
+    }
+
+    private void refreshShelfToneSurfaces() {
+        if (!shelfTheme) return;
+        int h0 = shelfToneColor();
+        if (shelfLyricView != null) shelfLyricView.setPaletteColors(h0, 0xFF86857E);
+        if (shelfSeekView != null) shelfSeekView.setColors(withAlpha(ShelfStageView.SHELF_INK, 0.12f), h0);
+    }
+
     // ================= 氛围背景（双路径） =================
 
     private void clearClassicRenderEffect() {
@@ -1178,6 +1943,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             dominantColor = CoverColor.FALLBACK_COLOR;
             animateAmbient(CoverColor.ambientBackground(null));
             applyFluidBg();
+            refreshToneDrivenSurfaces();
             return;
         }
         ImgUtil.load(this, cover, 64, 64, new CustomTarget<Drawable>() {
@@ -1204,6 +1970,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                                 dominantColor = dominant;
                                 animateAmbient(ambient);
                                 applyFluidBg();
+                                refreshToneDrivenSurfaces();
                             });
                         });
                     }
@@ -1230,6 +1997,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                                 dominantColor = dominant;
                                 animateAmbient(ambient);
                                 applyFluidBg();
+                                refreshToneDrivenSurfaces();
                             });
                         });
                     }
@@ -1362,17 +2130,20 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     /**
      * 流体路径：开时流体层可见并喂取色三色、糊底合成停用；关时流体层隐藏、回糊底路径。
-     * 速度：MusicPlayerSettings 已按 §0 存档（slow 0.6/normal 1.0/fast 2.5），但
-     * FluidCoverAmbientView 没有速度设置 API（其漂移频率写死在 onDraw 内），本批只借不改其内部，
-     * 速度倍率暂无处下发——差在此，待该视图开放 setSpeed 后在此接上。
+     * 速度（批 3 D 路收口）：FluidCoverAmbientView 已开放 setSpeed，本页是唯一消费者——
+     * 从 MusicPlayerSettings.fluidSpeedFactor()（键 music_fluid_speed：slow 0.6/normal 1.0/fast 2.5）下发；
+     * 视图默认 1.0 与补 API 前逐字一致，其它引用方零改动。
+     * CD/唱片架主题不用骨架背景层（自带底），本方法对两主题直接跳过（骨架层由 applySkeletonForTheme 隐藏）。
      */
     private void applyFluidBg() {
         try {
             if (binding == null || binding.fluidAmbient == null) return;
+            if (cdTheme || shelfTheme) return;
             boolean on = MusicPlayerSettings.isFluidBg();
             binding.fluidAmbient.setVisibility(on ? View.VISIBLE : View.GONE);
             if (binding.viewVeil != null) binding.viewVeil.setVisibility(on ? View.GONE : View.VISIBLE);
             if (on) {
+                binding.fluidAmbient.setSpeed(MusicPlayerSettings.fluidSpeedFactor());
                 binding.fluidAmbient.setColors(ambientColor, dominantColor, CoverColor.toneAdjust(ambientColor));
             } else {
                 bgAppliedUrl = null;
@@ -1534,6 +2305,18 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     private void paintFavoriteIcons() {
+        // CD 五图标收藏键：已收藏实心／未收藏描边，tint 统一当前表面 ink（applyCdPalette 同步刷）
+        if (cdBtnFavView != null) {
+            cdBtnFavView.setImageResource(favorited
+                    ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
+            cdBtnFavView.setImageTintList(ColorStateList.valueOf(cdDarkSurface ? 0xFFF2F2F7 : 0xFF282D36));
+            MusicTrack curFav = null;
+            try {
+                curFav = MusicController.get().current();
+            } catch (Throwable ignored) {
+            }
+            cdBtnFavView.setAlpha(curFav == null ? 0.35f : 1f);
+        }
         // Apple 头右收藏玻璃钮：图标随收藏态换实心/描边（底与 alpha 0.85 由布局给）
         View appleFav = find(R.id.tpAppleFav);
         if (appleFav instanceof ImageView) {
@@ -1663,6 +2446,18 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 歌词（批 2：逐字引擎＋全屏歌词页） =================
 
     private void applyLyricStyle() {
+        if (cdLyricView != null) {
+            // CD 歌词窗字号固定 21sp（§4 字面值，不走封面字号设置）；副行开关与全页同口径
+            cdLyricView.setShowSub(MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization());
+            cdLyricView.setEmptyText(getString(R.string.music_no_lyric));
+        }
+        if (shelfLyricView != null) {
+            // 唱片架歌词面字号走封面字号键（出厂 22＝§5 字面值）、模糊档共用存量键（默认 medium 档位映射见 ShelfLyricView）
+            shelfLyricView.setFontSizeSp(MusicPlayerSettings.getCoverLyricFontSize());
+            shelfLyricView.setBlurLevel(MusicPlayerSettings.getCoverLyricBlurLevel());
+            shelfLyricView.setShowSub(MusicPlayerSettings.isShowTranslation() || MusicPlayerSettings.isShowRomanization());
+            shelfLyricView.setEmptyText(getString(R.string.music_no_lyric));
+        }
         if (lyricView != null) {
             lyricView.setFontSizeSp(MusicPlayerSettings.getCoverLyricFontSize());
             lyricView.setBlurLevel(MusicPlayerSettings.getCoverLyricBlurLevel());
@@ -1692,6 +2487,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     private void feedLyricView() {
+        if (cdLyricView != null) {
+            cdLyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            cdLyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
+            cdSummaryShown = "\u0001";
+            updateCdSummary();
+        }
+        if (shelfLyricView != null) {
+            shelfLyricView.setLines(new ArrayList<>(lyricMains), subLines());
+            shelfLyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
+        }
         if (lyricView != null) {
             lyricView.setLines(new ArrayList<>(lyricMains), subLines());
             lyricView.setPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
@@ -2003,12 +2808,14 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private void refreshInfoContent() {
         if (infoContentView == null) return;
         if (coverTheme && !coverInfoMode) return;
+        if (cdTheme && !cdInfoMode) return;
         infoContentView.removeAllViews();
         MusicTrack track = null;
         try {
             track = MusicController.get().current();
         } catch (Throwable ignored) {
         }
+        // CD 信息态走非 compact（HeroCard＋三段玻璃分区，与 Apple 同构建；GZ CD 为 SongInfoPage 内嵌同源）
         boolean compact = coverTheme;
         if (track == null) {
             TextView hint = infoText(12f, 500, 0x61FFFFFF, getString(R.string.music_info_empty));

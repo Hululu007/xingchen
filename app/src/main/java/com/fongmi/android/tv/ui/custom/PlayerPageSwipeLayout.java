@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.os.SystemClock;
 import android.util.AttributeSet;
+import android.view.Choreographer;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -14,7 +15,9 @@ import android.widget.TextView;
  * 播放页整页竖滑切歌容器（GZ coverAxisLock 模型转写）：
  * 竖轴锁定（|dy|＞|dx|×1.5）＋状态栏死区（起点在状态栏高度内且向下滑不触发），
  * 整页跟手（translationY 钳在锚点内）、过 36dp 出方向提示＋震动一次、
- * 松手过 36dp 或甩动 600dp/s 提交切歌、否则 250ms 回中。
+ * 松手过 36dp 或甩动 600dp/s 提交切歌、否则弹簧回中
+ * （施工图 §1 SpringForce：阻尼比 0.9、刚度 1400——批 3 D 路换真弹簧，手写积分不引新依赖；
+ * 跟手拖动段行为不变、只换松手回弹段）。
  * 横向手势（歌词页滑入滑出、进度拖动、架列横滑）一律不拦截，点按原样透传子控件。
  * 只挂播放页 themeContainer（五主题通用）；全屏歌词页是独立兄弟层，不受影响。
  */
@@ -66,6 +69,7 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         swipeEnabled = enabled;
         if (!enabled) {
             tracking = false;
+            stopSpring();
             setTranslationY(0f);
             if (hintView != null) hintView.setVisibility(View.GONE);
         }
@@ -112,7 +116,10 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                     if (loc[1] + downY < statusBarHeight) return false;
                 }
                 tracking = true;
-                if (!commitPending) animate().cancel();
+                if (!commitPending) {
+                    animate().cancel();
+                    stopSpring();
+                }
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
@@ -148,7 +155,10 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                         if (loc[1] + downY < statusBarHeight) return true;
                     }
                     tracking = true;
-                    if (!commitPending) animate().cancel();
+                    if (!commitPending) {
+                        animate().cancel();
+                        stopSpring();
+                    }
                 }
                 float dy = ev.getY() - downY;
                 lastMoveY = ev.getY();
@@ -197,6 +207,7 @@ public class PlayerPageSwipeLayout extends FrameLayout {
 
     private void commit(boolean next) {
         if (commitPending) return;
+        stopSpring();
         commitPending = true;
         float target = next ? -anchorPx() : anchorPx();
         animate().translationY(target).setDuration(150).withEndAction(() -> {
@@ -206,7 +217,60 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         }).start();
     }
 
+    // ================= 回弹弹簧（§1：阻尼比 0.9、刚度 1400） =================
+
+    private static final double SPRING_STIFFNESS = 1400d;
+    private static final double SPRING_DAMPING_RATIO = 0.9d;
+    private float springVelocity;
+    private long springLastMs;
+    private boolean springRunning;
+    private final Choreographer.FrameCallback springCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!springRunning) return;
+            stepSpring();
+            if (springRunning) Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+
+    /** 松手回弹：自当前 translationY 以弹簧积分回 0（半隐式欧拉，dt 钳 0.05s）。 */
     private void springBack() {
-        animate().translationY(0f).setDuration(250).start();
+        animate().cancel();
+        if (getTranslationY() == 0f) return;
+        springVelocity = 0f;
+        springLastMs = SystemClock.uptimeMillis();
+        if (!springRunning) {
+            springRunning = true;
+            Choreographer.getInstance().postFrameCallback(springCallback);
+        }
+    }
+
+    private void stepSpring() {
+        long now = SystemClock.uptimeMillis();
+        float dt = Math.min(0.05f, Math.max(0.001f, (now - springLastMs) / 1000f));
+        springLastMs = now;
+        double damping = 2d * SPRING_DAMPING_RATIO * Math.sqrt(SPRING_STIFFNESS);
+        double x = getTranslationY();
+        springVelocity += (float) ((SPRING_STIFFNESS * (0d - x) - damping * springVelocity) * dt);
+        double next = x + springVelocity * dt;
+        if (Math.abs(next) < 0.5d && Math.abs(springVelocity) < 10d) {
+            setTranslationY(0f);
+            springRunning = false;
+            return;
+        }
+        setTranslationY((float) next);
+    }
+
+    private void stopSpring() {
+        if (springRunning) {
+            springRunning = false;
+            Choreographer.getInstance().removeFrameCallback(springCallback);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        stopSpring();
+        super.onDetachedFromWindow();
     }
 }

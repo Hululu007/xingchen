@@ -12,6 +12,13 @@
 # 字段泛型签名剥掉、读回全变 LinkedTreeMap 直接崩；现在 Entry 只存字符串无泛型可剥，
 # 这里再加一道保险，防 R8 对缓存结构动手脚）
 -keep class com.fongmi.android.tv.api.hk.HkDetailCache$Entry { *; }
+# 音乐链落盘结构（2026-10-24 批 7 R8 审计 R1–R4）：这四件不在 bean 包、无 keep 时
+# R8 改字段名/裁未读字段，而读写两侧一侧反射字段名、一侧字面键，不对称即静默丢数据
+# （AudioPlaylistStore 已在 1.4.26 成品 dex 实证打坏：字段改名 a/b/c、同版往返即丢）。
+-keep class com.fongmi.android.tv.ui.activity.MusicActivity$HomeChartSnapshot { *; }
+-keep class com.fongmi.android.tv.player.lyrics.AudioPlaylistStore$* { *; }
+-keep class com.fongmi.android.tv.music.ParametricEq$Band { *; }
+-keep class com.fongmi.android.tv.player.lyrics.LyricsResult { *; }
 
 # MPV JNI bridge
 -keep class is.xyz.mpv.MPVLib { *; }

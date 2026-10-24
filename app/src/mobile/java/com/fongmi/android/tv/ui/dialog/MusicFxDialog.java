@@ -38,6 +38,8 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
     private MusicPlaybackService.FxState state;
 
     public static void show(FragmentActivity activity) {
+        // 销毁后弹窗守卫（批 7 R8 审计 R5，与 MusicQueueDialog 同款）
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         new MusicFxDialog().show(activity.getSupportFragmentManager(), "music_fx");
     }
 

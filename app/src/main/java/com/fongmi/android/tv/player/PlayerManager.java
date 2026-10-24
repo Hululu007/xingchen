@@ -217,6 +217,12 @@ public class PlayerManager implements ParseCallback {
     // 才进缓冲，补喂/停连后解除武装。代不符一律不收，防串房。
     private final List<LiveDanmakuMessage> liveDanmakuPendingMessages = new ArrayList<>();
     private long liveDanmakuPendingGeneration = -1L;
+    // 网关路未激活窗口的待喂缓冲：与平台路同口径（96513940），但缓冲 list 与武装代
+    // 各自独立——网关消息只进本 list、按网关会话自己的代际武装。两路分发互斥
+    // （选网关源即停 coordinator、平台路只在非网关源时启），缓冲不许互相串；
+    // offer 的目标 buffer/batcher 是两路共用的同一份（同一时刻只有一路在跑）。
+    private final List<LiveDanmakuMessage> liveDanmakuGatewayPendingMessages = new ArrayList<>();
+    private long liveDanmakuGatewayPendingGeneration = -1L;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
     private float pendingSwitchSpeed = 1f;
@@ -4655,9 +4661,11 @@ public class PlayerManager implements ParseCallback {
                     if (state == LiveDanmakuWebSocketSession.State.CONNECTING) {
                         liveDanmakuBuffer.reset(generation);
                         liveDanmakuBatcher.reset(generation);
+                        armPendingGatewayLiveMessages(generation);
                     } else if (state == LiveDanmakuWebSocketSession.State.RETRY_WAIT || state == LiveDanmakuWebSocketSession.State.STOPPED || state == LiveDanmakuWebSocketSession.State.RELEASED) {
                         liveDanmakuBatcher.clear();
                         liveDanmakuBuffer.clear();
+                        disarmPendingGatewayLiveMessages();
                     }
                     if (state != LiveDanmakuWebSocketSession.State.OPEN) {
                         App.post(() -> logLiveDanmakuMetrics("state_" + state, false));
@@ -4681,11 +4689,14 @@ public class PlayerManager implements ParseCallback {
                     if (result.kind() == LiveDanmakuParser.Kind.ONLINE) {
                         liveDanmakuBuffer.updateOnline(generation, result.online());
                     } else {
-                        if (!liveDanmakuPlaybackActive) return;
-                        LiveDanmakuMessage message = result.message();
-                        LiveDanmakuBuffer.OfferResult offer = liveDanmakuBuffer.offer(message);
-                        liveDanmakuMetrics.onOffer(offer);
-                        if (offer != LiveDanmakuBuffer.OfferResult.STALE) liveDanmakuBatcher.requestDrain(generation);
+                        if (!liveDanmakuPlaybackActive) {
+                            // 起播未激活窗：旧口径整条静默丢，与平台路同型（96513940
+                            // 只修了平台路、本处当时留痕未动）。改为进网关路自己的
+                            // 待喂缓冲、激活后补喂，口径与平台路逐项对齐。
+                            bufferPendingGatewayLiveMessage(generation, result.message());
+                            return;
+                        }
+                        offerGatewayLiveMessages(generation, Collections.singletonList(result.message()));
                     }
                 }
             });
@@ -4701,6 +4712,72 @@ public class PlayerManager implements ParseCallback {
         if (liveDanmakuSession == null) return;
         liveDanmakuSession.release();
         liveDanmakuSession = null;
+    }
+
+    /** 网关路 CONNECTING 时按代武装待喂缓冲（与网关会话的 buffer/batcher reset 同点、同代）。 */
+    private void armPendingGatewayLiveMessages(long generation) {
+        synchronized (liveDanmakuGatewayPendingMessages) {
+            liveDanmakuGatewayPendingMessages.clear();
+            liveDanmakuGatewayPendingGeneration = generation;
+        }
+    }
+
+    /** 网关路停连/待重试/释放：清缓冲并解除武装，旧代消息不许补喂进新房。 */
+    private void disarmPendingGatewayLiveMessages() {
+        synchronized (liveDanmakuGatewayPendingMessages) {
+            liveDanmakuGatewayPendingMessages.clear();
+            liveDanmakuGatewayPendingGeneration = -1L;
+        }
+    }
+
+    /** 只清网关缓冲不清武装：暂停丢弃待喂（discardLiveDanmakuPending）时与平台路同点调用。 */
+    private void clearPendingGatewayLiveMessages() {
+        synchronized (liveDanmakuGatewayPendingMessages) {
+            liveDanmakuGatewayPendingMessages.clear();
+        }
+    }
+
+    /**
+     * 网关消息是 onMessage 逐条解析到达（与平台路整批到达不同），缓冲也逐条收；
+     * 其余口径与平台路同：只收武装代、上限同一 LIVE_DANMAKU_PENDING_CAP、超限丢最旧。
+     */
+    private void bufferPendingGatewayLiveMessage(long generation, LiveDanmakuMessage message) {
+        synchronized (liveDanmakuGatewayPendingMessages) {
+            // 非武装代不收：已激活过的代在暂停期到达的消息维持旧口径丢弃
+            // （暂停丢弃语义，同平台路），不攒着等恢复时倒灌。
+            if (generation != liveDanmakuGatewayPendingGeneration) return;
+            liveDanmakuGatewayPendingMessages.add(message);
+            while (liveDanmakuGatewayPendingMessages.size() > LIVE_DANMAKU_PENDING_CAP) liveDanmakuGatewayPendingMessages.remove(0);
+        }
+    }
+
+    /** 网关路播放激活（isPlaying 翻 true）时补喂：取出整批、解除武装，复核代与激活态后走与直达同路的 offer。 */
+    private void flushPendingGatewayLiveMessages() {
+        List<LiveDanmakuMessage> pending;
+        long generation;
+        synchronized (liveDanmakuGatewayPendingMessages) {
+            if (liveDanmakuGatewayPendingMessages.isEmpty()) {
+                liveDanmakuGatewayPendingGeneration = -1L;
+                return;
+            }
+            generation = liveDanmakuGatewayPendingGeneration;
+            pending = new ArrayList<>(liveDanmakuGatewayPendingMessages);
+            liveDanmakuGatewayPendingMessages.clear();
+            liveDanmakuGatewayPendingGeneration = -1L;
+        }
+        if (generation != liveDanmakuGeneration || !liveDanmakuPlaybackActive) return;
+        offerGatewayLiveMessages(generation, pending);
+    }
+
+    /** 网关路 offer 同路点：直达与补喂共用——offer＋metrics＋requestDrain 一条不少（同平台路 offerPlatformLiveMessages 形态）。 */
+    private void offerGatewayLiveMessages(long generation, List<LiveDanmakuMessage> messages) {
+        boolean drained = false;
+        for (LiveDanmakuMessage message : messages) {
+            LiveDanmakuBuffer.OfferResult offer = liveDanmakuBuffer.offer(message);
+            liveDanmakuMetrics.onOffer(offer);
+            if (offer != LiveDanmakuBuffer.OfferResult.STALE) drained = true;
+        }
+        if (drained) liveDanmakuBatcher.requestDrain(generation);
     }
 
     /**
@@ -4846,6 +4923,7 @@ public class PlayerManager implements ParseCallback {
 
     private void discardLiveDanmakuPending() {
         clearPendingPlatformLiveMessages();
+        clearPendingGatewayLiveMessages();
         liveDanmakuBuffer.discardPending();
         liveDanmakuBatcher.reset(liveDanmakuGeneration);
         clearLiveDanmakuRenderer(liveDanmakuGeneration);
@@ -6223,6 +6301,7 @@ public class PlayerManager implements ParseCallback {
         public void onIsPlayingChanged(boolean isPlaying) {
             liveDanmakuPlaybackActive = isPlaying;
             if (isPlaying) flushPendingPlatformLiveMessages();
+            if (isPlaying) flushPendingGatewayLiveMessages();
             if (!isPlaying) discardLiveDanmakuPending();
             if (isPlaying) scheduleNetworkProtection(0);
             else if (player.getPlaybackState() == Player.STATE_READY && !player.getPlayWhenReady()) {

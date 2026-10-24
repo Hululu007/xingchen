@@ -211,6 +211,12 @@ public class LabEnvActivity extends AppCompatActivity {
         listBox.addView(grid);
     }
 
+    /** 两列格定宽：屏宽减网格左右边距（18dp×2）后对半成格，再减格子左右 margin（5dp×2）即卡宽；格位与卡宽不随服务数量变，单个服务只占第一格 */
+    private int tileWidth() {
+        int content = getResources().getDisplayMetrics().widthPixels - dp(36);
+        return content / 2 - dp(10);
+    }
+
     /** 服务格：深玻璃＋名＋状态徽＋启/停钮＋自启开关＋行尾节点开关（稿 env-installed .tile） */
     private View serviceTile(LabRegistry.Svc s) {
         boolean running = LabRunner.isRunning(this, s.id);
@@ -218,13 +224,13 @@ public class LabEnvActivity extends AppCompatActivity {
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setBackground(LabSkin.glassDark(this));
         tile.setPadding(dp(13), dp(14), dp(13), dp(14));
-        // 等高：内容全是定高件（标题单行、徽、钮、开关），再兜一道统一最低高，
-        // 同排两卡不许一张高一张矮
-        tile.setMinimumHeight(dp(158));
+        // 定宽定高（用户点名「卡片固定」）：宽按屏宽算死（tileWidth），高定 158dp
+        // （＝卡内定高件之和、上一件的自然内容高）；不许再用权重列＋WRAP_CONTENT——
+        // 只剩一个服务时权重列会把整行宽都给它，卡被横向拉满整行（截图 113147 实证）
         GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-        lp.width = 0;
-        lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
-        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        lp.width = tileWidth();
+        lp.height = dp(158);
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED);
         int gap = dp(5);
         lp.setMargins(gap, 0, gap, dp(9));
         tile.setLayoutParams(lp);

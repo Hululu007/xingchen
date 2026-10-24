@@ -198,6 +198,12 @@ public class LabHomeActivity extends AppCompatActivity {
         gridBox.addView(grid);
     }
 
+    /** 两列格定宽：屏宽减网格左右边距（18dp×2）后对半成格，再减格子左右 margin（5dp×2）即卡宽；与 LabEnvActivity 服务格同一公式 */
+    private int tileWidth() {
+        int content = getResources().getDisplayMetrics().widthPixels - dp(36);
+        return content / 2 - dp(10);
+    }
+
     /** 环境格：深玻璃＋环境名（行右端 已安装/未安装）＋圆点＋「X 个服务」（稿 .tile） */
     private View envTile(String env) {
         List<LabRegistry.Svc> svcs = LabRegistry.get(this).services(env);
@@ -209,14 +215,17 @@ public class LabHomeActivity extends AppCompatActivity {
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setBackground(LabSkin.glassDark(this));
         tile.setPadding(dp(14), dp(17), dp(14), dp(17));
+        // 定宽定高，与环境页服务格同口径（用户点名「卡片固定」）：宽按屏宽算死
+        // （tileWidth），高定 114dp。此前同为权重列＋WRAP_CONTENT＋最低高，只因环境
+        // 清单恒多项、总有成对行钉住列宽才没拉满（截图 113143 末行单卡 ffmpeg 即
+        // 半宽实证），构造同源、一并算死，视觉不变
         GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-        lp.width = 0;
-        lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
-        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        lp.width = tileWidth();
+        lp.height = dp(114);
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED);
         int gap = dp(5);
         lp.setMargins(gap, 0, gap, dp(9));
         tile.setLayoutParams(lp);
-        tile.setMinimumHeight(dp(114));
         tile.setClickable(true);
         tile.setFocusable(true);
         tile.setOnClickListener(v -> LabEnvActivity.start(this, env));

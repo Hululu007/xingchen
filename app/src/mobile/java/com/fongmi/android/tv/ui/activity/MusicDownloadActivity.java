@@ -180,7 +180,7 @@ public class MusicDownloadActivity extends BaseActivity {
         bigTitle = getString(R.string.music_downloaded);
         tvTitle.setText(R.string.wave2_download_manage);
         btnSearch.setVisibility(View.VISIBLE);
-        btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         // 下载批量管理条（随机播放走通用工具条的 shuffle，不在这里重复造入口）
         btnDlSelect.setOnClickListener(v -> toggleDlSelect());
         btnDlPauseAll.setOnClickListener(v -> {

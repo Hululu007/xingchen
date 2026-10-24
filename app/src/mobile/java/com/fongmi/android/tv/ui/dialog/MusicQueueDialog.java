@@ -599,6 +599,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                 i.putExtra("title", title == null ? "" : title);
                 return i;
             }
+            if ("search".equals(params.get("mode"))) {
+                android.content.Intent i = new android.content.Intent(host,
+                        com.fongmi.android.tv.ui.activity.MusicSearchActivity.class);
+                i.putExtra("keyword", keyword == null ? "" : keyword);
+                return i;
+            }
             android.content.Intent i = new android.content.Intent(host,
                     com.fongmi.android.tv.ui.activity.MusicListActivity.class);
             i.putExtra("mode", params.get("mode"));

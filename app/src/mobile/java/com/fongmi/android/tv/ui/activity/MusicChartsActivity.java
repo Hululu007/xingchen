@@ -112,7 +112,7 @@ public class MusicChartsActivity extends BaseActivity {
         btnChartsRefresh.setOnClickListener(v -> loadCharts());
         // 顶栏搜索钮照旧落点：壳搜索模式（搜索页尚未拆）
         ImageView btnSearch = findViewById(R.id.btnSearch);
-        btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         // 榜单模式只有榜卡、没有歌曲行：顺序播放／随机播放钮点了只弹空提示，照旧隐藏
         btnPlaySeq.setVisibility(View.GONE);
         btnPlayAll.setVisibility(View.GONE);

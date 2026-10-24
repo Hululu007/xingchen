@@ -131,7 +131,7 @@ public class MusicChartDetailActivity extends BaseActivity {
         empty = findViewById(R.id.empty);
         // 顶栏搜索钮照旧落点：壳搜索模式（搜索页尚未拆）
         ImageView btnSearch = findViewById(R.id.btnSearch);
-        btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new ChartDetailAdapter());
         MusicController.get().addListener(controllerListener);

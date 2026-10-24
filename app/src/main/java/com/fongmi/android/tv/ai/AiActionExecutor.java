@@ -105,7 +105,7 @@ public class AiActionExecutor {
                     if (kw.isEmpty()) return "没听清歌名，再说一遍";
                     Activity top = topActivity(context);
                     if (top == null) return "打开失败，请重试";
-                    Class<?> cls = Class.forName("com.fongmi.android.tv.ui.activity.MusicListActivity");
+                    Class<?> cls = Class.forName("com.fongmi.android.tv.ui.activity.MusicSearchActivity");
                     android.content.Intent intent = new android.content.Intent(top, cls);
                     intent.putExtra("mode", "search");
                     intent.putExtra("keyword", kw);

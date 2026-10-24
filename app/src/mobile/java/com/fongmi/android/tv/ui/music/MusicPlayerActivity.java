@@ -718,7 +718,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             String a = t == null ? null : t.displayArtist();
             if (a != null && !a.isEmpty()) {
                 try {
-                    com.fongmi.android.tv.ui.activity.MusicListActivity.startSearch(this, a);
+                    com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(this, a);
                 } catch (Throwable ignored) {
                 }
             }
@@ -728,7 +728,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             String al = t == null ? null : t.album;
             if (al != null && !al.isEmpty()) {
                 try {
-                    com.fongmi.android.tv.ui.activity.MusicListActivity.startSearch(this, al);
+                    com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(this, al);
                 } catch (Throwable ignored) {
                 }
             }

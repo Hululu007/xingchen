@@ -177,7 +177,7 @@ public class MusicDeviceActivity extends BaseActivity {
 
         tvTitle.setText(R.string.music_device);
         btnSearch.setVisibility(View.VISIBLE);
-        btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         btnPlaySeq.setOnClickListener(v -> playAllSequential());
         btnSort.setOnClickListener(v -> showDeviceSortDialog());

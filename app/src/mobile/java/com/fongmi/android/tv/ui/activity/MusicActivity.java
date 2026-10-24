@@ -150,7 +150,7 @@ public class MusicActivity extends BaseActivity {
         });
         binding.homeContinuePlay.setOnClickListener(v -> onContinuePlay());
         // 搜索胶囊整条进搜索页；⋮ 独立点击区开小菜单
-        binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        binding.homeSearchBar.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         binding.homeBtnMore.setOnClickListener(this::showMoreMenu);
         binding.notifPermGo.setOnClickListener(v -> openAppNotificationSettings());
         // 五快捷真跳

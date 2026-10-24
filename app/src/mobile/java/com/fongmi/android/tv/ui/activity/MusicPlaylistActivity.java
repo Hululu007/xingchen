@@ -165,7 +165,7 @@ public class MusicPlaylistActivity extends BaseActivity {
             });
         }
         ImageView btnSearch = findViewById(R.id.btnSearch);
-        btnSearch.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));
+        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         findViewById(R.id.btnPlayAll).setOnClickListener(v -> shufflePlay());
         findViewById(R.id.btnPlaySeq).setOnClickListener(v -> playAllSequential());
         btnSort.setOnClickListener(v -> showGenericSortDialog());

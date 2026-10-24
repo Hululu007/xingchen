@@ -77,6 +77,7 @@ import com.fongmi.android.tv.ui.custom.CustomKeyDown;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
+import com.fongmi.android.tv.ui.dialog.DanmakuSettingDialog;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LiveControlDialog;
@@ -1329,6 +1330,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onLiveConfigPanel() {
         onConfig();
+    }
+
+    @Override
+    public void onLiveDanmakuSettingPanel() {
+        if (player() == null) return;
+        // 与点播同一细设面板/存储/生效链；不带 restoreParent（那是回点播弹幕源列表用的，直播无此父面）
+        DanmakuSettingDialog.create().player(player()).show(this);
+        hideControl();
     }
 
     @Override

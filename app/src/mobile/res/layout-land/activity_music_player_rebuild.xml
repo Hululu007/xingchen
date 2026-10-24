@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐播放页骨架·横屏（批 1）：id 与类型与竖屏逐项一致（同 id 跨变体类型不一致会让 Binding 退化）；
+     结构同竖屏，横版差异只在主题布局的排布（music_player_theme_classic 横版）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0E16"
+    android:fitsSystemWindows="true">
+
+    <ImageView
+        android:id="@+id/ivBgBlur"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <com.fongmi.android.tv.ui.custom.FluidCoverAmbientView
+        android:id="@+id/fluidAmbient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/viewVeil"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.fongmi.android.tv.ui.custom.PlayerPageSwipeLayout
+        android:id="@+id/themeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/swipeHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_lyric_capsule"
+        android:paddingStart="14dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <com.fongmi.android.tv.ui.custom.HeartsBurstView
+        android:id="@+id/heartsOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>

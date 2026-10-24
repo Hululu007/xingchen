@@ -35,6 +35,7 @@ import com.fongmi.android.tv.databinding.ItemCloudFileBinding;
 import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 
 import org.json.JSONObject;

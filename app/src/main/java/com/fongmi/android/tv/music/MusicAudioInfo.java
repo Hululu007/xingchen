@@ -5,7 +5,7 @@ package com.fongmi.android.tv.music;
  * 播放页音质格照它显示：无损只显编码名（如「FLAC」），有损显编码＋真实码率
  * （如「MP3 · 320kbps」）；采样率永不进显示，所选档永不进显示。
  * {@link #master}（lossless 且位深≥24）只作内部判定保留，不进展示串。
- * 格子短码（最新令，GZ immersiveShortLabel 口径，见 MusicPlayerActivity.realQualityText）：
+ * 格子短码（GZ immersiveShortLabel 口径，shortCode）：
  * 实测 → SQ／HQ／Std／Hi-Res／24bit；describe() 保留为实测明细串，不再进格子。
  */
 public class MusicAudioInfo {

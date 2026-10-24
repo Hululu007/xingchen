@@ -49,9 +49,9 @@ public final class ShelfStageGeometry {
      * 3 槽舞台槽距＝中心参考 c（瓜子无钳制，RecordShelfPlayerKt:1713；390dp 屏 c＝230.1dp，
      * 封套 185.25dp，项间间距＝槽距−封套≈45dp）。原 min(c, 封套＋45dp) 钳制已删：
      * 宽屏下槽距不再被压到封套＋45dp。项间用 ItemDecoration 补（槽距−封套）；
-     * 当前槽项根宽 1.48×封套时，次槽布局左缘多出 0.48×封套，由次槽位移补偿（见 MusicPlayerActivity），
+     * 当前槽项根宽 1.48×封套时，次槽布局左缘多出 0.48×封套，由次槽位移补偿（唱片架槽位变换归批 3 新播放页实现），
      * 不改本值。按槽距居中时居中的是槽位盒，封套视觉中心与槽位盒中心差半个间距
-     * （约 22dp／390dp 屏）；该偏移已由 MusicPlayerActivity.applyShelfSlotTransform
+     * （约 22dp／390dp 屏）；该偏移原由旧播放页的槽位变换方法
      * 以 (槽距 − 封套) / 2 全槽右移补偿，几何量本身不动（真机须以屏中线复核方向）。
      */
     public final float slotPitchDp;
@@ -147,7 +147,7 @@ public final class ShelfStageGeometry {
      * 3 槽列表项位移 dp（落到 itemView.translationX 的值）：瓜子全式减去布局摊位项。
      * 列表按槽距 pitch＝c 排布，项布局中心本身已与舞台槽位重合（c×slot 已在布局里），
      * 再叠加第二项会双倍错位，故只取首项并按槽位方向取号（槽位 0 时为 0）。
-     * 次槽（slot＝1 的下一首）另有 0.48×封套布局补偿，见 MusicPlayerActivity，不在本式内。
+     * 次槽（slot＝1 的下一首）另有 0.48×封套布局补偿（归批 3 新播放页），不在本式内。
      */
     public float listItemTranslationXDp(float slot) {
         float v = Math.max(0f, Math.min(1f, 1f - Math.abs(slot)));

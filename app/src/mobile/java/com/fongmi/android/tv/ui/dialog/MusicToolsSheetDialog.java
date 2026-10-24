@@ -52,7 +52,7 @@ import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.service.MusicPlaybackService;
-import com.fongmi.android.tv.ui.activity.MusicPlayerActivity;
+import com.fongmi.android.tv.ui.music.MusicPlayerHost;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -1057,7 +1057,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     private void refreshPlayerCover() {
         FragmentActivity host = getActivity();
-        if (host instanceof MusicPlayerActivity) ((MusicPlayerActivity) host).refreshCurrentCover();
+        if (host instanceof MusicPlayerHost) ((MusicPlayerHost) host).refreshCurrentCover();
     }
 
     /** A7 门控：仅横屏时建左手行（瓜子双非空：横屏调用方传状态＋回调，竖屏传空行不出） */
@@ -1396,13 +1396,13 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         // 第三波残留 L9：工具面板版本行 >1 版限制放开（与播放页内版本入口一致：
         // 播放页 openLyricVersionDialog 在 0／1 版时也允许开面板、内有空态文案＋搜索入口）；
         // 0／1 版时行副文改“1 个版本”／“暂无版本”，点进同样开面板，不再藏行。
-        if (lyricHost instanceof MusicPlayerActivity) {
-            int versionCount = ((MusicPlayerActivity) lyricHost).getLyricVersionCount();
+        if (lyricHost instanceof MusicPlayerHost) {
+            int versionCount = ((MusicPlayerHost) lyricHost).getLyricVersionCount();
             addRow(lyricSrcCard, getString(R.string.music_lyric_versions),
                     versionCount <= 0 ? "暂无版本" : versionCount + " 个版本", v -> {
                         dismissAllowingStateLoss();
                         new Handler(Looper.getMainLooper()).post(
-                                () -> ((MusicPlayerActivity) lyricHost).openLyricVersionDialog());
+                                () -> ((MusicPlayerHost) lyricHost).openLyricVersionDialog());
                     }, true);
             firstSrc = false;
         }

@@ -39,6 +39,7 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.CoverColor;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -324,7 +325,7 @@ public class MusicActivity extends BaseActivity {
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         // ⓪ 首页标题斜度：歌词同款 skewX(-0.12f)（他 16:42 令，幅度只要一点；
-        // TextView 无 setTextSkewX，照树内 MusicPlayerActivity:1788 用 getPaint().setTextSkewX）
+        // TextView 无 setTextSkewX，照歌词斜度口径用 getPaint().setTextSkewX(-0.12f)）
         binding.homeTitle.getPaint().setTextSkewX(-0.12f);
         // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
         binding.homeSearchBar.setOnClickListener(v -> MusicListActivity.startSearch(this, ""));

@@ -131,7 +131,7 @@
             android:screenOrientation="fullUser" />
 
         <activity
-            android:name=".ui.activity.MusicPlayerActivity"
+            android:name=".ui.music.MusicPlayerActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 

@@ -737,7 +737,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         try {
             Activity host = hostRef == null ? null : hostRef.get();
             Context ctx = host != null ? host : app;
-            Intent it = new Intent(ctx, Class.forName("com.fongmi.android.tv.ui.activity.MusicPlayerActivity"));
+            Intent it = new Intent(ctx, Class.forName("com.fongmi.android.tv.ui.music.MusicPlayerActivity"));
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(it);
         } catch (Throwable ignored) {

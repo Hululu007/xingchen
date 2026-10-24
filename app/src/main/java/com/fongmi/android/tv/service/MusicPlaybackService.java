@@ -338,7 +338,7 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private PendingIntent buildPlayerIntent() {
         try {
-            Intent intent = new Intent(this, Class.forName("com.fongmi.android.tv.ui.activity.MusicPlayerActivity"));
+            Intent intent = new Intent(this, Class.forName("com.fongmi.android.tv.ui.music.MusicPlayerActivity"));
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             return PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         } catch (Throwable t) {

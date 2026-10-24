@@ -9,7 +9,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.HkMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.PyMusicSource;
-import com.fongmi.android.tv.ui.activity.MusicPlayerActivity;
+import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 
 import java.util.ArrayList;
 import java.util.List;

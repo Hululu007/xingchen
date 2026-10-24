@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐播放页骨架（批 1 重建）：氛围背景层（糊底＋罩／流体双路径）＋主题容器（页级竖滑切歌层）
+     ＋方向提示＋爱心粒子覆盖层。主题按 MusicPlayerSettings 主题 id 装进 themeContainer，
+     本批只实现 classic，其余 id 暂落 classic 渲染（批 3 实现）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0E16">
+
+    <!-- 糊底：封面 64×64 小图拉满，代码侧加 24dp 模糊（API31+ RenderEffect）＋四段取色罩合成 -->
+    <ImageView
+        android:id="@+id/ivBgBlur"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <!-- 流体背景层：流体开时可见、盖住糊底，颜色由播放页封面取色传入（FluidCoverAmbientView 只借不改） -->
+    <com.fongmi.android.tv.ui.custom.FluidCoverAmbientView
+        android:id="@+id/fluidAmbient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- 四段氛围罩层：代码侧按取色结果刷渐变（停点 0/0.4/0.78/1），流体开时隐藏 -->
+    <View
+        android:id="@+id/viewVeil"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 主题容器：整页竖滑切歌拦截层（五主题通用口径，本批经典用） -->
+    <com.fongmi.android.tv.ui.custom.PlayerPageSwipeLayout
+        android:id="@+id/themeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 竖滑切歌方向提示：拖动中显示方向，松手隐 -->
+    <TextView
+        android:id="@+id/swipeHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_lyric_capsule"
+        android:paddingStart="14dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- 爱心粒子覆盖层（双击封面爆发，不拦截触摸） -->
+    <com.fongmi.android.tv.ui.custom.HeartsBurstView
+        android:id="@+id/heartsOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>

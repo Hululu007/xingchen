@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 经典主题（GZ PlayerScreenKt 经典分支 :22309-22575 装配转写）：
-     封面 → SongMeta（歌名/歌手/专辑＋收藏小爱心＋右侧三键 40dp）→ 内嵌封面歌词（横向内边距 28dp）
-     → 间隔 6dp → PlaybackScrubber（音质筹/歌词筹＋细进度，横向内边距 28dp）→ 底部间隔 45dp。
-     经典主题无上一首/下一首键：切歌靠封面横滑（代码侧手势）；播放/暂停在 SongMeta 三键内。 -->
+<!-- 经典主题 classic（批 1，照施工图 §1 全表）：
+     封面（满幅宽、圆角 0）→ SongMeta → 内嵌歌词（weight 余高）→ Scrubber → 底部 Spacer 45dp；
+     SongMeta 与歌词间距 0、歌词与进度间距 6dp；经典无上／下一首键，切歌靠页级竖滑。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:paddingTop="0dp">
+    android:orientation="vertical">
 
-    <!-- 封面区：GZ 经典＝封面图本身满幅铺底（上半原图、下半模糊延伸），不是 28dp 边距的卡片；
-         手势在代码侧挂 tpCoverWrap（双击收藏/长按工具面板/竖滑切歌/单击开全屏歌词页）。
-         满幅后封面不再是卡片：去边距、去卡片投影，宽＝屏宽、高随图（方图即方幅）。 -->
+    <!-- 封面：满幅宽、圆角 0、无卡片边距；手势挂 tpCoverWrap（双击收藏／长按工具面板，单击无对照未绑） -->
     <FrameLayout
         android:id="@+id/tpCoverWrap"
         android:layout_width="match_parent"
@@ -22,22 +18,21 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:adjustViewBounds="true"
+            android:contentDescription="@null"
             android:scaleType="centerCrop" />
 
-        <!-- 出场封面层（redo3 F1）：切歌时旧封面暂存于此做 出场动画，平时 gone -->
+        <!-- 出场封面层：切歌转场 Classic 出场（滑移 0.5＋缩放 0.96＋alpha→0），平时 gone -->
         <ImageView
             android:id="@+id/tpCoverExit"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:adjustViewBounds="true"
+            android:contentDescription="@null"
             android:scaleType="centerCrop"
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- SongMeta：GZ 经典两行——歌名一行、歌手 ♡ 专辑同行一行（不是星辰旧的三行）；
-         歌名 18sp/800/白 0.95/行高 24sp/字距 -0.022em，歌手 14sp/白 0.34、专辑 14sp/白 0.26、
-         收藏心 13dp＋外垫 7dp（27dp 盒）在歌手专辑同一行里恒在；右侧三键点击区 40dp 见方，与标题间距 8dp；
-         歌名到第二行间距 2dp（GZ 紧凑口径确数未抠到，先按现行 2dp，真机核）。 -->
+    <!-- SongMeta 与封面的间距：§1 表无此项字面值，沿旧经典布局 12dp（报告已注非瓜子抠值） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -77,10 +72,8 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- 第二行：TableLayout + shrinkColumns="0"（歌手列可缩）——LinearLayout 下长歌手会把爱心/专辑顶出右边缘
-                 （歌手先量 AT_MOST 整列宽），短歌手时又不许用 weight（会把专辑顶到右边缘，刚修过的问题）；
-                 shrink 列两头都对：短时紧贴爱心、长时歌手先省略号收缩、爱心/专辑恒在。行高 22dp（GZ 第二行容器高），
-                 爱心盒 27宽×13高（图标 13dp＋左右各 7dp、上下 0dp，竖向 13dp＜22dp 不溢出）。 -->
+            <!-- 歌手行：歌手 14sp/500/行高 18/容器 22dp；行内收藏心图标 13dp、左右垫各 7dp；
+                 专辑独立成段同行显示（§1 专辑独立行 14sp，空则整行 GONE 由代码连分隔心一起藏） -->
             <TableLayout
                 android:layout_width="match_parent"
                 android:layout_height="22dp"
@@ -134,10 +127,7 @@
             </TableLayout>
         </LinearLayout>
 
-        <!-- 三键列：中心贴歌名行（瓜子实拍：键中心＝歌名中心），不是贴整块两行居中。
-             外行高 52dp（28＋2＋22），居中会把键顶推到 6dp、中心 26dp，比歌名中心 14dp 低 12dp；
-             负边距 -12dp 把键顶拉到 -6dp、中心回到 14dp，与歌名中心齐平；上溢 6dp 靠外行 clipChildren=false 露出，
-             上方还有 12dp 顶距垫着，不会顶到封面。 -->
+        <!-- 右侧三键：盒各 40dp、与标题列间距 8dp；菜单 21dp／队列 20dp／播放暂停随状态（代码切 padding） -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -169,24 +159,22 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:contentDescription="@string/pl_play_pause"
-                android:padding="7.5dp"
-                android:src="@drawable/ic_music_play"
+                android:padding="6dp"
+                android:src="@drawable/ic_music_pause"
                 android:tint="#FFFFFF" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 内嵌封面歌词：横向内边距 28dp、weight 占余下高度（组件 cover 模式，窗口 4 行）；点行开全屏歌词页 -->
-    <com.fongmi.android.tv.ui.custom.KaraokeLyricsView
+    <!-- 内嵌歌词：weight 占余高、横向边距 28dp、与 SongMeta 间距 0 -->
+    <com.fongmi.android.tv.ui.music.CoverLyricView
         android:id="@+id/tpLyricView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="0dp"
         android:layout_weight="1"
         android:paddingStart="28dp"
         android:paddingEnd="28dp" />
 
-    <!-- PlaybackScrubber：与歌词区间隔 6dp、横向内边距 28dp；
-         音质筹（实测值，取不到整筹隐藏）＋歌词筹一行在进度之上 -->
+    <!-- Scrubber：与歌词间距 6dp、横向边距 28dp；顶行双筹＋两侧时间，轨容器高 18dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -283,22 +271,14 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 进度：轨道上方间隔 4dp、容器高 18dp（GZ Canvas 高）、轨道基高 4dp（拖动 5dp 见代码 swapSeekDrawable）；
-             顶盒两侧时间 11sp：静止不可见、拖动 0.72（GZ 口径，代码 setTopTimesAlpha） -->
-        <SeekBar
-            android:id="@+id/tpSeek"
+        <com.fongmi.android.tv.ui.music.MusicScrubberView
+            android:id="@+id/tpScrubber"
             android:layout_width="match_parent"
             android:layout_height="18dp"
-            android:layout_marginTop="4dp"
-            android:maxHeight="4dp"
-            android:minHeight="4dp"
-            android:progressDrawable="@drawable/bg_player_seek_progress"
-            android:thumb="@drawable/bg_player_seek_thumb" />
-
-        <!-- 下一首块已按用户令拿掉：进度条直接贴底一档（45dp 间隔），不再显示下首歌名。 -->
+            android:layout_marginTop="4dp" />
     </LinearLayout>
 
-    <!-- 底部间隔 45dp（GZ 经典分支末尾 Spacer） -->
+    <!-- 底部 Spacer 45dp（§1） -->
     <View
         android:layout_width="match_parent"
         android:layout_height="45dp" />

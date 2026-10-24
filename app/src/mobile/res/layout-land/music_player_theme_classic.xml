@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 经典主题 classic·横版（批 1 适配，非瓜子值）：结构与数值与竖版同（§1 全表），
+     排布改为横屏左右分栏——封面占左栏、SongMeta／歌词／Scrubber 居右栏竖排。
+     id 与类型与竖版逐项一致。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal">
+
+    <FrameLayout
+        android:id="@+id/tpCoverWrap"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+
+        <ImageView
+            android:id="@+id/tpCover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <ImageView
+            android:id="@+id/tpCoverExit"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="28dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tpTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:fontWeight="800"
+                        android:gravity="center_vertical"
+                        android:includeFontPadding="false"
+                        android:letterSpacing="-0.022"
+                        android:lineHeight="24dp"
+                        android:maxLines="1"
+                        android:textColor="#F2FFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TableLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="22dp"
+                    android:layout_marginTop="2dp"
+                    android:shrinkColumns="0">
+
+                    <TableRow
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tpArtist"
+                            android:layout_width="wrap_content"
+                            android:layout_height="match_parent"
+                            android:ellipsize="end"
+                            android:fontWeight="500"
+                            android:gravity="center_vertical"
+                            android:includeFontPadding="false"
+                            android:lineHeight="18dp"
+                            android:maxLines="1"
+                            android:textColor="#57FFFFFF"
+                            android:textSize="14sp" />
+
+                        <ImageView
+                            android:id="@+id/tpFavHeart"
+                            android:layout_width="27dp"
+                            android:layout_height="13dp"
+                            android:contentDescription="@string/music_favorite"
+                            android:paddingLeft="7dp"
+                            android:paddingRight="7dp"
+                            android:paddingTop="0dp"
+                            android:paddingBottom="0dp"
+                            android:src="@drawable/ic_music_heart"
+                            android:tint="#FFFFFF" />
+
+                        <TextView
+                            android:id="@+id/tpAlbum"
+                            android:layout_width="wrap_content"
+                            android:layout_height="match_parent"
+                            android:ellipsize="end"
+                            android:fontWeight="500"
+                            android:gravity="center_vertical"
+                            android:includeFontPadding="false"
+                            android:lineHeight="18dp"
+                            android:maxLines="1"
+                            android:textColor="#42FFFFFF"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+                    </TableRow>
+                </TableLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginTop="-12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/tpBtnMenu"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/music_more"
+                    android:padding="9.5dp"
+                    android:src="@drawable/ic_music_menu"
+                    android:tint="#FFFFFF" />
+
+                <ImageView
+                    android:id="@+id/tpBtnQueueTitle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/music_queue"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_music_queue"
+                    android:tint="#FFFFFF" />
+
+                <ImageView
+                    android:id="@+id/tpPlayTop"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:contentDescription="@string/pl_play_pause"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_music_pause"
+                    android:tint="#FFFFFF" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <com.fongmi.android.tv.ui.music.CoverLyricView
+            android:id="@+id/tpLyricView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="28dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:id="@+id/tpPositionTop"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:alpha="0"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.018"
+                    android:text="00:00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:id="@+id/tpChipQuality"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_player_chip"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingStart="12dp"
+                        android:paddingTop="5dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="5dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tpQualityValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.054"
+                            android:maxLines="1"
+                            android:textColor="#B8FFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/tpChipLyric"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_player_chip"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingStart="12dp"
+                        android:paddingTop="5dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="5dp">
+
+                        <TextView
+                            android:id="@+id/tpLyricChipText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.054"
+                            android:maxLines="1"
+                            android:text="@string/music_lyric_chip_line"
+                            android:textColor="#B8FFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tpDurationTop"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:alpha="0"
+                    android:gravity="end"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.018"
+                    android:text="00:00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <com.fongmi.android.tv.ui.music.MusicScrubberView
+                android:id="@+id/tpScrubber"
+                android:layout_width="match_parent"
+                android:layout_height="18dp"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="45dp" />
+    </LinearLayout>
+</LinearLayout>

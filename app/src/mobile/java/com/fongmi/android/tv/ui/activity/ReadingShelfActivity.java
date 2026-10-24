@@ -401,6 +401,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         tvTitle.getPaint().setFakeBoldText(true);
         tvTitle.setTextColor(ReadingSkin.TEXT);
         tvTitle.setMaxLines(2);
+        // 定高（卡片固定口径）：标题恒占两行高，1 行标题不比 2 行的矮一截，同排三格等高
+        tvTitle.setMinLines(2);
         tvTitle.setEllipsize(TextUtils.TruncateAt.END);
         tvTitle.setPadding(0, dp(6), 0, 0);
         tvTitle.setText(r.bookTitle);
@@ -417,17 +419,17 @@ public class ReadingShelfActivity extends AppCompatActivity {
         card.addView(tvSub);
 
         int pct = progressPct(r);
-        if (pct >= 0) {
-            android.widget.ProgressBar bar = new android.widget.ProgressBar(c, null,
-                    android.R.attr.progressBarStyleHorizontal);
-            bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
-            bar.setMax(100);
-            bar.setProgress(Math.max(0, Math.min(100, pct)));
-            LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
-            blp2.topMargin = dp(6);
-            card.addView(bar, blp2);
-        }
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(c, null,
+                android.R.attr.progressBarStyleHorizontal);
+        bar.setProgressDrawable(ReadingSkin.goldProgressBar(c));
+        bar.setMax(100);
+        bar.setProgress(Math.max(0, Math.min(100, pct)));
+        // 定高（卡片固定口径）：无进度数据时以 INVISIBLE 占住这一行，免同排卡片一张高一张矮
+        if (pct < 0) bar.setVisibility(View.INVISIBLE);
+        LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
+        blp2.topMargin = dp(6);
+        card.addView(bar, blp2);
 
         if (!TextUtils.isEmpty(r.coverUrl)) {
             ImgUtil.load(r.bookTitle, r.coverUrl, cover, true);

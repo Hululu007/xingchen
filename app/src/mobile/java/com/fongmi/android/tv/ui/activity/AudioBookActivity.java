@@ -686,37 +686,45 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         });
         TextView n = new TextView(this);
         n.setText(v.name);
+        // 定高（卡片固定口径）：名字恒单行，长名截断不换行撑高
+        n.setSingleLine(true);
+        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
         n.setTextSize(15);
         n.getPaint().setFakeBoldText(true);
         n.setTextColor(selected ? ReadingSkin.GOLD_TEXT : ReadingSkin.TEXT);
         card.addView(n);
         TextView d = new TextView(this);
         d.setText(v.portrait);
+        // 定高（卡片固定口径）：画像恒占两行高（最短 4 字 1 行、最长 9 字 2 行），同排等高
+        d.setMinLines(2);
+        d.setMaxLines(2);
+        d.setEllipsize(android.text.TextUtils.TruncateAt.END);
         d.setTextSize(11);
         d.setTextColor(ReadingSkin.SUB);
         d.setPadding(0, dp(6), 0, 0);
         d.setGravity(Gravity.CENTER);
         card.addView(d);
-        // 画像自带「讲故事感」标签：数据驱动，不写死
-        if (v.portrait != null && v.portrait.contains("讲故事感")) {
-            TextView tag = new TextView(this);
-            tag.setText("讲故事感");
-            tag.setTextSize(10);
-            tag.setTextColor(0xFF0F0D06);
-            tag.getPaint().setFakeBoldText(true);
-            tag.setPadding(dp(8), dp(4), dp(8), dp(4));
-            android.graphics.drawable.GradientDrawable tb =
-                    new android.graphics.drawable.GradientDrawable();
-            tb.setColor(ReadingSkin.GOLD);
-            tb.setCornerRadius(dp(6));
-            tag.setBackground(tb);
-            android.widget.LinearLayout.LayoutParams tlp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            tlp.topMargin = dp(8);
-            card.addView(tag, tlp);
-        }
+        // 画像自带「讲故事感」标签：数据驱动，不写死；无此标签的卡以 INVISIBLE
+        // 占住同一行（卡片固定口径：四张音色卡同高，不随标签有无变化）
+        TextView tag = new TextView(this);
+        tag.setText("讲故事感");
+        tag.setTextSize(10);
+        tag.setTextColor(0xFF0F0D06);
+        tag.getPaint().setFakeBoldText(true);
+        tag.setPadding(dp(8), dp(4), dp(8), dp(4));
+        android.graphics.drawable.GradientDrawable tb =
+                new android.graphics.drawable.GradientDrawable();
+        tb.setColor(ReadingSkin.GOLD);
+        tb.setCornerRadius(dp(6));
+        tag.setBackground(tb);
+        boolean hasTag = v.portrait != null && v.portrait.contains("讲故事感");
+        tag.setVisibility(hasTag ? View.VISIBLE : View.INVISIBLE);
+        android.widget.LinearLayout.LayoutParams tlp =
+                new android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(8);
+        card.addView(tag, tlp);
         return card;
     }
 

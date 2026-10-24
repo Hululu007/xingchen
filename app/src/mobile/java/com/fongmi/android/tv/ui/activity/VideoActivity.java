@@ -6312,8 +6312,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 竖屏套按实际屏幕方向定：屏幕横了走横屏套（哪怕视频本身是竖的短剧），不按视频宽高
         boolean isVerticalFullscreen = isFullscreen() && !isActualLand();
         mBinding.control.setting.setVisibility(isVerticalFullscreen && !isLock() ? View.VISIBLE : View.GONE);
-        // 新增细设入口：横屏全屏＋竖屏全屏均显示；细设两项（弹幕/字幕）都无对象时入口一并藏（该藏的藏）
-        mBinding.control.fineSetting.setVisibility(isFullscreen() && !isLock() && (player().haveDanmaku() || player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
+        // 细设入口（右上角同款）：横屏全屏＋竖屏全屏＋竖屏非全屏（详情页内嵌播放）均显示——详情页无独立播放页，非全屏态够不着等于详情页够不着；细设两项（弹幕/字幕）都无对象时入口一并藏（该藏的藏）
+        mBinding.control.fineSetting.setVisibility(!isLock() && (player().haveDanmaku() || player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.fullscreen.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);

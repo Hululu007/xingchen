@@ -40,6 +40,7 @@ import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.impl.ConfigListener;
 import com.fongmi.android.tv.impl.FilterListener;
 import com.fongmi.android.tv.impl.SiteListener;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
@@ -64,7 +65,6 @@ import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
-import com.fongmi.android.tv.utils.ShortDramaHelper;
 import com.fongmi.android.tv.web.HomeWebController;
 import com.fongmi.android.tv.web.WebHomeChrome;
 import com.fongmi.android.tv.web.WebHomeChromeStartup;
@@ -620,28 +620,53 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     @Override
     public boolean onItemLongClick(int position, Class item) {
-        try {
-            String siteKey = getHome() == null ? "" : getHome().getKey();
-            String typeId = item.getTypeId();
-            String typeName = item.getTypeName();
-            if (siteKey.isEmpty() || typeId == null || typeId.isEmpty() || "home".equals(typeId)) return true;
-            boolean marked = ShortDramaHelper.isShortDramaCategoryMarked(siteKey, typeId);
-            boolean auto = ShortDramaHelper.isShortDramaCategoryName(typeName);
-            String[] options = marked
-                    ? new String[]{"取消短剧分类标记"}
-                    : new String[]{"标记为短剧分类"};
+        // 页签长按不再标短剧（标记只收敛到插件页的可见小标，存量已标数据与生效判定不动）；
+        // 仅快手直播页签长按弹快手登录，其余页签长按无动作。
+        if (item != null && isKuaishouLiveTab(item)) onKuaishouTabLongClick();
+        return true;
+    }
+
+    /**
+     * 快手直播页签认定（simple_live 源分类结构：type_id=kuaishou、type_name=快手直播）。
+     * id 或名含 kuaishou / 快手才认，认不准不挂。
+     */
+    private boolean isKuaishouLiveTab(Class item) {
+        String typeId = item.getTypeId();
+        if (typeId != null && typeId.trim().toLowerCase(java.util.Locale.ROOT).contains("kuaishou")) return true;
+        String typeName = item.getTypeName();
+        return typeName != null && (typeName.contains("快手") || typeName.toLowerCase(java.util.Locale.ROOT).contains("kuaishou"));
+    }
+
+    /** 未登录直接弹壳子统一快手登录弹窗；已登录给小弹窗（已登录＋退出登录）。 */
+    private void onKuaishouTabLongClick() {
+        if (!isAdded()) return;
+        if (LoginManager.isKuaishouLoggedIn()) {
             new androidx.appcompat.app.AlertDialog.Builder(requireActivity())
-                    .setTitle(typeName + (auto ? "（已自动识别为短剧）" : ""))
-                    .setItems(options, (d, which) -> {
-                        ShortDramaHelper.setShortDramaCategoryMarked(siteKey, typeId, !marked);
-                        ToastUtil.show(requireActivity(), !marked ? "已标记为短剧分类" : "已取消短剧分类标记", android.widget.Toast.LENGTH_SHORT);
+                    .setTitle("快手")
+                    .setMessage("已登录")
+                    .setPositiveButton("退出登录", (d, w) -> {
+                        LoginManager.logoutKuaishou();
+                        Notify.show("已退出快手登录");
                     })
                     .setNegativeButton("取消", null)
                     .show();
-        } catch (Exception e) {
-            e.printStackTrace();
+        } else {
+            LoginManager.get().loginKuaishou(requireActivity(), new LoginManager.LoginCallback() {
+                @Override
+                public void onSuccess(String providerId, String cookie) {
+                    Notify.show("快手登录成功");
+                }
+
+                @Override
+                public void onError(String msg) {
+                    Notify.show("登录失败：" + msg);
+                }
+
+                @Override
+                public void onCancel() {
+                }
+            });
         }
-        return true;
     }
 
     @Override

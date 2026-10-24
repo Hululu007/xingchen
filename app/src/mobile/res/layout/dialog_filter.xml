@@ -4,7 +4,7 @@
     android:id="@+id/recycler"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/xc_dialog_light"
+    android:background="@drawable/shape_dialog_glass_white_sheet"
     android:clipChildren="false"
     android:clipToPadding="false"
     android:overScrollMode="never"

@@ -132,4 +132,93 @@ public class HongguoDanmakuApiTest {
         assertNull(HongguoDanmakuApi.parseWindow(bad, SERIES, VID));
         assertNull(HongguoDanmakuApi.parseWindow(null, SERIES, VID));
     }
+
+    // ---------- 增量拉取循环（collectWindows） ----------
+
+    private static HongguoDanmakuApi.Window windowOf(long next, boolean hasMore, HongguoDanmakuApi.Item... items) {
+        return new HongguoDanmakuApi.Window(List.of(items), next, hasMore, "cur");
+    }
+
+    private static HongguoDanmakuApi.Item item(long offset, String text) {
+        return new HongguoDanmakuApi.Item(offset, text);
+    }
+
+    /** 按脚本逐窗回放的假数据源：脚本走完回 null（模拟失败/无更多）。 */
+    private static class ScriptedSource implements HongguoDanmakuApi.WindowSource {
+        private final List<HongguoDanmakuApi.Window> script;
+        int fetches;
+
+        ScriptedSource(List<HongguoDanmakuApi.Window> script) {
+            this.script = script;
+        }
+
+        @Override
+        public HongguoDanmakuApi.Window fetch(long start, String cursor) {
+            fetches++;
+            return fetches <= script.size() ? script.get(fetches - 1) : null;
+        }
+    }
+
+    @Test
+    public void collectKeepsPartialWhenLaterWindowFails() {
+        // 第一窗拿到货、第二窗失败（回 null）：已得部分保留，不再整集连坐
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "第一条"), item(2000, "第二条"))));
+        List<List<HongguoDanmakuApi.Item>> growth = new ArrayList<>();
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(source, 0, growth::add);
+        assertEquals(2, all.size());
+        assertEquals(1, growth.size());
+        assertEquals(2, growth.get(0).size());
+        assertEquals(2, source.fetches);
+    }
+
+    @Test
+    public void collectFirstWindowFailureYieldsEmpty() {
+        ScriptedSource source = new ScriptedSource(List.of());
+        List<List<HongguoDanmakuApi.Item>> growth = new ArrayList<>();
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(source, 0, growth::add);
+        assertTrue(all.isEmpty());
+        assertTrue(growth.isEmpty());
+    }
+
+    @Test
+    public void collectGrowthSnapshotsAccumulateWithDedup() {
+        // 三窗连续推进：快照逐窗变大，跨窗重复条目被去重吃掉、不触发虚假增长
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一")),
+                windowOf(60000, true, item(1000, "一"), item(31000, "二")),
+                windowOf(-1, false, item(61000, "三"))));
+        List<List<HongguoDanmakuApi.Item>> growth = new ArrayList<>();
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(source, 0, growth::add);
+        assertEquals(3, all.size());
+        assertEquals(3, growth.size());
+        assertEquals(1, growth.get(0).size());
+        assertEquals(2, growth.get(1).size());
+        assertEquals(3, growth.get(2).size());
+    }
+
+    @Test
+    public void collectRetryAfterFailureHasNoStickyState() {
+        // 同一个数据源先失败后恢复：抓取层无静态状态，第二次调用从头来、能拿全
+        ScriptedSource flaky = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一"))));
+        assertEquals(1, HongguoDanmakuApi.collectWindows(flaky, 0, null).size());
+        ScriptedSource healthy = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一")),
+                windowOf(-1, false, item(31000, "二"))));
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(healthy, 0, null);
+        assertEquals(2, all.size());
+        assertEquals(2, healthy.fetches);
+    }
+
+    @Test
+    public void collectStopsAtDurationBoundary() {
+        // 已知时长：起点越过时长就停，不再多取窗
+        ScriptedSource source = new ScriptedSource(List.of(
+                windowOf(30000, true, item(1000, "一")),
+                windowOf(60000, true, item(31000, "二"))));
+        List<HongguoDanmakuApi.Item> all = HongguoDanmakuApi.collectWindows(source, 30000, null);
+        assertEquals(1, all.size());
+        assertEquals(1, source.fetches);
+    }
 }

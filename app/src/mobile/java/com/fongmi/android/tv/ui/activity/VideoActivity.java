@@ -315,6 +315,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private HongguoCommentApi.Page mCommentEpisodePage;
     private String mCommentEpisodeVid = "";
     private String mHongguoDanmakuVid = "";
+    private String mHongguoDanmakuPending = "";
     private boolean mContentExpanded = false;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
@@ -2638,6 +2639,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mCommentEpisodePage = null;
         mCommentEpisodeVid = "";
         mHongguoDanmakuVid = "";
+        mHongguoDanmakuPending = "";
     }
 
     /** 详情到达即判识别闸并预抓（短剧直进路径在 setPlayer 起播点补判）。 */
@@ -2703,26 +2705,56 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         prepareHongguoDanmaku(result, vid);
     }
 
-    /** 红果弹幕制备：识别为红果的剧起播时按集拉弹幕转本地 XML，备好后进本集弹幕源列表（与 Result 同一列表引用，PlaySpec 共用）。 */
+    /**
+     * 红果弹幕制备：识别为红果的剧起播时按集增量拉弹幕转本地 XML——首窗拿到就落盘挂载，
+     * 后续窗有新增重写同一文件、已挂的就重读。备好后进本集弹幕源列表（与 Result 同一列表引用，PlaySpec 共用）。
+     * 标记纪律：mHongguoDanmakuVid 只在制备真出货时置位，失败不置——同集下次起播/切集还能重试
+     * （旧口径发出制备前就置位，失败后本集永不再试，是「没弹幕」三脆弱点之一）。
+     */
     private void prepareHongguoDanmaku(Result result, String vid) {
-        if (vid.isEmpty() || vid.equals(mHongguoDanmakuVid)) return;
+        if (vid.isEmpty()) return;
+        if (vid.equals(mHongguoDanmakuVid)) return;
+        if (vid.equals(mHongguoDanmakuPending)) return;
         if (!DanmakuSetting.isLoad() || !DanmakuSetting.isShow()) return;
-        mHongguoDanmakuVid = vid;
+        mHongguoDanmakuPending = vid;
         String key = mCommentPrefetchKey;
         String seriesId = mHongguoSeriesId;
         List<Danmaku> siteDanmakus = result.getDanmaku();
         mHongguoExecutor.execute(() -> {
-            Danmaku item = HongguoDanmakuApi.fetchToFile(seriesId, vid, 0);
-            if (item == null) return;
+            Danmaku item = HongguoDanmakuApi.fetchToFile(seriesId, vid, 0,
+                    partial -> App.post(() -> onHongguoDanmakuReady(key, vid, siteDanmakus, partial)));
             App.post(() -> {
-                if (isFinishing() || isDestroyed() || !key.equals(mCommentPrefetchKey)) return;
-                Episode current = getEpisode();
-                if (current == null || !vid.equals(HongguoCommentApi.episodeVid(current.getUrl()))) return;
-                // 源弹幕优先的既有口径：本站没给弹幕、且当前没挂任何弹幕时才自动挂上；否则只进列表供用户在弹幕面板里选
-                if (siteDanmakus.isEmpty() && !player().haveDanmaku()) player().setDanmaku(item);
-                else if (!siteDanmakus.contains(item)) siteDanmakus.add(item);
+                if (vid.equals(mHongguoDanmakuPending)) mHongguoDanmakuPending = "";
+                if (item == null) return;
+                mHongguoDanmakuVid = vid;
+                onHongguoDanmakuReady(key, vid, siteDanmakus, item);
             });
         });
+    }
+
+    /** 制备产出到达（首份/增量新版/最终版走同一处理）：已挂的正是这份就重读文件；还没挂按源弹幕优先口径裁决。 */
+    private void onHongguoDanmakuReady(String key, String vid, List<Danmaku> siteDanmakus, Danmaku item) {
+        if (isFinishing() || isDestroyed() || !key.equals(mCommentPrefetchKey)) return;
+        Episode current = getEpisode();
+        if (current == null || !vid.equals(HongguoCommentApi.episodeVid(current.getUrl()))) return;
+        if (isHongguoDanmakuSelected(item)) {
+            // 文件已增量长大：强制重读，用户正看的这份才跟得上
+            player().reloadDanmaku(item);
+            return;
+        }
+        // 源弹幕优先的既有口径：本站没给弹幕、且当前没挂任何弹幕时才自动挂上；否则只进列表供用户在弹幕面板里选
+        if (siteDanmakus.isEmpty() && !player().haveDanmaku()) player().setDanmaku(item);
+        else if (!siteDanmakus.contains(item)) siteDanmakus.add(item);
+    }
+
+    /** 当前选中的弹幕是不是这份红果文件（按 url 对，PlaySpec 选中标记同口径）。 */
+    private boolean isHongguoDanmakuSelected(Danmaku item) {
+        PlaySpec spec = player().getSpec();
+        if (spec == null || spec.getDanmakus() == null) return false;
+        for (Danmaku danmaku : spec.getDanmakus()) {
+            if (danmaku != null && danmaku.isSelected() && item.getUrl().equals(danmaku.getUrl())) return true;
+        }
+        return false;
     }
 
     /** 三处入口（详情页标题右/竖屏右侧栏/横屏底排）同一裁定：没抓到评论一律不露。 */

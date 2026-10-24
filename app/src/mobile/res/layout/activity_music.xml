@@ -19,6 +19,7 @@
         android:layout_height="match_parent" />
 
 <ScrollView
+    android:id="@+id/homeScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
@@ -36,6 +37,8 @@
          文案按他亲口定用“星辰音乐”（不用 GZ 的“发现好音乐”）；另加歌词同款斜度 skewX(-0.12f)；
          顶距＝代码垫顶（状态栏高＋12dp）＋标题上边距 8dp（他 18:06 令整体下移一档，用户审美令高于 GZ 值）；
          搜索条下移量＝标题块高度（28sp 行高约 34dp＋下 2dp，约 36dp，真机实测为准） -->
+    <!-- 批 5 F2／第十稿顶行：渐变标题字＋小金星＋右上角黑胶唱片斜探出画面；
+         F1 按 brief 加的头像占位＋问候副行在定稿（对照单 §九与第十稿构成）里没有，摘除 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -44,42 +47,38 @@
         android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/homeAvatar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_music_home_avatar"
-            android:gravity="center"
-            android:text="星"
-            android:textColor="#FFFFFF"
-            android:textSize="17sp"
+            android:id="@+id/homeTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingBottom="2dp"
+            android:text="星辰音乐"
+            android:textColor="#1C1C1E"
+            android:textSize="24sp"
+            android:letterSpacing="-0.029"
+            android:fontWeight="800"
             android:textStyle="bold" />
 
-        <LinearLayout
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_marginStart="5dp"
+            android:text="★"
+            android:textColor="#FFF5A623"
+            android:textSize="15sp" />
 
-            <TextView
-                android:id="@+id/homeTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingBottom="2dp"
-                android:text="星辰音乐"
-                android:textColor="#1C1C1E"
-                android:textSize="24sp"
-                android:letterSpacing="-0.029"
-                android:fontWeight="800"
-                android:textStyle="bold" />
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
-            <TextView
-                android:id="@+id/homeGreeting"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#8E8E93"
-                android:textSize="12sp" />
-        </LinearLayout>
+        <View
+            android:id="@+id/homeVinyl"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="-14dp"
+            android:layout_marginEnd="-10dp"
+            android:background="@drawable/bg_music_home_vinyl"
+            android:rotation="24" />
     </LinearLayout>
 
     <!-- ① 搜索条＋右侧 ⋮（高 48dp、圆角 24dp 保持不动；上距 8dp＝他 18:07 令标题与搜索框拉开，用户审美令） -->
@@ -375,84 +374,64 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 继续播放白卡（批 5 F1）：有上次未播完才出现（代码控制显隐，默认 gone 不留空洞） -->
+    <!-- 继续播放白卡（批 5 F2 按第十稿改回四封面横排，压过 F1 的单曲形态）：
+         头行「继续播放」标＋右上圆播放键；下行最近播放前 4 首封面横排（代码填充 homeContinueCovers），
+         点封面播该首（以历史为队列续接）、圆键续最近一首；不足 4 首按实数显、零首整卡 GONE 不留空洞 -->
     <LinearLayout
         android:id="@+id/homeContinueCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:background="@drawable/bg_music_glass_white_card"
-        android:clickable="true"
         android:elevation="3dp"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:padding="12dp"
         android:visibility="gone">
 
-        <ImageView
-            android:id="@+id/homeContinueCover"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:contentDescription="@null"
-            android:scaleType="centerCrop" />
-
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/home_continue"
                 android:textColor="#FA243C"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/homeContinueTitle"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#1A1A1A"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/homeContinueArtist"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#999999"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
 
-            <ProgressBar
-                android:id="@+id/homeContinueProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="3dp"
-                android:layout_marginTop="8dp"
-                android:max="1000"
-                android:progressDrawable="@drawable/bg_music_continue_progress" />
+            <ImageView
+                android:id="@+id/homeContinuePlay"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_music_continue_play"
+                android:clickable="true"
+                android:contentDescription="@string/home_play"
+                android:focusable="true"
+                android:padding="10dp"
+                android:src="@drawable/ic_music_play"
+                android:tint="#FFFFFF" />
         </LinearLayout>
 
-        <ImageView
-            android:id="@+id/homeContinuePlay"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/bg_music_continue_play"
-            android:contentDescription="@string/home_play"
-            android:padding="11dp"
-            android:src="@drawable/ic_music_play"
-            android:tint="#FFFFFF" />
+        <LinearLayout
+            android:id="@+id/homeContinueCovers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal" />
     </LinearLayout>
 
     <!-- ③ 三张渐变入口卡横排垫底（上距 40dp＝往下移＋拉开，见表 H7；卡间横向间距 10dp 不动）
@@ -488,7 +467,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/home_square"
+                    android:text="@string/home_guess"
                     android:textColor="#1C1C1E"
                     android:textSize="14sp"
                     android:lineHeight="19dp"
@@ -500,7 +479,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/home_square_sub"
+                    android:text="@string/home_guess_sub"
                     android:textColor="#8C1C1C1E"
                     android:textSize="9sp"
                     android:lineHeight="13dp" />
@@ -509,13 +488,42 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:contentDescription="@null"
-                android:src="@drawable/home_ic_favorite"
-                android:alpha="0.55"
-                android:tint="#FF5C8A" />
+            <!-- 封面堆（批 5 F2／第十稿）：三张封面错位叠放，数据由代码填（榜单前 3 封面，无数据时回落历史封面，再无则不显） -->
+            <FrameLayout
+                android:id="@+id/homeGuessStack"
+                android:layout_width="52dp"
+                android:layout_height="40dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/homeGuessCover3"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_gravity="bottom|end"
+                    android:alpha="0.55"
+                    android:contentDescription="@null"
+                    android:rotation="10"
+                    android:scaleType="centerCrop" />
+
+                <ImageView
+                    android:id="@+id/homeGuessCover2"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="bottom|center_horizontal"
+                    android:alpha="0.8"
+                    android:contentDescription="@null"
+                    android:rotation="-6"
+                    android:scaleType="centerCrop" />
+
+                <ImageView
+                    android:id="@+id/homeGuessCover1"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_gravity="bottom|start"
+                    android:contentDescription="@null"
+                    android:rotation="-12"
+                    android:scaleType="centerCrop" />
+            </FrameLayout>
             </LinearLayout>
         </FrameLayout>
 
@@ -565,13 +573,44 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_bar_chart"
-                android:alpha="0.55"
-                android:tint="#0E9F8A" />
+            <!-- 前三名小列表（批 5 F2／第十稿）：数据由代码填（当前榜签前 3 名），无数据整列不显 -->
+            <LinearLayout
+                android:id="@+id/homeCardChartList"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/homeCardChart1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#3A3A3C"
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
+
+                <TextView
+                    android:id="@+id/homeCardChart2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#3A3A3C"
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
+
+                <TextView
+                    android:id="@+id/homeCardChart3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#3A3A3C"
+                    android:textSize="9sp"
+                    android:lineHeight="13dp" />
+            </LinearLayout>
             </LinearLayout>
         </FrameLayout>
 
@@ -622,13 +661,24 @@
                 android:layout_height="@dimen/home_entry_icon_spacer"
                 android:layout_weight="1" />
 
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_music_play"
-                android:alpha="0.55"
-                android:tint="#7A9A01" />
+            <!-- 发光播放盘（批 5 F2／第十稿）：柔光晕＋深墨盘＋白三角，整卡点按仍进随心听页 -->
+            <FrameLayout
+                android:layout_width="44dp"
+                android:layout_height="44dp">
+
+                <View
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/bg_music_home_glow_disc" />
+
+                <ImageView
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_music_play"
+                    android:tint="#FFFFFF" />
+            </FrameLayout>
             </LinearLayout>
         </FrameLayout>
     </LinearLayout>

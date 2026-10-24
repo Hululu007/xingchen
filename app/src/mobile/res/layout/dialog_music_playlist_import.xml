@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- GZ 导入歌单大面板：圆角 24dp 内边距 22/26/22/18dp（根用纯白面板底，照 GZ 白；旧暖渐变已作废）；
-     纵向间距：平台行后 14dp、登录行后 8dp、LX 行后 12dp、导入钮前 20dp、钮与取消间 8dp -->
+<!-- GZ 导入歌单大面板：圆角 24dp 内边距 22/26/22/18dp；纵向间距：平台行后 14dp、登录行后 8dp、LX 行后 12dp、导入钮前 20dp、钮与取消间 8dp。
+     批 5 F2：面板底按全域液态玻璃口径换 bg_music_glass_panel（与批 4 面板族同件），原纯白底 bg_sheet_panel_home 在本面退场 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -8,7 +8,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/bg_sheet_panel_home"
+        android:background="@drawable/bg_music_glass_panel"
         android:orientation="vertical"
         android:paddingStart="22dp"
         android:paddingTop="26dp"

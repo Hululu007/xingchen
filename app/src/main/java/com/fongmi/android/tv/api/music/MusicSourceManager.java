@@ -40,6 +40,30 @@ import java.util.regex.Pattern;
  */
 public class MusicSourceManager {
 
+    /**
+     * 源稳定色（批 5 F2／D-09）：同一个源在任何页面都必须是同一个颜色，颜色只许从这里取，
+     * 页面不许自备色盘自选色（此前插件行色盘写在 MusicListActivity 里，别的页面再写一份就会串色）。
+     * 键＝源地址（改名不变、换地址才换色），无地址退源名；色盘沿用此前插件行已交付的 8 色，
+     * 哈希口径与旧页面实现一致（仅补 Integer.MIN_VALUE 时 Math.abs 仍为负的越界守卫），存量源颜色不变。
+     */
+    private static final int[] SOURCE_PALETTE = {
+            0xFFEF5350, 0xFFFF7043, 0xFFFFCA28, 0xFF66BB6A,
+            0xFF26A69A, 0xFF42A5F5, 0xFF7E57C2, 0xFFEC407A};
+
+    public static int stableColorForKey(String key) {
+        String k = key == null ? "" : key;
+        int h = k.hashCode();
+        int idx = h == Integer.MIN_VALUE ? 0 : Math.abs(h) % SOURCE_PALETTE.length;
+        return SOURCE_PALETTE[idx];
+    }
+
+    /** 源行染色统一入口：有地址按地址、无地址按名，同源恒同色。 */
+    public static int siteColor(MusicSite s) {
+        if (s == null) return SOURCE_PALETTE[0];
+        String key = s.srcUrl != null && !s.srcUrl.isEmpty() ? s.srcUrl : (s.name == null ? "" : s.name);
+        return stableColorForKey(key);
+    }
+
     /** 脚本格式判据见 detectFormat */
     public static final String FORMAT_FREEJS = "freejs";
     public static final String FORMAT_LX = "lx";

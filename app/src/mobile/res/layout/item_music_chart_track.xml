@@ -45,8 +45,9 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#1C1C1E"
-                android:textSize="15sp" />
+                android:textColor="#1A1A1A"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
             <ImageView
                 android:id="@+id/stateMark"
@@ -63,7 +64,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="#9AA7B8"
+            android:textColor="#999999"
             android:textSize="12sp" />
     </LinearLayout>
 

@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 第 1 项：歌单歌曲行（GZ PlaylistSongRow：封面 46dp、歌名 14sp、第二行 12sp＝歌手［· 专辑］［· 平台］［· 不可播原因］；
-     行内边距横 20dp、竖 2dp；非多选时「更多」图标 20dp、点击区 36dp；多选时 24dp 选中圆圈走 ⋮ 位） -->
+<!-- 第 1 项：歌单歌曲行（GZ PlaylistSongRow 第二行 12sp＝歌手［· 专辑］［· 平台］［· 不可播原因］构成保留；
+     骨架批 5 F2 对齐共用歌曲行口径：行高 56dp、封面 48dp、横内边距 20dp（GZ 行值）、竖 4dp；
+     非多选时「更多」图标 20dp、点击区 36dp；多选时 24dp 选中圆圈走 ⋮ 位） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="20dp"
-    android:paddingTop="2dp"
+    android:paddingTop="4dp"
     android:paddingEnd="20dp"
-    android:paddingBottom="2dp">
+    android:paddingBottom="4dp">
 
     <ImageView
         android:id="@+id/cover"
-        android:layout_width="46dp"
-        android:layout_height="46dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:scaleType="centerCrop" />
 
     <LinearLayout
@@ -29,10 +30,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ellipsize="end"
-            android:lineHeight="19sp"
+            android:lineHeight="20sp"
             android:maxLines="1"
-            android:textColor="#1C1C1E"
-            android:textSize="14sp" />
+            android:textColor="#1A1A1A"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/artist"
@@ -41,7 +43,7 @@
             android:ellipsize="end"
             android:lineHeight="16sp"
             android:maxLines="1"
-            android:textColor="#9AA7B8"
+            android:textColor="#999999"
             android:textSize="12sp" />
     </LinearLayout>
 

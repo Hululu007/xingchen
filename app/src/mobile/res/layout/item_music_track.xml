@@ -51,6 +51,19 @@
                 android:textColor="#999999"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <!-- 本地行路径行（批 5 F2／§11.2 各页差异）：仅本地音乐（device）模式且有本地路径时显示文件所在目录，
+             其余模式恒 GONE 不占位；回收行在 bindTrack 里逐行定显隐 -->
+        <TextView
+            android:id="@+id/path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="start"
+            android:maxLines="1"
+            android:textColor="#B2B2B2"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView

@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 首页头像占位（批 5 F1）：粉紫渐变圆，无真实头像数据时显「星」字占位。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <gradient android:angle="315" android:startColor="#FF7AB8" android:endColor="#8E7BFF" android:type="linear" />
-</shape>

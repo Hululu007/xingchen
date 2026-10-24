@@ -30,8 +30,6 @@ public final class AudioPlaylistStore {
      */
     private static final Type ENTRY_LIST_TYPE = new TypeToken<List<Entry>>() {
     }.getType();
-    private static final Type METADATA_TYPE = new TypeToken<LinkedHashMap<String, Metadata>>() {
-    }.getType();
 
     private AudioPlaylistStore() {
     }
@@ -161,14 +159,29 @@ public final class AudioPlaylistStore {
         Prefers.put(KEY_METADATA, App.gson().toJson(items));
     }
 
+    /**
+     * D-21 定型读回（批 5 F2 补齐）：此前整表走 TypeToken&lt;LinkedHashMap&lt;String, Metadata&gt;&gt;，
+     * 值类型 Metadata 只靠 Map 泛型签名——与 items 同款口子：R8 若剥签名，值读回成 LinkedTreeMap，
+     * entry.getValue().title 当场 ClassCastException 被外层 catch 吞掉、整表元数据静默丢。
+     * 改按 JsonObject 逐项解析：键直接取，值用 Metadata.class 逐个定型（字段全是标量，不依赖任何泛型签名），
+     * 单项坏只丢单项、不连坐整表；存储格式一字不变，存量数据直接读通。
+     */
     private static LinkedHashMap<String, Metadata> getMetadata() {
+        LinkedHashMap<String, Metadata> result = new LinkedHashMap<>();
         try {
-            Map<String, Metadata> source = App.gson().fromJson(Prefers.getString(KEY_METADATA), METADATA_TYPE);
-            LinkedHashMap<String, Metadata> result = new LinkedHashMap<>();
-            if (source != null) {
-                for (Map.Entry<String, Metadata> entry : source.entrySet()) {
-                    if (TextUtils.isEmpty(entry.getKey()) || entry.getValue() == null || TextUtils.isEmpty(entry.getValue().title)) continue;
-                    result.put(entry.getKey(), entry.getValue());
+            String json = Prefers.getString(KEY_METADATA);
+            if (json == null || json.trim().isEmpty()) return result;
+            com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(json);
+            if (root == null || !root.isJsonObject()) return result;
+            for (Map.Entry<String, com.google.gson.JsonElement> entry : root.getAsJsonObject().entrySet()) {
+                if (TextUtils.isEmpty(entry.getKey()) || entry.getValue() == null
+                        || !entry.getValue().isJsonObject()) continue;
+                try {
+                    Metadata item = App.gson().fromJson(entry.getValue(), Metadata.class);
+                    if (item == null || TextUtils.isEmpty(item.title)) continue;
+                    result.put(entry.getKey(), item);
+                } catch (Exception ignored) {
+                    // 单项坏丢单项，不许连坐整表
                 }
             }
             return result;

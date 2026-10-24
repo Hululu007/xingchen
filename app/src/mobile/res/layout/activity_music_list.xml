@@ -5,20 +5,13 @@
     android:background="@drawable/home_bg_page"
     android:fitsSystemWindows="true">
 
-    <!-- 歌单页极光背景（仅 sheets 模式可见，见 MusicListActivity）：瓜子 Aurora 浅色底 #FAFAFC＋7 颗径向柔光，
-         不是纯白；其它模式 GONE，共用 home_bg_page 纯白底不动。 -->
-    <com.fongmi.android.tv.ui.custom.AuroraBackgroundView
-        android:id="@+id/auroraBg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone" />
-
-    <!-- 全域统一背景（批 5 F1）：仅 search 模式可见，与首页同一份 MusicGlassBackgroundView -->
+    <!-- 全域统一背景（批 5 F1 立、F2 收口）：列表族全部模式共用这一份 MusicGlassBackgroundView
+         （与首页同一实现）；原歌单页 AuroraBackgroundView 已摘除，不许再各页自编背景。
+         根 home_bg_page 只作背景 View 之下的兜底色。 -->
     <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
         android:id="@+id/musicGlassBg"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:layout_height="match_parent" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -203,7 +196,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:background="@drawable/card_music"
+            android:background="@drawable/bg_music_glass_card"
             android:orientation="vertical"
             android:padding="16dp"
             android:visibility="gone">
@@ -716,7 +709,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/card_music"
+                android:background="@drawable/bg_music_glass_card"
                 android:orientation="vertical"
                 android:padding="16dp"
                 android:visibility="gone">

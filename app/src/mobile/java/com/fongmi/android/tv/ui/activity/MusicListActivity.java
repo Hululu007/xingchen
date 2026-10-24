@@ -295,6 +295,18 @@ public class MusicListActivity extends BaseActivity {
         if (keyword == null) keyword = "";
         sitePlatform = i.getStringExtra("sitePlatform");
         if (sitePlatform == null) sitePlatform = "";
+        // X-08（批 5 F2）：重建恢复——已输入与选择态从 savedInstanceState 回填（字段在 load() 之前就位，
+        // 恢复路径与正常进页同一条加载链）；滚动位置存布局管理器状态、数据到位后在 onResume 一次性回滚。
+        if (savedInstanceState != null) {
+            String savedKw = savedInstanceState.getString("ml_keyword");
+            if (savedKw != null) keyword = savedKw;
+            selectedCat = savedInstanceState.getInt("ml_selectedCat", selectedCat);
+            deviceView = savedInstanceState.getInt("ml_deviceView", deviceView);
+            deviceSort = savedInstanceState.getInt("ml_deviceSort", deviceSort);
+            deviceSource = savedInstanceState.getInt("ml_deviceSource", deviceSource);
+            sheetSearchKw = savedInstanceState.getString("ml_sheetSearchKw", sheetSearchKw);
+            pendingListState = savedInstanceState.getParcelable("ml_listState");
+        }
         playlistId = i.getLongExtra("playlistId", -1);
         chartPlatform = i.getStringExtra("chartPlatform");
         chartId = i.getStringExtra("chartId");
@@ -320,9 +332,10 @@ public class MusicListActivity extends BaseActivity {
             content.setLayoutParams(new android.widget.ScrollView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             scroll.addView(content);
-            // 2026-10-22 插件管理打开是空的根因：极光背景是不透明底色（BASE 0xFFFAFAFC＋drawColor），
-            // 原来插 0 号位把滚动层垫到极光背景底下，整页被盖住。改插到极光背景后面一位，恢复原来层级（内容在极光上、空态覆盖层仍在最上）。
-            int auroraIndex = binding.auroraBg == null ? -1 : root.indexOfChild(binding.auroraBg);
+            // 2026-10-22 插件管理打开是空的根因：背景层是不透明底色（BASE 0xFFFAFAFC＋drawColor），
+            // 原来插 0 号位把滚动层垫到背景底下，整页被盖住。改插到背景层后面一位，恢复原来层级（内容在背景上、空态覆盖层仍在最上）。
+            // 批 5 F2：背景已收口到全域统一 MusicGlassBackgroundView（原 AuroraBackgroundView 摘除），锚点随之换它。
+            int auroraIndex = binding.musicGlassBg == null ? -1 : root.indexOfChild(binding.musicGlassBg);
             root.addView(scroll, auroraIndex >= 0 ? auroraIndex + 1 : 0);
             binding.recycler.setNestedScrollingEnabled(false);
             ViewGroup.LayoutParams rlp = binding.recycler.getLayoutParams();
@@ -549,9 +562,46 @@ public class MusicListActivity extends BaseActivity {
      * 删了下载、移了歌单回来都还是旧列表，只能杀页重进。只重拉本地数据模式，
      * 网络模式（榜单/站点/搜索/猜你喜欢）不回页重拉，免得白耗流量与接口。
      */
+    /** X-08（批 5 F2）：切源／旋转／主题重建回来不丢已输入与滚动位置——输入与选择态走字段回填（见 initView），
+     * 滚动位置存布局管理器状态；保存的只是本页 UI 态，不碰任何用户数据与队列。 */
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        try {
+            outState.putString("ml_keyword", binding != null && binding.etKeyword != null
+                    && binding.etKeyword.getText() != null
+                    ? binding.etKeyword.getText().toString() : keyword);
+            outState.putInt("ml_selectedCat", selectedCat);
+            outState.putInt("ml_deviceView", deviceView);
+            outState.putInt("ml_deviceSort", deviceSort);
+            outState.putInt("ml_deviceSource", deviceSource);
+            outState.putString("ml_sheetSearchKw", sheetSearchKw);
+            if (binding != null && binding.recycler != null
+                    && binding.recycler.getLayoutManager() != null) {
+                outState.putParcelable("ml_listState",
+                        binding.recycler.getLayoutManager().onSaveInstanceState());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        // X-08 滚动回滚：等本帧布局后一次性应用（数据异步未到时布局管理器会钳到现有行数，不崩；应用后即清，不反复拽）
+        if (pendingListState != null && binding != null && binding.recycler != null) {
+            final android.os.Parcelable state = pendingListState;
+            pendingListState = null;
+            binding.recycler.post(() -> {
+                try {
+                    if (binding != null && binding.recycler != null
+                            && binding.recycler.getLayoutManager() != null) {
+                        binding.recycler.getLayoutManager().onRestoreInstanceState(state);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        }
         if (!resumedOnce) {
             resumedOnce = true;
             return;
@@ -640,11 +690,11 @@ public class MusicListActivity extends BaseActivity {
         binding.headerBar.setVisibility((sheets || favHist || guess) ? View.GONE : View.VISIBLE);
         binding.sheetsHeader.setVisibility(sheets ? View.VISIBLE : View.GONE);
         binding.sheetsOpRow.setVisibility(sheets ? View.VISIBLE : View.GONE);
-        // 歌单页极光背景只跟 sheets 模式走（其它模式 GONE）；非 sheets 时空态块也复位藏起，空态显隐由 refreshSheetsEmpty 管
-        // 第三波 B⑧：插件页同样用极光底（近白 #FFFAFAFC＋柔光），不再 GONE 了事
-        binding.auroraBg.setVisibility((sheets || mode.equals("sites")) ? View.VISIBLE : View.GONE);
-        // 批 5 F1：搜索模式背景换全域统一玻璃背景（与首页同一份实现）；其它模式维持原底不动。
-        if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(mode.equals("search") ? View.VISIBLE : View.GONE);
+        // 非 sheets 时空态块复位藏起，空态显隐由 refreshSheetsEmpty 管。
+        // 批 5 F2：背景全模式收口——原 AuroraBackgroundView（仅 sheets/sites 可见）摘除，
+        // 列表族各模式（收藏／歌单／歌单详情／本地／历史／下载／榜单／歌单广场／搜索／插件）一律用
+        // 全域统一 MusicGlassBackgroundView（与首页同一份实现），内容层透明、根底 home_bg_page 只作兜底。
+        if (binding.musicGlassBg != null) binding.musicGlassBg.setVisibility(View.VISIBLE);
         if (!sheets) binding.sheetsEmpty.setVisibility(View.GONE);
         // 第 1 项：歌单详情页用英雄卡当页头，大标题行隐藏（顶栏标题＝歌单名，见 loadSheetTracks）
         // 第 3 项：榜单详情页同样用英雄卡当页头，大标题行与工具条隐藏（排名不参与列表排序）
@@ -2398,12 +2448,35 @@ public class MusicListActivity extends BaseActivity {
                 : android.Manifest.permission.READ_EXTERNAL_STORAGE;
     }
 
+    /** P-16：还能弹系统授权框就弹；已被永久拒绝就跳本应用详情设置页（一键去开），不许点了没反应。 */
+    private void requestAudioPermissionOrSettings() {
+        boolean canAsk = !permAutoAsked
+                || androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this, audioPermission());
+        if (canAsk) {
+            requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
+            return;
+        }
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Throwable ignored) {
+            // 设置页也打不开时退回再弹一次授权框，至少不静默
+            try {
+                requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
+            } catch (Throwable ignored2) {
+            }
+        }
+    }
+
     private void loadDevice() {
         bigTitle = getString(R.string.music_device);
         binding.tvTitle.setText(titleForMode());
         if (androidx.core.content.ContextCompat.checkSelfPermission(this, audioPermission())
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            // 没权限：不白屏不崩，给提示行＋点一行重新授权，第一次直接弹系统授权框
+            // 没权限：不白屏不崩，给提示行＋点一行去开，第一次直接弹系统授权框。
+            // P-16 在音乐侧收口（批 5 F2）：已被永久拒绝（弹过且系统不再给理由）时再 requestPermissions
+            // 只会静默无反应、页面像「点了没用」——改跳本应用设置页让他一键去开，不把排查推给他。
             tracks.clear();
             cards.clear();
             adapter.notifyDataSetChanged();
@@ -2411,8 +2484,7 @@ public class MusicListActivity extends BaseActivity {
             binding.tvBigCount.setText("");
             binding.empty.setVisibility(View.VISIBLE);
             binding.empty.setText(R.string.music_device_need_permission);
-            binding.empty.setOnClickListener(v ->
-                    requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION));
+            binding.empty.setOnClickListener(v -> requestAudioPermissionOrSettings());
             if (!permAutoAsked) {
                 permAutoAsked = true;
                 requestPermissions(new String[]{audioPermission()}, REQ_AUDIO_PERMISSION);
@@ -4302,6 +4374,9 @@ public class MusicListActivity extends BaseActivity {
     /** 上次在播曲目 id（定点刷行用：切歌只刷旧行＋新行，不全量重绑）。 */
     private String lastCurrentId = null;
 
+    /** X-08（批 5 F2）：重建时待回滚的列表滚动状态（布局管理器 Parcelable），数据到位后一次性应用即清。 */
+    private android.os.Parcelable pendingListState;
+
     /**
      * 搜索页重做（字乱动根因之一）：此前切歌全量 notifyDataSetChanged，所有可见行重绑、
      * 封面重载，整列表闪一下。改只刷旧在播行＋新在播行；两首都不在本页时无行可刷，
@@ -5566,11 +5641,10 @@ public class MusicListActivity extends BaseActivity {
             return false;
         }
 
-        /** 插件图标色：插件模型无图标字段，行里一律灰拼图是绘画感的根；按源地址（改名不变）哈希进固定彩色盘，每插件一色；⋮ 菜单行灰拼图不动。 */
+        /** 插件图标色：批 5 F2／D-09 起色盘收口到 MusicSourceManager.stableColorForKey/siteColor
+         * （同源恒同色、全页共用一份），本页不再自备色盘；键与旧实现一致（源地址、改名不变），存量颜色不变。 */
         private int pluginColor(MusicSite s) {
-            int[] palette = {0xFFEF5350, 0xFFFF7043, 0xFFFFCA28, 0xFF66BB6A, 0xFF26A69A, 0xFF42A5F5, 0xFF7E57C2, 0xFFEC407A};
-            String key = s.srcUrl != null && !s.srcUrl.isEmpty() ? s.srcUrl : (s.name == null ? "" : s.name);
-            return palette[Math.abs(key.hashCode()) % palette.length];
+            return MusicSourceManager.siteColor(s);
         }
 
         /** 插件行：名＋版本号小字＋格式标签；右侧金开关（真接线启停）＋⋮菜单 */
@@ -5687,6 +5761,18 @@ public class MusicListActivity extends BaseActivity {
             h.name.setText(p.getName());
             String count = p.trackCount >= 0 ? p.trackCount + " 首" : "";
             h.status.setText(count + (sel ? " · 已选" : ""));
+            // 第三行（批 5 F2）：最近更新时间（真数据；旧存量无值时整行 GONE，不编日期）
+            if (h.meta != null) {
+                long upd = p.getUpdateTime();
+                if (upd > 0) {
+                    h.meta.setVisibility(View.VISIBLE);
+                    h.meta.setText("更新于 " + new java.text.SimpleDateFormat("yyyy-MM-dd",
+                            java.util.Locale.getDefault()).format(new java.util.Date(upd)));
+                } else {
+                    h.meta.setVisibility(View.GONE);
+                    h.meta.setText("");
+                }
+            }
             // 歌单页重做：封面＝瓜子 CoverMosaic 口径。缓存有封面走马赛克（1 张铺满、2 张以上 2×2，
             // 缺格露底灰）；无封面（空歌单／缓存未到）回落原彩色圆盘图标。回收行先清在途加载，防旧图迟到。
             java.util.List<String> covers = sheetCovers.get(p.getId());
@@ -5882,7 +5968,8 @@ public class MusicListActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
+            // 共用行口径（批 5 F1/F2）：歌名 15sp 粗 #1A1A1A，在播行红名；此前代码侧写 #1C1C1E 与布局口径不一致，一并对齐
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
             // 第 7 项尾巴：下载多选态（选中行同正在播行的底）
             boolean dlSel = mode.equals("download") && t.id != null && dlSelected.contains(t.id);
@@ -5956,6 +6043,21 @@ public class MusicListActivity extends BaseActivity {
                     if (!src.isEmpty()) second.append(" · ").append(src);
                 }
                 h.artist.setText(second.toString());
+            }
+            // 本地行路径行（批 5 F2）：仅本地模式且路径真实存在时显所在目录，其余一律 GONE（回收行防串显）
+            if (h.path != null) {
+                String dir = null;
+                if (mode.equals("device") && t.localPath != null && !t.localPath.isEmpty()) {
+                    java.io.File pf = new java.io.File(t.localPath).getParentFile();
+                    if (pf != null) dir = pf.getAbsolutePath();
+                }
+                if (dir != null && !dir.isEmpty()) {
+                    h.path.setVisibility(View.VISIBLE);
+                    h.path.setText(dir);
+                } else {
+                    h.path.setVisibility(View.GONE);
+                    h.path.setText("");
+                }
             }
             h.duration.setText(fmt(t.duration));
             if (t.cover == null || t.cover.isEmpty()) {
@@ -6262,8 +6364,8 @@ public class MusicListActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
-            h.title.getPaint().setFakeBoldText(isCurrent);
+            // 共用行口径（批 5 F2）：歌名恒粗（布局 textStyle）＋#1A1A1A，在播行只变红名，不再靠 fakeBold 区分
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
             StringBuilder second = new StringBuilder();
             second.append(artistDisplay(t.displayArtist()));
@@ -6972,8 +7074,8 @@ public class MusicListActivity extends BaseActivity {
         h.rank.setText(String.valueOf(position + 1));
         h.rank.setTextColor(0xFF8E8E93);
         h.title.setText(t.displayTitle());
-        h.title.setTextColor(0xFF1C1C1E);
-        h.title.getPaint().setFakeBoldText(false);
+        // 共用行口径（批 5 F2）：歌名 #1A1A1A；粗细走布局 textStyle bold，此前代码侧 fakeBold=false 会把布局粗体抹掉，一并摘除
+        h.title.setTextColor(0xFF1A1A1A);
         h.artist.setText(artistDisplay(t.displayArtist()));
         h.duration.setText(fmt(t.duration));
         String trackKey = t.id == null ? "" : t.id;
@@ -7160,8 +7262,8 @@ public class MusicListActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1C1C1E);
-            h.title.getPaint().setFakeBoldText(isCurrent);
+            // 共用行口径（批 5 F2）：歌名恒粗（布局 textStyle）＋#1A1A1A，在播行只变红名
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
             StringBuilder second = new StringBuilder();
             second.append(artistDisplay(t.displayArtist()));
@@ -7241,6 +7343,7 @@ public class MusicListActivity extends BaseActivity {
             final TextView title;
             final TextView badge;
             final TextView artist;
+            final TextView path;
             final TextView duration;
             final ImageView more;
 
@@ -7250,6 +7353,7 @@ public class MusicListActivity extends BaseActivity {
                 title = v.findViewById(R.id.title);
                 badge = v.findViewById(R.id.badge);
                 artist = v.findViewById(R.id.artist);
+                path = v.findViewById(R.id.path);
                 duration = v.findViewById(R.id.duration);
                 more = v.findViewById(R.id.more);
             }
@@ -7293,6 +7397,7 @@ public class MusicListActivity extends BaseActivity {
             final ImageView mosaic4;
             final TextView name;
             final TextView status;
+            final TextView meta;
             final ImageView rowPlay;
             final ImageView rowMore;
 
@@ -7308,6 +7413,7 @@ public class MusicListActivity extends BaseActivity {
                 mosaic4 = v.findViewById(R.id.mosaic4);
                 name = v.findViewById(R.id.name);
                 status = v.findViewById(R.id.status);
+                meta = v.findViewById(R.id.meta);
                 rowPlay = v.findViewById(R.id.rowPlay);
                 rowMore = v.findViewById(R.id.rowMore);
             }

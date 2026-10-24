@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="12dp"
-    android:background="@drawable/card_music"
+    android:background="@drawable/bg_music_glass_white_card"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="16dp">
@@ -85,6 +85,16 @@
             android:layout_marginTop="2dp"
             android:textColor="#9AA7B8"
             android:textSize="11sp" />
+
+        <!-- 第三行（批 5 F2／歌单行三行口径）：最近更新时间，真数据（MusicPlaylist.updateTime），无值整行 GONE 不编 -->
+        <TextView
+            android:id="@+id/meta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#B2B2B2"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <ImageView

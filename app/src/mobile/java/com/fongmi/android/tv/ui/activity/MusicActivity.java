@@ -80,6 +80,11 @@ public class MusicActivity extends BaseActivity {
     private int homeChartTone = 0xFFFA243C;
     private String homeChartToneCover = "";
 
+    /** X-08（批 5 F2）：重建恢复暂存——心情选中（initMoodCard 消费）与首页滚动位置（onResume 消费）。 */
+    private String savedMood;
+    private int savedScrollY = -1;
+    private boolean scrollRestoreDone;
+
     // 新歌榜每次进都会动（2026-10-22）：根因是每次进页都是新实例全量重拉，状态全是实例字段。
     // 静态缓存签表／选中签／曲目／tone＋cover：新实例先显缓存；10 分钟内不再联网，过期则静默刷新、内容不变不重刷。
     private static final long HOME_CHART_CACHE_TTL_MS = 10 * 60 * 1000L;
@@ -182,14 +187,29 @@ public class MusicActivity extends BaseActivity {
             s.toneSet = sHomeChartToneSet;
             s.cacheAt = sHomeChartCacheAt;
             String json = com.fongmi.android.tv.App.gson().toJson(s);
-            java.io.File f = new java.io.File(com.fongmi.android.tv.App.get().getFilesDir(), "music_home_chart.json");
-            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            // D-22（批 5 F2）：原子写——先写临时文件再改名，写一半被杀也不会把旧快照写成半截；
+            // 改名失败（个别文件系统跨目录限制不适用同目录、极少发生）退回直写兜底，仍失败留一行日志不静默丢。
+            java.io.File dir = com.fongmi.android.tv.App.get().getFilesDir();
+            java.io.File f = new java.io.File(dir, "music_home_chart.json");
+            java.io.File tmp = new java.io.File(dir, "music_home_chart.json.tmp");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
             try {
                 out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.getFD().sync();
             } finally {
                 out.close();
             }
-        } catch (Throwable ignored) {
+            if (!tmp.renameTo(f)) {
+                java.io.FileOutputStream direct = new java.io.FileOutputStream(f);
+                try {
+                    direct.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } finally {
+                    direct.close();
+                }
+                if (tmp.isFile()) tmp.delete();
+            }
+        } catch (Throwable t) {
+            com.github.catvod.crawler.SpiderDebug.log("music-home-chart", "快照写盘失败: " + t);
         }
     }
 
@@ -234,7 +254,9 @@ public class MusicActivity extends BaseActivity {
             sHomeChartToneCover = obj.has("toneCover") && !obj.get("toneCover").isJsonNull() ? obj.get("toneCover").getAsString() : "";
             sHomeChartToneSet = obj.has("toneSet") && obj.get("toneSet").getAsBoolean();
             sHomeChartCacheAt = obj.has("cacheAt") ? obj.get("cacheAt").getAsLong() : 0;
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // D-22（批 5 F2）：坏快照读失败留一行日志，不再静默吞——冷启动回空屏重拉时有据可查
+            com.github.catvod.crawler.SpiderDebug.log("music-home-chart", "快照读回失败（按无缓存处理）: " + t);
         }
     }
 
@@ -310,8 +332,31 @@ public class MusicActivity extends BaseActivity {
         return binding;
     }
 
+    /** X-08（批 5 F2）：音乐首页半状态保存——心情选中／榜单选中签／滚动位置随重建带回；
+     * 榜单选中签本有静态缓存＋磁盘快照两层（selKey），这里再入 savedInstanceState 与它们对齐兜底。 */
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        try {
+            if (moodSelected != null) outState.putString("ma_mood", moodSelected);
+            if (homeChartSel >= 0 && homeChartSel < homeChartTabs.size()) {
+                outState.putString("ma_chartSelKey", homeChartKey(homeChartTabs.get(homeChartSel)));
+            }
+            if (binding != null && binding.homeScroll != null) {
+                outState.putInt("ma_scrollY", binding.homeScroll.getScrollY());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     protected void initView(Bundle savedInstanceState) {
+        if (savedInstanceState != null) {
+            savedMood = savedInstanceState.getString("ma_mood");
+            savedScrollY = savedInstanceState.getInt("ma_scrollY", -1);
+            String selKey = savedInstanceState.getString("ma_chartSelKey");
+            if (selKey != null && sHomeChartSelKey == null) sHomeChartSelKey = selKey;
+        }
         // 首页离边 16dp 实机生效：根布局已不吃 fitsSystemWindows（旧版系统左右 inset 0 会盖掉 XML 边距致贴边），
         // 这里直接定死左右 16dp、顶＝状态栏高＋12dp、底 16dp；不依赖 inset 分发，旋转／异形屏也不丢边距。
         // 圆角不动（搜索 24dp、三彩卡 20dp、五快捷 16dp）；三段上距见布局（32/40/40dp）。
@@ -349,10 +394,10 @@ public class MusicActivity extends BaseActivity {
             binding.homeTitle.invalidate();
         } catch (Throwable ignored) {
         }
-        binding.homeGreeting.setText(greetingText());
-        // 批 5 F1：继续播放白卡——整卡点开播放页（有会话时），圆键切播放/暂停或断点续播
+        // 批 5 F2：继续播放白卡——封面点＝播该首（历史作队列），卡面其余处点＝有会话进播放页、无会话播最近一首
         binding.homeContinueCard.setOnClickListener(v -> {
             if (MusicController.get().isActive()) MusicPlayerActivity.start(this);
+            else playContinueAt(0);
         });
         binding.homeContinuePlay.setOnClickListener(v -> onContinuePlay());
         // ① 搜索胶囊：整条点按进现行搜索页；⋮ 单独点开小菜单（stop 冒泡靠独立点击区）
@@ -366,11 +411,10 @@ public class MusicActivity extends BaseActivity {
         binding.homeQuickDevice.setOnClickListener(v -> MusicListActivity.startDevice(this));
         binding.homeQuickRecent.setOnClickListener(v -> showRecent());
         binding.homeQuickDownload.setOnClickListener(v -> MusicListActivity.startDownload(this));
-        // ③ 三彩卡
-        // 猜你喜欢：树内现行推荐来源只有榜单聚合页（MusicRepository.charts 聚合各源榜单），用 charts 模式承接
-        // 批 5 F1：底部第一卡按任务口径改「歌单广场·发现好歌单」，落点＝歌单库页（startSheets）；
-        // 原猜你喜欢页（startGuess）入口随之从首页下线，页面本体未删、别处仍可达时不受影响。
-        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startSheets(this));
+        // ③ 底部三卡（批 5 F2 按第十稿改回定稿构成，压过 F1 的歌单广场卡）：
+        // 猜你喜欢·每日精选（封面堆）→猜你喜欢页；排行榜·此刻热门（前三名小列表）→榜单页；随心听·随机漫游（发光播放盘）→随心听页。
+        // 歌单广场入口不在此卡——歌单库入口在五快捷「我的歌单」（homeQuickSheets），歌单广场页本体照常可达。
+        binding.homeCardGuess.setOnClickListener(v -> MusicListActivity.startGuess(this));
         binding.homeCardCharts.setOnClickListener(v -> MusicListActivity.startCharts(this));
         binding.homeCardShuffle.setOnClickListener(v -> MusicRandomActivity.start(this));
         // GZ 三彩卡按压缩放 0.98（MotionKt；返回 false 不吞点击，只做缩放反馈）
@@ -421,6 +465,17 @@ public class MusicActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // X-08 滚动恢复：内容高度随榜单卡显隐变化，等本帧布局后一次性回滚，滚完即弃不反复拽
+        if (!scrollRestoreDone && savedScrollY > 0 && binding != null && binding.homeScroll != null) {
+            scrollRestoreDone = true;
+            final int y = savedScrollY;
+            binding.homeScroll.post(() -> {
+                try {
+                    if (binding != null && binding.homeScroll != null) binding.homeScroll.scrollTo(0, y);
+                } catch (Throwable ignored) {
+                }
+            });
+        }
         // 首页浅底：状态栏图标改深色（06:17 令「背景把状态栏盖住了」）；离开本页在 onPause 恢复浅色图标
         ReadingSkin.setSystemBarIconAppearance(this, false);
         // M8 回首页路径：插件侧清过缓存时，同实例不许守着旧内容，必须重拉。
@@ -751,9 +806,44 @@ public class MusicActivity extends BaseActivity {
         });
     }
 
+    /** 底部三卡数据填充（批 5 F2）：猜卡封面堆取前 3 张有封面的；榜卡小列表取前 3 名「名次 歌名」。
+     * 两处都用真实数据填，无数据整块不显、不编假条目；榜单数据与历史数据谁后到谁刷新（都是真封面／真榜名）。 */
+    private void fillEntryCardData(List<MusicTrack> tracks, boolean chartList) {
+        if (binding == null || tracks == null) return;
+        try {
+            List<String> covers = new ArrayList<>();
+            for (MusicTrack t : tracks) {
+                if (t != null && t.cover != null && !t.cover.isEmpty()) covers.add(t.cover);
+                if (covers.size() >= 3) break;
+            }
+            if (!covers.isEmpty()) {
+                ImageView[] stack = {binding.homeGuessCover1, binding.homeGuessCover2, binding.homeGuessCover3};
+                binding.homeGuessStack.setVisibility(View.VISIBLE);
+                for (int i = 0; i < stack.length; i++) {
+                    if (i < covers.size()) {
+                        stack[i].setVisibility(View.VISIBLE);
+                        ImgUtil.loadRounded("", covers.get(i), stack[i]);
+                    } else stack[i].setVisibility(View.GONE);
+                }
+            }
+            if (chartList && !tracks.isEmpty()) {
+                TextView[] lines = {binding.homeCardChart1, binding.homeCardChart2, binding.homeCardChart3};
+                binding.homeCardChartList.setVisibility(View.VISIBLE);
+                for (int i = 0; i < lines.length; i++) {
+                    if (i < tracks.size() && tracks.get(i) != null) {
+                        lines[i].setVisibility(View.VISIBLE);
+                        lines[i].setText((i + 1) + ". " + tracks.get(i).displayTitle());
+                    } else lines[i].setVisibility(View.GONE);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void fillHomeChart(MusicChart chart, List<MusicTrack> tracks) {
         binding.homeChartTitle.setText(chart.name);
         fillHomeChartCovers();
+        fillEntryCardData(tracks, true);
         TextView[] names = {binding.homeChartName1, binding.homeChartName2, binding.homeChartName3};
         TextView[] artists = {binding.homeChartArtist1, binding.homeChartArtist2, binding.homeChartArtist3};
         View[] rows = {binding.homeChartRow1, binding.homeChartRow2, binding.homeChartRow3};
@@ -784,14 +874,15 @@ public class MusicActivity extends BaseActivity {
                         com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
                     if (binding == null || bitmap == null) return;
                     try {
+                        // D-09（批 5 F2）：迟到的取色回调只许染「仍是当前签榜首封面」的色——
+                        // 切签后旧签封面才取完色时，整段丢弃：不改 tone、不写缓存、不 restyle，
+                        // 否则新签下划线会被旧签色染上（新签取色再失败就一直残留到下次成功）。
+                        if (homeChartTracks.isEmpty() || !cover.equals(homeChartTracks.get(0).cover)) return;
                         homeChartTone = CoverColor.dominantColor(bitmap);
-                        // tone 落袋即写静态缓存：下次新实例先用此 tone 画下划线，不先红再跳变；
-                        // 只认当前榜首封面算出的 tone，过期回调不污染缓存。
-                        if (!homeChartTracks.isEmpty() && cover.equals(homeChartTracks.get(0).cover)) {
-                            sHomeChartTone = homeChartTone;
-                            sHomeChartToneCover = homeChartToneCover;
-                            sHomeChartToneSet = true;
-                        }
+                        // tone 落袋即写静态缓存：下次新实例先用此 tone 画下划线，不先红再跳变
+                        sHomeChartTone = homeChartTone;
+                        sHomeChartToneCover = homeChartToneCover;
+                        sHomeChartToneSet = true;
                         restyleHomeChartTabs();
                     } catch (Throwable ignored) {
                     }
@@ -1011,74 +1102,82 @@ public class MusicActivity extends BaseActivity {
         return dp(24);
     }
 
-    // ================= 继续播放（批 5 F1） =================
+    // ================= 继续播放（批 5 F2：白卡四封面横排） =================
 
-    private static String greetingText() {
-        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-        if (h < 6) return "夜深了";
-        if (h < 12) return "上午好";
-        if (h < 14) return "中午好";
-        if (h < 18) return "下午好";
-        return "晚上好";
-    }
+    /** 本次刷新用的继续播放列表快照（封面点击按下标取，与填充时同一份，防刷新间隙里历史变了点错首）。 */
+    private List<MusicTrack> continueTracks = new ArrayList<>();
 
     /**
-     * 继续播放白卡数据：优先当前会话（服务在跑且有队列），其次断点（MusicStore 只读：
-     * loadQueue/loadIndex/loadPosition）。两者皆无 → 整卡 GONE，不留空洞、不编假数据。
-     * 进度：会话取 Controller position/duration；断点取存盘 position 与曲目 duration（毫秒）。
+     * 继续播放白卡数据（批 5 F2 定稿口径）：走现行历史（MusicStore.loadRecent，新→旧），
+     * 前 4 首封面横排；不足 4 首按实数显、零首整卡 GONE 不留空洞、不编假数据。
+     * 历史为空但有活会话／断点队列时（极少数：历史被清而队列还在），回落显当前曲 1 张，
+     * 不让正在播的歌在首页失踪——回落只显 1 张，语义仍是「继续播放」。
+     * 点封面＝以历史整列为队列从该首播；圆键＝F1 口径续播（有会话 toggle、无会话按断点 playFrom）。
      */
     private void refreshContinue() {
         if (binding == null) return;
         try {
-            MusicTrack track = null;
-            long pos = 0, dur = 0;
-            boolean active = false;
-            try {
-                if (MusicController.get().isActive()) {
-                    track = MusicController.get().current();
-                    pos = MusicController.get().position();
-                    dur = MusicController.get().duration();
-                    active = track != null;
-                }
-            } catch (Throwable ignored) {
-            }
-            if (track == null) {
-                List<MusicTrack> q = MusicStore.loadQueue();
-                if (q != null && !q.isEmpty()) {
-                    int idx = MusicStore.loadIndex();
-                    if (idx < 0 || idx >= q.size()) idx = 0;
-                    track = q.get(idx);
-                    pos = MusicStore.loadPosition();
-                    dur = track == null ? 0 : track.duration;
+            List<MusicTrack> recent = MusicStore.loadRecent();
+            List<MusicTrack> show = new ArrayList<>();
+            if (recent != null) {
+                for (MusicTrack t : recent) {
+                    if (t != null) show.add(t);
+                    if (show.size() >= 4) break;
                 }
             }
-            if (track == null) {
+            if (show.isEmpty()) {
+                MusicTrack cur = null;
+                try {
+                    if (MusicController.get().isActive()) cur = MusicController.get().current();
+                } catch (Throwable ignored) {
+                }
+                if (cur == null) {
+                    List<MusicTrack> q = MusicStore.loadQueue();
+                    if (q != null && !q.isEmpty()) {
+                        int idx = MusicStore.loadIndex();
+                        if (idx < 0 || idx >= q.size()) idx = 0;
+                        cur = q.get(idx);
+                    }
+                }
+                if (cur != null) show.add(cur);
+            }
+            continueTracks = show;
+            if (show.isEmpty()) {
                 binding.homeContinueCard.setVisibility(View.GONE);
                 return;
             }
+            // 猜卡封面堆回落数据源：榜单封面未到时先用历史封面顶上（同为真实封面，榜单到了会再刷）
+            fillEntryCardData(show, false);
             binding.homeContinueCard.setVisibility(View.VISIBLE);
-            binding.homeContinueTitle.setText(track.displayTitle());
-            binding.homeContinueArtist.setText(track.displayArtist() == null ? "" : track.displayArtist());
-            if (track.cover == null || track.cover.isEmpty()) {
-                try {
-                    com.bumptech.glide.Glide.with(binding.homeContinueCover).clear(binding.homeContinueCover);
-                } catch (Throwable ignored) {
+            binding.homeContinueTitle.setText(show.get(0).displayTitle());
+            // 封面横排：每次刷新重建（最多 4 张，成本可忽略）；等宽 weight 铺满、张间 8dp
+            LinearLayout row = binding.homeContinueCovers;
+            row.removeAllViews();
+            float density = getResources().getDisplayMetrics().density;
+            for (int i = 0; i < show.size(); i++) {
+                final int idx = i;
+                MusicTrack t = show.get(i);
+                ImageView iv = new ImageView(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        0, Math.round(72 * density), 1f);
+                if (i > 0) lp.leftMargin = Math.round(8 * density);
+                iv.setLayoutParams(lp);
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                iv.setClickable(true);
+                iv.setFocusable(true);
+                iv.setContentDescription(t.displayTitle());
+                if (t.cover == null || t.cover.isEmpty()) {
+                    iv.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
+                            t.displayTitle(), false, 10 * density));
+                } else {
+                    ImgUtil.loadRounded(t.displayTitle(), t.cover, iv);
                 }
-                binding.homeContinueCover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
-                        track.displayTitle(), false, 10 * getResources().getDisplayMetrics().density));
-            } else {
-                ImgUtil.loadRounded(track.displayTitle(), track.cover, binding.homeContinueCover);
-            }
-            if (dur > 0) {
-                binding.homeContinueProgress.setVisibility(View.VISIBLE);
-                long p = Math.max(0, Math.min(pos, dur));
-                binding.homeContinueProgress.setProgress((int) (p * 1000L / dur));
-            } else {
-                binding.homeContinueProgress.setVisibility(View.GONE);
+                iv.setOnClickListener(v -> playContinueAt(idx));
+                row.addView(iv);
             }
             boolean playing = false;
             try {
-                playing = active && MusicController.get().isPlaying();
+                playing = MusicController.get().isActive() && MusicController.get().isPlaying();
             } catch (Throwable ignored) {
             }
             binding.homeContinuePlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
@@ -1087,6 +1186,23 @@ public class MusicActivity extends BaseActivity {
                 binding.homeContinueCard.setVisibility(View.GONE);
             } catch (Throwable ignored2) {
             }
+        }
+    }
+
+    /** 点继续卡封面：以现行历史整列为队列、从该首开播并进播放页（队列来源＝最近播放，落点首页）。 */
+    private void playContinueAt(int idx) {
+        try {
+            List<MusicTrack> recent = MusicStore.loadRecent();
+            if (recent == null || recent.isEmpty() || idx < 0 || idx >= recent.size()) {
+                // 历史与填充快照不一致（刚被清）时退回快照本身，不点空
+                if (continueTracks.isEmpty() || idx < 0 || idx >= continueTracks.size()) return;
+                recent = new ArrayList<>(continueTracks);
+                MusicController.get().play(recent, idx, "最近播放", "home", null);
+            } else {
+                MusicController.get().play(new ArrayList<>(recent), idx, "最近播放", "home", null);
+            }
+            MusicPlayerActivity.start(this);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -1408,6 +1524,15 @@ public class MusicActivity extends BaseActivity {
     private void initMoodCard() {
         // 默认选中按 GZ：从当前队列标签反推（剥“心情电台 · ”前缀），反推不到取怀旧；不用 prefs 上次选择。
         moodSelected = moodFromQueueSource();
+        // X-08（批 5 F2）：重建恢复优先于反推——用户刚点选还没成队列时反推不到，靠 savedInstanceState 把选中态带回来
+        if (savedMood != null) {
+            for (String[] m : moodTable()) {
+                if (m[0].equals(savedMood)) {
+                    moodSelected = savedMood;
+                    break;
+                }
+            }
+        }
         for (String[] m : moodTable()) {
             final String name = m[0];
             LinearLayout pill = new LinearLayout(this);

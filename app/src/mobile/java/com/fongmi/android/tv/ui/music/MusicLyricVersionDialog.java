@@ -361,7 +361,7 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
                 h.b.tvSong.setText(track.displayTitle() + " · " + track.displayArtist());
             }
             h.b.chipRow.removeAllViews();
-            addChip(h, v.kindLabel());
+            addChip(h, kindTag(v));
             if (v.getLyric() != null) {
                 if (hasText(v.getLyric().translation)) addChip(h, getString(R.string.music_primary_translation));
                 if (hasText(v.getLyric().romanization)) addChip(h, getString(R.string.music_primary_romanization));
@@ -372,6 +372,14 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
                 if (onSelect != null) onSelect.onVersionSelected(v);
                 dismissAllowingStateLoss();
             });
+        }
+
+        /** 类型签文案（瓜子口径，全账三-56：纯文本版只写「文本」）。只改弹窗展示——
+         * LyricVersion.kindLabel 本体不许动，它进持久化的手动选版 key（lyricVersionKey），改了会让存量选版失效。 */
+        private static String kindTag(com.fongmi.android.tv.bean.music.LyricVersion v) {
+            if (v.isWordTimed()) return "逐字";
+            if (v.isLineTimed()) return "逐行";
+            return "文本";
         }
 
         private void addChip(Holder h, String label) {

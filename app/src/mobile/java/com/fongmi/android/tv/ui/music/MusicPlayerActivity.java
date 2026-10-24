@@ -987,15 +987,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 音质筹 =================
 
     /**
-     * 音质筹文案（任务 §9／施工图 §12 定案）：实测显示——无损只显编码名、有损显编码＋真实码率、
-     * 采样率永不显、测不到整筹不显；数据走 MusicAudioInfo.describe()（地基保留件的现成口子）。
-     * 注：旧页 realQualityText 后来改走 shortCode 短码，与本批任务口径冲突，本批按任务口径用 describe()。
+     * 音质格只显示服务实测的格子短码（SQ／HQ／Std／Hi-Res／24bit，GZ immersiveShortLabel 口径）；
+     * 取不到实测时音质筹整筹隐藏——所选档永不进显示。
+     * 旧口径“无损只显编码名（FLAC）”被最新令“就照他这么搞”覆盖，冲突行见对照表供 veto。
      */
     private String realQualityText() {
         try {
             com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
             if (info != null) {
-                String real = info.describe();
+                String real = info.shortCode();
                 if (real != null && !real.isEmpty()) return real;
             }
         } catch (Throwable ignored) {

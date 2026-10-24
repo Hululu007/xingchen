@@ -103,9 +103,9 @@ public final class MusicPlayerSettings {
         return Prefers.getBoolean(K_ADVANCED_FX, true);
     }
 
-    /** 流体背景开关（与 MusicStore.isFluidBg 同键 music_fluid_bg；§0 默认开）。 */
+    /** 流体背景开关：单一事实源＝MusicStore.isFluidBg()（同键 music_fluid_bg、默认 false，线上已交付口径）；§0 瓜子默认开未采用，存量行为承接。 */
     public static boolean isFluidBg() {
-        return Prefers.getBoolean(K_FLUID_BG, true);
+        return MusicStore.isFluidBg();
     }
 
     public static void setFluidBg(boolean on) {

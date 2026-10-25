@@ -2,8 +2,8 @@ package com.fongmi.android.tv.ui.music;
 
 /**
  * 播放页宿主接口（批 1 解耦）：工具面板等对话框只认本接口，不再 instanceof 播放页具体类。
- * 三个回调即旧页被 MusicToolsSheetDialog 直接调用的全集：
- * 自定义封面变更后刷新封面、歌词版本数、打开歌词版本面板。
+ * 工具面板直调的只有自定义封面变更后刷新封面；版本数与打开歌词版本面板是宿主自身
+ * 歌词筹入口的能力（播放页歌词筹直开版本弹窗，照瓜子去向），保留在本接口成集。
  */
 public interface MusicPlayerHost {
 

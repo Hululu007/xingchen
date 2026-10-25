@@ -202,16 +202,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         d.show(((FragmentActivity) activity).getSupportFragmentManager(), "music_tools_sheet");
     }
 
-    /** 直达歌词设置子面板（播放页歌词筹入口） */
-    public static void showLyricPanel(Activity activity, Listener listener) {
-        if (!(activity instanceof FragmentActivity)) return;
-        if (activity.isFinishing() || activity.isDestroyed()) return;
-        MusicToolsSheetDialog d = new MusicToolsSheetDialog();
-        d.listener = listener;
-        d.initialPanel = PANEL_LYRIC;
-        d.show(((FragmentActivity) activity).getSupportFragmentManager(), "music_tools_sheet");
-    }
-
     /** 直达歌曲信息子面板（主面板歌曲信息行／Apple 左划同一入口） */
     public static void showSongInfoPanel(Activity activity, Listener listener) {
         if (!(activity instanceof FragmentActivity)) return;
@@ -791,15 +781,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
      * 堵-2 恢复：歌曲信息行已加回设置卡（导航行→歌曲信息子面板，子面板代码即其去向）；
      * 瓜子对齐后主面板不再放的行：来源行（瓜子主面板没有；在歌曲信息子面板里看）、
      * 下一首播放／加入播放队列（瓜子没有；当前曲已在队列中，复拷意义小）。
-     * 歌词版本与搜索歌词已收到歌词子面板，倍速已按用户令拿掉——主面板只留快捷格一个歌词入口。 */
+     * 歌词版本走播放页歌词筹直开版本弹窗（不在工具面板内），倍速已按用户令拿掉——主面板快捷格的歌词格只进歌词设置（样式）子面板。 */
     private View buildSettingsCard() {
         LinearLayout card = cardBox();
         MusicTrack track = MusicController.get().current();
         // GZ 设置卡顺序（ToolsMainPanel$lambda$3，2026-10-22 重做实证）：歌曲信息行 → 分隔线 →
         // 两列格（均衡器｜播放页主题／外观设置｜自定义封面）→ 分隔线 → 播放页不熄屏 →［横屏：分隔线＋左手布局］。
         // 旧版格在前、歌曲信息在后是倒置，已按瓜子重排；自定义封面按瓜子位置落次行右格——本地相册选图，
-        // 不走瓜子服务器、不收费、不登录，故不做赞助锁；倍速已按用户令拿掉（瓜子没有），搜索歌词与歌词版本
-        // 已收到歌词子面板，主面板只留快捷格一个歌词入口。
+        // 不走瓜子服务器、不收费、不登录，故不做赞助锁；倍速已按用户令拿掉（瓜子没有）；歌词版本
+        // 由播放页歌词筹直开版本弹窗，工具面板内歌词只有样式设置一面（快捷格歌词格进歌词设置子面板）。
         // 歌曲信息行（导航行，带雪佛龙），点进歌曲信息子面板；此行是 Apple 左划的同一入口（左划直达子面板，不经过主面板）。
         addRow(card, getString(R.string.music_song_info), null, v -> showPanel(PANEL_SONG_INFO), true);
         addDivider(card);
@@ -1476,30 +1466,10 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         }
         LinearLayout box = binding.container;
         box.addView(subHeader(getString(R.string.music_lyric_settings)));
-        // 歌词来源卡（主面板只留快捷格一个歌词入口，版本与搜索收到歌词子面板内——
-        // 瓜子同款结构：版本筛选条 LyricVersionFilterBar 与搜索 searchLyricsForSelection 都在歌词页内，不在工具面板；
-        // 多版本功能本身保留，入口挪位不丢功能）
-        LinearLayout lyricSrcCard = cardBox();
-        boolean firstSrc = true;
-        FragmentActivity lyricHost = getActivity();
-        // 第三波残留 L9：工具面板版本行 >1 版限制放开（与播放页内版本入口一致：
-        // 播放页 openLyricVersionDialog 在 0／1 版时也允许开面板、内有空态文案＋搜索入口）；
-        // 0／1 版时行副文改“1 个版本”／“暂无版本”，点进同样开面板，不再藏行。
-        if (lyricHost instanceof MusicPlayerHost) {
-            int versionCount = ((MusicPlayerHost) lyricHost).getLyricVersionCount();
-            addRow(lyricSrcCard, getString(R.string.music_lyric_versions),
-                    versionCount <= 0 ? "暂无版本" : versionCount + " 个版本", v -> {
-                        dismissAllowingStateLoss();
-                        new Handler(Looper.getMainLooper()).post(
-                                () -> ((MusicPlayerHost) lyricHost).openLyricVersionDialog());
-                    }, true);
-            firstSrc = false;
-        }
-        addRow(lyricSrcCard, getString(R.string.music_search_lyric), null, v -> {
-            if (listener != null) listener.onSearchLyric();
-            dismissAllowingStateLoss();
-        }, firstSrc);
-        box.addView(lyricSrcCard, marginTop(dp(12)));
+        // 本面板只放样式（照 GZ CoverLyricStylePanel 实证构成：预览＋字号／粗细／对齐／模糊／
+        // 高级动效／主歌词＋恢复默认，无版本行、无搜词行）。歌词版本与搜词不在此面板：
+        // 播放页歌词筹（经典／封面 tpChipLyric、CD tpCdBtnLyricVer、Apple tpBtnLyricMenu）
+        // 直开歌词版本弹窗（其内含筛选签与空态搜索入口），与瓜子歌词筹同去向。
         // GZ T26：预览盒高 132dp（PlayerToolsSheetKt CoverLyricStylePanel），只有当前行歌词预览、无歌名大字。
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(132));

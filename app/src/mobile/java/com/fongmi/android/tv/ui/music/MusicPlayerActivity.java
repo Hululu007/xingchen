@@ -507,10 +507,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (binding.ivBgBlur != null) binding.ivBgBlur.setVisibility(themed ? View.GONE : View.VISIBLE);
         if (binding.fluidAmbient != null && themed) binding.fluidAmbient.setVisibility(View.GONE);
         if (binding.viewVeil != null && themed) binding.viewVeil.setVisibility(View.GONE);
-        if (binding.swipeHint != null) {
-            // CD 浅底上切歌提示不能用骨架的白字（字体看得清铁律）：走当前表面 ink；深底主题恢复白
-            binding.swipeHint.setTextColor(cdTheme
-                    ? (cdDarkSurface ? 0xFFF2F2F7 : 0xFF282D36) : 0xFFFFFFFF);
+        if (binding.swipeHintDir != null && binding.swipeHintName != null) {
+            // CD 浅底上切歌提示不能用骨架的白字（字体看得清铁律）：走当前表面 ink；深底主题恢复白。
+            // 两行 alpha 按 GZ 提示口径折进色值：方向字 0.72、歌名 0.92。
+            int base = cdTheme ? (cdDarkSurface ? 0xF2F2F7 : 0x282D36) : 0xFFFFFF;
+            binding.swipeHintDir.setTextColor(0xB8000000 | base);
+            binding.swipeHintName.setTextColor(0xEB000000 | base);
         }
         if (!themed) applyFluidBg();
     }
@@ -941,7 +943,26 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         });
         if (binding.swipeHint != null) {
             binding.themeContainer.setSwipeHintView(binding.swipeHint,
-                    getString(R.string.music_next), getString(R.string.music_prev));
+                    binding.swipeHintDir, binding.swipeHintName,
+                    getString(R.string.music_next), getString(R.string.music_prev),
+                    this::swipeNeighborName);
+        }
+    }
+
+    /** 竖滑提示第二行：相邻歌名（队列内现查；无相邻留空）。 */
+    private String swipeNeighborName(boolean next) {
+        try {
+            java.util.List<MusicTrack> queue = MusicController.get().queue();
+            MusicTrack current = MusicController.get().current();
+            if (queue == null || current == null) return "";
+            int index = queue.indexOf(current);
+            if (index < 0) return "";
+            int neighbor = next ? index + 1 : index - 1;
+            if (neighbor < 0 || neighbor >= queue.size()) return "";
+            MusicTrack track = queue.get(neighbor);
+            return track == null ? "" : track.displayTitle();
+        } catch (Throwable ignored) {
+            return "";
         }
     }
 

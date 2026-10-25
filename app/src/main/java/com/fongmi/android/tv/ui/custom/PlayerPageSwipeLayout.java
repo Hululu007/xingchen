@@ -29,8 +29,16 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         void onPageSwipe(boolean next);
     }
 
+    /** 方向提示的相邻歌名供给（由宿主按队列现查，next=true 取下一首）。 */
+    public interface HintNameProvider {
+        String nameFor(boolean next);
+    }
+
     private OnPageSwipeListener swipeListener;
-    private TextView hintView;
+    private View hintView;
+    private TextView hintDirView;
+    private TextView hintNameView;
+    private HintNameProvider hintNameProvider;
     private String hintNextText;
     private String hintPrevText;
     /** 默认开（经典口径）；Apple 主题关——其歌词页要竖滚、播放页是横滑 pager，竖滑切歌会抢手势（批 3）。 */
@@ -77,14 +85,26 @@ public class PlayerPageSwipeLayout extends FrameLayout {
             tracking = false;
             stopSpring();
             setTranslationY(0f);
-            if (hintView != null) hintView.setVisibility(View.GONE);
+            hideHint();
         }
     }
 
-    public void setSwipeHintView(TextView hint, String nextText, String prevText) {
+    public void setSwipeHintView(View hint, TextView dirView, TextView nameView,
+                                 String nextText, String prevText, HintNameProvider nameProvider) {
         hintView = hint;
+        hintDirView = dirView;
+        hintNameView = nameView;
         hintNextText = nextText;
         hintPrevText = prevText;
+        hintNameProvider = nameProvider;
+    }
+
+    private void hideHint() {
+        if (hintView != null) {
+            hintView.setVisibility(View.GONE);
+            hintView.setAlpha(1f);
+            hintView.setTranslationY(0f);
+        }
     }
 
     private float density() {
@@ -186,18 +206,29 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                         }
                     }
                     if (hintView != null) {
-                        hintView.setText(dy < 0 ? hintNextText : hintPrevText);
+                        boolean next = dy < 0;
+                        if (hintDirView != null) hintDirView.setText(next ? hintNextText : hintPrevText);
+                        if (hintNameView != null) {
+                            hintNameView.setText(hintNameProvider != null ? hintNameProvider.nameFor(next) : "");
+                        }
                         hintView.setVisibility(View.VISIBLE);
+                        // 渐显（GZ 口径）：alpha＝clamp((|位移|/锚距−0.06)/(36dp/锚距−0.06))，锚距 6% 起显、触发门满显；
+                        // 整体随位移×0.1 视差（PlayerScreenKt.java:25391-25410）。
+                        float ratio = Math.abs(dy) / anchorPx;
+                        float threshold = 36f * density() / anchorPx;
+                        float a = threshold > 0.06f ? (ratio - 0.06f) / (threshold - 0.06f) : 1f;
+                        hintView.setAlpha(Math.max(0f, Math.min(1f, a)));
+                        hintView.setTranslationY(dy * 0.1f);
                     }
                 } else {
                     hapticArmed = false;
-                    if (hintView != null) hintView.setVisibility(View.GONE);
+                    hideHint();
                 }
                 return true;
             }
             case MotionEvent.ACTION_UP: {
                 tracking = false;
-                if (hintView != null) hintView.setVisibility(View.GONE);
+                hideHint();
                 float dy = ev.getY() - downY;
                 // 松手判定（GZ coverAxisLock$2 口径）：位移≥36dp 按位移符号提交；
                 // 位移不足时只看释放速度（VelocityTracker 释放值），≥600dp/s 按速度符号提交。
@@ -218,7 +249,7 @@ public class PlayerPageSwipeLayout extends FrameLayout {
             }
             case MotionEvent.ACTION_CANCEL:
                 tracking = false;
-                if (hintView != null) hintView.setVisibility(View.GONE);
+                hideHint();
                 springBack();
                 return true;
             default:

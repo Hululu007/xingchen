@@ -35,20 +35,40 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 竖滑切歌方向提示：拖动中显示方向，松手隐 -->
-    <TextView
+    <!-- 竖滑切歌方向提示（GZ SwipeDirectionHint 口径）：无底衬两行——方向字 11sp/500/白0.72，
+         下隔 4dp 相邻歌名 15sp/600/白0.92；容器 padding 横28/纵36；渐显与视差由 PlayerPageSwipeLayout 驱动 -->
+    <LinearLayout
         android:id="@+id/swipeHint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="@drawable/bg_lyric_capsule"
-        android:paddingStart="14dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="6dp"
-        android:textColor="#FFFFFF"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="28dp"
+        android:paddingTop="36dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="36dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/swipeHintDir"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontWeight="500"
+            android:includeFontPadding="false"
+            android:textColor="#B8FFFFFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/swipeHintName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontWeight="600"
+            android:includeFontPadding="false"
+            android:textColor="#EBFFFFFF"
+            android:textSize="15sp" />
+    </LinearLayout>
 
     <!-- 爱心粒子覆盖层（双击封面爆发，不拦截触摸） -->
     <com.fongmi.android.tv.ui.custom.HeartsBurstView

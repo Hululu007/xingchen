@@ -71,6 +71,7 @@ public class CdDiscView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF oval = new RectF();
+    private final RectF coverDst = new RectF();
     private final Path clipPath = new Path();
 
     private Bitmap cover;
@@ -440,7 +441,11 @@ public class CdDiscView extends View {
         float scale = Math.max((r * 2f) / bitmap.getWidth(), (r * 2f) / bitmap.getHeight());
         float dw = bitmap.getWidth() * scale;
         float dh = bitmap.getHeight() * scale;
-        canvas.drawBitmap(bitmap, cx - dw / 2f, cy - dh / 2f, bitmapPaint);
+        // 必须走目标矩形重载：(Bitmap, x, y) 重载按原图尺寸画、scale/dw/dh 全被忽略——
+        // 旧写法把缩略图按原尺寸贴在盘面左上、再被 spin 转到右上，圆裁后只剩一小片三角
+        // （2026-10-25 真机图 113183 实证）；整张封面印满盘面才是瓜子形态。
+        coverDst.set(cx - dw / 2f, cy - dh / 2f, cx + dw / 2f, cy + dh / 2f);
+        canvas.drawBitmap(bitmap, null, coverDst, bitmapPaint);
         bitmapPaint.setAlpha(255);
         canvas.restoreToCount(save);
     }

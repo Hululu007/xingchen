@@ -25,8 +25,8 @@ import android.view.View;
  * 糊底机制沿用自家采样：从 MusicGlassBackgroundView 的 1/4 共享缓冲按宿主位置裁剪。
  *
  * AVBox 效果链（FloatingNavBar 的 drawBackdrop 口径 + LiquidGlassConfig 默认值）：
- * 1) colorControls：t=translucency=0.5（AVBox 默认值，源码 LiquidGlassConfig 派生式亲验）：
- *    saturation 1.5、brightness (0.5−t)+×0.12 = 0、contrast 1−(0.5−t)+×0.25 = 1.0，
+ * 1) colorControls：saturation 1.5、brightness (0.5−t)·0.12、contrast 1−(0.5−t)·0.25，
+ *    t=translucency 取 0.35（AVBox 默认 0.5；星辰字全白、底更亮，收一档保证对比），
  *    矩阵照 backdrop 的 colorControlsColorFilter 逐项（亮度权重 .213/.715/.072、
  *    偏移 t=(0.5−c·0.5+b)·255）；
  * 2) blur：采样缓冲 1/4 缩放自带糊度（AVBox blur 5dp 的等效量级，不再另叠）；
@@ -34,22 +34,21 @@ import android.view.View;
  *    色散版逐字移植），refractionHeight/Amount = AVBox distortion 默认 30dp
  *    （几何上限取件小边一半），depthEffect 关、chromaticAberration 开（AVBox 默认开）；
  *    走 android.graphics.RuntimeShader（API 33+），低版本/编译失败回落直通采样；
- * 4) 容器 tint：AVBox containerColor = 主题 surfaceContainer @ (0.4 × containerAlphaScale)，
- *    containerAlphaScale = 2−2t = 1.0 → alpha .40；星辰音乐页恒浅色主题，
- *    面色取 M3 浅色 surfaceContainer #EEEEF1 平铺（此前自改的深色面 #1E2023@.52 作废，
- *    那是 1.4.37 被他真机定性的烟熏根源）；
+ * 4) 容器 tint：AVBox containerColor = surfaceContainer @ (0.4 × containerAlphaScale)，
+ *    containerAlphaScale = 2−2t = 1.3 → alpha .52，色取深色面 #1E2023 平铺
+ *    （星辰音乐页字全白令，取 AVBox 深色主题的面色家族）；
  * 5) Highlight.Default：白 .5、45°、falloff 1、宽 0.5dp、Plus 叠加——AGSL
  *    DefaultHighlight 着色器逐字移植描边；无 RuntimeShader 时回落旧环线近似；
- * 6) 阴影：backdrop 的 Shadow 是件外投影（半径 8dp、黑 .1），背景 Drawable 画不出界外，
- *    不画；此前自加的底部内影/接触影已按 AVBox 原配方删除。
+ * 6) 阴影：backdrop 的 Shadow 是件外投影，背景 Drawable 画不出界外，沿用内影近似
+ *    （底部内软影 18dp/黑 .30＋接触影 4dp/黑 .28，CSS 0 8px 32px rgba(0,0,0,.25–.32) 量级）。
  * 选中族 tone 染色（MusicGlassWire 挂 #305F67 @ .55）与前景翻白口径不变。
- * 取样为空/未就绪时回落纯 fallbackColor（=容器面色满铺，不是深色 tint）。
+ * 取样为空/未就绪时走下限面（深色渐变满铺），任何底上都成形。
  */
 public class MusicGlassDrawable extends Drawable {
 
-    // AVBox translucency=0.5 派生：brightness 0 / contrast 1.0 / saturation 1.5
-    private static final float CC_BRIGHTNESS = 0f;
-    private static final float CC_CONTRAST = 1.0f;
+    // AVBox translucency=0.35 派生：brightness .018 / contrast .9625 / saturation 1.5
+    private static final float CC_BRIGHTNESS = 0.018f;
+    private static final float CC_CONTRAST = 0.9625f;
     private static final float CC_SATURATION = 1.5f;
     private static final ColorFilter CC_FILTER = buildColorControlsFilter();
 
@@ -67,13 +66,10 @@ public class MusicGlassDrawable extends Drawable {
         return new android.graphics.ColorMatrixColorFilter(cm);
     }
 
-    // 容器 tint：M3 浅色 surfaceContainer #EEEEF1 @ .40 平铺（AVBox 0.4 × alphaScale 1.0）
-    private static final int TINT_COLOR = 0x66EEEEF1;
-    // 深底页 tint：深烟熏（样张口径——深透玻璃＋白字），缓冲为深底时启用
-    private static final int DARK_TINT_COLOR = 0x59101218;
-    private static final int[] DARK_FALLBACK = {0xFF1D1D24, 0xFF1D1D24, 0xFF1D1D24};
-    // 回落层（取样失败时满铺）：纯容器面色（AVBox fallbackColor 口径，非深色 tint）
-    private static final int[] FALLBACK = {0xFFEEEEF1, 0xFFEEEEF1, 0xFFEEEEF1};
+    // 容器 tint：#1E2023 @ .52 平铺（AVBox 0.4 × alphaScale 1.3）
+    private static final int TINT_COLOR = 0x851E2023;
+    // 可见下限层（取样失败时满铺）：与 tint 同家族的深色渐变
+    private static final int[] FALLBACK = {0xFF3A3D42, 0xFF26282C, 0xFF1E2023};
     private static final float[] FALLBACK_STOPS = {0f, 0.55f, 1f};
     // AVBox lens 默认：distortion 30dp（高与量同值）
     private static final float REFRACTION_DP = 30f;
@@ -325,8 +321,13 @@ public class MusicGlassDrawable extends Drawable {
         mLastVersion = -1;
         mProcessedDirty = true;
         mFallbackPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                MusicGlassBackgroundView.isBufferDark() ? DARK_FALLBACK : FALLBACK,
-                FALLBACK_STOPS, Shader.TileMode.CLAMP));
+                FALLBACK, FALLBACK_STOPS, Shader.TileMode.CLAMP));
+        float sh = 18f * mDensity;
+        mShadowPaint.setShader(new LinearGradient(0, bounds.bottom - sh, 0, bounds.bottom,
+                new int[]{0x00000000, 0x4D000000}, null, Shader.TileMode.CLAMP));
+        float ch = 4f * mDensity;
+        mContactPaint.setShader(new LinearGradient(0, bounds.bottom - ch, 0, bounds.bottom,
+                new int[]{0x00000000, 0x47000000}, null, Shader.TileMode.CLAMP));
         rebuildStrokeShader(bounds);
     }
 
@@ -476,9 +477,12 @@ public class MusicGlassDrawable extends Drawable {
         } else {
             canvas.drawRect(mTmp, mFallbackPaint);
         }
-        mTintPaint.setColor(MusicGlassBackgroundView.isBufferDark() ? DARK_TINT_COLOR : TINT_COLOR);
-        canvas.drawRect(mTmp, mTintPaint);             // 容器 tint（浅底页 AVBox 面色 @ .40；深底页深烟熏）
+        canvas.drawRect(mTmp, mTintPaint);             // 容器 tint（AVBox 面色 @ .52）
         if (mToneColor != 0) canvas.drawRect(mTmp, mTonePaint);
+        if (!mCircle) {
+            canvas.drawRect(mTmp, mShadowPaint);       // 底部内软影（大件分层）
+        }
+        canvas.drawRect(mTmp, mContactPaint);          // 接触影（小圆键只有它）
         if (mPressed) canvas.drawRect(mTmp, mPressPaint);
         canvas.restore();
 

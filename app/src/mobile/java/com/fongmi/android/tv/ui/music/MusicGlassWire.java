@@ -57,9 +57,6 @@ public final class MusicGlassWire {
             R.drawable.home_bg_search,
             R.drawable.bg_search_capsule,
             R.drawable.bg_pill_overview,
-            R.drawable.home_bg_card_pink,
-            R.drawable.home_bg_card_teal,
-            R.drawable.home_bg_card_lime,
     };
     private static final float[] RADII_DP = {
             16f,   // bg_music_glass_card
@@ -82,9 +79,6 @@ public final class MusicGlassWire {
             24f,   // home_bg_search
             999f,  // bg_search_capsule（胶囊全圆）
             12f,   // bg_pill_overview
-            20f,   // home_bg_card_pink（三彩卡，与原 shape 同角）
-            20f,   // home_bg_card_teal
-            20f,   // home_bg_card_lime
     };
 
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）
@@ -99,49 +93,16 @@ public final class MusicGlassWire {
     };
     private static final int SELECTED_TONE_COLOR = 0xFF305F67;
     private static final float SELECTED_TONE_ALPHA = 0.55f;
-
-    // 三彩卡（2026-10-25 他点定也做成液态玻璃）：带色玻璃——tone 取各卡渐变中段的身份色，
-    // alpha 0.50（大面积卡面，颜色要读得出又留玻璃透底）；卡面是浅粉彩玻璃、深字才看得清，
-    // 不走选中族的翻白（「字体一定要看得清」铁律优先），单独登记不翻前景集合。
-    private static final int[] CARD_TONE_IDS = {
-            R.drawable.home_bg_card_pink,
-            R.drawable.home_bg_card_teal,
-            R.drawable.home_bg_card_lime,
-    };
-    private static final int[] CARD_TONE_COLORS = {
-            0xFFFFC5DC,   // 粉（猜你喜欢渐变中段）
-            0xFFADE9F3,   // 蓝绿（排行榜渐变中段）
-            0xFFCFF2B8,   // 绿黄（随心听渐变中段）
-    };
-    private static final float CARD_TONE_ALPHA = 0.50f;
-
     private static Map<Drawable.ConstantState, Integer> sToneTable; // 懒建（ConstantState → tone 色）
-    private static Map<Drawable.ConstantState, Float> sToneAlphaTable; // 懒建（ConstantState → tone alpha）
-    private static java.util.Set<Drawable.ConstantState> sNoFlipTable; // 懒建（换玻璃但不翻前景）
 
     private static synchronized Map<Drawable.ConstantState, Integer> toneTable(Context ctx) {
         if (sToneTable != null) return sToneTable;
         Map<Drawable.ConstantState, Integer> m = new HashMap<>();
-        Map<Drawable.ConstantState, Float> a = new HashMap<>();
-        java.util.Set<Drawable.ConstantState> nf = new java.util.HashSet<>();
         for (int id : TONE_IDS) {
             Drawable d = ctx.getResources().getDrawable(id, ctx.getTheme());
-            if (d != null && d.getConstantState() != null) {
-                m.put(d.getConstantState(), SELECTED_TONE_COLOR);
-                a.put(d.getConstantState(), SELECTED_TONE_ALPHA);
-            }
-        }
-        for (int i = 0; i < CARD_TONE_IDS.length; i++) {
-            Drawable d = ctx.getResources().getDrawable(CARD_TONE_IDS[i], ctx.getTheme());
-            if (d != null && d.getConstantState() != null) {
-                m.put(d.getConstantState(), CARD_TONE_COLORS[i]);
-                a.put(d.getConstantState(), CARD_TONE_ALPHA);
-                nf.add(d.getConstantState());
-            }
+            if (d != null && d.getConstantState() != null) m.put(d.getConstantState(), SELECTED_TONE_COLOR);
         }
         sToneTable = m;
-        sToneAlphaTable = a;
-        sNoFlipTable = nf;
         return m;
     }
     private static final Set<RecyclerView> sScrollHooked =
@@ -172,13 +133,9 @@ public final class MusicGlassWire {
         if (r == null) return false;
         MusicGlassDrawable glass = new MusicGlassDrawable(v.getContext(), r);
         Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
-        if (tone != null) {
-            Float ta = sToneAlphaTable != null ? sToneAlphaTable.get(bg.getConstantState()) : null;
-            glass.setToneColor(tone, ta != null ? ta : SELECTED_TONE_ALPHA);
-        }
+        if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
         v.setBackground(glass);
-        boolean noFlip = sNoFlipTable != null && sNoFlipTable.contains(bg.getConstantState());
-        if (!noFlip) flipForeground(v);
+        flipForeground(v);
         return true;
     }
 

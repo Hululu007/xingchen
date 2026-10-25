@@ -41,7 +41,7 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:singleLine="true"
-        android:textColor="#FFFFFF"
+        android:textColor="#1C1C1E"
         android:textSize="15sp"
         android:textStyle="bold" />
 

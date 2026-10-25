@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.music;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -33,6 +34,7 @@ public class CoverStackView extends FrameLayout {
     private float swipeDownY;
     private long swipeDownMs;
     private boolean swipeArmed;
+    private VelocityTracker velocityTracker;
 
     public CoverStackView(Context context) {
         super(context);
@@ -60,8 +62,10 @@ public class CoverStackView extends FrameLayout {
 
     /**
      * 横滑切歌拦截（dig 三.13）：|dx|＞|dy|×1.2 才消费并拦截子手势；
-     * 跟手位移钳在锚点 clamp(屏宽×0.42, 220, 360)dp 内，松手过 36dp 或甩速 600dp/s 提交，
-     * 左滑＝下一首、右滑＝上一首；不提交 150ms 回位（提交动画时长字面值未抠到，取页级提交同值 150ms）。
+     * 跟手只动前卡（GZ 口径 PlayerScreenKt.java:26865-26871：缩放＝1−|位移|/锚点×0.05，后卡与出场层不动），
+     * 位移钳在锚点 clamp(屏宽×0.42, 220, 360)dp 内；松手判定：位移≥36dp 按位移符号、
+     * 不足按释放速度（VelocityTracker）≥600dp/s 按速度符号提交，左滑＝下一首、右滑＝上一首；
+     * 回位 150ms（瓜子横滑回位时长字面值未抠到，取页级提交同值，记对照表）。
      */
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
@@ -71,8 +75,12 @@ public class CoverStackView extends FrameLayout {
                 swipeDownY = ev.getY();
                 swipeDownMs = android.os.SystemClock.uptimeMillis();
                 swipeArmed = false;
+                if (velocityTracker != null) velocityTracker.recycle();
+                velocityTracker = VelocityTracker.obtain();
+                velocityTracker.addMovement(ev);
                 return false;
             case MotionEvent.ACTION_MOVE: {
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 float dx = ev.getX() - swipeDownX;
                 float dy = ev.getY() - swipeDownY;
                 float slop = 8f * getResources().getDisplayMetrics().density;
@@ -99,30 +107,61 @@ public class CoverStackView extends FrameLayout {
                 swipeDownX = ev.getX();
                 swipeDownY = ev.getY();
                 swipeDownMs = android.os.SystemClock.uptimeMillis();
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 return true;
             case MotionEvent.ACTION_MOVE: {
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 float dx = ev.getX() - swipeDownX;
                 float anchor = anchorPx();
-                setTranslationX(Math.max(-anchor, Math.min(anchor, dx)));
+                float clamped = Math.max(-anchor, Math.min(anchor, dx));
+                View front = getChildCount() > 3 ? getChildAt(3) : null;
+                if (front != null) {
+                    front.setTranslationX(clamped);
+                    float scale = 1f - Math.abs(clamped) / anchor * 0.05f;
+                    front.setScaleX(scale);
+                    front.setScaleY(scale);
+                }
                 return true;
             }
             case MotionEvent.ACTION_UP: {
                 float dx = ev.getX() - swipeDownX;
-                long dt = Math.max(1L, android.os.SystemClock.uptimeMillis() - swipeDownMs);
-                float velDpS = Math.abs(dx) / density / dt * 1000f;
-                boolean commit = Math.abs(dx) >= 36f * density || velDpS >= 600f;
-                animate().translationX(0f).setDuration(150).start();
-                if (commit && swipeListener != null) swipeListener.onHorizontalSwipe(dx < 0);
+                float velDpS = 0f;
+                if (velocityTracker != null) {
+                    velocityTracker.addMovement(ev);
+                    velocityTracker.computeCurrentVelocity(1000);
+                    velDpS = velocityTracker.getXVelocity() / density;
+                }
+                boolean commit;
+                boolean next;
+                if (Math.abs(dx) >= 36f * density) {
+                    commit = true;
+                    next = dx < 0;
+                } else if (Math.abs(velDpS) >= 600f) {
+                    commit = true;
+                    next = velDpS < 0;
+                } else {
+                    commit = false;
+                    next = false;
+                }
+                settleFront();
+                if (commit && swipeListener != null) swipeListener.onHorizontalSwipe(next);
                 swipeArmed = false;
                 return true;
             }
             case MotionEvent.ACTION_CANCEL:
-                animate().translationX(0f).setDuration(150).start();
+                settleFront();
                 swipeArmed = false;
                 return true;
             default:
                 return super.onTouchEvent(ev);
         }
+    }
+
+    /** 前卡回位：位移与跟手缩放一并归零（150ms）。 */
+    private void settleFront() {
+        View front = getChildCount() > 3 ? getChildAt(3) : null;
+        if (front == null) return;
+        front.animate().translationX(0f).scaleX(1f).scaleY(1f).setDuration(150).start();
     }
 
     private float dp(float value) {

@@ -5,6 +5,9 @@ import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
@@ -80,6 +83,8 @@ public final class MusicGlassWire {
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）
     private static final Set<RecyclerView> sScrollHooked =
             Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Set<View> sBgExtended =
+            Collections.newSetFromMap(new WeakHashMap<>());
 
     private static synchronized Map<Drawable.ConstantState, Float> table(Context ctx) {
         if (sTable != null) return sTable;
@@ -143,12 +148,69 @@ public final class MusicGlassWire {
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
     }
 
-    /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁。 */
+    /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁；页根再补背景铺满整屏。 */
     public static void glassifyTree(View root) {
         if (root == null) return;
         glassifyView(root);
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
+        extendBackgroundUnderBars(root);
+    }
+
+    /**
+     * 背景铺满整屏（共享层一处，各音乐页在 initView 调 glassifyTree 时自动受益）：
+     * 窗口已全 App 边到边（BaseActivity），但根带 fitsSystemWindows 的页，根吃到系统栏 padding 后，
+     * 直挂根下的背景 View 被压进 padding 内侧，状态栏（与导航栏）一条只剩根的纯白兜底
+     * home_bg_page 露出来＝漏底；首页根无 fits、背景直铺整屏，是正确样本。
+     * 修法：根关 clipToPadding；给根挂 insets 监听——fits 页照旧把系统栏 insets 落成根 padding
+     * （内容不钻状态栏，返回值把 systemBars 消费掉，与框架默认行为一致），随后按根 padding 给
+     * 背景反向负边距外扩到根边，背景场景即与首页一样铺满整屏；再挂背景布局监听兜底同步（旋转等）。
+     * 内容层结构与边距一概不动；非 fits 页（首页）padding 为 0、负边距恒 0，无副作用。
+     */
+    private static void extendBackgroundUnderBars(final View root) {
+        if (!(root instanceof ViewGroup)) return;
+        final MusicGlassBackgroundView bg = MusicGlassBackgroundView.findInTree(root);
+        if (bg == null || bg.getParent() != root) return;
+        synchronized (sBgExtended) {
+            if (!sBgExtended.add(bg)) return;
+        }
+        ((ViewGroup) root).setClipToPadding(false);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            WindowInsetsCompat out = insets;
+            if (v.getFitsSystemWindows()) {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                out = new WindowInsetsCompat.Builder(insets)
+                        .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.NONE)
+                        .build();
+            }
+            v.post(() -> syncBackgroundMargins(root, bg));
+            return out;
+        });
+        bg.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orr, ob) -> syncBackgroundMargins(root, bg));
+        syncBackgroundMargins(root, bg);
+    }
+
+    /** 背景负边距与根 padding 同步：根因 fits 吃了多少系统栏 padding，背景就外扩多少，正好抵消。 */
+    private static void syncBackgroundMargins(View root, MusicGlassBackgroundView bg) {
+        if (bg.getParent() != root) return;
+        ViewGroup.LayoutParams lp = bg.getLayoutParams();
+        if (!(lp instanceof ViewGroup.MarginLayoutParams)) return;
+        ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) lp;
+        int top = 0, bottom = 0, left = 0, right = 0;
+        if (root.getFitsSystemWindows()) {
+            top = -root.getPaddingTop();
+            bottom = -root.getPaddingBottom();
+            left = -root.getPaddingLeft();
+            right = -root.getPaddingRight();
+        }
+        if (m.topMargin == top && m.bottomMargin == bottom
+                && m.leftMargin == left && m.rightMargin == right) return;
+        m.topMargin = top;
+        m.bottomMargin = bottom;
+        m.leftMargin = left;
+        m.rightMargin = right;
+        bg.setLayoutParams(m);
     }
 
     private static void glassifyChildren(ViewGroup g) {

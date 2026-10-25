@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 全屏歌词页（2026-10-25 从零重写）：本布局只剩根，全部子视图由 MusicLyricPageView 代码建。
-     形态认瓜子本体实证（他的录屏＋112747/113010 截图）：清封面居上渐隐进取色面、
-     歌名行压交界、无页眉无缩略图、歌词左对齐沉浸滚动、无底部进度条与按键。 -->
-<com.fongmi.android.tv.ui.music.MusicLyricPageView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:visibility="gone" />

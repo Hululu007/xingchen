@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 首页继续播放卡圆播放键底：纯色深墨圆盘（点缀钮，非卡底；收官口径 #FF1C1C1E）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#FF1C1C1E" />
+</shape>

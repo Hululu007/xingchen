@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 首页继续播放卡 3dp 细进度：层叠底（浅灰轨＋粉紫渐变进度），供横向 ProgressBar 的 progressDrawable。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="2dp" />
+            <solid android:color="#1F000000" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="2dp" />
+                <gradient
+                    android:angle="0"
+                    android:startColor="#FFFF5C8A"
+                    android:endColor="#FF8E7BFF"
+                    android:type="linear" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>

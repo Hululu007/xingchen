@@ -88,8 +88,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
 
     // ================= 音乐会话（独立音乐播放器，id="music"） =================
 
-    /** 音乐迷你条会话：只实现槽位 id，文案/封面实时从 MusicController 取 */
-    private static class MusicMiniSession implements MiniBarPolicy.Session {
+    /**
+     * 音乐迷你条会话（从零重写，照 spec-player-host §5）：极薄——只实现槽位 id 返回 "music"，
+     * 不存歌名/封面/进度/控制对象；条上的一切都由本类音乐分支实时从 MusicController 拉。
+     * 听书会话（ListenSession 带 meta/control）与它不是一种东西，不许按听书口径给它加字段。
+     */
+    private static final class MusicMiniSession implements MiniBarPolicy.Session {
         @Override
         public String id() {
             return "music";
@@ -633,7 +637,10 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     /** 第三波 M3：摘条时记下的封面转角（重建后恢复，不从头转）。 */
     private float savedHomeRotation;
 
-    /** 音乐封面旋转：播放时匀速转，暂停保留角度停住；条重建时从记下的转角续转，不复位。 */
+    /**
+     * 音乐封面旋转（从零重写，spec §5.4）：驱动源＝播放态，不是进度——
+     * 播放时从当前角匀速转（周期 12000ms、线性、无限），暂停 pause() 保留角度不归零。
+     */
     private void updateHomeSpin(boolean playing) {
         if (ivVinyl == null) return;
         if (playing) {
@@ -651,9 +658,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
     }
 
+    /** 摘条收口：先把当前转角存进 savedHomeRotation 再 cancel——重建条时新封面写回该角续转，不从 0 重转。 */
     private void stopHomeSpin() {
-        // 第三波 M3：摘条／重建时只记下当前转角、不复位到 0；重建后 buildMusicBar
-        // 把记下的转角写回新封面视图，updateHomeSpin 再从该角度续转。
         if (ivVinyl != null) {
             try {
                 savedHomeRotation = ivVinyl.getRotation();
@@ -670,12 +676,15 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         if (homeHandler != null) homeHandler.removeCallbacks(homeProgressTick);
     }
 
-    /** 进度环跟随 MusicController.position()/duration()（音乐分支专用）。 */
+    /**
+     * 进度环（spec §5.4）：驱动源＝控制器现拉位置，没有事件推送——
+     * homeProgressTick 每 500ms 自调度，读 position()/duration() 算 fraction（duration<=0 时 0）。
+     */
     private void updateHomeProgress() {
         if (homeRing == null || !barMusicMode) return;
         try {
-            long pos = musicCtl().position();
             long dur = musicCtl().duration();
+            long pos = musicCtl().position();
             homeRing.setFraction(dur > 0 ? (float) pos / (float) dur : 0f);
         } catch (Throwable ignored) {
         }
@@ -690,31 +699,31 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     // ================= 音乐条：浅色胶囊（圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） =================
 
     /**
-     * 音乐条外观（定案形态，2026-10-21）：底部悬浮浅色圆角胶囊——
-     * 左侧圆形封面（播放旋转、进度围封面外圈走）＋歌名＋下一首小图标＋右侧大圆浅色软凸起播放键。
-     * 布局在 home_minibar_music.xml；点条身进播放页（现行行为保留）；
-     * 条上无关闭口；暂停超 10 秒自动收现已真生效（控制器播放态变化时调
-     * musicPlayingChanged 喂策略层，见 MusicController；音乐真关闭仅藏条不误停）。
-     * 本方法只被 attachBar 的音乐分支调用，听书条走 buildBar()，互不影响。
+     * 音乐条建条（从零重写，spec §5.4/§5.5；定案形态 2026-10-21）：充气 home_minibar_music——
+     * 56dp 方框（进度环满框＋45dp 圆封面居中）＋歌名＋下一首 44dp＋大圆播放键 56dp。
+     * 条底两段式：布局先挂 home_bg_minibar 作 XML 可见下限，这里换同源 MusicGlassDrawable(999) 真玻璃；
+     * 播放键同法（布局 bg_music_glass_circle 下限＋这里 MusicGlassDrawable(999)）——圆角 999 在
+     * MusicGlassDrawable 内走小圆键口径：只留一层轻接触影、不叠底部内软影（回归清单第 5 条，
+     * 装配后自查：本段没有第二处阴影参数，布局 elevation 是宿主层浮起、不进 drawable）。
+     * 条上没有关闭钮（spec §5.5）；点条身进播放页。本方法只被 attachBar 的音乐分支调用，
+     * 听书条走 buildBar()，互不影响。
      */
     private void buildMusicBar() {
         stopHomeSpin();
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
-        // 条底＝真玻璃（MusicGlassDrawable，照海阔 HkGlassDrawable 同源）：糊的是身后的首页极光底，
-        // 胶囊圆角 999；旧 home_bg_minibar 实色填充不是玻璃，已退场（听书条的深底在 buildBar，不受影响）
         bar.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
         ivVinyl = bar.findViewById(R.id.homeCover);
         // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
         musicBoundCover = null;
-        // 第三波 M3：新封面视图先恢复摘条时记下的转角，不从头转。
+        // 新封面先写回摘条时记下的转角再续转，不从 0 重转
         if (ivVinyl != null) ivVinyl.setRotation(savedHomeRotation);
         homeRing = bar.findViewById(R.id.homeRing);
         tvTitle = bar.findViewById(R.id.homeTitle);
         homeNextBtn = bar.findViewById(R.id.homeNext);
         if (homeNextBtn != null) {
             homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
-            // 第三波 M1：队尾下一首设防——无下一首时不发 next（bindMusicSession 同步置灰／不可点）。
+            // 下一首防呆：先判 canNext() 为真才 next()（置灰逻辑在 bindMusicSession）
             homeNextBtn.setOnClickListener(v -> {
                 try {
                     if (musicCtl().canNext()) musicCtl().next();
@@ -726,10 +735,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         btnPrev = null;
         btnPlay = bar.findViewById(R.id.homePlay);
         if (btnPlay != null) {
-            // 大圆播放键＝液态玻璃（与条底同源 MusicGlassDrawable、999 圆角成圆：糊底＋亮边＋
-            // 顶部流光＋按压发亮同一套材料）：用户 2026-10-25 点名迷你条也是液态玻璃，原
-            // 纯白渐变实底盘退场（布局已摘引用、资源已删）；尺寸／位置／
-            // 图标／点按行为不动，refreshPlayIcon 只换 src 不碰底。
+            // 大圆播放键＝液态玻璃（用户 2026-10-25 点名「别忘了，这个也是液态玻璃」）：
+            // 与条底同源 MusicGlassDrawable(999)；refreshPlayIcon 只换 src、不碰底
             btnPlay.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
             btnPlay.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
             btnPlay.setOnClickListener(v -> {
@@ -740,12 +747,13 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 refreshPlayIcon();
             });
         }
-        // 点条身进播放页
+        // 条身（非按钮区，含封面）点按进播放页
         bar.setOnClickListener(v -> openMusicPlayer());
         barView = bar;
         startHomeProgress();
     }
 
+    /** 条身回播放页（spec §5.5）：反射 Intent 直开播放页＋NEW_TASK（宿主作 Context、无则用 app）。 */
     private void openMusicPlayer() {
         try {
             Activity host = hostRef == null ? null : hostRef.get();
@@ -757,6 +765,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
     }
 
+    /**
+     * 音乐条绑定（从零重写，spec §5.4）：数据全现拉——歌名＝current().displayTitle()；
+     * 封面防挂旧脸（瓜子切歌挂旧脸的 bug 不学，他 2026-10-24 点名）：地址与已绑不同才先清旧图再异步载新图
+     * （有地址加载中/失败保持透明）；地址真空才上 CoverTextDrawable 素图；地址没变不动图防闪。
+     * 下一首钮按 canNext() 置 enabled/alpha（可点 1.0、不可点 0.35）。
+     */
     private void bindMusicSession() {
         try {
             com.fongmi.android.tv.bean.music.MusicTrack t = musicCtl().current();
@@ -765,10 +779,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 String cover = t == null ? null : t.cover;
                 boolean hasCover = cover != null && !cover.isEmpty();
                 if (hasCover) {
-                    // 批 7 防挂旧脸（瓜子切歌挂上一首封面的 bug 不学，他 2026-10-24 点名）：
-                    // 封面地址变了＝换歌，先清掉上一首的图再异步加载新图——新图就绪前保持透明
-                    //（有地址加载中／失败都透明是封面占位定案），不让旧封面陪新歌名一起露面。
-                    // 地址没变（播放态／进度刷新重绑）不动图，避免闪烁。
                     if (!cover.equals(musicBoundCover)) {
                         musicBoundCover = cover;
                         ivVinyl.setImageDrawable(null);
@@ -776,15 +786,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                     }
                 } else {
                     musicBoundCover = null;
-                    // 封面地址真为空才上素图（素灰底＋歌名首字，小圆排不下整名）；
-                    // 有地址的走加载、失败也透明，不在这里兜底（封面规矩按有无地址分）
                     ivVinyl.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
                             t == null ? "" : t.displayTitle(), true, -1));
                 }
             }
         } catch (Throwable ignored) {
         }
-        // 第三波 M1：队尾下一首置灰／不可点（循环模式下 hasNext 恒 true，队尾仍可点，见 canNext 注释）。
         if (homeNextBtn != null) {
             boolean canNext = false;
             try {

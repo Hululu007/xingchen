@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐迷你条条底的 XML 可见下限：半透明白渐变＋白描边的胶囊（圆角 999），与玻璃件家族同语言；
+     运行时 ListenMiniBar 换同源 MusicGlassDrawable(999) 升级为真液态玻璃，取样失效时本件照样成形
+     （回归清单第 1 条双保险）。只被 home_minibar_music 引用。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="999dp" />
+    <gradient
+        android:angle="270"
+        android:centerColor="#B8FFFFFF"
+        android:endColor="#CCFFFFFF"
+        android:startColor="#D9FFFFFF" />
+    <stroke
+        android:width="1dp"
+        android:color="#BFFFFFFF" />
+</shape>

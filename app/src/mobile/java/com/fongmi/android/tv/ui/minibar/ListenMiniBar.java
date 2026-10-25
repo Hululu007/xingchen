@@ -728,7 +728,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         if (btnPlay != null) {
             // 大圆播放键＝液态玻璃（与条底同源 MusicGlassDrawable、999 圆角成圆：糊底＋亮边＋
             // 顶部流光＋按压发亮同一套材料）：用户 2026-10-25 点名迷你条也是液态玻璃，原
-            // home_bg_play_btn 纯白渐变实底盘退场（布局已摘引用、资源已删）；尺寸／位置／
+            // 纯白渐变实底盘退场（布局已摘引用、资源已删）；尺寸／位置／
             // 图标／点按行为不动，refreshPlayIcon 只换 src 不碰底。
             btnPlay.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
             btnPlay.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));

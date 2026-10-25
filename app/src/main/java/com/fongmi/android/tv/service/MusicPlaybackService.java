@@ -46,6 +46,7 @@ import androidx.media3.session.MediaSessionService;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.api.music.FreeJsBridge;
 import com.fongmi.android.tv.api.music.LxKeyIssue;
@@ -171,6 +172,13 @@ public class MusicPlaybackService extends MediaSessionService {
          * 默认空实现，老监听不受影响。
          */
         default void onTrackReady(MusicTrack track) {
+        }
+
+        /**
+         * 出词提速：服务侧取词（与取链同刻启动的那份）已把当前歌的词备好并回写缓存时发。
+         * 页面收到后若仍无词，直接读缓存上屏，不必等自己那份链收口。默认空实现。
+         */
+        default void onLyricReady(MusicTrack track) {
         }
 
         /**
@@ -1241,7 +1249,6 @@ public class MusicPlaybackService extends MediaSessionService {
     private MusicAudioInfo toAudioInfo(Format f) {
         MusicAudioInfo info = new MusicAudioInfo();
         info.codec = codecName(f.sampleMimeType);
-        if (f.channelCount > 0) info.channelCount = f.channelCount;
         info.lossless = isLossless(f.sampleMimeType);
         int bps = f.averageBitrate > 0 ? f.averageBitrate : (f.bitrate > 0 ? f.bitrate : f.peakBitrate);
         if (bps > 0) info.bitrateKbps = (bps + 500) / 1000;
@@ -1769,6 +1776,15 @@ public class MusicPlaybackService extends MediaSessionService {
         final String key = preloadKey;
         final MusicTrack snapshot = next;
         final int q = preloadQuality;
+        // 出词提速：下一首的词与链同批预取（同门控），切过去时缓存已有词、跟歌一起出。
+        // 共享单飞保证与起播同刻/页面那份调用并成一条链，不重复跑。取词任务内含等链
+        // 收口的阻塞等待，不许占音乐池（4 线程，与取链共用会互相饿死）——走大池。
+        Task.largeExecutor().execute(() -> {
+            try {
+                MusicRepository.fetchLyricForPlayback(snapshot);
+            } catch (Throwable ignored) {
+            }
+        });
         // 预加载走音乐专用池（P3）：不占共享 5 线程池，不许预加载僵尸任务拖垮正式取链
         Task.executeMusic(() -> {
             String url = null;
@@ -1786,6 +1802,25 @@ public class MusicPlaybackService extends MediaSessionService {
         });
     }
 
+    /** 出词提速：起播同刻的服务侧取词。只备词＋回写缓存＋（仍是当前歌才）通知页面，
+     * 不碰播放器、不碰队列；失败静默（页面自己那份链照常兜底）。 */
+    private void startLyricFetch(MusicTrack track) {
+        if (track == null) return;
+        // 等链收口是阻塞等待，走大池不占音乐池（取链在音乐池，互不饿死）
+        Task.largeExecutor().execute(() -> {
+            MusicLyric lyric = null;
+            try {
+                lyric = MusicRepository.fetchLyricForPlayback(track);
+            } catch (Throwable ignored) {
+            }
+            if (lyric == null || !lyric.hasLyric()) return;
+            MusicTrack cur = queue.current();
+            if (cur != null && MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) {
+                listeners.forEach(l -> l.onLyricReady(track));
+            }
+        });
+    }
+
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
         MusicTrack track = queue.get(index);
         if (track == null || player == null) return;
@@ -1800,6 +1835,10 @@ public class MusicPlaybackService extends MediaSessionService {
         // 否则旧链回来发现队列已换只会静默返回，点了跟没点一样。
         preparing = true;
         final int seq = ++prepareSeq;
+        // 出词提速：取词与取链同刻启动、并行——不等播放器回调、不等播放页绑定。
+        // 与页面那份取词走共享单飞并成一条链，结果回写缓存；备好时若仍是当前歌，
+        // 经 onLyricReady 通知页面直接读缓存上屏（词跟歌一起到）。
+        startLyricFetch(track);
         // 看门狗：取链卡死（源挂死/桥死等）时不许无限期顶着 preparing，超时按失败收口；
         // P3：到点同时取消在途取链任务（interrupt），不只放弃等待——否则僵尸任务继续占池
         main.postDelayed(() -> {

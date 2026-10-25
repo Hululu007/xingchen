@@ -58,6 +58,10 @@ public class MusicController {
         default void onTrackReady(MusicTrack track) {
         }
 
+        /** 服务侧取词备好信号（见 MusicPlaybackService.ServiceListener.onLyricReady），默认空实现 */
+        default void onLyricReady(MusicTrack track) {
+        }
+
         /** 服务失败信号（见 MusicPlaybackService.ServiceListener.onTrackFailed），默认空实现 */
         default void onTrackFailed(MusicTrack track, int reasonRes) {
         }
@@ -141,6 +145,11 @@ public class MusicController {
         @Override
         public void onTrackReady(MusicTrack track) {
             App.post(() -> listeners.forEach(l -> l.onTrackReady(track)));
+        }
+
+        @Override
+        public void onLyricReady(MusicTrack track) {
+            App.post(() -> listeners.forEach(l -> l.onLyricReady(track)));
         }
 
         @Override

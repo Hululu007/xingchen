@@ -9,6 +9,7 @@
      玻璃件一律先挂 bg_music_glass_* XML 件作可见下限，运行时 MusicGlassWire 升级同源液态玻璃。
      顶栏只有左对齐标题、无返回箭头（铁律）；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/musicRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/home_bg_page">

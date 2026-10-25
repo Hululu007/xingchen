@@ -9,6 +9,7 @@ import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSearchResult;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.utils.Async;
@@ -64,6 +65,21 @@ public class FreeJsBridge {
     private final MusicSite site;
     private final String pluginJs;
 
+    /**
+     * 插件声明需要的壳子统一登录提供方 id（插件导出 loginProvider，如油管音乐的
+     * "google"）；空＝不依赖登录。只存桥内、不回填 site：与 srcUrl 同口径，
+     * 插件自报值不许污染壳子的身份/落盘数据，它只是能力声明。
+     */
+    private String loginProvider = "";
+
+    /**
+     * 未登录自动弹框的进程内节流（按提供方）：搜索排/歌词兜底链会反复进桥，
+     * 没有节流就是连环弹窗扰用户；10 分钟内至多自动弹一次，用户关掉没登
+     * 就先按匿名跑，脚本也可经 __freejsLoginRequest 主动再请。
+     */
+    private static final long LOGIN_PROMPT_INTERVAL_MS = 10 * 60 * 1000L;
+    private static final java.util.Map<String, Long> LOGIN_PROMPT_AT = new java.util.concurrent.ConcurrentHashMap<>();
+
     private QuickJSContext ctx;
     private JSObject exports;
 
@@ -112,6 +128,27 @@ public class FreeJsBridge {
                 return nativeRequest(method, url, opts);
             } catch (Throwable t) {
                 return "{\"error\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}";
+            }
+        });
+        // 统一登录通路：只认本桥插件声明的 loginProvider（闭包绑定，脚本传不了参、
+        // 选不了提供方）——A 插件声明谷歌只能拿到谷歌的托管 Cookie，读不到别家的，
+        // 更拿不到没声明登录的插件手里。未声明时两个函数都是空转，老插件零影响。
+        ctx.getGlobalObject().setProperty("__freejsLoginCookie", (JSCallFunction) args -> {
+            try {
+                if (loginProvider.isEmpty()) return "";
+                String cookie = LoginManager.getCookie(loginProvider);
+                return cookie == null ? "" : cookie;
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        ctx.getGlobalObject().setProperty("__freejsLoginRequest", (JSCallFunction) args -> {
+            try {
+                if (loginProvider.isEmpty()) return false;
+                if (LoginManager.isLoggedIn(loginProvider)) return true;
+                return LoginManager.requestLogin(loginProvider);
+            } catch (Throwable t) {
+                return false;
             }
         });
         ctx.getGlobalObject().setProperty("__freejsLog", (JSCallFunction) args -> {
@@ -172,6 +209,28 @@ public class FreeJsBridge {
         if (!TextUtils.isEmpty(platform)) site.name = platform;
         if (!TextUtils.isEmpty(version)) site.version = version;
         if (!TextUtils.isEmpty(author)) site.author = author;
+        // 登录声明只进桥内字段（见 loginProvider 字段注释），不落 site
+        String lp = prop("loginProvider");
+        if (!TextUtils.isEmpty(lp)) loginProvider = lp.trim();
+    }
+
+    /**
+     * 插件声明了登录提供方且未登录时，请壳子弹统一登录框（节流见 LOGIN_PROMPT_AT）。
+     * 只挂在 search / getMediaSource / getLyric 三个用户动作入口上：探测型调用
+     * （supportsMusicSearch 等）不弹，免得用户没点这个源也被弹窗找上门。
+     * 弹与不弹都不拦本次调用——未登录照旧按匿名跑，登录是用户自己的选择。
+     */
+    private void maybePromptLogin() {
+        try {
+            if (loginProvider.isEmpty()) return;
+            if (LoginManager.isLoggedIn(loginProvider)) return;
+            long now = System.currentTimeMillis();
+            Long last = LOGIN_PROMPT_AT.get(loginProvider);
+            if (last != null && now - last < LOGIN_PROMPT_INTERVAL_MS) return;
+            LOGIN_PROMPT_AT.put(loginProvider, now);
+            LoginManager.requestLogin(loginProvider);
+        } catch (Throwable ignored) {
+        }
     }
 
     public boolean hasFunction(String name) throws Exception {
@@ -286,6 +345,7 @@ public class FreeJsBridge {
 
     /** search(query, page, type)：type = music/album/artist/sheet/lyric */
     public MusicSearchResult search(String keyword, int page, String type) throws Exception {
+        maybePromptLogin();
         Object result = call("search", keyword, page, type);
         String json = toJson(result);
         MusicSearchResult r = new MusicSearchResult();
@@ -361,6 +421,7 @@ public class FreeJsBridge {
 
     /** 探链口径：probe＝true 时只读地址、不记死（面板探链用）；死键检查仍尊重已死标记。 */
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality, boolean probe) throws Exception {
+        maybePromptLogin();
         String trackKey = MusicQueue.trackKey(track);
         String channel = key() + "|" + (quality == null ? "" : quality.getKey());
         if (isDeadChannel(trackKey, channel)) return null;
@@ -414,6 +475,7 @@ public class FreeJsBridge {
 
     /** getLyric(musicItem)：返回 {rawLrc, translation?} 或纯字符串 */
     public MusicLyric getLyric(MusicTrack track) throws Exception {
+        maybePromptLogin();
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
         Object result;

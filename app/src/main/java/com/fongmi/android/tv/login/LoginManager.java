@@ -44,6 +44,7 @@ public class LoginManager {
     private LoginManager() {
         register(new Qr115Provider());
         register(new KuaishouLoginProvider());
+        register(new GoogleLoginProvider());
     }
 
     public static LoginManager get() {
@@ -126,6 +127,31 @@ public class LoginManager {
                 .showLogin(activity);
     }
 
+    /**
+     * 弹谷歌网页登录框：走壳子统一弹窗（与快手同款 PanLoginDialog，
+     * 中间弹窗、WebView 内在油管音乐页完成谷歌账号登录），抓到的 Cookie
+     * 校验（须含 SAPISID 系种子）后落盘托管，供油管音乐源带态请求。
+     * 异步，登录成功走 callback；用户直接关弹窗视为取消，不回调。
+     */
+    public void loginGoogle(FragmentActivity activity, LoginCallback callback) {
+        if (activity == null || activity.isFinishing()) {
+            if (callback != null) callback.onError("界面不可用");
+            return;
+        }
+        PanLoginDialog.create()
+                .title("谷歌")
+                .loginUrl(GoogleLoginProvider.LOGIN_URL)
+                .cookieDomain(GoogleLoginProvider.COOKIE_DOMAIN)
+                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .hint("请在下方页面完成谷歌账号登录，然后点「完成登录」")
+                .cookieValidator(GoogleLoginProvider::isCookieValid)
+                .onLogin(cookie -> {
+                    GoogleLoginProvider.putCookie(cookie);
+                    if (callback != null) callback.onSuccess(GoogleLoginProvider.ID, cookie);
+                })
+                .showLogin(activity);
+    }
+
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
         if (method == LoginMethod.COOKIE) {
             CookieImportDialog.create().callback(callback).show(activity);
@@ -196,6 +222,50 @@ public class LoginManager {
     /** 退出快手登录 */
     public static void logoutKuaishou() {
         get().logout(KuaishouLoginProvider.ID);
+    }
+
+    /** 弹壳子统一的谷歌网页登录框（异步）。 */
+    public static void loginGoogle() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null) return;
+        App.post(() -> get().loginGoogle(activity, null));
+    }
+
+    /** 谷歌是否已登录（托管 Cookie 含 SAPISID 系种子） */
+    public static boolean isGoogleLoggedIn() {
+        return isLoggedIn(GoogleLoginProvider.ID);
+    }
+
+    /** 谷歌登录 cookie，未登录返回空串（油管音乐源即读此口） */
+    public static String getGoogleCookie() {
+        return getCookie(GoogleLoginProvider.ID);
+    }
+
+    /** 退出谷歌登录 */
+    public static void logoutGoogle() {
+        get().logout(GoogleLoginProvider.ID);
+    }
+
+    /**
+     * 通用：按提供方 id 请壳子弹统一登录框（异步），已分发的返回 true。
+     * 给不知道具体提供方 UI 细节的调用方（如 FreeJS 桥按插件声明的
+     * loginProvider 触发）用；新增网页型提供方时在此登记一行分发。
+     */
+    public static boolean requestLogin(String providerId) {
+        if (providerId == null) return false;
+        if (GoogleLoginProvider.ID.equals(providerId)) {
+            loginGoogle();
+            return true;
+        }
+        if (KuaishouLoginProvider.ID.equals(providerId)) {
+            loginKuaishou();
+            return true;
+        }
+        if ("115".equals(providerId)) {
+            login115();
+            return true;
+        }
+        return false;
     }
 
     /** 通用：某提供方是否已登录 */

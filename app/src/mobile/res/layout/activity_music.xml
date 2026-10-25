@@ -80,7 +80,6 @@
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_marginTop="8dp"
-        android:background="@drawable/bg_music_glass_search"
         android:clickable="true"
         android:elevation="3dp"
         android:focusable="true"
@@ -158,7 +157,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- ② 五快捷：五片独立玻璃片一行（第十稿定稿形态：bg_music_glass_chip、片间 6dp、
+    <!-- ② 五快捷：五片独立玻璃片一行（第十稿定稿形态；片底为真玻璃 MusicGlassDrawable、代码装配、片间 6dp、
          本地音乐居中第三；2026-10-21 的「一卡五入」旧摆法已被第十稿改掉，
          1.4.27 查修批曾误并回一卡，收官按第十稿改回五片）；格内彩色图标＋名字＋真实数量 -->
     <LinearLayout
@@ -172,7 +171,6 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_chip"
             android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
@@ -213,7 +211,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:background="@drawable/bg_music_glass_chip"
             android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
@@ -254,7 +251,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:background="@drawable/bg_music_glass_chip"
             android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
@@ -295,7 +291,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:background="@drawable/bg_music_glass_chip"
             android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
@@ -336,7 +331,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:background="@drawable/bg_music_glass_chip"
             android:elevation="2dp"
             android:paddingTop="12dp"
             android:paddingBottom="11dp"
@@ -379,7 +373,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:background="@drawable/bg_music_glass_white_card"
         android:elevation="3dp"
         android:orientation="vertical"
         android:padding="12dp"
@@ -444,7 +437,6 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -529,7 +521,6 @@
             android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -616,7 +607,6 @@
             android:layout_height="match_parent"
             android:layout_marginStart="10dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_music_glass_entry"
             android:clickable="true"
             android:elevation="2dp"
             android:focusable="true"
@@ -809,7 +799,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:background="@drawable/bg_music_glass_entry"
         android:elevation="3dp"
         android:orientation="vertical"
         android:padding="16dp"
@@ -1121,7 +1110,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:background="@drawable/bg_music_glass_entry"
         android:orientation="vertical"
         android:padding="16dp"
         android:visibility="gone">

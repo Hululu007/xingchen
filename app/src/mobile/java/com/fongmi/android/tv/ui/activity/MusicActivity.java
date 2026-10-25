@@ -35,6 +35,8 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.music.MusicGlassBackgroundView;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.CoverColor;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -132,6 +134,7 @@ public class MusicActivity extends BaseActivity {
         int side = Math.round(16 * density);
         binding.homeScroll.setPadding(side, statusBar + Math.round(12 * density),
                 side, Math.round(16 * density));
+        applyHomeGlass();
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         // 标题：歌词同款斜度 skewX(-0.12f)＋粉→紫渐变字（shader 宽按文字实测宽，量不到回落纯色不崩）
@@ -363,7 +366,6 @@ public class MusicActivity extends BaseActivity {
         restyleChartTabs();
         fillChart(chartTabs.get(sel), chartTracks);
         binding.homeChartCard.setVisibility(View.VISIBLE);
-        applyShuffleTone();
         return true;
     }
 
@@ -597,7 +599,6 @@ public class MusicActivity extends BaseActivity {
                 fillChart(chart, result);
                 saveChartState();
                 binding.homeChartCard.setVisibility(View.VISIBLE);
-                applyShuffleTone();
                 if (!prog) return;
                 // 酷我封面按片陆续补：先回先上，只刷变了的封面
                 MusicRepository.fetchKwChartCovers(chart, new KwChartSource.CoverListener() {
@@ -611,7 +612,6 @@ public class MusicActivity extends BaseActivity {
                             fillChartCoversAt(changed);
                             // 分片补上榜首封面后补一次 tone：下划线跟新榜首封面走
                             if (changed.contains(0)) refreshChartTone(chartTracks);
-                            applyShuffleTone();
                             saveChartState();
                         });
                     }
@@ -1194,43 +1194,28 @@ public class MusicActivity extends BaseActivity {
     }
 
     /**
-     * 随心听卡面取色：只算一次——三基色各向「榜首封面主色向白混 0.75」混 0.1，圆角 20dp。
-     * 取色源是星辰侧口径：首页榜单榜首封面（瓜子是每日歌曲封面，星辰无每日堆叠）；
-     * 无榜单／无封面／取色失败保持布局基色原样。
+     * 首页玻璃件统一装真玻璃（MusicGlassDrawable，做法与取值照海阔 HkGlassDrawable 同源：
+     * 糊底裁剪＋白罩 .58→.34→.46＋1dp 白描边）。半透填充的 XML 玻璃件（bg_music_glass_*）
+     * 在本页退场（文件保留，插件／搜索等未接线页仍在用）；圆角照各件原定稿（搜索 24／片 18／卡 20）。
+     * 原随心听卡的取色渐变填充（applyShuffleTone）与糊底同为卡底、二者只能留一：按改令撤填充，
+     * 随心听颜色身份回落其光晕＋发光盘（瓜子同构）；榜单卡与报告卡同为本页共用玻璃件，一并装。
      */
-    private boolean shuffleToneApplied;
-
-    private void applyShuffleTone() {
-        if (binding == null || shuffleToneApplied || chartTracks.isEmpty()) return;
-        String cover = chartTracks.get(0).cover;
-        if (cover == null || cover.isEmpty()) return;
-        shuffleToneApplied = true;
-        try {
-            ImgUtil.load(cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-                @Override
-                public void onResourceReady(android.graphics.Bitmap bitmap,
-                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                    if (binding == null || bitmap == null) return;
-                    try {
-                        int tone = CoverColor.dominantColor(bitmap);
-                        int lightTone = MusicHomeMood.mixWhite(tone, 0.75f);
-                        int[] base = {0xFFB8EFF9, 0xFFBCEEDD, 0xFFE8FAA8};
-                        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                                new int[]{MusicHomeMood.mixColors(base[0], lightTone, 0.1f),
-                                        MusicHomeMood.mixColors(base[1], lightTone, 0.1f),
-                                        MusicHomeMood.mixColors(base[2], lightTone, 0.1f)});
-                        bg.setCornerRadius(dp(20));
-                        binding.homeCardShuffle.setBackground(bg);
-                    } catch (Throwable ignored) {
-                    }
-                }
-
-                @Override
-                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-                }
-            });
-        } catch (Throwable ignored) {
-        }
+    private void applyHomeGlass() {
+        binding.homeSearchBar.setBackground(new MusicGlassDrawable(this, 24));
+        binding.homeQuickFavorite.setBackground(new MusicGlassDrawable(this, 18));
+        binding.homeQuickSheets.setBackground(new MusicGlassDrawable(this, 18));
+        binding.homeQuickDevice.setBackground(new MusicGlassDrawable(this, 18));
+        binding.homeQuickRecent.setBackground(new MusicGlassDrawable(this, 18));
+        binding.homeQuickDownload.setBackground(new MusicGlassDrawable(this, 18));
+        binding.homeContinueCard.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeCardGuess.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeCardCharts.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeCardShuffle.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeChartCard.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeReportCard.setBackground(new MusicGlassDrawable(this, 20));
+        // 静态底无海阔的 500ms 漂移帧：滚动时顶一版缓冲版本号，玻璃件按新窗口位置重裁
+        binding.homeScroll.setOnScrollChangeListener((v, sx, sy, osx, osy) ->
+                MusicGlassBackgroundView.noteScrollChanged());
     }
 
     // ================= 心情电台卡 =================

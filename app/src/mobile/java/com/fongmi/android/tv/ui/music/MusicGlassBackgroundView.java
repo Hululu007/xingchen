@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.music;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
@@ -20,6 +21,12 @@ import android.view.View;
  * 并与树内既有 AuroraBackgroundView（瓜子 Aurora 实证色板：蜜桃／淡紫／薄荷）对齐微调；
  * 目测值清单见 batch5-f1 报告，后续若拿到定稿原件逐值复核只改本文件一处即全域生效。
  * 静态绘制、不做漂移动画（流畅优先；与 AuroraBackgroundView 同口径）。
+ *
+ * 共享糊底缓冲（2026-10-25 改令，真玻璃接法照海阔 HkDynamicBgView）：本 View 除全分辨率
+ * 自绘外，还把同一场景以 1/4 降采样渲进一份进程共享缓冲，玻璃件（MusicGlassDrawable）
+ * 按自身窗口位置从缓冲裁剪——1/4 采样天然成糊，玻璃透出的正是糊掉的本页底。
+ * 音乐底是静态图、无海阔的 500ms 漂移帧，故缓冲只在背景尺寸变化时重绘；
+ * 版本号供玻璃件判重裁，页面滚动时由页面调 noteScrollChanged() 顶一版双保险。
  */
 public class MusicGlassBackgroundView extends View {
 
@@ -92,21 +99,18 @@ public class MusicGlassBackgroundView extends View {
         return (a << 24) | (color & 0x00FFFFFF);
     }
 
-    private void drawBlob(Canvas canvas, float cx, float cy, float radius, int color, float alpha0, float alpha1) {
+    private void drawBlob(Canvas canvas, float w, float h, float cx, float cy, float radius, int color, float alpha0, float alpha1) {
         if (radius <= 0f) return;
         RadialGradient g = new RadialGradient(cx, cy, radius,
                 new int[]{withAlpha(color, alpha0), withAlpha(color, alpha1), withAlpha(color, 0f)},
                 new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
         paint.setShader(g);
-        canvas.drawRect(0f, 0f, getWidth(), getHeight(), paint);
+        canvas.drawRect(0f, 0f, w, h, paint);
         paint.setShader(null);
     }
 
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        float w = getWidth();
-        float h = getHeight();
+    /** 整场绘制（底色＋大光斑＋小暖光）：全分辨率自绘与 1/4 缓冲共用同一份场景，参数只此一处。 */
+    private void drawScene(Canvas canvas, float w, float h) {
         if (w <= 0f || h <= 0f) return;
         canvas.drawColor(BASE);
         float unit = w / 390f;
@@ -114,12 +118,88 @@ public class MusicGlassBackgroundView extends View {
             float d = blob.diameter * unit;
             float cx = (w - d) * ((blob.a + 1f) / 2f) + d / 2f;
             float cy = (h - d) * ((blob.b + 1f) / 2f) + d / 2f;
-            drawBlob(canvas, cx, cy, d / 2f, blob.color, blob.alpha0, blob.alpha1);
+            drawBlob(canvas, w, h, cx, cy, d / 2f, blob.color, blob.alpha0, blob.alpha1);
         }
         for (Dot dot : SMALL) {
             float cx = dot.right ? w + dot.x * unit : dot.x * unit;
             float cy = dot.y * unit;
-            drawBlob(canvas, cx, cy, dot.radius * unit, dot.color, dot.alpha0, dot.alpha1);
+            drawBlob(canvas, w, h, cx, cy, dot.radius * unit, dot.color, dot.alpha0, dot.alpha1);
+        }
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        drawScene(canvas, getWidth(), getHeight());
+    }
+
+    // ---------- 共享糊底缓冲（进程单例态，口径照 HkDynamicBgView） ----------
+
+    private static final Object BUFFER_LOCK = new Object();
+    private static Bitmap sBuffer;              // 1/4 降采样缓冲
+    private static int sBufferW, sBufferH;
+    private static int sSrcW, sSrcH;            // 缓冲对应的背景尺寸，变了才重绘
+    private static int sBufferVersion = 0;      // 重绘/滚动时 +1，玻璃件据此重裁
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (w > 0 && h > 0) renderBuffer(w, h);
+    }
+
+    private void renderBuffer(int w, int h) {
+        synchronized (BUFFER_LOCK) {
+            if (sBuffer != null && !sBuffer.isRecycled() && sSrcW == w && sSrcH == h) return;
+            int bw = Math.max(2, w / 4), bh = Math.max(2, h / 4);
+            Bitmap old = sBuffer;
+            sBuffer = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            sBufferW = bw;
+            sBufferH = bh;
+            sSrcW = w;
+            sSrcH = h;
+            drawScene(new Canvas(sBuffer), bw, bh);
+            sBufferVersion++;
+            if (old != null && old != sBuffer) old.recycle();
+        }
+    }
+
+    /** 玻璃件用：缓冲是否就绪。 */
+    public static boolean hasBuffer() {
+        synchronized (BUFFER_LOCK) {
+            return sBuffer != null && !sBuffer.isRecycled();
+        }
+    }
+
+    /** 玻璃件用：当前缓冲（只读，不许改）。 */
+    public static Bitmap getBuffer() {
+        synchronized (BUFFER_LOCK) {
+            return sBuffer;
+        }
+    }
+
+    /** 玻璃件用：缓冲版本号，变了就重裁。 */
+    public static int getBufferVersion() {
+        synchronized (BUFFER_LOCK) {
+            return sBufferVersion;
+        }
+    }
+
+    public static int bufferWidth() {
+        synchronized (BUFFER_LOCK) {
+            return sBufferW;
+        }
+    }
+
+    public static int bufferHeight() {
+        synchronized (BUFFER_LOCK) {
+            return sBufferH;
+        }
+    }
+
+    /** 页面滚动时顶一版：玻璃件下次绘制按宿主新窗口位置重裁（静态底无漂移帧，靠它兜底）。 */
+    public static void noteScrollChanged() {
+        synchronized (BUFFER_LOCK) {
+            sBufferVersion++;
         }
     }
 }

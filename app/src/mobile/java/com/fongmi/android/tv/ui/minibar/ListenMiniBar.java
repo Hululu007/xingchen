@@ -30,6 +30,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.minibar.MiniBarPolicy;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.activity.ReadingSkin;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.lang.ref.WeakReference;
@@ -700,6 +701,9 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         stopHomeSpin();
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
+        // 条底＝真玻璃（MusicGlassDrawable，照海阔 HkGlassDrawable 同源）：糊的是身后的首页极光底，
+        // 胶囊圆角 999；旧 home_bg_minibar 实色填充不是玻璃，已退场（听书条的深底在 buildBar，不受影响）
+        bar.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
         ivVinyl = bar.findViewById(R.id.homeCover);
         // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
         musicBoundCover = null;

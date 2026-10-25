@@ -11,6 +11,10 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.utils.ImgUtil;
 
@@ -174,7 +178,7 @@ public class MusicGlassBackgroundView extends View {
             try {
                 ImgUtil.load(u, 128, new CustomTarget<Bitmap>() {
                     @Override
-                    public void onResourceReady(Bitmap resource) {
+                    public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                         Bitmap hold = resource;
                         try {
                             Bitmap copy = resource.copy(

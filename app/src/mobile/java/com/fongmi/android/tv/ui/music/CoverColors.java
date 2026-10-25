@@ -303,7 +303,7 @@ public final class CoverColors {
         int h = Math.max(1, bmp.getHeight());
         Palette full = Palette.from(bmp).maximumColorCount(24).clearFilters().generate();
         int bandTop = Math.min(h - 1, Math.max(0, (int) (h * 0.45f)));
-        Palette bottom = Palette.from(bmp, new android.graphics.Rect(0, bandTop, w, h))
+        Palette bottom = Palette.from(bmp).setRegion(0, bandTop, w, h)
                 .maximumColorCount(24).clearFilters().generate();
         Map<Integer, float[]> merged = new HashMap<>();
         Map<Integer, Palette.Swatch> byRgb = new HashMap<>();
@@ -381,7 +381,7 @@ public final class CoverColors {
         int w = Math.max(1, bmp.getWidth());
         int h = Math.max(1, bmp.getHeight());
         int bandH = Math.max(1, Math.min(h, (int) (h * 0.28f)));
-        Palette palette = Palette.from(bmp, new android.graphics.Rect(0, 0, w, bandH))
+        Palette palette = Palette.from(bmp).setRegion(0, 0, w, bandH)
                 .maximumColorCount(16).clearFilters().generate();
         Palette.Swatch sw = palette.getDominantSwatch();
         if (sw != null) return sw;

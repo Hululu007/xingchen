@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 全屏歌词页（§7.3 实帧形态）：无页眉；封面居上 46%＋84dp 渐隐（CoverFadeLayout 内部处理）；
+     歌名行压交界（歌名 16sp / 歌手 13sp×0.55）；右键只留 ⏸ 与 Tr；正体 FullLyricView 横垫 28dp。
+     子件位置由 MusicLyricPageView.onSizeChanged 按 46% 交界线排，本布局只声明构成与 id。 -->
+<com.fongmi.android.tv.ui.music.MusicLyricPageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.fongmi.android.tv.ui.music.CoverFadeLayout
+        android:id="@+id/musicLyricCoverFade"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.fongmi.android.tv.ui.music.FullLyricView
+        android:id="@+id/musicLyricFull"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp" />
+
+    <LinearLayout
+        android:id="@+id/musicLyricTitleBlock"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/musicLyricTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="#FFFFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/musicLyricArtist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="#8CFFFFFF"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/musicLyricBtnPause"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="⏸"
+        android:textColor="#FFFFFFFF"
+        android:textSize="17sp" />
+
+    <TextView
+        android:id="@+id/musicLyricBtnTr"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="Tr"
+        android:textColor="#FFFFFFFF"
+        android:textSize="17sp" />
+
+</com.fongmi.android.tv.ui.music.MusicLyricPageView>

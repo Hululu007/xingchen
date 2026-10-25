@@ -493,12 +493,15 @@ public class FullLyricView extends View {
      * 顶渐隐 smoothstep (3-2t)t²（审计 §4 源码注记 :457–477）、底渐隐 bottomFadeKeep 分段曲线
      * （源码实读转写，见下）。注：行 alpha 的源头状态函数未抠到（在未反编译的引擎本体内），
      * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式已 smali 深挖抠实（D1），走源头式。
-     * palette 非当前色（白 0.30）自带 alpha、与画笔 alpha 相乘落地，故行 alpha 只给渐隐系数，
-     * 不再乘 0.30——原式 255×0.30×渐隐再乘色内 0.30，合成约 0.09，闲行近乎不可见（全屏页「像没做」断点，
-     * 1.4.27 查修批纠正）；纠正后合成＝0.30×顶渐隐×底渐隐，与批 2 补正的录屏平台值一致。
+     * 落地语义（2026-10-25 歌词观感诊断批纠正）：LyricLineDrawer.drawIdleMain 与本类
+     * drawIdleWithEffect 都是先 setColor(palette.inactive) 再 setAlpha(行 alpha)——setAlpha
+     * 覆盖色内 alpha、不存在相乘（批 2 原注本就如此写）。1.4.27 查修批按「再乘色内 0.30、
+     * 合成约 0.09」删掉 0.30 因子，前提不成立：删后闲行实际 alpha＝顶渐隐×底渐隐（近锚处
+     * ≈1.0），超过瓜子模式 A 的上限 0.72×lyricDimAlpha≤0.72、达录屏平台（0.2–0.3）的三倍余，
+     * 闲行又亮又糊。本批恢复 0.30 因子，合成回到 0.30×顶渐隐×底渐隐。
      * 2026-10-25 深挖补记：源头状态函数已抠实——本页（Apple 列表面）跑模式 A，闲行行 alpha＝0.72 平台
      * （不透明 ColorInactive），但 GZ 另有整页 lyricDimAlpha 因子（主题宿主注入、数值未抠到）与之相乘，
-     * 乘积与本页现行 0.30 录屏平台相合；只知其一不知其二，不动水平值（见深挖报告第 5 项）。
+     * 乘积与本页 0.30 录屏平台相合；只知其一不知其二，不动水平值（见深挖报告第 5 项）。
      */
     /** 与当前行同时间组（同 timeMs，如合唱/重叠行）——GZ 趋近时长门「当前组高亮」的星辰映射。 */
     private boolean sameTimeGroup(int row) {
@@ -514,7 +517,7 @@ public class FullLyricView extends View {
         float topKeep = (3f - 2f * topT) * topT * topT;
         float relY = LyricWordEngine.clampF(relTop / Math.max(1f, (float) getHeight()), 0f, 1f);
         float bottomKeep = bottomFadeKeep(relY, 0.45f);
-        int alpha = Math.round(255f * topKeep * bottomKeep);
+        int alpha = Math.round(255f * 0.30f * topKeep * bottomKeep);
         // 模糊强度走源头式（smali 深挖 D1，distance 为带符号距离：本行－当前行）；旧等价式作废。
         // 趋近动画 2026-10-25 深挖落码（GZ lyricRowBlur）：逐行 animateFloatAsState——目标变化时
         // 以当前显示值起整段重跑 tween（活动门任一开 200ms、否则 400ms，CubicBezier(0.2,0,0,1)）。

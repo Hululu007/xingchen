@@ -160,6 +160,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private Bitmap shelfBmpCur;
     private Bitmap shelfBmpNext;
     private int shelfCoverGen;
+    // 架三槽曲目键（与舞台 noteSlotKeys 同值）：切歌时判「切到的正是相邻槽」走连续翻页装配
+    private String shelfPrevKey;
+    private String shelfCurKey;
+    private String shelfNextKey;
+    /** 程序化相邻翻页动画在途：封面加载完成先只存字段，落位回调里统一回喂（防动画中途整图跳换）。 */
+    private boolean shelfFeedDeferred;
     private View coverStackView;
     private View expandedColView;
     private ImageView coverBack1View;
@@ -742,6 +748,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean swipeDownInCoverArea;
     private VelocityTracker swipeVelocityTracker;
     private ValueAnimator lyricSettleAnimator;
+    // 经典主题歌词区横滑切歌（瓜子 coverAxisLock 口径）：起点在歌词区内时横滑归切歌，
+    // 与右划进歌词页分工——歌词区内横滑＝上一首/下一首，封面区右划仍进歌词页。
+    private boolean swipeDownInLyricArea;
+    private boolean songSwipeFollowing;
+    private float songSwipeEngageDx;
+    private float songSwipeEngageTx;
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
@@ -770,10 +782,46 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     swipeDownInCoverArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + shelfStageView.getWidth()
                             && ev.getY() >= loc[1] && ev.getY() <= loc[1] + shelfStageView.getHeight();
                 }
+                // 经典主题：起点落在内嵌歌词区内时，横滑归歌词区切歌，不触发右划进歌词页
+                // （分工见 songSwipe 字段注；封面卡片展开态歌词面不在此列，其横滑归叠卡）。
+                swipeDownInLyricArea = false;
+                songSwipeFollowing = false;
+                if (!coverTheme && !appleTheme && !cdTheme && !shelfTheme
+                        && lyricView != null && lyricView.getVisibility() == View.VISIBLE) {
+                    int[] loc = new int[2];
+                    lyricView.getLocationInWindow(loc);
+                    swipeDownInLyricArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + lyricView.getWidth()
+                            && ev.getY() >= loc[1] && ev.getY() <= loc[1] + lyricView.getHeight();
+                }
+                // 新手势接管前先停掉上一轮歌词区切歌的回位动画（位移冻结在当前值，不回跳）
+                if (binding != null && binding.themeContainer != null) {
+                    binding.themeContainer.animate().cancel();
+                }
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (swipeVelocityTracker != null) swipeVelocityTracker.addMovement(ev);
-                if (!swipeDownInCoverArea && lyricPageView != null) {
+                if (swipeDownInLyricArea && !lyricPageVisible
+                        && binding != null && binding.themeContainer != null) {
+                    float dx = ev.getX() - swipeDownX;
+                    float dy = ev.getY() - swipeDownY;
+                    if (!songSwipeFollowing) {
+                        // 轴判定照瓜子 coverAxisLock：竖向占优（|dy|＞|dx|×1.5）让给页级竖滑
+                        // 切歌，横向占优过触摸阈值才接管；接管以当前总位移为零点（不跳）。
+                        float slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+                        if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            songSwipeFollowing = true;
+                            songSwipeEngageDx = dx;
+                            songSwipeEngageTx = binding.themeContainer.getTranslationX();
+                        }
+                    }
+                    if (songSwipeFollowing) {
+                        // 跟手：播放页本体随手指横移，钳在瓜子锚距内（见 songSwipeAnchorPx）
+                        float anchor = songSwipeAnchorPx();
+                        float tx = songSwipeEngageTx + (dx - songSwipeEngageDx);
+                        binding.themeContainer.setTranslationX(Math.max(-anchor, Math.min(anchor, tx)));
+                    }
+                }
+                if (!swipeDownInCoverArea && !swipeDownInLyricArea && lyricPageView != null) {
                     float dx = ev.getX() - swipeDownX;
                     float dy = ev.getY() - swipeDownY;
                     if (!swipeFollowing) {
@@ -825,6 +873,30 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     else open = progress >= 0.5f;
                     settleLyricPage(open);
                 }
+                if (songSwipeFollowing) {
+                    songSwipeFollowing = false;
+                    float dx = ev.getX() - swipeDownX;
+                    float vx = 0f;
+                    if (swipeVelocityTracker != null) {
+                        swipeVelocityTracker.computeCurrentVelocity(1000);
+                        vx = swipeVelocityTracker.getXVelocity();
+                    }
+                    float density = getResources().getDisplayMetrics().density;
+                    // 提交口径照瓜子：位移过 36dp 或甩速过 600dp/s；方向以位移为准、
+                    // 位移未过门时以甩速方向为准（左＝下一首、右＝上一首）。
+                    boolean byDistance = Math.abs(dx) >= 36f * density;
+                    boolean commit = byDistance || Math.abs(vx) >= 600f * density;
+                    if (binding != null && binding.themeContainer != null) {
+                        // 回位 150ms（封面卡片叠卡横滑同值）；切歌换内容在回位中并行发生。
+                        binding.themeContainer.animate().translationX(0f).setDuration(150).start();
+                    }
+                    if (commit && ev.getActionMasked() == MotionEvent.ACTION_UP) {
+                        boolean next = byDistance ? dx < 0 : vx < 0;
+                        lastSkipDirection = next ? 1 : -1;
+                        if (next) MusicController.get().next();
+                        else MusicController.get().prev();
+                    }
+                }
                 if (swipeVelocityTracker != null) {
                     swipeVelocityTracker.recycle();
                     swipeVelocityTracker = null;
@@ -834,6 +906,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 break;
         }
         return super.dispatchTouchEvent(ev);
+    }
+
+    /** 歌词区横滑切歌锚距（瓜子 coverHorizontalSwipe 抠值）：clamp(屏宽 dp×0.42, 220, 360)dp，CoverStackView 同式。 */
+    private float songSwipeAnchorPx() {
+        float density = getResources().getDisplayMetrics().density;
+        float widthDp = getResources().getDisplayMetrics().widthPixels / density;
+        return Math.max(220f, Math.min(360f, widthDp * 0.42f)) * density;
     }
 
     private boolean isInScrubberRow(MotionEvent ev) {
@@ -2255,9 +2334,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (shelfStageView == null) return;
         shelfCoverGen++;
         final int gen = shelfCoverGen;
-        shelfBmpPrev = null;
-        shelfBmpCur = null;
-        shelfBmpNext = null;
         MusicTrack prev = null;
         MusicTrack next = null;
         try {
@@ -2273,11 +2349,70 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         final MusicTrack prevTrack = prev;
         final MusicTrack nextTrack = next;
         final String title = track == null ? "" : track.displayTitle();
-        shelfStageView.setCovers(null, null, null, prevTrack != null, nextTrack != null, title);
+        String curKey = track == null ? null : MusicQueue.trackKey(track);
+        String prevKey = prevTrack == null ? null : MusicQueue.trackKey(prevTrack);
+        String nextKey = nextTrack == null ? null : MusicQueue.trackKey(nextTrack);
+        // 连续翻页对账：切到的正是相邻槽时不许清屏重装（旧路三槽先清 null、封面逐张
+        // 弹入＝切歌跳变源头）。①舞台横滑提交：视图已自转槽位（consumeJustShifted 对账），
+        // 宿主字段同序自转后直接回喂；②按钮／自动切到相邻槽：字段先自转，舞台动画滑到
+        // 相邻位、落位自转后回调回喂。两路都只差最外侧新槽封面，异步加载补齐。
+        // 对不上（跳选任意曲／队列变了）走旧清屏装配。
+        int shiftedDir = shelfStageView.consumeJustShifted(curKey);
+        int advanceDir = 0;
+        if (shiftedDir != 0) {
+            rotateShelfFields(shiftedDir);
+            shelfFeedDeferred = false;
+            feedShelfCovers(title);
+        } else if (curKey != null && curKey.equals(shelfNextKey)) {
+            advanceDir = 1;
+        } else if (curKey != null && curKey.equals(shelfPrevKey)) {
+            advanceDir = -1;
+        }
+        if (advanceDir != 0) {
+            rotateShelfFields(advanceDir);
+            shelfFeedDeferred = true;
+            final int dir = advanceDir;
+            shelfStageView.advanceAnimated(dir > 0, () -> {
+                if (destroyed || gen != shelfCoverGen) return;
+                shelfFeedDeferred = false;
+                feedShelfCovers(title);
+            });
+        } else if (shiftedDir == 0) {
+            shelfBmpPrev = null;
+            shelfBmpCur = null;
+            shelfBmpNext = null;
+            shelfFeedDeferred = false;
+            shelfStageView.resetOffset();
+            shelfStageView.setCovers(null, null, null, prevTrack != null, nextTrack != null, title);
+        }
+        shelfPrevKey = prevKey;
+        shelfCurKey = curKey;
+        shelfNextKey = nextKey;
+        shelfStageView.noteSlotKeys(prevKey, curKey, nextKey);
         loadShelfSlot(track, gen, 0, title);
         loadShelfSlot(prevTrack, gen, -1, title);
         loadShelfSlot(nextTrack, gen, 1, title);
         refreshShelfToneSurfaces();
+    }
+
+    /** 宿主持有的三槽位图随切歌自转一槽（与 ShelfStageView.settleIntoNeighbor 同序同向）。 */
+    private void rotateShelfFields(int dir) {
+        if (dir > 0) {
+            shelfBmpPrev = shelfBmpCur;
+            shelfBmpCur = shelfBmpNext;
+            shelfBmpNext = null;
+        } else {
+            shelfBmpNext = shelfBmpCur;
+            shelfBmpCur = shelfBmpPrev;
+            shelfBmpPrev = null;
+        }
+    }
+
+    /** 按宿主当前字段整组回喂舞台（存在位以控制器队列口径为准）。 */
+    private void feedShelfCovers(String title) {
+        if (shelfStageView == null) return;
+        shelfStageView.setCovers(shelfBmpPrev, shelfBmpCur, shelfBmpNext,
+                hasShelfNeighbor(-1), hasShelfNeighbor(1), title);
     }
 
     private void loadShelfSlot(MusicTrack slotTrack, int gen, int slot, String title) {
@@ -2292,6 +2427,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 if (slot == 0) shelfBmpCur = resource;
                 else if (slot < 0) shelfBmpPrev = resource;
                 else shelfBmpNext = resource;
+                // 相邻翻页动画在途：先只存字段，落位回调统一回喂（防动画中途整图跳换）
+                if (shelfFeedDeferred) return;
                 shelfStageView.setCovers(shelfBmpPrev, shelfBmpCur, shelfBmpNext,
                         hasShelfNeighbor(-1), hasShelfNeighbor(1), title);
             }

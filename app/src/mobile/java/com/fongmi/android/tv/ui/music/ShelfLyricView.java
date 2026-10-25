@@ -11,6 +11,7 @@ import android.util.AttributeSet;
 import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import androidx.annotation.Nullable;
 
@@ -31,6 +32,9 @@ import java.util.List;
  * 有兼容面，本面行数少走面具模糊，效果口径等价、半径数值同源）。
  * X-11：歌词数据从空→有才淡入——setLines 时若此前无词，本面 300ms 从 alpha 0 淡入（时长无 GZ 字面值，
  * 报告明记星辰侧近似）；同歌重复喂数不重播淡入。点行＝回调行首时间 seek（页级口径）。
+ * 跟滚（2026-10-25）：当前行锚位做成连续量 displayCur（单位=行），按 FullLyricView 同口径
+ * 每帧 0.18 指数趋近——歌词面随当前行平滑滚，不再整槽跳变；点行只认点按（位移小于触摸
+ * 阈值），滑动松手不许误触 seek。
  */
 public class ShelfLyricView extends View {
 
@@ -64,18 +68,26 @@ public class ShelfLyricView extends View {
     private long anchorElapsedMs;
     private long fadeStartMs = -1;
     private boolean framePosted;
+    /** 当前行锚位的连续值（单位=行）：向 currentIndex 趋近，见 stepScroll。 */
+    private float displayCur;
+    private float tapSlopPx;
+    private float touchDownX;
+    private float touchDownY;
     private final Choreographer choreographer = Choreographer.getInstance();
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
             framePosted = false;
             if (fadeActive()) {
+                stepScroll();
                 invalidate();
                 postFrame();
                 return;
             }
-            if (!playing || lines.isEmpty()) return;
-            updateCurrentIndex(displayPositionMs());
+            if (lines.isEmpty()) return;
+            if (playing) updateCurrentIndex(displayPositionMs());
+            boolean scrolling = stepScroll();
+            if (!playing && !scrolling) return;
             invalidate();
             postFrame();
         }
@@ -92,7 +104,24 @@ public class ShelfLyricView extends View {
     }
 
     private void init() {
+        tapSlopPx = ViewConfiguration.get(getContext()).getScaledTouchSlop();
         applyTextSizes();
+    }
+
+    /** 锚位趋近一帧：返回是否仍在滚动中（FullLyricView 同口径 0.18 趋近、亚行收口）。 */
+    private boolean stepScroll() {
+        float target = Math.max(0, currentIndex);
+        float diff = target - displayCur;
+        if (Math.abs(diff) < 0.004f) {
+            displayCur = target;
+            return false;
+        }
+        displayCur += diff * 0.18f;
+        return true;
+    }
+
+    private boolean scrollAnimating() {
+        return Math.abs(Math.max(0, currentIndex) - displayCur) >= 0.004f;
     }
 
     private void applyTextSizes() {
@@ -184,6 +213,7 @@ public class ShelfLyricView extends View {
         if (mains != null) lines.addAll(mains);
         if (subLines != null) subs.addAll(subLines);
         currentIndex = -1;
+        displayCur = 0f;
         anchorPosMs = 0;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         // X-11：词到才淡入——仅「空→有」触发，同批重复喂数不重播
@@ -198,6 +228,7 @@ public class ShelfLyricView extends View {
         lines.clear();
         subs.clear();
         currentIndex = -1;
+        displayCur = 0f;
         fadeStartMs = -1;
         invalidate();
     }
@@ -245,7 +276,7 @@ public class ShelfLyricView extends View {
 
     private void postFrame() {
         if (framePosted) return;
-        if (!fadeActive() && (!playing || lines.isEmpty())) return;
+        if (!fadeActive() && (!playing || lines.isEmpty()) && !scrollAnimating()) return;
         framePosted = true;
         choreographer.postFrameCallback(frameCallback);
     }
@@ -321,7 +352,7 @@ public class ShelfLyricView extends View {
             return;
         }
         float slot = slotHeightPx();
-        int cur = Math.max(0, currentIndex);
+        float cur = Math.max(0f, displayCur);
         float anchorY = anchorY();
         float baseTop = anchorY - cur * slot;
         float density = getResources().getDisplayMetrics().density;
@@ -357,15 +388,27 @@ public class ShelfLyricView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_UP && lineClickListener != null && !lines.isEmpty()) {
-            float slot = slotHeightPx();
-            int cur = Math.max(0, currentIndex);
-            float anchorY = anchorY();
-            int idx = cur + Math.round((event.getY() - anchorY - mainPaint.getTextSize() / 2f) / slot);
-            if (idx >= 0 && idx < lines.size()) {
-                lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
-                performClick();
-            }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                touchDownX = event.getX();
+                touchDownY = event.getY();
+                break;
+            case MotionEvent.ACTION_UP:
+                // 点行只认点按：位移超阈值是滑（页级手势），不许误触 seek。
+                if (lineClickListener != null && !lines.isEmpty()
+                        && Math.hypot(event.getX() - touchDownX, event.getY() - touchDownY) < tapSlopPx) {
+                    float slot = slotHeightPx();
+                    float anchorY = anchorY();
+                    // 行号按视觉锚位（displayCur）算，与滚动态画面对齐。
+                    int idx = Math.round(displayCur + (event.getY() - anchorY - mainPaint.getTextSize() / 2f) / slot);
+                    if (idx >= 0 && idx < lines.size()) {
+                        lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
+                        performClick();
+                    }
+                }
+                break;
+            default:
+                break;
         }
         return true;
     }

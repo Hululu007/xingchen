@@ -35,6 +35,9 @@ import java.util.Map;
  * 距离项沿旧引擎应用侧等价式，见 drawIdleMain 注，不冒充瓜子公式。
  * 歌词字带一点斜：SKEW=-0.12（定案，非瓜子值），由 LyricLineDrawer 统一挂画笔。
  * 点行＝回调行首时间（定案点歌词行快进）；超长行截断加省略号（D-11 承接）。
+ * 展示窗口平滑滚动（2026-10-25）：窗口首行偏移做成连续量（scrollOffsetPx），当前行推进时
+ * 按 FullLyricView 同口径每帧 0.18 指数趋近、0.5px 收口——窗口随当前行滚，不是整窗跳变。
+ * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑／歌词区横滑切歌）松手不许误触 seek。
  * 播放中自驱帧循环：以宿主 setPosition 为锚点按真实时间推进显示位置，逐字动画逐帧走，暂停即停。
  */
 public class CoverLyricView extends View {
@@ -66,6 +69,11 @@ public class CoverLyricView extends View {
     private long anchorPosMs;
     private long anchorElapsedMs;
     private boolean framePosted;
+    /** 窗口滚动连续偏移（px）：趋近目标＝windowStart×槽高，见 stepScroll。 */
+    private float scrollOffsetPx;
+    private float tapSlopPx;
+    private float touchDownX;
+    private float touchDownY;
     /** 逐行模糊趋近（GZ lyricRowBlur 规格，见 drawIdleMain）。 */
     private final LyricRowApproach blurApproach = new LyricRowApproach();
     private final Choreographer choreographer = Choreographer.getInstance();
@@ -74,9 +82,10 @@ public class CoverLyricView extends View {
         public void doFrame(long frameTimeNanos) {
             framePosted = false;
             if (lines.isEmpty()) return;
-            boolean animating = blurApproach.hasRunning(SystemClock.elapsedRealtime());
-            if (!playing && !animating) return;
             if (playing) updateCurrentIndex(displayPositionMs());
+            stepScroll();
+            boolean animating = blurApproach.hasRunning(SystemClock.elapsedRealtime()) || scrollAnimating();
+            if (!playing && !animating) return;
             invalidate();
             postFrame();
         }
@@ -95,6 +104,7 @@ public class CoverLyricView extends View {
     private void init() {
         // API≥31 走 RenderEffect（需硬件加速层）；API＜31 的 BlurMaskFilter 需要软件层才稳定生效（旧引擎同口径）。
         setLayerType(Build.VERSION.SDK_INT >= 31 ? LAYER_TYPE_HARDWARE : LAYER_TYPE_SOFTWARE, null);
+        tapSlopPx = android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop();
         applyFontSize();
     }
 
@@ -181,6 +191,7 @@ public class CoverLyricView extends View {
         if (subLines != null) subs.addAll(subLines);
         blurApproach.clear();
         currentIndex = -1;
+        scrollOffsetPx = 0f;
         anchorPosMs = 0;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         invalidate();
@@ -192,6 +203,7 @@ public class CoverLyricView extends View {
         subs.clear();
         blurApproach.clear();
         currentIndex = -1;
+        scrollOffsetPx = 0f;
         invalidate();
     }
 
@@ -233,8 +245,8 @@ public class CoverLyricView extends View {
         // 待裁7：暂停不许把模糊趋近冻在半路——帧回调本身已按「暂停且无趋近在跑才停」
         // 收口（见 frameCallback），投递侧却带 !playing 守卫，暂停后只剩一帧、链即断，
         // 趋近停在中间值。与全屏面（FullLyricView 无 playing 守卫）对齐：暂停时只要
-        // 还有趋近在跑就续投，趋近结算完帧链自停，不空转。
-        if (!playing && !blurApproach.hasRunning(SystemClock.elapsedRealtime())) return;
+        // 还有趋近在跑就续投，趋近结算完帧链自停，不空转。窗口滚动趋近同此口径。
+        if (!playing && !blurApproach.hasRunning(SystemClock.elapsedRealtime()) && !scrollAnimating()) return;
         framePosted = true;
         choreographer.postFrameCallback(frameCallback);
     }
@@ -279,6 +291,22 @@ public class CoverLyricView extends View {
         return Math.max(0, currentIndex - WINDOW_BEFORE);
     }
 
+    /** 窗口滚动目标（px）＝窗口首行×槽高；滚动是把这个离散量做成连续趋近（见类头）。 */
+    private float targetScrollPx() {
+        return windowStart() * slotHeightPx();
+    }
+
+    private boolean scrollAnimating() {
+        return Math.abs(targetScrollPx() - scrollOffsetPx) > 0.5f;
+    }
+
+    private void stepScroll() {
+        float target = targetScrollPx();
+        float diff = target - scrollOffsetPx;
+        if (Math.abs(diff) <= 0.5f) scrollOffsetPx = target;
+        else scrollOffsetPx += diff * 0.18f;
+    }
+
     private long lineDurationMs(int index) {
         LyricsLine line = lines.get(index);
         if (index + 1 < lines.size()) return lines.get(index + 1).getTimeMs() - line.getTimeMs();
@@ -306,13 +334,18 @@ public class CoverLyricView extends View {
         }
         long pos = displayPositionMs();
         float slot = slotHeightPx();
-        float avail = getHeight() - getPaddingTop() - getPaddingBottom();
-        int maxRows = Math.max(1, (int) Math.floor(avail / slot));
-        int start = windowStart();
-        int end = Math.min(lines.size(), Math.min(start + WINDOW_AFTER + WINDOW_BEFORE + 1, start + maxRows));
-        float baseline = getPaddingTop() + drawer.mainTextSizePx();
-        float blockTop = getPaddingTop();
+        // 平滑滚动：首行由连续偏移导出，行块带分数位移绘出（滚动态上下各露半行属预期）。
+        // 绘制行数仍守窗口口径（前 2 后 6＋滚入缓冲 1 行），不高视图多画。
+        int start = Math.max(0, (int) Math.floor(scrollOffsetPx / slot));
+        if (start >= lines.size()) start = Math.max(0, lines.size() - 1);
+        float frac = scrollOffsetPx - start * slot;
+        // 静止守窗口 9 行；滚动中多画 1 行滚入缓冲，免底边随滚动露白
+        int end = Math.min(lines.size(),
+                start + WINDOW_BEFORE + WINDOW_AFTER + 1 + (frac > 0.5f ? 1 : 0));
+        float blockTop = getPaddingTop() - frac;
         for (int i = start; i < end; i++) {
+            if (blockTop > getHeight()) break;
+            float baseline = blockTop + drawer.mainTextSizePx();
             int distance = currentIndex < 0 ? i + 1 : i - currentIndex;
             boolean current = i == currentIndex;
             LyricsLine line = lines.get(i);
@@ -331,7 +364,6 @@ public class CoverLyricView extends View {
                     drawer.drawSub(canvas, sub, subX, subBaseline, width, current);
                 }
             }
-            baseline += slot;
             blockTop += slot;
         }
     }
@@ -435,16 +467,28 @@ public class CoverLyricView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_UP && lineClickListener != null && !lines.isEmpty()) {
-            float y = event.getY() - getPaddingTop();
-            if (y >= 0) {
-                int row = (int) Math.floor(y / slotHeightPx());
-                int idx = windowStart() + row;
-                if (idx >= 0 && idx < lines.size()) {
-                    lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
-                    performClick();
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                touchDownX = event.getX();
+                touchDownY = event.getY();
+                break;
+            case MotionEvent.ACTION_UP:
+                // 点行只认点按：位移超阈值是滑（页级竖滑切歌／歌词区横滑切歌），不许误触 seek。
+                if (lineClickListener != null && !lines.isEmpty()
+                        && Math.hypot(event.getX() - touchDownX, event.getY() - touchDownY) < tapSlopPx) {
+                    float y = event.getY() - getPaddingTop();
+                    if (y >= 0) {
+                        // 行号按视觉位置（连续滚动偏移）算，与画面逐像素对齐。
+                        int idx = (int) Math.floor((y + scrollOffsetPx) / slotHeightPx());
+                        if (idx >= 0 && idx < lines.size()) {
+                            lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
+                            performClick();
+                        }
+                    }
                 }
-            }
+                break;
+            default:
+                break;
         }
         return true;
     }

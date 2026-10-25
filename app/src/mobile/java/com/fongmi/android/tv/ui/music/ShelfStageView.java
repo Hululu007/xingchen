@@ -39,6 +39,10 @@ import androidx.annotation.Nullable;
  * 触发 36dp、甩速 600dp/s；拖动中三槽连续位移、松手提交/回弹走 Choreographer 弹簧 (阻尼 0.9/刚度 1400，
  * 与页级回弹同参，见 PlayerPageSwipeLayout.springBack)。
  * 点唱片收藏：点按落在当前槽袖内、无滑动动画进行中才触发（§5/补遗五.10），由宿主执行收藏切换。
+ * 切歌连续性（2026-10-25）：提交落位后先自转槽位（settleIntoNeighbor：位图/存在位/键整体
+ * 前移一槽、偏移归零，落位帧与自转后逐像素同位）再通知宿主——宿主装配时 consumeJustShifted
+ * 对上账即免清屏，只补最外侧新槽封面；程序化切歌（按钮/自动）切到相邻槽时走 advanceAnimated
+ * 同路（先滑到相邻位、落位自转、回调回喂）。旧路「切歌即清屏＋三槽封面逐张弹入」是跳变源头，废。
  */
 public class ShelfStageView extends View {
 
@@ -87,6 +91,12 @@ public class ShelfStageView extends View {
     private String titleCur = "";
     private boolean hasPrev;
     private boolean hasNext;
+    // 三槽曲目键（宿主 noteSlotKeys 喂入）＋自转对账：自转后 shiftedKey=新当前键、shiftedDir=方向
+    private String keyPrev;
+    private String keyCur;
+    private String keyNext;
+    private String shiftedKey;
+    private int shiftedDir;
 
     // 几何（dp，onSizeChanged 定死）
     private float stageDp;
@@ -138,6 +148,79 @@ public class ShelfStageView extends View {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** 宿主每次装配时告知三槽曲目键（MusicQueue.trackKey），供切歌连续性对账。 */
+    public void noteSlotKeys(@Nullable String prevKey, @Nullable String curKey, @Nullable String nextKey) {
+        keyPrev = prevKey;
+        keyCur = curKey;
+        keyNext = nextKey;
+    }
+
+    /**
+     * 宿主切歌装配时先问：本视图刚自转过槽位、且转到的正是 incomingKey 时返回方向
+     * （+1 下一首／-1 上一首），宿主据此自转自己的字段并免清屏装配；否则返回 0。一次性消费。
+     */
+    public int consumeJustShifted(@Nullable String incomingKey) {
+        if (shiftedDir != 0 && incomingKey != null && incomingKey.equals(shiftedKey)) {
+            int dir = shiftedDir;
+            shiftedDir = 0;
+            shiftedKey = null;
+            return dir;
+        }
+        return 0;
+    }
+
+    /**
+     * 程序化切歌（按钮／自动下一首）且目标正是相邻槽时：槽位先滑到相邻位，落位后自转
+     * 槽位并回调 onSettled（宿主在回调里按已自转字段回喂封面，补最外侧新槽）。
+     * 正在拖动／动画中则直接自转落位，不叠动画。
+     */
+    public void advanceAnimated(boolean next, @Nullable Runnable onSettled) {
+        if (dragging || animating) {
+            animGen++;
+            animating = false;
+            dragging = false;
+            settleIntoNeighbor(next);
+            invalidate();
+            if (onSettled != null) onSettled.run();
+            return;
+        }
+        animateSlotTo(next ? -1f : 1f, () -> {
+            settleIntoNeighbor(next);
+            invalidate();
+            if (onSettled != null) onSettled.run();
+        });
+    }
+
+    /**
+     * 槽位自转（落位瞬间调用）：位图／存在位／键整体移一槽，新当前槽＝原相邻槽、偏移归零。
+     * 落位时相邻槽正居中、自转后仍居中，原当前槽退到相邻位——画面逐像素连续。
+     * 最外侧新槽暂无图（存在位先置假），等宿主装配回喂补齐。
+     */
+    private void settleIntoNeighbor(boolean next) {
+        if (next) {
+            coverPrev = coverCur;
+            coverCur = coverNext;
+            coverNext = null;
+            hasPrev = true;
+            hasNext = false;
+            keyPrev = keyCur;
+            keyCur = keyNext;
+            keyNext = null;
+        } else {
+            coverNext = coverCur;
+            coverCur = coverPrev;
+            coverPrev = null;
+            hasNext = true;
+            hasPrev = false;
+            keyNext = keyCur;
+            keyCur = keyPrev;
+            keyPrev = null;
+        }
+        slotOffset = 0f;
+        shiftedKey = keyCur;
+        shiftedDir = next ? 1 : -1;
     }
 
     /** 三槽位图一次喂入（切歌只换内容、不动布局——X-14）。 */
@@ -439,9 +522,11 @@ public class ShelfStageView extends View {
                 if (commit && !next && !hasPrev) commit = false;
                 if (commit) {
                     animateSlotTo(next ? -1f : 1f, () -> {
-                        if (listener != null) listener.onSwipeCommit(next);
-                        slotOffset = 0f;
+                        // 先自转槽位再通知宿主切歌：宿主装配 consumeJustShifted 对上账、
+                        // 免清屏续帧（旧序先切歌后归零、宿主清屏重装＝落位帧被整段丢弃）。
+                        settleIntoNeighbor(next);
                         invalidate();
+                        if (listener != null) listener.onSwipeCommit(next);
                     });
                 } else {
                     animateSlotTo(0f, null);
@@ -506,12 +591,14 @@ public class ShelfStageView extends View {
         return true;
     }
 
-    /** 供宿主在切歌后复位（位图已换，偏移归零不走动画）。 */
+    /** 供宿主在切歌后复位（位图已换，偏移归零不走动画）；自转对账一并作废，防陈账误配后来的同曲装配。 */
     public void resetOffset() {
         animGen++;
         animating = false;
         dragging = false;
         slotOffset = 0f;
+        shiftedDir = 0;
+        shiftedKey = null;
         invalidate();
     }
 

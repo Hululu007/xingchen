@@ -203,6 +203,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private int ambientColor = CoverColor.FALLBACK_COLOR;
     private int dominantColor = CoverColor.FALLBACK_COLOR;
+    /** CD 链取色底（GZ o() 路单色，未归一；与氛围 e 路的 dominantColor 分开存，见 currentCdTone）。 */
+    private int cdToneBaseColor = CoverColor.FALLBACK_COLOR;
     private ValueAnimator ambientAnimator;
     private Bitmap bgSoftBitmap;
     private String bgSoftUrl;
@@ -1287,7 +1289,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
      * fresh＝lerp(base, tone, 0.22)；s0＝lerp(base, fresh, 0.92)；
      * s.34＝lerp(base, fresh, mixF(0.48, 0.73, bgMix))；s.68＝lerp(base, lerp(base, tone, 0.12), bgMix)；
      * s1＝lerp(mist, lerp(base, tone, 0.08), bgMix)；bgMix：LIGHT 0／DARK 1（混色走 RGB 近似，GZ 为 OkLab，见报告）。
-     * 取色 tone＝封面主色经 CoverColor.toneAdjust（HSV 归一式与 §4 同式）；无封面回落 #8E8E93。
+     * 取色 tone＝CD 链 o() 路单色（CoverColor.cdToneColor）经 toneAdjust 归一；无封面回落 #8E8E93。
      * 取色变化 500ms 补间刷渐变（§4 500ms ValueAnimator）；表面切换的 500ms 混色补间走同一动画器
      * （animate=true 时从当前四色混到新表面四色，GZ CD_SURFACE_SWITCH_SPEC 500ms）。
      */
@@ -1363,7 +1365,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private int currentCdTone() {
         MusicTrack track = MusicController.get().current();
         if (track == null || effectiveCover(track) == null) return 0xFF8E8E93;
-        return CoverColor.toneAdjust(dominantColor);
+        // CD 链走 o() 路取色（smali 深挖 §15.2 第 18 项），不与氛围 e 路的 dominantColor 共用
+        return CoverColor.toneAdjust(cdToneBaseColor);
     }
 
     /** CD accent：封面 tone 向 ink 混 0.52 后按表面亮度上限钳制（LIGHT 1.0 不钳／DARK 0.45，CdPalette.m95accent 口径近似）。 */
@@ -2541,6 +2544,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             clearClassicRenderEffect();
             if (binding.viewVeil != null) binding.viewVeil.setBackground(null);
             dominantColor = CoverColor.FALLBACK_COLOR;
+            cdToneBaseColor = CoverColor.FALLBACK_COLOR;
             animateAmbient(CoverColor.ambientBackground(null));
             applyFluidBg();
             refreshToneDrivenSurfaces();
@@ -2563,11 +2567,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         Task.execute(() -> {
                             int ambient = CoverColor.ambientBackground(bmp);
                             int dominant = CoverColor.dominantColor(bmp);
+                            int cdTone = CoverColor.cdToneColor(bmp);
                             runOnUiThread(() -> {
                                 if (destroyed) return;
                                 MusicTrack c2 = MusicController.get().current();
                                 if (c2 == null || !cover.equals(effectiveCover(c2))) return;
                                 dominantColor = dominant;
+                                cdToneBaseColor = cdTone;
                                 animateAmbient(ambient);
                                 applyFluidBg();
                                 refreshToneDrivenSurfaces();
@@ -2592,9 +2598,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         Task.execute(() -> {
                             int ambient = CoverColor.ambientBackground(bmp);
                             int dominant = CoverColor.dominantColor(bmp);
+                            int cdTone = CoverColor.cdToneColor(bmp);
                             runOnUiThread(() -> {
                                 if (destroyed) return;
                                 dominantColor = dominant;
+                                cdToneBaseColor = cdTone;
                                 animateAmbient(ambient);
                                 applyFluidBg();
                                 refreshToneDrivenSurfaces();

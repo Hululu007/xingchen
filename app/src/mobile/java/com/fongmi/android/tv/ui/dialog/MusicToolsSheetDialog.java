@@ -928,11 +928,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             if (listener != null) listener.onAppearanceChanged();
         }));
         card.addView(fluidSub);
-        addDivider(card);
-        card.addView(switchRow(getString(R.string.music_advanced_fx), MusicStore.isAdvancedFx(), on -> {
-            MusicStore.setAdvancedFx(on);
-            fireLyricChanged();
-        }));
+        // 「高级动效」行已从外观面板摘除：瓜子外观段无此行（PlayerToolsSheetKt.java:288-520），
+        // 同键行只在歌词子面板留一处（music_advanced_fx 键与消费方不动）。
         // 批 7：「音乐律动」行已摘（假行，见方法头注）。
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1292,10 +1289,30 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         TextView status = text(statusText, 18, COLOR_TEXT, false);
         applyWeight(status, 800);
         status.setLetterSpacing(-0.017f);
+        // 「关闭」钮在状态行同排右侧（PlayerToolsSheetKt.java:5631-5634），不在面板最底（此前摆法与瓜子不符）
+        LinearLayout statusRow = new LinearLayout(getContext());
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         stlp.topMargin = dp(14);
-        box.addView(status, stlp);
+        statusRow.addView(status, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView closeBtn = text(MusicPlaybackService.sleepName(MusicPlaybackService.SLEEP_OFF), 12, COLOR_TEXT, false);
+        applyWeight(closeBtn, 700);
+        closeBtn.setGravity(Gravity.CENTER);
+        closeBtn.setBackgroundResource(R.drawable.bg_music_glass_card);
+        MusicGlassWire.glassify(closeBtn);
+        closeBtn.setElevation(dp(2));
+        closeBtn.setPadding(dp(12), dp(7), dp(12), dp(7));
+        closeBtn.setOnClickListener(v -> {
+            MusicController.get().setSleep(MusicPlaybackService.SLEEP_OFF);
+            showPanel(PANEL_MAIN);
+        });
+        attachPress(closeBtn, 0.96f);
+        statusRow.addView(closeBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(statusRow, stlp);
         // D4：睡眠预设删 15 分钟档（瓜子 SleepPresets＝10／20／30／40／60／90）；服务侧 SLEEP_15 常量未删，
         // 仅面板不再提供该档（旧存档 15 分钟档状态行仍按档名显示，不另清）。
         int[] gridValues = {MusicPlaybackService.SLEEP_10,
@@ -1404,24 +1421,6 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         crlp.topMargin = dp(12);
         box.addView(customRow, crlp);
-        // 独立「关闭」钮（GZ：12sp/700、内边距 12/7dp，卡底居中）
-        TextView closeBtn = text(MusicPlaybackService.sleepName(MusicPlaybackService.SLEEP_OFF), 12, COLOR_TEXT, false);
-        applyWeight(closeBtn, 700);
-        closeBtn.setGravity(Gravity.CENTER);
-        closeBtn.setBackgroundResource(R.drawable.bg_music_glass_card);
-        MusicGlassWire.glassify(closeBtn); // 子面板动态件同源真玻璃（走树够不着、建点单换）
-        closeBtn.setElevation(dp(2));
-        closeBtn.setPadding(dp(12), dp(7), dp(12), dp(7));
-        closeBtn.setOnClickListener(v -> {
-            MusicController.get().setSleep(MusicPlaybackService.SLEEP_OFF);
-            showPanel(PANEL_MAIN);
-        });
-        attachPress(closeBtn, 0.96f);
-        LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cblp.topMargin = dp(16);
-        cblp.gravity = Gravity.CENTER_HORIZONTAL;
-        box.addView(closeBtn, cblp);
     }
 
     /** 歌曲信息子面板（GZ 设置卡「歌曲信息」导航行的去向）：只展示当前轨已有数据（歌名／歌手／专辑／来源），无数据项不画，不自创信息 */

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
@@ -10,20 +11,25 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
 import androidx.viewbinding.ViewBinding;
 
+import com.bumptech.glide.request.transition.Transition;
+import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicChart;
@@ -57,7 +63,7 @@ import java.util.Map;
  * 音乐首页（第十稿定稿构成，从零重写，独立页：自有布局、自有玻璃背景铺满整屏）。
  * 自上而下：渐变标题＋金星＋黑胶斜探 → 通知提示条（不可用才显） → 搜索胶囊＋⋮ 两项菜单 →
  * 五快捷独立玻璃片一行 → 继续播放卡（有断点才显） → 三彩卡（渐变卡面本体＋光晕淡水印） →
- * 心情电台卡（末卡）。榜单管线（拉取＋快照缓存，状态在 MusicHomeChartStore）只喂三彩卡前三行与猜你喜欢封面堆。
+ * 心情电台卡 → 榜单卡（预览拉取＋快照缓存，状态在 MusicHomeChartStore） → 聆听报告卡。
  * 玻璃件：布局先挂 bg_music_glass_* XML 件作可见下限，initView 走 MusicGlassWire 升级同源液态玻璃；
  * 三彩卡是渐变设计件、不入玻璃识别表，卡面本体就是各自渐变（回归清单第 2 条）。
  * 迷你条只在首页显示：白名单在 ListenMiniBar，本页只负责回页补注册（refreshMiniBar）。
@@ -78,6 +84,8 @@ public class MusicActivity extends BaseActivity {
         }
     }
 
+    private static final int TONE_FALLBACK = 0xFFFA243C;
+
     private View rootView;
     private ScrollView homeScroll;
     private TextView homeTitle;
@@ -91,6 +99,14 @@ public class MusicActivity extends BaseActivity {
     private TextView homeMoodDesc;
     private MoodWaveView homeMoodWave;
     private ImageView homeMoodPlay;
+    private LinearLayout homeChartTabs;
+    private TextView homeChartState;
+    private View homeChartBody;
+    private ImageView[] homeChartCovers;
+    private TextView[] homeChartRows;
+    private View homeReportCard;
+    private TextView homeReportStats;
+    private TextView homeReportArtist;
 
     private final List<TextView> moodPills = new ArrayList<>();
     private int moodIndex = -1;
@@ -100,10 +116,12 @@ public class MusicActivity extends BaseActivity {
     private List<MusicTrack> chartTracks = new ArrayList<>();
     private String chartSelKey = "";
     private int chartSeq;
+    private int chartTone = TONE_FALLBACK;
 
     private String savedChartSelKey;
     private int pendingScrollY;
     private boolean scrollRestoreDone;
+    private boolean moreMenuClosing;
 
     private final MusicController.Listener listener = new MusicController.Listener() {
         @Override
@@ -184,6 +202,21 @@ public class MusicActivity extends BaseActivity {
         homeMoodWave = findViewById(R.id.homeMoodWave);
         homeMoodPlay = findViewById(R.id.homeMoodPlay);
         homeMoodPlay.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        homeChartTabs = findViewById(R.id.homeChartTabs);
+        homeChartState = findViewById(R.id.homeChartState);
+        homeChartBody = findViewById(R.id.homeChartBody);
+        homeChartCovers = new ImageView[]{
+                findViewById(R.id.homeChartCover0), findViewById(R.id.homeChartCover1),
+                findViewById(R.id.homeChartCover2)};
+        homeChartRows = new TextView[]{
+                findViewById(R.id.homeChartRow0), findViewById(R.id.homeChartRow1),
+                findViewById(R.id.homeChartRow2)};
+        ImageView chartPlay = findViewById(R.id.homeChartPlay);
+        chartPlay.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        chartPlay.setOnClickListener(v -> playCurrentChart());
+        homeReportCard = findViewById(R.id.homeReportCard);
+        homeReportStats = findViewById(R.id.homeReportStats);
+        homeReportArtist = findViewById(R.id.homeReportArtist);
 
         wireClicks();
         buildMoodPills();
@@ -203,6 +236,7 @@ public class MusicActivity extends BaseActivity {
         boolean invalidated = MusicHomeChartStore.consumeInvalidated();
         if (invalidated || chartTabs.isEmpty()) loadChart();
         refreshCounts();
+        refreshReport();
         refreshShuffleSubtitle();
         refreshMoodState();
         refreshNotifStrip();
@@ -317,6 +351,7 @@ public class MusicActivity extends BaseActivity {
         findViewById(R.id.homeCardCharts).setOnClickListener(v -> MusicChartsActivity.startCharts(this));
         findViewById(R.id.homeCardShuffle).setOnClickListener(v -> MusicRandomActivity.start(this));
         findViewById(R.id.homeShuffleDiscWrap).setOnClickListener(v -> shufflePlay());
+        findViewById(R.id.homeChartMoreBtn).setOnClickListener(v -> MusicChartsActivity.startCharts(this));
         homeContinuePlay = findViewById(R.id.homeContinuePlay);
         pressScale(findViewById(R.id.homeCardGuess));
         pressScale(findViewById(R.id.homeCardCharts));
@@ -355,32 +390,48 @@ public class MusicActivity extends BaseActivity {
         card.addView(menuRow(R.drawable.ic_nav_setting, 0xFFFF2D55, "设置",
                 "", v -> MusicSettingsActivity.start(this)));
 
+        // 全屏根容器承接点外/返回：系统 dismiss 拦不住滑出动画，故关掉系统 cancel 路、三路关闭统一走收口
+        FrameLayout menuRoot = new FrameLayout(this);
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.gravity = Gravity.TOP;
+        cardLp.topMargin = statusBarHeight() + dp(108);
+        menuRoot.addView(card, cardLp);
+        card.setClickable(true); // 卡本体吃掉自身范围内的点击，不落根容器误关
+
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setContentView(card);
-        dialog.setCanceledOnTouchOutside(true);
+        dialog.setContentView(menuRoot);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setCancelable(false);
         Window window = dialog.getWindow();
         if (window != null) {
             WindowManager.LayoutParams lp = window.getAttributes();
             lp.gravity = Gravity.TOP;
             lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.y = statusBarHeight() + dp(108);
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
             window.setAttributes(lp);
             window.setBackgroundDrawableResource(android.R.color.transparent);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             lp.dimAmount = 0.25f;
             window.setAttributes(lp);
         }
-        // 行点击先关菜单再跳页
+        moreMenuClosing = false;
+        menuRoot.setOnClickListener(v -> closeMoreMenu(dialog, card, null));
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                closeMoreMenu(dialog, card, null);
+                return true;
+            }
+            return false;
+        });
+        // 行点击：先滑出关菜单，动画结束才真正关窗并跳页
         for (int i = 0; i < card.getChildCount(); i++) {
             View child = card.getChildAt(i);
             Object tag = child.getTag();
             if (tag instanceof View.OnClickListener) {
                 final View.OnClickListener action = (View.OnClickListener) tag;
-                child.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    action.onClick(v);
-                });
+                child.setOnClickListener(v -> closeMoreMenu(dialog, card, () -> action.onClick(v)));
             }
         }
         dialog.show();
@@ -388,6 +439,18 @@ public class MusicActivity extends BaseActivity {
         card.setTranslationY(-dp(16));
         card.setAlpha(0f);
         card.animate().translationY(0).alpha(1f).setDuration(280).start();
+    }
+
+    /** ⋮ 菜单统一收口：滑出 220ms（上移 16dp＋淡出），动画结束才 dismiss 并执行待办；闩防重入。 */
+    private void closeMoreMenu(final Dialog dialog, final View card, final Runnable after) {
+        if (moreMenuClosing) return;
+        moreMenuClosing = true;
+        card.animate().translationY(-dp(16)).alpha(0f).setDuration(220)
+                .withEndAction(() -> {
+                    dialog.dismiss();
+                    moreMenuClosing = false;
+                    if (after != null) after.run();
+                }).start();
     }
 
     private View menuRow(int iconRes, int iconColor, String title, String right, View.OnClickListener action) {
@@ -481,6 +544,42 @@ public class MusicActivity extends BaseActivity {
     private void setCount(int id, String text) {
         TextView tv = findViewById(id);
         if (tv != null) tv.setText(text);
+    }
+
+    // ================= 聆听报告卡 =================
+
+    /** 只用本地数据：最近播放数＋收藏数＋最爱歌手（占位歌手过滤、并列取先）；recent 空整卡隐。 */
+    private void refreshReport() {
+        try {
+            List<MusicTrack> recent = MusicStore.loadRecent();
+            if (recent == null || recent.isEmpty()) {
+                homeReportCard.setVisibility(View.GONE);
+                return;
+            }
+            Map<String, Integer> artistCount = new HashMap<>();
+            String bestArtist = "";
+            int best = 0;
+            for (MusicTrack t : recent) {
+                String a = t == null ? "" : t.displayArtist();
+                if (a == null || a.trim().isEmpty() || a.contains("未知")) continue;
+                int c = artistCount.containsKey(a) ? artistCount.get(a) + 1 : 1;
+                artistCount.put(a, c);
+                if (c > best) {
+                    best = c;
+                    bestArtist = a;
+                }
+            }
+            final int recentSize = recent.size();
+            final String artist = bestArtist;
+            MusicLibrary.favoriteCount(n -> runOnUiThread(() -> {
+                homeReportStats.setText("最近播放 " + recentSize + " 首 · 收藏 " + (n == null ? 0 : n) + " 首");
+                homeReportArtist.setText(artist.isEmpty() ? "" : "最爱歌手 · " + artist);
+                homeReportArtist.setVisibility(artist.isEmpty() ? View.GONE : View.VISIBLE);
+                homeReportCard.setVisibility(View.VISIBLE);
+            }));
+        } catch (Throwable t) {
+            homeReportCard.setVisibility(View.GONE);
+        }
     }
 
     // ================= 继续播放卡 =================
@@ -694,6 +793,8 @@ public class MusicActivity extends BaseActivity {
         homeMoodName.setText(mood.name);
         homeMoodDesc.setText(mood.desc);
         homeMoodWave.setWaveColor(mood.tone);
+        // 卡底染色：tone 经玻璃地基平铺一层（每次切心情都刷，含首次默认选中同一路）
+        MusicGlassWire.setTone(findViewById(R.id.homeMoodCard), mood.tone);
         // 播放钮：tone→向白混 0.22 的圆形渐变（点缀钮，心情色）
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 new int[]{mood.tone, MusicHomeMood.mixWhite(mood.tone, 0.22f)});
@@ -791,7 +892,7 @@ public class MusicActivity extends BaseActivity {
         });
     }
 
-    // ================= 榜单管线（只喂三彩卡前三行＋猜你喜欢封面堆） =================
+    // ================= 榜单卡 =================
 
     /** 榜单只留酷我＋QQ（他定），与榜单页同口径。 */
     private static boolean isChartSite(MusicSite s) {
@@ -816,6 +917,7 @@ public class MusicActivity extends BaseActivity {
             refreshChartSilently();
             return;
         }
+        showChartState("正在加载…");
         fetchChart(null);
     }
 
@@ -831,6 +933,8 @@ public class MusicActivity extends BaseActivity {
         }
         if (sel == null && !chartTabs.isEmpty()) sel = chartTabs.get(0);
         chartSelKey = sel == null ? "" : chartKey(sel);
+        if (s.toneSet) chartTone = s.tone;
+        buildChartTabs();
         if (sel != null && chartKey(sel).equals(s.selKey)) {
             chartTracks = MusicHomeChartStore.copyTracks(s.tracks);
             fillChart();
@@ -859,6 +963,7 @@ public class MusicActivity extends BaseActivity {
                 chartTabs.clear();
                 chartTabs.addAll(fresh);
                 chartSelKey = chartKey(selF);
+                buildChartTabs();
                 if (!sig.toString().equals(old.toString()) || tracks != null) {
                     if (tracks != null) chartTracks = tracks;
                     fillChart();
@@ -874,7 +979,10 @@ public class MusicActivity extends BaseActivity {
             List<MusicChart> fresh = fetchTabsBlocking();
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || seq != chartSeq) return;
-                if (fresh.isEmpty()) return;
+                if (fresh.isEmpty()) {
+                    showChartState("榜单暂时拿不到，点这里重试");
+                    return;
+                }
                 chartTabs.clear();
                 chartTabs.addAll(fresh);
                 MusicChart sel = null;
@@ -883,6 +991,7 @@ public class MusicActivity extends BaseActivity {
                 for (MusicChart c : chartTabs) if (chartKey(c).equals(want)) sel = c;
                 if (sel == null) sel = chartTabs.get(0);
                 chartSelKey = chartKey(sel);
+                buildChartTabs();
                 fetchChartTracks(sel);
             });
         });
@@ -917,21 +1026,93 @@ public class MusicActivity extends BaseActivity {
             List<MusicTrack> tracks = fetchTracksBlocking(chart);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || seq != chartSeq || !key.equals(chartSelKey)) return;
-                if (tracks == null) return;
+                if (tracks == null) {
+                    showChartState("榜单暂时拿不到，点这里重试");
+                    return;
+                }
                 chartTracks = tracks;
                 fillChart();
                 saveChartSnapshot();
+                refreshChartTone();
             });
         });
     }
 
-    /** 榜单数据落点只剩两处：三彩卡前三行小字＋猜你喜欢封面堆（大榜单卡已摘）。 */
+    private void selectChart(MusicChart chart) {
+        String key = chartKey(chart);
+        if (key.equals(chartSelKey) && !chartTracks.isEmpty()) return; // 同签早退
+        chartSelKey = key;
+        buildChartTabs();
+        showChartState("正在加载…");
+        fetchChartTracks(chart);
+    }
+
+    private void buildChartTabs() {
+        homeChartTabs.removeAllViews();
+        for (MusicChart c : chartTabs) {
+            final MusicChart chart = c;
+            LinearLayout chip = new LinearLayout(this);
+            chip.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            clp.setMarginEnd(dp(16));
+            chip.setLayoutParams(clp);
+            TextView label = new TextView(this);
+            label.setText(chartShortName(c));
+            label.setTextSize(14);
+            boolean selected = chartKey(c).equals(chartSelKey);
+            label.setTextColor(selected ? 0xFF141414 : 0xFF8A8A8A);
+            label.getPaint().setFakeBoldText(selected);
+            chip.addView(label);
+            View underline = new View(this);
+            LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(18), dp(3));
+            ulp.topMargin = dp(4);
+            underline.setLayoutParams(ulp);
+            GradientDrawable ub = new GradientDrawable();
+            ub.setCornerRadius(dp(2));
+            ub.setColor(selected ? chartTone : 0x00000000);
+            underline.setBackground(ub);
+            chip.addView(underline);
+            chip.setOnClickListener(v -> selectChart(chart));
+            homeChartTabs.addView(chip);
+        }
+    }
+
+    private static String chartShortName(MusicChart c) {
+        String n = c.name == null ? "" : c.name.trim();
+        return n.length() > 6 ? n.substring(0, 6) : n;
+    }
+
+    private void showChartState(String text) {
+        homeChartState.setText(text);
+        homeChartState.setVisibility(View.VISIBLE);
+        homeChartBody.setVisibility(View.GONE);
+        homeChartState.setOnClickListener("正在加载…".equals(text) ? null : v -> loadChart());
+    }
+
     private void fillChart() {
+        homeChartState.setVisibility(View.GONE);
+        homeChartBody.setVisibility(View.VISIBLE);
         for (int i = 0; i < 3; i++) {
             MusicTrack t = i < chartTracks.size() ? chartTracks.get(i) : null;
-            homeChartTops[i].setText(t == null ? "" : (i + 1) + " " + t.displayTitle());
+            if (t == null) {
+                homeChartCovers[i].setVisibility(View.GONE);
+                homeChartRows[i].setText("");
+                homeChartTops[i].setText("");
+                continue;
+            }
+            homeChartCovers[i].setVisibility(View.VISIBLE);
+            if (t.cover != null && !t.cover.isEmpty()) {
+                ImgUtil.loadRounded(t.displayTitle(), t.cover, homeChartCovers[i]);
+            } else {
+                homeChartCovers[i].setImageDrawable(
+                        new com.fongmi.android.tv.utils.CoverTextDrawable(t.displayTitle(), false, 8));
+            }
+            homeChartRows[i].setText((i + 1) + ". " + t.displayTitle());
+            homeChartTops[i].setText((i + 1) + " " + t.displayTitle());
         }
         fillGuessCovers();
+        buildChartTabs();
     }
 
     /** 猜你喜欢卡的封面堆＝当前榜前 3 首封面（榜单未到时堆隐藏，不编假图）。 */
@@ -955,11 +1136,91 @@ public class MusicActivity extends BaseActivity {
         for (MusicChart c : chartTabs) if (chartKey(c).equals(chartSelKey)) sel = c;
         String firstCover = chartTracks.isEmpty() || chartTracks.get(0) == null
                 ? "" : (chartTracks.get(0).cover == null ? "" : chartTracks.get(0).cover);
-        // tone 字段只原样回存既有快照值（页签下划线已随大榜单卡摘除、不再新取色）；存盘格式契约不变
+        // toneSet 只认「已取色且正是这张封面」的情形，不许拿未取色的快照冒充已染色（D-09）
         MusicHomeChartStore.Snapshot s = MusicHomeChartStore.snapshot();
         boolean toneSet = s != null && s.toneSet && firstCover.equals(s.toneCover);
         MusicHomeChartStore.save(chartTabs, sel == null ? "" : (sel.name == null ? "" : sel.name),
-                chartSelKey, chartTracks, toneSet ? s.tone : 0, firstCover, toneSet);
+                chartSelKey, chartTracks, toneSet ? s.tone : chartTone, firstCover, toneSet);
     }
 
+    /**
+     * 榜首封面取色给签下划线染色（D-09）：迟到守卫——封面须仍等于当前签榜首封面才落色/写缓存；
+     * 取不到回落红 TONE_FALLBACK，不冒充。
+     */
+    private void refreshChartTone() {
+        if (chartTracks.isEmpty() || chartTracks.get(0) == null) return;
+        final String cover = chartTracks.get(0).cover;
+        if (cover == null || cover.isEmpty()) return;
+        MusicHomeChartStore.Snapshot s = MusicHomeChartStore.snapshot();
+        if (s != null && s.toneSet && cover.equals(s.toneCover)) {
+            chartTone = s.tone;
+            buildChartTabs();
+            return;
+        }
+        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                int tone = averageColor(resource);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (chartTracks.isEmpty() || chartTracks.get(0) == null
+                            || !cover.equals(chartTracks.get(0).cover)) return; // 迟到守卫
+                    chartTone = tone;
+                    MusicHomeChartStore.saveTone(tone, cover);
+                    buildChartTabs();
+                });
+            }
+
+            @Override
+            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+            }
+
+            @Override
+            public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (chartTracks.isEmpty() || chartTracks.get(0) == null
+                            || !cover.equals(chartTracks.get(0).cover)) return;
+                    chartTone = TONE_FALLBACK;
+                    buildChartTabs();
+                });
+            }
+        });
+    }
+
+    /** 封面主色近似：中心区采样平均（取色只给下划线染色用，不冒充精确量化）。 */
+    private static int averageColor(Bitmap bmp) {
+        if (bmp == null || bmp.getWidth() <= 0 || bmp.getHeight() <= 0) return TONE_FALLBACK;
+        int w = bmp.getWidth(), h = bmp.getHeight();
+        int x0 = w / 4, x1 = Math.max(x0 + 1, w * 3 / 4);
+        int y0 = h / 4, y1 = Math.max(y0 + 1, h * 3 / 4);
+        long r = 0, g = 0, b = 0, n = 0;
+        int step = Math.max(1, Math.min(w, h) / 16);
+        for (int y = y0; y < y1; y += step) {
+            for (int x = x0; x < x1; x += step) {
+                int p = bmp.getPixel(x, y);
+                r += Color.red(p);
+                g += Color.green(p);
+                b += Color.blue(p);
+                n++;
+            }
+        }
+        if (n == 0) return TONE_FALLBACK;
+        return Color.rgb((int) (r / n), (int) (g / n), (int) (b / n));
+    }
+
+    private void playCurrentChart() {
+        if (chartTracks.isEmpty()) return;
+        MusicChart sel = null;
+        for (MusicChart c : chartTabs) if (chartKey(c).equals(chartSelKey)) sel = c;
+        String title = sel == null || sel.name == null ? "排行榜" : sel.name;
+        Map<String, String> params = new HashMap<>();
+        params.put("mode", "home_chart");
+        params.put("title", title);
+        try {
+            MusicController.get().play(new ArrayList<>(chartTracks), 0, title, "list", params);
+            openPlayer();
+        } catch (Throwable ignored) {
+        }
+    }
 }

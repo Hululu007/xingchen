@@ -68,6 +68,9 @@ public class MusicGlassDrawable extends Drawable {
     private final Paint mContactPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mPressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mTonePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private int mToneColor = 0; // 0=无染色；非 0 时以 alpha 0.16 平铺一层（白罩之上、流光之下）
 
     private final Rect mSrc = new Rect();
     private final RectF mDst = new RectF();
@@ -99,6 +102,20 @@ public class MusicGlassDrawable extends Drawable {
 
     public boolean isCircle() {
         return mCircle;
+    }
+
+    /** tone 染色（心情卡卡底用）：color=0 清除染色恢复原样；非 0 时平铺一层、alpha 0.16。 */
+    public void setToneColor(int color) {
+        mToneColor = color;
+        if (color != 0) {
+            mTonePaint.setColor(color);
+            mTonePaint.setAlpha(Math.round(0.16f * 255));
+        }
+        invalidateSelf();
+    }
+
+    public int getToneColor() {
+        return mToneColor;
     }
 
     @Override
@@ -196,6 +213,7 @@ public class MusicGlassDrawable extends Drawable {
             canvas.drawRect(mTmp, mFallbackPaint);
         }
         canvas.drawRect(mTmp, mOverlayPaint);          // 白罩
+        if (mToneColor != 0) canvas.drawRect(mTmp, mTonePaint); // tone 染色（流光/亮边之下）
         canvas.drawRect(mTmp, mSheenPaint);            // 顶部流光
         if (!mCircle) {
             canvas.drawRect(mTmp, mShadowPaint);       // 底部内软影（大件分层）
@@ -294,6 +312,7 @@ public class MusicGlassDrawable extends Drawable {
         mContactPaint.setColorFilter(colorFilter);
         mStrokePaint.setColorFilter(colorFilter);
         mPressPaint.setColorFilter(colorFilter);
+        mTonePaint.setColorFilter(colorFilter);
     }
 
     @Override

@@ -5,6 +5,7 @@ import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.Choreographer;
 import android.view.HapticFeedbackConstants;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -207,6 +208,16 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                     }
                     if (hintView != null) {
                         boolean next = dy < 0;
+                        // 提示分置（GZ SwipeDirectionHint 两实例真值，smali 深挖 §15.3）：下一首在底部、
+                        // 上一首在顶部——两实例各带自己的对齐，不是同一块居中提示换文案。
+                        if (hintView.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+                            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) hintView.getLayoutParams();
+                            int g = (next ? Gravity.BOTTOM : Gravity.TOP) | Gravity.CENTER_HORIZONTAL;
+                            if (lp.gravity != g) {
+                                lp.gravity = g;
+                                hintView.setLayoutParams(lp);
+                            }
+                        }
                         if (hintDirView != null) hintDirView.setText(next ? hintNextText : hintPrevText);
                         if (hintNameView != null) {
                             hintNameView.setText(hintNameProvider != null ? hintNameProvider.nameFor(next) : "");

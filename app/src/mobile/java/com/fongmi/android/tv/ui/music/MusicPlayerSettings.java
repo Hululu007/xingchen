@@ -9,8 +9,9 @@ import com.github.catvod.utils.Prefers;
  * 分工：主题／高级动效／流体速度是本类自有键（直接 Prefers 读写；流体开关写在本类、
  * 读委托总仓单一事实源）；其余歌词样式项是委托键，getter 直接转调 MusicStore 同名方法
  * （同键、同钳制、同迁移口径都在总仓里），本类不另存一份。
- * 默认值出处：瓜子施工图 §0（PlayerViewModel 初始值）；有意偏离两行见各方法注
- * （主题默认封面卡片、流体默认关——均为星辰定案，不许「纠正」回瓜子默认）。
+ * 默认值出处：瓜子施工图 §0（PlayerViewModel 初始值）；有意偏离一行见方法注
+ * （流体默认关——星辰定案）。主题默认 2026-10-25 经用户纠正改回瓜子原值 classic
+ * （瓜子 PlayerViewModel.java:1018 存档回落 "classic" 亲核；此前误设封面卡片已废）。
  */
 public class MusicPlayerSettings {
 
@@ -52,15 +53,15 @@ public class MusicPlayerSettings {
                 || THEME_RECORD_SHELF.equals(theme);
     }
 
-    /** 未存／空／非法值一律回落封面卡片（星辰定案默认，压过瓜子 classic 默认）。 */
+    /** 未存／空／非法值一律回落经典（瓜子默认，PlayerViewModel.java:1018 回落 "classic"）；已存合法值原样保留。 */
     public static String getTheme() {
-        String theme = Prefers.getString(K_THEME, THEME_COVER_IMMERSIVE);
-        return isKnownTheme(theme) ? theme : THEME_COVER_IMMERSIVE;
+        String theme = Prefers.getString(K_THEME, THEME_CLASSIC);
+        return isKnownTheme(theme) ? theme : THEME_CLASSIC;
     }
 
-    /** 先过 7 id 白名单，非法值写封面卡片。 */
+    /** 先过 7 id 白名单，非法值写经典。 */
     public static void setTheme(String theme) {
-        Prefers.put(K_THEME, isKnownTheme(theme) ? theme : THEME_COVER_IMMERSIVE);
+        Prefers.put(K_THEME, isKnownTheme(theme) ? theme : THEME_CLASSIC);
     }
 
     // ===== #2 全屏歌词字号（委托；键 music_lyric_font_size，默认 24，钳 16–40） =====

@@ -789,28 +789,29 @@ public class MusicStore {
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
 
-    /** 播放页主题 id（全新默认封面卡片 cover_immersive，1.4.3 改令；已存的合法用户值一律不动）。
-     * 1.4.27 查修批纠正：已存非法值（旧版／外写残留）读侧回落默认封面卡片，不再回落 classic——
-     * 非法值不是用户选择，原回落会把存量用户无声落到经典主题；与 MusicPlayerSettings.getTheme 同口径。 */
+    /** 播放页主题 id（默认经典 classic＝瓜子原值，2026-10-25 用户纠正：瓜子
+     * PlayerViewModel.java:1018 存档回落 "classic"；已存的合法用户值一律不动。
+     * 无存档／非法值读侧回落经典——与 MusicPlayerSettings.getTheme 同口径。
+     * 1.4.27 的「回落封面卡片防无声落经典」理由随本次纠正作废。） */
     public static String getPlayerTheme() {
-        String theme = Prefers.getString(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
-        if (theme == null || theme.isEmpty()) return THEME_COVER_IMMERSIVE;
+        String theme = Prefers.getString(K_PLAYER_THEME, THEME_CLASSIC);
+        if (theme == null || theme.isEmpty()) return THEME_CLASSIC;
         if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
                 || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
                 || THEME_RECORD_SHELF.equals(theme)) {
             return theme;
         }
-        return THEME_COVER_IMMERSIVE;
+        return THEME_CLASSIC;
     }
 
     public static void setPlayerTheme(String theme) {
-        // 只存 5 个合法 id；非法（含空）写默认封面卡片（1.4.27 查修批纠正，原写 classic 同上条理由作废）。
+        // 只存 5 个合法 id；非法（含空）写默认经典（2026-10-25 纠正，与 getPlayerTheme 同口径）。
         if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
                 || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
                 || THEME_RECORD_SHELF.equals(theme)) {
             Prefers.put(K_PLAYER_THEME, theme);
         } else {
-            Prefers.put(K_PLAYER_THEME, THEME_COVER_IMMERSIVE);
+            Prefers.put(K_PLAYER_THEME, THEME_CLASSIC);
         }
     }
 

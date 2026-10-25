@@ -30,11 +30,12 @@ import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
 import java.util.List;
 
 /**
- * 音乐播放页宿主（重做第一步：新宿主骨架＋封面一体＋封面卡片默认主题）。
- * 职责只有装配与消费：满幅贴顶（封面卡不垫状态栏，T-5 定案）、按设置主题挂主题视图、
+ * 音乐播放页宿主（重做第一步建骨架、第二步接经典）。
+ * 职责只有装配与消费：满幅贴顶（封面卡/经典不垫状态栏，T-5 定案）、按设置主题挂主题视图、
  * 把控制器/歌词缓存/收藏/音质的既有读口喂给主题。播放服务、队列、仓库、取词链只消费不改。
- * 本步只建封面卡片主题；设置指向其余主题（经典/Apple/CD/黑胶）时一律回落封面卡片渲染
- * （不崩不空白），主题槽为宿主根的单子视图位，后续步逐个接回。
+ * 主题经 PlayerThemeFace 统一驱动，宿主不按主题分叉：classic→ClassicThemeView（默认，
+ * 2026-10-25 纠正回瓜子原值）、cover_immersive→CoverCardThemeView；Apple/CD/黑胶未建，
+ * 设置指向它们时回落经典渲染（不崩不空白），后续步逐个接回。
  */
 public class MusicPlayerActivity extends AppCompatActivity implements MusicController.Listener {
 
@@ -47,7 +48,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     private final Handler tickHandler = new Handler(Looper.getMainLooper());
     private CoverAmbientView ambient;
-    private CoverCardThemeView theme;
+    private PlayerThemeFace theme;
     private MusicTrack boundTrack;
     private String boundKey;
     private boolean bound;
@@ -77,14 +78,15 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         root.addView(ambient, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // 主题路由：本步只有封面卡片；设置指向其余主题一律回落封面卡片渲染（对照清单 A2/A3，
-        // 后续步在这一行分岔处逐个接回；getTheme() 本身已对非法值回落封面卡）
+        // 主题路由（对照清单第二步 A2）：封面卡片走封面卡；classic 与未建主题（Apple/CD/黑胶）
+        // 一律落经典——经典是默认主题，getTheme() 本身已对非法值回落经典，双保险
         String themeId = MusicPlayerSettings.getTheme();
-        if (!MusicPlayerSettings.THEME_COVER_IMMERSIVE.equals(themeId)) {
-            // 设置指向未建主题：本步回落封面卡片渲染，后续步在此分岔逐个接回
+        if (MusicPlayerSettings.THEME_COVER_IMMERSIVE.equals(themeId)) {
+            theme = new CoverCardThemeView(this);
+        } else {
+            theme = new ClassicThemeView(this);
         }
-        theme = new CoverCardThemeView(this);
-        root.addView(theme, new FrameLayout.LayoutParams(
+        root.addView((android.view.View) theme, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
@@ -99,7 +101,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     private void wireTheme() {
-        theme.setCallback(new CoverCardThemeView.Callback() {
+        theme.setCallback(new PlayerThemeFace.Callback() {
             @Override
             public void onTogglePlay() {
                 MusicController.get().toggle();
@@ -145,6 +147,12 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             public void onLyricChipToggle(boolean showTranslation) {
                 MusicStore.setShowTranslation(showTranslation);
             }
+
+            @Override
+            public void onOpenTools() {
+                // 工具面板本体未建（已随清场删除、属面板步）：本步入口在位、暂无面板可开
+                // （对照清单第二步 G5 缺口），不自创替代面板形态
+            }
         });
     }
 
@@ -185,6 +193,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         lyricSettled = false;
         lyricWaitTicks = 0;
         theme.setTrack(track.title, track.artist, track.album);
+        theme.setSwipeHints(swipeHintTitle(-1), swipeHintTitle(1));
         theme.setCover(track.cover, track.title, animate, lastSwapDir);
         ambient.setCover(track.cover);
         theme.setLyrics(null, true);
@@ -192,6 +201,30 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         refreshFavorite(track);
         refreshInfoDetail();
         tryLoadLyricFromCache(track);
+    }
+
+    /**
+     * 竖滑提示的目标歌名：按控制器队列的列表序取当前曲相邻标题（delta −1 上一首／+1 下一首）。
+     * 随机模式的真实下一首由服务内队列决定、此读口拿不到，提示按列表序近似（对照清单第二步 G2 注记）。
+     */
+    private String swipeHintTitle(int delta) {
+        try {
+            java.util.List<MusicTrack> queue = MusicController.get().queue();
+            if (queue == null || queue.isEmpty() || boundKey == null) return null;
+            int index = -1;
+            for (int i = 0; i < queue.size(); i++) {
+                if (boundKey.equals(MusicQueue.trackKey(queue.get(i)))) {
+                    index = i;
+                    break;
+                }
+            }
+            int target = index + delta;
+            if (index < 0 || target < 0 || target >= queue.size()) return null;
+            MusicTrack t = queue.get(target);
+            return t == null ? null : t.title;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private String describeAudio() {

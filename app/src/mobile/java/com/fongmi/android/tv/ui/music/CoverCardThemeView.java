@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 封面卡片主题（默认主题，重做第一步；规格 gz-full-parity-1025 §4＋§2＋§1＋§15.1-8）。
+ * 封面卡片主题（重做第一步；规格 gz-full-parity-1025 §4＋§2＋§1＋§15.1-8）。
  * 布局序定死：顶 42→歌名(30)→4→歌手(22)→22→封面权重区→14→玻璃条(48)→底 12。
  * 默认态：封面叠卡＋玻璃条（收藏键/单行歌词/播放键）。
  * 展开态（点封面 plain if 切态）：封面区换 顶行双筹＋Scrubber＋展开歌词槽＋信息卡＋四玻璃键，
@@ -42,25 +42,7 @@ import java.util.Random;
  * 歌词本步最小落地：玻璃条单行（当前行/加载中文案）＋展开槽行级窗口（当前行居中、
  * 行色走 §7.1 深色面回落值、字斜 −0.12）；逐字动效与非当前行模糊属歌词步，不做。
  */
-public class CoverCardThemeView extends LinearLayout {
-
-    public interface Callback {
-        void onTogglePlay();
-
-        void onPrev();
-
-        void onNext();
-
-        void onQueue();
-
-        void onFavoriteClick();
-
-        void onSeekMs(long positionMs);
-
-        void onQualityClick();
-
-        void onLyricChipToggle(boolean showTranslation);
-    }
+public class CoverCardThemeView extends LinearLayout implements PlayerThemeFace {
 
     // §4 布局数值（dp）
     private static final int TOP_PAD = 42;
@@ -97,7 +79,7 @@ public class CoverCardThemeView extends LinearLayout {
     private final TextView infoSubView;
     private final TextView infoDetailView;
 
-    private Callback callback;
+    private PlayerThemeFace.Callback callback;
     private boolean expanded;
     private boolean infoShown;
     private boolean playing;
@@ -539,8 +521,14 @@ public class CoverCardThemeView extends LinearLayout {
 
     // ================= 宿主写入面 =================
 
-    public void setCallback(Callback callback) {
+    @Override
+    public void setCallback(PlayerThemeFace.Callback callback) {
         this.callback = callback;
+    }
+
+    /** 封面卡无竖滑切歌提示面（横滑走叠卡），空实现。 */
+    @Override
+    public void setSwipeHints(String prevTitle, String nextTitle) {
     }
 
     public CoverStackView stack() {

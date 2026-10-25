@@ -959,7 +959,8 @@ public class MusicStore {
     /** 第三波 L1：老值符号翻转迁移标志（旧口径播放位置 − offset，新口径 ＋ offset；只翻一次）。 */
     private static final String K_LYRIC_OFFSET_MIGRATED = "music_lyric_offset_migrated";
     /** 歌词时间偏移钳制（星辰侧自定，非瓜子值） */
-    public static final int LYRIC_OFFSET_MAX_MS = 5000;
+    /** 歌词偏移范围 ±3000ms、步进 50ms：瓜子 LyricStylePanel 真值（smali 深挖 §15.1 第 4 项，滑杆量程 s51(−3000,3000)＋吸附 ÷50×50）。 */
+    public static final int LYRIC_OFFSET_MAX_MS = 3000;
 
     public static boolean isLeftHandLandscape() {
         return Prefers.getBoolean(K_LEFT_HAND, false);

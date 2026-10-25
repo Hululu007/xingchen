@@ -236,7 +236,7 @@ public class MusicSettingsActivity extends BaseActivity {
 
     /**
      * U-05 编辑框：−50ms／+50ms 步进按钮＋当前值显示＋“恢复 0ms”复位；
-     * 范围钳制 ±5000ms（星辰侧自定，非瓜子值；存值走 MusicStore.setLyricOffsetMs 的钳制）。
+     * 范围钳制 ±3000ms、步进 50ms（瓜子真值，smali 深挖 §15.1 第 4 项；存值走 MusicStore.setLyricOffsetMs 的钳制）。
      * 本批只做行＋编辑框＋存值；偏移真正作用到歌词时间由歌词路接同一键名，不在这里改。
      */
     private void showOffsetDialog() {

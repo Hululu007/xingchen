@@ -1905,10 +1905,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             return;
         }
         if (playTopView == null) return;
-        // 三键播放/暂停图标随状态切尺寸（§1：播放态 28dp／暂停态 25dp，300ms tween 用 padding 补间近似）：
-        // 正在播＝显示暂停图标 25dp（padding 7.5dp）；已暂停＝显示播放图标 28dp（padding 6dp）。
+        // 三键播放/暂停图标随状态切尺寸（瓜子 PlayerScreenKt.java:25153-25154,25267：
+        // 播放中＝暂停图标 28dp（padding 6dp）；已暂停＝播放图标 25dp（padding 7.5dp）；300ms tween 用 padding 补间近似）。
         playTopView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
-        int pad = Math.round((value ? 7.5f : 6f) * getResources().getDisplayMetrics().density);
+        int pad = Math.round((value ? 6f : 7.5f) * getResources().getDisplayMetrics().density);
         ValueAnimator padAnim = ValueAnimator.ofInt(playTopView.getPaddingLeft(), pad);
         // 300ms 缓动曲线 GZ 实证（2026-10-25 深挖）：playPauseSize tween(300, bs4.a=(0.2,0,0,1))＝INTERP_FOSI
         padAnim.setDuration(300);

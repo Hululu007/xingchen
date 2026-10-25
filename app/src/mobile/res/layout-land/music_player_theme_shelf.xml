@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 黑胶唱片架·横版：数值与竖版同（§6），只改排布——顶行通栏、舞台左栏、歌词/进度/主控右栏。
+     根色 #FFF1F0ED、末尾垫 8dp；id 与标签类型与竖版逐项一致；顶行不垫状态栏（宿主统一垫）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFF1F0ED"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <ImageView
+            android:id="@+id/tpBtnClose"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/music_collapse"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_chevron_down" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingHorizontal="8dp">
+
+            <TextView
+                android:id="@+id/tpTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="marquee"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:lineHeight="21dp"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:singleLine="true"
+                android:textColor="#FF252522"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tpArtist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:lineHeight="15dp"
+                android:singleLine="true"
+                android:textColor="#FF86857E"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tpBtnTools"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/music_tools"
+            android:padding="12dp"
+            android:src="@drawable/ic_music_more" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <com.fongmi.android.tv.ui.music.ShelfStageView
+            android:id="@+id/tpShelfStage"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginHorizontal="16dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_shelf_lyric_face">
+
+                <com.fongmi.android.tv.ui.music.ShelfLyricView
+                    android:id="@+id/tpShelfLyric"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:paddingHorizontal="24dp"
+                    android:paddingTop="12dp" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:orientation="vertical"
+                android:paddingHorizontal="28dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tpShelfPosition"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:includeFontPadding="false"
+                        android:lineHeight="14dp"
+                        android:textColor="#FF86857E"
+                        android:textSize="10sp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/tpShelfDuration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:includeFontPadding="false"
+                        android:lineHeight="14dp"
+                        android:textColor="#FF86857E"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
+                <com.fongmi.android.tv.ui.music.CdSeekBarView
+                    android:id="@+id/tpShelfSeek"
+                    android:layout_width="match_parent"
+                    android:layout_height="10dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="76dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:translationY="-12dp">
+
+                <ImageView
+                    android:id="@+id/tpShelfBtnMode"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/music_mode"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_music_sequential" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/tpShelfBtnPrev"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/music_prev"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_prev" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/tpShelfPlay"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:contentDescription="@string/music_play_pause"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_pause" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/tpShelfBtnNext"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/music_next"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_next" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/tpShelfBtnQueue"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/music_queue"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_music_queue" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="8dp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

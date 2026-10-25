@@ -133,9 +133,10 @@ public class MusicRepository {
 
     /**
      * 负缓存条目带作用域（待裁13）：rich＝完整链 lyricRich 整链无词；窄＝纯文本链
-     * lyric() 整链无词。完整链比纯文本链多跑 Worker／平台／酷我／AMLL 四步，
-     * 窄链记的负不许挡宽链（下载旁路先走 lyric() 记负、随后点播走 lyricRich 被
-     * 未跑先判无词，即此病）；宽链记的负覆盖窄链全部步，窄链可以认。
+     * lyric() 整链无词。纯文本链已与完整链同跑本源／跨源／歌词插件／Worker／酷我
+     * 行级，完整链只多跑平台直连／AMLL 两步，窄链记的负不许挡宽链（下载旁路先走
+     * lyric() 记负、随后点播走 lyricRich 被未跑先判无词，即此病）；宽链记的负覆盖
+     * 窄链全部步，窄链可以认。
      */
     private static class LyricMiss {
         final long at;
@@ -685,6 +686,22 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
             }
         }
+        // 4. Worker 聚合（主来源，与 lyricRich 步 4 同一接线缝 cfLyricWord、同一
+        //    CfLyricClient 入口与超时口径）：完整链已接、纯文本链此前漏接——rich 链
+        //    空手后第二相走到本链时，Worker 的多平台聚合不在链上，只剩同族接口再掷
+        //    一次骰子。只认与完整链同口径的词级版（cfLyricWord 本地解析定逐字），
+        //    其 rawLrc 即本链要的词级原文（译／音译在 MusicLyric 映射上照带，本链
+        //    只回正文字符串，与其余各步同限）。cfLyricWord 内部已吞错回空、绝不
+        //    抛错，外层再兜一层与本链各步口径一致；Worker 不可用只回空，尾步照走。
+        try {
+            MusicLyric cf = cfLyricWord(track);
+            if (cf != null && cf.rawLrc != null && !cf.rawLrc.trim().isEmpty()) {
+                clearLyricMiss(track);
+                return cf.rawLrc;
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lyric cf worker error %s", t.getMessage());
+        }
         // 尾步：酷我行级直连（与 lyricRich 步 5.5 同路、同客户端）。纯文本链原先
         // 没有这一步——rich 链空手后第二相只剩 freejs／落雪同族接口再掷一次骰子；
         // 酷我自有三端点（newlyric／mobi／openapi）与插件走的 songinfoandlrc 不是
@@ -867,7 +884,7 @@ public class MusicRepository {
         if (queries.isEmpty()) return own != null && own.hasLyric() ? own : null;
         // 二-28 负缓存后移＋分域（待裁13／19）：本源直取已在上方先行（本源新词不被旧判
         // 挡住），负判只拦整链重走；且只认 rich 作用域的负——纯文本链 lyric() 记的负
-        // 覆盖不到本链独有的 Worker／平台／酷我／AMLL 四步，不许未跑先判无词。
+        // 覆盖不到本链独有的平台直连／AMLL 两步，不许未跑先判无词。
         // 手动重搜 force 不读、手动选版恢复在更上方已先行处理，口径不变。
         if (!force && lyricRichMissedRecently(track)) return own != null && own.hasLyric() ? own : null;
         long gen = beginLyricCall(track);

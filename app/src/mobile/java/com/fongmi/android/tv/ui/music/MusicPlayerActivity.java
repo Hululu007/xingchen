@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.music;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -25,6 +27,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.PathInterpolator;
@@ -596,8 +599,17 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void showLyricPage() {
         if (lyricPageView == null || lyricPageVisible) return;
+        prepareLyricPage();
+        // 程序化开页与跟手同口径：页先落左侧屏外，再减速滑到位（不再固定小位移动画「盖」上去）。
+        applyLyricSwipeTx(-lyricPageWidth());
+        settleLyricPage(true);
+    }
+
+    /** 开页准备（喂词/副行复位/封面/进度对齐）：程序化开页与横滑跟手共用，只备页、不动位移。 */
+    private void prepareLyricPage() {
         lyricPageVisible = true;
         lyricPageView.setVisibility(View.VISIBLE);
+        lyricPageView.setAlpha(1f);
         lyricPageView.setToneColor(ambientColor);
         // 开页副行复位全显（2026-10-22 定案）：翻译/音译显隐复位为开、有数据即显，
         // 不许再出现「不进设置就永远看不到音译」。须在 feedLyricView 之前落。
@@ -612,27 +624,94 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         feedLyricView();
         lyricPageView.setPlaying(playing);
         lyricPageView.setLyricPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
-        // 进页动效：手往右划、页从左边跟手划过来（2026-10-25 他点名纠正：从左边划过来，哪有从右划的）。
-        float density = getResources().getDisplayMetrics().density;
-        lyricPageView.setTranslationX(-60f * density);
-        lyricPageView.setAlpha(0f);
-        lyricPageView.animate().translationX(0f).alpha(1f).setDuration(200).start();
     }
 
     private void hideLyricPage() {
         if (lyricPageView == null || !lyricPageVisible) return;
+        // 退页（左划跟手松手/返回键）与进页同口径：整页往左减速滑回屏外，滑尽才 GONE。
+        settleLyricPage(false);
+    }
+
+    /** 歌词页行程宽度：优先取页自身宽，未布局到时退屏宽（页在布局里是 match_parent，两者等价）。 */
+    private float lyricPageWidth() {
+        if (lyricPageView != null && lyricPageView.getWidth() > 0) return lyricPageView.getWidth();
+        return getResources().getDisplayMetrics().widthPixels;
+    }
+
+    /**
+     * 按位移统一落两页位置：歌词页 tx 钳在 [-页宽, 0]（本位在左侧屏外，0 为全开）；
+     * 播放页本体（主题容器）同向视差跟随——行程只有歌词页的 LYRIC_PARALLAX_RATIO 倍，
+     * 两页成「翻」的关系不是「盖」的关系。背景层不参与（歌词页与播放页共用同一糊底氛围）。
+     */
+    private void applyLyricSwipeTx(float tx) {
+        if (lyricPageView == null) return;
+        float w = lyricPageWidth();
+        float clamped = Math.max(-w, Math.min(0f, tx));
+        lyricPageView.setTranslationX(clamped);
+        float progress = w > 0 ? (clamped + w) / w : 0f;
+        if (binding != null && binding.themeContainer != null) {
+            binding.themeContainer.setTranslationX(progress * w * LYRIC_PARALLAX_RATIO);
+        }
+    }
+
+    /** 收尾动画在跑时先取消：位移冻结在当前值，新手势/新指令从当前位接管，不回跳。 */
+    private void cancelLyricSettle() {
+        if (lyricSettleAnimator != null) {
+            lyricSettleAnimator.cancel();
+            lyricSettleAnimator = null;
+        }
+    }
+
+    /**
+     * 松手/程序化收尾：从当前位减速滑到全开（0）或全关（-页宽）。
+     * 时长按剩余行程折算（全程 350ms、下限 120ms），曲线走全文件 FOSI 减速口径，不匀速、不瞬移。
+     */
+    private void settleLyricPage(boolean open) {
+        if (lyricPageView == null) return;
+        cancelLyricSettle();
+        float w = lyricPageWidth();
+        float from = lyricPageView.getTranslationX();
+        float to = open ? 0f : -w;
+        if (open) lyricPageVisible = true;
+        if (from == to) {
+            finishLyricSettle(open);
+            return;
+        }
+        float frac = w > 0 ? Math.abs(to - from) / w : 0f;
+        ValueAnimator anim = ValueAnimator.ofFloat(from, to);
+        anim.setDuration((long) (120f + 230f * frac));
+        anim.setInterpolator(INTERP_FOSI);
+        anim.addUpdateListener(a -> applyLyricSwipeTx((float) a.getAnimatedValue()));
+        anim.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (lyricSettleAnimator == animation) {
+                    lyricSettleAnimator = null;
+                    finishLyricSettle(open);
+                }
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+                if (lyricSettleAnimator == animation) lyricSettleAnimator = null;
+            }
+        });
+        lyricSettleAnimator = anim;
+        anim.start();
+    }
+
+    private void finishLyricSettle(boolean open) {
+        if (lyricPageView == null) return;
+        applyLyricSwipeTx(open ? 0f : -lyricPageWidth());
+        if (open) {
+            lyricPageVisible = true;
+            return;
+        }
         lyricPageVisible = false;
-        lyricPageView.animate().cancel();
-        // 退页与进页同向：往左边划回去（进页从左边来的镜像）。
-        float density = getResources().getDisplayMetrics().density;
-        lyricPageView.animate().translationX(-60f * density).alpha(0f).setDuration(200)
-                .withEndAction(() -> {
-                    if (!lyricPageVisible) {
-                        lyricPageView.setVisibility(View.GONE);
-                        lyricPageView.setTranslationX(0f);
-                        lyricPageView.setAlpha(1f);
-                    }
-                }).start();
+        lyricPageView.setVisibility(View.GONE);
+        // 关稳后两页位移复位：页已 GONE，下次开页由跟手/开页动画重新落位（与旧 hide 的复位口径一致）。
+        lyricPageView.setTranslationX(0f);
+        if (binding != null && binding.themeContainer != null) binding.themeContainer.setTranslationX(0f);
     }
 
     @Override
@@ -647,10 +726,21 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ===== 右划进歌词页（定案：点歌词行只快进、不进页；右划才进） =====
     // 只观察不消费：页级竖滑切歌（PlayerPageSwipeLayout，轴 dominance 1.5）与进度拖动不受影响；
     // 起点落在进度条行内时不触发（横拖进度优先）。
+    // 跟手口径（2026-10-25）：过触发门后进入跟随段，歌词页位移实时跟手指（本位在左侧屏外），
+    // 播放页本体同向视差跟随；松手按过半程/甩动速度定去留，收尾减速滑到位或弹回。
+    // 视差比为保守近似值——瓜子 pager 的视差原值未抠到，不冒充真值。
+    private static final float LYRIC_PARALLAX_RATIO = 0.2f;
+    // 甩动定去留的速度门（dp/s，与 ViewPager fling 口径同量级）。
+    private static final float LYRIC_FLING_DP_PER_SEC = 400f;
+
     private float swipeDownX;
     private float swipeDownY;
-    private boolean swipeFired;
+    private boolean swipeFollowing;
+    private float swipeEngageDx;
+    private float swipeEngageTx;
     private boolean swipeDownInCoverArea;
+    private VelocityTracker swipeVelocityTracker;
+    private ValueAnimator lyricSettleAnimator;
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
@@ -658,7 +748,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             case MotionEvent.ACTION_DOWN:
                 swipeDownX = ev.getX();
                 swipeDownY = ev.getY();
-                swipeFired = false;
+                swipeFollowing = false;
+                // 收尾动画中途再划：先冻结在当前位（取消不回跳），新手势从当前位接管。
+                cancelLyricSettle();
+                if (swipeVelocityTracker == null) swipeVelocityTracker = VelocityTracker.obtain();
+                else swipeVelocityTracker.clear();
+                swipeVelocityTracker.addMovement(ev);
                 // 封面卡片主题：起点落在封面叠卡区内时，横滑归主题自己的切歌手势（dig 三.13），不触发右划进歌词页
                 swipeDownInCoverArea = false;
                 if (coverTheme && coverStackView != null && coverStackView.getVisibility() == View.VISIBLE) {
@@ -676,22 +771,62 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (!swipeFired && !swipeDownInCoverArea) {
+                if (swipeVelocityTracker != null) swipeVelocityTracker.addMovement(ev);
+                if (!swipeDownInCoverArea && lyricPageView != null) {
                     float dx = ev.getX() - swipeDownX;
                     float dy = ev.getY() - swipeDownY;
-                    // 触发量与轴判定照瓜子横滑口径（施工图 §3：触发 36dp、dominance 1.2）；
-                    // 原 60dp＋1.5 在真机自然右划下难以触发，是「右划进不了歌词页」的断点之一。
-                    float threshold = 36f * getResources().getDisplayMetrics().density;
-                    if (Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.2f
-                            && !isInScrubberRow(ev)) {
-                        if (dx > 0 && !lyricPageVisible) {
-                            showLyricPage();
-                            swipeFired = true;
-                        } else if (dx < 0 && lyricPageVisible) {
-                            hideLyricPage();
-                            swipeFired = true;
+                    if (!swipeFollowing) {
+                        // 触发量与轴判定照瓜子横滑口径（施工图 §3：触发 36dp、dominance 1.2）；
+                        // 原 60dp＋1.5 在真机自然右划下难以触发，是「右划进不了歌词页」的断点之一。
+                        float threshold = 36f * getResources().getDisplayMetrics().density;
+                        if (Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.2f
+                                && !isInScrubberRow(ev)) {
+                            boolean pageOut = lyricPageVisible || lyricPageView.getVisibility() == View.VISIBLE;
+                            if (dx > 0 && !pageOut) {
+                                // 从全关态右划开页：先备页并落到左侧屏外，再从当前位接管跟随（接管不跳）。
+                                prepareLyricPage();
+                                applyLyricSwipeTx(-lyricPageWidth());
+                                swipeFollowing = true;
+                            } else if (pageOut) {
+                                // 已出页（全开/半开/收尾被冻结）：双向跟随，以接管时的位移为零点。
+                                swipeFollowing = true;
+                            }
+                            if (swipeFollowing) {
+                                swipeEngageDx = dx;
+                                swipeEngageTx = lyricPageView.getTranslationX();
+                            }
                         }
                     }
+                    if (swipeFollowing) {
+                        // 跟随：页位移＝接管位移＋手指增量，钳制在 applyLyricSwipeTx 内做（反向改主意自然回退）。
+                        applyLyricSwipeTx(swipeEngageTx + (dx - swipeEngageDx));
+                    }
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (swipeVelocityTracker != null) swipeVelocityTracker.addMovement(ev);
+                if (swipeFollowing) {
+                    swipeFollowing = false;
+                    // 定去留：甩动速度优先，其次看是否过半程。
+                    float vx = 0f;
+                    if (swipeVelocityTracker != null) {
+                        swipeVelocityTracker.computeCurrentVelocity(1000);
+                        vx = swipeVelocityTracker.getXVelocity();
+                    }
+                    float w = lyricPageWidth();
+                    float tx = lyricPageView != null ? lyricPageView.getTranslationX() : 0f;
+                    float progress = w > 0 ? (tx + w) / w : 0f;
+                    float fling = LYRIC_FLING_DP_PER_SEC * getResources().getDisplayMetrics().density;
+                    boolean open;
+                    if (vx > fling) open = true;
+                    else if (vx < -fling) open = false;
+                    else open = progress >= 0.5f;
+                    settleLyricPage(open);
+                }
+                if (swipeVelocityTracker != null) {
+                    swipeVelocityTracker.recycle();
+                    swipeVelocityTracker = null;
                 }
                 break;
             default:

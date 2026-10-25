@@ -612,9 +612,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         feedLyricView();
         lyricPageView.setPlaying(playing);
         lyricPageView.setLyricPosition(MusicController.get().position() + MusicPlayerSettings.getLyricOffsetMs());
-        // 进页动效：自右滑入 200ms 近似（瓜子 pager fling 无时长字面值，§19 同口径未定值，不冒充）。
+        // 进页动效：手往右划、页从左边跟手划过来（2026-10-25 他点名纠正：从左边划过来，哪有从右划的）。
         float density = getResources().getDisplayMetrics().density;
-        lyricPageView.setTranslationX(60f * density);
+        lyricPageView.setTranslationX(-60f * density);
         lyricPageView.setAlpha(0f);
         lyricPageView.animate().translationX(0f).alpha(1f).setDuration(200).start();
     }
@@ -623,9 +623,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (lyricPageView == null || !lyricPageVisible) return;
         lyricPageVisible = false;
         lyricPageView.animate().cancel();
-        lyricPageView.setVisibility(View.GONE);
-        lyricPageView.setTranslationX(0f);
-        lyricPageView.setAlpha(1f);
+        // 退页与进页同向：往左边划回去（进页从左边来的镜像）。
+        float density = getResources().getDisplayMetrics().density;
+        lyricPageView.animate().translationX(-60f * density).alpha(0f).setDuration(200)
+                .withEndAction(() -> {
+                    if (!lyricPageVisible) {
+                        lyricPageView.setVisibility(View.GONE);
+                        lyricPageView.setTranslationX(0f);
+                        lyricPageView.setAlpha(1f);
+                    }
+                }).start();
     }
 
     @Override

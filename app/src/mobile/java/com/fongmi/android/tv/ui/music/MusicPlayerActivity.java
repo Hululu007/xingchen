@@ -317,7 +317,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             try {
                 MusicTrack curBg = MusicController.get().current();
                 if (curBg != null && key != null
-                        && key.equals(trackKey(curBg))
+                        && key.equals(MusicQueue.trackKey(curBg))
                         && !MusicController.get().isPlaying()) {
                     MusicController.get().play();
                 }
@@ -326,7 +326,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         MusicTrack cur = MusicController.get().current();
         if (cur != lastBoundTrack && (cur == null || lastBoundTrack == null
-                || !trackKey(cur).equals(trackKey(lastBoundTrack)))) {
+                || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(lastBoundTrack)))) {
             bindTrack(cur);
         } else if (cur != null && lyricEmpty && !lyricLoading) {
             loadLyric(cur, false);
@@ -366,7 +366,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (PlayerSetting.isMusicBackgroundOff() && MusicController.get().isPlaying()) {
                 MusicTrack curBg = MusicController.get().current();
                 if (curBg != null && !isFinishing()) {
-                    bgPausedTrackKey = trackKey(curBg);
+                    bgPausedTrackKey = MusicQueue.trackKey(curBg);
                     bgPausedMusic = true;
                 }
                 MusicController.get().pause();
@@ -417,9 +417,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         super.onDestroy();
     }
 
-    private static String trackKey(MusicTrack track) {
-        return track == null ? "" : String.valueOf(track.id) + "|" + String.valueOf(track.platform);
-    }
+    // 歌曲身份键全树统一 MusicQueue.trackKey（platform|id）：本页原先自带一份
+    // id|platform 的反序私有口径，页内自比虽不出错，但与队列／服务／仓库三侧
+    // 口径并存是串歌守卫的隐患（任一侧拿对方的键来比就是全灭），就地摘除。
 
     private void applyKeepScreenOn() {
         try {
@@ -3167,8 +3167,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                // 守卫认 trackKey（id＋平台）：MusicTrack.equals 只比 id，异平台同 id 的歌会让上一首的迟到词贴到新歌上
-                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
+                // 守卫认 MusicQueue.trackKey（平台＋id，全树统一口径）：MusicTrack.equals 只比 id，异平台同 id 的歌会让上一首的迟到词贴到新歌上
+                if (cur == null || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) return;
                 currentLyricFormat = resultFormat;
                 currentLyricKey = resultKey;
                 currentLyricSource = resultSource;
@@ -3205,7 +3205,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     List<LyricVersion> resultVersions = versions;
                     runOnUiThread(() -> {
                         MusicTrack cur2 = MusicController.get().current();
-                        if (cur2 == null || !trackKey(cur2).equals(trackKey(track))) return;
+                        if (cur2 == null || !MusicQueue.trackKey(cur2).equals(MusicQueue.trackKey(track))) return;
                         currentLyricVersions.clear();
                         currentLyricVersions.addAll(resultVersions);
                         ensureCurrentLyricListed();
@@ -3338,7 +3338,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             List<String> resultRomas = romas;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
+                if (cur == null || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) return;
                 currentLyricFormat = rich.format;
                 currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
                 currentLyricSource = version.getSource();

@@ -348,6 +348,12 @@ public class FreeJsBridge {
         }
     }
 
+    /** 一次 getLyric 桥调用：入参在本插件上下文里现 parse，不跨调用复用 JS 对象。 */
+    private Object callGetLyric(JsonObject item) throws Exception {
+        Object arg = submit(() -> ctx.parse(item.toString())).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        return call("getLyric", arg);
+    }
+
     /** getMediaSource(musicItem, quality)：quality = low/standard/high/super */
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality) throws Exception {
         return getMediaSource(track, quality, false);
@@ -410,8 +416,16 @@ public class FreeJsBridge {
     public MusicLyric getLyric(MusicTrack track) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
-        Object arg = submit(() -> ctx.parse(item.toString())).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        Object result = call("getLyric", arg);
+        Object result;
+        try {
+            result = callGetLyric(item);
+        } catch (Exception first) {
+            // 酷我歌词接口（songinfoandlrc）间歇回空 data:null（实测同 id 时好时坏），
+            // 元力 KW 插件 getLyric 不判空、读 lrclist 直接抛未处理拒绝——本源取词
+            // 一次掷骰定生死。抛错立刻原样重试一遍（每次重新 parse 入参，不复用
+            // 上一轮的 JS 对象）；仍失败照原口径把异常抛给上层走回退链，不吞。
+            result = callGetLyric(item);
+        }
         String json = toJson(result);
         if (TextUtils.isEmpty(json)) return null;
         json = json.trim();

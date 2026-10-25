@@ -6,15 +6,17 @@ import android.util.AttributeSet;
 import android.view.Choreographer;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
  * 播放页整页竖滑切歌容器（GZ coverAxisLock 模型转写）：
  * 竖轴锁定（|dy|＞|dx|×1.5）＋状态栏死区（起点在状态栏高度内且向下滑不触发），
- * 整页跟手（translationY 钳在锚点内）、过 36dp 出方向提示＋震动一次、
+ * 整页跟手（translationY 钳在锚点内）、过 36dp 出方向提示＋越门震动（armed 可重震）、
  * 松手过 36dp 或甩动 600dp/s 提交切歌、否则弹簧回中
  * （施工图 §1 SpringForce：阻尼比 0.9、刚度 1400——批 3 D 路换真弹簧，手写积分不引新依赖；
  * 跟手拖动段行为不变、只换松手回弹段）。
@@ -40,8 +42,10 @@ public class PlayerPageSwipeLayout extends FrameLayout {
     private long lastMoveTimeMs;
     private float lastMoveY;
     private boolean tracking;
-    private boolean hapticFired;
+    /** 越门震动 armed：越过 36dp 震一次、跌回门下重新 armed（GZ PlayerScreen$19$1 口径，haptic 类型 4）。 */
+    private boolean hapticArmed;
     private boolean commitPending;
+    private VelocityTracker velocityTracker;
     private int touchSlop;
     private int statusBarHeight;
 
@@ -102,9 +106,13 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                 lastMoveTimeMs = downTimeMs;
                 lastMoveY = downY;
                 tracking = false;
-                hapticFired = false;
+                hapticArmed = false;
+                if (velocityTracker != null) velocityTracker.recycle();
+                velocityTracker = VelocityTracker.obtain();
+                velocityTracker.addMovement(ev);
                 return false;
             case MotionEvent.ACTION_MOVE:
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 if (tracking) return true;
                 float dx = ev.getX() - downX;
                 float dy = ev.getY() - downY;
@@ -141,9 +149,11 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                 lastMoveTimeMs = downTimeMs;
                 lastMoveY = downY;
                 tracking = false;
-                hapticFired = false;
+                hapticArmed = false;
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 return true;
             case MotionEvent.ACTION_MOVE: {
+                if (velocityTracker != null) velocityTracker.addMovement(ev);
                 if (!tracking) {
                     float dx = ev.getX() - downX;
                     float dy = ev.getY() - downY;
@@ -166,10 +176,10 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                 float anchorPx = anchorPx();
                 setTranslationY(Math.max(-anchorPx, Math.min(anchorPx, dy)));
                 if (Math.abs(dy) > 36 * density()) {
-                    if (!hapticFired) {
-                        hapticFired = true;
+                    if (!hapticArmed) {
+                        hapticArmed = true;
                         try {
-                            performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
+                            performHapticFeedback(4);
                         } catch (Throwable ignored) {
                         }
                     }
@@ -177,8 +187,9 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                         hintView.setText(dy < 0 ? hintNextText : hintPrevText);
                         hintView.setVisibility(View.VISIBLE);
                     }
-                } else if (hintView != null) {
-                    hintView.setVisibility(View.GONE);
+                } else {
+                    hapticArmed = false;
+                    if (hintView != null) hintView.setVisibility(View.GONE);
                 }
                 return true;
             }
@@ -186,10 +197,18 @@ public class PlayerPageSwipeLayout extends FrameLayout {
                 tracking = false;
                 if (hintView != null) hintView.setVisibility(View.GONE);
                 float dy = ev.getY() - downY;
-                float dtMs = Math.max(1f, (float) (lastMoveTimeMs - downTimeMs));
-                float velocityDpS = Math.abs(lastMoveY - downY) / dtMs * 1000f / density();
-                if (Math.abs(dy) >= 36 * density() || velocityDpS >= 600f) {
+                // 松手判定（GZ coverAxisLock$2 口径）：位移≥36dp 按位移符号提交；
+                // 位移不足时只看释放速度（VelocityTracker 释放值），≥600dp/s 按速度符号提交。
+                float velocityDpS = 0f;
+                if (velocityTracker != null) {
+                    velocityTracker.addMovement(ev);
+                    velocityTracker.computeCurrentVelocity(1000);
+                    velocityDpS = velocityTracker.getYVelocity() / density();
+                }
+                if (Math.abs(dy) >= 36 * density()) {
                     commit(dy < 0);
+                } else if (Math.abs(velocityDpS) >= 600f) {
+                    commit(velocityDpS < 0);
                 } else {
                     springBack();
                 }

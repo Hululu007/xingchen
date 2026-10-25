@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 模式段选中态（GZ 源码公式 AccentRed×0.10 ≈ #FEE9EB，圆角 8dp；旧实拍值 #F8E1E3 已按源码公式纠正） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FEE9EB" />
-    <corners android:radius="8dp" />
-</shape>

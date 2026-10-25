@@ -75,6 +75,13 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
         FrameLayout root = new FrameLayout(this);
         ambient = new CoverAmbientView(this);
+        // 流体三件套（瓜子默认全开）：流体开关/节拍开关/速度两倍率进氛围层；
+        // 节拍分析门同步置位（分析器在播放服务里，帧槽 MusicBeatState 跨层共享）
+        ambient.setFluidEnabled(MusicPlayerSettings.isFluidBg());
+        ambient.setBeatEnabled(MusicPlayerSettings.isFluidBeat());
+        ambient.setSpeedFactors(MusicPlayerSettings.fluidSpeedFactor(), MusicPlayerSettings.fluidBeatFactor());
+        com.fongmi.android.tv.service.MusicBeatState.requestEnabled =
+                MusicPlayerSettings.isFluidBg() && MusicPlayerSettings.isFluidBeat();
         root.addView(ambient, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -352,6 +359,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     @Override
     protected void onDestroy() {
+        com.fongmi.android.tv.service.MusicBeatState.requestEnabled = false;
+        com.fongmi.android.tv.service.MusicBeatState.silence();
         tickHandler.removeCallbacks(tick);
         if (bound) {
             MusicController.get().removeListener(this);

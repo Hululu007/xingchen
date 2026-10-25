@@ -192,6 +192,7 @@ public class ClassicThemeView extends FrameLayout implements PlayerThemeFace {
                 ResUtil.dp2px(27), ResUtil.dp2px(27));
         favHeart.setLayoutParams(heartLp);
         favHeart.setImageResource(R.drawable.ic_music_heart);
+        favHeart.setColorFilter(0xFFFFFFFF);
         favHeart.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         // 图标 13dp：27dp 盒四向垫 7dp
         favHeart.setPadding(ResUtil.dp2px(7), ResUtil.dp2px(7), ResUtil.dp2px(7), ResUtil.dp2px(7));
@@ -362,6 +363,8 @@ public class ClassicThemeView extends FrameLayout implements PlayerThemeFace {
         ImageView key = new ImageView(context);
         key.setLayoutParams(new LinearLayout.LayoutParams(ResUtil.dp2px(40), ResUtil.dp2px(40)));
         key.setImageResource(icon);
+        // 图标向量自带 #9AA7B8 蓝灰 tint（列表页口径），播放页按瓜子纯白覆盖，否则在氛围上近隐形
+        key.setColorFilter(0xFFFFFFFF);
         key.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         // 图标尺寸＝40dp 盒 − 2×垫（菜单 9.5dp 垫→21dp 图标、队列 10dp 垫→20dp、播暂停 6dp 垫→28dp）
         int pad = Math.round(ResUtil.getDisplayMetrics().density * padDp);

@@ -73,9 +73,10 @@ public class GoogleLoginProvider implements LoginProvider {
 
     /**
      * 谷歌网页登录 Cookie 有效性判定，与油管音乐源的实际消费逐项对齐：
-     * 脚本组装 SAPISIDHASH 只能用 SAPISID 系三颗种子（SAPISID / __Secure-1PAPISID /
-     * __Secure-3PAPISID）之一，缺了它们「已登录」就是假话、带态请求照样被拒。
-     * 三颗里任意一颗值非空即算登录成立。
+     * 脚本组装 SAPISIDHASH 只能用 SAPISID 系三颗种子（SAPISID / __Secure-1PSAPISID /
+     * __Secure-3PSAPISID）之一，缺了它们「已登录」就是假话、带态请求照样被拒。
+     * 三颗里任意一颗值非空即算登录成立。（2026-10-25 改：原写 __Secure-1PAPISID 少个 S，
+     * 与谷歌真实 Cookie 名对不上，只有 __Secure 种子的会话会被误判未登录。）
      */
     public static boolean isCookieValid(String cookie) {
         if (TextUtils.isEmpty(cookie)) return false;
@@ -86,7 +87,7 @@ public class GoogleLoginProvider implements LoginProvider {
             String name = item.substring(0, eq).trim();
             String value = item.substring(eq + 1).trim();
             if (value.isEmpty()) continue;
-            if ("SAPISID".equals(name) || "__Secure-1PAPISID".equals(name) || "__Secure-3PAPISID".equals(name)) return true;
+            if ("SAPISID".equals(name) || "__Secure-1PSAPISID".equals(name) || "__Secure-3PSAPISID".equals(name)) return true;
         }
         return false;
     }

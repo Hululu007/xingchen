@@ -212,6 +212,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private ExoPlayer player;
     /** B6：参数均衡器处理链（建播放器时串入，面板改配置下一 buffer 起生效） */
     private ParametricEqProcessor parametricEq;
+    private MusicBeatAnalyzer beatAnalyzer;
     private int sleep = SLEEP_OFF;
     private Runnable sleepTask;
     /** 定时截止时刻（elapsedRealtime 基准，供面板读剩余 m:ss，GZ B07）；未设定时为 0 */
@@ -322,13 +323,16 @@ public class MusicPlaybackService extends MediaSessionService {
         parametricEq = new ParametricEqProcessor();
         parametricEq.setEnabled(MusicStore.isParametricEnabled());
         parametricEq.setBands(MusicStore.getParametricBands());
+        // 节拍分析器（瓜子 cg0 移植）：串在均衡之后，分析最终信号、透传不改声，
+        // 帧发布到 MusicBeatState 供播放页流体背景消费；开关门由 MusicBeatState.requestEnabled 控。
+        beatAnalyzer = new MusicBeatAnalyzer();
         // 本机 Media3 分支的 ExoPlayer.Builder 没有 setAudioProcessors，均衡链改走 AudioSink 注入：
         // DefaultRenderersFactory.createRenderers 调 buildAudioSink 取 AudioSink，子类覆写它即可把处理链串进音频渲染器（默认实现只设两个开关，本覆写原样照搬再加处理链）。
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
             @Override
             protected AudioSink buildAudioSink(Context context, boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
                 return new DefaultAudioSink.Builder(context)
-                        .setAudioProcessors(new AudioProcessor[]{parametricEq})
+                        .setAudioProcessors(new AudioProcessor[]{parametricEq, beatAnalyzer})
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
                         .build();
@@ -2362,6 +2366,8 @@ public class MusicPlaybackService extends MediaSessionService {
 
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
+            MusicBeatState.playing = isPlaying;
+            if (!isPlaying) MusicBeatState.silence();
             listeners.forEach(l -> l.onPlayingChanged(isPlaying));
             // 双声兜底下沉服务侧：会话/通知/耳机起播绕开控制器入口时也停视频；
             // 与控制器钩同轮重复调用无副作用（pauseVideoForMusic 内有「视频没在播就返回」守卫）。

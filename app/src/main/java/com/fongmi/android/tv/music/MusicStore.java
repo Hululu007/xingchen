@@ -971,12 +971,24 @@ public class MusicStore {
         Prefers.put(K_LEFT_HAND, on);
     }
 
+    /** 流体背景默认开（瓜子 PlayerViewModel 构造默认 Boolean.TRUE；此前默认关是误设）。 */
     public static boolean isFluidBg() {
-        return Prefers.getBoolean(K_FLUID_BG, false);
+        return Prefers.getBoolean(K_FLUID_BG, true);
     }
 
     public static void setFluidBg(boolean on) {
         Prefers.put(K_FLUID_BG, on);
+    }
+
+    private static final String K_FLUID_BEAT = "music_fluid_beat";
+
+    /** 流体节拍默认开（瓜子 playerFluidBeatEnabled 默认 Boolean.TRUE）。 */
+    public static boolean isFluidBeat() {
+        return Prefers.getBoolean(K_FLUID_BEAT, true);
+    }
+
+    public static void setFluidBeat(boolean on) {
+        Prefers.put(K_FLUID_BEAT, on);
     }
 
     /** 插件检测结果表（读不到／解析失败返回空表，不抛） */

@@ -53,8 +53,19 @@ public class MusicPlayerSettings {
                 || THEME_RECORD_SHELF.equals(theme);
     }
 
-    /** 未存／空／非法值一律回落经典（瓜子默认，PlayerViewModel.java:1018 回落 "classic"）；已存合法值原样保留。 */
+    private static final String K_THEME_RESET_1436 = "music_theme_reset_1436";
+
+    /**
+     * 未存／空／非法值一律回落经典（瓜子默认，PlayerViewModel.java:1018 回落 "classic"）。
+     * 1.4.36 播放页重做一次性作废旧存量：旧版本默认误设成封面卡片，受害用户存量里
+     * 躺着 cover_immersive——首次读时清掉存量主题并落标记，之后用户自选照常保留。
+     */
     public static String getTheme() {
+        if (!Prefers.getBoolean(K_THEME_RESET_1436, false)) {
+            Prefers.put(K_THEME_RESET_1436, true);
+            Prefers.remove(K_THEME);
+            return THEME_CLASSIC;
+        }
         String theme = Prefers.getString(K_THEME, THEME_CLASSIC);
         return isKnownTheme(theme) ? theme : THEME_CLASSIC;
     }
@@ -164,6 +175,28 @@ public class MusicPlayerSettings {
                 return 0.6f;
             case FLUID_SPEED_FAST:
                 return 2.5f;
+            default:
+                return 1.0f;
+        }
+    }
+
+    // ===== #14 流体节拍开关（委托总仓，瓜子 playerFluidBeatEnabled 默认开） =====
+
+    public static boolean isFluidBeat() {
+        return MusicStore.isFluidBeat();
+    }
+
+    public static void setFluidBeat(boolean on) {
+        MusicStore.setFluidBeat(on);
+    }
+
+    /** 节拍响应倍率（喂包络的 beatScale）：slow 0.7／normal 1.0／fast 1.6。 */
+    public static float fluidBeatFactor() {
+        switch (getFluidSpeed()) {
+            case FLUID_SPEED_SLOW:
+                return 0.7f;
+            case FLUID_SPEED_FAST:
+                return 1.6f;
             default:
                 return 1.0f;
         }
